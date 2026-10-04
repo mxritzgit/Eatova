@@ -1,21 +1,28 @@
 import 'package:flutter/material.dart';
 
-import '../widgets/common/persistence_action.dart';
-
 import '../l10n/l10n.dart';
 import '../models/model_limits.dart';
 import '../models/user_profile.dart';
 import '../services/kcal_calculator.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/motion.dart';
+import '../widgets/common/persistence_action.dart';
 import '../widgets/design/design.dart';
-import '../widgets/shared/target_bmi_hint.dart';
+import 'onboarding/onboarding_chrome.dart';
+import 'onboarding/onboarding_models.dart';
+import 'onboarding/onboarding_plan_step.dart';
+import 'onboarding/onboarding_question_steps.dart';
 
-/// Mandatory onboarding: collects body data, activity and goal and computes
-/// the daily target (Mifflin-St Jeor BMR x activity PAL +- goal delta). Runs
-/// once per user; [UserProfile.onboardingCompleted] then closes the gate.
+/// Mandatory onboarding: asks for the goal, body data and activity, and
+/// computes the daily target (Mifflin-St Jeor BMR x activity PAL +- goal
+/// delta). Runs once per user; [UserProfile.onboardingCompleted] then closes
+/// the gate. Which questions it asks, in which order and why:
+/// docs/ONBOARDING-2026-10-04.md.
 ///
-/// No text inputs on purpose: sliders and steppers are faster on a phone and
+/// Flow: goal -> about you -> body -> activity -> target* -> pace* -> diet
+/// (optional) -> plan. *Only for a direction with a reachable target.
+///
+/// No text inputs on purpose: steppers and sliders are faster on a phone and
 /// always yield values inside the DB constraints.
 ///
 /// ## Ranges come from [ProfileLimits], never from literals
@@ -46,9 +53,17 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-enum _GoalDirection { lose, maintain, gain }
+/// A target nobody chose yet sits this far from today's weight.
+const int _kDefaultTargetDistanceKg = 5;
 
-enum _Step { basics, body, activity, goal, diet, summary }
+/// A step change: fade plus a short slide in the direction of travel.
+const Duration _kStepTransition = Duration(milliseconds: 280);
+
+/// How far (in step widths) a step slides while it fades.
+const double _kStepSlide = 0.06;
+
+/// Height of the fades at the top and bottom edge of a step's scroll view.
+const double _kEdgeFade = 16;
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   late BiologicalSex _sex;
@@ -56,15 +71,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late int _height;
   late int _weight;
   late ActivityLevel _activity;
-  late _GoalDirection _direction;
-  late int _target;
+  late OnboardingDirection _direction;
   late DietPreference _diet;
-  final _targetsByDirection = <_GoalDirection, int>{};
+
+  /// Target weights the user chose (or the profile brought), per direction.
+  ///
+  /// A direction without an entry follows today's weight, see [_targetSafe].
+  /// The goal is asked before the weight, so a default fixed at that moment
+  /// would describe the weight the screen started with, not the user's.
+  final _chosenTargets = <OnboardingDirection, int>{};
+
   // Separate pace per direction, so switching back and forth loses nothing.
   WeightGoal _losePace = WeightGoal.lose05kg;
   WeightGoal _gainPace = WeightGoal.gain025kg;
-  int _index = 0;
-  bool _editing = false;
+
+  OnboardingStep _step = OnboardingStep.goal;
+
+  /// Where a plan edit started; null outside one. Editing the goal walks its
+  /// follow-up questions (target, pace) before the plan, every other edit
+  /// returns after one question.
+  OnboardingStep? _editOrigin;
+
+  /// Direction of the last move, for the step transition.
+  bool _forward = true;
+
+  /// The daily target the plan showed last; its next reveal counts from it.
+  int? _shownKcal;
+
+  bool _saving = false;
 
   @override
   void initState() {
@@ -83,72 +117,131 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         .clamp(ProfileLimits.weightKgMin, ProfileLimits.weightKgMax)
         .toInt();
     _activity = p.activityLevel;
-    if (p.weightGoal.isLoss) {
-      _direction = _GoalDirection.lose;
-      _losePace = p.weightGoal;
-    } else if (p.weightGoal.isGain) {
-      _direction = _GoalDirection.gain;
-      _gainPace = p.weightGoal;
-    } else {
-      _direction = _GoalDirection.maintain;
+    _direction = onboardingDirectionOf(p.weightGoal);
+    if (p.weightGoal.isLoss) _losePace = p.weightGoal;
+    if (p.weightGoal.isGain) _gainPace = p.weightGoal;
+    // A stored target counts as chosen only while it still means the stored
+    // direction. A target on the wrong side (the model default: 78 kg "to
+    // lose" at 78 kg) used to open the step on the window edge — 77 kg, one
+    // kilo, a plan nobody picked.
+    final storedTarget = clampProfileTargetWeightKg(p.targetWeightKg);
+    if (_direction != OnboardingDirection.maintain &&
+        isConsistentTargetWeight(p.weightGoal, _weight, storedTarget)) {
+      _chosenTargets[_direction] = storedTarget;
     }
-    _target = clampProfileTargetWeightKg(p.targetWeightKg);
-    _targetsByDirection[_direction] = _target;
     _diet = p.diet;
   }
 
-  /// Six stable groups; the goal group conditionally offers target and pace.
-  static const _steps = _Step.values;
-
   WeightGoal get _weightGoal => switch (_direction) {
-    _GoalDirection.maintain => WeightGoal.maintain,
-    _GoalDirection.lose => _losePace,
-    _GoalDirection.gain => _gainPace,
+    OnboardingDirection.maintain => WeightGoal.maintain,
+    OnboardingDirection.lose => _losePace,
+    OnboardingDirection.gain => _gainPace,
   };
 
   /// The target weights the chosen direction leaves open (lose -> below today's
   /// weight, gain -> above), or `null` when it leaves none.
   ///
-  /// ONE window, read by everything on the target step: picker bounds, the
-  /// number, the footnote, the BMI hint and the saved plan. TWO clamps with
-  /// different rules were the actual defect (J1) — `_targetSafe` folded an
-  /// inverted window down onto the DB ceiling while [_NumberPicker] folded it
-  /// up onto its own `min`, so the step showed 301 above a footnote reading
-  /// "0 kg" and every button was dead.
+  /// ONE window, read by everything: picker bounds, the number, the footnote,
+  /// the BMI hint, the plan and whether the target step exists. TWO clamps
+  /// with different rules were the actual defect (J1) — a picker that folded
+  /// an inverted window up onto its own `min` drew 301 above a footnote
+  /// reading "0 kg", and every button was dead.
   ///
   /// The rule itself lives in `user_profile.dart` — the goals page enforces the
   /// same one on typed input, and two copies drift (P9-08b).
   ///
   /// `null` is an EMPTY window, not an error: gaining at the 300 kg end of the
   /// column (min 301 > max 300) and losing at the 30 kg one (min 30 > max 29)
-  /// leave no weight that still means the direction. Since the window is
-  /// bounded by the column on the far side, an inverted window and an empty
-  /// one are the same thing.
+  /// leave no weight that still means the direction.
   ({int min, int max})? get _targetWindow {
     final min = targetWeightMinFor(_weightGoal, _weight);
     final max = targetWeightMaxFor(_weightGoal, _weight);
     return min > max ? null : (min: min, max: max);
   }
 
-  /// The target weight actually in play: [_target] narrowed to [_targetWindow].
-  /// The ONE number the target step may show.
+  /// The target weight in play: the chosen one (else today's weight moved
+  /// [_kDefaultTargetDistanceKg] along the direction), narrowed to
+  /// [_targetWindow]. The ONE number the target step and the plan may show.
   ///
-  /// [_NumberPicker] clamps what it draws but cannot write back, so a raw
-  /// `_target` in the footnote made the sentence contradict the number right
-  /// above it as soon as the weight moved under a target picked earlier
-  /// (80 kg → "lose" → back → 60 kg showed "59 kg" over "15 kg abnehmen").
+  /// Narrowed, never written back: a chosen 70 kg shows as 59 while the
+  /// weight reads 60, and comes back as 70 once the weight does (P9-07b).
   ///
   /// With an empty window today's weight is the only value left; the target
-  /// section is hidden there and the plan reads as maintain
-  /// through [UserProfile.effectiveWeightGoal], which is what it is.
+  /// step is skipped there and the plan reads as maintain through
+  /// [UserProfileWeightPlan.effectiveWeightGoal], which is what it is.
   int get _targetSafe {
     final window = _targetWindow;
     if (window == null) return _weight;
-    return _target.clamp(window.min, window.max).toInt();
+    final wanted =
+        _chosenTargets[_direction] ??
+        (_direction == OnboardingDirection.lose
+            ? _weight - _kDefaultTargetDistanceKg
+            : _weight + _kDefaultTargetDistanceKg);
+    return wanted.clamp(window.min, window.max).toInt();
+  }
+
+  /// Target and pace are asked only for a direction with at least one target
+  /// weight that still means it; without one there is nothing to pick.
+  bool get _asksTarget =>
+      _direction != OnboardingDirection.maintain && _targetWindow != null;
+
+  bool _isAsked(OnboardingStep step) => switch (step) {
+    OnboardingStep.target || OnboardingStep.pace => _asksTarget,
+    _ => true,
+  };
+
+  /// The steps of this flow, in order (the enum order).
+  List<OnboardingStep> get _steps => <OnboardingStep>[
+    for (final step in OnboardingStep.values)
+      if (_isAsked(step)) step,
+  ];
+
+  /// The questions a plan edit from [_editOrigin] walks, in order.
+  List<OnboardingStep> get _editChain {
+    final origin = _editOrigin!;
+    final chain = origin == OnboardingStep.goal
+        ? const <OnboardingStep>[
+            OnboardingStep.goal,
+            OnboardingStep.target,
+            OnboardingStep.pace,
+          ]
+        : <OnboardingStep>[origin];
+    return <OnboardingStep>[
+      for (final step in chain)
+        if (_isAsked(step)) step,
+    ];
+  }
+
+  /// The step Next leads to.
+  OnboardingStep get _nextStep {
+    if (_editOrigin != null) {
+      final chain = _editChain;
+      final i = chain.indexOf(_step);
+      return i >= 0 && i + 1 < chain.length
+          ? chain[i + 1]
+          : OnboardingStep.summary;
+    }
+    return OnboardingStep.values.firstWhere(
+      (step) => step.index > _step.index && _isAsked(step),
+      orElse: () => OnboardingStep.summary,
+    );
+  }
+
+  /// The step Back leads to, null on the first step.
+  OnboardingStep? get _previousStep {
+    if (_editOrigin != null) {
+      final chain = _editChain;
+      final i = chain.indexOf(_step);
+      return i > 0 ? chain[i - 1] : OnboardingStep.summary;
+    }
+    for (final step in OnboardingStep.values.reversed) {
+      if (step.index < _step.index && _isAsked(step)) return step;
+    }
+    return null;
   }
 
   UserProfile _draftProfile() {
-    final target = _direction == _GoalDirection.maintain
+    final target = _direction == OnboardingDirection.maintain
         ? _weight
         : _targetSafe;
     return widget.initialProfile.copyWith(
@@ -165,18 +258,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   KcalTargets get _targets => const KcalCalculator().calculate(_draftProfile());
 
-  /// What [option] actually yields with the body data collected so far —
-  /// subtitle of every row in the pace step (B2).
+  /// What [option] actually yields with the answers so far — subtitle of
+  /// every pace option (B2).
   ///
-  /// Body data and activity precede the goal group. Showing the requested
-  /// delta instead would lie whenever the safety floor or the 1 % cap changes
-  /// it — two pace options could then promise different rates for the same
-  /// plan.
-  ///
+  /// Body data and activity precede the pace. Showing the requested delta
+  /// instead would lie whenever the safety floor or the 1 % cap changes it —
+  /// two pace options could then promise different rates for the same plan.
   /// The title keeps the chosen pace: it is the option's *name*, and two rows
-  /// with the same effective rate would be indistinguishable. The consequence
-  /// belongs in the subtitle.
-  String _tempoFolge(WeightGoal option) {
+  /// with the same effective rate would be indistinguishable.
+  String _paceOutcome(WeightGoal option) {
     final l10n = context.l10n;
     final t = const KcalCalculator().calculate(
       _draftProfile().copyWith(weightGoal: option),
@@ -184,39 +274,38 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
+  void _goTo(OnboardingStep step, {required bool forward}) => setState(() {
+    if (_step == OnboardingStep.summary) _shownKcal = _targets.kcal;
+    if (step == OnboardingStep.summary) _editOrigin = null;
+    _forward = forward;
+    _step = step;
+  });
+
   void _next() {
     if (_saving) return;
-    if (_index >= _steps.length - 1) {
+    if (_step == OnboardingStep.summary) {
       _finish();
       return;
     }
-    setState(() {
-      if (_editing) {
-        _index = _steps.indexOf(_Step.summary);
-        _editing = false;
-      } else {
-        _index++;
-      }
-    });
+    _goTo(_nextStep, forward: true);
   }
 
   void _back() {
     if (_saving) return;
-    if (_editing) {
-      setState(() {
-        _index = _steps.indexOf(_Step.summary);
-        _editing = false;
-      });
-      return;
-    }
-    if (_index == 0) return;
-    setState(() => _index--);
+    final previous = _previousStep;
+    if (previous == null) return;
+    _goTo(previous, forward: false);
   }
 
-  void _edit(_Step step) => setState(() {
-    _editing = true;
-    _index = _steps.indexOf(step);
-  });
+  void _edit(OnboardingStep step) {
+    if (_saving) return;
+    setState(() {
+      _shownKcal = _targets.kcal;
+      _editOrigin = step;
+      _forward = true;
+      _step = step;
+    });
+  }
 
   /// Android system back (button or edge gesture) — must do what the header
   /// arrow does (D4).
@@ -225,34 +314,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// falls back to `SystemNavigator.pop()` and kills the activity, losing
   /// every answer given so far (only `_finish()` persists anything).
   ///
-  /// Later groups step back; summary edits return to the plan. The first group
+  /// Later steps step back; plan edits return to the plan. The first step
   /// releases system Back, preserving the existing root-route behavior.
   void _onPopInvoked(bool didPop, Object? result) {
     if (didPop || _saving) return;
     _back();
   }
-
-  void _onDirectionChosen(_GoalDirection dir) {
-    if (_direction == dir) return;
-    setState(() {
-      _targetsByDirection[_direction] = _target;
-      _direction = dir;
-      // A sensible default INSIDE the window the new direction opens: 5 kg
-      // along it. The window itself comes from [_targetWindow], which already
-      // reads the direction assigned one line above — spelling the bounds out a
-      // second time here is how the rule started drifting.
-      final window = dir == _GoalDirection.maintain ? null : _targetWindow;
-      _target =
-          _targetsByDirection[dir] ??
-          (window == null
-              ? _weight
-              : (dir == _GoalDirection.lose ? _weight - 5 : _weight + 5)
-                    .clamp(window.min, window.max)
-                    .toInt());
-    });
-  }
-
-  bool _saving = false;
 
   Future<void> _finish() async {
     if (_saving) return;
@@ -276,67 +343,42 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _buildContent(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final step = _steps[_index];
-    final isSummary = step == _Step.summary;
+    final steps = _steps;
+    final index = steps.indexOf(_step).clamp(0, steps.length - 1);
+    final atStart = _step == steps.first && _editOrigin == null;
     return PopScope<Object?>(
-      canPop: _index == 0 && !_editing,
+      canPop: atStart,
       onPopInvokedWithResult: _onPopInvoked,
       child: Scaffold(
         key: const ValueKey('screen-onboarding'),
         backgroundColor: t.bg,
         body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _Header(
-                      index: _index,
-                      count: _steps.length,
-                      label: _phaseLabel(step),
-                      showBack: _index > 0 || _editing,
-                      onBack: _back,
+          child: ReadableWidth(
+            maxWidth: 560,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  OnboardingHeader(
+                    index: index,
+                    count: steps.length,
+                    phaseLabel: _step.phaseLabel(l10n),
+                    onBack: atStart ? null : _back,
+                  ),
+                  const SizedBox(height: 6),
+                  Expanded(child: _stepSwitcher(context)),
+                  const SizedBox(height: 4),
+                  PrimaryActionButton(
+                    key: ValueKey(
+                      _step == OnboardingStep.summary
+                          ? 'onboarding-finish'
+                          : 'onboarding-next',
                     ),
-                    const SizedBox(height: 24),
-                    Expanded(
-                      child: AnimatedSwitcher(
-                        duration: motionDuration(
-                          context,
-                          const Duration(milliseconds: 180),
-                        ),
-                        layoutBuilder: (child, previous) => Stack(
-                          alignment: Alignment.topLeft,
-                          children: [...previous, ?child],
-                        ),
-                        child: SingleChildScrollView(
-                          key: ValueKey('onboarding-step-${step.name}'),
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _buildStep(step),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Semantics(
-                      button: true,
-                      child: PrimaryActionButton(
-                        key: ValueKey(
-                          isSummary ? 'onboarding-finish' : 'onboarding-next',
-                        ),
-                        label: isSummary
-                            ? l10n.onboardingActivatePlanCta
-                            : _editing
-                            ? l10n.onboardingReviewChanges
-                            : step == _Step.diet && _diet == DietPreference.none
-                            ? l10n.onboardingWithoutPreference
-                            : l10n.onboardingNextCta,
-                        onTap: _saving ? null : _next,
-                      ),
-                    ),
-                  ],
-                ),
+                    label: _ctaLabel(l10n),
+                    onTap: _saving ? null : _next,
+                  ),
+                ],
               ),
             ),
           ),
@@ -345,1400 +387,205 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  String _phaseLabel(_Step step) {
-    final l10n = context.l10n;
-    return switch (step) {
-      _Step.basics => l10n.onboardingPhaseBasics,
-      _Step.body => l10n.onboardingPhaseBody,
-      _Step.activity => l10n.onboardingPhaseActivity,
-      _Step.goal => l10n.onboardingPhaseGoal,
-      _Step.diet => l10n.onboardingPhaseDiet,
-      _Step.summary => l10n.onboardingPhasePlan,
-    };
+  String _ctaLabel(AppLocalizations l10n) {
+    if (_step == OnboardingStep.summary) return l10n.onboardingActivatePlanCta;
+    if (_editOrigin != null && _nextStep == OnboardingStep.summary) {
+      return l10n.onboardingReviewChanges;
+    }
+    if (_step == OnboardingStep.diet && _diet == DietPreference.none) {
+      return l10n.onboardingWithoutPreference;
+    }
+    return l10n.onboardingNextCta;
   }
 
-  Widget _buildStep(_Step step) {
-    final l10n = context.l10n;
-    return switch (step) {
-      _Step.basics => _StepFrame(
-        title: l10n.onboardingWelcomeTitle(widget.firstName),
-        subtitle: l10n.onboardingBasicsBody,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _FieldHeading(
-              title: l10n.onboardingSexStepTitle,
-              subtitle: l10n.onboardingSexStepSubtitle,
-            ),
-            _SexPicker(value: _sex, onChanged: (v) => setState(() => _sex = v)),
-            const SizedBox(height: 24),
-            _FieldHeading(title: l10n.onboardingAgeStepTitle),
-            _NumberPicker(
-              field: 'age',
-              value: _age,
-              min: ProfileLimits.ageYearsMin,
-              max: ProfileLimits.ageYearsMax,
-              unit: l10n.onboardingUnitYears,
-              onChanged: (v) => setState(() => _age = v),
-            ),
+  /// The current step in its own scroll view; a step change fades and slides
+  /// in the direction of travel. Reduced motion swaps without a transition.
+  ///
+  /// Content scrolling under the header or toward the button fades out over
+  /// [_kEdgeFade] instead of being cut mid-glyph; the scroll padding keeps
+  /// the resting content clear of both fades.
+  Widget _stepSwitcher(BuildContext context) {
+    final t = context.t;
+    final currentKey = ValueKey('onboarding-step-${_step.name}');
+    final travel = _forward ? 1.0 : -1.0;
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (bounds) {
+        final edge = bounds.height <= 0
+            ? 0.0
+            : (_kEdgeFade / bounds.height).clamp(0.0, 0.5);
+        return LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          // Only the alpha matters for dstIn; any opaque token works.
+          colors: <Color>[
+            t.bg.withValues(alpha: 0),
+            t.bg,
+            t.bg,
+            t.bg.withValues(alpha: 0),
           ],
-        ),
-      ),
-      _Step.body => _StepFrame(
-        title: l10n.onboardingBodyTitle,
-        subtitle: l10n.onboardingBodySubtitle,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _FieldHeading(title: l10n.onboardingHeightStepTitle),
-            _NumberPicker(
-              field: 'height',
-              value: _height,
-              min: ProfileLimits.heightCmMin,
-              max: ProfileLimits.heightCmMax,
-              unit: l10n.commonUnitCm,
-              onChanged: (v) => setState(() => _height = v),
-            ),
-            const SizedBox(height: 28),
-            _FieldHeading(title: l10n.onboardingWeightStepTitle),
-            _NumberPicker(
-              field: 'weight',
-              value: _weight,
-              min: ProfileLimits.weightKgMin,
-              max: ProfileLimits.weightKgMax,
-              unit: l10n.commonUnitKg,
-              // Keep the raw target so backtracking never loses an answer.
-              onChanged: (v) => setState(() => _weight = v),
-            ),
-          ],
-        ),
-      ),
-      _Step.activity => _StepFrame(
-        title: l10n.onboardingActivityStepTitle,
-        subtitle: l10n.onboardingActivityStepSubtitle,
-        child: _ActivityPicker(
-          value: _activity,
-          onChanged: (v) => setState(() => _activity = v),
-        ),
-      ),
-      _Step.goal => _StepFrame(
-        title: l10n.onboardingGoalStepTitle,
-        subtitle: l10n.onboardingGoalStepSubtitle,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _GoalPicker(value: _direction, onChanged: _onDirectionChosen),
-            if (_direction != _GoalDirection.maintain &&
-                _targetWindow != null) ...[
-              const SizedBox(height: 32),
-              _buildTargetStep(),
-              const SizedBox(height: 28),
-              _FieldHeading(
-                title: l10n.onboardingPaceStepTitle,
-                subtitle: _direction == _GoalDirection.lose
-                    ? l10n.onboardingPaceStepSubtitleLose
-                    : l10n.onboardingPaceStepSubtitleGain,
-              ),
-              _PacePicker(
-                options: _direction == _GoalDirection.lose
-                    ? lossPaceGoals
-                    : gainPaceGoals,
-                value: _direction == _GoalDirection.lose
-                    ? _losePace
-                    : _gainPace,
-                outcomeFor: _tempoFolge,
-                onChanged: (v) => setState(() {
-                  if (_direction == _GoalDirection.lose) {
-                    _losePace = v;
-                  } else {
-                    _gainPace = v;
-                  }
-                }),
-              ),
-            ],
-          ],
-        ),
-      ),
-      _Step.diet => _StepFrame(
-        title: l10n.onboardingDietStepTitle,
-        subtitle: l10n.onboardingDietOptionalSubtitle,
-        child: _DietPicker(
-          value: _diet,
-          onChanged: (v) => setState(() => _diet = v),
-        ),
-      ),
-      _Step.summary => _SummaryStep(
-        firstName: widget.firstName,
-        targets: _targets,
-        profile: _draftProfile(),
-        onEdit: _edit,
-      ),
-    };
-  }
-
-  /// The inline target section is built only for a nonempty target window.
-  Widget _buildTargetStep() {
-    final l10n = context.l10n;
-    final window = _targetWindow!;
-    final abnehmen = _direction == _GoalDirection.lose;
-    final delta = (_weight - _targetSafe).abs();
-    return Column(
-      key: const ValueKey('onboarding-target-section'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _FieldHeading(title: l10n.onboardingTargetStepTitle),
-        _NumberPicker(
-          field: 'target',
-          value: _targetSafe,
-          min: window.min,
-          max: window.max,
-          unit: l10n.commonUnitKg,
-          onChanged: (v) => setState(() => _target = v),
-          footnote: abnehmen
-              ? l10n.onboardingTargetFootnoteLose(delta)
-              : l10n.onboardingTargetFootnoteGain(delta),
-        ),
-        TargetBmiHint(
-          margin: const EdgeInsets.only(top: 16),
-          heightCm: _height,
-          targetWeightKg: _targetSafe,
-        ),
-      ],
+          stops: <double>[0, edge, 1 - edge, 1],
+        ).createShader(bounds);
+      },
+      child: _switcher(context, currentKey, travel),
     );
   }
-}
 
-// ---------------------------------------------------------------------------
-// Header + Footer
-// ---------------------------------------------------------------------------
-
-class _Header extends StatelessWidget {
-  const _Header({
-    required this.index,
-    required this.count,
-    required this.label,
-    required this.showBack,
-    required this.onBack,
-  });
-  final int index;
-  final int count;
-  final String label;
-  final bool showBack;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final progress = context.l10n.onboardingStepProgress(index + 1, count);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            if (showBack) ...[
-              IconButton(
-                key: const ValueKey('onboarding-back'),
-                tooltip: context.l10n.onboardingBackSemanticLabel,
-                onPressed: onBack,
-                icon: const Icon(Icons.arrow_back_rounded),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-              ),
-              const SizedBox(width: 8),
-            ],
-            Expanded(
-              child: Text(
-                'Eatova',
-                style: AppType.display(
-                  MediaQuery.textScalerOf(context).scale(1) > 1.5 ? 18 : 24,
-                  color: t.ink,
-                ),
-              ),
-            ),
-            const AppIcon(AppSymbol.food, size: 28),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Semantics(
-          label: '$label, $progress',
-          liveRegion: true,
+  Widget _switcher(BuildContext context, Key currentKey, double travel) {
+    return AnimatedSwitcher(
+      duration: motionDuration(context, _kStepTransition),
+      switchInCurve: kMotionCurve,
+      switchOutCurve: kMotionCurve,
+      layoutBuilder: (current, previous) => Stack(
+        alignment: Alignment.topLeft,
+        children: <Widget>[...previous, ?current],
+      ),
+      transitionBuilder: (child, animation) {
+        final incoming = child.key == currentKey;
+        // The leaving step slides the other way and no longer takes taps
+        // or focus while it fades.
+        final from = Offset((incoming ? 1 : -1) * travel * _kStepSlide, 0);
+        return IgnorePointer(
+          ignoring: !incoming,
           child: ExcludeSemantics(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: AppType.ui(
-                      13,
-                      weight: FontWeight.w600,
-                      color: t.ink2,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  '${index + 1} / $count',
-                  style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
-                ),
-              ],
+            excluding: !incoming,
+            child: FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: from,
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
             ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        ExcludeSemantics(
-          child: Row(
-            children: [
-              for (var i = 0; i < count; i++) ...[
-                if (i > 0) const SizedBox(width: 5),
-                Expanded(
-                  child: Container(
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: i <= index ? t.accent : t.tile,
-                      borderRadius: BorderRadius.circular(rPill),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StepFrame extends StatelessWidget {
-  const _StepFrame({
-    required this.title,
-    required this.subtitle,
-    required this.child,
-  });
-  final String title;
-  final String subtitle;
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      HeadingSemantics(
-        level: 1,
-        child: Text(
-          title,
-          style: AppType.display(
-            MediaQuery.textScalerOf(context).scale(1) > 1.5 ? 24 : 32,
-            color: context.t.ink,
-            height: 1.08,
-          ),
-        ),
-      ),
-      const SizedBox(height: 12),
-      Text(
-        subtitle,
-        style: AppType.ui(
-          14,
-          weight: FontWeight.w500,
-          color: context.t.ink2,
-          height: 1.45,
-        ),
-      ),
-      const SizedBox(height: 28),
-      child,
-    ],
-  );
-}
-
-class _FieldHeading extends StatelessWidget {
-  const _FieldHeading({required this.title, this.subtitle});
-  final String title;
-  final String? subtitle;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        HeadingSemantics(
-          level: 2,
-          child: Text(title, style: AppType.display(20, color: context.t.ink)),
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 5),
-          Text(
-            subtitle!,
-            style: AppType.ui(13, color: context.t.ink2, height: 1.4),
-          ),
-        ],
-      ],
-    ),
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Pickers
-// ---------------------------------------------------------------------------
-
-class _SexPicker extends StatelessWidget {
-  const _SexPicker({required this.value, required this.onChanged});
-
-  final BiologicalSex value;
-  final ValueChanged<BiologicalSex> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    final labels = {
-      BiologicalSex.male: (l10n.onboardingSexMale, Icons.male_rounded),
-      BiologicalSex.female: (l10n.onboardingSexFemale, Icons.female_rounded),
-      BiologicalSex.neutral: (l10n.onboardingSexNeutral, Icons.person_rounded),
-    };
-    Widget tile(BiologicalSex sex) => _TileCard(
-      keyValue: ValueKey('onboarding-sex-${sex.name}'),
-      selected: value == sex,
-      onTap: () => onChanged(sex),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            labels[sex]!.$2,
-            size: 30,
-            color: value == sex ? t.onSelected : t.ink2,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            labels[sex]!.$1,
-            textAlign: TextAlign.center,
-            style: AppType.ui(
-              14,
-              weight: FontWeight.w700,
-              color: value == sex ? t.onSelected : t.ink2,
-            ),
-          ),
-        ],
-      ),
-    );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final stacked =
-            MediaQuery.textScalerOf(context).scale(84) >
-            (constraints.maxWidth - 24) / 3;
-        if (stacked) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final sex in BiologicalSex.values) ...[
-                if (sex != BiologicalSex.values.first)
-                  const SizedBox(height: 12),
-                tile(sex),
-              ],
-            ],
-          );
-        }
-        return IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final sex in BiologicalSex.values) ...[
-                if (sex != BiologicalSex.values.first)
-                  const SizedBox(width: 12),
-                Expanded(child: tile(sex)),
-              ],
-            ],
           ),
         );
       },
+      child: SingleChildScrollView(
+        key: currentKey,
+        padding: const EdgeInsets.only(top: _kEdgeFade, bottom: _kEdgeFade + 8),
+        child: _buildStep(context),
+      ),
     );
   }
-}
 
-class _ActivityPicker extends StatelessWidget {
-  const _ActivityPicker({required this.value, required this.onChanged});
-
-  final ActivityLevel value;
-  final ValueChanged<ActivityLevel> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildStep(BuildContext context) {
     final l10n = context.l10n;
-    return Column(
-      children: [
-        for (final level in ActivityLevel.values) ...[
-          _RowCard(
-            keyValue: ValueKey('onboarding-activity-${level.name}'),
-            selected: value == level,
-            onTap: () => onChanged(level),
-            title: level.label(l10n),
-            subtitle: level.description(l10n),
-            trailing: '×${formatPalFactor(level, l10n)}',
-          ),
-          if (level != ActivityLevel.values.last) const SizedBox(height: 10),
-        ],
-      ],
-    );
-  }
-}
-
-class _GoalPicker extends StatelessWidget {
-  const _GoalPicker({required this.value, required this.onChanged});
-
-  final _GoalDirection value;
-  final ValueChanged<_GoalDirection> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    // The direction labels are byte-identical to [WeightGoalInfo.label] for
-    // the matching [WeightGoal], so the same ARB keys are reused instead of
-    // duplicate onboarding keys.
-    final items = {
-      _GoalDirection.lose: (
-        l10n.commonWeightGoalLabelLose,
-        l10n.onboardingGoalDescLose,
-        Icons.trending_down_rounded,
+    return switch (_step) {
+      OnboardingStep.goal => OnboardingGoalStep(
+        firstName: widget.firstName,
+        value: _direction,
+        onChanged: (direction) => setState(() => _direction = direction),
       ),
-      _GoalDirection.maintain: (
-        l10n.commonWeightGoalLabelMaintain,
-        l10n.onboardingGoalDescMaintain,
-        Icons.trending_flat_rounded,
+      OnboardingStep.basics => OnboardingBasicsStep(
+        sex: _sex,
+        onSex: (sex) => setState(() => _sex = sex),
+        age: _age,
+        onAge: (age) => setState(() => _age = age),
       ),
-      _GoalDirection.gain: (
-        l10n.commonWeightGoalLabelGain,
-        l10n.onboardingGoalDescGain,
-        Icons.trending_up_rounded,
+      OnboardingStep.body => OnboardingBodyStep(
+        height: _height,
+        onHeight: (height) => setState(() => _height = height),
+        weight: _weight,
+        // Chosen targets stay raw so backtracking never loses an answer.
+        onWeight: (weight) => setState(() => _weight = weight),
       ),
+      OnboardingStep.activity => OnboardingActivityStep(
+        value: _activity,
+        onChanged: (level) => setState(() => _activity = level),
+      ),
+      OnboardingStep.target => _buildTargetStep(),
+      OnboardingStep.pace => OnboardingPaceStep(
+        direction: _direction,
+        value: _weightGoal,
+        outcomeFor: _paceOutcome,
+        forecast: onboardingTimelineText(l10n, _draftProfile(), _targets),
+        onChanged: (pace) => setState(() {
+          if (pace.isLoss) _losePace = pace;
+          if (pace.isGain) _gainPace = pace;
+        }),
+      ),
+      OnboardingStep.diet => OnboardingDietStep(
+        value: _diet,
+        onChanged: (diet) => setState(() => _diet = diet),
+      ),
+      OnboardingStep.summary => _buildPlanStep(context),
     };
-    return Column(
-      children: [
-        for (final dir in _GoalDirection.values) ...[
-          _RowCard(
-            keyValue: ValueKey('onboarding-goal-${dir.name}'),
-            selected: value == dir,
-            onTap: () => onChanged(dir),
-            title: items[dir]!.$1,
-            subtitle: items[dir]!.$2,
-            leadingIcon: items[dir]!.$3,
-          ),
-          if (dir != _GoalDirection.values.last) const SizedBox(height: 10),
-        ],
-      ],
+  }
+
+  /// Built only while [_asksTarget] holds, so the window is never empty here.
+  Widget _buildTargetStep() {
+    final window = _targetWindow;
+    if (window == null) return const SizedBox.shrink();
+    return OnboardingTargetStep(
+      direction: _direction,
+      weight: _weight,
+      height: _height,
+      target: _targetSafe,
+      min: window.min,
+      max: window.max,
+      onChanged: (target) => setState(() => _chosenTargets[_direction] = target),
     );
   }
-}
 
-class _DietPicker extends StatelessWidget {
-  const _DietPicker({required this.value, required this.onChanged});
-
-  final DietPreference value;
-  final ValueChanged<DietPreference> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildPlanStep(BuildContext context) {
     final l10n = context.l10n;
-    const icons = {
-      DietPreference.none: Icons.restaurant_rounded,
-      DietPreference.vegetarian: Icons.spa_rounded,
-      DietPreference.vegan: Icons.eco_rounded,
-      DietPreference.pescetarian: Icons.set_meal_rounded,
-    };
-    return Column(
-      children: [
-        for (final diet in DietPreference.values) ...[
-          _RowCard(
-            keyValue: ValueKey('onboarding-diet-${diet.name}'),
-            selected: value == diet,
-            onTap: () => onChanged(diet),
-            title: diet.label(l10n),
-            subtitle: diet.description(l10n),
-            leadingIcon: icons[diet],
-          ),
-          if (diet != DietPreference.values.last) const SizedBox(height: 10),
-        ],
-      ],
-    );
-  }
-}
-
-class _PacePicker extends StatelessWidget {
-  const _PacePicker({
-    required this.options,
-    required this.value,
-    required this.outcomeFor,
-    required this.onChanged,
-  });
-
-  final List<WeightGoal> options;
-  final WeightGoal value;
-
-  /// Subtitle of an option: the plan it yields with the answers so far. See
-  /// `_OnboardingScreenState._tempoFolge`.
-  final String Function(WeightGoal) outcomeFor;
-
-  final ValueChanged<WeightGoal> onChanged;
-
-  static String? _paceName(AppLocalizations l10n, WeightGoal goal) =>
-      switch (goal) {
-        WeightGoal.lose025kg => l10n.onboardingPaceNameSanft,
-        WeightGoal.lose05kg => l10n.onboardingPaceNameModerat,
-        WeightGoal.lose075kg => l10n.onboardingPaceNameZuegig,
-        WeightGoal.lose1kg => l10n.onboardingPaceNameAmbitioniert,
-        WeightGoal.gain025kg => l10n.onboardingPaceNameSanft,
-        WeightGoal.gain05kg => l10n.onboardingPaceNameAmbitioniert,
-        _ => null,
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Column(
-      children: [
-        for (final goal in options) ...[
-          _RowCard(
-            keyValue: ValueKey('onboarding-pace-${goal.name}'),
-            selected: value == goal,
-            onTap: () => onChanged(goal),
-            title: l10n.onboardingPaceOptionTitle(
-              _paceName(l10n, goal) ?? l10n.onboardingPaceNameFallback,
-              goal.paceLabel(l10n),
-            ),
-            subtitle: outcomeFor(goal),
-          ),
-          if (goal != options.last) const SizedBox(height: 10),
-        ],
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Number picker (big value + slider + steppers)
-// ---------------------------------------------------------------------------
-
-class _NumberPicker extends StatelessWidget {
-  /// [min] .. [max] must be a real window.
-  ///
-  /// The picker used to fold an inverted one up onto [min] — a SECOND clamping
-  /// rule next to the caller's, and the two disagreed: the target step drew
-  /// 301 while footnote, BMI hint and the saved plan said 300 / "0 kg", and
-  /// the steppers wrote a value the caller clamped straight back away (J1).
-  /// An empty window has nothing to pick, so the caller drops the step (see
-  /// `_targetWindow`) instead of asking for controls that cannot move.
-  const _NumberPicker({
-    required this.field,
-    required this.value,
-    required this.min,
-    required this.max,
-    required this.unit,
-    required this.onChanged,
-    this.footnote,
-  }) : assert(min <= max, 'inverted window: nothing to pick');
-
-  final String field;
-  final int value;
-  final int min;
-  final int max;
-  final String unit;
-  final ValueChanged<int> onChanged;
-  final String? footnote;
-
-  void _set(int v) => onChanged(v.clamp(min, max).toInt());
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    final safeValue = value.clamp(min, max).toInt();
-    String spoken(double v) => '${v.round()} $unit';
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
-      decoration: BoxDecoration(
-        color: t.brandSurface,
-        borderRadius: BorderRadius.circular(rCard),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _StepButton(
-                keyValue: ValueKey('onboarding-$field-dec'),
-                icon: Icons.remove_rounded,
-                semanticLabel: l10n.onboardingStepDownSemanticLabel,
-                onTap: () => _set(safeValue - 1),
-              ),
-              const SizedBox(width: 20),
-              // Not a fixed width: at textScaler 2.0 the large digits exceed
-              // 150 px. The column takes the remaining space; only the hero
-              // number may shrink (F8-09), the unit scales like any label.
-              Flexible(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        '$safeValue',
-                        key: ValueKey('onboarding-$field-value'),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        style: AppType.display(
-                          44,
-                          color: t.onBrandSurface,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      unit,
-                      textAlign: TextAlign.center,
-                      style: AppType.ui(
-                        13,
-                        weight: FontWeight.w600,
-                        color: t.ink2,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 20),
-              _StepButton(
-                keyValue: ValueKey('onboarding-$field-inc'),
-                icon: Icons.add_rounded,
-                semanticLabel: l10n.onboardingStepUpSemanticLabel,
-                onTap: () => _set(safeValue + 1),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // A single-value window (e.g. gaining at 299 kg) has nothing to slide.
-          if (max > min)
-            SliderTheme(
-              data: SliderThemeData(
-                activeTrackColor: t.accent,
-                inactiveTrackColor: t.onBrandSurface.withValues(alpha: 0.12),
-                thumbColor: t.accent,
-                overlayColor: t.accent.withValues(alpha: 0.15),
-                trackHeight: 3,
-              ),
-              child: Slider(
-                key: ValueKey('onboarding-$field-slider'),
-                value: safeValue.toDouble(),
-                min: min.toDouble(),
-                max: max.toDouble(),
-                // A screen reader hears "75 kg", not a percentage.
-                label: spoken(safeValue.toDouble()),
-                semanticFormatterCallback: spoken,
-                onChanged: (v) => _set(v.round()),
-              ),
-            ),
-          if (footnote != null) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: t.lime,
-                borderRadius: BorderRadius.circular(rPill),
-              ),
-              child: Text(
-                footnote!,
-                textAlign: TextAlign.center,
-                style: AppType.display(
-                  13,
-                  weight: FontWeight.w700,
-                  color: t.onLime,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _StepButton extends StatelessWidget {
-  const _StepButton({
-    required this.keyValue,
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-  });
-
-  final Key keyValue;
-  final IconData icon;
-
-  /// Spoken name — the glyph alone says nothing to a screen reader.
-  final String semanticLabel;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: InkWell(
-        key: keyValue,
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rPill),
-        child: Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            color: t.surf,
-            shape: BoxShape.circle,
-            border: Border.all(color: t.line),
-          ),
-          child: Icon(icon, color: t.ink, size: 24),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Reusable selectable cards
-// ---------------------------------------------------------------------------
-
-class _TileCard extends StatelessWidget {
-  const _TileCard({
-    required this.keyValue,
-    required this.selected,
-    required this.onTap,
-    required this.child,
-  });
-
-  final Key keyValue;
-  final bool selected;
-  final VoidCallback onTap;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // One node per card: button + selected, label from the child text.
-    return MergeSemantics(
-      child: Semantics(
-        button: true,
-        selected: selected,
-        child: InkWell(
-          key: keyValue,
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rCard),
-          child: AnimatedContainer(
-            duration: motionDuration(
-              context,
-              const Duration(milliseconds: 160),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-            decoration: BoxDecoration(
-              // Selected means a full fill, not a tinted border, so the
-              // selection reads through contrast rather than hue — and the
-              // fill is [SelectionTone], not `forest`: in dark mode `forest`
-              // is itself a surface and the card sat at 1.33:1 on `surf`.
-              color: selected ? t.selectedFill : t.surf,
-              borderRadius: BorderRadius.circular(rCard),
-              border: Border.all(color: selected ? t.selectedFill : t.line),
-            ),
-            child: child,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RowCard extends StatelessWidget {
-  const _RowCard({
-    required this.keyValue,
-    required this.selected,
-    required this.onTap,
-    required this.title,
-    required this.subtitle,
-    this.trailing,
-    this.leadingIcon,
-  });
-
-  final Key keyValue;
-  final bool selected;
-  final VoidCallback onTap;
-  final String title;
-  final String subtitle;
-  final String? trailing;
-  final IconData? leadingIcon;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // One node per row: button + selected, label from title and subtitle.
-    return MergeSemantics(
-      child: Semantics(
-        button: true,
-        selected: selected,
-        child: InkWell(
-          key: keyValue,
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rCard),
-          child: AnimatedContainer(
-            duration: motionDuration(
-              context,
-              const Duration(milliseconds: 160),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            // [SelectionTone] — same language as [_TileCard] and every chip in
-            // the app. See there for why `forest` had to go.
-            decoration: BoxDecoration(
-              color: selected ? t.selectedFill : t.surf,
-              borderRadius: BorderRadius.circular(rCard),
-              border: Border.all(color: selected ? t.selectedFill : t.line),
-            ),
-            child: Row(
-              children: [
-                if (leadingIcon != null) ...[
-                  Icon(
-                    leadingIcon,
-                    size: 22,
-                    color: selected ? t.onSelected : t.ink2,
-                  ),
-                  const SizedBox(width: 14),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: AppType.ui(
-                          15,
-                          weight: FontWeight.w700,
-                          color: selected ? t.onSelected : t.ink,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: AppType.ui(
-                          12.5,
-                          weight: FontWeight.w500,
-                          color: selected
-                              ? t.onSelected.withValues(alpha: 0.78)
-                              : t.ink2,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 10),
-                  Text(
-                    trailing!,
-                    style: AppType.display(
-                      13,
-                      weight: FontWeight.w700,
-                      color: selected ? t.onSelected : t.ink2,
-                    ),
-                  ),
-                ],
-                if (selected) ...[
-                  const SizedBox(width: 10),
-                  // The tick is the second state channel next to the fill, so it
-                  // has to READ on that fill: `lime` on `ink` is 1.07:1 in dark
-                  // mode, [SelectionTone.onSelected] is 16.35:1.
-                  Icon(
-                    Icons.check_circle_rounded,
-                    color: t.onSelected,
-                    size: 20,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Summary
-// ---------------------------------------------------------------------------
-
-class _SummaryStep extends StatelessWidget {
-  const _SummaryStep({
-    required this.firstName,
-    required this.targets,
-    required this.profile,
-    required this.onEdit,
-  });
-
-  final String firstName;
-  final KcalTargets targets;
-  final UserProfile profile;
-  final ValueChanged<_Step> onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    // [targets] was computed from exactly this profile — pass it through
-    // instead of running `calculate` a second time.
-    final weeks = const KcalCalculator().weeksToGoalRange(
-      profile,
+    final profile = _draftProfile();
+    final targets = const KcalCalculator().calculate(profile);
+    final kg = l10n.commonUnitKg;
+    final pace = _weightGoal;
+    return OnboardingPlanStep(
+      firstName: widget.firstName,
+      profile: profile,
       targets: targets,
-    );
-    // The EFFECTIVE goal, like the row above it (which shows
-    // `targets.effectivePaceLabel`): a direction with no reachable target —
-    // gaining at the 300 kg column end — plans maintain, and answering "no
-    // reliable forecast" there while the card says "Gewicht stabil" left the
-    // one honest sentence unsaid.
-    final goal = profile.effectiveWeightGoal;
-
-    // `weeks == null` means there is no honest forecast (target reached, rate
-    // in the rounding noise, or the floor flips the direction). Better no
-    // number than an invented one; the why sits in [KcalTargets.paceWarning].
-    //
-    // Since the 2026-08-21 calorie review this is a RANGE: linear
-    // (optimistic) to dynamic (requirement drops with every kilo). Without a
-    // dynamic upper bound the deficit never reaches the target, and the text
-    // says "at the earliest".
-    final timeline = switch (goal) {
-      WeightGoal.maintain => l10n.onboardingTimelineMaintain(profile.weightKg),
-      _ when weeks != null => timelineEstimateText(
-        l10n,
-        targetWeightKg: profile.targetWeightKg,
-        weeks: weeks,
-      ),
-      _ => l10n.onboardingTimelineUnknown,
-    };
-
-    final t = context.t;
-    // Computed once: effectivePaceLabel/paceWarning must yield the same string
-    // in the text AND in the visibility check (B2).
-    final paceWarning = targets.paceWarning(l10n);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l10n.onboardingSummaryTitle(firstName),
-          style: AppType.display(
-            MediaQuery.textScalerOf(context).scale(1) > 1.5 ? 24 : 28,
-            color: t.ink,
-            height: 1.08,
-          ),
+      // The first reveal counts from maintenance, so a deficit or surplus is
+      // seen; after an edit it counts from the number shown before.
+      countFrom: _shownKcal ?? targets.maintenanceKcal,
+      answers: <OnboardingReviewItem>[
+        OnboardingReviewItem(
+          OnboardingStep.goal,
+          l10n.onboardingPhaseGoal,
+          profile.effectiveWeightGoal.label(l10n),
         ),
-        const SizedBox(height: 8),
-        Text(
-          l10n.onboardingSummarySubtitle,
-          style: AppType.ui(
-            14,
-            weight: FontWeight.w500,
-            color: t.ink2,
-            height: 1.45,
-          ),
+        OnboardingReviewItem(
+          OnboardingStep.basics,
+          l10n.onboardingPhaseBasics,
+          '${onboardingSexLabel(l10n, profile.sex)} · '
+              '${profile.ageYears} ${l10n.onboardingUnitYears}',
         ),
-        const SizedBox(height: 24),
-        // Hero kcal card
-        Container(
-          width: double.infinity,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: t.forest,
-            borderRadius: BorderRadius.circular(rHero),
-          ),
-          child: Stack(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 28,
-                  horizontal: 20,
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      l10n.onboardingSummaryKcalEyebrow,
-                      textAlign: TextAlign.center,
-                      style: AppType.eyebrow(
-                        t.onForest.withValues(alpha: 0.70),
-                        size: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            '${targets.kcal}',
-                            key: const ValueKey('onboarding-summary-kcal'),
-                            maxLines: 1,
-                            style: AppType.display(
-                              48,
-                              color: t.onForest,
-                              height: 1,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 7),
-                          child: Text(
-                            l10n.commonKcalUnit,
-                            style: AppType.ui(
-                              16,
-                              weight: FontWeight.w700,
-                              color: t.onForest.withValues(alpha: 0.70),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        OnboardingReviewItem(
+          OnboardingStep.body,
+          l10n.onboardingPhaseBody,
+          '${profile.heightCm} ${l10n.commonUnitCm} · ${profile.weightKg} $kg',
         ),
-        const SizedBox(height: 16),
-        // Macros on the page background, not on forest: t.protein would have
-        // no readable contrast there in light mode.
-        Row(
-          children: [
-            _MacroChip(
-              label: l10n.todayMacroProtein,
-              value: '${targets.proteinG} ${l10n.commonUnitG}',
-              color: t.protein,
-            ),
-            const SizedBox(width: 12),
-            _MacroChip(
-              label: l10n.foodMacroTileCarbsLabel,
-              value: '${targets.carbsG} ${l10n.commonUnitG}',
-              color: t.carbs,
-            ),
-            const SizedBox(width: 12),
-            _MacroChip(
-              label: l10n.todayMacroFat,
-              value: '${targets.fatG} ${l10n.commonUnitG}',
-              color: t.fat,
-            ),
-          ],
+        OnboardingReviewItem(
+          OnboardingStep.activity,
+          l10n.onboardingPhaseActivity,
+          profile.activityLevel.label(l10n),
         ),
-        const SizedBox(height: 16),
-        // Breakdown
-        AppCard(
-          padding: const EdgeInsets.all(16),
-          radius: rCard,
-          child: Column(
-            children: [
-              _BreakdownRow(
-                label: l10n.onboardingSummaryBmrLabel,
-                value: '${targets.bmr} ${l10n.commonKcalUnit}',
-              ),
-              const _BreakdownDivider(),
-              _BreakdownRow(
-                label: l10n.onboardingSummaryMaintenanceLabel(
-                  profile.activityLevel.label(l10n),
-                ),
-                value: '${targets.maintenanceKcal} ${l10n.commonKcalUnit}',
-                valueKey: const ValueKey('onboarding-summary-maintenance'),
-              ),
-              const _BreakdownDivider(),
-              // B2: this shows the PLAN, not the wish. `goal.paceLabel` keeps
-              // promising the requested rate even after the safety floor or
-              // the 1 % cap changed it. With the effective rate the card also
-              // adds up: maintenance - target = delta.
-              _BreakdownRow(
-                key: const ValueKey('onboarding-summary-goal-row'),
-                label: l10n.onboardingSummaryGoalLabel(
-                  targets.effectivePaceLabel(l10n),
-                ),
-                value: _signedKcalLabel(targets.effectiveKcalDelta),
-                highlight: targets.effectiveKcalDelta != 0,
-              ),
-            ],
+        if (_asksTarget) ...<OnboardingReviewItem>[
+          OnboardingReviewItem(
+            OnboardingStep.target,
+            l10n.onboardingReviewTarget,
+            '${profile.targetWeightKg} $kg',
           ),
-        ),
-        // Visible notice when daily target and chosen pace diverge, otherwise
-        // the contradiction stays unexplained.
-        if (paceWarning != null) ...[
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: t.warning.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(rCard),
-              border: Border.all(color: t.warning.withValues(alpha: 0.30)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: 1),
-                  child: Icon(
-                    Icons.info_outline_rounded,
-                    color: t.warning,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    paceWarning,
-                    key: const ValueKey('onboarding-summary-pace-warning'),
-                    style: AppType.ui(
-                      12.5,
-                      weight: FontWeight.w600,
-                      color: t.ink,
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-              ],
+          OnboardingReviewItem(
+            OnboardingStep.pace,
+            l10n.onboardingReviewPace,
+            l10n.onboardingPaceOptionTitle(
+              onboardingPaceName(l10n, pace),
+              pace.paceLabel(l10n),
             ),
           ),
         ],
-        const SizedBox(height: 20),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: Icon(Icons.timeline_rounded, color: t.accent, size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                timeline,
-                key: const ValueKey('onboarding-summary-timeline'),
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w600,
-                  color: t.ink,
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 28),
-        _FieldHeading(title: l10n.onboardingReviewTitle),
-        _ReviewRows(
-          onEdit: onEdit,
-          rows: [
-            (
-              _Step.basics,
-              l10n.onboardingPhaseBasics,
-              '${profile.ageYears} ${l10n.onboardingUnitYears} \u00b7 ${switch (profile.sex) {
-                BiologicalSex.male => l10n.onboardingSexMale,
-                BiologicalSex.female => l10n.onboardingSexFemale,
-                BiologicalSex.neutral => l10n.onboardingSexNeutral,
-              }}',
-            ),
-            (
-              _Step.body,
-              l10n.onboardingPhaseBody,
-              '${profile.heightCm} ${l10n.commonUnitCm} \u00b7 ${profile.weightKg} ${l10n.commonUnitKg}',
-            ),
-            (
-              _Step.activity,
-              l10n.onboardingPhaseActivity,
-              profile.activityLevel.label(l10n),
-            ),
-            (
-              _Step.goal,
-              l10n.onboardingPhaseGoal,
-              '${profile.effectiveWeightGoal.label(l10n)} \u00b7 ${profile.targetWeightKg} ${l10n.commonUnitKg}',
-            ),
-            (_Step.diet, l10n.onboardingPhaseDiet, profile.diet.label(l10n)),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Text(
-          l10n.onboardingSummaryFootnote,
-          style: AppType.ui(
-            12,
-            weight: FontWeight.w500,
-            color: t.ink2,
-            height: 1.45,
-          ),
+        OnboardingReviewItem(
+          OnboardingStep.diet,
+          l10n.onboardingPhaseDiet,
+          profile.diet.label(l10n),
         ),
       ],
-    );
-  }
-}
-
-/// The summary's "review your details" list: one card of settings-style rows,
-/// each reopening its group.
-class _ReviewRows extends StatelessWidget {
-  const _ReviewRows({required this.rows, required this.onEdit});
-
-  final List<(_Step, String, String)> rows;
-  final ValueChanged<_Step> onEdit;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return AppCard(
-      clip: true,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final (i, (step, label, value)) in rows.indexed) ...[
-            if (i > 0)
-              Divider(
-                height: 1,
-                thickness: 1,
-                indent: 18,
-                endIndent: 18,
-                color: t.line,
-              ),
-            SettingsRow(
-              key: ValueKey('onboarding-edit-${step.name}'),
-              title: label,
-              subtitle: value,
-              chevron: false,
-              trailing: Icon(Icons.edit_outlined, size: 19, color: t.ink3),
-              onTap: () => onEdit(step),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _MacroChip extends StatelessWidget {
-  const _MacroChip({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-
-  /// Macro tone for the MARKER only, never for the number: on `surf` in light
-  /// mode `carbs` reaches 3.39:1 and `fat` 3.73:1 — enough for a graphical
-  /// object (WCAG 1.4.11, 3:1), short of text (4.5:1). Same rule as
-  /// `trends_screen`: coloured dot, text in text tokens.
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Expanded(
-      child: AppCard(
-        radius: rCard,
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
-        child: Column(
-          children: [
-            // Above the number, not beside it: three tiles share a phone width
-            // and a leading dot would eat the number's own line at 200 % font.
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(height: 8),
-            // No FittedBox (F8-09): the texts scale with the system font and
-            // wrap inside the tile instead of shrinking back to 16/12 px.
-            Text(
-              value,
-              maxLines: 2,
-              textAlign: TextAlign.center,
-              style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              maxLines: 2,
-              textAlign: TextAlign.center,
-              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Signed kcal label for a COMPUTED difference ([KcalTargets
-/// .effectiveKcalDelta]), e.g. "−797 kcal" / "±0", with the real minus sign
-/// (U+2212).
-String _signedKcalLabel(int kcal) {
-  if (kcal == 0) return '±0';
-  final sign = kcal > 0 ? '+' : '−';
-  return '$sign${kcal.abs()} kcal';
-}
-
-/// One row of the breakdown.
-///
-/// EXACTLY two [Text] children — `onboarding_screen_test` reads the goal row's
-/// texts as a list and compares them literally.
-class _BreakdownRow extends StatelessWidget {
-  const _BreakdownRow({
-    super.key,
-    required this.label,
-    required this.value,
-    this.valueKey,
-    this.highlight = false,
-  });
-
-  final String label;
-  final String value;
-  final Key? valueKey;
-
-  /// Lifts the number into the brand accent. Colour no longer encodes
-  /// deficit vs. surplus — the sign in the text carries the direction.
-  final bool highlight;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
-          ),
-        ),
-        // Flexible, not Expanded: the value is always short, so it takes only
-        // what it needs and the label column keeps the rest.
-        Flexible(
-          child: Padding(
-            padding: const EdgeInsets.only(left: 10),
-            child: Text(
-              value,
-              key: valueKey,
-              textAlign: TextAlign.right,
-              style: AppType.display(
-                13.5,
-                weight: FontWeight.w700,
-                color: highlight ? t.accent : t.ink,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _BreakdownDivider extends StatelessWidget {
-  const _BreakdownDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Divider(height: 1, color: context.t.line),
+      onEdit: _edit,
     );
   }
 }

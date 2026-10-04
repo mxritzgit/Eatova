@@ -135,7 +135,7 @@ class _CoachOrbState extends State<CoachOrb>
                       center: const Alignment(-0.32, -0.44),
                       // Farthest corner from that centre, as CSS sizes it.
                       radius: 0.98,
-                      colors: [t.orbLight, t.accentFill, t.orbMid, t.orbDeep],
+                      colors: [t.orbLight, t.orbBody, t.orbMid, t.orbDeep],
                       stops: const [0, 0.26, 0.62, 1],
                     ),
                   ),

@@ -162,7 +162,7 @@ void main() {
       final core =
           tester.widget<DecoratedBox>(_core).decoration as BoxDecoration;
       final gradient = core.gradient! as RadialGradient;
-      expect(gradient.colors, [t.orbLight, t.accentFill, t.orbMid, t.orbDeep]);
+      expect(gradient.colors, [t.orbLight, t.orbBody, t.orbMid, t.orbDeep]);
       expect(gradient.stops, const [0, 0.26, 0.62, 1]);
       expect(gradient.center, const Alignment(-0.32, -0.44));
 

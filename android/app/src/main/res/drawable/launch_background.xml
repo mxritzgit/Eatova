@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Launch splash: the dark page colour with the focus ring centred, exactly
-     the first frame of the Flutter welcome screen (WelcomeScreen), so the
-     hand-off shows no change. Dark-only app: no white flash in light OS mode.
-     Android 12+ draws its own splash from values-v31/styles.xml instead. -->
+<!-- Launch splash: the page colour with the focus ring centred, exactly the
+     first frame of the Flutter welcome screen (WelcomeScreen), so the
+     hand-off shows no change. Both colours resolve per OS mode
+     (values / values-night launch_colors.xml). Android 12+ draws its own
+     splash from values-v31/styles.xml instead. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/launch_background" />
     <item

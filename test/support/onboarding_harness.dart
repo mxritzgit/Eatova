@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// The onboarding's steps in flow order (2026-10-04). `target` and `pace`
+/// exist only for a direction with a reachable target; navigation by meaning
+/// skips them when they are not on screen.
 const onboardingGroups = [
+  'goal',
   'basics',
   'body',
   'activity',
-  'goal',
+  'target',
+  'pace',
   'diet',
   'summary',
 ];
@@ -18,15 +23,18 @@ Future<void> tapOnboarding(WidgetTester tester, String key) async {
   await tester.pumpAndSettle();
 }
 
+/// The step currently on screen, as its [onboardingGroups] index.
+int currentOnboardingGroup() => onboardingGroups.indexWhere(
+  (group) =>
+      find.byKey(ValueKey('onboarding-step-$group')).evaluate().isNotEmpty,
+);
+
 /// Navigate by meaning so grouping changes do not weaken behavior assertions.
 Future<void> goToOnboarding(WidgetTester tester, String step) async {
   final target = onboardingGroups.indexOf(step);
   expect(target, greaterThanOrEqualTo(0));
   for (var attempt = 0; attempt < onboardingGroups.length; attempt++) {
-    final current = onboardingGroups.indexWhere(
-      (group) =>
-          find.byKey(ValueKey('onboarding-step-$group')).evaluate().isNotEmpty,
-    );
+    final current = currentOnboardingGroup();
     expect(current, greaterThanOrEqualTo(0));
     if (current == target) return;
     await tapOnboarding(

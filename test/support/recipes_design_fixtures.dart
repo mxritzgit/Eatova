@@ -94,13 +94,14 @@ final designOwnRecipes = <FitnessRecipe>[
 
 /// Mounts the real home page at the design geometry, seeds the design
 /// scenario ([profile], [meals], by default [designDay]; the own recipes when
-/// [ownRecipes]) and opens Recipes.
+/// [ownRecipes]) and opens Recipes, in [brightness].
 Future<HomeStore> pumpDesignRecipes(
   WidgetTester tester, {
   UserProfile profile = designProfile,
   List<LoggedMeal>? meals,
   bool ownRecipes = true,
   HealthService? health,
+  Brightness brightness = Brightness.dark,
 }) async {
   pinDesignViewport(tester);
   await tester.pumpWidget(
@@ -108,6 +109,7 @@ Future<HomeStore> pumpDesignRecipes(
       localizedApp(
         EatovaHomePage(healthService: health),
         locale: const Locale('en'),
+        brightness: brightness,
         safeArea: false,
         scaffold: false,
       ),

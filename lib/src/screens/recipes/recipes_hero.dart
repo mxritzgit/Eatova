@@ -325,7 +325,8 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-/// Frosted dark pill laid over a photo (the "AI-generated image" label).
+/// Frosted pill in the page tone laid over a photo (the "AI-generated image"
+/// label).
 class _GlassPill extends StatelessWidget {
   const _GlassPill({super.key, required this.child});
 
@@ -384,9 +385,12 @@ class _BookmarkButton extends StatelessWidget {
                 child: SizedBox.square(
                   dimension: 44,
                   child: Center(
+                    // Ink pairs with the glass in the page tone, like the AI
+                    // label; the always-white `onImage` vanished on the
+                    // near-white light glass.
                     child: _GlyphIcon(
                       _RecipeGlyph.bookmark,
-                      color: t.onImage,
+                      color: t.ink,
                       filled: saved,
                     ),
                   ),

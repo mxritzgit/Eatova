@@ -334,9 +334,10 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     // The clock is a SELECTION, so it speaks the one language that carries in
     // both palettes: filled = `ink`, label = `bg` (`SelectionTone`, P9-02).
     // `accent` — the obvious pick for the hand, and fine against the dial in
-    // both modes — is `lime` in dark and `forest` in light, and NO single
-    // token reads on both (ink 1.07 dark / 1.24 light), so the number on the
-    // hand would have needed the brightness branch repo_rules forbids.
+    // both modes — was `lime` in dark and `forest` in the August light
+    // palette, and NO single token read on both (ink 1.07 dark / 1.24 light),
+    // so the number on the hand would have needed the brightness branch
+    // repo_rules forbids.
     timePickerTheme: TimePickerThemeData(
       backgroundColor: t.surf,
       elevation: 0,
@@ -397,14 +398,20 @@ ThemeData buildEatovaTheme(Brightness brightness) {
 /// Native status and navigation bar styling for [theme]: a transparent
 /// status bar with icons readable on the page ground, and a navigation bar
 /// in the page color.
+///
+/// The navigation bar icons are set explicitly: `SystemUiOverlayStyle.dark`
+/// assumes a BLACK navigation bar and asks for light icons, which would
+/// vanish on the light page color painted here.
 SystemUiOverlayStyle eatovaSystemUiOverlayStyle(ThemeData theme) {
   final t = theme.extension<AppTokens>()!;
-  final base = theme.brightness == Brightness.dark
-      ? SystemUiOverlayStyle.light
-      : SystemUiOverlayStyle.dark;
+  final dark = theme.brightness == Brightness.dark;
+  final base = dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark;
   return base.copyWith(
     statusBarColor: Colors.transparent,
     systemNavigationBarColor: t.bg,
+    systemNavigationBarIconBrightness: dark
+        ? Brightness.light
+        : Brightness.dark,
     systemNavigationBarDividerColor: Colors.transparent,
   );
 }

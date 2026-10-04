@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
+import 'settings_controls.dart' show SettingsGlyphTile;
 
 // ---------------------------------------------------------------------------
 // The three settings picker sheets (sex, activity level, weight goal).
@@ -29,6 +30,13 @@ Future<BiologicalSex?> showSexPicker(
         for (final option in BiologicalSex.values)
           _PickerRow<BiologicalSex>(
             key: ValueKey<String>('settings-sex-${option.name}'),
+            leading: SettingsGlyphTile(
+              child: Icon(switch (option) {
+                BiologicalSex.male => Icons.male_rounded,
+                BiologicalSex.female => Icons.female_rounded,
+                BiologicalSex.neutral => Icons.person_outline_rounded,
+              }),
+            ),
             title: option.label(l10n),
             result: option,
             selected: value == option,
@@ -52,6 +60,12 @@ Future<ActivityLevel?> showActivityPicker(
         for (final option in ActivityLevel.values)
           _PickerRow<ActivityLevel>(
             key: ValueKey<String>('settings-activity-${option.name}'),
+            leading: SettingsGlyphTile(
+              child: _LevelMeter(
+                level: option.index + 1,
+                of: ActivityLevel.values.length,
+              ),
+            ),
             title: option.label(l10n),
             subtitle:
                 '${option.description(l10n)} · ×${formatPalFactor(option, l10n)}',
@@ -80,6 +94,9 @@ Future<WeightGoal?> showWeightGoalPicker(
       children: <Widget>[
         for (final option in WeightGoal.values)
           _PickerRow<WeightGoal>(
+            // No glyph tile here: the seven options with their outcome lines
+            // must fit one phone screen, and the title already names the
+            // direction.
             key: ValueKey<String>('settings-weight-goal-${option.name}'),
             // Title = the choice, subtitle = its consequence.
             title: option.menuLabel(l10n),
@@ -147,12 +164,17 @@ class _PickerRow<T> extends StatelessWidget {
     required this.result,
     required this.selected,
     this.subtitle,
+    this.leading,
   });
 
   final String title;
   final String? subtitle;
   final T result;
   final bool selected;
+
+  /// The option's glyph tile; dropped from about 1.6x text, where the long
+  /// option texts need the width.
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -163,6 +185,9 @@ class _PickerRow<T> extends StatelessWidget {
       child: Material(
         color: selected ? t.accentTint : Colors.transparent,
         child: SettingsRow(
+          leading: MediaQuery.textScalerOf(context).scale(15) > 24
+              ? null
+              : leading,
           title: title,
           subtitle: subtitle,
           chevron: false,
@@ -195,6 +220,39 @@ class _Radio extends StatelessWidget {
       child: selected
           ? Icon(Icons.check_rounded, size: 15, color: t.onSelected)
           : null,
+    );
+  }
+}
+
+/// An activity level as a small step meter: [level] of [of] bars filled,
+/// rising left to right. Drawn in the tile's glyph colour.
+class _LevelMeter extends StatelessWidget {
+  const _LevelMeter({required this.level, required this.of});
+
+  final int level;
+  final int of;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = IconTheme.of(context).color ?? context.t.inkMuted;
+    return SizedBox(
+      width: 22,
+      height: 18,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: <Widget>[
+          for (var i = 0; i < of; i++)
+            Container(
+              width: 3,
+              height: 6 + 12 * i / (of - 1),
+              decoration: BoxDecoration(
+                color: i < level ? ink : ink.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(1.5),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

@@ -1,35 +1,18 @@
-import 'dart:io';
-import 'dart:ui' as ui;
-
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/harness.dart';
 import 'support/onboarding_harness.dart';
 
-final _boundary = GlobalKey();
-Finder _key(String value) => find.byKey(ValueKey(value));
+// Every step in both palettes, both languages and at 1.0 and 2.0 text, plus
+// the plan's edit loop. The PNG evidence of the 2026-10-04 redesign lives in
+// test/design/onboarding_capture_test.dart.
 
-Future<void> _capture(WidgetTester tester, String name) async {
-  const directory = String.fromEnvironment('ONBOARDING_CAPTURE');
-  if (directory.isEmpty) return;
-  await tester.pumpAndSettle();
-  final boundary =
-      _boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-  await tester.runAsync(() async {
-    final image = await boundary.toImage();
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    final file = File('build/onboarding-preview/$directory/$name.png');
-    await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes!.buffer.asUint8List());
-    image.dispose();
-  });
-}
+Finder _key(String value) => find.byKey(ValueKey(value));
 
 Future<void> _mount(
   WidgetTester tester, {
@@ -47,20 +30,17 @@ Future<void> _mount(
   tester.view.padding = const FakeViewPadding(top: 44, bottom: 24);
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
-    RepaintBoundary(
-      key: _boundary,
-      child: localizedApp(
-        OnboardingScreen(
-          firstName: 'Alex',
-          initialProfile: profile,
-          onComplete: onComplete ?? (_) {},
-        ),
-        brightness: brightness,
-        locale: Locale(locale),
-        textScale: scale,
-        safeArea: false,
-        scaffold: false,
+    localizedApp(
+      OnboardingScreen(
+        firstName: 'Alex',
+        initialProfile: profile,
+        onComplete: onComplete ?? (_) {},
       ),
+      brightness: brightness,
+      locale: Locale(locale),
+      textScale: scale,
+      safeArea: false,
+      scaffold: false,
     ),
   );
   await tester.pumpAndSettle();
@@ -106,7 +86,7 @@ void main() {
   for (final brightness in Brightness.values) {
     for (final locale in ['de', 'en']) {
       for (final scale in [1.0, 2.0]) {
-        testWidgets('six groups ${brightness.name} $locale at $scale', (
+        testWidgets('eight steps ${brightness.name} $locale at $scale', (
           tester,
         ) async {
           await _mount(
@@ -115,22 +95,14 @@ void main() {
             locale: locale,
             scale: scale,
           );
+          // The profile loses weight, so every step of the flow is asked.
           for (final step in onboardingGroups) {
-            expect(_key('onboarding-step-$step'), findsOneWidget);
-            await _capture(tester, '${brightness.name}-$locale-$scale-$step');
+            expect(_key('onboarding-step-$step'), findsOneWidget, reason: step);
             expect(tester.takeException(), isNull);
-            if (step == 'goal') {
-              await tester.ensureVisible(_key('onboarding-pace-lose05kg'));
-              await tester.pumpAndSettle();
-              await _capture(tester, '${brightness.name}-$locale-$scale-pace');
-            }
             if (step == 'summary') {
               await tester.ensureVisible(_key('onboarding-edit-diet'));
               await tester.pumpAndSettle();
-              await _capture(
-                tester,
-                '${brightness.name}-$locale-$scale-review',
-              );
+              expect(tester.takeException(), isNull);
               break;
             }
             await _tap(tester, 'onboarding-next');
@@ -160,10 +132,11 @@ void main() {
         isNot(prior),
       );
 
-      // Editing the first group keeps system Back inside this review session.
+      // Editing an answer keeps system Back inside this review session.
       await _tap(tester, 'onboarding-edit-basics');
       expect(
-        tester.widget<PopScope<Object?>>(find.byType(PopScope<Object?>).last).canPop,
+        tester.widget<PopScope<Object?>>(find.byType(PopScope<Object?>).last)
+            .canPop,
         isFalse,
       );
       await _tap(tester, 'onboarding-back');
@@ -184,26 +157,46 @@ void main() {
     'goal reselection and direction changes preserve custom targets and pace',
     (tester) async {
       await _mount(tester, profile: const UserProfile(weightKg: 80));
-      await goToOnboarding(tester, 'goal');
       await _tap(tester, 'onboarding-goal-lose');
+      await goToOnboarding(tester, 'target');
       tester.widget<Slider>(_key('onboarding-target-slider')).onChanged!(70);
       await tester.pumpAndSettle();
+      await _tap(tester, 'onboarding-next');
       await _tap(tester, 'onboarding-pace-lose025kg');
+
+      // Reselecting the same direction keeps the custom target.
+      await goToOnboarding(tester, 'goal');
       await _tap(tester, 'onboarding-goal-lose');
+      await goToOnboarding(tester, 'target');
       expect(tester.widget<Text>(_key('onboarding-target-value')).data, '70');
+
+      await goToOnboarding(tester, 'goal');
       await _tap(tester, 'onboarding-goal-gain');
+      await goToOnboarding(tester, 'target');
       tester.widget<Slider>(_key('onboarding-target-slider')).onChanged!(90);
       await tester.pumpAndSettle();
+
+      // Maintain asks neither target nor pace.
+      await goToOnboarding(tester, 'goal');
       await _tap(tester, 'onboarding-goal-maintain');
+      await goToOnboarding(tester, 'activity');
+      await _tap(tester, 'onboarding-next');
+      expect(_key('onboarding-step-diet'), findsOneWidget);
       expect(_key('onboarding-target-section'), findsNothing);
-      expect(_key('onboarding-pace-gain025kg'), findsNothing);
+
+      await goToOnboarding(tester, 'goal');
       await _tap(tester, 'onboarding-goal-lose');
+      await goToOnboarding(tester, 'target');
       expect(tester.widget<Text>(_key('onboarding-target-value')).data, '70');
+      await _tap(tester, 'onboarding-next');
       expect(
         tester.getSemantics(_key('onboarding-pace-lose025kg')),
         isSemantics(isSelected: true),
       );
+
+      await goToOnboarding(tester, 'goal');
       await _tap(tester, 'onboarding-goal-gain');
+      await goToOnboarding(tester, 'target');
       expect(tester.widget<Text>(_key('onboarding-target-value')).data, '90');
     },
   );

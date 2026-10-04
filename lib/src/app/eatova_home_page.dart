@@ -406,6 +406,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           builder: (_) => GoalsScreen(
             profile: _store.profile,
             weightTrendKg: _store.weightLog.planWeightKg(clock.now()),
+            latestWeighInKg: _store.weightLog.latest?.weightKg,
             notificationsEnabled: _store.notificationsEnabled,
             // Resume may change permission while this route remains open.
             reminderState: _store.reminderState,

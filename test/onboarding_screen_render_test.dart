@@ -24,12 +24,12 @@ Future<void> _pumpOnboarding(
     );
 
 // DESIGN_REFACTOR §7.2 / §5: every screen renders in both brightnesses and at
-// 200 % system text without RenderFlex overflow. All six onboarding groups
+// 200 % system text without RenderFlex overflow. All eight onboarding steps
 // are walked because several are layout edge cases. Unlike the behaviour
 // tests, overflows are not swallowed here: they are the subject.
 void main() {
   /// A weight-loss goal makes the target and pace steps visible, so the flow
-  /// has all six groups. The 1 % deficit cap applies (858 instead of 1100
+  /// has all eight steps. The 1 % deficit cap applies (825 instead of 1100
   /// kcal/day), so the summary also carries the warning line.
   const vollerFlow = UserProfile(
     weightGoal: WeightGoal.lose1kg,
@@ -59,7 +59,16 @@ void main() {
       prior?.call(details);
     };
 
-    const schritte = <String>['basics', 'body', 'activity', 'goal', 'diet', 'summary'];
+    const schritte = <String>[
+      'goal',
+      'basics',
+      'body',
+      'activity',
+      'target',
+      'pace',
+      'diet',
+      'summary',
+    ];
     final gesehen = <String>[];
 
     try {
@@ -89,7 +98,7 @@ void main() {
     }
 
     expect(gesehen, schritte,
-        reason: '$fall hat nicht alle sechs Gruppen durchlaufen');
+        reason: '$fall hat nicht alle acht Schritte durchlaufen');
     expect(tester.takeException(), isNull);
     expect(
       overflows,
@@ -127,7 +136,7 @@ void main() {
 
   testWidgets('Weiter-Knopf und Zurueck-Pfeil bleiben Knoepfe',
       (tester) async {
-    // [PrimaryActionButton] and [SquareIconButton] are InkWells, not material
+    // [PrimaryActionButton] and [HeaderIconButton] are InkWells, not material
     // buttons: without explicit semantics a screen reader announces the only
     // two navigation controls of the onboarding as plain text.
     tester.view.physicalSize = const Size(1179, 2556);
@@ -162,7 +171,7 @@ void main() {
     );
     expect(
       tester.getSemantics(find.byKey(const ValueKey('onboarding-back')))
-          .getSemanticsData().tooltip,
+          .getSemanticsData().label,
       'Zurück',
     );
   });
@@ -205,7 +214,10 @@ void main() {
         textScale: 2.0,
       );
       await tester.pumpAndSettle();
-      for (var i = 0; i < 5; i++) {
+      while (find
+          .byKey(const ValueKey('onboarding-step-summary'))
+          .evaluate()
+          .isEmpty) {
         await tester.tap(find.byKey(const ValueKey('onboarding-next')));
         await tester.pumpAndSettle();
       }

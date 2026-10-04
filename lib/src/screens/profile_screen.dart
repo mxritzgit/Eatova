@@ -91,21 +91,30 @@ class ProfileScreen extends StatelessWidget {
             child: ReadableWidth(
               child: SingleChildScrollView(
                 key: const ValueKey('screen-profile'),
-                padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+                // Top gap = the tabs' header gap, like settings and goals.
+                padding: const EdgeInsets.fromLTRB(
+                  20,
+                  TabChrome.headerGap,
+                  20,
+                  32,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
+                    // The header of the account pages: round back and gear
+                    // on one row, the title at the tabs' scale below.
                     PageHeader(
                       title: l10n.profileTitle,
                       backKey: const ValueKey('profile-close'),
-                      trailing: SquareIconButton(
+                      prominent: true,
+                      trailing: HeaderIconButton(
                         key: const ValueKey('profile-open-settings'),
                         icon: Icons.settings_outlined,
                         semanticLabel: l10n.foodSemanticsSettings,
                         onTap: onOpenSettings,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 22),
                     // Hero: who, what for, and the streak as its display
                     // figure; the lifetime counts follow as quieter tiles.
                     IdentityCard(
@@ -118,7 +127,7 @@ class ProfileScreen extends StatelessWidget {
                           count: streak,
                           unit: l10n.coachStreakUnit(streak),
                           icon: Icons.local_fire_department_rounded,
-                          tone: t.activityInk,
+                          tone: t.activity,
                           framed: false,
                           large: true,
                         ),
@@ -128,21 +137,21 @@ class ProfileScreen extends StatelessWidget {
                           count: stats.longestStreak,
                           unit: l10n.coachStreakUnit(stats.longestStreak),
                           icon: Icons.emoji_events_rounded,
-                          tone: t.activityInk,
+                          tone: t.activity,
                           framed: false,
                           large: true,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     ProfileStatRow(
-                      gap: 10,
                       left: ProfileStatTile(
                         label: l10n.profileLabelMeals,
                         value: '${stats.mealsLogged}',
                         count: stats.mealsLogged,
                         unit: l10n.profileUnitTotal,
                         icon: Icons.restaurant_rounded,
+                        tone: t.protein,
                       ),
                       right: ProfileStatTile(
                         label: l10n.profileLabelWeighIns,
@@ -150,38 +159,36 @@ class ProfileScreen extends StatelessWidget {
                         count: stats.weightLogs,
                         unit: l10n.profileUnitEntries(stats.weightLogs),
                         icon: Icons.monitor_weight_outlined,
+                        tone: t.carbs,
                       ),
                     ),
-                    const SizedBox(height: 28),
-                    SectionHeading(title: l10n.profileSectionPlan),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 32),
+                    ProfileSectionLabel(l10n.profileSectionPlan),
                     GoalPlanCard(
                       profile: profile,
                       onEdit: onEditProfile,
                       currentWeightKg: weightLog.planWeightKg(clock.now()),
+                      latestWeighInKg: weightLog.latest?.weightKg,
                     ),
-                    const SizedBox(height: 28),
-                    SectionHeading(title: l10n.profileSectionBody),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 32),
+                    ProfileSectionLabel(l10n.profileSectionBody),
                     WeightCard(
                       profile: profile,
                       log: weightLog,
                       onLogWeight: onLogWeight,
                     ),
-                    const SizedBox(height: 10),
-                    BmiCard(profile: profile, log: weightLog),
-                    const SizedBox(height: 28),
-                    SectionHeading(title: l10n.profileSectionDailyGoals),
                     const SizedBox(height: 12),
+                    BmiCard(profile: profile, log: weightLog),
+                    const SizedBox(height: 32),
+                    ProfileSectionLabel(l10n.profileSectionDailyGoals),
                     GoalsCard(
                       profile: profile,
                       dailyKcal: dailyConsumedKcal,
                       dailySteps: dailySteps,
                       onEdit: onEditProfile,
                     ),
-                    const SizedBox(height: 28),
-                    SectionHeading(title: l10n.profileSectionConnections),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 32),
+                    ProfileSectionLabel(l10n.profileSectionConnections),
                     HealthConnectionCard(
                       healthConnect: healthConnect,
                       syncing: healthSyncing,

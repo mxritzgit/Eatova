@@ -98,7 +98,7 @@ class SettingsPlanHero extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: RadialGradient(
                         colors: <Color>[
-                          t.arcStart.withValues(alpha: 0.24),
+                          t.arcStart.withValues(alpha: 0.24 * t.glowStrength),
                           t.arcStart.withValues(alpha: 0),
                         ],
                       ),
@@ -128,21 +128,21 @@ class SettingsPlanHero extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        // Calculated or hand-set, as a glyph; the eyebrow
-                        // says it in words.
+                        // Calculated or hand-set, as a glyph on the rows'
+                        // icon tile; the eyebrow says it in words.
                         ExcludeSemantics(
                           child: Container(
-                            width: 34,
-                            height: 34,
+                            width: 40,
+                            height: 40,
                             decoration: BoxDecoration(
-                              color: t.accentTint,
-                              shape: BoxShape.circle,
+                              color: t.accentTintStrong,
+                              borderRadius: BorderRadius.circular(rChip),
                             ),
                             child: Icon(
                               manual
                                   ? Icons.edit_rounded
                                   : Icons.calculate_outlined,
-                              size: 17,
+                              size: 20,
                               color: t.accentText,
                             ),
                           ),

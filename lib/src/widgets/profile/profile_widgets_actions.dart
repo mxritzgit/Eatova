@@ -65,7 +65,7 @@ class HealthConnectionCard extends StatelessWidget {
         : l10n.profileHealthActionConnect;
 
     final action = isGranted
-        ? SquareIconButton(
+        ? HeaderIconButton(
             key: const ValueKey('profile-health-refresh'),
             icon: Icons.sync_rounded,
             semanticLabel: l10n.profileHealthRefreshSemantics,
@@ -88,12 +88,15 @@ class HealthConnectionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              IconTile(
-                icon: isGranted
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
+              IconTile.custom(
                 color: color,
-                size: 42,
+                size: 44,
+                child: Icon(
+                  isGranted
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_border_rounded,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -218,10 +221,10 @@ class _HealthConnectCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              IconTile(
-                icon: Icons.directions_walk_rounded,
+              IconTile.custom(
                 color: connected ? t.accent : t.ink2,
-                size: 42,
+                size: 44,
+                child: const Icon(Icons.directions_walk_rounded, size: 22),
               ),
               const SizedBox(width: 14),
               Expanded(

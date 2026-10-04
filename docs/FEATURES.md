@@ -11,7 +11,7 @@ Dated reviews describe what was present at their own checkpoint.
 
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
-| Account entry | Email/password and Google sign-in, code confirmation/recovery, six-step profile setup with editable summary | [Entry and onboarding](AUTH-ONBOARDING-DESIGN.md) |
+| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md) |
 | Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, history trends | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode; product search; manual per-100-g values and a chosen portion; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
@@ -27,7 +27,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
 | Coach workout log | `/log` (typed, dictated or from Training's "Tell the Coach instead") turns a described finished workout into a draft card; one of the daily Coach requests. "Add to history" opens the log editor prefilled, and its Add is the confirmation; the card then reads Added or Removed from history | [Log card](../lib/src/screens/coach/coach_workout_log.dart) |
 | Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals; a weekly check on Today proposes a calibrated calorie goal from logged intake and the weight trend, applied only after confirmation ([weight trend](WEIGHT-TREND.md)) | [Profile](../lib/src/screens/profile_screen.dart) |
-| Settings | Language (theme row hidden while dark-only), account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
+| Settings | Appearance (System, Light, Dark) and language, account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
 | Reminders | Local evening streak-at-risk notification, scheduled ahead; no server push channel | [Notifications](../lib/src/services/notification_service.dart) |
 
 ## Platform matrix
@@ -61,10 +61,11 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
 - Coach recipe/plan/log output is a proposal. Opening a card or receiving a
   reply does not silently adopt it; a `/log` workout enters the history only
   through the log editor's Add.
-- Initial setup groups personal details, body data, activity, goals and an
-  optional dietary preference into six screens, ending in an editable plan.
-  Completing it does not request notification permission; reminders require
-  the existing explicit opt-in. See [entry and onboarding](AUTH-ONBOARDING-DESIGN.md).
+- Initial setup asks the goal first, then personal details, body data and
+  activity; target weight and pace only for a weight goal; and an optional
+  dietary preference, ending in an editable plan. Completing it does not
+  request notification permission; reminders require the existing explicit
+  opt-in. See [onboarding](ONBOARDING-2026-10-04.md).
 - Completed workouts preserve a snapshot and actual values. Editing a source
   plan does not rewrite history. A paused checkpoint is local to the device;
   it is not a cross-device live workout session.
@@ -106,12 +107,13 @@ and [Backend](BACKEND.md) for persistence details.
 
 ## Current visual contracts
 
-Since the dark redesign (2026-09-28, PR #118) the app is dark-only (the light
-palette is dormant behind `kDarkOnly`), with Figtree for UI text, Bricolage
-Grotesque for display text and a floating glass tab bar. Today, Food, Recipes,
-Training and Coach have the redesigned tab roots; the recipe details, meal
-plan, shopping list, Training library/editor/player, entry sheets, calendar,
-account pages and auth keep their earlier structure on the dark tokens.
+Since the dark redesign (2026-09-28, PR #118) the app uses Figtree for UI
+text, Bricolage Grotesque for display text and a floating glass tab bar.
+Today, Food, Recipes, Training and Coach have the redesigned tab roots; the
+recipe details, meal plan, shopping list, Training library/editor/player,
+entry sheets, calendar, account pages and auth keep their earlier structure
+on the shared tokens. Since 2026-10-04 a light palette mirrors every dark
+token role and the app follows the display mode (System, Light, Dark).
 
 The [design guide index](README.md#design-contracts-and-previews) links to the
 current contracts and actual Flutter previews.

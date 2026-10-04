@@ -64,12 +64,8 @@ void main() {
     // This row hangs on the shell's LocaleScope and disappears SILENTLY if
     // the scope goes, so arriving is not enough.
     expect(find.byKey(const ValueKey('settings-language')), findsOneWidget);
-    // The appearance row hangs on the ThemeModeScope, which the shell only
-    // provides while the theme is user-selectable (not under kDarkOnly).
-    expect(
-      find.byKey(const ValueKey('settings-theme-mode')),
-      kDarkOnly ? findsNothing : findsOneWidget,
-    );
+    // Same for the appearance row: it hangs on the shell's ThemeModeScope.
+    expect(find.byKey(const ValueKey('settings-theme-mode')), findsOneWidget);
 
     // Same for the auth layer: password change, address change and account
     // deletion all vanish SILENTLY if the shell drops the repository.

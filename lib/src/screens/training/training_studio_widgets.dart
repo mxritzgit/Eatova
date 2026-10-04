@@ -21,7 +21,33 @@ int _decodeWidth(BoxConstraints constraints, double dpr) {
   return (logical * dpr).ceil().clamp(1, _studioImageSize.width.toInt());
 }
 
+/// Luminance gain of [studioDuotone]: the night-studio photo is mostly
+/// shadow, so its luminance is stretched before it is mapped onto the ramp.
+const double kStudioDuotoneGain = 2;
+
+/// A duotone: each pixel's luminance (times [kStudioDuotoneGain], clamped)
+/// picks a tone on the ramp from [shadow] to [highlight].
+ColorFilter studioDuotone(Color shadow, Color highlight) {
+  List<double> row(double from, double to) {
+    final span = (to - from) * kStudioDuotoneGain;
+    return [span * 0.2126, span * 0.7152, span * 0.0722, 0, from * 255];
+  }
+
+  return ColorFilter.matrix(<double>[
+    ...row(shadow.r, highlight.r),
+    ...row(shadow.g, highlight.g),
+    ...row(shadow.b, highlight.b),
+    ...<double>[0, 0, 0, 1, 0],
+  ]);
+}
+
 /// Bundled editorial artwork; it never represents a user's exercise or result.
+///
+/// The photo is a dark night studio. Faded into a light backdrop it turned
+/// into a grey fog, so on a light backdrop it is re-toned as a duotone from
+/// the hero-glow lavender (`arcStart`) to the backdrop itself: the plate
+/// stays a soft lavender print and the fades blend into the card. A dark
+/// backdrop shows the photo as shot.
 class TrainingStudioArtwork extends StatelessWidget {
   const TrainingStudioArtwork({super.key, this.backgroundColor});
 
@@ -31,22 +57,32 @@ class TrainingStudioArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final backdrop = backgroundColor ?? t.bg;
+    final toned =
+        ThemeData.estimateBrightnessForColor(backdrop) == Brightness.light;
+    Widget photo = LayoutBuilder(
+      builder: (context, constraints) => Image.asset(
+        trainingStudioImage,
+        fit: BoxFit.cover,
+        alignment: Alignment.centerRight,
+        cacheWidth: _decodeWidth(
+          constraints,
+          MediaQuery.devicePixelRatioOf(context),
+        ),
+        errorBuilder: (_, _, _) => ColoredBox(color: backdrop),
+      ),
+    );
+    if (toned) {
+      photo = ColorFiltered(
+        key: const ValueKey('training-studio-duotone'),
+        colorFilter: studioDuotone(t.arcStart, backdrop),
+        child: photo,
+      );
+    }
     return ExcludeSemantics(
       child: Stack(
         fit: StackFit.expand,
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) => Image.asset(
-              trainingStudioImage,
-              fit: BoxFit.cover,
-              alignment: Alignment.centerRight,
-              cacheWidth: _decodeWidth(
-                constraints,
-                MediaQuery.devicePixelRatioOf(context),
-              ),
-              errorBuilder: (_, _, _) => ColoredBox(color: backdrop),
-            ),
-          ),
+          photo,
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(

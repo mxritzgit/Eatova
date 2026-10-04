@@ -110,7 +110,7 @@ class IdentityCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
                     colors: <Color>[
-                      t.arcStart.withValues(alpha: 0.24),
+                      t.arcStart.withValues(alpha: 0.24 * t.glowStrength),
                       t.arcStart.withValues(alpha: 0),
                     ],
                   ),
@@ -164,7 +164,7 @@ class _HeroAvatar extends StatelessWidget {
           ),
           boxShadow: <BoxShadow>[
             BoxShadow(
-              color: t.accentGlow.withValues(alpha: 0.35),
+              color: t.accentGlow.withValues(alpha: 0.35 * t.glowStrength),
               blurRadius: 24,
               offset: const Offset(0, 8),
             ),
@@ -247,14 +247,31 @@ class GoalPlanCard extends StatelessWidget {
     required this.profile,
     this.onEdit,
     this.currentWeightKg,
+    this.latestWeighInKg,
   });
 
   final UserProfile profile;
   final VoidCallback? onEdit;
 
-  /// The plan weight ([WeightLog.planWeightKg]) for the "current" pole; null
+  /// The plan weight ([WeightLog.planWeightKg]) for the left pole; null
   /// without a fresh, in-range trend, when the profile weight stands in.
   final double? currentWeightKg;
+
+  /// The last weigh-in. With a trend pole it is named under it when it
+  /// reads differently, so "Trend 119.1" next to a fresh "117" explains
+  /// itself (owner report 2026-10-04).
+  final double? latestWeighInKg;
+
+  /// "Last weigh-in 117 kg" under a trend pole, or null when there is no
+  /// trend, no weigh-in, or both read the same at the shown precision.
+  String? _lastWeighInCaption(AppLocalizations l10n) {
+    final trend = currentWeightKg;
+    final latest = latestWeighInKg;
+    if (trend == null || latest == null) return null;
+    final shown = formatKgDe(latest, l10n);
+    if (shown == formatKgDe(trend, l10n)) return null;
+    return l10n.profileWeightLastWeighIn(shown);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -304,30 +321,31 @@ class GoalPlanCard extends StatelessWidget {
     // A directional goal carries the brand accent, "maintain" stays quiet.
     final accent = isMaintain ? t.ink2 : t.accent;
     final accentInk = isMaintain ? t.inkSoft : t.accentText;
+    final lastWeighIn = _lastWeighInCaption(l10n);
 
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 10, 18),
+      padding: const EdgeInsets.fromLTRB(18, 16, 8, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Row(
             children: <Widget>[
-              IconTile(
+              _profileTile(
                 // The arrow follows the two numbers below it (P9-08c) — it drew
                 // "80 → 90" under `trending_down` while it read the stored
                 // goal. Since `goal` is the effective one the two can no longer
                 // disagree; the read stays direct because these are the numbers
                 // right under the icon. `targetPointsUp` is null only when both
                 // weights are equal; the goal decides then.
-                icon: isMaintain
+                isMaintain
                     ? Icons.trending_flat_rounded
                     : (plan.targetPointsUp ?? goal.isGain)
                         ? Icons.trending_up_rounded
                         : Icons.trending_down_rounded,
-                color: accent,
-                size: 38,
+                isMaintain ? null : t.accent,
+                size: 44,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,7 +353,7 @@ class GoalPlanCard extends StatelessWidget {
                     Text(
                       l10n.profileGoalPlanTitle,
                       style: AppType.ui(
-                        15,
+                        16,
                         weight: FontWeight.w700,
                         color: t.ink,
                       ),
@@ -344,7 +362,7 @@ class GoalPlanCard extends StatelessWidget {
                     Text(
                       goal.label(l10n),
                       style: AppType.ui(
-                        12.5,
+                        13,
                         weight: FontWeight.w500,
                         color: t.ink2,
                       ),
@@ -353,117 +371,143 @@ class GoalPlanCard extends StatelessWidget {
                 ),
               ),
               if (onEdit != null)
-                // A11y: full 48 px tap area (not compact), glyph stays 18.
+                // A11y: full 48 px tap area (not compact), glyph stays 20.
                 IconButton(
                   key: const ValueKey('profile-goalplan-edit'),
                   onPressed: onEdit,
                   tooltip: l10n.profileGoalPlanEditTooltip,
-                  icon: const Icon(Icons.tune_rounded, size: 18),
+                  icon: const Icon(Icons.tune_rounded, size: 20),
                   color: accentInk,
                 ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
           Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            padding: const EdgeInsets.only(right: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Expanded(
-                  child: _WeightPole(
-                    label: l10n.profileWeightPoleCurrent,
-                    value: currentWeightKg == null
-                        ? '${plan.weightKg}'
-                        : formatKgDe(currentWeightKg!, l10n),
-                    color: t.ink,
-                    alignment: CrossAxisAlignment.start,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-                  child: _JourneyArrow(color: accent),
-                ),
-                Expanded(
-                  child: _WeightPole(
-                    label: isMaintain
-                        ? l10n.profileWeightPoleHold
-                        : l10n.profileWeightPoleTarget,
-                    value: '${plan.targetWeightKg}',
-                    color: accentInk,
-                    alignment: CrossAxisAlignment.end,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Divider(height: 1, thickness: 1, color: t.line),
-          ),
-          // paceWarning is not a separate text block here: the settings sheet
-          // (W3-04) already shows it, and repeating the three-liner would
-          // swamp the card. As a tooltip/semantics on the pace row it
-          // explains the number on demand.
-          _MaybeTooltip(
-            message: paceWarning,
-            child: _PlanRow(
-              icon: Icons.speed_rounded,
-              label: l10n.profilePlanChipPace,
-              value: pace,
-              valueColor: accentInk,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 30, right: 8),
-            child: Divider(height: 1, thickness: 1, color: t.line),
-          ),
-          _PlanRow(
-            icon: Icons.local_fire_department_rounded,
-            label: l10n.profilePlanChipDailyGoal,
-            value: '${plan.dailyKcalGoal} kcal',
-            valueColor: t.ink,
-          ),
-          if (!isMaintain && gap > 0) ...<Widget>[
-            const SizedBox(height: 6),
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: t.accentTint,
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: Row(
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: <Widget>[
-                    Icon(Icons.flag_rounded, color: t.accentText, size: 16),
-                    const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        weeks != null
-                            ? goalProgressWeeksText(
-                                l10n,
-                                gap: gap,
-                                weeks: weeks,
-                              )
-                            : l10n.profileGoalProgressNoWeeks(gap),
-                        style: AppType.ui(
-                          13,
-                          weight: FontWeight.w600,
-                          color: t.inkSoft,
-                          height: 1.35,
-                        ),
+                      child: _WeightPole(
+                        label: currentWeightKg == null
+                            ? l10n.profileWeightPoleCurrent
+                            : l10n.profileWeightPoleTrend,
+                        value: currentWeightKg == null
+                            ? '${plan.weightKg}'
+                            : formatKgDe(currentWeightKg!, l10n),
+                        color: t.ink,
+                        alignment: CrossAxisAlignment.start,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                      child: _JourneyArrow(color: accent),
+                    ),
+                    Expanded(
+                      child: _WeightPole(
+                        label: isMaintain
+                            ? l10n.profileWeightPoleHold
+                            : l10n.profileWeightPoleTarget,
+                        value: '${plan.targetWeightKg}',
+                        color: accentInk,
+                        alignment: CrossAxisAlignment.end,
                       ),
                     ),
                   ],
                 ),
-              ),
+                if (lastWeighIn != null) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.monitor_weight_outlined,
+                        size: 14,
+                        color: t.ink3,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          lastWeighIn,
+                          key: const ValueKey('profile-plan-last-weigh-in'),
+                          style: AppType.ui(
+                            12.5,
+                            weight: FontWeight.w500,
+                            color: t.ink2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 18),
+                // paceWarning is not a separate text block here: the goals
+                // page (W3-04) already shows it, and repeating the
+                // three-liner would swamp the card. As a tooltip/semantics on
+                // the pace figure it explains the number on demand.
+                _PlanFigures(
+                  pace: _MaybeTooltip(
+                    message: paceWarning,
+                    child: _PlanFigure(
+                      icon: Icons.speed_rounded,
+                      label: l10n.profilePlanChipPace,
+                      value: pace,
+                      valueColor: accentInk,
+                    ),
+                  ),
+                  dailyGoal: _PlanFigure(
+                    icon: Icons.local_fire_department_rounded,
+                    label: l10n.profilePlanChipDailyGoal,
+                    value: '${plan.dailyKcalGoal} kcal',
+                    valueColor: t.ink,
+                  ),
+                ),
+                if (!isMaintain && gap > 0) ...<Widget>[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: t.accentTint,
+                      borderRadius: BorderRadius.circular(rControl),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(
+                          Icons.flag_rounded,
+                          color: t.accentText,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            weeks != null
+                                ? goalProgressWeeksText(
+                                    l10n,
+                                    gap: gap,
+                                    weeks: weeks,
+                                  )
+                                : l10n.profileGoalProgressNoWeeks(gap),
+                            style: AppType.ui(
+                              13,
+                              weight: FontWeight.w600,
+                              color: t.inkSoft,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -507,7 +551,11 @@ class _WeightPole extends StatelessWidget {
     return Column(
       crossAxisAlignment: alignment,
       children: <Widget>[
-        Text(label.toUpperCase(), style: AppType.eyebrow(t.ink2, size: 10.5)),
+        Text(
+          label.toUpperCase(),
+          semanticsLabel: label,
+          style: AppType.eyebrow(t.ink2, size: 10.5),
+        ),
         const SizedBox(height: 6),
         // FittedBox: the big number grows with the system font, the half card
         // width does not.
@@ -587,9 +635,44 @@ class _JourneyArrow extends StatelessWidget {
   }
 }
 
-/// A plan figure as a row: icon, label, value right-aligned.
-class _PlanRow extends StatelessWidget {
-  const _PlanRow({
+/// Pace and daily goal side by side, stacked when large text needs the
+/// width. Equal heights, so the two capsules read as one pair.
+class _PlanFigures extends StatelessWidget {
+  const _PlanFigures({required this.pace, required this.dailyGoal});
+
+  final Widget pace;
+  final Widget dailyGoal;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 10.0;
+        final minWidth = MediaQuery.textScalerOf(context).scale(130);
+        if (constraints.maxWidth < minWidth * 2 + gap) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[pace, const SizedBox(height: gap), dailyGoal],
+          );
+        }
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Expanded(child: pace),
+              const SizedBox(width: gap),
+              Expanded(child: dailyGoal),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One plan figure as a soft capsule: glyph and label over the value.
+class _PlanFigure extends StatelessWidget {
+  const _PlanFigure({
     required this.icon,
     required this.label,
     required this.value,
@@ -604,32 +687,36 @@ class _PlanRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 13, 8, 13),
-      child: Row(
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+      decoration: BoxDecoration(
+        color: t.surf2,
+        borderRadius: BorderRadius.circular(rControl),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(icon, color: t.ink2, size: 18),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _SpreadRow(
-              start: Text(
-                label,
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w500,
-                  color: t.ink2,
+          Row(
+            children: <Widget>[
+              Icon(icon, color: t.ink2, size: 15),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  style: AppType.ui(
+                    12.5,
+                    weight: FontWeight.w600,
+                    color: t.ink2,
+                  ),
                 ),
               ),
-              end: Text(
-                value,
-                textAlign: TextAlign.right,
-                style: AppType.ui(
-                  14.5,
-                  weight: FontWeight.w700,
-                  color: valueColor,
-                ),
-              ),
-            ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: AppType.ui(16, weight: FontWeight.w700, color: valueColor),
           ),
         ],
       ),

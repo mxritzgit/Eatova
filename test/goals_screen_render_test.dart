@@ -14,6 +14,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
+import 'package:eatova/src/widgets/design/design.dart' show SettingsRow;
 
 import 'support/harness.dart';
 
@@ -308,5 +309,51 @@ void main() {
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-imprint-link')), findsOneWidget);
+  });
+
+  // --- Redesign 2026-10-04 --------------------------------------------------
+
+  for (final locale in const <Locale>[Locale('de'), Locale('en')]) {
+    testWidgets(
+        'keine Zeile wiederholt die Ueberschrift ihres Abschnitts '
+        '(${locale.languageCode})', (tester) async {
+      // "REMINDERS" over a row titled "Reminders" said the same thing twice.
+      final handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        brightness: Brightness.dark,
+        locale: locale,
+        reminderState: ReminderState.active,
+      );
+      final abschnitte = find.semantics
+          .byPredicate((node) => node.flagsCollection.isHeader)
+          .evaluate()
+          .map((node) => node.label.toLowerCase())
+          .toSet();
+      handle.dispose();
+      expect(abschnitte, isNotEmpty, reason: 'precondition: section headings');
+      final titel = tester
+          .widgetList<SettingsRow>(find.byType(SettingsRow))
+          .map((row) => row.title.toLowerCase());
+      for (final t in titel) {
+        expect(abschnitte, isNot(contains(t)), reason: 'row "$t"');
+      }
+    });
+  }
+
+  testWidgets('das Geschlecht steht als Wort da, nicht als Enum-Name',
+      (tester) async {
+    await _pump(
+      tester,
+      brightness: Brightness.dark,
+      profile: const UserProfile(sex: BiologicalSex.female),
+    );
+    final zeile = find.byKey(const ValueKey('settings-sex'));
+    expect(
+      find.descendant(of: zeile, matching: find.text('Weiblich')),
+      findsOneWidget,
+    );
+    expect(find.text('weiblich'), findsNothing);
+    expect(find.text('female'), findsNothing);
   });
 }

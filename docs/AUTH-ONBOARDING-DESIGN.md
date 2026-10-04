@@ -1,10 +1,11 @@
 # Authentication and onboarding
 
 > **Palette and typography dated.** Since the dark redesign (2026-09-28,
-> PR #118) the entry and setup screens only inherit the dark tokens, Figtree
-> (which replaced Archivo) and Bricolage Grotesque; the app is dark-only, so
-> the light previews below no longer match. Flow, behavior and boundaries are
-> unchanged.
+> PR #118) the entry screens only inherit the dark tokens, Figtree (which
+> replaced Archivo) and Bricolage Grotesque; the app is dark-only, so the
+> light previews below no longer match. The profile setup was rebuilt in the
+> dark-redesign language on 2026-10-04:
+> [Onboarding: questions and redesign](ONBOARDING-2026-10-04.md).
 
 ## Scope and visual direction
 
@@ -27,7 +28,7 @@ Eatova wordmark and a short localized headline. Login reads “Wieder da.” /
 “Welcome back.”; registration reads “Dein Start.” / “Make it yours.”. The
 wordmark, heading and fields share the same start edge inside the bounded,
 scrollable form. This replaces the September 16 filled hero and feature row;
-the six-step profile setup below is unchanged.
+the profile setup was not part of that revision.
 
 [AuthEntryHeader and AuthModeSelector](../lib/src/widgets/auth/auth_entry_header.dart)
 define the entry behavior:
@@ -68,25 +69,22 @@ checks both widget geometry and rendered ring/lettering pixels through loading,
 welcome and reduced-motion states. The auth form above remains deliberately
 start-aligned; the full-screen welcome mark is centered.
 
-## Six-step setup
+## Profile setup
 
-The previous flow could require eleven screens. The new flow groups related
-questions and removes the passive introductory screen:
-
-1. **Basics:** the personal details used by the existing energy calculation.
-2. **Body:** height and current weight together.
-3. **Activity:** a practical description of the usual activity level.
-4. **Goal:** maintain, lose or gain; target and pace appear when applicable.
-5. **Diet:** optional dietary preference, with a clear way to continue without
-   choosing a restriction.
-6. **Plan:** review the calculated target and edit earlier answers before
-   completing setup.
+The September 16 six-step setup (basics, body, activity, goal with inline
+target and pace, diet, plan) was rethought and rebuilt on 2026-10-04: the
+goal comes first, target and pace are their own steps after the activity,
+and the plan shows the payoff. Maintaining asks six questions, losing or
+gaining eight. The audit of every question (what it drives, kept, moved or
+not asked, and why), the flow and the design are recorded in
+[Onboarding: questions and redesign](ONBOARDING-2026-10-04.md).
 
 Related controls remain scrollable on small screens and with enlarged text.
-Back navigation preserves the draft. A summary edit returns directly to the
-summary, without repeating the remaining steps. Numeric ranges come from
-`ProfileLimits`, and goal consistency and energy estimates use the existing
-model/calculator. Reselecting the current goal must preserve a custom target.
+Back navigation preserves the draft. A plan edit returns to the plan after
+its question; a goal edit first asks the target and pace it needs. Numeric
+ranges come from `ProfileLimits`, and goal consistency and energy estimates
+use the existing model/calculator. Reselecting the current goal must preserve
+a custom target.
 
 Completing setup does not opt into reminders or trigger a notification
 permission prompt. The existing explicit reminder setting remains available.
@@ -113,27 +111,22 @@ There is no extra permissions tour, upsell or forced tutorial.
 ### Rendered previews
 
 These are Flutter test frames with bundled production fonts and synthetic
-profiles, not device screenshots. Content scrolls; the plan's edit rows are
-shown separately from its first viewport. Entry and welcome frames were
-refreshed on September 17. The profile setup frames are from September 16 and
-still describe the unchanged six-step flow. The previous entry composition and
-its verification remain in the dated handoff and Git history.
+profiles, not device screenshots. Entry and welcome frames were refreshed on
+September 17. The profile setup previews of the 2026-10-04 redesign are in the
+[onboarding record](ONBOARDING-2026-10-04.md#design). The previous entry
+composition, the September 16 setup frames and their verification remain in
+the dated handoff and Git history.
 
 | Login, September 17 | Signup, September 17 | Welcome, September 17 |
 | --- | --- | --- |
 | ![Login, light theme](auth-onboarding-preview/login-light.png) | ![Signup, dark theme](auth-onboarding-preview/signup-dark.png) | ![Centered signed-in welcome, light theme](auth-onboarding-preview/welcome-light.png) |
-
-| Profile setup, September 16 | Profile setup, September 16 |
-| --- | --- |
-| ![Basics, light theme](auth-onboarding-preview/basics-light.png) | ![Body details, dark theme, English](auth-onboarding-preview/body-dark-en.png) |
-| ![Plan, dark theme](auth-onboarding-preview/summary-dark.png) | ![Editable answers, light theme](auth-onboarding-preview/review-light.png) |
 
 Reproduce the complete theme/language/text-size matrix locally:
 
 ```sh
 flutter test test/auth_entry_design_test.dart --dart-define=AUTH_PREVIEW_DIR=build/auth-entry-preview
 flutter test test/widgets/welcome_screen_centering_test.dart --dart-define=WELCOME_PREVIEW_DIR=build/welcome-preview
-flutter test test/onboarding_redesign_test.dart --dart-define=ONBOARDING_CAPTURE=review
+flutter test test/design/onboarding_capture_test.dart --dart-define=DARK_REDESIGN_CAPTURE=true
 ```
 
 ### Checks and boundaries

@@ -105,7 +105,7 @@ effective model independently of a client build. See
 | --- | --- |
 | Client | Flutter **3.47.2**, Dart **3.13.2**; Android and iOS |
 | Localization | Flutter `gen_l10n`, German/English ARB files |
-| UI | Shared theme tokens, Bricolage Grotesque/Figtree, original vector icons, floating glass tab bar, dark theme (light theme and its setting dormant behind `kDarkOnly`) |
+| UI | Shared theme tokens, Bricolage Grotesque/Figtree, original vector icons, floating glass tab bar, light and dark theme (follows the device by default) |
 | Backend | Supabase Auth, Postgres with RLS, Deno Edge Functions |
 | Product lookup | Self-hosted Meilisearch/Open Food Facts index; public OFF fallback |
 | AI | OpenRouter with separate Gemini text/vision and image models |

@@ -60,7 +60,7 @@ earlier baseline in the same area.
 | Coach | No separate contract; see the [handoff](PROJECT_HANDOFF.md#dark-redesign-of-the-five-tabs-2026-09-28-to-2026-09-30) and `test/design/coach_redesign_capture_test.dart` |
 | Shared navigation and icons | [Gestures](GESTURE-NAVIGATION.md), [original icon family](ICON-FAMILY-2026-09-14.md) |
 | Account and headers | [App polish](APP-POLISH-2026-09-13.md) |
-| Login, signup and onboarding | [Entry and six-step setup](AUTH-ONBOARDING-DESIGN.md) |
+| Login, signup and onboarding | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding questions and redesign (2026-10-04)](ONBOARDING-2026-10-04.md) |
 
 Current tab renders: [Today](dark-redesign-preview/today.png),
 [Food](dark-redesign-preview/food.png), [Recipes](dark-redesign-preview/recipes.png)

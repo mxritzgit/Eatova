@@ -18,7 +18,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
-import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import '../flows/flow_test_helpers.dart' show storeOf;
@@ -86,7 +85,7 @@ void main() {
                 )
                 .first,
           );
-          expect(scaffold.backgroundColor, AppTokens.dark.bg);
+          expect(scaffold.backgroundColor, designCaptureTokens.bg);
           expect(scaffold.extendBody, isTrue);
 
           // The glass bar floats 14 px from the sides and 22 px above the

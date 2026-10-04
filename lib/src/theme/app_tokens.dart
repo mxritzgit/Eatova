@@ -1,15 +1,17 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
 // Eatova design tokens (dark redesign, 2026-09-28)
 //
-// Colors live as a ThemeExtension read via `context.t`. The app currently
-// renders [AppTokens.dark] only (`kDarkOnly` in eatova_app.dart);
-// [AppTokens.light] stays dormant so switching back is a one-line change.
+// Colors live as a ThemeExtension read via `context.t`. The app follows the
+// display mode (ThemeModeController: system, light or dark).
 //
 // The dark palette is the design's: page #09090C, cards #131318, a violet
 // accent (#B9A5FF fill, #C8B8FF text), macro colors plus lighter "ink" tints
-// for text and icons on dark cards.
+// for text and icons on dark cards. [AppTokens.light] mirrors every role on
+// an off-white page with white cards (2026-10-04).
 //
 // Three locks still hold:
 //   1. COLOR – the accent (legacy names `lime`/`forest`) carries brand and
@@ -56,6 +58,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.arcTrack,
     required this.chartViolet,
     required this.orbLight,
+    required this.orbBody,
     required this.orbMid,
     required this.orbDeep,
     required this.protein,
@@ -88,6 +91,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.slotDinnerInk,
     required this.slotSnackTint,
     required this.slotSnackInk,
+    required this.knob,
+    required this.knobRing,
+    required this.glowStrength,
   });
 
   /// Page ground (scaffold).
@@ -106,8 +112,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Quiet well behind illustrations and photos on a card.
   final Color surfWell;
 
-  /// Translucent tint for icon tiles and bar tracks; on a card it lands on
-  /// the design's track tone #24232D.
+  /// Translucent tint for icon tiles and bar tracks; on a dark card it lands
+  /// on the design's track tone #24232D.
   final Color tile;
 
   /// Dividers and card borders (1 px, deliberately faint).
@@ -195,8 +201,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Deep violet for chart bars.
   final Color chartViolet;
 
-  /// Coach orb gradient stops around [lime]: highlight, body, shadow.
-  final Color orbLight, orbMid, orbDeep;
+  /// Coach orb gradient stops: highlight, lit body, mid tone, shadow. The
+  /// body is the lavender fill in dark; the light fill is a deep iris, which
+  /// flattened the sphere into a dark ball, so the body is its own token.
+  final Color orbLight, orbBody, orbMid, orbDeep;
 
   /// Macro encoding. Never an interaction color, never decoration.
   final Color protein, carbs, fat;
@@ -204,7 +212,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Nutrient-specific tint surfaces; use the matching stroke for progress.
   final Color proteinSurface, carbsSurface, fatSurface;
 
-  /// Macro tones for text and icons on dark surfaces and on their own tints.
+  /// Macro tones for text and icons on cards and on their own tints.
   final Color proteinInk, carbsInk, fatInk;
 
   /// Activity/energy: bar fill, text/icon tone and translucent tile tint.
@@ -221,8 +229,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
   Color get imageAccent => const Color(0xFFD2C6FF);
 
   /// Fourth categorical color for the snack slot (the macro tones are reserved
-  /// for nutrients, and a grey snack would read as disabled). In the dark
-  /// palette it is the accent itself, as in the design; the slot icon tiles
+  /// for nutrients, and a grey snack would read as disabled). In both
+  /// palettes it is the accent itself, as in the design; the slot icon tiles
   /// use their own `slotSnack*` tokens.
   final Color snack;
 
@@ -246,8 +254,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Own tones, deliberately none of surf/surf2/bg: the capsule must stay
   /// visible on a card (surf) AND on a sheet (bg). The design draws its
   /// inputs as #1B1A22 plus a white hairline; without the hairline that fill
-  /// would vanish on a card, so the dark capsule is lifted to ≥ 1.2:1 there.
-  /// Constraint: `ink2` (hint) needs 4.5:1 on all three.
+  /// would vanish on a card, so the dark capsule is lifted to ≥ 1.2:1 there;
+  /// the light one sits a step below the page. Constraint: `ink2` (hint)
+  /// needs 4.5:1 on all three.
   final Color field;
 
   /// Input capsule with focus — always LIGHTER than [field], in both modes,
@@ -269,75 +278,119 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color slotDinnerTint, slotDinnerInk;
   final Color slotSnackTint, slotSnackInk;
 
-  /// Dormant since the dark-only rollout (2026-09-28); kept compiling so the
-  /// light theme can come back with the `kDarkOnly` switch.
+  /// Marker knob on a track and the ring around it: the calorie arc's tip,
+  /// the BMI scale's marker. Dark draws a near-white dot (no ring); on a
+  /// white card that dot inverted into a near-black one, so light uses a
+  /// white knob with an accent ring, which also reads on a pale track.
+  final Color knob, knobRing;
+
+  /// Scales the alpha of the decorative violet glows (the light behind the
+  /// heroes, the avatar and the auth header). 1 in dark, where they read as
+  /// light; lower in light, where the same tint reads as a lavender cloud.
+  final double glowStrength;
+
+  /// The light palette (2026-10-04): every dark role mirrored on a soft
+  /// off-white page with white cards. Same lavender family, same slot hues,
+  /// same macro hue identity; the tones are deepened until they carry the
+  /// same contrast roles as in the dark palette (pinned per pair in
+  /// test/theme/app_tokens_test.dart). Depth comes from hairlines and soft
+  /// indigo shadows instead of dark glows.
   static const AppTokens light = AppTokens(
-    bg: Color(0xFFF8F8FC),
+    // Page #F4F3F8 under white cards (1.11:1): a calm grouped-list ground.
+    bg: Color(0xFFF4F3F8),
     surf: Color(0xFFFFFFFF),
-    surf2: Color(0xFFF0EEF6),
-    surfRaised: Color(0xFFF4F2F9),
-    surfWell: Color(0xFFEFEDF5),
-    tile: Color(0x0D16151F),
-    line: Color(0x1816151F),
-    lineStrong: Color(0x2416151F),
-    navGlass: Color(0xD6FFFFFF),
-    ink: Color(0xFF16151F),
-    inkSoft: Color(0xFF1F1E29),
-    inkMuted: Color(0xFF2E2C38),
-    ink2: Color(0xFF625F6D),
-    ink3: Color(0xFF6E6B7A),
-    inkDisabled: Color(0xFFA9A6B4),
-    inkFaint: Color(0xFFC9C6D2),
-    forest: Color(0xFFEAE5FF),
-    onForest: Color(0xFF090812),
-    lime: Color(0xFF6550A8),
+    // Offset surfaces step DOWN from white where the dark ones step up.
+    surf2: Color(0xFFEFEDF5),
+    surfRaised: Color(0xFFF6F5FA),
+    surfWell: Color(0xFFF9F8FC),
+    // 6 % of #2E2A55: #F3F2F5 on a card, #E8E7EE on the page.
+    tile: Color(0x0F2E2A55),
+    // 9 % / 14 % of #2E2A45: hairlines of 1.18:1 / 1.27:1 on a card.
+    line: Color(0x172E2A45),
+    lineStrong: Color(0x242E2A45),
+    // White glass at 86 % over the blur.
+    navGlass: Color(0xDBFFFFFF),
+    ink: Color(0xFF17151F),
+    inkSoft: Color(0xFF24222D),
+    inkMuted: Color(0xFF363341),
+    // ink2 holds 4.5:1 on every ground and field fill (5.4:1 on `field`);
+    // ink3 holds it on bg/surf/surf2/surfRaised/surfWell and the nav glass.
+    ink2: Color(0xFF5C5868),
+    ink3: Color(0xFF6B6876),
+    inkDisabled: Color(0xFF9F9CAA),
+    inkFaint: Color(0xFFCBC8D4),
+    // The accent fill at 16 % pre-mixed on the white card, like the dark
+    // `forest`. `onForest` is a shade darker than `ink`, so muted 60 % text
+    // still reaches 4.58:1 on it.
+    forest: Color(0xFFE5E1F8),
+    onForest: Color(0xFF110F1A),
+    // Iris #5C42D2, the lavender deepened: white text 6.64:1 (4.71:1 at the
+    // 78 % quiet label), the fill 6.0:1 against the page as a selection
+    // state. `accentText` goes one step deeper for small text (8.0:1).
+    lime: Color(0xFF5C42D2),
     onLime: Color(0xFFFFFFFF),
-    onAccentMuted: Color(0xFFE4DDFF),
-    accent: Color(0xFF6550A8),
-    accentText: Color(0xFF6550A8),
-    accentTint: Color(0x1A6550A8),
-    accentTintStrong: Color(0x216550A8),
-    accentGlow: Color(0x406550A8),
-    progressAccent: Color(0xFF9782DC),
-    arcStart: Color(0xFF6550A8),
-    // Same hue as before (#B7A6F0, 1.77:1); 3.21:1 on arcTrack (WCAG 1.4.11),
-    // arcStart is 5.26:1, so the gradient still lightens towards the end.
-    arcEnd: Color(0xFF8870D8),
-    arcTrack: Color(0xFFEAE7F0),
-    chartViolet: Color(0xFFD7CFF2),
-    orbLight: Color(0xFFF1ECFF),
-    orbMid: Color(0xFF6A4BF0),
+    onAccentMuted: Color(0xFFE2DAFF),
+    accent: Color(0xFF5C42D2),
+    accentText: Color(0xFF5134C2),
+    accentTint: Color(0x1A5C42D2),
+    accentTintStrong: Color(0x245C42D2),
+    // A soft violet shadow, not a dark glow.
+    accentGlow: Color(0x405C42D2),
+    progressAccent: Color(0xFF7A62E4),
+    // Mirrors the dark arc: the tip is the strongest stop. Both ≥ 3:1 on the
+    // track (3.17:1 / 5.69:1); `arcStart` also tints the hero glows.
+    arcStart: Color(0xFF8A70E8),
+    arcEnd: Color(0xFF5B3FD3),
+    arcTrack: Color(0xFFECEAF3),
+    chartViolet: Color(0xFFD2C9F4),
+    orbLight: Color(0xFFF4F0FF),
+    // 60 % from the highlight to arcStart: a lit lavender on the light page.
+    orbBody: Color(0xFFB4A3F1),
+    orbMid: Color(0xFF5A3EE0),
     orbDeep: Color(0xFF2A1B66),
-    protein: Color(0xFF31845A),
-    carbs: Color(0xFF2887A0),
-    fat: Color(0xFFA97917),
-    proteinSurface: Color(0xFFDDF5E4),
-    carbsSurface: Color(0xFFDDF3FC),
-    fatSurface: Color(0xFFFFEFC1),
-    proteinInk: Color(0xFF2E7D55),
-    carbsInk: Color(0xFF1F6F85),
-    fatInk: Color(0xFF8A6212),
-    activity: Color(0xFFE07A2E),
-    activityInk: Color(0xFFA5520F),
-    activityTint: Color(0x24FF914D),
-    success: Color(0xFF2E7D55),
-    snack: Color(0xFF99718F),
-    danger: Color(0xFFB23A28),
-    warning: Color(0xFF8A6212),
-    shadowTint: Color(0x1416151F),
-    shadowFloat: Color(0x2416151F),
-    field: Color(0xFFEAE7F0),
-    fieldFocus: Color(0xFFF2EFF8),
-    fieldError: Color(0xFFF9EDE7),
-    scrim: Color(0x8C16151F),
-    slotBreakfastTint: Color(0x1F4697E2),
-    slotBreakfastInk: Color(0xFF1F6F85),
-    slotLunchTint: Color(0x1F1DB071),
-    slotLunchInk: Color(0xFF2E7D55),
-    slotDinnerTint: Color(0x24D57C11),
-    slotDinnerInk: Color(0xFF8A6212),
-    slotSnackTint: Color(0x1F6550A8),
-    slotSnackInk: Color(0xFF6550A8),
+    // Macro hues deepened into the graphics window: ≥ 3:1 on page, card and
+    // bar track, deliberately under 4.5:1 as text (the *Ink tones read).
+    protein: Color(0xFF16925B),
+    carbs: Color(0xFF2D7DD2),
+    fat: Color(0xFFC06A08),
+    // Macro tints (12 %, fat 14 %) pre-mixed on the white card.
+    proteinSurface: Color(0xFFE3F2EB),
+    carbsSurface: Color(0xFFE6EFFA),
+    fatSurface: Color(0xFFF6EADC),
+    proteinInk: Color(0xFF0F7146),
+    carbsInk: Color(0xFF1D5FAA),
+    fatInk: Color(0xFF94500A),
+    activity: Color(0xFFDB6A1C),
+    activityInk: Color(0xFFA34A0A),
+    activityTint: Color(0x1FDB6A1C),
+    success: Color(0xFF14774A),
+    // As in the dark palette, the snack slot carries the accent.
+    snack: Color(0xFF5C42D2),
+    // Both stay ≥ 4.5:1 as unboxed text on the page and ≥ 3:1 as a glyph
+    // on their own 10–16 % fills.
+    danger: Color(0xFFB53327),
+    warning: Color(0xFF94600A),
+    // Soft indigo shadows (10 % raised / 15 % floating), never black.
+    shadowTint: Color(0x1A1C1833),
+    shadowFloat: Color(0x261C1833),
+    // Rest capsule 1.28:1 on a card and 1.16:1 on a sheet; focus lightens it
+    // towards the page (1.07:1 step), error is `danger` at 14 % on white.
+    field: Color(0xFFE4E2EB),
+    fieldFocus: Color(0xFFEBE9F1),
+    fieldError: Color(0xFFF5E2E1),
+    scrim: Color(0x5217151F),
+    // Slot tints (12 %, dinner 14 %) with the matching *Ink glyphs.
+    slotBreakfastTint: Color(0x1F2D7DD2),
+    slotBreakfastInk: Color(0xFF1D5FAA),
+    slotLunchTint: Color(0x1F16925B),
+    slotLunchInk: Color(0xFF0F7146),
+    slotDinnerTint: Color(0x24C06A08),
+    slotDinnerInk: Color(0xFF94500A),
+    slotSnackTint: Color(0x1F5C42D2),
+    slotSnackInk: Color(0xFF5134C2),
+    knob: Color(0xFFFFFFFF),
+    knobRing: Color(0xFF5C42D2),
+    glowStrength: 0.45,
   );
 
   static const AppTokens dark = AppTokens(
@@ -379,6 +432,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
     arcTrack: Color(0xFF24212F),
     chartViolet: Color(0xFF3A3354),
     orbLight: Color(0xFFF1ECFF),
+    // The accent fill, as in the design.
+    orbBody: Color(0xFFB9A5FF),
     orbMid: Color(0xFF6A4BF0),
     orbDeep: Color(0xFF2A1B66),
     protein: Color(0xFF1DB071),
@@ -416,6 +471,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     slotDinnerInk: Color(0xFFFFB866),
     slotSnackTint: Color(0x29B9A5FF),
     slotSnackInk: Color(0xFFC8B8FF),
+    // The design's knob is `ink`; no ring.
+    knob: Color(0xFFF5F3FA),
+    knobRing: Color(0x00B9A5FF),
+    glowStrength: 1,
   );
 
   /// Tokens of the nearest theme. Throws deliberately when the extension is
@@ -467,6 +526,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? arcTrack,
     Color? chartViolet,
     Color? orbLight,
+    Color? orbBody,
     Color? orbMid,
     Color? orbDeep,
     Color? protein,
@@ -499,6 +559,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? slotDinnerInk,
     Color? slotSnackTint,
     Color? slotSnackInk,
+    Color? knob,
+    Color? knobRing,
+    double? glowStrength,
   }) {
     return AppTokens(
       bg: bg ?? this.bg,
@@ -533,6 +596,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       arcTrack: arcTrack ?? this.arcTrack,
       chartViolet: chartViolet ?? this.chartViolet,
       orbLight: orbLight ?? this.orbLight,
+      orbBody: orbBody ?? this.orbBody,
       orbMid: orbMid ?? this.orbMid,
       orbDeep: orbDeep ?? this.orbDeep,
       protein: protein ?? this.protein,
@@ -565,6 +629,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
       slotDinnerInk: slotDinnerInk ?? this.slotDinnerInk,
       slotSnackTint: slotSnackTint ?? this.slotSnackTint,
       slotSnackInk: slotSnackInk ?? this.slotSnackInk,
+      knob: knob ?? this.knob,
+      knobRing: knobRing ?? this.knobRing,
+      glowStrength: glowStrength ?? this.glowStrength,
     );
   }
 
@@ -605,6 +672,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       arcTrack: c(arcTrack, other.arcTrack),
       chartViolet: c(chartViolet, other.chartViolet),
       orbLight: c(orbLight, other.orbLight),
+      orbBody: c(orbBody, other.orbBody),
       orbMid: c(orbMid, other.orbMid),
       orbDeep: c(orbDeep, other.orbDeep),
       protein: c(protein, other.protein),
@@ -637,6 +705,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
       slotDinnerInk: c(slotDinnerInk, other.slotDinnerInk),
       slotSnackTint: c(slotSnackTint, other.slotSnackTint),
       slotSnackInk: c(slotSnackInk, other.slotSnackInk),
+      knob: c(knob, other.knob),
+      knobRing: c(knobRing, other.knobRing),
+      glowStrength: lerpDouble(glowStrength, other.glowStrength, t)!,
     );
   }
 }
@@ -692,12 +763,14 @@ List<BoxShadow> softShadow(AppTokens t) => <BoxShadow>[
   ),
 ];
 
-/// Design shadow for raised cards and controls: `0 10px 28px` black 50 %.
+/// Design shadow for raised cards and controls: `0 10px 28px`, black 50 %
+/// in dark, a 10 % indigo in light.
 List<BoxShadow> raisedShadow(AppTokens t) => <BoxShadow>[
   BoxShadow(color: t.shadowTint, blurRadius: 28, offset: const Offset(0, 10)),
 ];
 
-/// Design shadow for floating chrome (the nav bar): `0 12px 32px` black 55 %.
+/// Design shadow for floating chrome (the nav bar): `0 12px 32px`, black
+/// 55 % in dark, a 15 % indigo in light.
 List<BoxShadow> floatingShadow(AppTokens t) => <BoxShadow>[
   BoxShadow(color: t.shadowFloat, blurRadius: 32, offset: const Offset(0, 12)),
 ];

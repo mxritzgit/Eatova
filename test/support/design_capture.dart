@@ -10,6 +10,13 @@
 // `build/dark-redesign/<name>.png`. Without the define every shot is a no-op,
 // so the capture suites run in the normal test pass and write nothing.
 //
+// LIGHT MODE: `--dart-define=DESIGN_CAPTURE_BRIGHTNESS=light` renders every
+// suite that mounts through `localizedApp` (test/support/harness.dart) in the
+// light theme — whatever brightness the suite asks for — and writes the shots
+// to `build/light-redesign/<name>.png`; it switches capturing on by itself.
+// `=dark` forces the dark theme the same way. Without the define nothing
+// changes.
+//
 //   setUpAll(loadDesignFonts);
 //   testWidgets('today', (tester) async {
 //     pinDesignViewport(tester);
@@ -30,11 +37,42 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// True when the run was started with `DARK_REDESIGN_CAPTURE=true`.
-const bool kDesignCapture = bool.fromEnvironment('DARK_REDESIGN_CAPTURE');
+import 'package:eatova/src/theme/app_tokens.dart';
+
+/// `light`, `dark` or empty, from `--dart-define=DESIGN_CAPTURE_BRIGHTNESS`.
+const String _kCaptureBrightness = String.fromEnvironment(
+  'DESIGN_CAPTURE_BRIGHTNESS',
+);
+
+/// True when the run was started with `DARK_REDESIGN_CAPTURE=true` or with
+/// a `DESIGN_CAPTURE_BRIGHTNESS`.
+const bool kDesignCapture =
+    bool.fromEnvironment('DARK_REDESIGN_CAPTURE') || _kCaptureBrightness != '';
 
 /// Output directory of the shots, relative to the project root.
-const String kDesignCaptureDir = 'build/dark-redesign';
+const String kDesignCaptureDir = _kCaptureBrightness == 'light'
+    ? 'build/light-redesign'
+    : 'build/dark-redesign';
+
+/// The brightness a capture run forces onto every `localizedApp`, or null
+/// (the normal test pass, and plain `DARK_REDESIGN_CAPTURE` runs).
+Brightness? get designCaptureBrightness => switch (_kCaptureBrightness) {
+  'light' => Brightness.light,
+  'dark' => Brightness.dark,
+  '' => null,
+  _ => throw ArgumentError.value(
+    _kCaptureBrightness,
+    'DESIGN_CAPTURE_BRIGHTNESS',
+    'expected light or dark',
+  ),
+};
+
+/// The palette the capture suites render with: dark (the harness default)
+/// unless the run forces a brightness.
+AppTokens get designCaptureTokens =>
+    designCaptureBrightness == Brightness.light
+        ? AppTokens.light
+        : AppTokens.dark;
 
 /// The design's reference viewport in logical pixels.
 const Size kDesignViewport = Size(390, 844);
@@ -90,8 +128,8 @@ void pinDesignViewport(WidgetTester tester) {
 Widget designCaptureBoundary(Widget child) =>
     RepaintBoundary(key: designCaptureKey, child: child);
 
-/// Writes the current frame as `build/dark-redesign/<name>.png` when capturing
-/// is on; otherwise does nothing.
+/// Writes the current frame as `<kDesignCaptureDir>/<name>.png` when
+/// capturing is on; otherwise does nothing.
 ///
 /// flutter_test paints every shadow as a solid block ([debugDisableShadows]),
 /// which would turn the design's floating and glow shadows into hard bands.

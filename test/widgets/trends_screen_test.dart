@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
+import 'package:eatova/src/theme/app_tokens.dart';
 
 import '../support/harness.dart';
 
@@ -300,5 +301,59 @@ void main() {
 
     expect(find.text('AVG CALORIES'), findsOneWidget);
     expect(find.text('Ø KALORIEN'), findsNothing);
+  });
+
+  // Light pass (2026-10-04): a month of full iris bars weighed on the white
+  // card; the bars take `progressAccent`, which IS the accent in dark.
+  for (final (helligkeit, t) in const <(Brightness, AppTokens)>[
+    (Brightness.dark, AppTokens.dark),
+    (Brightness.light, AppTokens.light),
+  ]) {
+    testWidgets('${helligkeit.name}: die Balken tragen progressAccent', (
+      tester,
+    ) async {
+      await _pumpTrends(
+        tester,
+        brightness: helligkeit,
+        loader: () async => _sechsTage(),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('trends-chart')),
+        paints..rrect(color: t.progressAccent.withValues(alpha: 0.92)),
+      );
+    });
+  }
+  // The goal label sat on the bars ("Goal 2,200" half covered when a day
+  // went over): it now stands on a pill in the card colour.
+  for (final (helligkeit, t) in const <(Brightness, AppTokens)>[
+    (Brightness.dark, AppTokens.dark),
+    (Brightness.light, AppTokens.light),
+  ]) {
+    testWidgets('${helligkeit.name}: das Ziel-Label steht auf einer Karte', (
+      tester,
+    ) async {
+      await _pumpTrends(
+        tester,
+        brightness: helligkeit,
+        loader: () async => _sechsTage(),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+      // The bars are rounded rects too; look for the one in the card colour
+      // (compared as ARGB: the theme arrives through a lerp).
+      expect(
+        find.byKey(const ValueKey('trends-chart')),
+        paints..something(
+          (method, arguments) =>
+              method == #drawRRect &&
+              (arguments[1] as Paint).color.toARGB32() == t.surf.toARGB32(),
+        ),
+      );
+    });
+  }
+  test('dunkel bleiben die Balken der Akzent', () {
+    expect(AppTokens.dark.progressAccent, AppTokens.dark.accent);
   });
 }

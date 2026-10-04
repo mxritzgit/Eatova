@@ -42,8 +42,8 @@ class AuthPageLayout extends StatelessWidget {
                   decoration: BoxDecoration(
                     gradient: RadialGradient(
                       colors: [
-                        t.accentGlow.withValues(alpha: 0.30),
-                        t.accentGlow.withValues(alpha: 0.10),
+                        t.accentGlow.withValues(alpha: 0.30 * t.glowStrength),
+                        t.accentGlow.withValues(alpha: 0.10 * t.glowStrength),
                         t.accentGlow.withValues(alpha: 0),
                       ],
                       stops: const [0, 0.45, 1],

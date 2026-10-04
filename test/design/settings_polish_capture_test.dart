@@ -1,8 +1,10 @@
-// Visual evidence for the settings polish (2026-10-02).
+// Visual evidence for the settings polish (2026-10-02) and the goals page in
+// the settings language (2026-10-04).
 //
 // Mounts the settings page and the goals page it leads to (plan hero,
-// pickers) with realistic data at the design's reference geometry (390x844,
-// DPR 2, real fonts). The profile has its own capture suite.
+// groups, pickers, the read-only trend row, the target notes) with realistic
+// data at the design's reference geometry (390x844, DPR 2, real fonts). The
+// profile has its own capture suite.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/. Without it the suite still checks that every surface
@@ -16,6 +18,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+import 'package:eatova/src/theme/theme_mode_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,18 +52,25 @@ Widget _settings({
   addTearDown(repo.dispose);
   final language = LocaleController();
   addTearDown(language.dispose);
-  return LocaleScope(
-    controller: language,
-    child: SettingsScreen(
-      email: _mail,
-      authRepository: repo,
-      onOpenGoals: () {},
-      onSignOut: () async {},
-      onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
-      onExportData: () async => '{}',
-      pendingSyncCount: pending,
-      syncBlockedReason: blocked,
-      onSyncNow: () async {},
+  // The app shell always provides the scope; without it the appearance row
+  // (System / Light / Dark) drops out.
+  final themeMode = ThemeModeController();
+  addTearDown(themeMode.dispose);
+  return ThemeModeScope(
+    controller: themeMode,
+    child: LocaleScope(
+      controller: language,
+      child: SettingsScreen(
+        email: _mail,
+        authRepository: repo,
+        onOpenGoals: () {},
+        onSignOut: () async {},
+        onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
+        onExportData: () async => '{}',
+        pendingSyncCount: pending,
+        syncBlockedReason: blocked,
+        onSyncNow: () async {},
+      ),
     ),
   );
 }
@@ -134,6 +144,7 @@ void main() {
         'settings-change-password',
         'settings-change-email',
         'settings-open-goals',
+        'settings-theme-mode',
         'settings-language',
         'settings-sync-status',
         'settings-export',
@@ -160,6 +171,30 @@ void main() {
         'settings-de',
         page: find.byKey(settingsPage),
       );
+    });
+  });
+
+  testWidgets('settings: the appearance row in each of its three states', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _mount(tester, _settings());
+      final row = find.byKey(const ValueKey('settings-theme-mode'));
+      // Mid-screen, so the shot shows the row's title above the pill.
+      await Scrollable.ensureVisible(tester.element(row), alignment: 0.4);
+      await tester.pumpAndSettle();
+      expect(find.text('Appearance'), findsOneWidget);
+      for (final mode in const <String>['system', 'light', 'dark']) {
+        final segment = find.byKey(ValueKey('settings-theme-mode-$mode'));
+        await tester.tap(segment);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSemantics(segment),
+          isSemantics(isSelected: true, isButton: true),
+          reason: mode,
+        );
+        await captureDesignShot(tester, 'settings-theme-$mode');
+      }
     });
   });
 
@@ -232,6 +267,55 @@ void main() {
         findsOneWidget,
       );
       await _shootDown(tester, 'goals', page: find.byKey(goalsPage));
+    });
+  });
+
+  testWidgets('goals: the read-only trend row (owner case 2026-10-04)', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      // Logged 117 kg while the smoothed trend still reads 119.1.
+      await _mount(
+        tester,
+        GoalsScreen(
+          profile: _profile.copyWith(weightKg: 119, targetWeightKg: 100),
+          weightTrendKg: 119.1,
+          latestWeighInKg: 117,
+        ),
+      );
+      final row = find.byKey(const ValueKey('settings-weight-trend'));
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: row, matching: find.text('Weight trend')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.textContaining('Last weigh-in 117 kg'),
+        ),
+        findsOneWidget,
+      );
+      await captureDesignShot(tester, 'goals-trend');
+    });
+  });
+
+  testWidgets('goals: target reached and the BMI hint', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      // 54 kg at 181 cm aiming for 55 while "losing": the goal is reached,
+      // and a target BMI under 18.5 adds the soft hint.
+      await _mount(
+        tester,
+        GoalsScreen(
+          profile: _profile.copyWith(weightKg: 54, targetWeightKg: 55),
+        ),
+      );
+      final reached = find.byKey(const ValueKey('settings-target-reached'));
+      await tester.ensureVisible(reached);
+      await tester.pumpAndSettle();
+      expect(reached, findsOneWidget);
+      await captureDesignShot(tester, 'goals-notes');
     });
   });
 

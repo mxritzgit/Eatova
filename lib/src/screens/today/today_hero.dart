@@ -71,7 +71,7 @@ class TodayCalorieCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: RadialGradient(
                         colors: <Color>[
-                          t.arcStart.withValues(alpha: 0.22),
+                          t.arcStart.withValues(alpha: 0.22 * t.glowStrength),
                           t.arcStart.withValues(alpha: 0),
                         ],
                       ),

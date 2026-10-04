@@ -6,7 +6,8 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/motion.dart';
 
 /// The calorie card's 270° arc (dark redesign): a track, the eaten share as
-/// a violet gradient stroke and a white knob at its end.
+/// a violet gradient stroke and a knob at its end ([AppTokens.knob], with
+/// an accent ring in light).
 ///
 /// Geometry of the design's 240 px SVG — circle r 100, stroke 18, starting at
 /// 135° (bottom left) and sweeping clockwise — scaled to [width]. The box is
@@ -41,7 +42,8 @@ class TodayCalorieArc extends StatelessWidget {
             track: t.arcTrack,
             start: t.arcStart,
             end: t.arcEnd,
-            knob: t.ink,
+            knob: t.knob,
+            knobRing: t.knobRing,
             // The design's knob halo, rgba(201, 184, 255, 0.22).
             halo: t.accentText.withValues(alpha: 0.22),
           ),
@@ -58,11 +60,15 @@ class TodayArcPainter extends CustomPainter {
     required this.start,
     required this.end,
     required this.knob,
+    required this.knobRing,
     required this.halo,
   });
 
   final double progress;
   final Color track, start, end, knob, halo;
+
+  /// Ring around [knob]; a transparent ring is not painted.
+  final Color knobRing;
 
   static const Offset _center = Offset(120, 120);
   static const double _radius = 100;
@@ -103,6 +109,16 @@ class TodayArcPainter extends CustomPainter {
     final at = _center + Offset(math.cos(angle), math.sin(angle)) * _radius;
     canvas.drawCircle(at, 15, Paint()..color = halo);
     canvas.drawCircle(at, 7, Paint()..color = knob);
+    if (knobRing.a > 0) {
+      canvas.drawCircle(
+        at,
+        7,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..color = knobRing,
+      );
+    }
     canvas.restore();
   }
 
@@ -113,5 +129,6 @@ class TodayArcPainter extends CustomPainter {
       old.start != start ||
       old.end != end ||
       old.knob != knob ||
+      old.knobRing != knobRing ||
       old.halo != halo;
 }
