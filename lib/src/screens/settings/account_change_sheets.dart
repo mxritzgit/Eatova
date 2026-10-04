@@ -116,16 +116,6 @@ Future<bool> _fragAbbruch(
   return abbrechen ?? false;
 }
 
-/// Closes the sheet with `true` after a completed change. A dismiss attempt
-/// during the request may have opened the discard dialog above the sheet; a
-/// plain pop would close that dialog with `true`, which reads as "discard".
-void _popWithSuccess(BuildContext context) {
-  final navigator = Navigator.of(context);
-  final sheet = ModalRoute.of(context);
-  if (sheet != null) navigator.popUntil((route) => route == sheet);
-  navigator.pop(true);
-}
-
 /// The shell both sheets wear: handle, dismiss guard and [PopScope] around the
 /// [SheetScaffold] (P4-06).
 ///
@@ -134,11 +124,16 @@ void _popWithSuccess(BuildContext context) {
 class _AbbruchGuard extends StatefulWidget {
   const _AbbruchGuard({
     required this.verbraucht,
+    required this.busy,
     required this.codeVerbraucht,
     required this.child,
   });
 
   final bool verbraucht;
+
+  /// A request is in flight. Its outcome cannot be cancelled, so no discard
+  /// is offered: the success path's pop would otherwise close the dialog.
+  final bool busy;
 
   /// A code that is already CONFIRMED (email flow, step two) — sharper wording.
   final bool codeVerbraucht;
@@ -156,7 +151,7 @@ class _AbbruchGuardState extends State<_AbbruchGuard> {
   bool _dialogOffen = false;
 
   Future<void> _frage() async {
-    if (_dialogOffen) return;
+    if (_dialogOffen || widget.busy) return;
     _dialogOffen = true;
     final abbrechen =
         await _fragAbbruch(context, codeVerbraucht: widget.codeVerbraucht);
@@ -376,7 +371,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       return;
     }
     if (!mounted) return;
-    _popWithSuccess(context);
+    Navigator.of(context).pop(true);
   }
 
   @override
@@ -389,6 +384,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       // From step two on a code is out in the world and the mail quota is
       // down one; losing that to a stray swipe costs a new mail at best.
       verbraucht: !ersterSchritt,
+      busy: _busy,
       codeVerbraucht: false,
       child: SheetScaffold(
         title: l10n.settingsChangePasswordTitle,
@@ -628,7 +624,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
     }
 
     if (!mounted) return;
-    _popWithSuccess(context);
+    Navigator.of(context).pop(true);
   }
 
   @override
@@ -641,6 +637,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
       // and thereby burned. That is the state the file's own comment on
       // [_altBestaetigt] warns about; a swipe must not take it.
       verbraucht: !ersterSchritt,
+      busy: _busy,
       codeVerbraucht: _altBestaetigt || _neuBestaetigt,
       child: SheetScaffold(
         title: l10n.settingsChangeEmailTitle,
