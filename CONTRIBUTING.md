@@ -154,8 +154,9 @@ CI, but `test/l10n/` guards ARB parity and hard-coded text.
 - **Lints**: the project uses `flutter_lints`. Keep `flutter analyze` clean.
 - **Design**: reuse tokens, soft-fill input/focus styles and shared components.
   `AppIcon`/`AppSymbol` provide the custom family; every meal-slot mark is a
-  `SlotIconTile`. The app is
-  dark-only for now (`kDarkOnly`); keep the dormant light palette intact. See
+  `SlotIconTile`. The app follows the display mode (System, Light, Dark;
+  default System), so every colour must come from a token that exists in both
+  `AppTokens.light` and `AppTokens.dark`. See
   the [current design contracts](docs/README.md#design-contracts-and-previews).
 - **Persistence**: preserve account namespaces, cache encryption, durable outbox
   acknowledgments and explicit adoption of Coach proposals.

@@ -67,10 +67,13 @@ Keep semantic labels and test keys stable; localize user-facing text.
 Reuse theme tokens and the existing design components. Original pictograms use
 `AppSymbol`/`AppIcon`; every meal-slot mark (diary rows, pickers, sheet
 headers) is a `SlotIconTile`. Inputs use soft borderless fills with visible
-focus indication. Review normal/enlarged text when changing layout. The app is
-dark-only for now (`kDarkOnly`); keep `AppTokens.light` working, because the
-switch is meant to be reversible. The [design index](README.md#design-contracts-and-previews)
-links to current contracts and real Flutter captures.
+focus indication. Review normal/enlarged text when changing layout. The app
+follows the display mode (System, Light, Dark; default System), so check both
+palettes: the design capture suites render in light with
+`--dart-define=DESIGN_CAPTURE_BRIGHTNESS=light` (shots in
+`build/light-redesign/`, see `test/support/design_capture.dart`). The
+[design index](README.md#design-contracts-and-previews) links to current
+contracts and real Flutter captures.
 
 ## Crash reporting
 

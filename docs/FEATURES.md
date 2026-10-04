@@ -27,7 +27,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
 | Coach workout log | `/log` (typed, dictated or from Training's "Tell the Coach instead") turns a described finished workout into a draft card; one of the daily Coach requests. "Add to history" opens the log editor prefilled, and its Add is the confirmation; the card then reads Added or Removed from history | [Log card](../lib/src/screens/coach/coach_workout_log.dart) |
 | Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals; a weekly check on Today proposes a calibrated calorie goal from logged intake and the weight trend, applied only after confirmation ([weight trend](WEIGHT-TREND.md)) | [Profile](../lib/src/screens/profile_screen.dart) |
-| Settings | Language (theme row hidden while dark-only), account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
+| Settings | Appearance (System, Light, Dark) and language, account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
 | Reminders | Local evening streak-at-risk notification, scheduled ahead; no server push channel | [Notifications](../lib/src/services/notification_service.dart) |
 
 ## Platform matrix
@@ -107,12 +107,13 @@ and [Backend](BACKEND.md) for persistence details.
 
 ## Current visual contracts
 
-Since the dark redesign (2026-09-28, PR #118) the app is dark-only (the light
-palette is dormant behind `kDarkOnly`), with Figtree for UI text, Bricolage
-Grotesque for display text and a floating glass tab bar. Today, Food, Recipes,
-Training and Coach have the redesigned tab roots; the recipe details, meal
-plan, shopping list, Training library/editor/player, entry sheets, calendar,
-account pages and auth keep their earlier structure on the dark tokens.
+Since the dark redesign (2026-09-28, PR #118) the app uses Figtree for UI
+text, Bricolage Grotesque for display text and a floating glass tab bar.
+Today, Food, Recipes, Training and Coach have the redesigned tab roots; the
+recipe details, meal plan, shopping list, Training library/editor/player,
+entry sheets, calendar, account pages and auth keep their earlier structure
+on the shared tokens. Since 2026-10-04 a light palette mirrors every dark
+token role and the app follows the display mode (System, Light, Dark).
 
 The [design guide index](README.md#design-contracts-and-previews) links to the
 current contracts and actual Flutter previews.
