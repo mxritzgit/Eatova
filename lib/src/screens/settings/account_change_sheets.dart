@@ -778,41 +778,46 @@ class _CodeFeld extends StatelessWidget {
                   child: Row(
                     children: <Widget>[
                       Expanded(
-                        child: TextField(
-                          key: fieldKey,
-                          controller: controller,
-                          enabled: enabled,
-                          // Otherwise the cursor fade animates forever and
-                          // `pumpAndSettle` never settles.
-                          cursorOpacityAnimates: false,
-                          cursorColor: t.accent,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(
-                              kAccountCodeLength,
-                            ),
-                          ],
-                          style: AppType.display(
-                            18,
-                            weight: FontWeight.w700,
-                            color: t.ink,
-                            letterSpacing: 5,
-                          ),
-                          decoration: InputDecoration(
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                            filled: false,
-                            isDense: true,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 15),
-                            hintText: '••••••••',
-                            hintStyle: AppType.ui(
-                              14,
-                              color: t.ink2,
+                        // Spoken name: the hint is only dots, and the email
+                        // change shows two such fields.
+                        child: Semantics(
+                          label: label,
+                          child: TextField(
+                            key: fieldKey,
+                            controller: controller,
+                            enabled: enabled,
+                            // Otherwise the cursor fade animates forever and
+                            // `pumpAndSettle` never settles.
+                            cursorOpacityAnimates: false,
+                            cursorColor: t.accent,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: <TextInputFormatter>[
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(
+                                kAccountCodeLength,
+                              ),
+                            ],
+                            style: AppType.display(
+                              18,
+                              weight: FontWeight.w700,
+                              color: t.ink,
                               letterSpacing: 5,
+                            ),
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              filled: false,
+                              isDense: true,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 15),
+                              hintText: '••••••••',
+                              hintStyle: AppType.ui(
+                                14,
+                                color: t.ink2,
+                                letterSpacing: 5,
+                              ),
                             ),
                           ),
                         ),
