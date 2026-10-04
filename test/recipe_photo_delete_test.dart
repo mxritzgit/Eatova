@@ -63,13 +63,6 @@ class _TestImageStore extends RecipeImageStore {
   Future<File?> resolve(String imageAsset) async => resolveSync(imageAsset);
 
   @override
-  Future<void> deleteFor(String imageAsset) async {
-    if (!RecipeImageStore.isLocalReference(imageAsset)) return;
-    final datei = _datei(imageAsset);
-    if (datei.existsSync()) datei.deleteSync();
-  }
-
-  @override
   Future<void> clear({
     String? expectedUserId,
     String? expectedSessionId,
@@ -400,12 +393,11 @@ void main() {
     expect(_store.abgleiche.last, contains(referenz));
   });
 
-  // Review 2026-08-29, P3-04: `deleteFor` is the ONLY release, and only for a
-  // delete this device makes AND the server acknowledges at once. A delete on
-  // device B never reaches this device, an offline delete is deliberately not
-  // followed up, and an abandoned coach adoption leaves its bytes lying. The
-  // screen is the only place that knows the real recipe list, so it drives the
-  // comparison — a blind cap would delete photos whose recipe still exists.
+  // Review 2026-08-29, P3-04: no delete path releases a photo itself. A
+  // delete on device B never reaches this device, and an abandoned coach
+  // adoption leaves its bytes lying. The screen is the only place that knows
+  // the real recipe list, so it drives the comparison — a blind cap would
+  // delete photos whose recipe still exists.
   group('P3-04: Abgleich gegen die tatsaechlich vorhandenen Rezepte', () {
     testWidgets('vor der Hydration wird nichts abgeglichen', (tester) async {
       final referenz = _legeAb(_store, 'user_a', _jpeg());

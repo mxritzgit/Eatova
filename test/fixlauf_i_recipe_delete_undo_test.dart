@@ -36,9 +36,19 @@ class _RecordingImageStore extends RecipeImageStore {
   @override
   Future<File?> resolve(String imageAsset) async => null;
 
+  // The store's only ways to drop photo bytes.
   @override
-  Future<void> deleteFor(String imageAsset) async {
-    deleted.add(imageAsset);
+  Future<int> reconcileRecipePhotos(Iterable<String> liveReferences) async {
+    deleted.add('reconcile');
+    return 0;
+  }
+
+  @override
+  Future<void> clear({
+    String? expectedUserId,
+    String? expectedSessionId,
+  }) async {
+    deleted.add('clear');
   }
 }
 

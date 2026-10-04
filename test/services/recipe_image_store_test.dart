@@ -187,22 +187,6 @@ void main() {
   });
 
   group('Aufraeumen', () {
-    test('deleteFor loescht genau das eine Bild', () async {
-      final a = await store.save(bytes: _geotaggedJpeg());
-      final b = await store.save(bytes: _geotaggedJpeg());
-
-      await store.deleteFor(a!);
-
-      expect(await store.resolve(a), isNull);
-      expect(await store.resolve(b!), isNotNull);
-    });
-
-    test('deleteFor auf einem Bundle-Asset ist ein No-Op', () async {
-      await store.deleteFor('assets/recipes/lachs.jpg');
-      await store.deleteFor('');
-      // Not throwing is the guarantee.
-    });
-
     test('clear() raeumt den ganzen Ordner (Logout / Konto-Loeschung)',
         () async {
       final a = await store.save(bytes: _geotaggedJpeg());
@@ -443,10 +427,9 @@ void main() {
     });
   });
 
-  // Review 2026-08-29, P3-04: `img_*` was released ONLY by `deleteFor`, and
-  // only when this device deleted the recipe AND the server acknowledged at
-  // once. A delete on device B, an offline delete delivered later, and an
-  // abandoned coach adoption all leave 200-400 kB of PII behind forever.
+  // Review 2026-08-29, P3-04: no delete path releases `img_*` itself. A
+  // delete on device B, an offline delete delivered later, and an abandoned
+  // coach adoption would leave 200-400 kB of PII behind forever.
   group('P3-04 — verwaiste Rezeptfotos', () {
     test('ein Foto ohne Rezept faellt, eines MIT Rezept ueberlebt', () async {
       final behalten = await store.save(bytes: _geotaggedJpeg());

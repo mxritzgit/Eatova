@@ -545,10 +545,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// Releases recipe photos whose recipe is gone (P3-04).
   ///
   /// The screen drives this because it holds the only complete list of user
-  /// recipes; the store's own delete path ([_commitDelete]) covers exactly one
-  /// case — this device deleting with an immediate server ack. Everything else
-  /// (a delete on device B, an offline delete delivered later, a coach
-  /// adoption abandoned after the photo was saved) leaves bytes lying.
+  /// recipes. No delete path releases a photo itself ([_commitDelete] keeps
+  /// it for version history), and a delete on device B or a coach adoption
+  /// abandoned after the photo was saved leaves bytes lying too.
   ///
   /// TWO conditions, because a sweep against a list that is not authoritative
   /// deletes every photo the user has:

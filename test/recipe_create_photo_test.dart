@@ -124,13 +124,6 @@ class _TestImageStore extends RecipeImageStore {
   Future<File?> resolve(String imageAsset) async => resolveSync(imageAsset);
 
   @override
-  Future<void> deleteFor(String imageAsset) async {
-    if (!RecipeImageStore.isLocalReference(imageAsset)) return;
-    final datei = _datei(imageAsset);
-    if (datei.existsSync()) datei.deleteSync();
-  }
-
-  @override
   Future<void> clear({
     String? expectedUserId,
     String? expectedSessionId,
