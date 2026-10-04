@@ -392,7 +392,7 @@ void main() {
   });
 
   group('ProductSearchResult.fromOpenFoodFacts (Such-Mapper)', () {
-    test('Subtitle = Marke · Menge · kcal/100g, Code getrimmt', () {
+    test('Titel = Name · Marke, Code getrimmt', () {
       final p = ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
         'code': '  123 ',
         'product_name': 'Skyr',
@@ -404,20 +404,18 @@ void main() {
       });
       expect(p.code, '123');
       expect(p.title, 'Skyr · Arla');
-      expect(p.subtitle, 'Arla · 450 g · 63 kcal / 100 g');
       expect(
         p.imageUrl,
         'https://images.openfoodfacts.org/images/products/123/front.200.jpg',
       );
     });
 
-    test('ohne Marke/Menge bleibt nur die kcal-Angabe', () {
+    test('ohne Marke bleibt nur der Name, ohne Bild keine URL', () {
       final p = ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
         'code': '9',
         'product_name': 'Wasser',
         'nutriments': <String, dynamic>{'energy-kcal_100g': 0},
       });
-      expect(p.subtitle, '0 kcal / 100 g');
       expect(p.imageUrl, isNull);
       expect(p.title, 'Wasser');
     });

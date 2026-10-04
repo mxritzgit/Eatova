@@ -90,7 +90,6 @@ final List<ProductSearchResult> _products = <ProductSearchResult>[
     ProductSearchResult(
       code: code,
       title: '$name · $brand',
-      subtitle: '$brand · 450 g · $kcal100 kcal / 100 g',
       kcalPer100G: kcal100.toDouble(),
       result: _meal(
         name,

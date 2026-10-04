@@ -25,7 +25,6 @@ class ProductSearchResult {
   const ProductSearchResult({
     required this.code,
     required this.title,
-    required this.subtitle,
     required this.kcalPer100G,
     required this.result,
     this.ingredientNutritionPer100g,
@@ -33,7 +32,6 @@ class ProductSearchResult {
 
   final String code;
   final String title;
-  final String subtitle;
   final double kcalPer100G;
   final MealAnalysisResult result;
 
@@ -60,18 +58,9 @@ class ProductSearchResult {
           : null;
     }
 
-    final brand = result.brand?.trim();
-    final quantity = _firstNonEmptyString(product, const ['quantity']);
-    final subtitleParts = <String>[
-      if (brand != null && brand.isNotEmpty) brand,
-      if (quantity != null && quantity.isNotEmpty) quantity,
-      result.kcalPer100Label,
-    ];
-
     return ProductSearchResult(
       code: code,
       title: result.mealName,
-      subtitle: subtitleParts.join(' · '),
       kcalPer100G: result.kcalPer100G,
       result: result,
       ingredientNutritionPer100g: RecipeNutrition(
@@ -521,18 +510,4 @@ class ProductWithoutNutritionException implements Exception {
   String toString() =>
       'ProductWithoutNutritionException(barcode: $barcode, '
       'kcalPer100G: $kcalPer100G)';
-}
-
-String? _firstNonEmptyString(Map<String, dynamic> json, List<String> keys) {
-  for (final key in keys) {
-    final value = json[key];
-    if (value == null) {
-      continue;
-    }
-    final text = value.toString().trim();
-    if (text.isNotEmpty) {
-      return text;
-    }
-  }
-  return null;
 }

@@ -71,7 +71,6 @@ ProductSearchResult _hit(String title, {double kcalPer100G = 100}) =>
     ProductSearchResult(
       code: '1',
       title: title,
-      subtitle: '',
       kcalPer100G: kcalPer100G,
       result: _meal(title, kcalPer100G: kcalPer100G),
     );
