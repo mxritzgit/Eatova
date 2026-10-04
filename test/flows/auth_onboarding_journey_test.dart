@@ -209,13 +209,21 @@ void main() {
       expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
       expect(find.byKey(const ValueKey('screen-today')), findsNothing);
 
+      // Goal first; losing weight adds target and pace after the activity.
+      await _tap(tester, 'onboarding-goal-lose');
+      await _tap(tester, 'onboarding-next');
       await _tap(tester, 'onboarding-sex-female');
       await _tap(tester, 'onboarding-next');
       await _tap(tester, 'onboarding-weight-inc');
       await _tap(tester, 'onboarding-next');
       await _tap(tester, 'onboarding-activity-moderate');
       await _tap(tester, 'onboarding-next');
-      await _tap(tester, 'onboarding-goal-lose');
+      expect(
+        find.byKey(const ValueKey('onboarding-step-target')),
+        findsOneWidget,
+      );
+      await _tap(tester, 'onboarding-next');
+      expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
       await _tap(tester, 'onboarding-next');
       await _tap(tester, 'onboarding-diet-vegetarian');
       await _tap(tester, 'onboarding-next');
@@ -233,6 +241,9 @@ void main() {
       expect(savedProfile!['sex'], 'female');
       expect(savedProfile!['activity_level'], 'moderate');
       expect(savedProfile!['diet_preference'], 'vegetarian');
+      expect(savedProfile!['weight_goal'], 'lose05kg');
+      // 79 kg after the one stepper tap; the untouched target follows it.
+      expect(savedProfile!['target_weight_kg'], 74);
       expect(savedProfile!['daily_kcal_goal'], greaterThan(0));
       expect(notifications.permissionRequests, 0);
 

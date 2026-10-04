@@ -40,33 +40,38 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
-    expect(find.text('Hallo, Moritz.'), findsOneWidget);
+    expect(find.text('Hallo, Moritz. Was ist dein Ziel?'), findsOneWidget);
 
     Future<void> next() async {
       await tester.tap(find.byKey(const ValueKey('onboarding-next')));
       await tester.pumpAndSettle();
     }
 
+    // goal first: losing weight adds the target and pace steps
+    await tapOnboarding(tester, 'onboarding-goal-lose');
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing,
+        reason: 'Zielgewicht und Tempo sind eigene Schritte');
+    await next();
+
     await tapOnboarding(tester, 'onboarding-sex-male');
     await goToOnboarding(tester, 'activity');
 
     // activity
-    await tester.tap(find.byKey(const ValueKey('onboarding-activity-moderate')));
-    await tester.pumpAndSettle();
+    await tapOnboarding(tester, 'onboarding-activity-moderate');
     await next();
 
-    // goal: losing weight unlocks the target and pace controls
-    await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
-    await tester.pumpAndSettle();
-
+    // target: the default follows today's weight
     expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
+    await next();
+
+    // pace
+    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
     await tapOnboarding(tester, 'onboarding-pace-lose1kg');
     await next();
 
     // diet: pick vegetarian
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('onboarding-diet-vegetarian')));
-    await tester.pumpAndSettle();
+    await tapOnboarding(tester, 'onboarding-diet-vegetarian');
     await next();
 
     // summary
@@ -130,10 +135,10 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    await goToOnboarding(tester, 'goal');
     // The default goal is maintain, so target and pace are skipped and the
-    // diet step comes next.
-    await next(); // goal → diet
+    // diet step follows the activity.
+    await goToOnboarding(tester, 'activity');
+    await next(); // activity → diet
 
     // Target and pace are skipped, the diet step is not.
     expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing);
@@ -195,6 +200,7 @@ void main() {
       tester,
       initialProfile: const UserProfile(ageYears: 13),
     );
+    await goToOnboarding(tester, 'basics');
 
     String ageValue() => tester
         .widget<Text>(find.byKey(const ValueKey('onboarding-age-value')))
@@ -217,9 +223,8 @@ void main() {
       initialProfile: const UserProfile(weightKg: 60),
     );
 
-    await goToOnboarding(tester, 'goal');
-    await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
-    await tester.pumpAndSettle(); // goal → target
+    await tapOnboarding(tester, 'onboarding-goal-lose');
+    await goToOnboarding(tester, 'target');
 
     expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
     expect(find.byKey(const ValueKey('target-bmi-hint')), findsOneWidget);
@@ -288,8 +293,9 @@ void main() {
       ),
     );
 
-    // After four groups we reach the optional diet.
-    await advance(tester, 4);
+    // Six steps in (goal, basics, body, activity, target, pace) we reach the
+    // optional diet.
+    await advance(tester, 6);
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
 
     final closesApp = await systemBackClosesApp(tester);
@@ -300,7 +306,7 @@ void main() {
       reason: 'Die Randgeste darf auf der Root-Route nicht die Activity '
           'beenden — acht Antworten waeren weg.',
     );
-    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget,
+    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget,
         reason: 'Systemzurueck muss dasselbe tun wie der Header-Pfeil.');
   });
 
@@ -313,21 +319,21 @@ void main() {
         targetWeightKg: 68,
       ),
     );
-    await advance(tester, 4);
+    await advance(tester, 6);
 
-    await systemBackClosesApp(tester); // gesture: diet → goal
-    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
+    await systemBackClosesApp(tester); // gesture: diet → pace
+    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('onboarding-back'))); // arrow
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('onboarding-step-activity')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
   });
 
   testWidgets('Systemzurueck auf dem ersten Schritt schliesst die App',
       (tester) async {
-    // The first group releases the root route pop, as before.
+    // The first step releases the root route pop, as before.
     await pumpOnboarding(tester, initialProfile: const UserProfile());
-    expect(find.byKey(const ValueKey('onboarding-step-basics')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
     expect(find.byKey(const ValueKey('onboarding-back')), findsNothing);
 
     expect(await systemBackClosesApp(tester), isTrue);
@@ -351,19 +357,18 @@ void main() {
   String textOfKey(WidgetTester tester, String key) =>
       tester.widget<Text>(find.byKey(ValueKey(key))).data!;
 
-  /// Runs the onboarding to the summary without tapping anything; all answers
-  /// come from [initialProfile].
+  /// Runs the onboarding to the summary without choosing anything; all
+  /// answers come from [initialProfile].
   Future<void> pumpToSummary(
     WidgetTester tester,
-    UserProfile initialProfile, {
-    required int steps,
-  }) async {
+    UserProfile initialProfile,
+  ) async {
     await pumpOnboarding(
       tester,
       initialProfile: initialProfile,
       screenKey: UniqueKey(),
     );
-    await advance(tester, steps);
+    await goToOnboarding(tester, 'summary');
     expect(find.byKey(const ValueKey('onboarding-summary-kcal')), findsOneWidget);
   }
 
@@ -377,8 +382,7 @@ void main() {
     // −814 kcal ≙ −0.74 kg/week, shown as −0.75 on the 0.05 grid.
     await pumpToSummary(
       tester,
-      const UserProfile(weightGoal: WeightGoal.lose1kg, targetWeightKg: 68),
-      steps: 5,
+      const UserProfile(weightGoal: WeightGoal.lose1kg, targetWeightKg: 68)
     );
 
     expect(textOfKey(tester, 'onboarding-summary-kcal'), '1350');
@@ -426,8 +430,7 @@ void main() {
 
     await pumpToSummary(
       tester,
-      klemme.copyWith(weightGoal: WeightGoal.lose1kg),
-      steps: 5,
+      klemme.copyWith(weightGoal: WeightGoal.lose1kg)
     );
     final ambitioniert = [
       textOfKey(tester, 'onboarding-summary-kcal'),
@@ -437,8 +440,7 @@ void main() {
 
     await pumpToSummary(
       tester,
-      klemme.copyWith(weightGoal: WeightGoal.lose075kg),
-      steps: 5,
+      klemme.copyWith(weightGoal: WeightGoal.lose075kg)
     );
     final zuegig = [
       textOfKey(tester, 'onboarding-summary-kcal'),
@@ -478,8 +480,7 @@ void main() {
         sex: BiologicalSex.female,
         weightGoal: WeightGoal.lose025kg,
         targetWeightKg: 38,
-      ),
-      steps: 5,
+      )
     );
 
     expect(goalRowTexts(tester), ['Ziel · Gewicht stabil', '−37 kcal']);
@@ -509,8 +510,7 @@ void main() {
     // rounding noise).
     await pumpToSummary(
       tester,
-      const UserProfile(weightGoal: WeightGoal.lose075kg, targetWeightKg: 68),
-      steps: 5,
+      const UserProfile(weightGoal: WeightGoal.lose075kg, targetWeightKg: 68)
     );
 
     expect(textOfKey(tester, 'onboarding-summary-kcal'), '1350');
@@ -527,8 +527,8 @@ void main() {
         matching: find.text(text),
       );
 
-  // The pace step is number 9 of 11, so weight, height, age, sex and activity
-  // are all fixed and `KcalCalculator.calculate` can run. The picker used to
+  // The pace step follows body data and activity, so weight, height, age, sex
+  // and activity are all fixed and `KcalCalculator.calculate` can run. The picker used to
   // show the raw kcal delta, promising two different paces for what is one
   // and the same plan once cap and floor apply.
   //
@@ -545,8 +545,8 @@ void main() {
         targetWeightKg: 68,
       ),
     );
-    await advance(tester, 3);
-    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
+    await goToOnboarding(tester, 'pace');
+    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
 
     // Title = the choice; unchanged.
     expect(find.text('Ambitioniert · −1 kg/Woche'), findsOneWidget);

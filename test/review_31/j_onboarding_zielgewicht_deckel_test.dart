@@ -9,6 +9,7 @@ import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/widgets/shared/target_bmi_hint.dart';
 
 import '../support/harness.dart';
+import '../support/onboarding_harness.dart';
 
 // J1 — das umgedrehte Zielgewicht-Fenster.
 //
@@ -25,6 +26,10 @@ import '../support/harness.dart';
 // (`_targetWindow`); ist es leer, gibt es nichts zu waehlen, und der Schritt
 // (samt Tempo-Schritt) entfaellt — wie bei „Gewicht halten". Der Plan liest
 // sich ueber `effectiveWeightGoal` ohnehin als Halten.
+//
+// Seit 2026-10-04 ist das Ziel die erste Frage; Zielgewicht und Tempo sind
+// eigene Schritte nach dem Alltag. Ein leeres Fenster laesst die Ernaehrung
+// direkt auf den Alltag folgen.
 //
 // Schwesterdatei: test/onboarding_target_consistency_test.dart (P9-07), die
 // dieselbe Zusicherung fuer die normalen Fenster festnagelt.
@@ -101,21 +106,19 @@ void main() {
       .widget<Text>(find.byKey(ValueKey<String>('onboarding-$feld-value')))
       .data!;
 
-  /// intro → … → Richtung gewaehlt → einmal weiter. Danach steht entweder der
-  /// Zielgewicht-Schritt da oder der naechste danach.
+  /// Richtung → … → Gewicht → Alltag → einmal weiter. Danach steht entweder
+  /// der Zielgewicht-Schritt da oder, bei leerem Fenster, die Ernaehrung.
   Future<void> bisNachDerRichtung(
     WidgetTester tester, {
     required int gewicht,
     required bool zunehmen,
   }) async {
     await starte(tester);
-    for (var i = 0; i < 1; i++) {
-      await weiter(tester); // intro → sex → age → height → weight
-    }
-    await setze(tester, 'weight', gewicht);
-    await weiter(tester); // activity
-    await weiter(tester); // goal
     await tippe(tester, zunehmen ? 'onboarding-goal-gain' : 'onboarding-goal-lose');
+    await goToOnboarding(tester, 'body');
+    await setze(tester, 'weight', gewicht);
+    await goToOnboarding(tester, 'activity');
+    await weiter(tester);
   }
 
   // =========================================================================
@@ -142,7 +145,7 @@ void main() {
 
     // Der Schritt danach ist die Ernaehrung — das Tempo faellt mit, weil ohne
     // Ziel auch kein Tempo geplant wird.
-    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
     for (final goal in gainPaceGoals) {
       expect(find.byKey(ValueKey('onboarding-pace-${goal.name}')), findsNothing);
     }
@@ -159,14 +162,13 @@ void main() {
     expect(find.text('0 kg abnehmen'), findsNothing,
         reason: 'vorher stand da eine 30 ueber „0 kg abnehmen" und zwei tote '
             'Stepper');
-    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
   });
 
   testWidgets('der Plan am Deckel ist widerspruchsfrei und behaelt die Absicht',
       (tester) async {
     await bisNachDerRichtung(tester, gewicht: 300, zunehmen: true);
 
-    await weiter(tester); // goal to diet
     await weiter(tester); // diet → summary
     expect(find.byKey(const ValueKey('onboarding-summary-kcal')), findsOneWidget);
 
@@ -313,8 +315,20 @@ void main() {
     // der Picker wieder etwas anderes zeichnen als Fussnote, BMI-Hinweis und
     // gespeicherter Plan sagen — und genau das war unsichtbar, weil beide
     // Seiten „irgendwie" klemmten.
-    final code = File('lib/src/screens/onboarding_screen.dart')
-        .readAsStringSync()
+    //
+    // Der Bildschirm liegt seit 2026-10-04 auf mehrere Dateien verteilt
+    // (lib/src/screens/onboarding/); gelesen wird alles, was dazugehoert.
+    final dateien = <File>[
+      File('lib/src/screens/onboarding_screen.dart'),
+      ...Directory('lib/src/screens/onboarding')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart')),
+    ];
+    expect(dateien.length, greaterThan(1));
+    final code = dateien
+        .map((f) => f.readAsStringSync())
+        .join('\n')
         .split('\n')
         .where((z) => !z.trimLeft().startsWith('//'))
         .join('\n');

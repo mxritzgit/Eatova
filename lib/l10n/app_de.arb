@@ -1344,9 +1344,6 @@
   "onboardingBackSemanticLabel": "Zurück",
   "onboardingActivatePlanCta": "Plan aktivieren",
   "onboardingNextCta": "Weiter",
-  "onboardingSexStepTitle": "Für die Berechnung",
-  "onboardingSexStepSubtitle": "Das biologische Geschlecht fließt in den Grundumsatz ein. Ohne Angabe verwenden wir einen Mittelwert.",
-  "onboardingBasicsBody": "Ein paar Angaben für dein Tagesziel. Prüfe die Startwerte – du kannst sie später ändern.",
   "onboardingBodyTitle": "Dein Körper.",
   "onboardingBodySubtitle": "Größe und aktuelles Gewicht helfen uns, deinen Energiebedarf zu schätzen.",
   "onboardingPhaseBasics": "Über dich",
@@ -1357,21 +1354,16 @@
   "onboardingPhasePlan": "Dein Startplan",
   "onboardingStepProgress": "Schritt {current} von {total}",
   "@onboardingStepProgress": {"placeholders": {"current": {"type": "int"}, "total": {"type": "int"}}},
-  "onboardingDietOptionalSubtitle": "Optional: Welche Rezepte passen zu dir? Ohne Vorliebe bleibt die Auswahl offen. Du kannst immer alle Rezepte durchsuchen.",
+  "onboardingDietOptionalSubtitle": "Für passende Rezeptvorschläge – dein Tagesziel ändert sich dadurch nicht. Alle Rezepte bleiben durchsuchbar.",
   "onboardingWithoutPreference": "Ohne Vorliebe weiter",
-  "onboardingReviewTitle": "Deine Angaben prüfen",
+  "onboardingReviewTitle": "Deine Angaben",
   "onboardingReviewChanges": "Zurück zum Plan",
-  "onboardingAgeStepTitle": "Wie alt bist du?",
-  "onboardingHeightStepTitle": "Deine Größe",
-  "onboardingWeightStepTitle": "Dein aktuelles Gewicht",
   "onboardingActivityStepTitle": "Wie aktiv bist du?",
   "onboardingActivityStepSubtitle": "Beruf und Alltag ohne Gehen und Laufen – gezählte Schritte kommen automatisch obendrauf. Im Zweifel eine Stufe tiefer.",
-  "onboardingGoalStepTitle": "Was ist dein Ziel?",
-  "onboardingGoalStepSubtitle": "Wähle deine Richtung. Zum Ab- oder Zunehmen legst du hier auch Wunschgewicht und Tempo fest.",
   "onboardingTargetStepTitle": "Dein Wunschgewicht",
   "onboardingPaceStepTitle": "Welches Tempo?",
-  "onboardingPaceStepSubtitleLose": "Wie schnell willst du abnehmen?",
-  "onboardingPaceStepSubtitleGain": "Wie schnell willst du aufbauen?",
+  "onboardingPaceStepSubtitleLose": "Wie schnell willst du abnehmen? Jede Option zeigt, was sie für dein Tagesziel bedeutet.",
+  "onboardingPaceStepSubtitleGain": "Wie schnell willst du aufbauen? Jede Option zeigt, was sie für dein Tagesziel bedeutet.",
   "onboardingDietStepTitle": "Was isst du gern?",
   "onboardingUnitYears": "Jahre",
   "onboardingTargetFootnoteLose": "{kg} kg abnehmen",
@@ -1397,9 +1389,9 @@
   "onboardingSexMale": "Männlich",
   "onboardingSexFemale": "Weiblich",
   "onboardingSexNeutral": "Keine Angabe",
-  "onboardingGoalDescLose": "Fett verlieren, Defizit",
-  "onboardingGoalDescMaintain": "Form & Energie stabil",
-  "onboardingGoalDescGain": "Muskeln aufbauen, Überschuss",
+  "onboardingGoalDescLose": "Fett verlieren mit einem Kaloriendefizit",
+  "onboardingGoalDescMaintain": "Form und Energie stabil halten",
+  "onboardingGoalDescGain": "Muskeln aufbauen mit einem Kalorienüberschuss",
   "onboardingPaceNameSanft": "Sanft",
   "onboardingPaceNameModerat": "Moderat",
   "onboardingPaceNameZuegig": "Zügig",
@@ -1418,8 +1410,8 @@
       "firstName": { "type": "String" }
     }
   },
-  "onboardingSummarySubtitle": "Das ist dein empfohlenes Tagesziel.",
-  "onboardingSummaryKcalEyebrow": "TÄGLICHES KALORIENZIEL",
+  "onboardingSummarySubtitle": "Dein Tagesziel für den Start. Gezählte Schritte kommen jeden Tag obendrauf.",
+  "onboardingSummaryKcalEyebrow": "Dein Tagesziel",
   "onboardingSummaryBmrLabel": "Grundumsatz (BMR)",
   "onboardingSummaryMaintenanceLabel": "Erhaltungsbedarf · {activityLabel}",
   "@onboardingSummaryMaintenanceLabel": {
@@ -1462,6 +1454,32 @@
     }
   },
   "onboardingTimelineUnknown": "Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.",
+  "onboardingGoalTitle": "Hallo, {firstName}. Was ist dein Ziel?",
+  "@onboardingGoalTitle": {
+    "placeholders": {
+      "firstName": { "type": "String" }
+    }
+  },
+  "onboardingGoalSubtitle": "Danach ein paar kurze Fragen zu dir – dann steht dein Tagesziel.",
+  "onboardingBasicsTitle": "Erzähl uns von dir.",
+  "onboardingBasicsSubtitle": "Geschlecht und Alter fließen in deinen Grundumsatz ein.",
+  "onboardingSexLabel": "Biologisches Geschlecht",
+  "onboardingSexHint": "Ohne Angabe rechnen wir mit einem Mittelwert.",
+  "onboardingAgeLabel": "Alter",
+  "onboardingHeightLabel": "Größe",
+  "onboardingWeightLabel": "Aktuelles Gewicht",
+  "onboardingTargetStepSubtitle": "Du wiegst gerade {weightKg} kg. Daraus schätzen wir, wann du dein Ziel erreichst – du kannst es jederzeit ändern.",
+  "@onboardingTargetStepSubtitle": {
+    "placeholders": {
+      "weightKg": { "type": "int" }
+    }
+  },
+  "onboardingOptionalBadge": "Optional",
+  "onboardingPlanPathNow": "Heute",
+  "onboardingPlanPathGoal": "Ziel",
+  "onboardingPlanBreakdownTitle": "So entsteht dein Tagesziel",
+  "onboardingReviewTarget": "Wunschgewicht",
+  "onboardingReviewPace": "Tempo",
   "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Körperdaten und Ziele kannst du später im Profil ändern.",
 
   "coachErrorEmptyReply": "Leere Antwort vom Coach.",

@@ -13,7 +13,9 @@ import 'support/harness.dart';
 //    of a percentage, selection cards announce button + selected.
 //  * F8-09 — the sex tiles and the picker unit no longer shrink their text
 //    with FittedBox; the tiles stack at large system fonts instead.
-//  * F2-08 — the intro names the real number of questions.
+//  * F2-08 — the progress names the real number of questions; since
+//    2026-10-04 that number depends on the goal (target and pace are asked
+//    only for a direction).
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -63,17 +65,29 @@ Future<void> _next(WidgetTester tester, [int times = 1]) async {
 }
 
 void main() {
-  testWidgets('progress names the six real groups', (tester) async {
+  testWidgets('progress names the real steps', (tester) async {
     await _pump(tester, profile: const UserProfile());
-    expect(find.byKey(const ValueKey('onboarding-step-basics')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
     expect(find.text('1 / 6'), findsOneWidget);
     await _next(tester);
     expect(find.text('2 / 6'), findsOneWidget);
+
+    await _pump(
+      tester,
+      profile: const UserProfile(weightGoal: WeightGoal.lose05kg),
+    );
+    expect(find.text('1 / 8'), findsOneWidget,
+        reason: 'losing weight adds the target and pace questions');
   });
 
   testWidgets('F2-04: Auswahlkarten sind Knoepfe mit selected-Status',
       (tester) async {
     await _pump(tester, profile: const UserProfile());
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('onboarding-goal-maintain'))),
+      isSemantics(isButton: true, isSelected: true, isInMutuallyExclusiveGroup: true),
+    );
+    await _next(tester); // goal -> basics
 
     await tester.tap(find.byKey(const ValueKey('onboarding-sex-male')));
     await tester.pumpAndSettle();
@@ -87,7 +101,10 @@ void main() {
     );
 
     await _next(tester, 2); // basics, body -> activity
-    await tester.tap(find.byKey(const ValueKey('onboarding-activity-moderate')));
+    final moderate = find.byKey(const ValueKey('onboarding-activity-moderate'));
+    await tester.ensureVisible(moderate);
+    await tester.pumpAndSettle();
+    await tester.tap(moderate);
     await tester.pumpAndSettle();
     expect(
       tester.getSemantics(
@@ -99,7 +116,7 @@ void main() {
   testWidgets('F2-04: Stepper haben Labels, der Slider spricht den Wert',
       (tester) async {
     await _pump(tester, profile: const UserProfile(weightKg: 75));
-    await _next(tester); // -> body
+    await _next(tester, 2); // goal, basics -> body
 
     expect(
       tester.getSemantics(find.byKey(const ValueKey('onboarding-weight-dec'))),
@@ -128,6 +145,7 @@ void main() {
     };
     try {
       await _pump(tester, profile: const UserProfile(), textScale: 2.0);
+      await _next(tester); // goal -> basics
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('onboarding-sex-male')),
@@ -159,6 +177,7 @@ void main() {
 
   testWidgets('bei 1.0 stehen die drei Kacheln nebeneinander', (tester) async {
     await _pump(tester, profile: const UserProfile());
+    await _next(tester); // goal -> basics
     final male = tester.getRect(find.byKey(const ValueKey('onboarding-sex-male')));
     final female =
         tester.getRect(find.byKey(const ValueKey('onboarding-sex-female')));

@@ -10,7 +10,8 @@
 //   1. _FoodDateChip        food tab, date strip
 //   2. _CalendarDayButton   food tab, the square button next to the strip
 //   3. _DayPicker chips     edit-meal sheet, the same chips again
-//   4. _TileCard/_RowCard   onboarding, sex and activity/goal cards
+//   4. _TileCard/_RowCard   onboarding, sex and activity/goal cards (since
+//                           2026-10-04 the picker-sheet language, below)
 //
 // As `forest`/`onForest` they measured, in the DARK palette:
 //
@@ -37,6 +38,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
+import 'package:eatova/src/screens/onboarding/onboarding_controls.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/screens/today/today_day_strip.dart';
 import 'package:eatova/src/services/local_day.dart';
@@ -89,24 +91,6 @@ const double _text = 4.5;
 
 Finder _drin(Key key, Type typ) =>
     find.descendant(of: find.byKey(key), matching: find.byType(typ));
-
-/// The painted capsule of a keyed chip/card — every one of the four is an
-/// [AnimatedContainer] under its keyed [InkWell].
-BoxDecoration _deko(WidgetTester tester, Key key) =>
-    tester.widget<AnimatedContainer>(_drin(key, AnimatedContainer).first)
-        .decoration! as BoxDecoration;
-
-Color _fuellung(WidgetTester tester, Key key) => _deko(tester, key).color!;
-
-Color _rand(WidgetTester tester, Key key) =>
-    (_deko(tester, key).border! as Border).top.color;
-
-/// Colour of the [index]-th [Text] inside the keyed subject.
-Color _textFarbe(WidgetTester tester, Key key, int index) => tester
-    .widgetList<Text>(_drin(key, Text))
-    .elementAt(index)
-    .style!
-    .color!;
 
 /// Colour of the [index]-th [Icon] inside the keyed subject.
 Color _iconFarbe(WidgetTester tester, Key key, [int index = 0]) =>
@@ -166,6 +150,104 @@ void _erwarteAuswahlsprache({
       _kontrast(aufDerFlaeche[i], gegenueber[i]),
       greaterThanOrEqualTo(_zustand),
       reason: '$modus/$was: Kanal $i gewaehlt gegen ungewaehlt',
+    );
+  }
+}
+
+/// The painted card of a keyed onboarding option. Its [AnimatedContainer]
+/// sits ABOVE the keyed InkWell, so the ink can paint over the fill.
+BoxDecoration _kartenDeko(WidgetTester tester, Key key) =>
+    tester
+            .widget<AnimatedContainer>(
+              find
+                  .ancestor(
+                    of: find.byKey(key),
+                    matching: find.byType(AnimatedContainer),
+                  )
+                  .first,
+            )
+            .decoration!
+        as BoxDecoration;
+
+Color _kartenFuellung(WidgetTester tester, Key key) =>
+    _kartenDeko(tester, key).color!;
+
+Color _kartenRand(WidgetTester tester, Key key) =>
+    (_kartenDeko(tester, key).border! as Border).top.color;
+
+/// The radio mark inside a keyed onboarding option.
+BoxDecoration _radioDeko(WidgetTester tester, Key key) =>
+    tester
+            .widget<AnimatedContainer>(
+              find
+                  .descendant(
+                    of: find.descendant(
+                      of: find.byKey(key),
+                      matching: find.byType(OnboardingRadio),
+                    ),
+                    matching: find.byType(AnimatedContainer),
+                  )
+                  .first,
+            )
+            .decoration!
+        as BoxDecoration;
+
+/// The onboarding cards' contract, measured on the colours actually painted:
+/// the outline and the radio carry the state (3:1), the text stays readable
+/// (4.5:1) on the tinted fill, and the tint itself is the accent's.
+void _erwarteKartenSprache(
+  WidgetTester tester, {
+  required String modus,
+  required AppTokens t,
+  required String was,
+  required Key gewaehlt,
+  required Key ungewaehlt,
+}) {
+  final flaeche = _kartenFuellung(tester, gewaehlt);
+  expect(flaeche, Color.alphaBlend(t.accentTint, t.surf),
+      reason: '$modus/$was: Fuellung ist der Akzent-Hauch ueber surf');
+  expect(_kartenFuellung(tester, ungewaehlt), t.surf);
+
+  // 1. The outline: accent when chosen, against both grounds a card sits on.
+  final rand = _kartenRand(tester, gewaehlt);
+  expect(rand, t.accent);
+  expect(_kartenRand(tester, ungewaehlt), t.line);
+  for (final grund in <(String, Color)>[('bg', t.bg), ('surf', t.surf)]) {
+    expect(
+      _kontrast(rand, grund.$2),
+      greaterThanOrEqualTo(_zustand),
+      reason: '$modus/$was: Auswahl-Rand gegen ${grund.$1} (WCAG 1.4.11)',
+    );
+  }
+
+  // 2. The radio: a filled disc against the card, its check on the disc, and
+  //    an empty ring that still reads on the unselected card.
+  final scheibe = _radioDeko(tester, gewaehlt).color!;
+  expect(scheibe, t.selectedFill);
+  expect(
+    _kontrast(scheibe, flaeche),
+    greaterThanOrEqualTo(_zustand),
+    reason: '$modus/$was: Radio-Scheibe gegen die Kartenflaeche',
+  );
+  expect(
+    _kontrast(_iconFarbe(tester, gewaehlt, _drin(gewaehlt, Icon).evaluate().length - 1), scheibe),
+    greaterThanOrEqualTo(_text),
+    reason: '$modus/$was: Haken auf der Scheibe',
+  );
+  final ring = (_radioDeko(tester, ungewaehlt).border! as Border).top.color;
+  expect(
+    _kontrast(ring, t.surf),
+    greaterThanOrEqualTo(_zustand),
+    reason: '$modus/$was: leerer Ring auf der ungewaehlten Karte',
+  );
+
+  // 3. Every text on the chosen card stays body-text readable.
+  for (final text in tester.widgetList<Text>(_drin(gewaehlt, Text))) {
+    final farbe = text.style!.color!;
+    expect(
+      _kontrast(_ueber(farbe, flaeche), flaeche),
+      greaterThanOrEqualTo(_text),
+      reason: '$modus/$was: "${text.data}" auf der gewaehlten Flaeche',
     );
   }
 }
@@ -244,7 +326,7 @@ Future<void> _oeffneEditSheet(
   await tester.pumpAndSettle();
 }
 
-/// Onboarding up to [schritte] taps on "next" (intro = 0).
+/// Onboarding up to [schritte] taps on "next" (goal = 0).
 Future<void> _zumSchritt(
   WidgetTester tester,
   int schritte, {
@@ -356,108 +438,67 @@ void main() {
     });
   });
 
-  group('Onboarding: gewaehlte Karten tragen SelectionTone', () {
+  group('Onboarding: gewaehlte Karten tragen die Picker-Sprache', () {
+    // Since 2026-10-04 the onboarding speaks the settings pickers' selection
+    // language: the chosen card takes the accent tint, an accent outline and
+    // a filled accent radio; the text stays `ink`. The state is carried by
+    // the outline and the radio — both measured here — not by the tint.
     _modi.forEach((modus, brightness) {
       final t = _tokens(brightness);
 
-      testWidgets('$modus: Geschlechts-Kachel (_TileCard)', (tester) async {
-        // Step 1 = sex; UserProfile() defaults to `neutral`.
-        await _zumSchritt(tester, 0, brightness: brightness);
-
-        const gewaehlt = ValueKey<String>('onboarding-sex-neutral');
-        const ungewaehlt = ValueKey<String>('onboarding-sex-female');
-
-        final flaeche = _fuellung(tester, gewaehlt);
-        final andere = _fuellung(tester, ungewaehlt);
-        final glyphe = _iconFarbe(tester, gewaehlt);
-        final beschriftung = _textFarbe(tester, gewaehlt, 0);
-
-        _erwarteAuswahlsprache(
+      testWidgets('$modus: Geschlechts-Kachel', (tester) async {
+        // Step 2 = about you; UserProfile() defaults to `neutral`.
+        await _zumSchritt(tester, 1, brightness: brightness);
+        _erwarteKartenSprache(
+          tester,
           modus: modus,
           t: t,
           was: 'Geschlechts-Kachel',
-          gewaehlteFlaeche: flaeche,
-          ungewaehlteFlaeche: andere,
-          aufDerFlaeche: <Color>[glyphe, beschriftung],
-          gegenueber: <Color>[
-            _iconFarbe(tester, ungewaehlt),
-            _textFarbe(tester, ungewaehlt, 0),
-          ],
+          gewaehlt: const ValueKey<String>('onboarding-sex-neutral'),
+          ungewaehlt: const ValueKey<String>('onboarding-sex-female'),
         );
-
-        expect(flaeche, t.selectedFill,
-            reason: '$modus: Fuellung ist selectedFill');
-        expect(andere, t.surf);
-        expect(_rand(tester, gewaehlt), t.selectedFill);
-        expect(glyphe, t.onSelected, reason: '$modus: Glyphe ist onSelected, nicht '
-            'lime — auf ink waere lime 1,07:1 im Dunkelmodus');
-        expect(beschriftung, t.onSelected);
       });
 
-      testWidgets('$modus: Aktivitaets-Zeile (_RowCard) inkl. Haekchen',
-          (tester) async {
-        // Step 5 = activity; UserProfile() defaults to `sedentary`.
-        await _zumSchritt(tester, 2, brightness: brightness);
-
-        const gewaehlt = ValueKey<String>('onboarding-activity-sedentary');
-        const ungewaehlt = ValueKey<String>('onboarding-activity-moderate');
-
-        final flaeche = _fuellung(tester, gewaehlt);
-        final andere = _fuellung(tester, ungewaehlt);
-        // Text 0 = title, 1 = subtitle (onSelected @ 78 %), 2 = trailing.
-        final titel = _textFarbe(tester, gewaehlt, 0);
-        final unterzeile = _ueber(_textFarbe(tester, gewaehlt, 1), flaeche);
-        final zusatz = _textFarbe(tester, gewaehlt, 2);
-        // The row has no leading icon, so the ONLY icon is the state tick.
-        final haekchen = _iconFarbe(tester, gewaehlt);
-
-        _erwarteAuswahlsprache(
+      testWidgets('$modus: Aktivitaets-Karte', (tester) async {
+        // Step 4 = activity; UserProfile() defaults to `sedentary`.
+        await _zumSchritt(tester, 3, brightness: brightness);
+        _erwarteKartenSprache(
+          tester,
           modus: modus,
           t: t,
-          was: 'Aktivitaets-Zeile',
-          gewaehlteFlaeche: flaeche,
-          ungewaehlteFlaeche: andere,
-          aufDerFlaeche: <Color>[titel, unterzeile, zusatz, haekchen],
-          gegenueber: <Color>[
-            _textFarbe(tester, ungewaehlt, 0),
-            _textFarbe(tester, ungewaehlt, 1),
-            _textFarbe(tester, ungewaehlt, 2),
-          ],
+          was: 'Aktivitaets-Karte',
+          gewaehlt: const ValueKey<String>('onboarding-activity-sedentary'),
+          ungewaehlt: const ValueKey<String>('onboarding-activity-moderate'),
         );
-
-        expect(flaeche, t.selectedFill,
-            reason: '$modus: Fuellung ist selectedFill');
-        expect(andere, t.surf);
-        expect(_rand(tester, gewaehlt), t.selectedFill);
-        expect(titel, t.onSelected);
-        expect(zusatz, t.onSelected);
-        expect(haekchen, t.onSelected, reason: '$modus: das Haekchen ist der zweite '
-            'Zustandskanal und muss auf der Fuellung lesen');
-        expect(_drin(ungewaehlt, Icon), findsNothing,
-            reason: 'nur die gewaehlte Zeile traegt ein Haekchen');
       });
 
-      testWidgets('$modus: Ziel-Zeile traegt auch ihr fuehrendes Icon',
-          (tester) async {
-        // Step 6 = goal. The leading icon only exists here, and it was the
-        // fourth channel that stayed `lime`.
-        await _zumSchritt(tester, 3, brightness: brightness);
+      testWidgets('$modus: Ziel-Karte mit fuehrendem Symbol', (tester) async {
+        // Step 1 = goal.
+        await _zumSchritt(tester, 0, brightness: brightness);
         await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
         await tester.pumpAndSettle();
-
         const gewaehlt = ValueKey<String>('onboarding-goal-lose');
-        final flaeche = _fuellung(tester, gewaehlt);
-        // Icon 0 = leading, icon 1 = the tick.
-        for (var i = 0; i < 2; i++) {
-          expect(
-            _kontrast(_iconFarbe(tester, gewaehlt, i), flaeche),
-            greaterThanOrEqualTo(_zustand),
-            reason: '$modus: Icon $i auf der gewaehlten Ziel-Zeile',
-          );
-        }
-        expect(flaeche, t.selectedFill);
-        expect(_iconFarbe(tester, gewaehlt, 0), t.onSelected);
-        expect(_iconFarbe(tester, gewaehlt, 1), t.onSelected);
+        _erwarteKartenSprache(
+          tester,
+          modus: modus,
+          t: t,
+          was: 'Ziel-Karte',
+          gewaehlt: gewaehlt,
+          ungewaehlt: const ValueKey<String>('onboarding-goal-maintain'),
+        );
+        // The leading glyph sits on its tile over the selected fill.
+        final flaeche = _kartenFuellung(tester, gewaehlt);
+        final kachel = tester
+            .widgetList<Container>(_drin(gewaehlt, Container))
+            .map((c) => c.decoration)
+            .whereType<BoxDecoration>()
+            .firstWhere((d) => d.color == t.tile);
+        final glyphe = _iconFarbe(tester, gewaehlt);
+        expect(
+          _kontrast(glyphe, _ueber(kachel.color!, flaeche)),
+          greaterThanOrEqualTo(_zustand),
+          reason: '$modus: Symbol auf seiner Kachel ueber der Auswahl',
+        );
       });
     });
   });

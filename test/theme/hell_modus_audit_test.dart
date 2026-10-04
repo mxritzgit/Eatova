@@ -350,14 +350,13 @@ Future<void> _zurOnboardingZusammenfassung(WidgetTester tester) async {
     await tester.pumpAndSettle();
   }
 
-  // intro, sex, age, height, weight, activity
-  for (var i = 0; i < 3; i++) {
-    await weiter();
-  }
+  // The goal comes first; losing adds the target and pace steps.
   await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
   await tester.pumpAndSettle();
-  // goal, target, pace, diet
-  for (var i = 0; i < 2; i++) {
+  while (find
+      .byKey(const ValueKey('onboarding-step-summary'))
+      .evaluate()
+      .isEmpty) {
     await weiter();
   }
 }

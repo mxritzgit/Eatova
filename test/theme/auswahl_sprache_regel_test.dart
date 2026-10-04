@@ -192,7 +192,8 @@ void main() {
         // Food now uses plain date navigation; its former chips no longer exist.
         // The edit sheet's day row is Today's strip since 2026-10-03.
         'lib/src/screens/today/today_day_strip.dart': 1, // Tages-Streifen
-        'lib/src/screens/onboarding_screen.dart': 2, // _TileCard + _RowCard
+        // The radio of every onboarding option card and tile: disc + ring.
+        'lib/src/screens/onboarding/onboarding_controls.dart': 2,
       };
       stellen.forEach((pfad, mindestens) {
         final text = _gefaltet(File(pfad).readAsStringSync());
