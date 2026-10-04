@@ -515,12 +515,13 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        await tester.scrollUntilVisible(find.text('Oats'), 150);
+        await tester.scrollUntilVisible(find.text('Milk to taste'), 150);
         expect(find.text('Oats'), findsOneWidget);
         expect(
-          find.textContaining(locale == 'de' ? '1 Portion\n' : '1 serving\n'),
+          find.text(locale == 'de' ? '1 Portion' : '1 serving'),
           findsOneWidget,
         );
+        expect(find.text('100 g oats'), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     });
