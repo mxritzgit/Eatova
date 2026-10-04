@@ -2870,10 +2870,12 @@ both intents, and added its own fixes where a finding crossed areas.
   switch), an order-dependent Supabase wiring test, and a midnight race in
   the lifecycle flow.
 
-**Needs a deploy (owner):**
-- search-key (stalled-body classification)
-- recipe-import (author filter, known-bad-token cache)
-- analyze-meal (label sanitizing, confidence case, item fallback)
+**Deployed 2026-10-04 (owner OK):** these went live from `c61c115`, with
+`verify_jwt` on. The boot probe got each function's own 401 or 405, with no
+BOOT_ERROR.
+- search-key v13 (stalled-body classification)
+- recipe-import v10 (author filter, known-bad-token cache)
+- analyze-meal v35 (label sanitizing, confidence case, item fallback)
 
 No migration is part of this change.
 
@@ -2907,3 +2909,91 @@ Verification on Windows with Flutter 3.47.2, final head: the analyzer is
 clean; the full suite passed 6,810 of 6,810 with 96.9 % local line coverage
 (generated l10n excluded); Deno lint, check and 922 tests are green; the CI
 shard plan and tooling tests pass.
+
+## Profile, goals, onboarding and light mode, 2026-10-04
+
+The owner asked for four changes, approved the plan in advance and authorized
+the merge after CI:
+- bring the profile page and "Profile & Goals" up to the current design;
+- rethink and redesign the onboarding;
+- explain why the plan card showed 119.1 kg after a 117 kg weigh-in;
+- add a complete light mode, using three subagents and doing it last.
+
+Plan: [2026-10-04-profile-onboarding-light-mode](superpowers/plans/2026-10-04-profile-onboarding-light-mode.md).
+The work ran in two phases. Workers W1 and W2 ran first, in parallel. L1 ran
+next, then L2 and L3 in parallel. Each worked in its own worktree; the
+orchestrator read every diff and visual capture before cherry-picking.
+
+- **Weight label (W1).** It was not a calculation bug. Since stage 1 of the
+  weight trend, the plan card's left pole shows the smoothed trend, while the
+  weight card shows the last weigh-in. The pole is now labelled "Trend", with
+  "Last weigh-in 117 kg" under it when the two differ. The goals screen's
+  read-only row is "Weight trend" and names the last weigh-in.
+  docs/WEIGHT-TREND.md is updated.
+- **My Profile and Profile & Goals (W1).**
+  - The header matches Settings.
+  - Stat tiles and the plan card now use icon tiles and value capsules.
+  - The goals groups follow the Settings page style, with 40 px icon tiles and
+    calmer footnotes.
+  - Duplicated labels are gone ("Reminders" is now "Streak reminder").
+  - Sex values are capitalized and localized ("Male", "Männlich").
+  - The pickers have glyphs and a level meter.
+  - All keys and behaviour are kept.
+- **Onboarding (W2).** The decision table is in
+  [ONBOARDING-2026-10-04.md](ONBOARDING-2026-10-04.md).
+  - **New order:** goal → about you (sex, age) → body (height, weight) →
+    activity → target → pace → diet (optional) → plan.
+  - **Target and pace** are asked only for lose or gain. That gives 6
+    questions for maintain and 8 for lose or gain.
+  - **Target default:** an untouched target follows the current weight in the
+    goal's direction; the old default made a one-kilo plan.
+  - **Plan step:** shows the target BMI hint and the forecast, in the Goals
+    hero style.
+  - **Code:** the 1,744-line screen is split into lib/src/screens/onboarding/.
+  - **Unchanged:** the profile fields, persistence and the calorie rules.
+  - **Proof:** 10 old behaviours were put back one at a time, and each turned
+    its test red.
+- **Light mode.**
+  - **L1, foundation:**
+    - `kDarkOnly` is gone. The app follows System, Light or Dark (default
+      System), and the Settings Appearance row is back.
+    - New `AppTokens.light` mirrors every dark role with AA contrast (all
+      pairs are checked in `app_tokens_test`).
+    - System bars are styled per brightness; this fixes navigation-bar icons
+      that would have vanished on a light bar.
+    - The stored mode is loaded before `runApp`.
+    - The Android launch window follows the OS mode. iOS keeps its dark launch
+      screen (an Xcode change is open).
+    - `--dart-define=DESIGN_CAPTURE_BRIGHTNESS=light` renders every capture
+      suite in light, written to build/light-redesign/.
+  - **L2, Today, Food, profile, settings, onboarding, auth:**
+    - new tokens `knob`, `knobRing` and `glowStrength`;
+    - a white arc and BMI knob with an accent ring;
+    - softer violet glows in light;
+    - the camera viewfinder stays dark in both modes;
+    - trend bars use `progressAccent`;
+    - settings captures include the Appearance row, and there is a new trends
+      capture suite.
+  - **L3, Coach, Recipes, Training:**
+    - new token `orbBody`, so the orb stays a lit sphere;
+    - the recipe hero bookmark is ink;
+    - the dark night-studio photo is toned as a lavender duotone on light
+      cards (same asset);
+    - new capture suites for Coach cards, the training player and recipe
+      lists.
+  - **Dark parity:** dark captures stayed pixel-identical, except where a
+    change was intended: the Appearance row in the settings shots, and the
+    bookmark glyph tone.
+- **Orchestrator fix.** The trends chart's goal label now sits on a
+  card-coloured pill; bars used to cover it in both modes.
+
+**Open:**
+- the iOS light launch screen (needs Xcode);
+- the device check of hold-to-repeat and the transitions in the onboarding;
+- small light-mode polish candidates L3 listed: the grey "My recipes"
+  empty well, grey field capsules on the active set row, and the white
+  label on disabled accent pills.
+
+Verification on Windows with Flutter 3.47.2, final head: the analyzer is
+clean; the full suite passed 6,911 of 6,911 with 96.96 % local line coverage
+(generated l10n excluded); the CI shard plan and tooling tests pass.
