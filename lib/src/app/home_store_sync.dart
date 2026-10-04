@@ -403,7 +403,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       );
       while (attempted.length < 20) {
         if (_disposed || _trainingSessionEnded) return;
-        if (claim != null && !await claim.renew()) return;
+        // A lease lost mid-pass (e.g. the app was suspended past it) ends the
+        // pass; breaking out still arms the retry for the remaining queue.
+        if (claim != null && !await claim.renew()) break;
         _outbox = await cache.readSyncOperations(
           guards: claim?.guards ?? const {},
         );
@@ -430,7 +432,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         if (_disposed ||
             _trainingSessionEnded ||
             (claim != null && !await claim.isCurrent())) {
-          return;
+          break;
         }
         _inFlightOps[op.entityKey] = op;
         var delivered = false;

@@ -54,7 +54,7 @@ Future<void> _signIn(SupabaseClient client) {
 }
 
 /// One queued meal insert, as a previous process left it.
-Map<String, String> _queuedMeal() => {
+Map<String, String> _queuedMeal([List<SyncOp> more = const []]) => {
   'eatova.v1.outbox.$_owner': jsonEncode({
     'items': [
       SyncOp.mealInsert(
@@ -65,6 +65,7 @@ Map<String, String> _queuedMeal() => {
         ),
         trackDay: false,
       ).toJson(),
+      for (final op in more) op.toJson(),
     ],
   }),
 };
@@ -177,5 +178,57 @@ void main() {
       server.requests.where((r) => r.url.path.endsWith('/rpc/load_meal_plan')),
       hasLength(1),
     );
+  });
+
+  test('ein Pass, dessen Lease waehrend einer Zustellung ablief (App '
+      'suspendiert), laesst den Rest der Queue nicht ohne Wecker liegen', () async {
+    var now = DateTime.utc(2026, 9, 20, 12);
+    await withClock(Clock(() => now), () async {
+      // Manual energy: no boot-time profile healing write starts a new pass.
+      final server = FakeServer()
+        ..profileRow = {
+          ...serverProfileRow(testProfile()),
+          'manual_energy': true,
+        };
+      final client = _client(server);
+      addTearDown(client.dispose);
+      await _signIn(client);
+      const weightId = '6c1d2e3f-4051-4b62-8c73-8d94ea5fb607';
+      final kv = InMemoryKeyValueStore(
+        _queuedMeal([
+          SyncOp.weightInsert(
+            id: weightId,
+            weightKg: 80,
+            recordedAt: DateTime.utc(2026, 9, 20, 7),
+          ),
+        ]),
+      );
+      final store = _store(server, client, LocalCache(kv, _owner));
+      addTearDown(store.dispose);
+      server.holdMealWrites();
+
+      store.start();
+      await pumpUntil(() => server.operations('mealInsert').isNotEmpty);
+      // The app is suspended with the request on the wire and resumes after
+      // the lease ran out.
+      now = now.add(SyncExecutionGuard.leaseDuration * 2);
+      server.releaseMealWrites();
+      await pumpUntil(() => !store.bootLoadInFlight);
+      await settle();
+
+      expect(server.mealRows.keys, contains(_mealId), reason: 'Vorbedingung');
+      expect(
+        store.pendingOutbox.map((op) => op.entityId),
+        contains(weightId),
+        reason: 'Vorbedingung: der abgelaufene Lease beendet den Pass',
+      );
+      expect(
+        store.debugOutboxRetryTimerIsActive,
+        isTrue,
+        reason:
+            'ohne Wecker bleibt die Gewichtsmessung bis zum naechsten '
+            'Lifecycle-Ereignis unzugestellt',
+      );
+    });
   });
 }
