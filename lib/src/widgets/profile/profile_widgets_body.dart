@@ -1078,11 +1078,18 @@ class _BmiScale extends StatelessWidget {
                       top: 0,
                       width: 16,
                       height: 16,
+                      // Dark: the light dot cut out of the track by a card-
+                      // coloured border; light: a white knob in an accent
+                      // ring (a transparent ring blends to the card).
                       child: DecoratedBox(
+                        key: const ValueKey('profile-bmi-marker'),
                         decoration: BoxDecoration(
-                          color: t.ink,
+                          color: t.knob,
                           shape: BoxShape.circle,
-                          border: Border.all(color: t.surf, width: 3),
+                          border: Border.all(
+                            color: Color.alphaBlend(t.knobRing, t.surf),
+                            width: 3,
+                          ),
                         ),
                       ),
                     ),
