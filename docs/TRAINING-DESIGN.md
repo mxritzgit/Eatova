@@ -14,6 +14,13 @@
 > §6). Report:
 > `.agents/dark-redesign-2026-09-28/worktree/.superpowers/sdd/plan/task-5-report.md`.
 
+> **Light mode (2026-10-04).** The app follows the display mode again. On a
+> light backdrop `TrainingStudioArtwork` re-tones the dark studio photo as a
+> duotone from the hero-glow lavender (`arcStart`) to the backdrop
+> (`studioDuotone`), so it no longer fades into a grey fog. The asset itself
+> is unchanged; on a dark backdrop the photo shows as shot. Capture:
+> `test/design/training_player_capture_test.dart` (`training-plans-00`).
+
 Concept 09, selected on 2026-09-13, is implemented as a native Flutter Training
 page. The dark studio photography, expressive headings, lavender start action
 and open exercise rows give Training its own character within Eatova.
