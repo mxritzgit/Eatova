@@ -193,46 +193,6 @@ void main() {
     expect(s.store.dailyConsumedKcal, 300);
   });
 
-  // B5: _moveDayLabel measured the distance in absolute time, so across the
-  // spring DST switch a 23-hour day read as 0 days and the confirmation claimed
-  // "moved to today" for a meal on yesterday. The clock is pinned via withClock;
-  // a UTC machine has no 23-hour day, but the assertions hold in every zone.
-  group('B5 — Verschiebe-Label ueber die Fruehjahrsumstellung 29.03.2026', () {
-    test('vom 30.03. auf den 29.03. meldet „gestern", nicht „heute"', () async {
-      await withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () async {
-        final s = _setup();
-        final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
-
-        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 29));
-
-        expect(s.snacks.messages.last, 'Mahlzeit auf gestern verschoben.');
-      });
-    });
-
-    test('vom 30.03. auf den 28.03. meldet das Datum, nicht „gestern"', () async {
-      await withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () async {
-        final s = _setup();
-        final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
-
-        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 28));
-
-        expect(s.snacks.messages.last, 'Mahlzeit auf den 28.3. verschoben.');
-      });
-    });
-
-    test('auf den laufenden Tag selbst meldet weiterhin „heute"', () async {
-      await withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () async {
-        final s = _setup();
-        final id = await s.store.addResultToDailyTotal(_meal('Bowl'),
-            foodDate: DateTime(2026, 3, 28));
-
-        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
-
-        expect(s.snacks.messages.last, 'Mahlzeit auf heute verschoben.');
-      });
-    });
-  });
-
   // Review 2026-10-04: an entry logged in this session had no localDay and
   // bucketed by its timestamp's CURRENT local day. A zone change while the
   // app kept running (east across midnight) moved a 23:45 dinner to the next

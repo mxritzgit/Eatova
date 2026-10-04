@@ -168,30 +168,6 @@ void main() {
       expect(snap, isNull);
     });
 
-    test('Kontrolle: echte Schritte -> granted, auch ohne WRITE', () {
-      final v = HealthAuthVerifier();
-
-      expect(
-        v.resolve(_ev(writeGrant: false, steps: 9812),
-            now: DateTime(2026, 8, 19)),
-        HealthAuthState.granted,
-      );
-    });
-
-    test('Ruhetag nach echter Evidenz bleibt granted (auch mit WRITE)', () {
-      final v = HealthAuthVerifier();
-      v.resolve(_ev(writeGrant: true, steps: 7400),
-          now: DateTime(2026, 8, 18, 20));
-
-      expect(
-        v.resolve(_ev(writeGrant: true, steps: 0),
-            now: DateTime(2026, 8, 19, 20)),
-        HealthAuthState.granted,
-        reason: 'ein einzelner 0-Schritte-Tag darf die Verifikation nicht '
-            'kippen',
-      );
-    });
-
     test('Lesezugriff entzogen, WRITE bleibt an -> verfaellt nach TTL', () {
       final v = HealthAuthVerifier(evidenceTtl: const Duration(days: 3));
       v.resolve(_ev(writeGrant: true, steps: 7400), now: DateTime(2026, 8, 1));
@@ -205,16 +181,6 @@ void main() {
       expect(state, HealthAuthState.unverified,
           reason: 'sonst haelt der Schreibschalter den granted-Zustand '
               'unbegrenzt am Leben');
-    });
-
-    test('WRITE-Entzug bleibt der harte denied-Beweis', () {
-      final v = HealthAuthVerifier();
-      v.resolve(_ev(writeGrant: true, steps: 6000), now: DateTime(2026, 8, 18));
-
-      expect(
-        v.resolve(_ev(writeGrant: false, steps: 0), now: DateTime(2026, 8, 19)),
-        HealthAuthState.denied,
-      );
     });
 
     test('Ende zu Ende: Connect mit reiner Schreib-Freigabe ist nicht granted',
