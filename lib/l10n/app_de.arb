@@ -2412,9 +2412,17 @@
   "mealPlanSnapshotHint": "Diese Planung behält das Rezept in seiner jetzigen Form. Spätere Rezeptänderungen ändern den Plan nicht.",
   "mealPlanRetry": "Erneut laden",
   "mealPlanCannotLog": "Zum Eintragen fehlen Kalorien oder die Portion ist zu groß. Korrigiere die Portion oder plane das vervollständigte Rezept erneut.",
-  "coachBriefTitle": "Dein Trainingsbriefing",
-  "coachBriefDataUsed": "Coach verwendet die folgenden Angaben und gegebenenfalls den ausgewählten Plan für diese Anfrage. Prüfe die Vorauswahl. Weitere Profilwerte oder Trainingsverlauf werden nicht mitgesendet.",
+  "coachBriefTitle": "Mit Coach planen",
+  "coachBriefLead": "Coach antwortet im Chat. Gespeichert wird erst, was du bestätigst.",
+  "coachBriefShared": "Nur diese Angaben gehen an Coach.",
+  "coachBriefSharedWithPlan": "Nur diese Angaben und dieser Plan gehen an Coach.",
   "coachBriefDefaultGoal": "Allgemeine Fitness",
+  "coachBriefGoalStrength": "Kraft aufbauen",
+  "coachBriefGoalMuscle": "Muskeln aufbauen",
+  "coachBriefGoalFatLoss": "Fett abbauen",
+  "coachBriefGoalEndurance": "Ausdauer",
+  "coachBriefGoalOwn": "Eigenes Ziel",
+  "coachBriefGoalHint": "Beschreibe dein Ziel",
   "coachBriefGoal": "Trainingsziel",
   "coachBriefExperience": "Erfahrung",
   "coachBriefBeginner": "Einstieg",
@@ -2424,22 +2432,44 @@
   "coachBriefBodyweight": "Körpergewicht",
   "coachBriefDumbbells": "Kurzhanteln",
   "coachBriefGym": "Fitnessstudio",
+  "coachBriefSchedule": "Zeitplan",
   "coachBriefSessions": "Einheiten pro Woche",
+  "coachBriefSessionsValue": "{count}× pro Woche",
+  "@coachBriefSessionsValue": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "coachBriefMinutes": "Minuten pro Einheit",
+  "coachBriefMinutesValue": "{minutes} Min.",
+  "@coachBriefMinutesValue": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "coachBriefMinutesUnit": "Min.",
   "coachBriefWish": "Wunsch oder Frage (optional)",
+  "coachBriefWishHint": "z. B. knieschonend, ohne Sprünge",
   "coachBriefSelectedPlan": "Ausgewählter Plan",
   "coachBriefPreviewPlan": "Mitgesendeten Plan ansehen",
-  "coachBriefIntent": "Was möchtest du tun?",
-  "coachBriefDiscuss": "Besprechen",
-  "coachBriefAdapt": "Anpassen",
-  "coachBriefDraftNotice": "Das Senden verwendet eine Coach-Anfrage. Vorschläge prüfst und bearbeitest du vor der Übernahme als neuen Plan. Dein gespeicherter Plan bleibt erhalten. Dieses Briefing wird nicht als Profil gespeichert.",
-  "coachBriefGenerate": "Planentwurf anfragen",
+  "coachBriefIntent": "Was soll Coach tun?",
+  "coachBriefDiscuss": "Plan besprechen",
+  "coachBriefDiscussHint": "Rückmeldung, wie gut er zu dir passt. Nichts wird geändert.",
+  "coachBriefAdapt": "Plan anpassen",
+  "coachBriefAdaptHint": "Coach entwirft eine geänderte Kopie. Dein Plan bleibt, wie er ist.",
+  "coachBriefQuota": "Verbraucht 1 Coach-Anfrage",
+  "coachBriefGenerate": "Planentwurf erstellen",
+  "coachBriefSendAdapt": "Anpassung entwerfen",
   "coachBriefSendDiscussion": "Plan besprechen",
   "coachBriefCreateWish": "Erstelle einen passenden Trainingsplan anhand meines Briefings.",
   "coachBriefAdaptWish": "Schlage eine Anpassung des ausgewählten Trainingsplans anhand meines Briefings vor.",
   "coachBriefDiscussWish": "Besprich, wie gut der ausgewählte Trainingsplan zu meinem Briefing passt.",
   "coachBriefInvalid": "Prüfe Ziel und Wunsch. Verwende normalen Text ohne Befehle. Falls der gespeicherte Plan ungültige Angaben enthält, bearbeite ihn zuerst in Training.",
-  "coachBriefUnavailable": "Der Chat ist noch nicht bereit oder das Kontingent ist aufgebraucht. Schließe das Briefing und prüfe den Chat.",
+  "coachBriefUnavailable": "Der Chat ist noch nicht bereit oder das Kontingent ist aufgebraucht. Schließe diese Ansicht und prüfe den Chat.",
   "healthConnectTitle": "Health Connect",
   "healthConnectSetup": "Verbinde Health Connect, um deine Schritte zu sehen und den Kalorienverbrauch zu schätzen.",
   "healthConnectConnected": "Schritte verbunden. Aktualisiere, um Tagesdaten zu lesen.",

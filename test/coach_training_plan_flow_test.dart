@@ -835,7 +835,14 @@ void main() {
         },
       );
       expect(coach.calls, isEmpty);
-      await _tapVisible(tester, find.text('Adapt'));
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('coach-brief-intent-adapt')),
+      );
+      await _tapVisible(
+        tester,
+        find.byKey(const ValueKey('coach-brief-goal-own')),
+      );
       await tester.ensureVisible(
         find.byKey(const ValueKey('coach-brief-goal')),
       );
@@ -954,6 +961,10 @@ void main() {
             scale: 2,
             size: const Size(320, 568),
           );
+          await _tapVisible(
+            tester,
+            find.byKey(const ValueKey('coach-brief-goal-own')),
+          );
           final goal = find.byKey(const ValueKey('coach-brief-goal'));
           await tester.ensureVisible(goal);
           await tester.enterText(goal, 'Strength');
@@ -965,6 +976,7 @@ void main() {
           await tester.tap(submit);
           await _frames(tester);
           expect(coach.briefCalls, hasLength(1));
+          expect(coach.briefCalls.single.goal, 'Strength');
         });
         expect(errors, isEmpty, reason: describeOverflows(errors));
       },
