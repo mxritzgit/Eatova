@@ -1,4 +1,6 @@
-// Visual evidence for the profile page polish (design polish run 2026-10-02).
+// Visual evidence for the profile page (design polish run 2026-10-02; the
+// dark-redesign pass of 2026-10-04: account-page header, icon tiles, value
+// capsules, the labelled trend pole).
 //
 // Mounts the real ProfileScreen at the design's reference geometry with a
 // realistic, lived-in account: eight weeks of weigh-ins, a running streak,
@@ -174,6 +176,12 @@ void main() {
         expect(find.text('1221/2050'), findsOneWidget);
         expect(find.text('6430/8000'), findsOneWidget);
         expect(find.text('Goal 76 kg'), findsOneWidget);
+        // The plan's left pole says what it shows: the trend, with the last
+        // weigh-in under it (owner report 2026-10-04).
+        expect(find.text('TREND'), findsOneWidget);
+        expect(find.text('Last weigh-in 81.2 kg'), findsOneWidget);
+        // Enum values read as words, not as stored names.
+        expect(find.text('Male'), findsOneWidget);
         for (final key in _actions) {
           expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
         }

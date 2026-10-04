@@ -1,8 +1,10 @@
-// Visual evidence for the settings polish (2026-10-02).
+// Visual evidence for the settings polish (2026-10-02) and the goals page in
+// the settings language (2026-10-04).
 //
 // Mounts the settings page and the goals page it leads to (plan hero,
-// pickers) with realistic data at the design's reference geometry (390x844,
-// DPR 2, real fonts). The profile has its own capture suite.
+// groups, pickers, the read-only trend row, the target notes) with realistic
+// data at the design's reference geometry (390x844, DPR 2, real fonts). The
+// profile has its own capture suite.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/. Without it the suite still checks that every surface
@@ -232,6 +234,55 @@ void main() {
         findsOneWidget,
       );
       await _shootDown(tester, 'goals', page: find.byKey(goalsPage));
+    });
+  });
+
+  testWidgets('goals: the read-only trend row (owner case 2026-10-04)', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      // Logged 117 kg while the smoothed trend still reads 119.1.
+      await _mount(
+        tester,
+        GoalsScreen(
+          profile: _profile.copyWith(weightKg: 119, targetWeightKg: 100),
+          weightTrendKg: 119.1,
+          latestWeighInKg: 117,
+        ),
+      );
+      final row = find.byKey(const ValueKey('settings-weight-trend'));
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: row, matching: find.text('Weight trend')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.textContaining('Last weigh-in 117 kg'),
+        ),
+        findsOneWidget,
+      );
+      await captureDesignShot(tester, 'goals-trend');
+    });
+  });
+
+  testWidgets('goals: target reached and the BMI hint', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      // 54 kg at 181 cm aiming for 55 while "losing": the goal is reached,
+      // and a target BMI under 18.5 adds the soft hint.
+      await _mount(
+        tester,
+        GoalsScreen(
+          profile: _profile.copyWith(weightKg: 54, targetWeightKg: 55),
+        ),
+      );
+      final reached = find.byKey(const ValueKey('settings-target-reached'));
+      await tester.ensureVisible(reached);
+      await tester.pumpAndSettle();
+      expect(reached, findsOneWidget);
+      await captureDesignShot(tester, 'goals-notes');
     });
   });
 
