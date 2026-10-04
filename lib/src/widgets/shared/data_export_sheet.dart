@@ -154,6 +154,18 @@ class _DataExportSheetState extends State<DataExportSheet> {
         stackTrace: st,
         name: 'data_export_sheet',
       );
+      // Copying is the only way out of the export; a silent failure (e.g. a
+      // multi-megabyte text over the Android clipboard limit) looked like a
+      // dead button.
+      if (mounted) {
+        showAppSnack(
+          context,
+          context.l10n.exportSheetCopyFailedSnack,
+          icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
+          duration: kSnackError,
+        );
+      }
       return;
     }
     if (!mounted) return;

@@ -1311,6 +1311,8 @@
   "exportSheetTitleFull": "Datenauskunft",
   "exportSheetTitleSession": "Daten Snapshot",
   "exportSheetCopiedSnack": "Export in Zwischenablage",
+  "exportSheetCopyFailedSnack": "Kopieren hat nicht geklappt. Versuch es erneut oder kopiere die Bereiche einzeln.",
+  "@exportSheetCopyFailedSnack": {"description": "Toast when the system clipboard rejects an export copy (platform error, e.g. a too large text)."},
   "exportSheetCopyButton": "Alles kopieren",
 
   "targetBmiHintUnderweight": "Dieses Zielgewicht entspräche einem BMI von {bmi} — das liegt unterhalb des als gesund geltenden Bereichs.",

@@ -1260,6 +1260,7 @@
   "exportSheetTitleFull": "Data disclosure",
   "exportSheetTitleSession": "Data snapshot",
   "exportSheetCopiedSnack": "Export copied to clipboard",
+  "exportSheetCopyFailedSnack": "Couldn't copy. Try again or copy the sections one by one.",
   "exportSheetCopyButton": "Copy all",
 
   "targetBmiHintUnderweight": "This target weight would correspond to a BMI of {bmi} — that's below the range considered healthy.",

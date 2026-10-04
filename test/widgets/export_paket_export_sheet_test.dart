@@ -289,7 +289,9 @@ void main() {
       await zeigeSheet(tester, auskunft: _export());
 
       await tester.tap(find.byKey(const ValueKey('profile-export-copy')));
-      await tester.pumpAndSettle();
+      // NOT pumpAndSettle, see above: the toast would be gone again.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(
         tester.takeException(),
@@ -303,6 +305,10 @@ void main() {
             'eine Bestaetigung fuer etwas, das nicht passiert ist, ist '
             'dieselbe Sorte Luege wie die Vollstaendigkeits-Behauptung',
       );
+      // Copying is the only way out of the export (a multi-megabyte export
+      // can exceed the Android clipboard), so a silent failure looked like a
+      // dead button.
+      expect(find.text(deL10n.exportSheetCopyFailedSnack), findsOneWidget);
     });
   });
 }
