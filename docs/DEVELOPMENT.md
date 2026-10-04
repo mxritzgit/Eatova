@@ -113,21 +113,26 @@ the intended debug/upload/Play App Signing identities for their actual use.
 
 ## Device builds and the build number
 
-Install release builds on a device through the helper, which passes the
-defines and sets the build number to the commit count of `HEAD`:
+Install release builds on a device through the helper. It builds with the
+defines and with the build number set to the commit count of `HEAD`, then
+installs the build (`flutter run` takes no build number):
 
 ```bash
-python3 scripts/operations/device_build.py run          # flutter run --release
-python3 scripts/operations/device_build.py ipa          # flutter build ipa
-python3 scripts/operations/device_build.py appbundle    # flutter build appbundle
+python3 scripts/operations/device_build.py iphone       # Mac only: build ios + install
+python3 scripts/operations/device_build.py android      # build apk + install
+python3 scripts/operations/device_build.py ipa          # store builds, no install
+python3 scripts/operations/device_build.py appbundle
 ```
 
-Extra arguments go to flutter (for example `-d <device>`). On Windows set
-`FLUTTER` to the full path of `flutter.bat`. The pubspec build number stays put
-across many merges. Reinstalling the same release over a running app looks like
-an OS kill to Sentry's iOS SDK, and was reported as a WatchdogTermination
-(FLUTTER-C on 1.1.0 (2) and 1.1.0 (3)). A build number per commit lets Sentry
-tell an update from a kill.
+Use `-d <device>` to pick the device, and `--dry-run` to print the commands
+without running them. Other arguments go to `flutter build`. iPhone builds need
+macOS with Xcode. On Windows, set `FLUTTER` to the full path of `flutter.bat`
+(PowerShell: `$env:FLUTTER = "C:\path\to\flutter\bin\flutter.bat"`).
+
+The pubspec build number stays the same across many merges. Reinstalling the
+same release over a running app looks like an OS kill to Sentry's iOS SDK, and
+was reported as a WatchdogTermination (FLUTTER-C on 1.1.0 (2) and 1.1.0 (3)). A
+build number per commit lets Sentry tell an update from a kill.
 
 ## Checks and delivery
 
