@@ -116,6 +116,16 @@ Future<bool> _fragAbbruch(
   return abbrechen ?? false;
 }
 
+/// Closes the sheet with `true` after a completed change. A dismiss attempt
+/// during the request may have opened the discard dialog above the sheet; a
+/// plain pop would close that dialog with `true`, which reads as "discard".
+void _popWithSuccess(BuildContext context) {
+  final navigator = Navigator.of(context);
+  final sheet = ModalRoute.of(context);
+  if (sheet != null) navigator.popUntil((route) => route == sheet);
+  navigator.pop(true);
+}
+
 /// The shell both sheets wear: handle, dismiss guard and [PopScope] around the
 /// [SheetScaffold] (P4-06).
 ///
@@ -366,7 +376,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       return;
     }
     if (!mounted) return;
-    Navigator.of(context).pop(true);
+    _popWithSuccess(context);
   }
 
   @override
@@ -618,7 +628,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
     }
 
     if (!mounted) return;
-    Navigator.of(context).pop(true);
+    _popWithSuccess(context);
   }
 
   @override
