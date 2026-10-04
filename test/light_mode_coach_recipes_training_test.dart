@@ -1,14 +1,14 @@
 // Light mode for Coach, Recipes and Training (2026-10-04): the three places
 // where a dark-only assumption survived the token switch.
 //
-//   * The recipe hero's bookmark drew a white glyph on a frosted glass in the
-//     page tone; in light the glass is near-white and the glyph vanished.
+//   * The recipe hero's bookmark drew an always-white glyph on a frosted
+//     glass in the page tone; in light the glass is near-white and the glyph
+//     vanished. It is `ink` now, like the AI label on the same glass.
 //   * The night-studio artwork is a dark photo; faded into a white card it
 //     became a grey fog. On a light backdrop it is re-toned as a duotone.
 //   * The coach orb's body stop was the accent fill: lavender in dark, a
-//     deep iris in light, which flattened the sphere into a dark ball.
-//
-// Dark keeps the design's values in all three.
+//     deep iris in light, which flattened the sphere into a dark ball. The
+//     body is the `orbBody` token now (dark: still the accent fill).
 
 import 'dart:ui' as ui;
 
@@ -82,7 +82,7 @@ void main() {
               (w) => w is CustomPaint && w.painter != null,
             ),
           );
-          final ink = brightness == Brightness.light ? t.ink : t.onImage;
+          final ink = t.ink;
           expect(tester.renderObject(glyph), paints..path(color: ink));
           // The glass (page tone at 60 %) over the darkest and the brightest
           // photo: the glyph keeps 3:1 on both.
@@ -185,16 +185,15 @@ void main() {
                     .decoration
                 as BoxDecoration;
         final body = (core.gradient! as RadialGradient).colors[1];
-        expect(
-          body,
-          brightness == Brightness.light
-              ? Color.lerp(t.orbLight, t.arcStart, 0.6)
-              : t.accentFill,
-        );
+        expect(body, t.orbBody);
         // A lit lavender body (dark: 0.44, light: 0.42), not the deep iris
         // of the light accent fill (0.11) that read as a dark ball.
         expect(body.computeLuminance(), greaterThan(0.35));
       });
     }
+
+    test('dunkel bleibt die Akzent-Fuellung des Designs', () {
+      expect(AppTokens.dark.orbBody, AppTokens.dark.accentFill);
+    });
   });
 }
