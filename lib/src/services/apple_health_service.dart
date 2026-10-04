@@ -162,10 +162,11 @@ class AppleHealthService implements HealthService {
   final Health _health;
   final Future<void> Function(Duration duration) _retryDelay;
 
-  /// Right after an unlock HealthKit's protected store is briefly not
+  /// Right after an unlock HealthKit's protected store can be briefly not
   /// readable, and the plugin reports that like any other read error
-  /// (STEPS_ERROR / HEALTH_ERROR, the reason only in the message). A required
-  /// query waits this long and tries once more before the error counts.
+  /// (STEPS_ERROR / HEALTH_ERROR, the reason only in the message). Today's
+  /// required queries wait this long and try once more before the error
+  /// counts.
   static const Duration transientRetryDelay = Duration(seconds: 1);
   final bool _isIOS;
   final HealthAuthVerifier _verifier;
@@ -233,12 +234,18 @@ class AppleHealthService implements HealthService {
   }
 
   /// [optional] queries (the weight) report a failure at once: the read
-  /// keeps its other results, so a retry would only repeat them.
+  /// keeps its other results, so a retry would only repeat them. [retry]
+  /// false skips the wait (best-effort reads). [emptyInterval] tells a
+  /// generic error on an interval WITHOUT samples apart from a real failure:
+  /// HealthKit's statistics query reports "no data" as an error, not as a
+  /// zero sum (Sentry FLUTTER-H, FLUTTER-K), and that is not reported.
   Future<T> _query<T>(
     _HealthReadSession session,
     String operation,
     Future<T> Function() query, {
     bool optional = false,
+    bool retry = true,
+    Future<bool> Function()? emptyInterval,
   }) async {
     session.check();
     late T result;
@@ -254,10 +261,16 @@ class AppleHealthService implements HealthService {
           (e.code == 'HEALTH_ERROR' || e.code == 'STEPS_ERROR');
       final interruptedRead = session.interrupted && generic;
       final retrying =
-          generic && !optional && session.allowRetry && !session.interrupted;
+          generic &&
+          !optional &&
+          retry &&
+          session.allowRetry &&
+          !session.interrupted;
       if (retrying) session.retryAfterWait = true;
       if (session.isCurrent() && !interruptedRead && !retrying) {
-        _reportError(operation, e, st);
+        final noData =
+            generic && emptyInterval != null && await emptyInterval();
+        if (!noData && session.isCurrent()) _reportError(operation, e, st);
       }
       throw const _HealthReadDeferred();
     }
@@ -326,6 +339,7 @@ class AppleHealthService implements HealthService {
       session,
       'readSteps',
       () => _health.getTotalStepsInInterval(startOfDay, now),
+      emptyInterval: () => _noStepSamples(startOfDay, now),
     );
 
     double? latestWeight;
@@ -428,15 +442,36 @@ class AppleHealthService implements HealthService {
     final now = clock.now();
     if (!start.isBefore(now)) return null;
     if (end.isAfter(now)) end = now;
+    // Best effort: no retry wait (the backfill walks 21 days, and a day
+    // before the step data begins fails every time); a failed day keeps its
+    // stored value and is read again next session.
     final steps = await _query(
       session,
       'readStepsOnDay',
       () => _health.getTotalStepsInInterval(start, end),
+      retry: false,
+      emptyInterval: () => _noStepSamples(start, end),
     );
-    // 0 proves nothing (see HealthAuthEvidence.steps): without read access
-    // an empty sum comes back, never an error. Store positives only.
+    // 0 proves nothing (see HealthAuthEvidence.steps). Store positives only.
     return (steps ?? 0) > 0 ? steps : null;
   });
+
+  /// Whether HealthKit holds no step samples between [from] and [to]: the
+  /// sample query answers an empty interval with an empty list, where the
+  /// statistics query fails. Unknown (an error here too) counts as "has
+  /// data", so a real failure is still reported.
+  Future<bool> _noStepSamples(DateTime from, DateTime to) async {
+    try {
+      final points = await _health.getHealthDataFromTypes(
+        types: const [HealthDataType.STEPS],
+        startTime: from,
+        endTime: to,
+      );
+      return points.isEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async {

@@ -7,22 +7,44 @@ import 'package:health/health.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 
-// Sentry 2026-10-04 (PlatformException code=STEPS_ERROR, context
-// health.readSteps, iPhone, 1.1.0 (4)): the step query failed 27 ms after the
-// app came to the foreground at 04:24. The plugin wraps every HealthKit error
-// of that query in STEPS_ERROR and keeps the reason only in the message;
-// right after an unlock HealthKit's protected store is briefly not readable
-// ("Protected health data is inaccessible"). The read was not interrupted, so
-// the error went straight to Sentry and the steps stayed stale until the next
-// resume. A generic HealthKit error in the foreground now gets one retry
-// after a short wait; only a failure that persists is reported.
+// Sentry 2026-10-04, STEPS_ERROR (the plugin wraps every HealthKit error of
+// the step query in it and keeps the reason only in the message):
+// - FLUTTER-H, 1.1.0 (4): today's step query failed at 04:24, right after the
+//   app came to the foreground.
+// - FLUTTER-K, 1.1.0 (383): twelve PAST days of the energy-check backfill
+//   failed in a row, one per second (the retry wait), 22 s after a cold
+//   start in the foreground, while the newer days of the 21-day window read
+//   fine.
+// Both fit an interval without any step samples, which HealthKit's
+// statistics query reports as an error instead of a zero sum: no steps
+// since midnight at 04:24, no history before the step data begins. So a
+// generic HealthKit error is only reported when the same interval does have
+// step samples; a past day gets no retry (the backfill is best effort and
+// tries again next session); today's read keeps its one retry for a
+// briefly unreadable store.
 
 final _now = DateTime(2026, 10, 4, 4, 24, 42);
+
+HealthDataPoint _stepSample(DateTime at) => HealthDataPoint(
+  uuid: 'sample-${at.millisecondsSinceEpoch}',
+  value: NumericHealthValue(numericValue: 120),
+  type: HealthDataType.STEPS,
+  unit: HealthDataUnit.COUNT,
+  dateFrom: at,
+  dateTo: at.add(const Duration(minutes: 5)),
+  sourcePlatform: HealthPlatformType.appleHealth,
+  sourceDeviceId: 'device',
+  sourceId: 'com.apple.health',
+  sourceName: 'iPhone',
+);
 
 class _Health extends Health {
   final calls = <String>[];
   final List<Object> stepResults = [];
   Object? weightResult;
+
+  /// Raw step samples HealthKit holds for the queried interval.
+  List<HealthDataPoint> stepSamples = const [];
 
   Object _next(List<Object> results) =>
       results.length > 1 ? results.removeAt(0) : results.first;
@@ -59,6 +81,10 @@ class _Health extends Health {
     required DateTime endTime,
     List<RecordingMethod> recordingMethodsToFilter = const [],
   }) async {
+    if (types.contains(HealthDataType.STEPS)) {
+      calls.add('stepSamples');
+      return stepSamples;
+    }
     calls.add('weight');
     final result = weightResult;
     if (result is Exception) throw result;
@@ -90,36 +116,82 @@ void main() {
 
   PlatformException stepsError() => PlatformException(code: 'STEPS_ERROR');
 
-  test('a step error that clears after a short wait is not reported', () async {
-    await withClock(Clock.fixed(_now), () async {
-      plugin.stepResults.addAll([stepsError(), 4200]);
+  group('today', () {
+    test('a step error that clears after a short wait is not reported',
+        () async {
+      await withClock(Clock.fixed(_now), () async {
+        plugin.stepResults.addAll([stepsError(), 4200]);
 
-      expect((await service.readSnapshot())?.stepsToday, 4200);
-      expect(plugin.calls.where((c) => c == 'steps'), hasLength(2));
-      expect(waits, hasLength(1), reason: 'one short wait, then one retry');
-      expect(reports, isEmpty);
+        expect((await service.readSnapshot())?.stepsToday, 4200);
+        expect(plugin.calls.where((c) => c == 'steps'), hasLength(2));
+        expect(waits, hasLength(1), reason: 'one short wait, then one retry');
+        expect(reports, isEmpty);
+      });
+    });
+
+    test('no step samples since midnight is no error (FLUTTER-H at 04:24)',
+        () async {
+      await withClock(Clock.fixed(_now), () async {
+        plugin.stepResults.add(stepsError());
+
+        expect(await service.readSnapshot(), isNull);
+        expect(plugin.calls, contains('stepSamples'));
+        expect(reports, isEmpty);
+      });
+    });
+
+    test('a step error with samples in the interval is reported once',
+        () async {
+      await withClock(Clock.fixed(_now), () async {
+        plugin.stepResults.add(stepsError());
+        plugin.stepSamples = [_stepSample(DateTime(2026, 10, 4, 1))];
+
+        expect(await service.readSnapshot(), isNull);
+        expect(plugin.calls.where((c) => c == 'steps'), hasLength(2));
+        expect(reports, ['health.readSteps']);
+      });
     });
   });
 
-  test('a step error that persists is reported once', () async {
-    await withClock(Clock.fixed(_now), () async {
-      plugin.stepResults.add(stepsError());
+  group('past days (energy-check backfill)', () {
+    test('a day without step samples is no value: no retry, no report '
+        '(FLUTTER-K, twelve days in a row)', () async {
+      await withClock(Clock.fixed(_now), () async {
+        plugin.stepResults.add(stepsError());
 
-      expect(await service.readSnapshot(), isNull);
-      expect(plugin.calls.where((c) => c == 'steps'), hasLength(2));
-      expect(reports, ['health.readSteps']);
+        for (var n = 1; n <= 12; n++) {
+          expect(
+            await service.readStepsOnDay(DateTime(2026, 10, 4 - n)),
+            isNull,
+          );
+        }
+        expect(plugin.calls.where((c) => c == 'steps'), hasLength(12),
+            reason: 'one query per day, no retry');
+        expect(waits, isEmpty, reason: 'no second-long wait per day');
+        expect(reports, isEmpty);
+      });
     });
-  });
 
-  test('the day backfill gets the same single retry', () async {
-    await withClock(Clock.fixed(_now), () async {
-      plugin.stepResults.addAll([stepsError(), 7300]);
+    test('a day whose samples exist reports the failure, without retry',
+        () async {
+      await withClock(Clock.fixed(_now), () async {
+        plugin.stepResults.add(stepsError());
+        plugin.stepSamples = [_stepSample(DateTime(2026, 10, 3, 12))];
 
-      expect(
-        await service.readStepsOnDay(DateTime(2026, 10, 3)),
-        7300,
-      );
-      expect(reports, isEmpty);
+        expect(await service.readStepsOnDay(DateTime(2026, 10, 3)), isNull);
+        expect(plugin.calls.where((c) => c == 'steps'), hasLength(1));
+        expect(waits, isEmpty);
+        expect(reports, ['health.readStepsOnDay']);
+      });
+    });
+
+    test('a readable day keeps its steps', () async {
+      await withClock(Clock.fixed(_now), () async {
+        plugin.stepResults.add(7300);
+
+        expect(await service.readStepsOnDay(DateTime(2026, 10, 3)), 7300);
+        expect(reports, isEmpty);
+      });
     });
   });
 
