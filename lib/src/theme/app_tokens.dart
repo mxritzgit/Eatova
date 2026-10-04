@@ -58,6 +58,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.arcTrack,
     required this.chartViolet,
     required this.orbLight,
+    required this.orbBody,
     required this.orbMid,
     required this.orbDeep,
     required this.protein,
@@ -200,8 +201,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Deep violet for chart bars.
   final Color chartViolet;
 
-  /// Coach orb gradient stops around [lime]: highlight, body, shadow.
-  final Color orbLight, orbMid, orbDeep;
+  /// Coach orb gradient stops: highlight, lit body, mid tone, shadow. The
+  /// body is the lavender fill in dark; the light fill is a deep iris, which
+  /// flattened the sphere into a dark ball, so the body is its own token.
+  final Color orbLight, orbBody, orbMid, orbDeep;
 
   /// Macro encoding. Never an interaction color, never decoration.
   final Color protein, carbs, fat;
@@ -341,6 +344,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
     arcTrack: Color(0xFFECEAF3),
     chartViolet: Color(0xFFD2C9F4),
     orbLight: Color(0xFFF4F0FF),
+    // 60 % from the highlight to arcStart: a lit lavender on the light page.
+    orbBody: Color(0xFFB4A3F1),
     orbMid: Color(0xFF5A3EE0),
     orbDeep: Color(0xFF2A1B66),
     // Macro hues deepened into the graphics window: ≥ 3:1 on page, card and
@@ -427,6 +432,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
     arcTrack: Color(0xFF24212F),
     chartViolet: Color(0xFF3A3354),
     orbLight: Color(0xFFF1ECFF),
+    // The accent fill, as in the design.
+    orbBody: Color(0xFFB9A5FF),
     orbMid: Color(0xFF6A4BF0),
     orbDeep: Color(0xFF2A1B66),
     protein: Color(0xFF1DB071),
@@ -519,6 +526,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? arcTrack,
     Color? chartViolet,
     Color? orbLight,
+    Color? orbBody,
     Color? orbMid,
     Color? orbDeep,
     Color? protein,
@@ -588,6 +596,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       arcTrack: arcTrack ?? this.arcTrack,
       chartViolet: chartViolet ?? this.chartViolet,
       orbLight: orbLight ?? this.orbLight,
+      orbBody: orbBody ?? this.orbBody,
       orbMid: orbMid ?? this.orbMid,
       orbDeep: orbDeep ?? this.orbDeep,
       protein: protein ?? this.protein,
@@ -663,6 +672,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       arcTrack: c(arcTrack, other.arcTrack),
       chartViolet: c(chartViolet, other.chartViolet),
       orbLight: c(orbLight, other.orbLight),
+      orbBody: c(orbBody, other.orbBody),
       orbMid: c(orbMid, other.orbMid),
       orbDeep: c(orbDeep, other.orbDeep),
       protein: c(protein, other.protein),
