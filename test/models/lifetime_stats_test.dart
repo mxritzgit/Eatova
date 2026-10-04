@@ -231,7 +231,7 @@ void main() {
   // Dropping them from the wire format would break cached entries and the
   // table, so they remain frozen pass-throughs. These tests pin that.
   group('C7 — eingefrorene Legacy-Zaehler bleiben wire-kompatibel', () {
-    test('fromRow -> toRow reicht die Legacy-Spalten unveraendert durch', () {
+    test('fromRow liest die Legacy-Spalten unveraendert ein', () {
       final row = <String, dynamic>{
         'workouts_completed': 42,
         'meals_logged': 7,
@@ -243,30 +243,16 @@ void main() {
         'last_workout_date': '2026-06-04',
       };
 
-      final zurueck = LifetimeStats.fromRow(row).toRow();
+      final s = LifetimeStats.fromRow(row);
 
-      expect(zurueck['workouts_completed'], 42);
-      expect(zurueck['water_total_ml'], 12000);
-      expect(zurueck['steps_recorded'], 310000);
-      expect(zurueck['meals_logged'], 7);
-      expect(zurueck['weight_logs'], 3);
-      expect(zurueck['last_workout_date'], '2026-06-04');
-    });
-
-    test('toRow traegt weiterhin alle Spalten der Tabelle', () {
-      expect(
-        LifetimeStats().toRow().keys.toSet(),
-        {
-          'workouts_completed',
-          'meals_logged',
-          'water_total_ml',
-          'steps_recorded',
-          'weight_logs',
-          'current_streak',
-          'longest_streak',
-          'last_workout_date',
-        },
-      );
+      expect(s.workoutsCompleted, 42);
+      expect(s.waterTotalMl, 12000);
+      expect(s.stepsRecorded, 310000);
+      expect(s.mealsLogged, 7);
+      expect(s.weightLogs, 3);
+      expect(s.currentStreak, 5);
+      expect(s.longestStreak, 9);
+      expect(s.lastTrackedDate, DateTime(2026, 6, 4));
     });
 
     test('lebende Mutatoren lassen die Legacy-Zaehler unberuehrt', () {

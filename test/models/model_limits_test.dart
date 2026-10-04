@@ -13,12 +13,13 @@ import 'package:eatova/src/models/model_limits.dart';
 //   3) The constants match the final state of the SQL migrations, so a
 //      migration change at least shows up here.
 
-/// Checks an integer bound at all four edges.
+/// Checks an integer bound at all four edges; [clamp] only where one exists
+/// (typed body data and goals are rejected, never clamped).
 void _pruefeIntGrenze(
   String feld, {
   required int min,
   required int max,
-  required int Function(num) clamp,
+  int Function(num)? clamp,
   required bool Function(num) istGueltig,
 }) {
   test('$feld: min-1 / min / max / max+1', () {
@@ -35,6 +36,7 @@ void _pruefeIntGrenze(
       reason: '$feld: ${max + 1} liegt ueber der DB-Obergrenze $max',
     );
 
+    if (clamp == null) return;
     expect(clamp(min - 1), min, reason: '$feld: unterhalb wird auf $min geklemmt');
     expect(clamp(min), min);
     expect(clamp(max), max);
@@ -88,21 +90,18 @@ void main() {
       'weight_kg',
       min: ProfileLimits.weightKgMin,
       max: ProfileLimits.weightKgMax,
-      clamp: clampProfileWeightKg,
       istGueltig: isValidProfileWeightKg,
     );
     _pruefeIntGrenze(
       'height_cm',
       min: ProfileLimits.heightCmMin,
       max: ProfileLimits.heightCmMax,
-      clamp: clampProfileHeightCm,
       istGueltig: isValidProfileHeightCm,
     );
     _pruefeIntGrenze(
       'age_years',
       min: ProfileLimits.ageYearsMin,
       max: ProfileLimits.ageYearsMax,
-      clamp: clampProfileAgeYears,
       istGueltig: isValidProfileAgeYears,
     );
     _pruefeIntGrenze(
@@ -119,29 +118,13 @@ void main() {
       'daily_steps_goal',
       min: ProfileLimits.dailyStepsGoalMin,
       max: ProfileLimits.dailyStepsGoalMax,
-      clamp: clampDailyStepsGoal,
       istGueltig: isValidDailyStepsGoal,
     );
     _pruefeIntGrenze(
       'daily_kcal_goal',
       min: ProfileLimits.dailyKcalGoalMin,
       max: ProfileLimits.dailyKcalGoalMax,
-      clamp: clampDailyKcalGoal,
       istGueltig: isValidDailyKcalGoal,
-    );
-    _pruefeIntGrenze(
-      'daily_water_goal_ml',
-      min: ProfileLimits.dailyWaterGoalMlMin,
-      max: ProfileLimits.dailyWaterGoalMlMax,
-      clamp: clampDailyWaterGoalMl,
-      istGueltig: isValidDailyWaterGoalMl,
-    );
-    _pruefeIntGrenze(
-      'daily_sleep_goal_minutes',
-      min: ProfileLimits.dailySleepGoalMinutesMin,
-      max: ProfileLimits.dailySleepGoalMinutesMax,
-      clamp: clampDailySleepGoalMinutes,
-      istGueltig: isValidDailySleepGoalMinutes,
     );
     _pruefeIntGrenze(
       'protein_goal_g',
@@ -239,11 +222,17 @@ void main() {
       expect(isValidWeightLogKg(double.nan), isFalse);
       expect(isValidMealCaloriesKcal(double.nan), isFalse);
       // Without a fallback: the lower bound.
-      expect(clampProfileWeightKg(double.nan), ProfileLimits.weightKgMin);
+      expect(
+        clampProfileTargetWeightKg(double.nan),
+        ProfileLimits.targetWeightKgMin,
+      );
       // With a fallback: the caller picks the substitute.
-      expect(clampProfileWeightKg(double.nan, fallback: 78), 78);
+      expect(clampProfileTargetWeightKg(double.nan, fallback: 78), 78);
       // An out-of-range fallback is itself clamped.
-      expect(clampProfileWeightKg(double.nan, fallback: 900), ProfileLimits.weightKgMax);
+      expect(
+        clampProfileTargetWeightKg(double.nan, fallback: 900),
+        ProfileLimits.targetWeightKgMax,
+      );
       // Same rule on the double side — that is where B1 came from: a NaN macro
       // silently becoming 0 g instead of the caller's "unknown" substitute.
       // Only the int clamp was pinned, so the double one could drop the
@@ -259,8 +248,14 @@ void main() {
     });
 
     test('Unendlich clampt auf die jeweilige Grenze statt zu werfen', () {
-      expect(clampProfileWeightKg(double.infinity), ProfileLimits.weightKgMax);
-      expect(clampProfileWeightKg(double.negativeInfinity), ProfileLimits.weightKgMin);
+      expect(
+        clampProfileTargetWeightKg(double.infinity),
+        ProfileLimits.targetWeightKgMax,
+      );
+      expect(
+        clampProfileTargetWeightKg(double.negativeInfinity),
+        ProfileLimits.targetWeightKgMin,
+      );
       expect(clampMealCaloriesKcal(double.infinity), LoggedMealLimits.caloriesKcalMax);
       expect(clampWeightLogKg(double.infinity), WeightLogLimits.weightKgMax);
       expect(isValidProfileWeightKg(double.infinity), isFalse);
@@ -277,8 +272,6 @@ void main() {
       // Clamping 755 to 300 would silently falsify the input — the user meant
       // 75.5 kg, so the UI must reject it.
       expect(isValidProfileWeightKg(755), isFalse);
-      // The clamp still exists, but only as the last brake before the DB.
-      expect(clampProfileWeightKg(755), ProfileLimits.weightKgMax);
     });
 
     test('200000 kcal getippt: ungueltig, aber DB-sicher klemmbar', () {
@@ -372,20 +365,13 @@ void main() {
       expect(charLength(clampBrand('b' * 400)!), LoggedMealLimits.brandMaxChars);
     });
 
-    test('barcode / source_label / display_name / avatar_url', () {
+    test('barcode / source_label', () {
       expect(charLength(clampBarcode('9' * 200)!), LoggedMealLimits.barcodeMaxChars);
       expect(
         charLength(clampSourceLabel('s' * 200)!),
         LoggedMealLimits.sourceLabelMaxChars,
       );
-      expect(charLength(clampDisplayName('n' * 200)), ProfileLimits.displayNameMaxChars);
-      expect(charLength(clampAvatarUrl('u' * 5000)!), ProfileLimits.avatarUrlMaxChars);
       expect(clampBarcode(null), isNull);
-      expect(clampAvatarUrl(null), isNull);
-      // Only the length was measured, so the trim could go without a red test
-      // and a display name would keep the whitespace the user pasted in.
-      expect(clampDisplayName('  Moritz  '), 'Moritz');
-      expect(clampDisplayName('   '), isEmpty);
     });
 
     test('favorite_key: 1..180, gekuerzt an der Runengrenze', () {

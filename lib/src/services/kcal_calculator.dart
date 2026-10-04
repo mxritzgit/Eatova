@@ -402,8 +402,9 @@ class KcalCalculator {
 
   /// Weeks to target weight — **optimistic lower bound**; prefer
   /// [weeksToGoalRange] for display. Uses [KcalTargets.effectiveWeeklyRateKg],
-  /// not [WeightGoalInfo.weeklyRateKg], which would promise a pace the caps
-  /// forbid (B2). `null` on a reached target, noise rate, or wrong direction.
+  /// not [WeightGoalInfo.signedWeeklyRateKg], which would promise a pace the
+  /// caps forbid (B2). `null` on a reached target, noise rate, or wrong
+  /// direction.
   int? weeksToGoal(UserProfile profile, {KcalTargets? targets}) {
     final diffKg = (profile.weightKg - profile.targetWeightKg).abs();
     if (diffKg == 0) return null;

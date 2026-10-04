@@ -202,7 +202,7 @@ void main() {
       );
       final maintain = calc.calculate(heavy.copyWith(weightGoal: WeightGoal.maintain));
       final lose1kg = calc.calculate(heavy.copyWith(weightGoal: WeightGoal.lose1kg));
-      expect(WeightGoal.lose1kg.weeklyRateKg, 1.0);
+      expect(WeightGoal.lose1kg.signedWeeklyRateKg, -1.0);
       // 110 × 11 = 1210 ≥ 1100: the cap does not bite.
       expect(KcalCalculator.maxDeficitKcalPerDay(110), 1210);
       expect(lose1kg.deficitCapApplied, isFalse);

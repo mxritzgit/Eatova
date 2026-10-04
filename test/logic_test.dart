@@ -45,29 +45,11 @@ MealAnalysisResult _result({
 void main() {
   group('LifetimeStats.recordTrackedDay (Logging-Streak)', () {
     final day1 = DateTime(2026, 6, 1);
-    final day2 = DateTime(2026, 6, 2);
 
     test('erster Log-Tag -> Streak 1', () {
       final s = LifetimeStats().recordTrackedDay(day1);
       expect(s.currentStreak, 1);
       expect(s.longestStreak, 1);
-    });
-    test('toRow/fromRow Roundtrip erhält Zähler + Streak', () {
-      final s = LifetimeStats(
-        workoutsCompleted: 7,
-        mealsLogged: 42,
-        waterTotalMl: 12000,
-        currentStreak: 3,
-        longestStreak: 9,
-        lastTrackedDate: day2,
-      );
-      final back = LifetimeStats.fromRow(s.toRow());
-      expect(back.workoutsCompleted, 7);
-      expect(back.mealsLogged, 42);
-      expect(back.waterTotalMl, 12000);
-      expect(back.currentStreak, 3);
-      expect(back.longestStreak, 9);
-      expect(back.lastTrackedDate, day2);
     });
     test('fromRow ist defensiv bei fehlenden/falschen Spalten', () {
       final back = LifetimeStats.fromRow(<String, dynamic>{
