@@ -451,7 +451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openExport() async {
     final bauen = widget.onExportData;
     if (bauen == null) return;
-    await showDataExportSheet(context, snapshot: bauen, vollstaendig: true);
+    await showDataExportSheet(context, snapshot: bauen);
   }
 
   // --- DANGER ZONE ----------------------------------------------------------

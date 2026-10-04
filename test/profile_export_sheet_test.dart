@@ -4,8 +4,7 @@
 // keeps the old profile wording for history.
 //
 // Without `onExportData` the settings hide the row entirely rather than
-// offering a partial result, so `DataExportSheet(vollstaendig: false)` and
-// `fallbackSnapshot` have no caller left in the app.
+// offering a partial result; the session-snapshot mode of the sheet is gone.
 //
 // The service tests below run a STRICT MockClient: it answers only tables that
 // really exist per supabase/migrations/ and returns 404 for anything else —
@@ -217,7 +216,6 @@ void main() {
     await oeffneExport(tester, onExportData: null);
 
     expect(find.byKey(const ValueKey('settings-export')), findsNothing);
-    expect(find.text('Daten Snapshot'), findsNothing);
   });
 
   testWidgets(
