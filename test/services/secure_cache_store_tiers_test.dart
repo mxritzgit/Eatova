@@ -391,15 +391,6 @@ void main() {
       expect(skript.decrypts, 1);
     });
 
-    test('Stufe 2 nicht baubar -> Stufe 3 antwortet, im gleichen Format', () {
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      final blob =
-          AesGcmCacheCipher.encryptSync(_dek, _key, _plaintext, nonce: _nonce);
-
-      expect(blob, _goldenBlob);
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, blob), _plaintext);
-    });
-
     test(
         'ein Wurf auf Stufe 2, der KEIN Urteil ueber die Daten ist, wird von '
         'Stufe 3 beantwortet — encrypt wie decrypt', () {

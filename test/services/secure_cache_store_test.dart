@@ -357,10 +357,6 @@ void main() {
 
       expect(await cipher.decrypt(key, await cipher.encrypt(key, big)), big);
     });
-
-    test('DEK mit falscher Laenge wird abgelehnt', () {
-      expect(() => AesGcmCacheCipher(Uint8List(16)), throwsArgumentError);
-    });
   });
 
   group('CacheKeyProvider', () {

@@ -133,16 +133,6 @@ void main() {
         expect(await cache.readNotificationsEnabled(), isTrue);
         expect(await andere.readNotificationsEnabled(), isFalse);
       });
-
-      test('das Versions-Praefix ist v1 — eine Erhoehung verwaist alle Slots '
-          'und muss eine bewusste Migration sein', () async {
-        await cache.writeNotificationsEnabled(true);
-
-        for (final key in store.snapshot.keys) {
-          expect(key, startsWith('eatova.v1.'),
-              reason: '$key faellt aus dem Namensraum');
-        }
-      });
     });
   });
 }

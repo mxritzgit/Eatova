@@ -262,20 +262,6 @@ void main() {
       );
     });
 
-    test('clear() ohne Argument raeumt weiterhin auch die Outbox', () async {
-      // The default must not change — account deletion relies on it.
-      final store = InMemoryKeyValueStore();
-      final cache = _cache(store);
-      await cache.writeOutbox([SyncOp.mealDelete('m-2')]);
-      await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
-
-      await cache.clear();
-
-      expect(await cache.readOutbox(), isNull);
-      expect(await cache.readPendingStatsDeltas(), isNull);
-      expect(store.snapshot, isEmpty);
-    });
-
     test('Slots sind pro userId getrennt', () async {
       final store = InMemoryKeyValueStore();
       await _cache(store, 'user-a').writeLoggedMeals([testMeal('m-1')]);

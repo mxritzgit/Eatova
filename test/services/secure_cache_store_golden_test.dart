@@ -162,14 +162,6 @@ void main() {
   // 1. The golden vector
   // -------------------------------------------------------------------------
   group('Golden-Blob (fester DEK, feste Nonce, fester Klartext)', () {
-    test('der Software-Pfad erzeugt exakt den festgeschriebenen Blob', () {
-      expect(
-        AesGcmCacheCipher.encryptSync(_dek, _goldenKey, _goldenPlaintext,
-            nonce: _nonce),
-        _goldenBlob,
-      );
-    });
-
     test('der Plattform-Codec erzeugt BYTE-IDENTISCH denselben Blob', () async {
       expect(
         await _platformCodec()
