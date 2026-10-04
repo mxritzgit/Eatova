@@ -419,7 +419,9 @@ class _ChartCardState extends State<_ChartCard> {
                       labels: labels,
                       progress: value,
                       gridColor: t.line,
-                      barColor: t.accent,
+                      // The accent in dark; a step lighter in light, where
+                      // a month of full iris bars weighed on the white card.
+                      barColor: t.progressAccent,
                       goalLineColor: t.ink.withValues(alpha: 0.6),
                       bandColor: t.ink.withValues(alpha: 0.05),
                     ),
