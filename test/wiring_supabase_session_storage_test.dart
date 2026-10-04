@@ -13,8 +13,8 @@
 // touching the network: both storages run on their packages' in-memory test
 // platforms, and the access token is deliberately NOT a JWT, so `expiresAt`
 // stays null, `isExpired` is false and `recoverSession` never refreshes.
-// `Supabase` is a process singleton, so initialize runs once here and is
-// disposed in tearDown.
+// `Supabase` is a process singleton, so each test initializes it and
+// tearDown disposes it.
 //
 // It observes the result of the one-time migration, the sharpest observable
 // difference between the two storages: with the override the plaintext moves
@@ -53,9 +53,15 @@ void main() {
   /// What lands here would live in the Android Keystore / iOS Keychain.
   final Map<String, String> keystore = <String, String>{};
 
-  tearDownAll(() async {
-    if (Supabase.instance.isInitialized) {
+  // `Supabase.instance` asserts before initialize, so the state is tracked
+  // here. Disposed after EACH test: every test initializes on its own and
+  // passes alone or in any order.
+  var initialized = false;
+
+  tearDown(() async {
+    if (initialized) {
       await Supabase.instance.dispose();
+      initialized = false;
     }
   });
 
@@ -78,6 +84,7 @@ void main() {
 
       // The real production path.
       await EatovaSupabaseConfig.initialize();
+      initialized = true;
 
       // 1) The token is in the keystore. Without `authOptions` this map would
       //    stay empty — SharedPreferencesLocalStorage never touches it.
@@ -124,6 +131,11 @@ void main() {
       // The verifier is short-lived but real: whoever grabs it AND the
       // callback link can do the code exchange. It was the last auth artifact
       // still stored in plaintext by default.
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      keystore.clear();
+      FlutterSecureStorage.setMockInitialValues(keystore);
+      await EatovaSupabaseConfig.initialize();
+      initialized = true;
       await Supabase.instance.client.auth
           .getOAuthSignInUrl(provider: OAuthProvider.google);
 
