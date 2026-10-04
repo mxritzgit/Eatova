@@ -743,6 +743,13 @@
   "profileGoalPlanTitle": "My Goal",
   "profileGoalPlanEditTooltip": "Adjust goal",
   "profileWeightPoleCurrent": "Current",
+  "profileWeightPoleTrend": "Trend",
+  "profileWeightLastWeighIn": "Last weigh-in {kg} kg",
+  "@profileWeightLastWeighIn": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
   "profileWeightTrend": "Trend {kg} kg",
   "@profileWeightTrend": {
     "placeholders": {
@@ -1102,7 +1109,14 @@
   "goalsPageTitle": "Profile & Goals",
   "goalsGroupBody": "BODY",
   "goalsFieldWeight": "Weight",
-  "goalsWeightFromTrend": "Trend of your weigh-ins. Log a new weigh-in in your profile.",
+  "goalsFieldWeightTrend": "Weight trend",
+  "goalsWeightFromTrend": "The plan uses the smoothed trend of your weigh-ins. Log new weigh-ins in your profile.",
+  "goalsWeightTrendLastWeighIn": "Last weigh-in {kg} kg. The plan uses the smoothed trend; log new weigh-ins in your profile.",
+  "@goalsWeightTrendLastWeighIn": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
   "goalsEnergyAdjustmentTitle": "Weekly check",
   "goalsEnergyAdjustmentSubtitle": "Expenditure calibrated from your logs and weigh-ins",
   "goalsEnergyAdjustmentReset": "Reset",

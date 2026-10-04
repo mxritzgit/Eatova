@@ -34,6 +34,7 @@ class GoalsScreen extends StatefulWidget {
     this.onOpenSystemSettings,
     this.onSave,
     this.weightTrendKg,
+    this.latestWeighInKg,
   });
 
   final UserProfile profile;
@@ -43,6 +44,10 @@ class GoalsScreen extends StatefulWidget {
   /// trend (docs/WEIGHT-TREND.md), so a typed value would be smoothed straight
   /// back.
   final double? weightTrendKg;
+
+  /// The last weigh-in; the read-only trend row names it when it reads
+  /// differently from the trend, like the profile's plan card.
+  final double? latestWeighInKg;
   final PersistValueChanged<SettingsResult>? onSave;
 
   /// Callers that do not know the full state pass only this flag; it maps to
@@ -706,6 +711,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
   List<Widget> _koerperGruppe() {
     final l10n = context.l10n;
     final trend = widget.weightTrendKg;
+    final latest = widget.latestWeighInKg;
+    String kg(double value) =>
+        formatDecimal(value, l10n, maxFractionDigits: 1);
+    // Named only when it reads differently from the trend shown.
+    final lastWeighIn =
+        trend == null || latest == null || kg(latest) == kg(trend)
+            ? null
+            : kg(latest);
     return <Widget>[
       SettingsGroup(
         label: l10n.goalsGroupBody,
@@ -713,10 +726,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
           if (trend != null)
             SettingsRow(
               key: const ValueKey('settings-weight-trend'),
-              title: l10n.goalsFieldWeight,
-              subtitle: l10n.goalsWeightFromTrend,
-              value: '${formatDecimal(trend, l10n, maxFractionDigits: 1)} '
-                  '${l10n.commonUnitKg}',
+              title: l10n.goalsFieldWeightTrend,
+              subtitle: lastWeighIn == null
+                  ? l10n.goalsWeightFromTrend
+                  : l10n.goalsWeightTrendLastWeighIn(lastWeighIn),
+              value: '${kg(trend)} ${l10n.commonUnitKg}',
               chevron: false,
             )
           else

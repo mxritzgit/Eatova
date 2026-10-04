@@ -780,6 +780,13 @@
   "profileGoalPlanTitle": "Mein Ziel",
   "profileGoalPlanEditTooltip": "Ziel anpassen",
   "profileWeightPoleCurrent": "Aktuell",
+  "profileWeightPoleTrend": "Trend",
+  "profileWeightLastWeighIn": "Zuletzt gewogen {kg} kg",
+  "@profileWeightLastWeighIn": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
   "profileWeightTrend": "Trend {kg} kg",
   "@profileWeightTrend": {
     "placeholders": {
@@ -1141,7 +1148,14 @@
   "goalsPageTitle": "Profil & Ziele",
   "goalsGroupBody": "KÖRPER",
   "goalsFieldWeight": "Gewicht",
-  "goalsWeightFromTrend": "Trend aus deinen Wiegungen – neue Wiegung im Profil eintragen.",
+  "goalsFieldWeightTrend": "Gewichtstrend",
+  "goalsWeightFromTrend": "Der Plan rechnet mit dem geglätteten Trend deiner Wiegungen. Neue Wiegungen trägst du im Profil ein.",
+  "goalsWeightTrendLastWeighIn": "Zuletzt gewogen {kg} kg. Der Plan rechnet mit dem geglätteten Trend; neue Wiegungen trägst du im Profil ein.",
+  "@goalsWeightTrendLastWeighIn": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
   "goalsEnergyAdjustmentTitle": "Wochen-Check",
   "goalsEnergyAdjustmentSubtitle": "Verbrauch aus deinen Einträgen und Wiegungen kalibriert",
   "goalsEnergyAdjustmentReset": "Zurücksetzen",

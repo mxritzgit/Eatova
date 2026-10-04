@@ -71,16 +71,22 @@ therefore showed two different "current" weights.
   the hint stays and the goal notice is skipped.
 - **One current weight in the UI:** the plan weight, else the profile weight.
   It drives:
-  - the plan card's "current" pole, gap and forecast;
+  - the plan card's left (trend) pole, gap and forecast;
   - the weight card's goal progress;
   - BMI.
 
   The weight card's big number stays the latest weigh-in, and its trend line
   appears only with a plan weight.
+- **Labels (2026-10-04):** the owner logged 117 kg and the plan card said
+  "Current 119.1". The value was right, the word was not. With a plan weight
+  the pole now reads "Trend" and, when the last weigh-in reads differently
+  at one decimal, names it underneath ("Last weigh-in 117 kg"). Without a
+  plan weight the pole shows the profile weight and keeps "Current".
 - **Goals screen:** with a plan weight, the weight row is read-only and shows
-  it, because a typed value would immediately be smoothed back. Its hidden
-  energy fields use the same weight. Without a plan weight the row stays
-  editable. Onboarding does not create a weigh-in.
+  it, because a typed value would immediately be smoothed back. It is titled
+  "Weight trend", and its helper names a differing last weigh-in in the same
+  words. Its hidden energy fields use the same weight. Without a plan weight
+  the row stays editable. Onboarding does not create a weigh-in.
 
 Measured effect (male, 182 cm, light, −0.5 kg/week): the daily goal goes from
 2100 kcal at 84 kg to 2000 at 76 kg. The visible correction is the forecast and

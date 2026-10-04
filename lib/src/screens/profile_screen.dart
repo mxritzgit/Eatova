@@ -159,6 +159,7 @@ class ProfileScreen extends StatelessWidget {
                       profile: profile,
                       onEdit: onEditProfile,
                       currentWeightKg: weightLog.planWeightKg(clock.now()),
+                      latestWeighInKg: weightLog.latest?.weightKg,
                     ),
                     const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionBody),

@@ -1,15 +1,19 @@
 // One current weight on screen (docs/WEIGHT-TREND.md): the plan card's
-// "current" pole, the weight card's trend line and goal progress, the BMI and
+// trend pole, the weight card's trend line and goal progress, the BMI and
 // the goals screen all read the weight trend. The weight card's big number
-// stays the latest weigh-in, which is what the user typed.
+// stays the latest weigh-in, which is what the user typed; the plan card and
+// the goals row name it when it differs.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
+import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
+import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
@@ -72,6 +76,72 @@ void main() {
     ) async {
       await _pump(tester, const GoalPlanCard(profile: _profile));
       expect(find.text('84'), findsOneWidget);
+    });
+  });
+
+  // Owner report 2026-10-04: logged 117 kg, the plan card said "Current
+  // 119.1". The pole shows the trend on purpose, so it has to SAY trend and
+  // name the weigh-in it differs from.
+  group('plan card labels the trend', () {
+    Widget profileWith(WeightLog log) => ProfileScreen(
+      name: 'Moritz',
+      profile: _profile,
+      weightLog: log,
+      stats: LifetimeStats(sessionStart: _now),
+      dailyConsumedKcal: 0,
+      dailySteps: null,
+      healthAuthState: HealthAuthState.unknown,
+      healthLastFetch: null,
+      onLogWeight: (_) {},
+      onEditProfile: () {},
+      onOpenSettings: () {},
+      onConnectHealth: () {},
+      onRefreshHealth: () {},
+    );
+
+    Finder inPlan(String text) => find.descendant(
+      of: find.byType(GoalPlanCard),
+      matching: find.text(text),
+    );
+
+    Future<void> pumpProfile(WidgetTester tester, WeightLog log) =>
+        pumpLocalized(
+          tester,
+          profileWith(log),
+          surfaceSize: const Size(390, 3200),
+          scaffold: false,
+          safeArea: false,
+          settle: true,
+        );
+
+    _testAt('the pole reads Trend, with the last weigh-in under it', (
+      tester,
+    ) async {
+      await pumpProfile(tester, _log);
+      expect(inPlan('80,2'), findsOneWidget);
+      expect(inPlan('TREND'), findsOneWidget);
+      expect(inPlan('AKTUELL'), findsNothing);
+      expect(inPlan('Zuletzt gewogen 82 kg'), findsOneWidget);
+    });
+
+    _testAt('no caption when the last weigh-in reads like the trend', (
+      tester,
+    ) async {
+      final log = WeightLog.capped([
+        WeightLogEntry(timestamp: DateTime(2026, 10, 1, 7), weightKg: 80),
+      ]);
+      await pumpProfile(tester, log);
+      expect(inPlan('TREND'), findsOneWidget);
+      expect(find.textContaining('Zuletzt gewogen'), findsNothing);
+    });
+
+    _testAt('without a trend the profile weight keeps "Aktuell"', (
+      tester,
+    ) async {
+      await pumpProfile(tester, const WeightLog());
+      expect(inPlan('84'), findsOneWidget);
+      expect(inPlan('AKTUELL'), findsOneWidget);
+      expect(inPlan('TREND'), findsNothing);
     });
   });
 
@@ -163,6 +233,7 @@ void main() {
     Future<Future<SettingsResult?>> open(
       WidgetTester tester, {
       double? trend,
+      double? latest,
     }) async {
       pinPhoneViewport(tester);
       late Future<SettingsResult?> result;
@@ -175,8 +246,11 @@ void main() {
               onPressed: () {
                 result = Navigator.of(context).push<SettingsResult>(
                   MaterialPageRoute<SettingsResult>(
-                    builder: (_) =>
-                        GoalsScreen(profile: _profile, weightTrendKg: trend),
+                    builder: (_) => GoalsScreen(
+                      profile: _profile,
+                      weightTrendKg: trend,
+                      latestWeighInKg: latest,
+                    ),
                   ),
                 );
               },
@@ -218,6 +292,31 @@ void main() {
       final saved = await result;
       expect(saved!.profile.weightKg, 82);
       expect(saved.profile.dailyStepsGoal, 9000);
+    });
+
+    _testAt('the trend row says trend and names the last weigh-in', (
+      tester,
+    ) async {
+      await open(tester, trend: 80.2, latest: 82);
+      final row = find.byKey(const ValueKey('settings-weight-trend'));
+      expect(
+        find.descendant(of: row, matching: find.text('Gewichtstrend')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.textContaining('Zuletzt gewogen 82 kg'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    _testAt('a last weigh-in that reads like the trend is not repeated', (
+      tester,
+    ) async {
+      await open(tester, trend: 82.04, latest: 82);
+      expect(find.textContaining('Zuletzt gewogen'), findsNothing);
     });
 
     _testAt('switching to manual starts from the trend-based goals', (

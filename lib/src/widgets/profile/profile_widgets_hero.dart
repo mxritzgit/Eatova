@@ -247,14 +247,31 @@ class GoalPlanCard extends StatelessWidget {
     required this.profile,
     this.onEdit,
     this.currentWeightKg,
+    this.latestWeighInKg,
   });
 
   final UserProfile profile;
   final VoidCallback? onEdit;
 
-  /// The plan weight ([WeightLog.planWeightKg]) for the "current" pole; null
+  /// The plan weight ([WeightLog.planWeightKg]) for the left pole; null
   /// without a fresh, in-range trend, when the profile weight stands in.
   final double? currentWeightKg;
+
+  /// The last weigh-in. With a trend pole it is named under it when it
+  /// reads differently, so "Trend 119.1" next to a fresh "117" explains
+  /// itself (owner report 2026-10-04).
+  final double? latestWeighInKg;
+
+  /// "Last weigh-in 117 kg" under a trend pole, or null when there is no
+  /// trend, no weigh-in, or both read the same at the shown precision.
+  String? _lastWeighInCaption(AppLocalizations l10n) {
+    final trend = currentWeightKg;
+    final latest = latestWeighInKg;
+    if (trend == null || latest == null) return null;
+    final shown = formatKgDe(latest, l10n);
+    if (shown == formatKgDe(trend, l10n)) return null;
+    return l10n.profileWeightLastWeighIn(shown);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -304,6 +321,7 @@ class GoalPlanCard extends StatelessWidget {
     // A directional goal carries the brand accent, "maintain" stays quiet.
     final accent = isMaintain ? t.ink2 : t.accent;
     final accentInk = isMaintain ? t.inkSoft : t.accentText;
+    final lastWeighIn = _lastWeighInCaption(l10n);
 
     return AppCard(
       padding: const EdgeInsets.fromLTRB(18, 16, 10, 18),
@@ -371,7 +389,9 @@ class GoalPlanCard extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: _WeightPole(
-                    label: l10n.profileWeightPoleCurrent,
+                    label: currentWeightKg == null
+                        ? l10n.profileWeightPoleCurrent
+                        : l10n.profileWeightPoleTrend,
                     value: currentWeightKg == null
                         ? '${plan.weightKg}'
                         : formatKgDe(currentWeightKg!, l10n),
@@ -396,6 +416,14 @@ class GoalPlanCard extends StatelessWidget {
               ],
             ),
           ),
+          if (lastWeighIn != null) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              lastWeighIn,
+              key: const ValueKey('profile-plan-last-weigh-in'),
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+            ),
+          ],
           const SizedBox(height: 16),
           Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -507,7 +535,11 @@ class _WeightPole extends StatelessWidget {
     return Column(
       crossAxisAlignment: alignment,
       children: <Widget>[
-        Text(label.toUpperCase(), style: AppType.eyebrow(t.ink2, size: 10.5)),
+        Text(
+          label.toUpperCase(),
+          semanticsLabel: label,
+          style: AppType.eyebrow(t.ink2, size: 10.5),
+        ),
         const SizedBox(height: 6),
         // FittedBox: the big number grows with the system font, the half card
         // width does not.
