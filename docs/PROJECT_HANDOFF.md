@@ -3119,3 +3119,24 @@ the dark and light captures and integrated it.
 
 Verification on Windows with Flutter 3.47.2: the analyzer is clean; the full
 suite passed 6,944 of 6,944 with 96.99 % local line coverage.
+
+### STEPS_ERROR again, 2026-10-04 evening
+
+Sentry FLUTTER-K, 12 events on 1.1.0 (383), the first build made with
+`device_build.py`.
+- **What failed:** twelve past days of the energy-check backfill
+  (`readStepsOnDay`), one per second, 22 s after a cold start in the
+  foreground. The newer days of the 21-day window read fine.
+- **Revised diagnosis:** an interval without step samples. HealthKit's
+  statistics query reports that as an error, not as a zero sum. This also
+  explains the 04:24 event (FLUTTER-H): no steps since midnight. The
+  locked-store explanation above did not fit the backfill, and the retry
+  wait cost a second per day.
+- **Fix in `apple_health_service.dart`:**
+  - A generic HealthKit error is reported only when a sample query finds step
+    samples in the same interval.
+  - Past days get no retry; the backfill keeps the stored value and reads the
+    day again next session.
+  - Today keeps its one retry.
+- **Tests:** `test/services/apple_health_transient_error_test.dart`. The
+  twelve-day case failed with 24 queries before the fix.
