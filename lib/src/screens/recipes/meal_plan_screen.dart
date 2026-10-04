@@ -483,7 +483,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               )
             else
               _GroupCard(
-                dividerIndent: 83,
+                // Where the text starts: beside the photo, or under it.
+                dividerIndent: _largeText(context) ? 14 : 83,
                 children: [
                   for (final plan in entries) _mealRow(context, day, plan),
                 ],
