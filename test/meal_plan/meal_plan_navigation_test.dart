@@ -168,12 +168,30 @@ void main() {
           fail('$key never stopped');
         }
 
+        // The edge weeks also show days outside the window; those cannot be
+        // planned, like in the editor's calendar.
+        Future<bool> canAdd(String day) async {
+          final add = find.byKey(ValueKey('meal-plan-add-$day'));
+          await tester.scrollUntilVisible(
+            add,
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          return tester.widget<IconButton>(add).onPressed != null;
+        }
+
         await pageToEnd('meal-plan-previous-week');
         expect(find.text('Aug 24 – Aug 30'), findsOneWidget);
         expect(find.text('1 meal planned'), findsOneWidget);
+        expect(await canAdd('2026-08-29'), isFalse);
+        expect(find.byKey(const ValueKey('meal-plan-empty-2026-08-29')),
+            findsNothing);
+        expect(await canAdd('2026-08-30'), isTrue);
         await pageToEnd('meal-plan-next-week');
         expect(find.text('Oct 4, 2027 – Oct 10, 2027'), findsOneWidget);
         expect(find.text('1 meal planned'), findsOneWidget);
+        expect(await canAdd('2027-10-04'), isTrue);
+        expect(await canAdd('2027-10-05'), isFalse);
         expect(tester.takeException(), isNull);
       });
     },

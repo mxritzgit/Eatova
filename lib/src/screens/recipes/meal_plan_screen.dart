@@ -293,6 +293,10 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         store.plannedMeals.where((p) => p.day == localDayKey(day)).toList()
           ..sort((a, b) => a.slot.index.compareTo(b.slot.index));
     final today = DateUtils.isSameDay(day, clock.now());
+    // The window's first and last week also show days outside it.
+    final now = DateUtils.dateOnly(clock.now());
+    final plannable =
+        !day.isBefore(_firstPlanDay(now)) && !day.isAfter(_lastPlanDay(now));
     return Padding(
       key: ValueKey('meal-plan-day-${localDayKey(day)}'),
       padding: const EdgeInsets.only(bottom: 24),
@@ -352,7 +356,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               IconButton(
                 key: ValueKey('meal-plan-add-${localDayKey(day)}'),
                 tooltip: l.mealPlanAdd,
-                onPressed: () => _edit(day),
+                onPressed: plannable ? () => _edit(day) : null,
                 style: IconButton.styleFrom(
                   backgroundColor: t.brandSurface,
                   foregroundColor: t.onBrandSurface,
@@ -362,7 +366,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               ),
             ],
           ),
-          if (entries.isEmpty) ...[
+          if (entries.isEmpty && plannable) ...[
             const SizedBox(height: 12),
             Align(
               alignment: AlignmentDirectional.centerStart,
