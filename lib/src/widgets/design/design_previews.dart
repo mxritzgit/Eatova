@@ -68,40 +68,6 @@ final class EatovaPreview extends MultiPreview {
   ];
 }
 
-@EatovaPreview(name: 'Makrobalken', size: Size(360, 150))
-Widget macroBarsPreview() => Builder(
-  builder: (context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        MacroBar(
-          label: l10n.todayMacroProtein,
-          value: 96,
-          goal: 140,
-          unit: l10n.commonUnitG,
-          color: t.proteinProgress,
-        ),
-        MacroBar(
-          label: l10n.todayMacroCarbs,
-          value: 180,
-          goal: 230,
-          unit: l10n.commonUnitG,
-          color: t.carbsProgress,
-        ),
-        MacroBar(
-          label: l10n.todayMacroFat,
-          value: 70,
-          goal: 65,
-          unit: l10n.commonUnitG,
-          color: t.fatProgress,
-        ),
-      ],
-    );
-  },
-);
-
 @EatovaPreview(name: 'Primäre Aktion', size: Size(360, 150))
 Widget primaryActionPreview() => Builder(
   builder: (context) => Column(

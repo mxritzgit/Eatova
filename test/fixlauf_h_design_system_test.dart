@@ -653,39 +653,6 @@ void main() {
   // F8-09 — text scaling as a layout feature
   // =========================================================================
   group('F8-09 Textskalierung', () {
-    testWidgets('MealAvatar nutzt keine FittedBox mehr und waechst mit',
-        (tester) async {
-      await pumpLocalized(
-        tester,
-        MealAvatar(letter: 'F', color: AppTokens.light.carbs),
-        brightness: Brightness.light,
-        padding: _rand,
-      );
-      expect(
-        find.descendant(
-          of: find.byType(MealAvatar),
-          matching: find.byType(FittedBox),
-        ),
-        findsNothing,
-      );
-      expect(tester.getSize(find.byType(MealAvatar)), const Size(40, 40));
-      final klein = tester.getSize(find.text('F'));
-
-      await pumpLocalized(
-        tester,
-        MealAvatar(letter: 'F', color: AppTokens.light.carbs),
-        brightness: Brightness.light,
-        padding: _rand,
-        textScale: 2.0,
-      );
-      expect(tester.takeException(), isNull);
-      final kachel = tester.getSize(find.byType(MealAvatar));
-      expect(kachel.width, greaterThan(40));
-      expect(kachel.width, lessThanOrEqualTo(60));
-      expect(tester.getSize(find.text('F')).height, greaterThan(klein.height),
-          reason: 'die Ziffer skaliert mit dem Systemfont');
-    });
-
     testWidgets('scaledWidth reserviert Breite, gedeckelt', (tester) async {
       late double normal;
       late double gross;

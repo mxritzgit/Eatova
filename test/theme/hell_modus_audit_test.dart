@@ -669,8 +669,8 @@ void main() {
     // The two findings that stood here as OPEN are closed; the block is the
     // assertion now, so a regression fails instead of being re-described.
     test('der MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA', () {
-      // MealAvatar (widgets/design/meters.dart) puts the letter on that same
-      // slot color at 16 %. In the full color it reached 2.15:1 in light mode;
+      // A glyph on its own slot tint (16 % here; `IconTile` uses 15 %) sits on
+      // that same slot color. In the full color it reached 2.15:1 in light mode;
       // `readableOnTint` blends towards `ink` and now holds 5.95 … 7.75 (hell)
       // and 7.35 … 8.35 (dunkel).
       for (final p in _paletten.entries) {

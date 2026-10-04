@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'design_harness.dart';
@@ -53,19 +52,7 @@ void main() {
                 ],
               ),
               // meters.dart
-              MacroBar(
-                label: 'Protein',
-                value: 96,
-                goal: 150,
-                unit: 'g',
-                color: AppTokens.light.protein,
-              ),
-              MealAvatar(letter: 'F', color: AppTokens.light.carbs),
               const Sparkline(values: <double>[1, 2, 3]),
-              SizedBox(
-                height: 40,
-                child: DotGridBackground(color: AppTokens.light.lime),
-              ),
             ],
           ),
         ),

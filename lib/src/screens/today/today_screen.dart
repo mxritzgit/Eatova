@@ -397,8 +397,8 @@ class _ProfileAvatar extends StatelessWidget {
           child: SizedBox.square(
             dimension: 44,
             child: Center(
-              // FittedBox like MealAvatar: fixed circle, the letter grows
-              // with the system font until it fills it.
+              // Fixed circle: the letter grows with the system font until it
+              // fills it.
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
