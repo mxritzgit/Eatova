@@ -1,8 +1,9 @@
 // Visual evidence for the training editors in the dark redesign (2026-10-03):
 // the log editor's day and type chips, its suggestion and "Add set" pills and
-// the calendar sheet; the Coach training brief with its plan preview card and
-// chips; the plan editor's review and its foldable exercise cards; the
-// history rows. Each surface also renders on a 320 px phone at 2x text.
+// the calendar sheet; the Coach training brief (redesign 2026-10-04: intent
+// cards, the plan row and its preview, goal chips, segments, steppers and the
+// pinned action); the plan editor's review and its foldable exercise cards;
+// the history rows. Each surface also renders on a 320 px phone at 2x text.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/training-editors-*.png; without it the suite still
@@ -186,6 +187,39 @@ void _expectChips(WidgetTester tester, Map<String, bool> chips) {
   }
 }
 
+/// Each keyed option (intent card, segment) reports its selection as a
+/// button in a single-choice group, on a target of at least 44 px.
+void _expectSelected(WidgetTester tester, Map<String, bool> options) {
+  for (final MapEntry(key: key, value: selected) in options.entries) {
+    final option = _key(key);
+    expect(
+      tester.getSemantics(option),
+      isSemantics(
+        isButton: true,
+        isSelected: selected,
+        isInMutuallyExclusiveGroup: true,
+      ),
+      reason: key,
+    );
+    expect(tester.getSize(option).height, greaterThanOrEqualTo(44));
+  }
+}
+
+/// The brief's action sits fully on screen and takes taps where it is,
+/// without scrolling.
+void _expectActionPinned(WidgetTester tester) {
+  final submit = _key('coach-brief-submit');
+  final screen = Offset.zero & tester.view.physicalSize / kDesignPixelRatio;
+  expect(screen.contains(tester.getRect(submit).topLeft), isTrue);
+  expect(screen.contains(tester.getRect(submit).bottomRight), isTrue);
+  expect(submit.hitTestable(), findsOneWidget);
+  expect(
+    find.descendant(of: _key('coach-brief-scroll'), matching: submit),
+    findsNothing,
+    reason: 'the action does not scroll with the form',
+  );
+}
+
 void main() {
   setUpAll(loadDesignFonts);
 
@@ -258,9 +292,8 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('coach brief: plan card and chips${geometry.suffix}', (
-      tester,
-    ) async {
+    testWidgets('coach brief: intent cards, plan row and choices'
+        '${geometry.suffix}', (tester) async {
       final handle = tester.ensureSemantics();
       final active = ValueNotifier<bool>(true);
       addTearDown(active.dispose);
@@ -280,6 +313,17 @@ void main() {
         isSemantics(isButton: true, hasExpandedState: true, isExpanded: false),
       );
       expect(find.text('Bench press'), findsNothing);
+      // With a plan: two intent cards, "Discuss" chosen; the pinned action
+      // says so and needs no scrolling.
+      _expectSelected(tester, {
+        'coach-brief-intent-adapt': false,
+        'coach-brief-intent-discuss': true,
+      });
+      _expectActionPinned(tester);
+      expect(
+        tester.widget<PrimaryActionButton>(_key('coach-brief-submit')).label,
+        'Discuss plan',
+      );
       expect(tester.takeException(), isNull);
       await captureDesignShot(
         tester,
@@ -299,39 +343,80 @@ void main() {
         tester,
         'training-editors-brief-01${geometry.suffix}',
       );
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
 
-      // The chips further down: one selected per group.
-      final chips = find.descendant(
-        of: _key('coach-brief-scroll'),
-        matching: find.byType(FilterChipPill),
-      );
-      final pills = tester.widgetList<FilterChipPill>(chips).toList();
-      expect(pills, hasLength(2 + 3 + 3 + 7 + 6));
-      expect(pills.where((pill) => pill.selected), hasLength(5));
-      for (final element in chips.evaluate()) {
-        expect(
-          (element.renderObject! as RenderBox).size.height,
-          greaterThanOrEqualTo(44),
-        );
-      }
-      await _reveal(tester, find.text('Dumbbells'));
-      await tester.tap(find.text('Dumbbells'));
+      // "Adapt" relabels the action.
+      await _reveal(tester, _key('coach-brief-intent-adapt'));
+      await tester.tap(_key('coach-brief-intent-adapt'));
       await tester.pumpAndSettle();
       expect(
-        tester
-            .widget<FilterChipPill>(
-              find.ancestor(
-                of: find.text('Dumbbells'),
-                matching: find.byType(FilterChipPill),
-              ),
-            )
-            .selected,
-        isTrue,
+        tester.widget<PrimaryActionButton>(_key('coach-brief-submit')).label,
+        'Draft changes',
       );
+
+      // The plan's goal is a quick goal: its chip is chosen, no free field.
+      _expectChips(tester, {
+        'coach-brief-goal-general': false,
+        'coach-brief-goal-strength': true,
+        'coach-brief-goal-own': false,
+      });
+      expect(_key('coach-brief-goal'), findsNothing);
+      await _reveal(tester, _key('coach-brief-equipment-dumbbells'));
+      await tester.tap(_key('coach-brief-equipment-dumbbells'));
+      await tester.pumpAndSettle();
+      _expectSelected(tester, {
+        'coach-brief-experience-beginner': true,
+        'coach-brief-experience-intermediate': false,
+        'coach-brief-experience-advanced': false,
+        'coach-brief-equipment-bodyweight': false,
+        'coach-brief-equipment-dumbbells': true,
+        'coach-brief-equipment-gym': false,
+      });
+      await _reveal(tester, _key('coach-brief-goal-strength'));
       expect(tester.takeException(), isNull);
       await captureDesignShot(
         tester,
         'training-editors-brief-02${geometry.suffix}',
+      );
+
+      // The schedule steppers and the request field; the summary follows.
+      for (final key in [
+        'coach-brief-sessions-inc',
+        'coach-brief-minutes-inc',
+      ]) {
+        await _reveal(tester, _key(key));
+        await tester.tap(_key(key));
+        await tester.pumpAndSettle();
+      }
+      await _reveal(tester, _key('coach-brief-wish'));
+      String reading(String key) =>
+          tester.widget<Text>(_key(key)).textSpan!.toPlainText();
+      expect(reading('coach-brief-sessions-value'), '4×');
+      expect(reading('coach-brief-minutes-value'), '45 min');
+      if (geometry == _Geometry.phone) {
+        expect(
+          tester.widget<Text>(_key('coach-brief-summary')).data,
+          '4× a week · 45 min · Dumbbells',
+        );
+      } else {
+        // Large text: the bar keeps only the action and its cost.
+        expect(_key('coach-brief-summary'), findsNothing);
+      }
+      expect(find.text('Uses 1 Coach request'), findsOneWidget);
+      for (final key in [
+        'coach-brief-sessions-dec',
+        'coach-brief-sessions-inc',
+        'coach-brief-minutes-dec',
+        'coach-brief-minutes-inc',
+      ]) {
+        expect(tester.getSize(_key(key)).height, greaterThanOrEqualTo(44));
+      }
+      _expectActionPinned(tester);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(
+        tester,
+        'training-editors-brief-03${geometry.suffix}',
       );
       handle.dispose();
     });

@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../models/model_limits.dart';
 import '../../models/user_profile.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/design/design.dart';
 import '../../widgets/shared/target_bmi_hint.dart';
 import 'onboarding_chrome.dart';
 import 'onboarding_controls.dart';
@@ -56,13 +57,13 @@ class OnboardingGoalStep extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: _spaced(<Widget>[
           for (final direction in OnboardingDirection.values)
-            OnboardingOptionCard(
+            OptionCard(
               actionKey: ValueKey('onboarding-goal-${direction.name}'),
               selected: value == direction,
               onTap: () => onChanged(direction),
               title: direction.label(l10n),
               subtitle: direction.description(l10n),
-              leading: OnboardingGlyphTile(icon: _icon(direction)),
+              leading: OptionGlyphTile(icon: _icon(direction)),
             ),
         ]),
       ),
@@ -200,7 +201,7 @@ class OnboardingActivityStep extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: _spaced(<Widget>[
           for (final (i, level) in levels.indexed)
-            OnboardingOptionCard(
+            OptionCard(
               actionKey: ValueKey('onboarding-activity-${level.name}'),
               selected: value == level,
               onTap: () => onChanged(level),
@@ -315,7 +316,7 @@ class OnboardingPaceStep extends StatelessWidget {
             // No leading mark: the consequence line ("Ergibt 1550 kcal/Tag ·
             // −0,5 kg/Woche") needs the width to stay on one line.
             for (final goal in options)
-              OnboardingOptionCard(
+              OptionCard(
                 actionKey: ValueKey('onboarding-pace-${goal.name}'),
                 selected: value == goal,
                 onTap: () => onChanged(goal),
@@ -399,13 +400,13 @@ class OnboardingDietStep extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: _spaced(<Widget>[
           for (final diet in DietPreference.values)
-            OnboardingOptionCard(
+            OptionCard(
               actionKey: ValueKey('onboarding-diet-${diet.name}'),
               selected: value == diet,
               onTap: () => onChanged(diet),
               title: diet.label(l10n),
               subtitle: diet.description(l10n),
-              leading: OnboardingGlyphTile(icon: _icon(diet)),
+              leading: OptionGlyphTile(icon: _icon(diet)),
             ),
         ]),
       ),

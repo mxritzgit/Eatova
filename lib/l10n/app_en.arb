@@ -2315,15 +2315,14 @@
   "recipeEditCannotLog": "Check the servings and fill in missing ingredient calories before logging this recipe.",
   "recipeEditCoachSource": "Created with Coach",
   "mealPlanTitle": "Meal plan",
-  "mealPlanIntro": "Plan your week. Only “Eaten today” adds a meal to your diary.",
-  "mealPlanWeek": "Weekly plan",
+  "mealPlanDiaryFootnote": "Tick a meal once you have eaten it to add it to today's diary. Planning alone logs nothing.",
+  "mealPlanWeek": "Week",
   "mealPlanShopping": "Shopping list",
   "mealPlanPreviousWeek": "Previous week",
   "mealPlanNextWeek": "Next week",
-  "mealPlanEmptyDay": "Nothing planned yet.",
   "mealPlanAdd": "Plan a meal",
   "mealPlanEdit": "Edit planned meal",
-  "mealPlanEatToday": "Eaten today",
+  "mealPlanEatToday": "Mark as eaten today",
   "mealPlanEatenOn": "Logged on {date}",
   "@mealPlanEatenOn": {
     "placeholders": {
@@ -2348,7 +2347,7 @@
   "mealPlanSaveError": "Not saved. Check your connection or device storage and try again.",
   "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
   "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
-  "mealPlanShoppingEmpty": "Plan a meal for this week to start your list.",
+  "mealPlanShoppingEmpty": "The list collects the ingredients of this week's planned meals that you have not eaten yet.",
   "mealPlanWeighed": "Weighed ingredients",
   "mealPlanUnquantified": "Check amounts yourself",
   "mealPlanUnquantifiedHint": "These recipes have free-text ingredients. Check amounts for your planned servings yourself.",
@@ -2359,9 +2358,17 @@
   "mealPlanSnapshotHint": "This plan keeps the recipe as it is now. Later recipe edits will not change the plan.",
   "mealPlanRetry": "Retry",
   "mealPlanCannotLog": "Calories are missing or the serving is too large to log. Reduce the serving or complete the recipe and plan it again.",
-  "coachBriefTitle": "Your training brief",
-  "coachBriefDataUsed": "Coach uses the details below and the selected plan, if any, for this request. Check the defaults. Other profile data and training history are not included.",
+  "coachBriefTitle": "Plan with Coach",
+  "coachBriefLead": "Coach replies in the chat. Nothing is saved until you confirm it.",
+  "coachBriefShared": "Only these details are shared with Coach.",
+  "coachBriefSharedWithPlan": "Only these details and this plan are shared.",
   "coachBriefDefaultGoal": "General fitness",
+  "coachBriefGoalStrength": "Build strength",
+  "coachBriefGoalMuscle": "Build muscle",
+  "coachBriefGoalFatLoss": "Lose fat",
+  "coachBriefGoalEndurance": "Endurance",
+  "coachBriefGoalOwn": "Own goal",
+  "coachBriefGoalHint": "Describe your goal",
   "coachBriefGoal": "Training goal",
   "coachBriefExperience": "Experience",
   "coachBriefBeginner": "Beginner",
@@ -2371,22 +2378,44 @@
   "coachBriefBodyweight": "Bodyweight",
   "coachBriefDumbbells": "Dumbbells",
   "coachBriefGym": "Gym",
+  "coachBriefSchedule": "Schedule",
   "coachBriefSessions": "Sessions per week",
+  "coachBriefSessionsValue": "{count}× a week",
+  "@coachBriefSessionsValue": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "coachBriefMinutes": "Minutes per session",
+  "coachBriefMinutesValue": "{minutes} min",
+  "@coachBriefMinutesValue": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "coachBriefMinutesUnit": "min",
   "coachBriefWish": "Request or question (optional)",
+  "coachBriefWishHint": "e.g. knee-friendly, no jumping",
   "coachBriefSelectedPlan": "Selected plan",
   "coachBriefPreviewPlan": "Review the plan being shared",
-  "coachBriefIntent": "What would you like to do?",
-  "coachBriefDiscuss": "Discuss",
-  "coachBriefAdapt": "Adapt",
-  "coachBriefDraftNotice": "Sending uses one Coach request. Review and edit suggestions before saving them as a new plan. Your saved plan stays intact. This brief is not saved as a profile.",
-  "coachBriefGenerate": "Request plan draft",
+  "coachBriefIntent": "What should Coach do?",
+  "coachBriefDiscuss": "Discuss plan",
+  "coachBriefDiscussHint": "Feedback on how well it fits you. Nothing changes.",
+  "coachBriefAdapt": "Adapt plan",
+  "coachBriefAdaptHint": "Coach drafts a changed copy. Your plan stays as it is.",
+  "coachBriefQuota": "Uses 1 Coach request",
+  "coachBriefGenerate": "Create plan draft",
+  "coachBriefSendAdapt": "Draft changes",
   "coachBriefSendDiscussion": "Discuss plan",
   "coachBriefCreateWish": "Create a suitable training plan using my brief.",
   "coachBriefAdaptWish": "Propose an adaptation of the selected training plan using my brief.",
   "coachBriefDiscussWish": "Discuss how well the selected training plan fits my brief.",
   "coachBriefInvalid": "Check your goal and request. Use plain text without commands. If the saved plan contains invalid details, edit it in Training first.",
-  "coachBriefUnavailable": "The chat is not ready or your quota is used up. Close the brief and check the chat.",
+  "coachBriefUnavailable": "The chat is not ready or your quota is used up. Close this view and check the chat.",
   "healthConnectTitle": "Health Connect",
   "healthConnectSetup": "Connect Health Connect to see your steps and estimate calories burned.",
   "healthConnectConnected": "Steps connected. Refresh to read today's data.",
@@ -2677,10 +2706,7 @@
   "recipesSeeAll": "See all",
   "recipesOwnEmptyTitle": "Your cookbook starts here",
   "recipesOwnEmptyBody": "Save your favourite dishes as your own recipes and keep their nutrition close at hand.",
-  "mealPlanWeekHeading": "Your week, thoughtfully planned",
-  "mealPlanShoppingHeading": "Everything for your week",
   "mealPlanShoppingDone": "All shopping done",
-  "mealPlanShoppingDoneBody": "Your list is checked off. Time to cook something good.",
   "mealPlanMenuLabel": "Manage meal",
   "mealPlanEditorIntro": "Choose a recipe for your week.",
   "mealPlanEditorDetails": "When and how much?",
@@ -2690,7 +2716,15 @@
   "mealPlanDateConfirm": "Plan for this day",
   "mealPlanSaving": "Saving …",
   "mealPlanToday": "Today",
-  "mealPlanShoppingEmptyHeading": "Your list starts with a plan",
+  "mealPlanEatenCount": "{count} eaten",
+  "@mealPlanEatenCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mealPlanShoppingEmptyHeading": "Nothing to buy yet",
   "recipeDetailIngredientsHint": "Everything you need for this dish.",
   "recipeDetailPreparationHint": "Step by step, onto your plate.",
   "recipePortionSheetIntro": "Choose your serving and the right meal.",

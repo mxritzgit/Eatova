@@ -1,7 +1,9 @@
 // Visual evidence for the meal plan and recipe history in the dark redesign
-// (2026-10-03): the plan editor (choosing a recipe, then its day, slot and
-// servings), the calendar it opens, the week with a planned meal and its
-// menu, the shopping list, and the recipe history with its restore dialog.
+// (2026-10-03, planner redesign 2026-10-04): the plan editor (choosing a
+// recipe, then its day, slot and servings), the calendar it opens, the week
+// card with its day strip, planned, eaten and empty days, a jump from the
+// strip, the meal menu, the shopping list (filled and empty), and the recipe
+// history with its restore dialog.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/meal-plan-*.png; without it the suite still checks that
@@ -79,7 +81,8 @@ void _viewport(WidgetTester tester, {bool narrow = false}) {
   }
 }
 
-/// Mounts the planner; with [withPlans] lunch today and dinner tomorrow.
+/// Mounts the planner; with [withPlans] an eaten breakfast and lunch today,
+/// and dinner tomorrow.
 Future<HomeStore> _pumpPlan(
   WidgetTester tester, {
   bool narrow = false,
@@ -89,6 +92,13 @@ Future<HomeStore> _pumpPlan(
   _viewport(tester, narrow: narrow);
   final store = _store();
   if (withPlans) {
+    final breakfast = PlannedMeal.create(
+      recipe: recipeCatalogEn[11],
+      day: _now,
+      slot: MealSlot.breakfast,
+    );
+    await store.savePlannedMeal(breakfast);
+    await store.eatPlannedMeal(breakfast.id);
     await store.savePlannedMeal(
       PlannedMeal.create(recipe: _bowl, day: _now, slot: MealSlot.lunch),
     );
@@ -237,6 +247,13 @@ void main() {
       await captureDesignShot(tester, 'meal-plan-week-01');
       await scrollDesignTabBy(tester, -2000);
 
+      // The strip jumps to Sunday.
+      await tester.tap(_key('meal-plan-strip-2026-10-04'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-week-jump');
+      await scrollDesignTabBy(tester, -3000);
+
       final lunch = store.plannedMeals.firstWhere(
         (p) => p.slot == MealSlot.lunch,
       );
@@ -248,6 +265,8 @@ void main() {
       await scrollDesignTabBy(tester, -3000);
 
       await _tapVisible(tester, _key('meal-plan-tab-shopping'));
+      await precacheDesignImages(tester);
+      await captureDesignShot(tester, 'meal-plan-shopping-00');
       await scrollDesignTabBy(tester, 240);
       final first = find.byWidgetPredicate(
         (w) =>
@@ -257,6 +276,16 @@ void main() {
       await _tapVisible(tester, first.first);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-plan-shopping');
+    });
+  });
+
+  testWidgets('empty shopping list', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pumpPlan(tester, withPlans: false);
+      await _tapVisible(tester, _key('meal-plan-tab-shopping'));
+      expect(_key('shopping-empty-plan'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-empty');
     });
   });
 
@@ -301,6 +330,14 @@ void main() {
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-plan-narrow-week-01');
       await scrollDesignTabBy(tester, -3000);
+
+      await _tapVisible(tester, _key('meal-plan-tab-shopping'));
+      await precacheDesignImages(tester);
+      await scrollDesignTabBy(tester, 700);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-narrow-shopping');
+      await scrollDesignTabBy(tester, -3000);
+      await _tapVisible(tester, _key('meal-plan-tab-week'));
 
       await _openFilledEditor(tester);
       expect(tester.takeException(), isNull);

@@ -3060,3 +3060,62 @@ targets now run `flutter build` with the build number followed by
 `flutter install`. `iphone` needs macOS; `--dry-run` prints the commands. This
 was verified on Windows against the real flutter CLI (dry run, and the build
 flags with `--help`).
+
+## Meal plan, shopping list and training brief, 2026-10-04
+
+The owner found the meal plan and the shopping list too generic ("AI slop")
+and asked for a simpler, clearer training brief ("Ask Coach" → "Your
+training brief"). The work was planned without a confirmation round, at
+the owner's request, and the merge after CI was authorized. Plan:
+[2026-10-04-mealplan-shopping-brief](superpowers/plans/2026-10-04-mealplan-shopping-brief.md).
+Two workers did the work in their own worktrees; the orchestrator reviewed
+the dark and light captures and integrated it.
+
+- **Meal plan.**
+  - Header: a large page header, and Week / Shopping list as the app's
+    segmented control.
+  - The week card holds the range, round arrows, a factual summary ("3 meals
+    planned · 1 eaten") and a 7-day strip. Each day shows one slot-coloured
+    dot per meal; tapping a day scrolls to it.
+  - Days are compact sections. Each meal row shows the photo with a slot
+    badge, then "Lunch · 1 serving · 723 kcal". The kcal is exactly what the
+    eaten toggle logs.
+  - The eaten toggle is a tinted disc that becomes a check with "Logged on
+    …".
+  - An empty day is a dashed "Plan a meal" row, disabled outside the planning
+    window.
+  - The slogan hero is gone, and the diary rule is a footnote.
+- **Shopping list.**
+  - Progress (count and bar) sits in the week card.
+  - Weighed items are one grouped card with round checks and amount
+    capsules. Checked rows dim in place.
+  - Free-text recipes are cards with photo, servings and clean ingredient
+    lines; the "- " markers are stripped for display only.
+  - A designed empty state has "Plan a meal".
+  - `ShoppingItem.planId` is new and optional (for the photo); the check ids
+    are unchanged.
+- **Training brief.**
+  - "Plan with Coach", with one lead line and a compact privacy row.
+  - The selected plan is a row that expands to the preview. Adapt and
+    Discuss are option cards with a consequence line.
+  - Goal: quick chips plus "Own goal".
+  - Experience and equipment are segmented choices with icons. Sessions and
+    minutes are steppers.
+  - A pinned bar holds the summary, the action (its label follows the
+    intent) and "Uses 1 Coach request".
+  - `CoachTrainingContext`, validation, quota and the confirm-before-write
+    rule are unchanged.
+- **Structure (orchestrator).**
+  - The option card, glyph tile and radio moved from the onboarding folder to
+    `lib/src/widgets/design/option_card.dart`, shared by onboarding and the
+    brief.
+  - `meal_plan_screen.dart` (about 1,580 lines after the redesign) is split
+    into the `meal_plan_week.dart` and `meal_plan_shopping.dart` parts.
+- **Tests.**
+  - New: `test/meal_plan/meal_plan_week_view_test.dart` (5 tests) and
+    `test/coach_training_brief_test.dart` (16 tests). Each fails against the
+    old code.
+  - Capture suites cover both modes.
+
+Verification on Windows with Flutter 3.47.2: the analyzer is clean; the full
+suite passed 6,944 of 6,944 with 96.99 % local line coverage.

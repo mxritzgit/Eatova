@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
@@ -7,6 +9,7 @@ import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -161,15 +164,22 @@ void main() {
         );
         Future<void> pageToEnd(String key) async {
           final button = find.byKey(ValueKey(key));
+          // The arrows sit in the week card at the top of the list.
+          await tester.scrollUntilVisible(
+            button,
+            -300,
+            scrollable: find.byType(Scrollable).first,
+          );
           for (var i = 0; i < 60; i++) {
-            if (tester.widget<IconButton>(button).onPressed == null) return;
+            if (tester.widget<HeaderIconButton>(button).onTap == null) return;
             await _tap(tester, button);
           }
           fail('$key never stopped');
         }
 
         // The edge weeks also show days outside the window; those cannot be
-        // planned, like in the editor's calendar.
+        // planned, like in the editor's calendar. A day's one add control is
+        // the header button of a planned day or the row of an empty one.
         Future<bool> canAdd(String day) async {
           final add = find.byKey(ValueKey('meal-plan-add-$day'));
           await tester.scrollUntilVisible(
@@ -177,15 +187,18 @@ void main() {
             200,
             scrollable: find.byType(Scrollable).first,
           );
-          return tester.widget<IconButton>(add).onPressed != null;
+          final node = tester.getSemantics(add);
+          expect(node, isSemantics(isButton: true, hasEnabledState: true));
+          return node.flagsCollection.isEnabled == Tristate.isTrue;
         }
 
         await pageToEnd('meal-plan-previous-week');
         expect(find.text('Aug 24 – Aug 30'), findsOneWidget);
         expect(find.text('1 meal planned'), findsOneWidget);
         expect(await canAdd('2026-08-29'), isFalse);
-        expect(find.byKey(const ValueKey('meal-plan-empty-2026-08-29')),
-            findsNothing);
+        // A tap on the dimmed row opens nothing.
+        await _tap(tester, find.byKey(const ValueKey('meal-plan-add-2026-08-29')));
+        expect(find.byKey(const ValueKey('meal-plan-editor-scroll')), findsNothing);
         expect(await canAdd('2026-08-30'), isTrue);
         await pageToEnd('meal-plan-next-week');
         expect(find.text('Oct 4, 2027 – Oct 10, 2027'), findsOneWidget);
