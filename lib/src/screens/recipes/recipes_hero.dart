@@ -325,7 +325,8 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-/// Frosted dark pill laid over a photo (the "AI-generated image" label).
+/// Frosted pill in the page tone laid over a photo (the "AI-generated image"
+/// label).
 class _GlassPill extends StatelessWidget {
   const _GlassPill({super.key, required this.child});
 
@@ -361,6 +362,14 @@ class _BookmarkButton extends StatelessWidget {
   final bool saved;
   final VoidCallback onTap;
 
+  /// The glyph pairs with the glass, which takes the page tone: white on the
+  /// dark glass (the design), ink on the near-white light glass, where a
+  /// white glyph all but vanished.
+  static Color glyphColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.light
+      ? context.t.ink
+      : context.t.onImage;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -386,7 +395,7 @@ class _BookmarkButton extends StatelessWidget {
                   child: Center(
                     child: _GlyphIcon(
                       _RecipeGlyph.bookmark,
-                      color: t.onImage,
+                      color: glyphColor(context),
                       filled: saved,
                     ),
                   ),
