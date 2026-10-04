@@ -153,11 +153,20 @@ class AppleHealthService implements HealthService {
     HealthAuthVerifier? verifier,
     Health? health,
     bool? debugIsIOS,
+    Future<void> Function(Duration duration)? retryDelay,
   }) : _verifier = verifier ?? HealthAuthVerifier(),
        _health = health ?? Health(),
-       _isIOS = debugIsIOS ?? Platform.isIOS;
+       _isIOS = debugIsIOS ?? Platform.isIOS,
+       _retryDelay = retryDelay ?? Future<void>.delayed;
 
   final Health _health;
+  final Future<void> Function(Duration duration) _retryDelay;
+
+  /// Right after an unlock HealthKit's protected store is briefly not
+  /// readable, and the plugin reports that like any other read error
+  /// (STEPS_ERROR / HEALTH_ERROR, the reason only in the message). A required
+  /// query waits this long and tries once more before the error counts.
+  static const Duration transientRetryDelay = Duration(seconds: 1);
   final bool _isIOS;
   final HealthAuthVerifier _verifier;
   bool _configured = false;
@@ -200,7 +209,10 @@ class AppleHealthService implements HealthService {
     if (!_isIOS || !_foreground) return null;
     final generation = _generation;
     for (var attempt = 0; attempt < 2; attempt++) {
-      final session = _HealthReadSession(() => generation == _generation);
+      final session = _HealthReadSession(
+        () => generation == _generation,
+        allowRetry: attempt == 0,
+      );
       try {
         await _query(session, 'configure', _ensureConfigured);
         final result = await action(session);
@@ -211,31 +223,40 @@ class AppleHealthService implements HealthService {
       } finally {
         session.dispose();
       }
-      if (!session.interrupted || !_foreground || generation != _generation) {
-        break;
-      }
+      if (!_foreground || generation != _generation) break;
+      if (session.interrupted) continue;
+      if (!session.retryAfterWait) break;
+      await _retryDelay(transientRetryDelay);
+      if (!_foreground || generation != _generation) break;
     }
     return null;
   }
 
+  /// [optional] queries (the weight) report a failure at once: the read
+  /// keeps its other results, so a retry would only repeat them.
   Future<T> _query<T>(
     _HealthReadSession session,
     String operation,
-    Future<T> Function() query,
-  ) async {
+    Future<T> Function() query, {
+    bool optional = false,
+  }) async {
     session.check();
     late T result;
     try {
       result = await query();
     } catch (e, st) {
       // The plugin discards the native HKError code. Suppress these generic
-      // read errors only for an observed lifecycle interruption, never merely
-      // because their code is HEALTH_ERROR/STEPS_ERROR in the foreground.
-      final interruptedRead =
-          session.interrupted &&
+      // read errors for an observed lifecycle interruption, and hold the
+      // first one of a required query back for one retry after a short wait
+      // ([transientRetryDelay]); a failure that persists is reported.
+      final generic =
           e is PlatformException &&
           (e.code == 'HEALTH_ERROR' || e.code == 'STEPS_ERROR');
-      if (session.isCurrent() && !interruptedRead) {
+      final interruptedRead = session.interrupted && generic;
+      final retrying =
+          generic && !optional && session.allowRetry && !session.interrupted;
+      if (retrying) session.retryAfterWait = true;
+      if (session.isCurrent() && !interruptedRead && !retrying) {
         _reportError(operation, e, st);
       }
       throw const _HealthReadDeferred();
@@ -316,6 +337,7 @@ class AppleHealthService implements HealthService {
           from: now.subtract(const Duration(days: 90)),
           to: now,
         ),
+        optional: true,
       );
       if (weights.isNotEmpty) latestWeight = weights.last.kg;
     } on _HealthReadDeferred {
@@ -469,12 +491,18 @@ class _HealthReadDeferred implements Exception {
 
 /// Scoped to one read, so no observer survives a completed request or logout.
 class _HealthReadSession with WidgetsBindingObserver {
-  _HealthReadSession(this.isCurrent) {
+  _HealthReadSession(this.isCurrent, {required this.allowRetry}) {
     WidgetsBinding.instance.addObserver(this);
   }
 
   final bool Function() isCurrent;
+
+  /// Only the first attempt may hold a generic error back for a retry.
+  final bool allowRetry;
   bool interrupted = false;
+
+  /// A required query hit a generic HealthKit error and asked for a retry.
+  bool retryAfterWait = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
