@@ -137,7 +137,7 @@ function isTimeout(error: unknown): boolean {
   return error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
-type AuthUser = { id: string; email?: string };
+type AuthUser = { id: string };
 type RateLimitResult = {
   allowed: boolean;
   limit: number;
@@ -387,7 +387,7 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
   await forgetAuthFailure(AUTH_FAIL_SCOPE, token);
-  return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };
+  return { user: { id: user.id } };
 }
 
 const AUTH_FAIL_SCOPE = 'search-key:auth-fail';
