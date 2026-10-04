@@ -157,7 +157,13 @@ class SyncExecutionGuard {
         prior['expires_at']?.toString() ?? '',
       );
       if (expiresAt == null) throw const FormatException('Invalid sync claim');
-      if (clock.now().toUtc().isBefore(expiresAt)) return null;
+      final now = clock.now().toUtc();
+      // A lease never ends more than one duration after the clock that wrote
+      // it. A later end was written before the clock was set back.
+      if (now.isBefore(expiresAt) &&
+          !expiresAt.isAfter(now.add(leaseDuration))) {
+        return null;
+      }
     }
     final claim = SyncExecutionClaim._(
       store,
