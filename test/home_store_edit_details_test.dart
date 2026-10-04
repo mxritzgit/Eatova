@@ -229,4 +229,25 @@ void main() {
       });
     });
   });
+
+  // Review 2026-10-04: an entry logged in this session had no localDay and
+  // bucketed by its timestamp's CURRENT local day. A zone change while the
+  // app kept running (east across midnight) moved a 23:45 dinner to the next
+  // day on screen, and a later slot edit wrote that day to the server.
+  test('ein geloggter Eintrag traegt seinen Tag als kanonischen Schluessel',
+      () async {
+    await withClock(Clock.fixed(DateTime(2026, 10, 4, 23, 45)), () async {
+      final s = _setup();
+      final heute = await s.store.addResultToDailyTotal(_meal('Abendessen'));
+      final nachtrag = await s.store.addResultToDailyTotal(
+        _meal('Nachtrag'),
+        foodDate: DateTime(2026, 10, 2),
+      );
+
+      String? tagVon(String id) =>
+          s.store.loggedMeals.firstWhere((m) => m.id == id).localDay;
+      expect(tagVon(heute), '2026-10-04');
+      expect(tagVon(nachtrag), '2026-10-02');
+    });
+  });
 }

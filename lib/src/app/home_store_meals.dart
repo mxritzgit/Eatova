@@ -124,6 +124,9 @@ mixin _HomeStoreMealsPart
         result: result,
         loggedAt: loggedAt,
         forcedSlot: slot,
+        // DATA-6: fixed now, as the outbox persists it. Derived later, a zone
+        // change in the running app moved the entry to another day.
+        localDay: localDayKey(targetDate),
       );
       final recentId = FavoriteMeal.idFor(result);
       final old = favorites.where((f) => f.id == recentId).firstOrNull;
