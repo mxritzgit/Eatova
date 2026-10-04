@@ -88,10 +88,6 @@ void main() {
         }
       }
       await _pump(tester, store);
-      final thursday = _key('meal-plan-day-2026-09-10');
-      final list = tester.getRect(find.byType(Scrollable).first);
-      expect(tester.getTopLeft(thursday).dy, greaterThan(list.bottom));
-
       expect(
         tester.getSemantics(_key('meal-plan-strip-2026-09-10')),
         isSemantics(
@@ -108,6 +104,9 @@ void main() {
           label: 'Monday, September 7, Today, No meals yet',
         ),
       );
+      final thursday = _key('meal-plan-day-2026-09-10');
+      final list = tester.getRect(find.byType(Scrollable).first);
+      expect(tester.getTopLeft(thursday).dy, greaterThan(list.bottom));
 
       await tester.tap(_key('meal-plan-strip-2026-09-10'));
       await tester.pumpAndSettle();
