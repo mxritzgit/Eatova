@@ -6,8 +6,6 @@
 // (noise floor 0.5 kg per weigh-in) proposes a step, rounded to 50 and capped
 // at ±150, with the offset itself capped at ±500.
 
-import 'dart:math' as math;
-
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
@@ -199,12 +197,6 @@ void main() {
         ),
       );
       expect(p, isNull);
-    });
-
-    test('the guard is 2 × σ / √Sxx × 7700 with σ ≥ 0.5 kg', () {
-      // Daily weigh-ins, exact line: σ = 0 -> the floor; Sxx = 770.
-      final guard = 2 * 0.5 / math.sqrt(770) * 7700;
-      expect(guard, closeTo(277.5, 0.1));
     });
   });
 

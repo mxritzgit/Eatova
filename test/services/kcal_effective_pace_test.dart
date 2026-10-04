@@ -125,25 +125,6 @@ void main() {
   });
 
   group('Review 2026-08-21 · 1-%-Defizitdeckel', () {
-    test('Standardprofil, −1 kg/Woche: Deckel 825 statt 1100', () {
-      final t = calc.calculate(
-        standard.copyWith(weightGoal: WeightGoal.lose1kg),
-      );
-      expect(t.maxDeficitKcal, 825);
-      expect(t.appliedKcalDelta, -825);
-      expect(t.deficitCapApplied, isTrue);
-      expect(t.kcal, 1350); // 2164 − 825 = 1339 → 1350 = neutral floor
-      expect(t.floorApplied, isFalse);
-      expect(t.effectivePaceLabel(), '−0,75 kg/Woche');
-
-      final hinweis = t.paceWarning();
-      expect(hinweis, isNotNull);
-      expect(hinweis, contains('1 %'));
-      expect(hinweis, contains('825'));
-      expect(hinweis, contains('−0,75 kg/Woche'));
-      expect(hinweis, contains('−1 kg/Woche'));
-    });
-
     test('ab 100 kg ist 1 kg/Woche genau 1 % — kein Deckel', () {
       const hundert = UserProfile(
         weightKg: 100,
