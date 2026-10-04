@@ -128,6 +128,20 @@ Deno.test("kaputte confidence wird nicht zu 'medium' aufgehuebscht", () => {
   assertEquals(result.confidence, null, "unlesbare confidence bleibt fehlend");
 });
 
+Deno.test("confidence in anderer Schreibweise bleibt die Aussage des Modells", () => {
+  // The client reads 'High'/'HIGH' as high on purpose (the model is not
+  // strict here); dropping them on the server turned them into "unknown".
+  assertEquals(normalizeMealResult({ confidence: "High" }).confidence, "high", "High");
+  assertEquals(normalizeMealResult({ confidence: " LOW " }).confidence, "low", "LOW");
+});
+
+Deno.test("namenloses Item bekommt den Fallback, den der Client uebersetzt", () => {
+  // PersistedLabels.ingredientNameFallback; any other German word reached
+  // an English diary untranslated.
+  const result = normalizeMealResult({ items: [{ grams: 80, caloriesKcal: 40 }] });
+  assertEquals(result.items[0].name, "Zutat", "Item-Fallback");
+});
+
 Deno.test("gueltige Werte werden weiterhin geklemmt (max darf nicht kaputtgehen)", () => {
   const result = normalizeMealResult({
     caloriesKcal: 99999,
