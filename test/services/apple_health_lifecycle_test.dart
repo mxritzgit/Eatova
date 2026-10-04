@@ -66,6 +66,26 @@ class _Health extends Health {
     required DateTime endTime,
     List<RecordingMethod> recordingMethodsToFilter = const [],
   }) async {
+    if (types.contains(HealthDataType.STEPS)) {
+      // The no-data check: these step errors are real failures, so the
+      // interval holds samples (apple_health_transient_error_test covers the
+      // empty interval).
+      calls.add('stepSamples');
+      return [
+        HealthDataPoint(
+          uuid: 'step-sample',
+          value: NumericHealthValue(numericValue: 120),
+          type: HealthDataType.STEPS,
+          unit: HealthDataUnit.COUNT,
+          dateFrom: startTime,
+          dateTo: startTime.add(const Duration(minutes: 5)),
+          sourcePlatform: HealthPlatformType.appleHealth,
+          sourceDeviceId: 'device',
+          sourceId: 'com.apple.health',
+          sourceName: 'iPhone',
+        ),
+      ];
+    }
     calls.add('weight');
     return await onWeight?.call() ?? [];
   }
