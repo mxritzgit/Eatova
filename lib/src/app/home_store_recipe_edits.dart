@@ -23,6 +23,7 @@ mixin _HomeStoreRecipeEditsPart
   @visibleForTesting
   int get activeRecipeEditWatches => _recipeEditWatches.length;
 
+  /// Replaces the same owned recipe; a stale route cannot recreate a deletion.
   Future<RecipeSaveResult> editUserRecipe(FitnessRecipe recipe) async {
     _RecipeEditWatch? watch;
     try {

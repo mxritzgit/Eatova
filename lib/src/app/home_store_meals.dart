@@ -428,10 +428,6 @@ mixin _HomeStoreMealsPart
   Future<SyncDelivery> saveUserRecipe(FitnessRecipe recipe) =>
       _saveRecipeDraft(recipe, requireExisting: false);
 
-  /// Replaces the same owned recipe; a stale route cannot recreate a deletion.
-  Future<SyncDelivery> updateUserRecipe(FitnessRecipe recipe) =>
-      _saveRecipeDraft(recipe, requireExisting: true);
-
   Future<SyncDelivery> _saveRecipeDraft(
     FitnessRecipe recipe, {
     required bool requireExisting,
