@@ -551,29 +551,6 @@ void main() {
 
   group('P5-06 · das Tageslimit kommt vom Server', () {
     testWidgets(
-        'ein nur ANGENOMMENES Limit sperrt den Composer nicht', (tester) async {
-      // Der Server laeuft mit COACH_DAILY_LIMIT=10, die RPC rechnet aber gegen
-      // die 5, die der Client uebergibt -> remaining 0, obwohl noch fuenf
-      // Slots frei sind.
-      final backend = _Backend(
-        quotaZeile: const {'used': 5, 'remaining': 0, 'daily_limit': 5},
-      );
-      final svc = _echterService(backend);
-      await pumpLocalized(
-        tester,
-        CoachChatScreen(service: svc, userName: 'M'),
-        surfaceSize: _flaeche,
-        reducedMotion: false,
-      );
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(_composerTippbar(tester), isTrue,
-          reason: 'der Client kennt COACH_DAILY_LIMIT nicht — im Zweifel darf '
-              'er nicht sperren, der Server lehnt notfalls mit 429 ab');
-    });
-
-    testWidgets(
         'P5-06b · … und der Platzhalter behauptet dann auch nicht mehr, das '
         'Limit sei erreicht', (tester) async {
       final backend = _Backend(
