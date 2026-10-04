@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The dark page token (AppTokens.dark.bg), the colour of the first
-         Flutter frame. The app is dark-only (kDarkOnly), so the launch window
-         stays dark in either OS mode. Kept apart from colors.xml, which
+    <!-- The light page token (AppTokens.light.bg), the colour of the first
+         Flutter frame when the device is in light mode; values-night holds
+         the dark pair. Kept apart from colors.xml, which
          flutter_launcher_icons rewrites. -->
-    <color name="launch_background">#09090C</color>
-    <!-- The focus ring of the launch mark: AppTokens.dark.accent. -->
-    <color name="launch_mark">#B9A5FF</color>
+    <color name="launch_background">#F4F3F8</color>
+    <!-- The focus ring of the launch mark: AppTokens.light.accent. -->
+    <color name="launch_mark">#5C42D2</color>
 </resources>

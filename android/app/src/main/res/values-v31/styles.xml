@@ -4,14 +4,15 @@
          background colour plus a centred icon. Both are pinned to the first
          frame of the Flutter welcome screen (page colour, 80 dp focus ring),
          so the hand-off shows no change. Without these the system shows the
-         launcher icon on the theme colour. -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+         launcher icon on the theme colour. Light OS mode; values-night-v31
+         is the dark twin, launch_colors.xml resolves per mode. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowSplashScreenBackground">@color/launch_background</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/launch_splash_icon</item>
     </style>
     <!-- Window colour behind the Flutter UI once the process runs. -->
-    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@color/launch_background</item>
     </style>
 </resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The dark page token (AppTokens.dark.bg), the colour of the first
+         Flutter frame when the device is in dark mode. -->
+    <color name="launch_background">#09090C</color>
+    <!-- The focus ring of the launch mark: AppTokens.dark.accent. -->
+    <color name="launch_mark">#B9A5FF</color>
+</resources>

@@ -18,22 +18,56 @@ const _ios = 'ios/Runner';
 
 String _read(String path) => File(path).readAsStringSync();
 
-Color _androidColor(String name) {
+Color _androidColor(String name, {required String dir}) {
   final match = RegExp(
     '<color name="$name">#([0-9A-Fa-f]{6})</color>',
-  ).firstMatch(_read('$_res/values/launch_colors.xml'));
-  expect(match, isNotNull, reason: '@color/$name fehlt');
+  ).firstMatch(_read('$_res/$dir/launch_colors.xml'));
+  expect(match, isNotNull, reason: '$dir: @color/$name fehlt');
   return Color(int.parse('FF${match!.group(1)}', radix: 16));
 }
 
 void main() {
   const size = WelcomeScreen.launchMarkSize;
+  // iOS keeps one dark launch screen (a light variant needs a named colour
+  // and a second LaunchImage in the Xcode project); Android resolves per OS
+  // mode, like the app's default `ThemeMode.system`.
   final page = AppTokens.dark.bg;
-  final ring = AppTokens.dark.accent;
 
-  test('Android: Startfarbe und Ringfarbe sind die Flutter-Tokens', () {
-    expect(_androidColor('launch_background'), page);
-    expect(_androidColor('launch_mark'), ring);
+  test('Android: Startfarbe und Ringfarbe sind die Flutter-Tokens je Modus',
+      () {
+    for (final (dir, t) in <(String, AppTokens)>[
+      ('values', AppTokens.light),
+      ('values-night', AppTokens.dark),
+    ]) {
+      expect(_androidColor('launch_background', dir: dir), t.bg, reason: dir);
+      expect(_androidColor('launch_mark', dir: dir), t.accent, reason: dir);
+    }
+  });
+
+  test('Android: das Fenster-Theme folgt dem OS-Modus', () {
+    for (final (dir, parent) in <(String, String)>[
+      ('values', 'Theme.Light.NoTitleBar'),
+      ('values-v31', 'Theme.Light.NoTitleBar'),
+      ('values-night', 'Theme.Black.NoTitleBar'),
+      ('values-night-v31', 'Theme.Black.NoTitleBar'),
+    ]) {
+      final xml = _read('$_res/$dir/styles.xml');
+      for (final name in <String>['LaunchTheme', 'NormalTheme']) {
+        expect(
+          xml,
+          contains('<style name="$name" parent="@android:style/$parent">'),
+          reason: '$dir: $name',
+        );
+      }
+      expect(
+        xml,
+        contains(
+          '<item name="android:windowBackground">'
+          '@color/launch_background</item>',
+        ),
+        reason: '$dir: Fenstergrund = Seitengrund',
+      );
+    }
   });
 
   test('Android 8-11: launch_background zeigt den Ring zentriert in 80 dp', () {
