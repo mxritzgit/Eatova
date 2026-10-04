@@ -23,7 +23,6 @@ void main() {
       final request = MealAnalysisRequest(
         imageId: 'photo.jpg',
         imageBytes: imageBytes,
-        portionHint: MealPortionHint.large,
         freeTextHint: 'extra Käse',
       );
       final withEn = request.withLanguage('en');
@@ -31,7 +30,6 @@ void main() {
       expect(withEn.language, 'en');
       expect(withEn.imageId, request.imageId);
       expect(withEn.imageBytes, request.imageBytes);
-      expect(withEn.portionHint, request.portionHint);
       expect(withEn.freeTextHint, request.freeTextHint);
     });
   });
@@ -52,17 +50,16 @@ void main() {
       expect(body['language'], 'en');
     });
 
-    test('portionHint/freeTextHint reisen unveraendert mit', () {
+    test('freeTextHint reist normalisiert mit, portionHint bleibt normal', () {
       final body = buildAnalyzeMealBody(
         MealAnalysisRequest(
           imageId: 'x',
           imageBytes: imageBytes,
-          portionHint: MealPortionHint.small,
           freeTextHint: '  viel   Sauce  ',
           language: 'en',
         ),
       );
-      expect(body['portionHint'], 'small');
+      expect(body['portionHint'], 'normal');
       expect(body['freeTextHint'], 'viel Sauce');
       expect(body['language'], 'en');
       expect(body.containsKey('imageBase64'), isTrue);
@@ -87,7 +84,6 @@ void main() {
       final request = MealAnalysisRequest(
         imageId: 'photo.jpg',
         imageBytes: imageBytes,
-        portionHint: MealPortionHint.large,
         freeTextHint: '  viel   Sauce  ',
         language: 'en',
       );

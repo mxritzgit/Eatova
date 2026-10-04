@@ -85,20 +85,18 @@ void main() {
     user = null;
     expect(identity.isCurrent, isFalse);
   });
-  test('hint copies preserve photo, portion, language and cancellation', () {
+  test('hint copies preserve photo, language and cancellation', () {
     final bytes = Uint8List.fromList([1, 2, 3]);
     final cancel = MealAnalysisCancellation();
     final original = MealAnalysisRequest(
       imageId: 'photo',
       imageBytes: bytes,
-      portionHint: MealPortionHint.large,
       cancellation: cancel,
     );
     final request = original
         .withHint(' Döner 🥙\n ohne Sauce ')
         .withLanguage('en');
     expect(request.imageBytes, same(bytes));
-    expect(request.portionHint, MealPortionHint.large);
     expect(request.language, 'en');
     expect(request.cancellation, same(cancel));
     expect(request.freeTextHint, 'Döner 🥙 ohne Sauce');

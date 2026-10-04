@@ -89,7 +89,7 @@ class MealAnalysisServerError extends MealAnalysisException {
 }
 
 /// Builds the JSON body for the `analyze-meal` function. Split off from HTTP so
-/// `language`/`portionHint`/`freeTextHint` are testable without a network fake.
+/// `language`/`freeTextHint` are testable without a network fake.
 Map<String, dynamic> buildAnalyzeMealBody(MealAnalysisRequest request) {
   final imageBytes = request.imageBytes;
   if (!MealAnalysisRequest.isValidHint(request.freeTextHint)) {
@@ -98,7 +98,8 @@ Map<String, dynamic> buildAnalyzeMealBody(MealAnalysisRequest request) {
   final hint = MealAnalysisRequest.normalizedHint(request.freeTextHint);
   return <String, dynamic>{
     if (imageBytes != null) 'imageBase64': base64Encode(imageBytes),
-    'portionHint': request.portionHint?.name ?? MealPortionHint.normal.name,
+    // The server's default; the app has no portion picker since May 2026.
+    'portionHint': 'normal',
     if (hint != null) 'freeTextHint': hint,
     'language': request.language,
   };
@@ -258,7 +259,6 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
         MealAnalysisRequest(
           imageId: request.imageId,
           imageBytes: request.imageBytes,
-          portionHint: request.portionHint,
           freeTextHint: request.freeTextHint,
           language: request.language,
         ),
