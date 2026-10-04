@@ -7,6 +7,7 @@
 /// the same ARB keys, so the values cannot drift.
 library;
 
+import 'package:flutter/widgets.dart' show StringCharacters;
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
@@ -103,5 +104,6 @@ String mealSlotSubtitle(List<LoggedMeal> meals, AppLocalizations l10n) {
 String todayInitial(String name) {
   final parts = name.trim().split(RegExp(r'\s+'));
   if (parts.isEmpty || parts.first.isEmpty) return 'S';
-  return parts.first.substring(0, 1).toUpperCase();
+  // A grapheme, not a UTF-16 unit: an emoji would leave half a pair.
+  return parts.first.characters.first.toUpperCase();
 }
