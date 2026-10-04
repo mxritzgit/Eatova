@@ -347,8 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   List<Widget> _praeferenzenGruppe(AppLocalizations l10n) {
     // Without [ThemeModeScope] the row drops out — a switch without a
-    // controller would be a dead switch. The app provides no scope while
-    // `kDarkOnly` (eatova_app.dart), so the theme row is hidden there too.
+    // controller would be a dead switch.
     final controller = ThemeModeScope.maybeOf(context);
     // Same guard for the language row: without [LocaleScope] nothing could set
     // the override.

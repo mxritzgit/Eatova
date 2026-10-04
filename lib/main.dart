@@ -17,6 +17,7 @@ import 'src/services/notification_service.dart';
 import 'src/services/sync_connectivity.dart';
 import 'src/theme/app_theme.dart';
 import 'src/theme/app_tokens.dart';
+import 'src/theme/theme_mode_controller.dart';
 
 export 'src/app/eatova_app.dart';
 
@@ -79,7 +80,13 @@ Future<void> _bootAndRun() async {
     runApp(_BootErrorApp(error: error));
     return;
   }
-  runApp(buildEatovaApp());
+  // The stored display mode is read BEFORE the first frame: loaded inside
+  // the app, a "dark" choice on a light device (or the reverse) would paint
+  // one frame in the system mode and then flip. `load` never throws and
+  // falls back to the system mode.
+  final themeMode = ThemeModeController();
+  await themeMode.load();
+  runApp(buildEatovaApp(themeModeController: themeMode));
 }
 
 /// The production composition of the app.
@@ -94,13 +101,15 @@ Future<void> _bootAndRun() async {
 /// here would leave the suite green while silently killing notifications and
 /// Apple Health on every device.
 @visibleForTesting
-EatovaApp buildEatovaApp() => EatovaApp(
+EatovaApp buildEatovaApp({ThemeModeController? themeModeController}) =>
+    EatovaApp(
       healthService: createPlatformHealthService(),
       notificationService: LocalNotificationService(),
       syncConnectivity: PlatformSyncConnectivity(),
       backgroundSyncScheduler: PlatformBackgroundSyncScheduler.isSupported
           ? PlatformBackgroundSyncScheduler()
           : null,
+      themeModeController: themeModeController,
     );
 
 /// Installs the global error handlers, independently of the Sentry DSN.
@@ -154,7 +163,8 @@ class _BootErrorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Theme tokens instead of hardcoded colors, so this screen follows the
-    // app's theme (dark only while `kDarkOnly`). Safe here: `buildEatovaTheme`
+    // device's light or dark mode. The stored mode is not read here: boot
+    // failed before anything else could be trusted. Safe: `buildEatovaTheme`
     // is a pure function over `AppTokens.light/dark` and depends on none of
     // the services whose failure leads to this screen.
     return MaterialApp(
@@ -162,7 +172,7 @@ class _BootErrorApp extends StatelessWidget {
       title: 'Eatova',
       theme: buildEatovaTheme(Brightness.light),
       darkTheme: buildEatovaTheme(Brightness.dark),
-      themeMode: kDarkOnly ? ThemeMode.dark : ThemeMode.system,
+      themeMode: ThemeMode.system,
       // Device language as in the app; the stored override is not read here,
       // boot failed before anything else could be trusted.
       supportedLocales: const [Locale('de'), Locale('en')],

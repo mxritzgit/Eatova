@@ -150,17 +150,13 @@ Future<void> _scroll(
 
 /// Reads the tokens actually attached at [schluessel] in the tree. The core of
 /// the audit: without it, pumping the dark palette twice would pass green.
-///
-/// While `kDarkOnly` holds the app renders the dark palette for BOTH device
-/// settings, so a light device must read the dark tokens too.
 void _erwartePalette(
   WidgetTester tester,
   String schluessel,
   Brightness brightness,
 ) {
-  final erwartet = kDarkOnly || brightness == Brightness.dark
-      ? AppTokens.dark
-      : AppTokens.light;
+  final erwartet =
+      brightness == Brightness.dark ? AppTokens.dark : AppTokens.light;
   final gelesen = AppTokens.of(
     tester.element(find.byKey(ValueKey<String>(schluessel))),
   );
@@ -175,26 +171,27 @@ void _erwartePalette(
 
 // --- 3. USAGE: helpers ------------------------------------------------------
 
-/// The four graphical tones by TOKEN name — the same four [MealSlot] reaches
-/// through `accentOn`. `accent` is NOT among them: it carries text at 13.6:1
-/// (hell) / 14.0:1 (dunkel).
+/// The graphical tones by TOKEN name — the four [MealSlot] reaches through
+/// `accentOn`. `accent` is NOT among them: it carries text (6.6:1 hell /
+/// 8.5:1 dunkel on the card). Both palettes give the snack slot the accent
+/// itself (2026-10-04), so `snack` only counts while it is a tone of its own.
 Map<Color, String> _makroToene(AppTokens t) => <Color, String>{
       t.protein: 'protein',
       t.carbs: 'carbs',
       t.fat: 'fat',
-      t.snack: 'snack',
+      if (t.snack != t.accent) t.snack: 'snack',
     };
 
-/// The tones that may not carry TEXT: the four graphic tones plus the two
-/// signal tones.
+/// The tones that may not carry TEXT: the graphic tones plus the two signal
+/// tones.
 ///
 /// `warning` and `danger` belong here for the same reason and were the hole
 /// this helper had until 2026-09-01: they are toned as GLYPH colours (WCAG
-/// 1.4.11, 3:1) and measure 4.20:1 / 4.48:1 as 12 px text on the light `bg` —
-/// under AA. The one place they legitimately ARE the text colour is an
-/// UNBOXED [SettingsNote], where no fill eats their headroom; that widget has
-/// its own group at the end of this file and appears on none of the screens
-/// this helper is pointed at.
+/// 1.4.11, 3:1) and lose their headroom on their own tinted fills (light
+/// warning 4.1:1 on its 12 % box). The one place they legitimately ARE the
+/// text colour is an UNBOXED [SettingsNote], where no fill eats their
+/// headroom; that widget has its own group at the end of this file and
+/// appears on none of the screens this helper is pointed at.
 Map<Color, String> _verbotenAlsText(AppTokens t) => <Color, String>{
       ..._makroToene(t),
       t.warning: 'warning',
@@ -224,9 +221,9 @@ void _erwarteKeineMakroTexte(WidgetTester tester, AppTokens t) {
     treffer,
     isEmpty,
     reason: 'Diese Toene sind Grafik-/Glyphen-Toene (3:1) und tragen keinen '
-        'Text — im Hellmodus erreichen carbs 3,39:1, fat 3,73:1, warning '
-        '4,20:1 und danger 4,48:1, noetig waeren 4,5:1. Farbiger Punkt bzw. '
-        'Glyphe + Text in ink:\n'
+        'Text — im Hellmodus liegen die Makro-Toene unter 4,5:1, die '
+        'Signaltoene verlieren auf ihrer eigenen Fuellung die Reserve. '
+        'Farbiger Punkt bzw. Glyphe + Text in ink:\n'
         '${treffer.join('\n')}',
   );
 }
@@ -269,8 +266,8 @@ List<Color?> _planGrammFarben(WidgetTester tester) {
 
 /// Tones a macro MARKER may legitimately carry: the raw tone, which holds the
 /// 3:1 for graphical objects on `surf`, and its [AppTokens.readableOnTint]
-/// correction, which a darker ground needs — on `surf2` the raw carb tone is
-/// only 2.77:1, so the scan result's tiles (P9-01b) lift their dot.
+/// correction, which a darker ground needs — on `surf2` the August light carb
+/// tone was only 2.77:1, so the scan result's tiles (P9-01b) lift their dot.
 Map<Color, String> _makroPunktToene(AppTokens t) => <Color, String>{
       for (final eintrag in _makroToene(t).entries) ...<Color, String>{
         eintrag.key: eintrag.value,
@@ -492,11 +489,9 @@ void main() {
     });
   }
 
-  testWidgets('der Anzeige-Modus folgt dem Geraet, ausser unter kDarkOnly',
-      (tester) async {
+  testWidgets('der Anzeige-Modus folgt dem Geraet', (tester) async {
     // Counter-check: if both runs were the same palette by accident, the
-    // whole audit would be worthless — under kDarkOnly they are the same ON
-    // PURPOSE, and a light device must still get the dark palette.
+    // whole audit would be worthless.
     _pin(tester, Brightness.light);
     await _boot(tester);
     final hell = AppTokens.of(
@@ -510,15 +505,10 @@ void main() {
     );
 
     expect(dunkel.bg, AppTokens.dark.bg);
-    if (kDarkOnly) {
-      expect(hell.bg, AppTokens.dark.bg,
-          reason: 'dark-only: ein helles Geraet bekommt die dunkle Palette');
-    } else {
-      expect(hell.bg, AppTokens.light.bg);
-      expect(
-          hell.bg.computeLuminance(), greaterThan(dunkel.bg.computeLuminance()),
-          reason: 'der helle Grund muss heller sein als der dunkle');
-    }
+    expect(hell.bg, AppTokens.light.bg);
+    expect(
+        hell.bg.computeLuminance(), greaterThan(dunkel.bg.computeLuminance()),
+        reason: 'der helle Grund muss heller sein als der dunkle');
   });
 
   // =========================================================================
@@ -557,9 +547,9 @@ void main() {
     });
 
     test('Icons auf tile erreichen AA-Large (3:1) — tile ist TRANSPARENT', () {
-      // `tile` is semi-transparent in both palettes (light 5 % ink, dark 7 %
-      // white). Without compositing one measures the full ink and misses that
-      // the tile is nearly invisible in light mode.
+      // `tile` is semi-transparent in both palettes (light 6 % indigo, dark
+      // 10 % lavender). Without compositing one measures the full ink and
+      // misses that the tile is nearly invisible in light mode.
       for (final p in _paletten.entries) {
         final t = p.value;
         for (final grund in <MapEntry<String, Color>>[
@@ -587,9 +577,9 @@ void main() {
       // two, so it is the one that decides.
       //
       // Only opacities that actually occur are checked. Guard rail, measured
-      // on `bg` in the light palette: text in the signal color itself would
-      // be warning 4.20:1 · danger 4.48:1 · ink2 4.48:1 — all under AA, which
-      // is why the text goes in `ink` (12.9 - 13.1:1 there).
+      // on `bg` in the light palette: text in the signal color itself keeps
+      // little headroom on its own fill (warning 4.1:1 on its 12 % box),
+      // which is why the text goes in `ink` (12.8 - 14.4:1 there).
       for (final p in _paletten.entries) {
         final t = p.value;
         for (final grund in <(String, Color)>[
@@ -635,9 +625,9 @@ void main() {
     // assertion now, so a regression fails instead of being re-described.
     test('der MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA', () {
       // A glyph on its own slot tint (16 % here; `IconTile` uses 15 %) sits on
-      // that same slot color. In the full color it reached 2.15:1 in light mode;
-      // `readableOnTint` blends towards `ink` and now holds 5.95 … 7.75 (hell)
-      // and 7.35 … 8.35 (dunkel).
+      // that same slot color. In the full color it reached 2.15:1 in the
+      // August light palette; `readableOnTint` blends towards `ink` and holds
+      // 6.7 … 8.6 (hell) and 7.35 … 8.35 (dunkel).
       for (final p in _paletten.entries) {
         final t = p.value;
         for (final slot in MealSlot.values) {
@@ -659,9 +649,8 @@ void main() {
 
     test('die MacroBar-Fuellung erreicht 3:1 gegen ihre Spur', () {
       // Bar in the macro color on a track of `tile` over `surf` — the fill
-      // level is the message, so WCAG 1.4.11 applies. `carbs` was 2.24:1
-      // before the tone was darkened; it now holds 3.07:1, the tightest of
-      // the three and the reason the tone may not move.
+      // level is the message, so WCAG 1.4.11 applies. The August light
+      // `carbs` was 2.24:1; the light macro tones now hold 3.56 … 3.79:1.
       for (final p in _paletten.entries) {
         final t = p.value;
         final spur = _ueber(t.tile, t.surf);
@@ -881,7 +870,7 @@ void main() {
 
           testWidgets('$modus: ungeboxt, ${ton.$1}, auf ${grund.$1}',
               (tester) async {
-            // Without a fill the tone keeps its headroom (warning 4,76:1 on
+            // Without a fill the tone keeps its headroom (warning 4,83:1 on
             // the light `bg` is the weakest case), so THERE it stays the text
             // colour — otherwise the signal would disappear entirely.
             final n = await notiz(

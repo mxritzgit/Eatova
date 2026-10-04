@@ -30,12 +30,6 @@ import 'auth_gate.dart';
 import 'eatova_home_page.dart';
 import 'locale_controller.dart';
 
-/// Dark-only rollout ("erstmal dunkel", user decision 2026-09-28): the app
-/// always renders the dark theme. [ThemeModeController] still loads and
-/// persists the stored choice; set this to false to bring back the
-/// light/dark/system switch and its settings row.
-const bool kDarkOnly = true;
-
 class EatovaApp extends StatefulWidget {
   const EatovaApp({
     super.key,
@@ -75,8 +69,9 @@ class EatovaApp extends StatefulWidget {
   /// NoopNotificationService.
   final NotificationService? notificationService;
 
-  /// Display mode (light/dark/system). Injectable so a test can pin a mode
-  /// without staging SharedPreferences.
+  /// Display mode (light/dark/system). `main` injects one that has already
+  /// loaded the stored mode, so the first frame is painted in it; a test
+  /// can pin a mode without staging SharedPreferences.
   final ThemeModeController? themeModeController;
 
   /// Display language (system/German/English). Injectable like
@@ -160,11 +155,8 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
     );
     return LocaleScope(
       controller: _locale,
-      // Without a ThemeModeScope the settings page drops its appearance row;
-      // under [kDarkOnly] that switch would change nothing.
-      child: kDarkOnly
-          ? app
-          : ThemeModeScope(controller: _themeMode, child: app),
+      // Without a ThemeModeScope the settings page drops its appearance row.
+      child: ThemeModeScope(controller: _themeMode, child: app),
     );
   }
 
@@ -174,7 +166,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
       title: 'Eatova',
       theme: buildEatovaTheme(Brightness.light),
       darkTheme: buildEatovaTheme(Brightness.dark),
-      themeMode: kDarkOnly ? ThemeMode.dark : _themeMode.mode,
+      themeMode: _themeMode.mode,
       // Override from settings; null = system, then resolveEatovaLocale
       // decides (German -> de, otherwise en).
       locale: _locale.override,

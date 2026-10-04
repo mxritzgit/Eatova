@@ -9,23 +9,26 @@ import 'package:eatova/src/theme/theme_mode_controller.dart';
 
 // Wiring of the display mode in the real app shell.
 //
-// Since the dark-only rollout (2026-09-28, `kDarkOnly`) the shell renders the
-// dark theme whatever the stored preference says, and it withholds the
-// [ThemeModeScope] so the settings page drops its appearance row instead of
-// showing a switch that changes nothing. The controller itself stays wired
-// (loaded, persisted), so flipping `kDarkOnly` brings the switch back.
-//
-// Both paths are pinned: the dark-only cases run while `kDarkOnly` holds, the
-// user-selectable cases (the pre-rollout contract) are registered only when
-// the switch flips back (CI rejects skipped tests).
+// The dark-only rollout (2026-09-28) ended with the light palette of
+// 2026-10-04: the shell follows [ThemeModeController] (default: the device),
+// hands the controller to the settings page through [ThemeModeScope], and
+// styles the system bars for the brightness actually shown. Every case pins
+// the device brightness, so none of them depends on the test binding's
+// default.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  Future<void> pumpApp(WidgetTester tester, [ThemeModeController? c]) async {
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    ThemeModeController? controller,
+    Brightness device = Brightness.light,
+  }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
+    tester.platformDispatcher.platformBrightnessTestValue = device;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 
     final prior = FlutterError.onError;
     FlutterError.onError = (details) {
@@ -34,7 +37,7 @@ void main() {
     };
     addTearDown(() => FlutterError.onError = prior);
 
-    await tester.pumpWidget(EatovaApp(themeModeController: c));
+    await tester.pumpWidget(EatovaApp(themeModeController: controller));
     await tester.pumpAndSettle();
   }
 
@@ -54,137 +57,160 @@ void main() {
       .first
       .value;
 
-  test('the app is dark-only for now', () {
-    expect(kDarkOnly, isTrue,
-        reason: 'user decision 2026-09-28 ("erstmal dunkel"); flipping it '
-            'must be a deliberate change that also updates this suite');
+  test('ohne Wahl folgt der Controller dem Geraet', () {
+    final controller = ThemeModeController();
+    addTearDown(controller.dispose);
+    expect(controller.mode, ThemeMode.system);
   });
 
-  if (kDarkOnly) {
-    group('dark only', () {
-      testWidgets('a stored "light" preference still renders the dark theme',
+  group('System-Modus folgt dem Geraet', () {
+    for (final device in Brightness.values) {
+      testWidgets('Geraet ${device.name} -> Palette ${device.name}',
+          (tester) async {
+        // The shell's OWN controller, loading from (empty) storage.
+        await pumpApp(tester, device: device);
+
+        expect(app(tester).themeMode, ThemeMode.system);
+        expect(Theme.of(appContext(tester)).brightness, device);
+        expect(
+          appContext(tester).t.bg,
+          device == Brightness.dark ? AppTokens.dark.bg : AppTokens.light.bg,
+        );
+      });
+    }
+  });
+
+  group('eine gespeicherte Wahl schlaegt das Geraet', () {
+    for (final (gespeichert, device, erwartet) in <(String, Brightness,
+        Brightness)>[
+      ('light', Brightness.dark, Brightness.light),
+      ('dark', Brightness.light, Brightness.dark),
+    ]) {
+      testWidgets('"$gespeichert" auf einem Geraet in ${device.name}',
           (tester) async {
         SharedPreferences.setMockInitialValues(<String, Object>{
-          ThemeModeController.storageKey: 'light',
+          ThemeModeController.storageKey: gespeichert,
         });
+        await pumpApp(tester, device: device);
 
-        // The shell's OWN controller, loading from storage like in production.
-        await pumpApp(tester);
-
-        expect(app(tester).themeMode, ThemeMode.dark);
-        expect(Theme.of(appContext(tester)).brightness, Brightness.dark);
-        expect(appContext(tester).t.bg, AppTokens.dark.bg);
-        // The preference itself is untouched — nothing overwrote it.
-        final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString(ThemeModeController.storageKey), 'light');
+        expect(Theme.of(appContext(tester)).brightness, erwartet);
+        expect(
+          appContext(tester).t.bg,
+          erwartet == Brightness.dark ? AppTokens.dark.bg : AppTokens.light.bg,
+        );
       });
+    }
+  });
 
-      testWidgets('a controller switched to light does not leave the dark theme',
-          (tester) async {
-        final controller = ThemeModeController(initial: ThemeMode.light);
-        addTearDown(controller.dispose);
+  testWidgets('die App-Schale stellt den ThemeModeScope, den die '
+      'Einstellungs-Seite sucht', (tester) async {
+    final controller = ThemeModeController(initial: ThemeMode.light);
+    addTearDown(controller.dispose);
 
-        await pumpApp(tester, controller);
-        expect(Theme.of(appContext(tester)).brightness, Brightness.dark);
+    await pumpApp(tester, controller: controller);
 
-        controller.setModeSync(ThemeMode.system);
-        await tester.pumpAndSettle();
-        controller.setModeSync(ThemeMode.light);
-        await tester.pumpAndSettle();
+    // Exactly the call SettingsScreen makes.
+    final gefunden = ThemeModeScope.maybeOf(appContext(tester));
+    expect(gefunden, isNotNull,
+        reason: 'ohne Scope laesst die Einstellungs-Seite '
+            '„Erscheinungsbild" kommentarlos weg — der Nutzer haette den '
+            'Schalter nie');
+    expect(identical(gefunden, controller), isTrue,
+        reason: 'die Seite muss DEN Controller bekommen, den die Schale '
+            'persistiert — nicht eine zweite Instanz');
+  });
 
-        expect(app(tester).themeMode, ThemeMode.dark);
-        expect(Theme.of(appContext(tester)).brightness, Brightness.dark);
-        // The light palette stays wired for the switch back.
-        expect(app(tester).theme?.extension<AppTokens>()?.bg, AppTokens.light.bg);
-        expect(app(tester).darkTheme?.extension<AppTokens>()?.bg,
-            AppTokens.dark.bg);
-      });
+  testWidgets('der Modus der Schale steuert das Theme der MaterialApp',
+      (tester) async {
+    final controller = ThemeModeController(initial: ThemeMode.light);
+    addTearDown(controller.dispose);
 
-      testWidgets('without a user choice the shell offers no appearance scope',
-          (tester) async {
-        final controller = ThemeModeController(initial: ThemeMode.light);
-        addTearDown(controller.dispose);
+    // A DARK device, so the light pass cannot come from the device.
+    await pumpApp(tester, controller: controller, device: Brightness.dark);
 
-        await pumpApp(tester, controller);
+    expect(app(tester).themeMode, ThemeMode.light);
+    expect(app(tester).darkTheme, isNotNull,
+        reason: 'ohne darkTheme waere ThemeMode.dark folgenlos');
+    expect(Theme.of(appContext(tester)).brightness, Brightness.light);
+    expect(appContext(tester).t.bg, AppTokens.light.bg);
 
-        // Exactly the call SettingsScreen makes; null drops the appearance row.
-        expect(ThemeModeScope.maybeOf(appContext(tester)), isNull,
-            reason: 'under kDarkOnly the switch would change nothing, so the '
-                'settings page must not show it');
-      });
+    controller.setModeSync(ThemeMode.dark);
+    await tester.pumpAndSettle();
 
-      testWidgets('status and navigation bar are styled for a dark app',
-          (tester) async {
-        await pumpApp(tester);
+    expect(app(tester).themeMode, ThemeMode.dark);
+    expect(Theme.of(appContext(tester)).brightness, Brightness.dark,
+        reason: 'ein Moduswechsel muss den ganzen Baum umfaerben — sonst '
+            'ist der Schalter in den Einstellungen wirkungslos');
+    expect(appContext(tester).t.bg, AppTokens.dark.bg);
 
-        final style = overlay(tester);
-        expect(style.statusBarIconBrightness, Brightness.light);
-        expect(style.statusBarBrightness, Brightness.dark);
-        expect(style.systemNavigationBarIconBrightness, Brightness.light);
-        expect(style.statusBarColor, const Color(0x00000000));
-        expect(style.systemNavigationBarColor, AppTokens.dark.bg);
-      });
+    controller.setModeSync(ThemeMode.system);
+    await tester.pumpAndSettle();
+    expect(Theme.of(appContext(tester)).brightness, Brightness.dark,
+        reason: 'System = das (dunkle) Geraet');
+  });
 
-      testWidgets('the boot-error screen is dark with dark system bars',
-          (tester) async {
+  testWidgets('main reicht den vorab geladenen Controller durch',
+      (tester) async {
+    // `_bootAndRun` loads the stored mode before runApp and hands the
+    // controller in here, so the first frame is already in that mode.
+    final controller = ThemeModeController(initial: ThemeMode.dark);
+    addTearDown(controller.dispose);
+    expect(
+      identical(
+        buildEatovaApp(themeModeController: controller).themeModeController,
+        controller,
+      ),
+      isTrue,
+    );
+    expect(buildEatovaApp().themeModeController, isNull);
+  });
+
+  group('Status- und Navigationsleiste folgen der Helligkeit', () {
+    testWidgets('dunkel: helle Symbole auf dunklem Grund', (tester) async {
+      await pumpApp(tester, device: Brightness.dark);
+
+      final style = overlay(tester);
+      expect(style.statusBarIconBrightness, Brightness.light);
+      expect(style.statusBarBrightness, Brightness.dark);
+      expect(style.systemNavigationBarIconBrightness, Brightness.light);
+      expect(style.statusBarColor, const Color(0x00000000));
+      expect(style.systemNavigationBarColor, AppTokens.dark.bg);
+    });
+
+    testWidgets('hell: dunkle Symbole auf hellem Grund', (tester) async {
+      await pumpApp(tester, device: Brightness.light);
+
+      final style = overlay(tester);
+      expect(style.statusBarIconBrightness, Brightness.dark);
+      expect(style.statusBarBrightness, Brightness.light);
+      // SystemUiOverlayStyle.dark alone asks for LIGHT navigation icons
+      // (it assumes a black bar); on the light page color they vanished.
+      expect(style.systemNavigationBarIconBrightness, Brightness.dark);
+      expect(style.statusBarColor, const Color(0x00000000));
+      expect(style.systemNavigationBarColor, AppTokens.light.bg);
+    });
+  });
+
+  group('der Boot-Fehler-Screen folgt dem Geraet', () {
+    for (final device in Brightness.values) {
+      testWidgets(device.name, (tester) async {
+        tester.platformDispatcher.platformBrightnessTestValue = device;
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
         await tester.pumpWidget(buildBootErrorApp(StateError('boot')));
         await tester.pumpAndSettle();
 
         final context = tester.element(find.byType(Scaffold));
-        expect(Theme.of(context).brightness, Brightness.dark);
-        expect(context.t.bg, AppTokens.dark.bg);
+        final tokens =
+            device == Brightness.dark ? AppTokens.dark : AppTokens.light;
+        expect(Theme.of(context).brightness, device);
+        expect(context.t.bg, tokens.bg);
         final style = overlay(tester);
-        expect(style.statusBarIconBrightness, Brightness.light);
-        expect(style.systemNavigationBarColor, AppTokens.dark.bg);
+        expect(
+          style.statusBarIconBrightness,
+          device == Brightness.dark ? Brightness.light : Brightness.dark,
+        );
+        expect(style.systemNavigationBarColor, tokens.bg);
       });
-    });
-  }
-
-  // The pre-rollout contract, parked while kDarkOnly holds. Registered only
-  // when the switch is off, because CI rejects skipped tests.
-  if (!kDarkOnly) {
-    group('user-selectable mode', () {
-      testWidgets('die App-Schale stellt den ThemeModeScope, den die '
-          'Einstellungs-Seite sucht', (tester) async {
-        final controller = ThemeModeController(initial: ThemeMode.light);
-        addTearDown(controller.dispose);
-
-        await pumpApp(tester, controller);
-
-        // Exactly the call SettingsScreen makes.
-        final gefunden = ThemeModeScope.maybeOf(appContext(tester));
-        expect(gefunden, isNotNull,
-            reason: 'ohne Scope laesst die Einstellungs-Seite '
-                '„Erscheinungsbild" kommentarlos weg — der Nutzer haette den '
-                'Schalter nie');
-        expect(identical(gefunden, controller), isTrue,
-            reason: 'die Seite muss DEN Controller bekommen, den die Schale '
-                'persistiert — nicht eine zweite Instanz');
-      });
-
-      testWidgets('der Modus der Schale steuert das Theme der MaterialApp',
-          (tester) async {
-        final controller = ThemeModeController(initial: ThemeMode.light);
-        addTearDown(controller.dispose);
-
-        await pumpApp(tester, controller);
-
-        expect(app(tester).themeMode, ThemeMode.light);
-        expect(app(tester).darkTheme, isNotNull,
-            reason: 'ohne darkTheme waere ThemeMode.dark folgenlos');
-
-        // The switch does nothing but this, and the app must really change
-        // brightness, not just set a field.
-        expect(Theme.of(appContext(tester)).brightness, Brightness.light);
-
-        controller.setModeSync(ThemeMode.dark);
-        await tester.pumpAndSettle();
-
-        expect(app(tester).themeMode, ThemeMode.dark);
-        expect(Theme.of(appContext(tester)).brightness, Brightness.dark,
-            reason: 'ein Moduswechsel muss den ganzen Baum umfaerben — sonst '
-                'ist der Schalter in den Einstellungen wirkungslos');
-      });
-    });
-  }
+    }
+  });
 }
