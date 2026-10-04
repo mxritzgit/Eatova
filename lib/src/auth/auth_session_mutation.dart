@@ -7,6 +7,8 @@ import 'package:postgrest/postgrest.dart' as postgrest;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../services/stale_auth_retry.dart' show StaleAuthRetry;
+import '../services/sync_error_messages.dart' show isStaleAuthError;
 
 typedef _MutationResult = ({User? user, Session? session});
 
@@ -24,6 +26,7 @@ Future<void> runAccountDeletionCode(
   required String code,
   required ScopedAccountDeleteAction performDeletion,
   http.Client? httpClient,
+  Future<void> Function(Duration duration)? retryDelay,
 }) async {
   if (kIsWeb) throw UnsupportedError('Account changes require the mobile app');
   final original = client.auth.currentSession;
@@ -85,21 +88,37 @@ Future<void> runAccountDeletionCode(
         throw const AuthException('Deletion authorization already used');
       }
       used = true;
-      // Use the scoped transport: the shared auth HTTP client may refresh the
-      // app login. This RPC only needs the newly verified, fixed bearer.
-      await postgrest.PostgrestBuilder<dynamic, dynamic, dynamic>(
-        url: Uri.parse('${client.rest.url}/rpc/delete_account'),
-        method: postgrest.HttpMethod.post,
-        headers: {
-          for (final entry in client.rest.headers.entries)
-            if (entry.key.toLowerCase() != 'authorization')
-              entry.key: entry.value,
-          'Authorization': 'Bearer ${verified.accessToken}',
-        },
-        httpClient: transport,
-        retryEnabled: false,
-        requestTimeout: deadline,
-      );
+      // The token was minted a moment ago, and the server now and then
+      // rejects a brand-new token once (PGRST303, or a bare gateway 401; see
+      // StaleAuthRetry). That rejection comes before PostgREST runs the
+      // function, so one retry after a short wait is safe and keeps the spent
+      // code from failing the deletion. Anything else stands.
+      for (var attempt = 0; ; attempt++) {
+        try {
+          // Use the scoped transport: the shared auth HTTP client may refresh
+          // the app login. This RPC only needs the newly verified bearer.
+          await postgrest.PostgrestBuilder<dynamic, dynamic, dynamic>(
+            url: Uri.parse('${client.rest.url}/rpc/delete_account'),
+            method: postgrest.HttpMethod.post,
+            headers: {
+              for (final entry in client.rest.headers.entries)
+                if (entry.key.toLowerCase() != 'authorization')
+                  entry.key: entry.value,
+              'Authorization': 'Bearer ${verified.accessToken}',
+            },
+            httpClient: transport,
+            retryEnabled: false,
+            requestTimeout: deadline,
+          );
+          return;
+        } catch (error) {
+          if (attempt > 0 || !isStaleAuthError(error)) rethrow;
+        }
+        await (retryDelay ?? Future<void>.delayed)(
+          StaleAuthRetry.firstRetryDelay,
+        );
+        requireCurrent();
+      }
     }, isCurrent);
     if (!used) throw StateError('Deletion was not requested');
   } finally {

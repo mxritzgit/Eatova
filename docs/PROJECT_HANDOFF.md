@@ -2997,3 +2997,58 @@ orchestrator read every diff and visual capture before cherry-picking.
 Verification on Windows with Flutter 3.47.2, final head: the analyzer is
 clean; the full suite passed 6,911 of 6,911 with 96.96 % local line coverage
 (generated l10n excluded); the CI shard plan and tooling tests pass.
+
+## Sentry triage, 2026-10-04
+
+Three unresolved issues in Sentry (org eatova, project flutter) were read in
+the owner's Chrome. All came from the owner's iPhone 16 Pro, iOS 27.0.
+
+- **PostgrestException 401, context "Konto-Löschung", 1.1.0 (4).**
+  - Stack: `runAccountDeletionCode`, then the `delete_account` RPC.
+  - Cause: the RPC runs with the token the recovery code minted a moment
+    earlier. This is the fresh-token rejection that `StaleAuthRetry` documents
+    for the boot reads: PGRST303 or a bare gateway 401, per the edge logs of
+    2026-08-26.
+  - Why a retry is safe: a 401 means PostgREST never ran the function.
+    `delete_account` refuses on its own only with 28000 (HTTP 403).
+  - Effect before the fix: the code was spent, so the user had to request a
+    new one.
+  - Fix (`auth_session_mutation.dart`): one retry after 1 s on a stale-auth
+    rejection only. A second rejection, the 28000 refusal and every other
+    error still reach the caller. Tests:
+    `test/delete_account_fresh_token_retry_test.dart`.
+  - Not checked live: the Supabase logs API moved from `logs.all` to `logs`
+    with a new schema and answered with backend errors, so the edge-log
+    reading of this event is not done.
+- **PlatformException STEPS_ERROR, `health.readSteps`, 1.1.0 (4), 04:24.**
+  - What happened: the step query failed 27 ms after the app came to the
+    foreground.
+  - Why it is a transient: the plugin wraps every HealthKit error in
+    STEPS_ERROR and keeps the reason only in the message, which Sentry strips.
+    Right after an unlock the protected store is briefly not readable.
+  - Fix (`apple_health_service.dart`):
+    - Required queries (configure, write grant, steps, day backfill) hold
+      their first generic HealthKit error back, wait 1 s and try once more.
+    - Only a failure that persists is reported.
+    - The optional weight query and non-HealthKit errors report at once.
+  - Tests: `test/services/apple_health_transient_error_test.dart`.
+- **WatchdogTermination FLUTTER-C.**
+  - Events: 2, on 1.1.0 (2) and 1.1.0 (3). The last was 2026-10-01 23:49,
+    between the merges of #121 and #122.
+  - Cause: the known false positive. Sentry's iOS SDK reports a watchdog kill
+    when the previous run ended in the foreground without a crash and the
+    release name stayed the same. The pubspec build number stayed the same
+    across dozens of merges and device installs (build 3 from 2026-08-29 to
+    2026-10-03).
+  - Fix: `scripts/operations/device_build.py` builds with `--build-number` =
+    the commit count of HEAD (`run`, `ipa`, `apk`, `appbundle`), so each
+    merged build is its own release. Documented in docs/DEVELOPMENT.md and
+    covered by `test/operations/device_build_test.py`. It only helps when
+    device builds go through the script.
+
+All three are app-side: no migration, no function deploy. They reach users
+with the next device build.
+
+Verification on Windows with Flutter 3.47.2: the analyzer is clean; the full
+suite passed 6,920 of 6,920 with 96.96 % local line coverage; the
+test/operations suite passed 60 of 60.
