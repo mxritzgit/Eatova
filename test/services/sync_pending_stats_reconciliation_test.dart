@@ -36,7 +36,6 @@ void main() {
             EncryptedKeyValueStore(
               database!,
               AesGcmCacheCipher(dek),
-              acceptLegacyPlaintext: false,
             ),
             'owner-A',
           );

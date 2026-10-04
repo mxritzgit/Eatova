@@ -695,11 +695,9 @@ abstract class DekSentinelStore {
   /// Records "cache abandoned" for the UI; consumed once by the caller.
   Future<void> raiseCacheResetNotice();
 
-  /// See [CacheKeyProvider.plaintextMigrationClosedKey].
+  /// See [CacheKeyProvider.plaintextMigrationClosedKey]. Read-only here: the
+  /// SQLite import (`migrateDurableCache`) writes the marker with its batch.
   Future<bool> isPlaintextMigrationClosed();
-
-  /// Sets the marker. One-way, short of losing the blobs too.
-  Future<void> closePlaintextMigration();
 }
 
 /// A1/iOS: lists the encrypted cache slots WITHOUT the DEK, so the bootstrap
@@ -739,17 +737,10 @@ class PrefsCacheCiphertextProbe implements CacheCiphertextProbe {
   }
 }
 
-/// W7a: lists slots that may still hold PLAINTEXT from an install predating
-/// encryption, reading prefs directly because the slots nobody reads are the
-/// sweep's point.
-abstract class LegacyPlaintextProbe {
-  /// Keys matching [isLegacyCacheSlotKey] with a non-empty, magic-less value.
-  Future<List<String>> plaintextCacheKeys();
-}
-
-/// The `LocalCache` slot names, repeated as an allowlist: the same namespace
-/// holds `locale`, `theme_mode` and `search_credentials`, read WITHOUT the
-/// decorator, which a prefix-wide sweep would encrypt and destroy.
+/// The original `LocalCache` slot names, repeated as an allowlist: the same
+/// prefs namespace holds `locale`, `theme_mode` and `search_credentials`, read
+/// WITHOUT the decorator, which a prefix-wide import or cleanup would encrypt
+/// or delete. `durableCacheSlotNames` extends it with later slots.
 const Set<String> legacyCacheSlotNames = <String>{
   'profile',
   'daily',
@@ -764,37 +755,6 @@ const Set<String> legacyCacheSlotNames = <String>{
   'daily_activity',
   'health_connect_enabled',
 };
-
-/// Whether [key] is a cache slot `eatova.v1.<slot>.<uid>`. Checks prefix and
-/// slot name only; keys with fewer than four segments are control bits.
-@visibleForTesting
-bool isLegacyCacheSlotKey(String key) {
-  final parts = key.split('.');
-  if (parts.length < 4) return false;
-  if (parts[0] != 'eatova' || parts[1] != 'v1') return false;
-  return legacyCacheSlotNames.contains(parts[2]);
-}
-
-/// Production implementation: SharedPreferences.
-class PrefsLegacyPlaintextProbe implements LegacyPlaintextProbe {
-  const PrefsLegacyPlaintextProbe();
-
-  @override
-  Future<List<String>> plaintextCacheKeys() async {
-    final prefs = await SharedPreferences.getInstance();
-    final hits = <String>[];
-    for (final key in prefs.getKeys()) {
-      if (!isLegacyCacheSlotKey(key)) continue;
-      // `get`, not `getString`: the namespace also holds bool/int/List
-      // values, on which `getString` throws.
-      final value = prefs.get(key);
-      if (value is! String || value.isEmpty) continue;
-      if (value.startsWith(cacheCipherMagic)) continue;
-      hits.add(key);
-    }
-    return hits;
-  }
-}
 
 /// Production implementation: SharedPreferences, NOT the secure storage,
 /// because the sentinel must survive the incident it reports and a
@@ -842,12 +802,6 @@ class PrefsDekSentinelStore implements DekSentinelStore {
   Future<bool> isPlaintextMigrationClosed() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(CacheKeyProvider.plaintextMigrationClosedKey) ?? false;
-  }
-
-  @override
-  Future<void> closePlaintextMigration() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(CacheKeyProvider.plaintextMigrationClosedKey, true);
   }
 }
 
@@ -926,15 +880,12 @@ class CacheKeyProvider {
   /// UI flag, read and cleared by [consumeCacheResetNotice].
   static const String cacheResetNoticeKey = 'eatova.v1.cache_reset_notice';
 
-  /// SEC/W7a: marker "the plaintext migration path is closed". Without it a
-  /// magic-less slot would count as migratable legacy forever; after it, it
-  /// is dropped and reported. It bounds that path and provides NO integrity,
-  /// sharing a prefs file with the slots it guards.
-  ///
-  /// SET ONLY AFTER THE SWEEP ([EncryptedKeyValueStore.migrateAllLegacySlots])
-  /// and only if every found slot is then verifiably encrypted. Never
-  /// alongside the sentinel, which is GLOBAL while slots are PER UID: user
-  /// A's bootstrap would close the path before B's slots were read.
+  /// SEC/W7a: marker "the plaintext migration path is closed". Pre-SQLite
+  /// builds set it in prefs after encrypting every inherited slot; the SQLite
+  /// import writes it in the same batch that imports ALL uids' slots. While it
+  /// is unset, the import encrypts magic-less prefs slots; once set, it
+  /// refuses them. It provides NO integrity, sharing a prefs file with the
+  /// slots it guards. [EncryptedKeyValueStore] never accepts plaintext.
   static const String plaintextMigrationClosedKey =
       'eatova.v1.cache_plaintext_migrated';
 
@@ -954,8 +905,8 @@ class CacheKeyProvider {
   /// The plaintext marker BEFORE this process's bootstrap; fail-closed.
   static bool _legacyPlaintextAccepted = false;
 
-  /// Whether this app start may still adopt legacy plaintext, deciding both
-  /// the sweep and per-slot migration. The snapshot predates the sweep, so
+  /// Whether this app start's SQLite import may still encrypt legacy prefs
+  /// plaintext (`migrateDurableCache`). The snapshot predates the import, so
   /// the migrating run sees `true`.
   static bool get legacyPlaintextAccepted => _legacyPlaintextAccepted;
 
@@ -1044,7 +995,7 @@ class CacheKeyProvider {
     DekSentinelStore sentinel,
     CacheCiphertextProbe probe,
   ) async {
-    // The pre-sweep state governs this start, which closes the marker itself.
+    // The pre-import state governs this start, whose import sets the marker.
     _legacyPlaintextAccepted = !await _plaintextMigrationClosed(sentinel);
 
     final String? stored;
@@ -1307,26 +1258,13 @@ class CacheKeyProvider {
   }
 
   /// Best effort: a failed write degrades to "next keystore reset mints
-  /// fresh". The plaintext marker does NOT ride along, being global while
-  /// slots are per uid ([plaintextMigrationClosedKey]).
+  /// fresh". The plaintext marker does NOT ride along: only the import that
+  /// encrypted every slot may close it ([plaintextMigrationClosedKey]).
   static Future<void> _markProvisioned(DekSentinelStore sentinel) async {
     try {
       await sentinel.markProvisioned();
     } catch (e, s) {
       dev.log('CacheKeyProvider: Sentinel-Write fehlgeschlagen',
-          error: e, stackTrace: s, name: 'secure_cache_store');
-    }
-  }
-
-  /// Closes the plaintext path; only called by
-  /// [EncryptedKeyValueStore.migrateAllLegacySlots] once nothing is left to
-  /// inherit. Best effort — the sweep is idempotent.
-  static Future<void> _closePlaintextMigration(
-      DekSentinelStore sentinel) async {
-    try {
-      await sentinel.closePlaintextMigration();
-    } catch (e, s) {
-      dev.log('CacheKeyProvider: Klartext-Marker nicht schreibbar',
           error: e, stackTrace: s, name: 'secure_cache_store');
     }
   }
@@ -1351,20 +1289,15 @@ class CacheKeyProvider {
   }
 }
 
-/// Decorator over a [KeyValueStore]: writes encrypted only, reads encrypted
-/// AND (migrating once) plaintext. Sits BELOW `LocalCache`, wired only in
-/// `LocalCache.create`, so the cache and its serializers stay unchanged.
+/// Decorator over a [KeyValueStore]: writes and reads encrypted only, never
+/// plaintext. Sits BELOW `LocalCache`, built only by `migrateDurableCache`
+/// (via `LocalCache.create`), so the cache and its serializers stay unchanged.
+/// Legacy prefs plaintext is encrypted by that import, never adopted here.
 class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
-  /// [acceptLegacyPlaintext] is the migration path from
-  /// [CacheKeyProvider.plaintextMigrationClosedKey]. `true` by default, since
-  /// production only builds via [create].
-  EncryptedKeyValueStore(this._inner, this._cipher,
-      {bool acceptLegacyPlaintext = true})
-      : _acceptLegacyPlaintext = acceptLegacyPlaintext;
+  EncryptedKeyValueStore(this._inner, this._cipher);
 
   final KeyValueStore _inner;
   final CacheCipher _cipher;
-  final bool _acceptLegacyPlaintext;
 
   /// Reported once per process: a broken DEK makes every slot unreadable.
   static bool _undecryptableReported = false;
@@ -1383,40 +1316,6 @@ class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
     _undecryptableReported = false;
     _expiredPlaintextReported = false;
     _cipherUnavailableReported = false;
-  }
-
-  /// Builds the decorator on the OS-keystore DEK; null means the app runs
-  /// without cache. NO plaintext fallback.
-  static Future<EncryptedKeyValueStore?> create(
-    KeyValueStore inner, {
-    SecureKeyStore? keyStore,
-    DekSentinelStore? sentinelStore,
-    CacheCiphertextProbe? probe,
-    LegacyPlaintextProbe? legacyProbe,
-  }) async {
-    final dek = await CacheKeyProvider.obtain(
-      keyStore: keyStore,
-      sentinelStore: sentinelStore,
-      probe: probe,
-    );
-    if (dek == null) return null;
-    final store = EncryptedKeyValueStore(
-      inner,
-      // PERF-B1: OS cipher where the plugin is registered, pure Dart
-      // otherwise. Every tier writes the same frame, so the pick is per start
-      // and needs no migration.
-      createCacheCipher(dek),
-      acceptLegacyPlaintext: CacheKeyProvider.legacyPlaintextAccepted,
-    );
-    // W7a: the sweep runs BEFORE returning, so no caller gets a store stuck
-    // mid-migration. One prefs pass while the marker is open.
-    if (CacheKeyProvider.legacyPlaintextAccepted) {
-      await store.migrateAllLegacySlots(
-        legacyProbe ?? const PrefsLegacyPlaintextProbe(),
-        sentinelStore ?? const PrefsDekSentinelStore(),
-      );
-    }
-    return store;
   }
 
   // Batch and individual writes share one queue: a slow encryption must not
@@ -1514,25 +1413,11 @@ class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
     }
     _cipherUnavailableKeys.remove(key);
 
-    // After the migration a magic-less slot has neither tag nor AAD: same
-    // path as a broken ciphertext.
-    if (!_acceptLegacyPlaintext) {
-      await _onUndecryptable(
-          key, const ExpiredPlaintextCacheSlot(), StackTrace.current);
-      return null;
-    }
-
-    // Legacy plaintext: [migrateAllLegacySlots] handles what existed at
-    // start, this branch what appears during it.
-    try {
-      await _migrateLegacyPlaintext(key, raw);
-    } catch (e) {
-      // A migration failure degrades to "stays plaintext, next read retries",
-      // never to a lost read; setString is atomic per key.
-      dev.log('EncryptedKeyValueStore: Migration fehlgeschlagen ($key)',
-          error: e, name: 'secure_cache_store');
-    }
-    return raw;
+    // A magic-less slot has neither tag nor AAD: same path as a broken
+    // ciphertext, never adopted.
+    await _onUndecryptable(
+        key, const ExpiredPlaintextCacheSlot(), StackTrace.current);
+    return null;
   }
 
   /// P3-02: whether the slot still HOLDS bytes — no cipher, no purge, no
@@ -1564,70 +1449,6 @@ class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
         // the same bytes.
         : RawSlotState.brokenContent;
   }
-
-  /// W7a: adopts ALL inherited plaintext slots, then closes the migration
-  /// path ([CacheKeyProvider.plaintextMigrationClosedKey]).
-  ///
-  /// A sweep, not a marker PER UID: this file does not know the uid, only a
-  /// read reveals plaintext (and some slots are never read), and a uid that
-  /// never returns would keep the path open forever. PRICE: a PLANTED slot is
-  /// adopted too, since inherited plaintext has no signature.
-  Future<void> migrateAllLegacySlots(
-      LegacyPlaintextProbe probe, DekSentinelStore sentinel) async {
-    final List<String> keys;
-    try {
-      keys = await probe.plaintextCacheKeys();
-    } catch (e, s) {
-      // Do NOT set the marker: without enumeration there is no telling what
-      // was left to inherit. The next start retries.
-      dev.log('EncryptedKeyValueStore: Klartext-Sweep nicht aufzaehlbar',
-          error: e, stackTrace: s, name: 'secure_cache_store');
-      return;
-    }
-
-    for (final key in keys) {
-      final String? raw;
-      try {
-        raw = await _inner.getString(key);
-      } catch (e, s) {
-        dev.log('EncryptedKeyValueStore: Klartext-Sweep, Read fehlgeschlagen',
-            error: e, stackTrace: s, name: 'secure_cache_store');
-        return;
-      }
-      // A regular write may have run between enumeration and read.
-      if (raw == null || raw.isEmpty || raw.startsWith(cacheCipherMagic)) {
-        continue;
-      }
-      try {
-        await _migrateLegacyPlaintext(key, raw);
-        // Verify: the marker is one-way, and a silently failed write would
-        // tip the slot into the drop path next start.
-        final after = await _inner.getString(key);
-        if (after != null &&
-            after.isNotEmpty &&
-            !after.startsWith(cacheCipherMagic)) {
-          dev.log('EncryptedKeyValueStore: Klartext-Sweep unvollstaendig',
-              name: 'secure_cache_store');
-          return;
-        }
-      } catch (e, s) {
-        dev.log('EncryptedKeyValueStore: Klartext-Sweep, Write fehlgeschlagen',
-            error: e, stackTrace: s, name: 'secure_cache_store');
-        return;
-      }
-    }
-
-    await CacheKeyProvider._closePlaintextMigration(sentinel);
-  }
-
-  /// Writes a magic-less value back encrypted; throws on failure.
-  Future<void> _migrateLegacyPlaintext(String key, String raw) =>
-      _enqueueWrite(key, () async {
-        // The isolate hop lets a regular setString rewrite the slot first;
-        // the stale plaintext must not win.
-        if (await _inner.getString(key) != raw) return;
-        await _inner.setString(key, await _cipher.encrypt(key, raw));
-      });
 
   @override
   Future<void> setString(String key, String value) =>
@@ -1688,7 +1509,7 @@ class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
   }
 
   /// A slot is provably undecryptable (invalidated keystore key, restored
-  /// backup, tampering) or lost its magic after the migration closed — ONLY
+  /// backup, tampering) or holds magic-less plaintext — ONLY
   /// these cases, see [_provesBrokenCiphertext]. Purges PER KEY, except for
   /// authoritative deletion fences that cannot safely be replaced by empty.
   Future<void> _onUndecryptable(String key, Object error, StackTrace s) async {
@@ -1729,7 +1550,8 @@ String redactUserSegment(String key) {
   return '${parts.sublist(0, parts.length - 1).join('.')}.<uid>';
 }
 
-/// A slot without [cacheCipherMagic] after the migration closed. Its own
+/// A slot without [cacheCipherMagic] in the encrypted store, which only ever
+/// receives ciphertext (the import encrypts legacy plaintext first). Its own
 /// type, not a FormatException, so the crash report can tell it from a broken
 /// ciphertext: the only case here hinting at outside WRITE access.
 class ExpiredPlaintextCacheSlot implements Exception {

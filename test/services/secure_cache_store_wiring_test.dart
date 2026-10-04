@@ -3,7 +3,6 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
 // WIRING GUARD.
@@ -250,22 +249,6 @@ void main() {
           reason: 'Zusammen mit dem Test darueber schliesst das die Luecke von '
               'beiden Seiten: eine Probe, die immer wirft oder immer etwas '
               'meldet, faellt hier durch.');
-    });
-
-    test('EncryptedKeyValueStore.create reicht die Probe durch', () async {
-      SharedPreferences.setMockInitialValues(<String, Object>{
-        CacheKeyProvider.dekProvisionedKey: true,
-        _blobKey: _deadBlob,
-      });
-
-      final store = await EncryptedKeyValueStore.create(
-        InMemoryKeyValueStore(),
-        keyStore: _AbsentDekKeyStore(),
-      );
-
-      expect(store, isNull,
-          reason: 'LocalCache.create ruft genau diese Signatur ohne Argumente '
-              'auf — die Defaults muessen also hier ankommen.');
     });
   });
 }

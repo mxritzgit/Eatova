@@ -39,9 +39,9 @@ void main() {
           'eatova.v1.cache_plaintext_migrated',
           reason: 'umbenannt = der Marker gilt auf JEDEM installierten Geraet '
               'wieder als ungesetzt, der Klartext-Pfad oeffnet sich noch '
-              'einmal, und ein untergeschobener magic-loser Slot wird in '
-              'diesem Start uebernommen statt als ExpiredPlaintextCacheSlot '
-              'verworfen und gemeldet');
+              'einmal, und ein untergeschobener magic-loser Prefs-Slot wird '
+              'beim SQLite-Import verschluesselt uebernommen statt '
+              'abgelehnt');
     });
 
     test('Strike-Zaehler und Reset-Hinweis (Welle 6)', () {

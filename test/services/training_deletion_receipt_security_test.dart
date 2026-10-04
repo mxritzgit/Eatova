@@ -32,7 +32,6 @@ LocalCache _cache(
     EncryptedKeyValueStore(
       raw,
       cipher ?? _cipher(),
-      acceptLegacyPlaintext: false,
     ),
     owner,
   );
