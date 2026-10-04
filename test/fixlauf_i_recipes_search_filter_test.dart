@@ -58,6 +58,35 @@ const _grenzfall = FitnessRecipe(
   userCreated: true,
 );
 
+/// An import with the hidden storage markers [RecipeImportCandidate.toRecipe]
+/// writes: the ingredient basis plus pending/known nutrition fields.
+const _import = FitnessRecipe(
+  slug: 'user_import_steinpilz',
+  title: 'Steinpilz-Pizza',
+  description: '',
+  portion: '',
+  ingredients: 'Pizzateig\nSteinpilze',
+  preparation: '',
+  professionalHint: '',
+  imageAsset: '',
+  caloriesKcal: 507,
+  proteinG: 0,
+  carbsG: 61,
+  fatG: 6,
+  estimatedGrams: 0,
+  categories: <String>[
+    'Eigene',
+    '${recipeIngredientsBasisPrefix}per_recipe',
+    recipeNutritionPendingCategory,
+    '${recipeNutritionKnownPrefix}calories_kcal',
+    '${recipeNutritionKnownPrefix}carbs_g',
+    '${recipeNutritionKnownPrefix}fat_g',
+    '${recipeNutritionConflictPrefix}protein_g',
+  ],
+  userCreated: true,
+  batchServings: 2,
+);
+
 Widget _app({
   Locale locale = const Locale('de'),
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
@@ -237,6 +266,31 @@ void main() {
         expect(find.byKey(const ValueKey('recipe-tile-user_grenzfall')),
             findsNothing,
             reason: query);
+      }
+    });
+  });
+
+  group('Versteckte Speicher-Marker sind keine Suchtreffer', () {
+    testWidgets('"protein", "recipe" und "kcal" treffen den Import nicht',
+        (tester) async {
+      _pinViewport(tester);
+      await tester.pumpWidget(
+        _app(locale: const Locale('en'), userRecipes: [_import]),
+      );
+      await tester.pumpAndSettle();
+      const tile = ValueKey('recipe-tile-user_import_steinpilz');
+
+      // Control: the recipe itself is searchable by what it shows.
+      await _suche(tester, 'steinpilz');
+      expect(find.byKey(tile), findsOneWidget);
+
+      // Each query only occurs in a marker the detail never shows
+      // ("Nutrition conflict: protein_g", "Ingredients basis: per_recipe",
+      // "Nutrition known: calories_kcal").
+      for (final query in const <String>['protein', 'recipe', 'kcal']) {
+        expect(_textTreffer(_import, query), isFalse, reason: query);
+        await _suche(tester, query);
+        expect(find.byKey(tile), findsNothing, reason: query);
       }
     });
   });

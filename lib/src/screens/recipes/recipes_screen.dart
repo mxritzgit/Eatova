@@ -307,8 +307,9 @@ class _RecipeIndex {
         foldRecipeSearchText(ingredient.name),
       // Categories match on the neutral identity AND on the localised label:
       // under `en` the hint promises "category", so "breakfast" must find the
-      // recipes tagged "Frühstück".
-      for (final category in recipe.categories) ...[
+      // recipes tagged "Frühstück". Only shown ones: an import's hidden
+      // storage markers ("Nutrition known: protein_g") are no search hits.
+      for (final category in recipe.displayCategories) ...[
         foldRecipeSearchText(category),
         foldRecipeSearchText(recipeCategoryLabel(category, l10n)),
       ],
