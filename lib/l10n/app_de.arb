@@ -441,6 +441,7 @@
   "foodAddItemMacrosToggle": "Makros ergänzen (optional)",
   "foodMacroRangeHint": "Makros in Gramm, jeweils zwischen 0 und 1000.",
   "foodBarcodeHintText": "Barcode in den Rahmen halten",
+  "foodBarcodeTorchLabel": "Taschenlampe",
   "foodCameraUnavailableMessage": "Kamera nicht verfügbar. Prüfe die Kamera-Berechtigung in den Einstellungen.",
   "foodDetectionStalledTitle": "Die Erkennung hängt",
   "foodDetectionStalledBody": "Das Bild läuft, aber es kommen keine Ergebnisse mehr an. Ein Neustart des Scanners behebt das meistens.",

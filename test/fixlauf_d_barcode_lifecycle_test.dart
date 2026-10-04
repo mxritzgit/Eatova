@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
 
@@ -273,6 +274,23 @@ void main() {
       expect(find.byKey(const ValueKey('barcode-manual-layer')), findsNothing);
       expect(find.byKey(const ValueKey('barcode-type-in')), findsOneWidget);
     });
+  });
+
+  testWidgets('die Taschenlampe nennt dem Screenreader Namen und Zustand',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _oeffneScanner(tester, platform, _Ergebnis());
+
+    expect(
+      tester.getSemantics(find.bySemanticsLabel(deL10n.foodBarcodeTorchLabel)),
+      isSemantics(
+        isButton: true,
+        hasTapAction: true,
+        hasToggledState: true,
+        isToggled: false,
+      ),
+    );
+    semantics.dispose();
   });
 
   test('isValidTypedBarcode: 8/12/13 Ziffern, sonst nichts', () {

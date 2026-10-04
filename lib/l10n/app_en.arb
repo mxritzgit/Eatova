@@ -441,6 +441,7 @@
   "foodAddItemMacrosToggle": "Add macros (optional)",
   "foodMacroRangeHint": "Macros in grams, each between 0 and 1000.",
   "foodBarcodeHintText": "Hold the barcode inside the frame",
+  "foodBarcodeTorchLabel": "Flashlight",
   "foodCameraUnavailableMessage": "Camera unavailable. Check the camera permission in Settings.",
   "foodDetectionStalledTitle": "Detection is stuck",
   "foodDetectionStalledBody": "The picture is running, but no results are coming through. Restarting the scanner usually fixes this.",
