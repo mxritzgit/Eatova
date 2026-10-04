@@ -150,6 +150,23 @@ void main() {
     );
   });
 
+  // Review 2026-10-04: the screen reader heard a bare "420" next to "~200 g".
+  testWidgets('die Zeile nennt dem Screenreader die Einheit kcal',
+      (tester) async {
+    _pin390(tester);
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(designHarness(_list()));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .getSemantics(find.byKey(const ValueKey('analyse-existing-edit-m1')))
+          .label,
+      contains('420 kcal'),
+    );
+    semantics.dispose();
+  });
+
   testWidgets('Englisch: Total + C statt K', (tester) async {
     _pin390(tester);
     await tester.pumpWidget(designHarness(_list(), locale: const Locale('en')));

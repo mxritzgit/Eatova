@@ -196,5 +196,23 @@ void main() {
       expect(loeschen.width, greaterThanOrEqualTo(44.0));
       expect(loeschen.height, greaterThanOrEqualTo(44.0));
     });
+
+    // Review 2026-10-04: the row showed a bare "320" next to "~250 g"; the
+    // unit is implicit on screen only.
+    testWidgets('die Tagebuchzeile nennt dem Screenreader die Einheit kcal', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await _pump(tester, mitEintrag: true, onRemoveMeal: (_) {});
+      await expandFoodEntries(tester);
+
+      expect(
+        tester
+            .getSemantics(find.byKey(const ValueKey('food-history-entry-0')))
+            .label,
+        contains('320 kcal'),
+      );
+      semantics.dispose();
+    });
   });
 }
