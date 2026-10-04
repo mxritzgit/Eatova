@@ -1,7 +1,7 @@
 // Visual evidence for the Coach surfaces coach_redesign does not reach
 // (light mode pass, 2026-10-04): the three proposal cards in a conversation,
-// the recipe confirmation sheet, the chat list sheet and the composer with
-// a typed message.
+// the recipe confirmation sheet, the chat list sheet, the composer with a
+// typed message and its command menu, and the (i) sheet.
 //
 //   coach-cards-recipe       /recipe card with an AI photo and its badge
 //   coach-cards-recipe-sheet the confirmation sheet over the chat
@@ -9,6 +9,8 @@
 //   coach-cards-log          a /log workout draft
 //   coach-cards-sessions     the chat list sheet
 //   coach-cards-typing       the composer with text (send enabled)
+//   coach-cards-commands     the "/" command menu above the composer
+//   coach-cards-info         the (i) sheet: what the coach sees
 //
 // Shots are written only with DARK_REDESIGN_CAPTURE or
 // DESIGN_CAPTURE_BRIGHTNESS; the normal pass checks that each surface shows.
@@ -255,6 +257,18 @@ void main() {
     );
     await settleFrames(tester);
     await captureDesignShot(tester, 'coach-cards-typing');
+
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
+    await settleFrames(tester);
+    expect(find.byKey(const ValueKey('coach-command-menu')), findsOneWidget);
+    await captureDesignShot(tester, 'coach-cards-commands');
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), '');
+    await settleFrames(tester);
+
+    await tester.tap(find.byKey(const ValueKey('coach-info')));
+    await settleFrames(tester);
+    expect(find.byKey(const ValueKey('coach-info-sheet')), findsOneWidget);
+    await captureDesignShot(tester, 'coach-cards-info');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
