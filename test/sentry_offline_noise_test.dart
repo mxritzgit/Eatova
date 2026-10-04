@@ -1,6 +1,9 @@
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:http/http.dart' show ClientException;
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show AuthRetryableFetchException;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -80,6 +83,70 @@ void main() {
         isNetworkSyncError(Exception('PostgrestException: 42501')),
         isFalse,
       );
+    });
+  });
+
+  // GoTrue wraps every answer >= 500 in the same AuthRetryableFetchException
+  // it throws for a dead socket. The outbox rightly retries both, but only
+  // the socket is "offline": a 5xx means the server answered, i.e. a real
+  // auth outage, and it used to stay invisible in Sentry.
+  group('GoTrue-5xx ist ein Serverausfall, kein Funkloch', () {
+    AuthRetryableFetchException gotrue503() => AuthRetryableFetchException(
+          message: '{"code":503,"message":"upstream connect error"}',
+          statusCode: '503',
+        );
+
+    setUp(CrashReporter.debugResetAuthServerFaultThrottle);
+    tearDown(CrashReporter.debugResetAuthServerFaultThrottle);
+
+    test('ein GoTrue-5xx aus dem Sync-Pfad geht an Sentry', () async {
+      await CrashReporter.captureSyncFailure(
+        gotrue503(),
+        StackTrace.current,
+        context: 'auth-state-stream',
+      );
+
+      expect(gemeldet, hasLength(1),
+          reason: 'der Server hat geantwortet — das ist ein Vorfall');
+      final gesendet = gemeldet.single as SanitizedError;
+      expect(gesendet.type, 'AuthRetryableFetchException');
+      expect(gesendet.detail, 'statusCode=503');
+      expect('$gesendet', isNot(contains('upstream')),
+          reason: 'die Server-Nachricht bleibt draussen');
+    });
+
+    test('der Transport-Wrapper ohne Status bleibt ein Funkloch', () async {
+      await CrashReporter.captureSyncFailure(
+        AuthRetryableFetchException(message: 'Failed host lookup'),
+        StackTrace.current,
+        context: 'auth-state-stream',
+      );
+
+      expect(gemeldet, isEmpty);
+    });
+
+    test('ein Ausfall meldet sich einmal pro Fenster, nicht pro Refresh-Takt',
+        () async {
+      // The SDK's auto-refresh retries every 10 s during an outage, and each
+      // failure reaches the auth stream again.
+      final start = DateTime(2026, 10, 4, 12);
+      Future<void> melden(DateTime jetzt) => withClock(
+            Clock.fixed(jetzt),
+            () => CrashReporter.captureSyncFailure(
+              gotrue503(),
+              StackTrace.current,
+              context: 'auth-state-stream',
+            ),
+          );
+
+      await melden(start);
+      await melden(start.add(const Duration(seconds: 10)));
+      await melden(start.add(CrashReporter.authServerFaultReportInterval -
+          const Duration(seconds: 1)));
+      expect(gemeldet, hasLength(1));
+
+      await melden(start.add(CrashReporter.authServerFaultReportInterval));
+      expect(gemeldet, hasLength(2));
     });
   });
 
