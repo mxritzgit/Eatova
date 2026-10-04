@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 
 import 'support/harness.dart';
@@ -165,5 +166,41 @@ void main() {
     await selectFoodDayOffset(tester, 1);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
+  });
+
+  testWidgets(
+      'ein Doppeltipp auf den Avatar oeffnet das Profil nur einmal — sonst '
+      'bliebe nach dem Schliessen ein Profil ohne Bruecke offen', (tester) async {
+    _pinViewport(tester);
+    final health = _StepsHealthService(1000);
+    await pumpLocalized(
+      tester,
+      EatovaHomePage(initialUserName: 'Moritz', healthService: health),
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+    );
+    await tester.pumpAndSettle();
+
+    // A second tap can land on the avatar while the first push still
+    // animates; both reach the shell's handler.
+    final today = tester.widget<TodayScreen>(find.byType(TodayScreen));
+    today.onOpenProfile!();
+    today.onOpenProfile!();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('screen-profile'), skipOffstage: false),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('profile-close')));
+    await tester.pumpAndSettle();
+
+    // Otherwise the lower copy stayed open while the closed one had already
+    // switched off the refresh bridge: a weight logged there never showed.
+    expect(
+      find.byKey(const ValueKey('screen-profile'), skipOffstage: false),
+      findsNothing,
+    );
   });
 }

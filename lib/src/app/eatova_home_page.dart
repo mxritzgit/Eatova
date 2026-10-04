@@ -492,6 +492,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   }
 
   Future<void> _openProfile() async {
+    // One route: a second tap during the push transition stacked a copy, and
+    // closing either one switched the bridge below off for the other.
+    if (_profileRouteOpen) return;
     // ARCH-1/PERF-2: while open, the store listener bumps _profileRefresh so
     // mid-route state changes reach the ProfileScreen.
     _profileRouteOpen = true;
