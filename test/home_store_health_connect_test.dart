@@ -10,6 +10,7 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
+import 'package:health/health.dart' show HealthConnectSdkStatus;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
@@ -172,6 +173,28 @@ void main() {
     await store.restoreHealthConnection();
     expect(adapter.intervals, isEmpty);
   });
+
+  test(
+    'after installing Health Connect the card offers Connect, not Install',
+    () async {
+      adapter.status =
+          HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired;
+      await withClock(Clock.fixed(now), store.connectHealth);
+      expect(store.healthAuthState, HealthAuthState.updateRequired);
+      expect(adapter.installs, 1);
+      // Installed in the store; the shell refreshes on resume.
+      adapter.status = HealthConnectSdkStatus.sdkAvailable;
+      await withClock(Clock.fixed(now), store.refreshHealthSteps);
+      expect(store.healthAuthState, HealthAuthState.unknown);
+      expect(adapter.requests, 0, reason: 'nothing prompts on its own');
+      await withClock(Clock.fixed(now), store.connectHealth);
+      expect(store.healthAuthState, HealthAuthState.granted);
+      expect(
+        withClock(Clock.fixed(now), () => store.stepsForFoodDate(now)),
+        8400,
+      );
+    },
+  );
 
   test(
     'logout cache purge removes reconnect consent even when outbox survives',
