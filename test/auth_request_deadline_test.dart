@@ -196,6 +196,54 @@ void main() {
     });
   }
 
+  // Mail requests run on the shared client. Unbounded, a stalled resend kept
+  // the password sheet busy, and a busy sheet offers no way out.
+  for (final mail in <String>[
+    'password reset',
+    'signup resend',
+    'password change code',
+    'account deletion code',
+  ]) {
+    test('$mail mail request against a stalled server ends as an offline '
+        'error', () async {
+      final requests = <http.Request>[];
+      final transport = _stalled(requests);
+      final client = _client(transport, deadline: deadline);
+      addTearDown(client.dispose);
+      final signedIn =
+          mail == 'password change code' || mail == 'account deletion code';
+      if (signedIn) {
+        await client.auth.setInitialSession(_session('a', 'sid-a'));
+      }
+      final repository = SupabaseAuthRepository(
+        client,
+        mutationHttpClient: transport,
+      );
+
+      final error = await outcome(() async {
+        switch (mail) {
+          case 'password reset':
+            await repository.sendPasswordReset('a@example.invalid');
+          case 'signup resend':
+            await repository.resendSignupCode('a@example.invalid');
+          case 'password change code':
+            await repository.startPasswordChange();
+          default:
+            await repository.sendAccountDeletionCode(
+              userId: 'a',
+              email: 'a@example.invalid',
+            );
+        }
+      });
+
+      expect(error, isNotNull);
+      expect(error, isNot(isA<StateError>()), reason: 'request hung');
+      expect(classifyAuthError(error!).kind, AuthErrorKind.offline);
+      expect(requests, hasLength(1));
+      expect(client.auth.currentUser?.id, signedIn ? 'a' : null);
+    });
+  }
+
   testWidgets('a stalled sign-in releases the entry screen with the offline '
       'note', (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);

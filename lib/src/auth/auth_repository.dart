@@ -185,6 +185,12 @@ class SupabaseAuthRepository
   final http.Client? _mutationHttpClient;
   final SecureSessionLocalStorage? _sessionStorage;
 
+  /// GoTrue sets no timeout. Mail requests run on the shared client, so a
+  /// stalled one cannot be cancelled, only stop holding a busy screen.
+  Duration get _deadline =>
+      _client.rest.requestTimeout ??
+      EatovaSupabaseConfig.postgrestOptions.requestTimeout!;
+
   @override
   Future<void> withAccountDeletionCode({
     required String userId,
@@ -219,8 +225,10 @@ class SupabaseAuthRepository
 
   @override
   Future<void> sendPasswordReset(String email) async {
-    await _client.auth.resetPasswordForEmail(email.trim(),
-        redirectTo: AuthEmailPurpose.passwordReset);
+    await _client.auth
+        .resetPasswordForEmail(email.trim(),
+            redirectTo: AuthEmailPurpose.passwordReset)
+        .timeout(_deadline);
   }
 
   @override
@@ -229,8 +237,10 @@ class SupabaseAuthRepository
     if (user == null || user.id != userId || user.email?.trim().toLowerCase() != email.trim().toLowerCase()) {
       throw const AuthException('Account changed. Please sign in again.');
     }
-    await _client.auth.resetPasswordForEmail(user.email!.trim(),
-        redirectTo: AuthEmailPurpose.accountDeletion);
+    await _client.auth
+        .resetPasswordForEmail(user.email!.trim(),
+            redirectTo: AuthEmailPurpose.accountDeletion)
+        .timeout(_deadline);
   }
 
   @override
@@ -257,12 +267,14 @@ class SupabaseAuthRepository
 
   @override
   Future<void> resendSignupCode(String email) async {
-    await _client.auth.resend(type: OtpType.signup, email: email.trim());
+    await _client.auth
+        .resend(type: OtpType.signup, email: email.trim())
+        .timeout(_deadline);
   }
 
   @override
   Future<void> startPasswordChange() async {
-    await _client.auth.reauthenticate();
+    await _client.auth.reauthenticate().timeout(_deadline);
   }
 
   @override
