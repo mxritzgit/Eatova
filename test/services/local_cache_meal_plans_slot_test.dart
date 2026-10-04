@@ -75,7 +75,11 @@ void main() {
 
   test('a complete slot round-trips unchanged', () async {
     final cache = LocalCache(InMemoryKeyValueStore(), _owner);
-    await cache.writeMealPlans([_plan()], {_checkId: false});
+    await cache.commitStoreSnapshot(
+      expectedVersions: const {},
+      mealPlans: [_plan()],
+      shoppingChecks: {_checkId: false},
+    );
     final read = (await cache.readMealPlans())!;
     expect(read.plans.single.toJson(), _plan().toJson());
     expect(read.checks, {_checkId: false});

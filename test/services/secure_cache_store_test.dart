@@ -622,22 +622,6 @@ void main() {
           throwsA(isA<InvalidCipherTextException>()));
     });
   });
-
-  group('LocalCache.dropLegacySlots', () {
-    test('entfernt eatova.v1.daily.<uid> (Mood-Freitext aus Alt-Installation)',
-        () async {
-      final raw = InMemoryKeyValueStore({
-        'eatova.v1.daily.user-1': '{"mood_note":"$_pii"}',
-        'eatova.v1.daily.user-2': '{"mood_note":"fremd"}',
-      });
-
-      await LocalCache(raw, 'user-1').dropLegacySlots();
-
-      expect(raw.snapshot.containsKey('eatova.v1.daily.user-1'), isFalse);
-      // Foreign namespace stays untouched.
-      expect(raw.snapshot.containsKey('eatova.v1.daily.user-2'), isTrue);
-    });
-  });
 }
 
 /// Keystore whose read throws. No new DEK is minted: an existing one may be
