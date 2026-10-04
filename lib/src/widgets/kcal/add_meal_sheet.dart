@@ -564,15 +564,20 @@ class _AddMealSheetState extends State<AddMealSheet> {
   Future<String> _logAndMirror(MealAnalysisResult result, MealSlot slot) async {
     final id = await widget.onAdd(result, slot);
     if (!mounted) return id;
-    final day = widget.foodDate;
-    final mirrored = LoggedMeal(
-      id: id,
-      result: result,
-      loggedAt: clock.now(),
-      forcedSlot: slot,
-      localDay: day == null ? null : localDayKey(DateUtils.dateOnly(day)),
-    );
-    setState(() => _existing = [mirrored, ..._existing]);
+    // The store publishes before its delivery attempt returns the id, so the
+    // re-seed may already hold this row; a second copy doubled the row and
+    // the slot total.
+    if (!widget.existingMeals.any((m) => m.id == id)) {
+      final day = widget.foodDate;
+      final mirrored = LoggedMeal(
+        id: id,
+        result: result,
+        loggedAt: clock.now(),
+        forcedSlot: slot,
+        localDay: day == null ? null : localDayKey(DateUtils.dateOnly(day)),
+      );
+      setState(() => _existing = [mirrored, ..._existing]);
+    }
     _touchFavorite(result);
     return id;
   }
@@ -1384,8 +1389,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final id = FavoriteMeal.idFor(result);
     final before = _favorites.indexWhere((f) => f.id == id);
     final pinned = before == -1 || !_favorites[before].pinned;
+    final fed = widget.favorites;
     await widget.onToggleFavorite?.call(result);
-    if (!mounted) return;
+    // Re-fed during the call: the list already holds the store's outcome,
+    // and mirroring a dropped row would bring it back.
+    if (!mounted || !identical(widget.favorites, fed)) return;
     setState(() {
       final idx = _favorites.indexWhere((f) => f.id == id);
       if (idx == -1) {
