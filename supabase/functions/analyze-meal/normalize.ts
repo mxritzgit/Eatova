@@ -58,9 +58,18 @@ export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMea
   };
 }
 
+// The model's labels are stored and shown as one-line meal and item names,
+// and text in the photo can steer them. Same rule as the user hint in
+// handler.ts: controls and bidi overrides/isolates are not label content.
+// deno-lint-ignore no-control-regex -- intentionally strip unsafe controls
+const UNSAFE_LABEL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‪-‮⁦-⁩]/g;
+
+/** Labels collapse to one line and are cut by code point, never mid-emoji. */
 export function clampString(value: unknown, fallback: string, maxLength: number): string {
-  const text = typeof value === 'string' ? value.trim() : fallback;
-  return (text || fallback).slice(0, maxLength);
+  const text = typeof value === 'string'
+    ? value.replace(UNSAFE_LABEL_CHARACTERS, '').replace(/\s+/g, ' ').trim()
+    : fallback;
+  return Array.from(text || fallback).slice(0, maxLength).join('').trimEnd();
 }
 
 /**
