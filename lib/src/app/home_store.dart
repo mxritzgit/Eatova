@@ -409,7 +409,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   String get profileInitial {
     final parts = userName.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return 'S';
-    return parts.first.substring(0, 1).toUpperCase();
+    // A grapheme, not a UTF-16 unit: an emoji would leave half a pair.
+    return parts.first.characters.first.toUpperCase();
   }
 
   /// Compact day/profile snapshot for the AI coach, so it can advise on
