@@ -64,6 +64,8 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
+import 'design_capture.dart' show designCaptureBrightness;
+
 // One import for the whole harness: the design-library helpers
 // (`designHarness`, `pinPhoneViewport`, `pinIphone14Pro`, `decorationOf`,
 // `expectRendersInBothBrightnesses`, `expectSurvivesTextScale`) stay where the
@@ -87,6 +89,9 @@ export '../widgets/design/design_harness.dart';
 /// [onContext] receives the BuildContext directly above [child] on every build
 /// — that is how [pumpLocalizedContext] hands back a context that can resolve
 /// `context.t` and `context.l10n`.
+///
+/// A design capture run with `DESIGN_CAPTURE_BRIGHTNESS` overrides
+/// [brightness] (see test/support/design_capture.dart); normal runs never do.
 Widget localizedApp(
   Widget child, {
   Locale locale = const Locale('de'),
@@ -113,7 +118,7 @@ Widget localizedApp(
         ),
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: buildEatovaTheme(brightness),
+          theme: buildEatovaTheme(designCaptureBrightness ?? brightness),
           locale: locale,
           supportedLocales: AppLocalizations.supportedLocales,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
