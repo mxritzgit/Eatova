@@ -424,6 +424,7 @@ class _ChartCardState extends State<_ChartCard> {
                       barColor: t.progressAccent,
                       goalLineColor: t.ink.withValues(alpha: 0.6),
                       bandColor: t.ink.withValues(alpha: 0.05),
+                      labelFill: t.surf,
                     ),
                     size: Size.infinite,
                   ),
@@ -714,6 +715,7 @@ class _KcalTrendPainter extends CustomPainter {
     required this.barColor,
     required this.goalLineColor,
     required this.bandColor,
+    required this.labelFill,
   }) : assert(goalPerDay.length == window.length);
 
   final List<TrendDayTotals?> window;
@@ -726,6 +728,10 @@ class _KcalTrendPainter extends CustomPainter {
   final TrendChartLabels labels;
   final double progress;
   final Color gridColor, barColor, goalLineColor, bandColor;
+
+  /// The card colour behind the goal label: a day over the goal draws its
+  /// bar right where the label sits.
+  final Color labelFill;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -836,10 +842,23 @@ class _KcalTrendPainter extends CustomPainter {
       canvas.drawPath(path, goalPaint..style = PaintingStyle.stroke);
       final goalLabel = labels.goalLabel;
       if (lastGoal > 0 && goalLabel != null) {
+        final anchor = Offset(inner.right, yOf(lastGoal) - 4);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(
+              anchor.dx - goalLabel.width - 4,
+              anchor.dy - goalLabel.height - 1,
+              goalLabel.width + 8,
+              goalLabel.height + 2,
+            ),
+            const Radius.circular(6),
+          ),
+          Paint()..color = labelFill,
+        );
         _paintLabel(
           canvas,
           goalLabel,
-          Offset(inner.right, yOf(lastGoal) - 4),
+          Offset(anchor.dx, anchor.dy),
           alignRight: true,
           above: true,
         );
@@ -899,7 +918,8 @@ class _KcalTrendPainter extends CustomPainter {
       old.gridColor != gridColor ||
       old.barColor != barColor ||
       old.goalLineColor != goalLineColor ||
-      old.bandColor != bandColor;
+      old.bandColor != bandColor ||
+      old.labelFill != labelFill;
 }
 
 /// One-time init of the `intl` date symbols for the weekday labels; the load
