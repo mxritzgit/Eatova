@@ -22,6 +22,26 @@ double _contrast(Color a, Color b) {
   return (hell + 0.05) / (dunkel + 0.05);
 }
 
+/// [farbe] at [alpha] composited on the palette's card.
+Color _ueberKarte(AppTokens t, Color farbe, double alpha) =>
+    Color.alphaBlend(farbe.withValues(alpha: alpha), t.surf);
+
+/// Channel-wise equal within one 8-bit step (pre-mixed hex rounding).
+void _nah(Color ist, Color soll, String name) {
+  for (final (a, b) in <(double, double)>[
+    (ist.r, soll.r),
+    (ist.g, soll.g),
+    (ist.b, soll.b),
+  ]) {
+    expect((a - b).abs(), lessThanOrEqualTo(1 / 255), reason: name);
+  }
+}
+
+const Map<String, AppTokens> _paletten = <String, AppTokens>{
+  'hell': AppTokens.light,
+  'dunkel': AppTokens.dark,
+};
+
 void main() {
   group('AppTokens', () {
     test('helle und dunkle Palette sind verschieden', () {
@@ -39,8 +59,8 @@ void main() {
     });
 
     // WCAG 1.4.11: the calorie arc is a graphical object, so every stop of its
-    // gradient needs 3:1 against the unfilled track. Light arcEnd #B7A6F0 sat
-    // at 1.77:1; light mode is parked behind kDarkOnly, not abandoned.
+    // gradient needs 3:1 against the unfilled track. The August light arcEnd
+    // #B7A6F0 sat at 1.77:1.
     test('Kalorienbogen: jeder Verlaufston hebt sich 3:1 von der Spur ab', () {
       for (final (modus, t) in [
         ('hell', AppTokens.light),
@@ -232,75 +252,10 @@ void main() {
     });
 
     test('die opaken Tints sind die Design-Tints ueber der Karte', () {
-      Color ueber(Color c, double a) =>
-          Color.alphaBlend(c.withValues(alpha: a), t.surf);
-      void nah(Color ist, Color soll, String name) {
-        for (final (a, b) in <(double, double)>[
-          (ist.r, soll.r),
-          (ist.g, soll.g),
-          (ist.b, soll.b),
-        ]) {
-          expect((a - b).abs(), lessThanOrEqualTo(1 / 255), reason: name);
-        }
-      }
-
-      nah(t.forest, ueber(t.accentFill, 0.16), 'forest');
-      nah(t.proteinSurface, ueber(t.protein, 0.16), 'proteinSurface');
-      nah(t.carbsSurface, ueber(t.carbs, 0.16), 'carbsSurface');
-      nah(t.fatSurface, ueber(t.fat, 0.18), 'fatSurface');
-    });
-
-    // #8B8898 carries 84 captions in the templates, so it has to be body-text
-    // safe wherever it sits — except on the track/field fills, where hints
-    // stay ink2 (documented on the token).
-    test('Tertiaertext ink3 erreicht AA auf allen Kartenflaechen', () {
-      for (final entry in <String, Color>{
-        'bg': t.bg,
-        'surf': t.surf,
-        'surf2': t.surf2,
-        'surfRaised': t.surfRaised,
-        'surfWell': t.surfWell,
-      }.entries) {
-        expect(_contrast(t.ink3, entry.value), greaterThanOrEqualTo(4.5),
-            reason: 'ink3 auf ${entry.key}');
-      }
-    });
-
-    test('Akzent- und Makro-Toene sind als Text auf der Karte lesbar', () {
-      for (final entry in <String, Color>{
-        'accentText': t.accentText,
-        'proteinInk': t.proteinInk,
-        'carbsInk': t.carbsInk,
-        'fatInk': t.fatInk,
-        'activityInk': t.activityInk,
-        'success': t.success,
-        'inkMuted': t.inkMuted,
-        'inkSoft': t.inkSoft,
-      }.entries) {
-        expect(_contrast(entry.value, t.surf), greaterThanOrEqualTo(4.5),
-            reason: '${entry.key} auf surf');
-      }
-      expect(
-        _contrast(t.accentText, Color.alphaBlend(t.accentTint, t.surf)),
-        greaterThanOrEqualTo(4.5),
-        reason: 'Akzent-Text auf seiner Tint-Pille',
-      );
-      expect(
-        _contrast(t.onAccentFill, t.accentFill),
-        greaterThanOrEqualTo(4.5),
-      );
-      expect(
-        _contrast(t.onAccentMuted, t.accentFill),
-        greaterThanOrEqualTo(4.5),
-      );
-    });
-
-    test('die inaktiven Nav-Items bleiben auf dem Glas lesbar', () {
-      // Worst case: the glass over the plain page, nothing brighter behind.
-      final glas = Color.alphaBlend(t.navGlass, t.bg);
-      expect(_contrast(t.ink3, glas), greaterThanOrEqualTo(4.5));
-      final kapsel = Color.alphaBlend(t.accentTintStrong, glas);
-      expect(_contrast(t.accentText, kapsel), greaterThanOrEqualTo(4.5));
+      _nah(t.forest, _ueberKarte(t, t.accentFill, 0.16), 'forest');
+      _nah(t.proteinSurface, _ueberKarte(t, t.protein, 0.16), 'proteinSurface');
+      _nah(t.carbsSurface, _ueberKarte(t, t.carbs, 0.16), 'carbsSurface');
+      _nah(t.fatSurface, _ueberKarte(t, t.fat, 0.18), 'fatSurface');
     });
 
     test('neue Tokens laufen durch copyWith und lerp', () {
@@ -312,6 +267,273 @@ void main() {
       expect(AppTokens.light.lerp(t, 1).ink3, t.ink3);
       expect(AppTokens.light.lerp(t, 0).ink3, AppTokens.light.ink3);
     });
+  });
+
+  // The light palette (2026-10-04) mirrors the dark roles instead of copying
+  // values: offset surfaces step DOWN from the white card, translucent tokens
+  // stay translucent, and the opaque tints are pre-mixed on the white card.
+  group('Helle Palette spiegelt die dunklen Rollen', () {
+    const t = AppTokens.light;
+
+    test('weisse Karten auf gedaempftem Grund, Versatzflaechen darunter', () {
+      expect(t.surf, const Color(0xFFFFFFFF));
+      final karte = t.surf.computeLuminance();
+      expect(t.bg.computeLuminance(), lessThan(karte));
+      for (final entry in <String, Color>{
+        'surf2': t.surf2,
+        'surfRaised': t.surfRaised,
+        'surfWell': t.surfWell,
+      }.entries) {
+        expect(entry.value.computeLuminance(), lessThan(karte),
+            reason: '${entry.key} setzt sich von der Karte ab');
+      }
+      // The dark order surf < surfWell < surfRaised < surf2, mirrored.
+      expect(t.surfWell.computeLuminance(),
+          greaterThan(t.surfRaised.computeLuminance()));
+      expect(t.surfRaised.computeLuminance(),
+          greaterThan(t.surf2.computeLuminance()));
+    });
+
+    test('durchscheinende Tokens bleiben durchscheinend', () {
+      for (final entry in <String, Color>{
+        'tile': t.tile,
+        'line': t.line,
+        'lineStrong': t.lineStrong,
+        'navGlass': t.navGlass,
+        'accentTint': t.accentTint,
+        'accentTintStrong': t.accentTintStrong,
+        'accentGlow': t.accentGlow,
+        'activityTint': t.activityTint,
+        'shadowTint': t.shadowTint,
+        'shadowFloat': t.shadowFloat,
+        'scrim': t.scrim,
+        'slotBreakfastTint': t.slotBreakfastTint,
+        'slotLunchTint': t.slotLunchTint,
+        'slotDinnerTint': t.slotDinnerTint,
+        'slotSnackTint': t.slotSnackTint,
+      }.entries) {
+        expect(entry.value.a, lessThan(1), reason: entry.key);
+      }
+      // lineStrong is the stronger edge, the floating shadow the deeper one.
+      expect(t.lineStrong.a, greaterThan(t.line.a));
+      expect(t.shadowFloat.a, greaterThan(t.shadowTint.a));
+    });
+
+    test('die opaken Tints sind die Akzent-/Makro-Toene ueber der Karte', () {
+      _nah(t.forest, _ueberKarte(t, t.accentFill, 0.16), 'forest');
+      _nah(t.proteinSurface, _ueberKarte(t, t.protein, 0.12), 'proteinSurface');
+      _nah(t.carbsSurface, _ueberKarte(t, t.carbs, 0.12), 'carbsSurface');
+      _nah(t.fatSurface, _ueberKarte(t, t.fat, 0.14), 'fatSurface');
+      _nah(t.fieldError, _ueberKarte(t, t.danger, 0.14), 'fieldError');
+    });
+
+    test('Akzentfamilie und Slot-Farben bleiben die der Marke', () {
+      // Same hue family as the dark lavender, deepened for a white card.
+      double hue(Color c) => HSLColor.fromColor(c).hue;
+      for (final entry in <String, Color>{
+        'accentFill': t.accentFill,
+        'accent': t.accent,
+        'accentText': t.accentText,
+        'arcStart': t.arcStart,
+        'arcEnd': t.arcEnd,
+      }.entries) {
+        expect((hue(entry.value) - hue(AppTokens.dark.accentFill)).abs(),
+            lessThan(12), reason: entry.key);
+      }
+      // The snack slot carries the accent in both palettes; the slot icon
+      // tints are the slot hues.
+      expect(t.snack, t.accent);
+      for (final (tint, ton) in <(Color, Color)>[
+        (t.slotBreakfastTint, t.carbs),
+        (t.slotLunchTint, t.protein),
+        (t.slotDinnerTint, t.fat),
+        (t.slotSnackTint, t.accent),
+      ]) {
+        expect(tint.withValues(alpha: 1), ton);
+      }
+      // Macro hue identity: each light tone within 15 degrees of its dark one.
+      for (final (hell, dunkel) in <(Color, Color)>[
+        (t.protein, AppTokens.dark.protein),
+        (t.carbs, AppTokens.dark.carbs),
+        (t.fat, AppTokens.dark.fat),
+        (t.activity, AppTokens.dark.activity),
+      ]) {
+        expect((hue(hell) - hue(dunkel)).abs(), lessThan(15));
+      }
+    });
+
+    // The light arc mirrors the dark one: the tip is the strongest stop.
+    test('der Bogen wird zur Spitze hin kraeftiger', () {
+      expect(
+        _contrast(t.arcEnd, t.arcTrack),
+        greaterThan(_contrast(t.arcStart, t.arcTrack)),
+      );
+      const d = AppTokens.dark;
+      expect(
+        _contrast(d.arcEnd, d.arcTrack),
+        greaterThan(_contrast(d.arcStart, d.arcTrack)),
+      );
+    });
+  });
+
+  // Every role pair, measured in BOTH palettes. Translucent tokens are
+  // composited first: `computeLuminance()` ignores alpha.
+  group('Kontrast-Rollen in beiden Paletten', () {
+    for (final MapEntry(key: modus, value: t) in _paletten.entries) {
+      final gruende = <String, Color>{
+        'bg': t.bg,
+        'surf': t.surf,
+        'surf2': t.surf2,
+        'surfRaised': t.surfRaised,
+        'surfWell': t.surfWell,
+      };
+
+      // ink3 carries 84 captions in the templates, so it has to be body-text
+      // safe wherever it sits — except on the track/field fills, where hints
+      // stay ink2 (documented on the token).
+      test('$modus: jede Textstufe erreicht AA auf allen Kartenflaechen', () {
+        for (final grund in gruende.entries) {
+          for (final text in <String, Color>{
+            'ink': t.ink,
+            'inkSoft': t.inkSoft,
+            'inkMuted': t.inkMuted,
+            'ink2': t.ink2,
+            'ink3': t.ink3,
+          }.entries) {
+            expect(_contrast(text.value, grund.value),
+                greaterThanOrEqualTo(4.5),
+                reason: '$modus: ${text.key} auf ${grund.key}');
+          }
+        }
+      });
+
+      test('$modus: Hint und Wert tragen auf allen Feld-Fuellungen', () {
+        for (final feld in <String, Color>{
+          'field': t.field,
+          'fieldFocus': t.fieldFocus,
+          'fieldError': t.fieldError,
+        }.entries) {
+          expect(_contrast(t.ink2, feld.value), greaterThanOrEqualTo(4.5),
+              reason: '$modus: ink2 auf ${feld.key}');
+          expect(_contrast(t.ink, feld.value), greaterThanOrEqualTo(4.5),
+              reason: '$modus: ink auf ${feld.key}');
+        }
+      });
+
+      test('$modus: Akzent als Text, Fuellung und Zustand', () {
+        for (final grund in <String, Color>{
+          'bg': t.bg,
+          'surf': t.surf,
+          'surf2': t.surf2,
+        }.entries) {
+          expect(_contrast(t.accentText, grund.value),
+              greaterThanOrEqualTo(4.5),
+              reason: '$modus: accentText auf ${grund.key}');
+          // `accent` also carries text (links, the today mark's number).
+          expect(_contrast(t.accent, grund.value), greaterThanOrEqualTo(4.5),
+              reason: '$modus: accent auf ${grund.key}');
+          // A selected chip/segment is a state: 3:1 (WCAG 1.4.11).
+          expect(_contrast(t.accentFill, grund.value),
+              greaterThanOrEqualTo(3.0),
+              reason: '$modus: accentFill als Zustand auf ${grund.key}');
+        }
+        for (final grund in <String, Color>{'bg': t.bg, 'surf': t.surf}
+            .entries) {
+          final pille = Color.alphaBlend(t.accentTint, grund.value);
+          expect(_contrast(t.accentText, pille), greaterThanOrEqualTo(4.5),
+              reason: '$modus: Akzent-Text auf seiner Tint-Pille '
+                  'ueber ${grund.key}');
+          final spur = Color.alphaBlend(t.tile, grund.value);
+          expect(_contrast(t.accentFill, spur), greaterThanOrEqualTo(3.0),
+              reason: '$modus: gewaehltes Segment auf der Spur '
+                  'ueber ${grund.key}');
+        }
+        expect(_contrast(t.onAccentFill, t.accentFill),
+            greaterThanOrEqualTo(4.5));
+        expect(_contrast(t.onAccentMuted, t.accentFill),
+            greaterThanOrEqualTo(4.5));
+      });
+
+      test('$modus: die inaktiven Nav-Items bleiben auf dem Glas lesbar', () {
+        // Worst case: the glass over the plain page, nothing brighter behind.
+        final glas = Color.alphaBlend(t.navGlass, t.bg);
+        expect(_contrast(t.ink3, glas), greaterThanOrEqualTo(4.5));
+        final kapsel = Color.alphaBlend(t.accentTintStrong, glas);
+        expect(_contrast(t.accentText, kapsel), greaterThanOrEqualTo(4.5));
+      });
+
+      test('$modus: Makro-, Aktivitaets- und Erfolgs-Toene als Text', () {
+        for (final grund in <String, Color>{'bg': t.bg, 'surf': t.surf}
+            .entries) {
+          for (final ton in <String, Color>{
+            'proteinInk': t.proteinInk,
+            'carbsInk': t.carbsInk,
+            'fatInk': t.fatInk,
+            'activityInk': t.activityInk,
+            'success': t.success,
+          }.entries) {
+            expect(_contrast(ton.value, grund.value),
+                greaterThanOrEqualTo(4.5),
+                reason: '$modus: ${ton.key} auf ${grund.key}');
+          }
+        }
+        for (final (name, ink, flaeche) in <(String, Color, Color)>[
+          ('protein', t.proteinInk, t.proteinSurface),
+          ('carbs', t.carbsInk, t.carbsSurface),
+          ('fat', t.fatInk, t.fatSurface),
+        ]) {
+          expect(_contrast(ink, flaeche), greaterThanOrEqualTo(4.5),
+              reason: '$modus: ${name}Ink auf ${name}Surface');
+          expect(_contrast(t.ink, flaeche), greaterThanOrEqualTo(4.5),
+              reason: '$modus: ink auf ${name}Surface');
+        }
+        expect(
+          _contrast(t.activityInk, Color.alphaBlend(t.activityTint, t.surf)),
+          greaterThanOrEqualTo(4.5),
+          reason: '$modus: activityInk auf seiner Kachel',
+        );
+      });
+
+      test('$modus: Grafik-Toene tragen 3:1 auf Karte und Spur', () {
+        final spur = Color.alphaBlend(t.tile, t.surf);
+        for (final ton in <String, Color>{
+          'protein': t.protein,
+          'carbs': t.carbs,
+          'fat': t.fat,
+          'activity': t.activity,
+          'snack': t.snack,
+          'progressAccent': t.progressAccent,
+        }.entries) {
+          expect(_contrast(ton.value, t.surf), greaterThanOrEqualTo(3.0),
+              reason: '$modus: ${ton.key} auf surf');
+          expect(_contrast(ton.value, spur), greaterThanOrEqualTo(3.0),
+              reason: '$modus: ${ton.key} auf der Spur');
+        }
+      });
+
+      test('$modus: Slot-Glyphen auf ihren Kacheln', () {
+        for (final (name, tint, ink) in <(String, Color, Color)>[
+          ('breakfast', t.slotBreakfastTint, t.slotBreakfastInk),
+          ('lunch', t.slotLunchTint, t.slotLunchInk),
+          ('dinner', t.slotDinnerTint, t.slotDinnerInk),
+          ('snack', t.slotSnackTint, t.slotSnackInk),
+        ]) {
+          final kachel = Color.alphaBlend(tint, t.surf);
+          expect(_contrast(ink, kachel), greaterThanOrEqualTo(4.5),
+              reason: '$modus: $name-Glyphe auf ihrer Kachel');
+        }
+      });
+
+      test('$modus: Signaltoene als ungeboxter Text auf Grund und Karte', () {
+        for (final grund in <String, Color>{'bg': t.bg, 'surf': t.surf}
+            .entries) {
+          expect(_contrast(t.danger, grund.value), greaterThanOrEqualTo(4.5),
+              reason: '$modus: danger auf ${grund.key}');
+          expect(_contrast(t.warning, grund.value), greaterThanOrEqualTo(4.5),
+              reason: '$modus: warning auf ${grund.key}');
+        }
+      });
+    }
   });
 
   group('Form-Skala', () {
