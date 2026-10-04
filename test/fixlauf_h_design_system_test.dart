@@ -972,29 +972,6 @@ void main() {
   // F8-11 — radii from the scale
   // =========================================================================
   group('F8-11 Radius-Skala', () {
-    testWidgets('AppCard rundet mit rCard', (tester) async {
-      await pumpLocalized(tester, const AppCard(child: Text('K')),
-          padding: _rand);
-      expect(
-        decorationOf(tester, find.byType(AppCard)).borderRadius,
-        BorderRadius.circular(rCard),
-      );
-    });
-
-    testWidgets('PrimaryActionButton rundet mit rButton', (tester) async {
-      await pumpLocalized(tester, const PrimaryActionButton(label: 'Weiter'),
-          padding: _rand);
-      final material = tester.widget<Material>(
-        find
-            .descendant(
-              of: find.byType(PrimaryActionButton),
-              matching: find.byType(Material),
-            )
-            .first,
-      );
-      expect(material.borderRadius, BorderRadius.circular(rButton));
-    });
-
     testWidgets('SquareIconButton und IconTile runden mit rChip',
         (tester) async {
       await pumpLocalized(

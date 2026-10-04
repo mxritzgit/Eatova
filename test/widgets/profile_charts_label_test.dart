@@ -13,13 +13,6 @@ import 'package:eatova/src/widgets/profile/profile_charts.dart';
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
 void main() {
-  test('BMI-Zonenlabels sind korrekt kodiert', () {
-    expect(BmiZones.labelFor(17.0, _de), 'Untergewicht');
-    expect(BmiZones.labelFor(22.0, _de), 'Normal');
-    expect(BmiZones.labelFor(27.0, _de), 'Übergewicht');
-    expect(BmiZones.labelFor(31.0, _de), 'Adipös');
-  });
-
   test('die Zonengrenzen liegen auf den WHO-Schwellen', () {
     expect(BmiZones.labelFor(18.49, _de), 'Untergewicht');
     expect(BmiZones.labelFor(18.5, _de), 'Normal');

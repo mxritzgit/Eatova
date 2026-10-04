@@ -27,20 +27,6 @@ void main() {
     expect(controller.mode, ThemeMode.system);
   });
 
-  test('gesetzter Modus wird persistiert und beim naechsten Start gelesen',
-      () async {
-    final controller = ThemeModeController();
-    await controller.load();
-
-    await controller.setMode(ThemeMode.dark);
-    expect(controller.mode, ThemeMode.dark);
-
-    final neu = ThemeModeController();
-    await neu.load();
-    expect(neu.mode, ThemeMode.dark,
-        reason: 'der Modus muss den Neustart ueberleben');
-  });
-
   test('alle drei Modi ueberleben den Neustart', () async {
     for (final modus in ThemeMode.values) {
       final controller = ThemeModeController();

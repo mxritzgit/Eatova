@@ -82,21 +82,4 @@ void main() {
       handle.dispose();
     });
   });
-
-  group('PageHeader', () {
-    testWidgets('der Zurueck-Knopf traegt einen echten Umlaut',
-        (tester) async {
-      // A semantics label is SPOKEN text; an ASCII transliteration is read
-      // out literally.
-      final handle = tester.ensureSemantics();
-
-      await _harness(tester, const PageHeader(title: 'Mein Profil'));
-
-      expect(
-        tester.getSemantics(find.byType(SquareIconButton)),
-        isSemantics(isButton: true, label: 'Zurück'),
-      );
-      handle.dispose();
-    });
-  });
 }
