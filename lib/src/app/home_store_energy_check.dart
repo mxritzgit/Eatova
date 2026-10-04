@@ -47,8 +47,17 @@ mixin _HomeStoreEnergyCheckPart
       return null;
     }
     final today = startOfDay(clock.now());
+    // A reading today can arrive without changing the day's pinned value.
+    final stepSourceToday = stepsForFoodDate(clock.now()) != null;
     // Identity of the inputs: the store replaces these on every change.
-    final key = (profile, loggedMeals, weightLog, dailyActivity, today);
+    final key = (
+      profile,
+      loggedMeals,
+      weightLog,
+      dailyActivity,
+      today,
+      stepSourceToday,
+    );
     if (key == _energyCheckKey) return _energyCheckProposal;
     _energyCheckKey = key;
     return _energyCheckProposal = const EnergyCheck().evaluate(
@@ -58,7 +67,7 @@ mixin _HomeStoreEnergyCheckPart
       // Only what this device holds: step values are not synced, and a day
       // without one must not count as zero steps.
       burnedKcal: (day) => dailyActivity[localDayKey(day)]?.kcal,
-      stepSourceToday: stepsForFoodDate(clock.now()) != null,
+      stepSourceToday: stepSourceToday,
       weightLog: weightLog,
     );
   }
