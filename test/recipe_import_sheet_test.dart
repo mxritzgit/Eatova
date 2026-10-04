@@ -17,8 +17,6 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
-import 'widgets/design/design_harness.dart'
-    show designHarness, expectTextStaysVisible;
 
 const _source = 'https://www.tiktok.com/@cook/video/123';
 const _bowl = RecipeImportCandidate(
