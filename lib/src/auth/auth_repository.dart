@@ -43,8 +43,6 @@ class EatovaUser {
     }
     return (l10n ?? deL10n).authFallbackFirstName;
   }
-
-  String get firstName => firstNameFor();
 }
 
 enum EatovaOAuthProvider { apple, google }

@@ -8,22 +8,22 @@ import 'package:eatova/src/l10n/l10n.dart';
 // context-free callers, the active language when one is passed. Nothing here
 // is persisted, so a localized fallback is safe.
 void main() {
-  group('EatovaUser.firstName', () {
+  group('EatovaUser.firstNameFor', () {
     test('Anzeigename vor Mailbox-Teil', () {
       const user = EatovaUser(
           id: 'u', email: 'mira@example.com', displayName: 'Mira Muster');
-      expect(user.firstName, 'Mira');
+      expect(user.firstNameFor(), 'Mira');
     });
 
     test('ohne Anzeigename der Mailbox-Teil', () {
       const user = EatovaUser(id: 'u', email: 'mira@example.com');
-      expect(user.firstName, 'mira');
+      expect(user.firstNameFor(), 'mira');
     });
 
     test('ohne beides der neutrale ARB-Fallback, nie "Pilot"', () {
       const user = EatovaUser(id: 'u');
-      expect(user.firstName, deL10n.authFallbackFirstName);
-      expect(user.firstName, isNot(contains('Pilot')));
+      expect(user.firstNameFor(), deL10n.authFallbackFirstName);
+      expect(user.firstNameFor(), isNot(contains('Pilot')));
       expect(user.firstNameFor(enL10n), enL10n.authFallbackFirstName);
       expect(enL10n.authFallbackFirstName,
           isNot(deL10n.authFallbackFirstName));
