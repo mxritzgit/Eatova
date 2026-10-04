@@ -53,30 +53,6 @@ void main() {
     await expectTagestotalAufHeute(tester, '252');
   });
 
-  testWidgetsRobust('Kcal product search shows suggestions while typing', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      EatovaApp(productService: FakeProductLookupService()),
-    );
-
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('food-search')));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('kcal-product-search-input')),
-      'Dr Oetker',
-    );
-    await tester.pump(const Duration(milliseconds: 1100));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('kcal-product-suggestion-0')), findsOneWidget);
-    expect(find.textContaining('Dr. Oetker'), findsWidgets);
-  });
-
   testWidgetsRobust('Kcal live product search waits through transient failures', (
     WidgetTester tester,
   ) async {

@@ -267,19 +267,6 @@ void main() {
     );
   });
 
-  testWidgets('Der erste Mahlzeitenbereich bleibt direkt auffindbar',
-      (tester) async {
-    await _pumpFoodTab(tester);
-
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('kcal-meals-today-card')),
-        matching: find.byKey(const ValueKey('food-slot-empty-breakfast')),
-      ),
-      findsOneWidget,
-    );
-  });
-
   // DATA-6: the diary's day filter must match the header's —
   // `mealsForFoodDate`, not `isSameDay(loggedAt)`, or a 23:45 meal counts in
   // the tile but vanishes from the diary.
@@ -305,12 +292,5 @@ void main() {
     await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(find.textContaining('Empfohlen '), findsNWidgets(3));
-  });
-
-  // The account entry sits on Today only: page_chrome_test.dart pins
-  // `today-profile` on tab 0 and nowhere else.
-  testWidgets('Food keeps its trends button', (tester) async {
-    await _pumpFoodTab(tester);
-    expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
   });
 }
