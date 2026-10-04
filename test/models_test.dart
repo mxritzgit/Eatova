@@ -325,6 +325,42 @@ void main() {
           greaterThan(over.matchScore(remaining)));
     });
 
+    test('eine unvollstaendige Zutatenrechnung ist kein Treffer', () {
+      // The stored integers of a weighed recipe are the KNOWN partial sums;
+      // the rice below has no kcal or macros, so the per-portion values the
+      // cards show are unknown and the recipe cannot be logged.
+      const remaining =
+          MacroProgress(proteinG: 60, carbsG: 40, fatG: 15, kcal: 600);
+      final incomplete = _recipe(
+        caloriesKcal: 330,
+        proteinG: 62,
+        carbsG: 0,
+        fatG: 7,
+        estimatedGrams: 0,
+      ).copyWith(
+        structuredIngredients: [
+          RecipeIngredient(
+            name: 'Chicken',
+            grams: 300,
+            per100g: const RecipeNutrition(
+              caloriesKcal: 110,
+              proteinG: 20.7,
+              carbsG: 0,
+              fatG: 2.3,
+            ),
+          ),
+          RecipeIngredient(
+            name: 'Rice',
+            grams: 150,
+            per100g: const RecipeNutrition(),
+          ),
+        ],
+      );
+      expect(incomplete.displayNutrition.isComplete, isFalse);
+      expect(incomplete.canLogServings(1), isFalse);
+      expect(incomplete.matchScore(remaining), 0);
+    });
+
     test('kcalPer100G mit 0 Gramm crasht nicht', () {
       expect(_recipe(estimatedGrams: 0).kcalPer100G, 0);
     });

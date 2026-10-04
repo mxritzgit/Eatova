@@ -287,9 +287,10 @@ class FitnessRecipe {
 
   /// 0..1 fit against the day's remaining macros (protein weighted double) plus
   /// a kcal term; filling the remainder without overshooting ranks highest.
-  /// Sorting heuristic only, not nutrition advice.
+  /// Sorting heuristic only, not nutrition advice. A weighed recipe stores its
+  /// known partial sums, so incomplete per-portion values never count as a fit.
   double matchScore(MacroProgress remaining) {
-    if (hasPendingNutrition) return 0;
+    if (hasPendingNutrition || !displayNutrition.isComplete) return 0;
     if (remaining.kcal <= 0 &&
         remaining.proteinG <= 0 &&
         remaining.carbsG <= 0 &&
