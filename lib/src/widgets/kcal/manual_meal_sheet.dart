@@ -240,7 +240,10 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
       sourceLabel: basis.sourceLabel,
       barcode: basis.barcode,
       brand: basis.brand,
-      explicitZeroKcal: basis.explicitZeroKcal,
+      // Every 0 here is computed from typed label values, a measurement: a
+      // small portion of a low-density food rounds to 0 kcal too. Without the
+      // marker it read as the legacy "unknown" sentinel and was refused.
+      explicitZeroKcal: basis.caloriesKcal == 0,
     );
   }
 

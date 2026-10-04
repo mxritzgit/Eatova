@@ -949,9 +949,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // ─── Manual entry ─────────────────────────────────────────────────────
 
   /// Entry point for own nutrition values (spec 2026-08-13). The form only
-  /// builds the result; logging happens here via [_handleAdd], including the
-  /// 0-kcal guard (a manual 0 carries explicitZeroKcal and passes it) and the
-  /// success snack. [initialName] comes from the search CTA.
+  /// builds the result; logging happens here via [_logAndMirror], plus the
+  /// success snack. A manual 0 kcal is measured (explicitZeroKcal), so no
+  /// sentinel guard applies. [initialName] comes from the search CTA.
   Future<void> _openManualEntry({String? initialName}) async {
     var slot = _selectedSlot;
     final result = await showManualMealSheet(
