@@ -244,9 +244,14 @@ Map<String, dynamic> _serverMealRow(
       'payload': mealResultToJson(_result(name, kcal: kcal)),
     };
 
-/// An old day clearly outside the 35-day window.
-DateTime get _oldDay => DateUtils.dateOnly(DateTime.now())
-    .subtract(const Duration(days: MealsSync.loggedMealsWindowDays + 5));
+/// An old day clearly outside the 35-day window, on the store's clock and in
+/// calendar days: 40 x 24 h across the spring DST switch lands at 23:00 of
+/// the day before.
+DateTime get _oldDay {
+  final today = clock.now();
+  return DateTime(today.year, today.month,
+      today.day - (MealsSync.loggedMealsWindowDays + 5));
+}
 
 Future<void> _settle() => pumpEventQueue(times: 60);
 
@@ -323,7 +328,7 @@ void main() {
         _serverMealRow('old-1', oldDay.add(const Duration(hours: 12)),
             kcal: 400, name: 'Alte Bowl');
     s.server.mealRows['win-1'] = _serverMealRow(
-        'win-1', DateTime.now().subtract(const Duration(days: 1)));
+        'win-1', clock.now().subtract(const Duration(days: 1)));
     await _boot(s.store);
 
     // The boot window holds only the recent row.
@@ -344,7 +349,7 @@ void main() {
     _expectDayFilter(s.server.dayReads.single, oldDay);
 
     // Revisiting the same day hits the session cache, no further GET.
-    s.store.setFoodDate(DateTime.now());
+    s.store.setFoodDate(clock.now());
     s.store.setFoodDate(oldDay);
     await _settle();
     expect(s.server.dayReads, hasLength(1));
@@ -491,7 +496,7 @@ void main() {
     expect(s.store.mealsForFoodDate(oldDay), hasLength(1));
 
     // Trigger a write-through by logging something for today.
-    s.store.setFoodDate(DateTime.now());
+    s.store.setFoodDate(clock.now());
     final todayId = await s.store.addResultToDailyTotal(_result('Heute-Bowl'));
     await _settle();
 

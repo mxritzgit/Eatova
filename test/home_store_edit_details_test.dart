@@ -59,8 +59,11 @@ MealAnalysisResult _meal(String name) => MealAnalysisResult(
       sourceLabel: 'Foto-KI',
     );
 
-DateTime get _today => DateUtils.dateOnly(DateTime.now());
-DateTime get _yesterday => _today.subtract(const Duration(days: 1));
+// The store's clock, and calendar (not 24-hour) arithmetic: on the day after
+// the spring DST switch, `_today.subtract(Duration(days: 1))` lands at 23:00
+// two calendar days back.
+DateTime get _today => DateUtils.dateOnly(clock.now());
+DateTime get _yesterday => DateTime(_today.year, _today.month, _today.day - 1);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -97,7 +100,7 @@ void main() {
     expect(updated.loggedAt.minute, before.loggedAt.minute);
 
     // Today is cleared, yesterday filled, including the store fields for today.
-    expect(s.store.consumedKcalForFoodDate(DateTime.now()), 0);
+    expect(s.store.consumedKcalForFoodDate(clock.now()), 0);
     expect(s.store.consumedKcalForFoodDate(_yesterday), 300);
     expect(s.store.dailyConsumedKcal, 0);
     expect(s.store.macroProgress.proteinG, 0);
@@ -112,7 +115,7 @@ void main() {
         foodDate: _yesterday);
     expect(s.store.lifetimeStats.currentStreak, 0);
 
-    await s.store.updateLoggedMealDetails(id, day: DateTime.now());
+    await s.store.updateLoggedMealDetails(id, day: clock.now());
 
     expect(s.store.lifetimeStats.currentStreak, 1);
     expect(s.store.lifetimeStats.lastTrackedDate, _today);
@@ -120,7 +123,7 @@ void main() {
     // A second move onto today does not count the day twice.
     final id2 = await s.store.addResultToDailyTotal(_meal('Nachtrag 2'),
         foodDate: _yesterday);
-    await s.store.updateLoggedMealDetails(id2, day: DateTime.now());
+    await s.store.updateLoggedMealDetails(id2, day: clock.now());
     expect(s.store.lifetimeStats.currentStreak, 1);
   });
 
