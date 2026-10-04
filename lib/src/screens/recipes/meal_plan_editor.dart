@@ -62,8 +62,8 @@ class _PlanEditorState extends State<_PlanEditor> {
   /// a year ahead.
   Future<void> _chooseDay() async {
     final today = DateUtils.dateOnly(clock.now());
-    final first = today.subtract(const Duration(days: 35));
-    final last = today.add(const Duration(days: 365));
+    final first = _firstPlanDay(today);
+    final last = _lastPlanDay(today);
     final selected = await showFoodDatePicker(
       context,
       initialDate: _day.isBefore(first)

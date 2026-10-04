@@ -136,6 +136,49 @@ void main() {
     },
   );
 
+  testWidgets(
+    'the week view reaches the first and last day the editor can plan',
+    (tester) async {
+      // A Sunday, so the window's first day (35 days back) is a Sunday too:
+      // the last day of the week before the oldest one the old bound allowed.
+      await withClock(Clock.fixed(DateTime(2026, 10, 4, 12)), () async {
+        final store = _store();
+        for (final day in [DateTime(2026, 8, 30), DateTime(2027, 10, 4)]) {
+          await store.savePlannedMeal(
+            PlannedMeal.create(
+              recipe: recipeCatalogEn.first,
+              day: day,
+              slot: MealSlot.lunch,
+            ),
+          );
+        }
+        await pumpLocalized(
+          tester,
+          MealPlanScreen(store: store),
+          locale: const Locale('en'),
+          surfaceSize: const Size(393, 852),
+          settle: true,
+        );
+        Future<void> pageToEnd(String key) async {
+          final button = find.byKey(ValueKey(key));
+          for (var i = 0; i < 60; i++) {
+            if (tester.widget<IconButton>(button).onPressed == null) return;
+            await _tap(tester, button);
+          }
+          fail('$key never stopped');
+        }
+
+        await pageToEnd('meal-plan-previous-week');
+        expect(find.text('Aug 24 – Aug 30'), findsOneWidget);
+        expect(find.text('1 meal planned'), findsOneWidget);
+        await pageToEnd('meal-plan-next-week');
+        expect(find.text('Oct 4, 2027 – Oct 10, 2027'), findsOneWidget);
+        expect(find.text('1 meal planned'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
   testWidgets('meal menu edits portions and deletes the same planned meal', (
     tester,
   ) async {
