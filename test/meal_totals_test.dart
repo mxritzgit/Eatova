@@ -158,6 +158,40 @@ void main() {
       expect(slotTotalsForFoodDate(const [], day), isEmpty);
     });
   });
+
+  // Moved here with the removal of the unused store wrapper (review
+  // 2026-10-04); the Food diary and the Today slot rows read this function.
+  test('mealSlotSummariesForFoodDate: alle vier Slots, älteste zuerst', () {
+    final day = DateTime(2026, 9, 28);
+    LoggedMeal at(String id, int hour, int minute, int kcal, [MealSlot? s]) =>
+        LoggedMeal(
+          id: id,
+          result: _r(kcal: kcal),
+          loggedAt: DateTime(2026, 9, 28, hour, minute),
+          forcedSlot: s,
+        );
+    final meals = [
+      at('b1', 8, 10, 158),
+      at('b2', 8, 12, 186),
+      at('b3', 8, 11, 57),
+      at('s1', 16, 20, 105, MealSlot.snack),
+      LoggedMeal(
+        id: 'y1',
+        result: _r(kcal: 900),
+        loggedAt: DateTime(2026, 9, 27, 8, 30),
+      ),
+    ];
+
+    final slots = mealSlotSummariesForFoodDate(meals, day);
+
+    expect(slots.map((s) => s.slot), MealSlot.values);
+    // Oldest first, whatever order the store holds; yesterday stays out.
+    expect(slots[0].meals.map((m) => m.id), ['b1', 'b3', 'b2']);
+    expect(slots[0].kcal, 401);
+    expect(slots[1].isEmpty, isTrue);
+    expect(slots[1].kcal, 0);
+    expect(slots[3].meals.single.id, 's1');
+  });
 }
 
 LoggedMeal _slotMeal(
