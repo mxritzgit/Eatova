@@ -458,6 +458,9 @@ class _PortionPanel extends StatelessWidget {
                 max: maxGrams.toDouble(),
                 value: grams.clamp(minGrams, maxGrams).toDouble(),
                 onChanged: onSliderChanged,
+                // The default announces the share of the slider window
+                // ("15%"), not the portion.
+                semanticFormatterCallback: (value) => '${value.round()} g',
               ),
             ),
           ],
@@ -667,36 +670,40 @@ class _PortionStepperState extends State<_PortionStepper> {
                 // the unit starts right of it, and both shrink on narrow
                 // phones at large text instead of overflowing.
                 Expanded(
-                  child: TextField(
-                    cursorOpacityAnimates: false,
-                    cursorColor: t.accent,
-                    controller: widget.controller,
-                    focusNode: _focus,
-                    onChanged: widget.onChanged,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      signed: false,
-                      decimal: false,
-                    ),
-                    inputFormatters: const [
-                      // Five digits because the upper bound
-                      // (PlausibilityLimits.portionGramsMax = 10000 g) has
-                      // five; four made the top of the valid range
-                      // unenterable. Digits, not characters: "1.000" must
-                      // reach the validator whole.
-                      DigitBudgetFormatter(5),
-                    ],
-                    textAlign: TextAlign.right,
-                    style: AppType.display(20, color: t.ink),
-                    decoration: const InputDecoration(
-                      // Null out the theme borders explicitly: the global
-                      // inputDecorationTheme carries a hairline and focus
-                      // ring.
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      isCollapsed: true,
-                      contentPadding: EdgeInsets.zero,
+                  child: Semantics(
+                    // Without a visible label the field read as a bare number.
+                    label: l10n.foodAddItemWeightLabel,
+                    child: TextField(
+                      cursorOpacityAnimates: false,
+                      cursorColor: t.accent,
+                      controller: widget.controller,
+                      focusNode: _focus,
+                      onChanged: widget.onChanged,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        signed: false,
+                        decimal: false,
+                      ),
+                      inputFormatters: const [
+                        // Five digits because the upper bound
+                        // (PlausibilityLimits.portionGramsMax = 10000 g) has
+                        // five; four made the top of the valid range
+                        // unenterable. Digits, not characters: "1.000" must
+                        // reach the validator whole.
+                        DigitBudgetFormatter(5),
+                      ],
+                      textAlign: TextAlign.right,
+                      style: AppType.display(20, color: t.ink),
+                      decoration: const InputDecoration(
+                        // Null out the theme borders explicitly: the global
+                        // inputDecorationTheme carries a hairline and focus
+                        // ring.
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                        isCollapsed: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
                     ),
                   ),
                 ),
