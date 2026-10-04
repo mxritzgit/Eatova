@@ -11,6 +11,7 @@
 
 import '../support/food_navigation.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,10 +46,15 @@ Future<void> _waitGone(
   await settleFrames(tester);
 }
 
+/// Pinned "now", far from midnight: with a real EatovaSync the store arms its
+/// day-rollover timer, and a run started ~20 s before 00:00 rolled the diary
+/// over to the new, empty day mid-flow.
+final DateTime _jetzt = DateTime(2026, 8, 20, 12, 30);
+
 void main() {
   testWidgetsRobust(
       'Registrierung, Onboarding, erste Mahlzeit, Tagebuch, Löschen, Undo',
-      (WidgetTester tester) async {
+      (WidgetTester tester) => withClock(Clock.fixed(_jetzt), () async {
     // No profile row: the onboarding gate must open after the boot load.
     final server = FixlaufServer();
     // NOT disposed in a tearDown: `SupabaseClient.dispose()` awaits its REST,
@@ -323,5 +329,5 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await settleFrames(tester);
     expectTodayEaten(tester, '252');
-  });
+  }));
 }
