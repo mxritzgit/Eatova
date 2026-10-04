@@ -16,6 +16,18 @@ class CoachOrb extends StatefulWidget {
   /// One breath of sphere and halo, there and back (design: 5 s).
   static const Duration period = Duration(seconds: 5);
 
+  /// The sphere's body stop. Dark: the lavender accent fill, as designed.
+  /// The light accent fill is a deep iris (it carries white text), which
+  /// flattened the sphere into a dark ball with a pin-point highlight; there
+  /// the body sits between the highlight and the hero-glow lavender, so the
+  /// orb stays luminous on the light page.
+  static Color bodyColor(BuildContext context) {
+    final t = context.t;
+    return Theme.of(context).brightness == Brightness.light
+        ? Color.lerp(t.orbLight, t.arcStart, 0.6)!
+        : t.accentFill;
+  }
+
   @override
   State<CoachOrb> createState() => _CoachOrbState();
 }
@@ -135,7 +147,12 @@ class _CoachOrbState extends State<CoachOrb>
                       center: const Alignment(-0.32, -0.44),
                       // Farthest corner from that centre, as CSS sizes it.
                       radius: 0.98,
-                      colors: [t.orbLight, t.accentFill, t.orbMid, t.orbDeep],
+                      colors: [
+                        t.orbLight,
+                        CoachOrb.bodyColor(context),
+                        t.orbMid,
+                        t.orbDeep,
+                      ],
                       stops: const [0, 0.26, 0.62, 1],
                     ),
                   ),
