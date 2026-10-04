@@ -75,7 +75,6 @@
     "test/review_31/h_auth_server_fault_test.dart": 2.648,
     "test/screens/today/today_screen_test.dart": 3.175,
     "test/services/day_math_test.dart": 2.817,
-    "test/services/local_cache_debounce_test.dart": 4.497,
     "test/services/meal_photo_compressor_test.dart": 2.369,
     "test/services/produktsuche_gesamtfrist_test.dart": 3.973,
     "test/services/sqlite_process_crash_test.dart": 3.247,
