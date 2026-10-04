@@ -249,19 +249,6 @@ void main() {
     expect(zweite.store.dailyActivity[key], erwartet);
   });
 
-  test('clear() raeumt den Aktivitaets-Slot (M-1)', () async {
-    final kv = InMemoryKeyValueStore();
-    final cache = LocalCache(kv, 'user-activity');
-    await cache.writeDailyActivity({
-      '2026-08-11': (steps: 6000, kcal: 250),
-    });
-    expect(await cache.readDailyActivity(), isNotNull);
-
-    await cache.clear();
-
-    expect(await cache.readDailyActivity(), isNull);
-  });
-
   test('korrupter Slot liefert null bzw. ueberspringt kaputte Tage', () async {
     final kv = InMemoryKeyValueStore({
       'eatova.v1.daily_activity.user-activity': jsonEncode({

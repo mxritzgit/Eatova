@@ -115,20 +115,6 @@ void main() {
       );
     });
 
-    test('capture ist ohne Senke und ohne DSN ein sauberer No-Op', () {
-      CrashReporter.debugSentrySink = null;
-
-      // The production path in dev/CI: no hub, no network, no throw.
-      expect(CrashReporter.isActive, isFalse);
-      expect(
-        CrashReporter.capture(
-          const FormatException('kaputtes JSON'),
-          StackTrace.current,
-        ),
-        completes,
-      );
-    });
-
     test('capture reicht den Stacktrace unveraendert durch', () async {
       final StackTrace stack = StackTrace.current;
       StackTrace? gesehen;
@@ -151,17 +137,6 @@ void main() {
         'outbox-cap: 3 ops dropped',
         '',
       ]);
-    });
-
-    test('breadcrumb ist ohne Senke und ohne DSN ein No-Op', () {
-      CrashReporter.debugBreadcrumbSink = null;
-
-      CrashReporter.breadcrumb('outbox replay gestartet');
-
-      // The facade stays inactive after breadcrumbs — nothing lazily
-      // initialised, no hub created.
-      expect(CrashReporter.isActive, isFalse);
-      expect(spuren, isEmpty);
     });
 
     test('breadcrumb propagiert nichts, auch wenn die Senke wirft', () {

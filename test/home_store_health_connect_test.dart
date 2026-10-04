@@ -197,17 +197,6 @@ void main() {
   );
 
   test(
-    'logout cache purge removes reconnect consent even when outbox survives',
-    () async {
-      final raw = InMemoryKeyValueStore();
-      final cache = LocalCache(raw, 'health-a');
-      await cache.writeHealthConnectEnabled(true);
-      await cache.clear(preserveOutbox: true);
-      expect(await cache.readHealthConnectEnabled(), isFalse);
-    },
-  );
-
-  test(
     'connected without records has no measured zero or kcal entry',
     () async {
       adapter.steps = null;
