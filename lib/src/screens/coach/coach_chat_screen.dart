@@ -3103,29 +3103,37 @@ class _UnsentNotice extends StatelessWidget {
     return Padding(
       key: const ValueKey('coach-unsent'),
       padding: const EdgeInsets.only(top: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
+      // Wrap, not Row: at 2x text on a narrow phone the retry button moves
+      // under the marker instead of running off the screen.
+      child: Wrap(
+        alignment: WrapAlignment.end,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 6,
         children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 13, color: t.warning),
-          const SizedBox(width: 5),
-          Flexible(
-            // Appears without focus moving: a live region, so a screen
-            // reader learns the question did not go out.
-            child: Semantics(
-              container: true,
-              liveRegion: true,
-              child: Text(
-                l10n.coachMessageNotSent,
-                style: AppType.ui(
-                  11.5,
-                  weight: FontWeight.w600,
-                  color: t.warning,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.error_outline_rounded, size: 13, color: t.warning),
+              const SizedBox(width: 5),
+              Flexible(
+                // Appears without focus moving: a live region, so a screen
+                // reader learns the question did not go out.
+                child: Semantics(
+                  container: true,
+                  liveRegion: true,
+                  child: Text(
+                    l10n.coachMessageNotSent,
+                    style: AppType.ui(
+                      11.5,
+                      weight: FontWeight.w600,
+                      color: t.warning,
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
-          if (canRetry) ...<Widget>[
-            const SizedBox(width: 6),
+          if (canRetry)
             Material(
               color: Colors.transparent,
               borderRadius: BorderRadius.circular(rPill),
@@ -3143,12 +3151,14 @@ class _UnsentNotice extends StatelessWidget {
                     children: <Widget>[
                       Icon(Icons.refresh_rounded, size: 14, color: t.accent),
                       const SizedBox(width: 5),
-                      Text(
-                        l10n.coachMessageRetry,
-                        style: AppType.ui(
-                          11.5,
-                          weight: FontWeight.w700,
-                          color: t.accent,
+                      Flexible(
+                        child: Text(
+                          l10n.coachMessageRetry,
+                          style: AppType.ui(
+                            11.5,
+                            weight: FontWeight.w700,
+                            color: t.accent,
+                          ),
                         ),
                       ),
                     ],
@@ -3156,7 +3166,6 @@ class _UnsentNotice extends StatelessWidget {
                 ),
               ),
             ),
-          ],
         ],
       ),
     );
