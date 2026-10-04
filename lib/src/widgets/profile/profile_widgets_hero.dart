@@ -282,8 +282,11 @@ class GoalPlanCard extends StatelessWidget {
     final weeks = plan.manualEnergy
         ? null
         : const KcalCalculator().weeksToGoalRange(plan, targets: targets);
+    // "Hold" reads as stable unless a safety clamp moves the plan off
+    // maintenance; then the card names the real pace, like the goals page.
+    final holds = isMaintain && targets.matchesPromisedPace;
     // Ready-made sentence from KcalTargets, else null.
-    final paceWarning = isMaintain || plan.manualEnergy
+    final paceWarning = holds || plan.manualEnergy
         ? null
         : targets.paceWarning(l10n);
     // Manual goals keep their own kcal: automatic pace and forecast no longer
@@ -295,7 +298,7 @@ class GoalPlanCard extends StatelessWidget {
                 kcalPerKgBodyMass,
             l10n,
           )
-        : isMaintain
+        : holds
             ? l10n.profileStable
             : targets.effectivePaceLabel(l10n);
     // A directional goal carries the brand accent, "maintain" stays quiet.

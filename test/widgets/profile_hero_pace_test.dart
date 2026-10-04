@@ -148,6 +148,39 @@ void main() {
         reason: '5 kg / 0,3436 = 14,6 → 15 linear, 18 dynamisch');
   });
 
+  testWidgets('Halten mit Klemme: die Karte nennt das echte Tempo',
+      (tester) async {
+    // 40 kg / 150 cm / 75 y / female: maintenance 1042, the 1200 floor makes
+    // the holding plan gain +0.15 kg/week — what the goals page says too.
+    const halten = UserProfile(
+      weightKg: 40,
+      heightCm: 150,
+      ageYears: 75,
+      sex: BiologicalSex.female,
+      targetWeightKg: 40,
+      dailyKcalGoal: 1200,
+    );
+    await _pumpCard(tester, halten);
+
+    expect(find.text('+0,15 kg/Woche'), findsOneWidget);
+    expect(find.text('stabil'), findsNothing);
+    expect(
+      find.byTooltip(
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        '1050 kcal. Dein tatsächliches Tempo ist damit +0,15 kg/Woche statt '
+        'Gewicht stabil.',
+      ),
+      findsOneWidget,
+    );
+
+    // At 57 the floor still holds the weight (+0.037 kg/week): "stable".
+    await _pumpCard(tester, halten.copyWith(ageYears: 57));
+    final stabil = find.text('stabil');
+    expect(stabil, findsOneWidget);
+    expect(find.ancestor(of: stabil, matching: find.byType(Tooltip)),
+        findsNothing);
+  });
+
   testWidgets('Ohne Abweichung haengt kein Hinweis an der Tempo-Zeile',
       (tester) async {
     // Large, active user (maintenance 3570 at PAL 1.75): neither the 1500
