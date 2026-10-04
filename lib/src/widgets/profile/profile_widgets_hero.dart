@@ -110,7 +110,7 @@ class IdentityCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
                     colors: <Color>[
-                      t.arcStart.withValues(alpha: 0.24),
+                      t.arcStart.withValues(alpha: 0.24 * t.glowStrength),
                       t.arcStart.withValues(alpha: 0),
                     ],
                   ),
@@ -164,7 +164,7 @@ class _HeroAvatar extends StatelessWidget {
           ),
           boxShadow: <BoxShadow>[
             BoxShadow(
-              color: t.accentGlow.withValues(alpha: 0.35),
+              color: t.accentGlow.withValues(alpha: 0.35 * t.glowStrength),
               blurRadius: 24,
               offset: const Offset(0, 8),
             ),
