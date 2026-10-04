@@ -374,6 +374,34 @@ void main() {
         greaterThan(_contrast(d.arcStart, d.arcTrack)),
       );
     });
+
+    // Light pass (2026-10-04): the dark knob is `ink`, which inverted into a
+    // near-black dot on the white hero. Light gets a white knob whose accent
+    // ring carries it on the arc AND on the pale track at 0 %.
+    test('der Bogen-Knopf ist hell mit Akzentring, dunkel unveraendert', () {
+      expect(t.knob, isNot(t.ink));
+      expect(t.knob, t.surf);
+      // On the violet stroke the white knob carries, on the track the ring.
+      for (final bogen in <Color>[t.arcStart, t.arcEnd]) {
+        expect(_contrast(t.knob, bogen), greaterThanOrEqualTo(3),
+            reason: 'Knopf auf $bogen');
+      }
+      for (final grund in <Color>[t.arcTrack, t.surf, t.knob]) {
+        expect(_contrast(t.knobRing, grund), greaterThanOrEqualTo(3),
+            reason: 'Ring auf $grund');
+      }
+      const d = AppTokens.dark;
+      expect(d.knob, d.ink);
+      expect(d.knobRing.a, 0, reason: 'dunkel zeichnet keinen Ring');
+    });
+
+    test('die Deko-Glows sind hell gedaempft, dunkel volle Staerke', () {
+      expect(AppTokens.dark.glowStrength, 1);
+      expect(t.glowStrength, inExclusiveRange(0, 1));
+      expect(t.copyWith(glowStrength: 0.2).glowStrength, 0.2);
+      expect(t.lerp(AppTokens.dark, 0.5).glowStrength,
+          closeTo((t.glowStrength + 1) / 2, 1e-9));
+    });
   });
 
   // Every role pair, measured in BOTH palettes. Translucent tokens are

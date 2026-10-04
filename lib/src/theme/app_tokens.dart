@@ -1,3 +1,5 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
@@ -88,6 +90,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.slotDinnerInk,
     required this.slotSnackTint,
     required this.slotSnackInk,
+    required this.knob,
+    required this.knobRing,
+    required this.glowStrength,
   });
 
   /// Page ground (scaffold).
@@ -270,6 +275,17 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color slotDinnerTint, slotDinnerInk;
   final Color slotSnackTint, slotSnackInk;
 
+  /// Marker knob on a track and the ring around it: the calorie arc's tip,
+  /// the BMI scale's marker. Dark draws a near-white dot (no ring); on a
+  /// white card that dot inverted into a near-black one, so light uses a
+  /// white knob with an accent ring, which also reads on a pale track.
+  final Color knob, knobRing;
+
+  /// Scales the alpha of the decorative violet glows (the light behind the
+  /// heroes, the avatar and the auth header). 1 in dark, where they read as
+  /// light; lower in light, where the same tint reads as a lavender cloud.
+  final double glowStrength;
+
   /// The light palette (2026-10-04): every dark role mirrored on a soft
   /// off-white page with white cards. Same lavender family, same slot hues,
   /// same macro hue identity; the tones are deepened until they carry the
@@ -367,6 +383,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     slotDinnerInk: Color(0xFF94500A),
     slotSnackTint: Color(0x1F5C42D2),
     slotSnackInk: Color(0xFF5134C2),
+    knob: Color(0xFFFFFFFF),
+    knobRing: Color(0xFF5C42D2),
+    glowStrength: 0.45,
   );
 
   static const AppTokens dark = AppTokens(
@@ -445,6 +464,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
     slotDinnerInk: Color(0xFFFFB866),
     slotSnackTint: Color(0x29B9A5FF),
     slotSnackInk: Color(0xFFC8B8FF),
+    // The design's knob is `ink`; no ring.
+    knob: Color(0xFFF5F3FA),
+    knobRing: Color(0x00B9A5FF),
+    glowStrength: 1,
   );
 
   /// Tokens of the nearest theme. Throws deliberately when the extension is
@@ -528,6 +551,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? slotDinnerInk,
     Color? slotSnackTint,
     Color? slotSnackInk,
+    Color? knob,
+    Color? knobRing,
+    double? glowStrength,
   }) {
     return AppTokens(
       bg: bg ?? this.bg,
@@ -594,6 +620,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
       slotDinnerInk: slotDinnerInk ?? this.slotDinnerInk,
       slotSnackTint: slotSnackTint ?? this.slotSnackTint,
       slotSnackInk: slotSnackInk ?? this.slotSnackInk,
+      knob: knob ?? this.knob,
+      knobRing: knobRing ?? this.knobRing,
+      glowStrength: glowStrength ?? this.glowStrength,
     );
   }
 
@@ -666,6 +695,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
       slotDinnerInk: c(slotDinnerInk, other.slotDinnerInk),
       slotSnackTint: c(slotSnackTint, other.slotSnackTint),
       slotSnackInk: c(slotSnackInk, other.slotSnackInk),
+      knob: c(knob, other.knob),
+      knobRing: c(knobRing, other.knobRing),
+      glowStrength: lerpDouble(glowStrength, other.glowStrength, t)!,
     );
   }
 }
