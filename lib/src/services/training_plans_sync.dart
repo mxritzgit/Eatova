@@ -2,7 +2,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/training_plan.dart';
 
-/// Account-scoped persistence for explicitly accepted training plans.
+/// Loads explicitly accepted training plans. Writes are durable sync
+/// operations (`SyncOperationSync`); there is no direct table write.
 class TrainingPlansSync {
   TrainingPlansSync(this._client, this._userId);
 
@@ -38,31 +39,5 @@ class TrainingPlansSync {
         .limit(plansLimit)
         .setHeader('Authorization', authorization);
     return List.unmodifiable(rows.map(TrainingPlan.fromRow));
-  }
-
-  Future<void> upsert(TrainingPlan plan) async {
-    // Keep the same validation contract as persisted rows and retry payloads.
-    final validated = TrainingPlan.fromRow(plan.toRow());
-    final authorization = await _authorization();
-    await _client
-        .from('training_plans')
-        .upsert({
-          'user_id': _userId,
-          ...validated.toRow(),
-        }, onConflict: 'user_id,id')
-        .setHeader('Authorization', authorization);
-  }
-
-  Future<void> delete(String id) async {
-    if (!RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(id)) {
-      throw const FormatException('Invalid training plan ID');
-    }
-    final authorization = await _authorization();
-    await _client
-        .from('training_plans')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', _userId)
-        .setHeader('Authorization', authorization);
   }
 }
