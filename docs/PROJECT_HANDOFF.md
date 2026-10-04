@@ -3041,7 +3041,8 @@ the owner's Chrome. All came from the owner's iPhone 16 Pro, iOS 27.0.
     across dozens of merges and device installs (build 3 from 2026-08-29 to
     2026-10-03).
   - Fix: `scripts/operations/device_build.py` builds with `--build-number` =
-    the commit count of HEAD (`run`, `ipa`, `apk`, `appbundle`), so each
+    the commit count of HEAD (`iphone`, `android`, `ipa`, `apk`,
+    `appbundle`), so each
     merged build is its own release. Documented in docs/DEVELOPMENT.md and
     covered by `test/operations/device_build_test.py`. It only helps when
     device builds go through the script.
@@ -3052,3 +3053,10 @@ with the next device build.
 Verification on Windows with Flutter 3.47.2: the analyzer is clean; the full
 suite passed 6,920 of 6,920 with 96.96 % local line coverage; the
 test/operations suite passed 60 of 60.
+
+Follow-up the same day: `flutter run` accepts no `--build-number` (the first
+version of the helper failed with "Could not find an option"). The device
+targets now run `flutter build` with the build number followed by
+`flutter install`. `iphone` needs macOS; `--dry-run` prints the commands. This
+was verified on Windows against the real flutter CLI (dry run, and the build
+flags with `--help`).
