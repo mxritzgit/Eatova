@@ -32,61 +32,58 @@ Map<String, dynamic> _brief() => {
   'selected_plan': null,
 };
 
-void main() {
-  test(
-    'brief round-trips only explicit data and a validated plan snapshot',
-    () {
-      for (final intent in ['adapt', 'discuss']) {
-        final input = _brief()
-          ..addAll({'intent': intent, 'selected_plan': _plan().toJson()});
-        final parsed = CoachTrainingContext.fromJson(input);
-        expect(parsed.toJson(), input);
-        expect(parsed.selectedPlan!.workouts.single.exercises.single.reps, 8);
-      }
-      expect(CoachTrainingContext.fromJson(_brief()).selectedPlan, isNull);
-    },
-  );
+CoachTrainingContext _context({
+  CoachTrainingIntent intent = CoachTrainingIntent.create,
+  String goal = 'Strength',
+  int sessionsPerWeek = 3,
+  int minutesPerSession = 30,
+  CoachTrainingProposal? selectedPlan,
+}) => CoachTrainingContext(
+  intent: intent,
+  goal: goal,
+  experience: CoachTrainingExperience.beginner,
+  equipment: CoachTrainingEquipment.bodyweight,
+  sessionsPerWeek: sessionsPerWeek,
+  minutesPerSession: minutesPerSession,
+  selectedPlan: selectedPlan,
+);
 
-  test(
-    'brief rejects malformed numbers, fields, controls and nested payloads',
-    () {
-      final bad = <Map<String, dynamic>>[
-        {'owner': 'B'},
-        {'intent': 'unknown'},
-        {'intent': 'adapt'},
-        {'selected_plan': _plan().toJson()},
-        {'selected_plan': <dynamic, dynamic>{}},
-        {
-          'goal': {'instructions': 'nested'},
-        },
-        {'goal': 'x' * 201},
-        {'goal': '\u0085'},
-        {'goal': 'a\u0000b'},
-        {'goal': '\ud800'},
-        {'goal': 'a\u007fb'},
-        {'experience': <dynamic>[]},
-        {'equipment': 'all'},
-        for (final value in [double.nan, double.infinity, 3.5, 0, 8, '3'])
-          {'sessions_per_week': value},
-        for (final value in [double.nan, double.infinity, 30.5, 9, 181, '30'])
-          {'minutes_per_session': value},
-        {'intent': 'adapt', 'selected_plan': _plan(notes: 'a\u007fb').toJson()},
-      ];
-      for (final change in bad) {
-        expect(
-          () => CoachTrainingContext.fromJson(_brief()..addAll(change)),
-          throwsFormatException,
-        );
-      }
-      final nested = _plan().toJson();
-      ((nested['workouts'] as List).first['exercises'] as List).first['sets'] =
-          double.nan;
+void main() {
+  test('brief carries only explicit data and a validated plan snapshot', () {
+    for (final intent in [
+      CoachTrainingIntent.adapt,
+      CoachTrainingIntent.discuss,
+    ]) {
+      final brief = _context(intent: intent, selectedPlan: _plan());
       expect(
-        () => CoachTrainingContext.fromJson(
-          _brief()..addAll({'intent': 'adapt', 'selected_plan': nested}),
-        ),
-        throwsFormatException,
+        brief.toJson(),
+        _brief()
+          ..addAll({'intent': intent.name, 'selected_plan': _plan().toJson()}),
       );
-    },
-  );
+      expect(brief.selectedPlan!.workouts.single.exercises.single.reps, 8);
+    }
+    expect(_context().toJson(), _brief());
+  });
+
+  test('brief rejects malformed numbers, controls and inconsistent plans', () {
+    final bad = <CoachTrainingContext Function()>[
+      () => _context(intent: CoachTrainingIntent.adapt),
+      () => _context(intent: CoachTrainingIntent.discuss),
+      () => _context(selectedPlan: _plan()),
+      () => _context(goal: 'x' * 201),
+      () => _context(goal: '\u0085'),
+      () => _context(goal: 'a\u0000b'),
+      () => _context(goal: '\ud800'),
+      () => _context(goal: 'a\u007fb'),
+      for (final value in [0, 8]) () => _context(sessionsPerWeek: value),
+      for (final value in [9, 181]) () => _context(minutesPerSession: value),
+      () => _context(
+        intent: CoachTrainingIntent.adapt,
+        selectedPlan: _plan(notes: 'a\u007fb'),
+      ),
+    ];
+    for (final build in bad) {
+      expect(build, throwsFormatException);
+    }
+  });
 }

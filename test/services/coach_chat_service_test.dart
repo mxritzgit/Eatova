@@ -182,13 +182,6 @@ void main() {
               'positive Behauptung „ist geloescht"');
     });
 
-    test('renameSession: RPC-Fehler wirft ebenfalls', () async {
-      final svc = _service((req) async => _json({'message': 'kaputt'}, 500));
-
-      await expectLater(svc.renameSession('s1', 'Neuer Titel'),
-          throwsA(isA<CoachDataUnavailable>()));
-    });
-
     test('send uebernimmt das daily_limit des Servers in die Antwort',
         () async {
       // Without the field the screen compared remaining against its assumed

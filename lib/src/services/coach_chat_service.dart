@@ -424,28 +424,8 @@ class CoachChatService {
   }
 
   /// Throws [CoachDataUnavailable] on failure, like loadSessions and friends:
-  /// a `Future<void>` that completes asserts "renamed/deleted" to the caller,
-  /// so a swallowed error would let the screen continue as if it succeeded.
-  Future<void> renameSession(String sessionId, String title) async {
-    try {
-      await userRpc(
-        _client,
-        _userId,
-        'rename_chat_session',
-        params: {'p_session_id': sessionId, 'p_title': title},
-      );
-    } catch (e, stack) {
-      dev.log(
-        'CoachChatService.renameSession failed',
-        error: e,
-        stackTrace: stack,
-        name: 'eatova.coach',
-      );
-      _melde('coach.renameSession', e, stack);
-      throw CoachDataUnavailable('Umbenennen fehlgeschlagen', e);
-    }
-  }
-
+  /// a `Future<void>` that completes asserts "deleted" to the caller, so a
+  /// swallowed error would let the screen continue as if it succeeded.
   Future<void> deleteSession(String sessionId) async {
     try {
       await userRpc(
