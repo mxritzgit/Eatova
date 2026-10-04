@@ -2368,15 +2368,14 @@
   "recipeEditCannotLog": "Prüfe die Portionen und ergänze fehlende Kalorien der Zutaten, bevor du das Rezept einträgst.",
   "recipeEditCoachSource": "Mit Coach erstellt",
   "mealPlanTitle": "Speiseplan",
-  "mealPlanIntro": "Plane deine Woche. Erst „Heute gegessen“ übernimmt eine Mahlzeit ins Tagebuch.",
-  "mealPlanWeek": "Wochenplan",
+  "mealPlanDiaryFootnote": "Hake eine Mahlzeit ab, sobald du sie gegessen hast, dann landet sie im heutigen Tagebuch. Planen allein trägt nichts ein.",
+  "mealPlanWeek": "Woche",
   "mealPlanShopping": "Einkaufsliste",
   "mealPlanPreviousWeek": "Vorherige Woche",
   "mealPlanNextWeek": "Nächste Woche",
-  "mealPlanEmptyDay": "Noch nichts geplant.",
   "mealPlanAdd": "Mahlzeit planen",
   "mealPlanEdit": "Planung bearbeiten",
-  "mealPlanEatToday": "Heute gegessen",
+  "mealPlanEatToday": "Als heute gegessen abhaken",
   "mealPlanEatenOn": "Am {date} eingetragen",
   "@mealPlanEatenOn": {
     "placeholders": {
@@ -2401,7 +2400,7 @@
   "mealPlanSaveError": "Nicht gespeichert. Prüfe deine Verbindung oder den Gerätespeicher und versuche es erneut.",
   "mealPlanLoadError": "Der aktuelle Serverstand konnte nicht geladen werden. Gespeicherte Planungen bleiben sichtbar.",
   "mealPlanShoppingIntro": "Zutaten für noch nicht gegessene Mahlzeiten dieser Woche. Geänderte Mengen werden wieder abgewählt.",
-  "mealPlanShoppingEmpty": "Plane zuerst eine Mahlzeit für diese Woche.",
+  "mealPlanShoppingEmpty": "Die Liste sammelt die Zutaten der geplanten Mahlzeiten dieser Woche, die du noch nicht gegessen hast.",
   "mealPlanWeighed": "Abgewogene Zutaten",
   "mealPlanUnquantified": "Mengen selbst prüfen",
   "mealPlanUnquantifiedHint": "Diese Rezepte haben Freitext-Zutaten. Prüfe die Mengen für deine geplanten Portionen selbst.",
@@ -2775,10 +2774,7 @@
   "recipesSeeAll": "Alle anzeigen",
   "recipesOwnEmptyTitle": "Dein Kochbuch beginnt hier",
   "recipesOwnEmptyBody": "Speichere deine Lieblingsgerichte als eigene Rezepte und habe die Nährwerte immer griffbereit.",
-  "mealPlanWeekHeading": "Deine Woche, gut geplant",
-  "mealPlanShoppingHeading": "Alles für deine Woche",
   "mealPlanShoppingDone": "Alles eingekauft",
-  "mealPlanShoppingDoneBody": "Deine Liste ist abgehakt. Zeit, etwas Gutes zu kochen.",
   "mealPlanMenuLabel": "Mahlzeit verwalten",
   "mealPlanEditorIntro": "Wähle ein Rezept für deine Woche.",
   "mealPlanEditorDetails": "Wann und wie viel?",
@@ -2788,7 +2784,15 @@
   "mealPlanDateConfirm": "Für diesen Tag planen",
   "mealPlanSaving": "Wird gespeichert …",
   "mealPlanToday": "Heute",
-  "mealPlanShoppingEmptyHeading": "Deine Liste wartet auf den ersten Plan",
+  "mealPlanEatenCount": "{count} gegessen",
+  "@mealPlanEatenCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mealPlanShoppingEmptyHeading": "Noch nichts einzukaufen",
   "recipeDetailIngredientsHint": "Alles, was du für dieses Gericht brauchst.",
   "recipeDetailPreparationHint": "Schritt für Schritt auf deinen Teller.",
   "recipePortionSheetIntro": "Wähle deine Portion und die passende Mahlzeit.",

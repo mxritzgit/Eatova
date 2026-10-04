@@ -2315,15 +2315,14 @@
   "recipeEditCannotLog": "Check the servings and fill in missing ingredient calories before logging this recipe.",
   "recipeEditCoachSource": "Created with Coach",
   "mealPlanTitle": "Meal plan",
-  "mealPlanIntro": "Plan your week. Only “Eaten today” adds a meal to your diary.",
-  "mealPlanWeek": "Weekly plan",
+  "mealPlanDiaryFootnote": "Tick a meal once you have eaten it to add it to today's diary. Planning alone logs nothing.",
+  "mealPlanWeek": "Week",
   "mealPlanShopping": "Shopping list",
   "mealPlanPreviousWeek": "Previous week",
   "mealPlanNextWeek": "Next week",
-  "mealPlanEmptyDay": "Nothing planned yet.",
   "mealPlanAdd": "Plan a meal",
   "mealPlanEdit": "Edit planned meal",
-  "mealPlanEatToday": "Eaten today",
+  "mealPlanEatToday": "Mark as eaten today",
   "mealPlanEatenOn": "Logged on {date}",
   "@mealPlanEatenOn": {
     "placeholders": {
@@ -2348,7 +2347,7 @@
   "mealPlanSaveError": "Not saved. Check your connection or device storage and try again.",
   "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
   "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
-  "mealPlanShoppingEmpty": "Plan a meal for this week to start your list.",
+  "mealPlanShoppingEmpty": "The list collects the ingredients of this week's planned meals that you have not eaten yet.",
   "mealPlanWeighed": "Weighed ingredients",
   "mealPlanUnquantified": "Check amounts yourself",
   "mealPlanUnquantifiedHint": "These recipes have free-text ingredients. Check amounts for your planned servings yourself.",
@@ -2707,10 +2706,7 @@
   "recipesSeeAll": "See all",
   "recipesOwnEmptyTitle": "Your cookbook starts here",
   "recipesOwnEmptyBody": "Save your favourite dishes as your own recipes and keep their nutrition close at hand.",
-  "mealPlanWeekHeading": "Your week, thoughtfully planned",
-  "mealPlanShoppingHeading": "Everything for your week",
   "mealPlanShoppingDone": "All shopping done",
-  "mealPlanShoppingDoneBody": "Your list is checked off. Time to cook something good.",
   "mealPlanMenuLabel": "Manage meal",
   "mealPlanEditorIntro": "Choose a recipe for your week.",
   "mealPlanEditorDetails": "When and how much?",
@@ -2720,7 +2716,15 @@
   "mealPlanDateConfirm": "Plan for this day",
   "mealPlanSaving": "Saving …",
   "mealPlanToday": "Today",
-  "mealPlanShoppingEmptyHeading": "Your list starts with a plan",
+  "mealPlanEatenCount": "{count} eaten",
+  "@mealPlanEatenCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mealPlanShoppingEmptyHeading": "Nothing to buy yet",
   "recipeDetailIngredientsHint": "Everything you need for this dish.",
   "recipeDetailPreparationHint": "Step by step, onto your plate.",
   "recipePortionSheetIntro": "Choose your serving and the right meal.",

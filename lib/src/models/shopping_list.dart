@@ -16,10 +16,15 @@ class ShoppingItem {
     this.servings,
     this.originalQuantities = false,
     this.originalBatchServings,
+    this.planId,
   });
   final String id, name;
   final double? grams;
   final String? recipeTitle;
+
+  /// The planned meal behind a free-text item (for its photo); display only,
+  /// not part of [id].
+  final String? planId;
   final double? servings;
   final bool originalQuantities;
   final double? originalBatchServings;
@@ -72,6 +77,7 @@ List<ShoppingItem> buildShoppingList(
               ? recipe.batchServings : recipe.ingredientsBasis == RecipeIngredientsBasis.perServing ? 1 : null,
           recipeTitle: l10n == null ? recipe.title : recipe.displayTitle(l10n),
           servings: plan.servings,
+          planId: plan.id,
         ),
       );
     }
