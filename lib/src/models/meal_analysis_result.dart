@@ -996,9 +996,9 @@ class MealAnalysisResult {
     final kcalPer100G = _offKcalPer100G(product, nutriments) ?? 0;
     final servingGrams = _offServingGrams(product);
     final calories = clampMealCaloriesKcal(kcalPer100G * servingGrams / 100);
-    final protein100 = _readDouble(nutriments, const ['proteins_100g']);
-    final carbs100 = _readDouble(nutriments, const ['carbohydrates_100g']);
-    final fat100 = _readDouble(nutriments, const ['fat_100g']);
+    final protein100 = _offMacroPer100G(nutriments, 'proteins_100g');
+    final carbs100 = _offMacroPer100G(nutriments, 'carbohydrates_100g');
+    final fat100 = _offMacroPer100G(nutriments, 'fat_100g');
     final quantity = _firstNonEmptyString(product, const ['quantity']);
     final servingSize = _firstNonEmptyString(product, const ['serving_size']);
     // Persisted language-neutral, resolved only at display time: a finished
@@ -1176,6 +1176,22 @@ class MealAnalysisResult {
     }
     final kj = _readDouble(nutriments, const ['energy-kj_100g', 'energy_100g']);
     return kj != null && kj == 0;
+  }
+
+  /// One macro per 100 g from the OFF nutriments, or `null` when it is
+  /// missing or impossible (below 0 or above
+  /// [PlausibilityLimits.macroPer100GMax]). Dropped, not clamped, like an
+  /// implausible energy value: scaled to the serving, a unit slip in the
+  /// record would otherwise reach the diary as a measurement.
+  static double? _offMacroPer100G(Map<String, dynamic> nutriments, String key) {
+    final wert = _readDouble(nutriments, <String>[key]);
+    if (wert == null ||
+        !wert.isFinite ||
+        wert < 0 ||
+        wert > PlausibilityLimits.macroPer100GMax) {
+      return null;
+    }
+    return wert;
   }
 
   static bool _offBasisIst100G(Map<String, dynamic> product) {
