@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/screens/profile_screen.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
+import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 
@@ -202,5 +205,40 @@ void main() {
       find.byKey(const ValueKey('screen-profile'), skipOffstage: false),
       findsNothing,
     );
+  });
+
+  testWidgets(
+      'Ziele und Einstellungen oeffnen bei einem Doppeltipp nur je eine Seite',
+      (tester) async {
+    _pinViewport(tester);
+    await pumpLocalized(
+      tester,
+      EatovaHomePage(
+        initialUserName: 'Moritz',
+        healthService: _StepsHealthService(1000),
+      ),
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+    );
+    await tester.pumpAndSettle();
+    tester.widget<TodayScreen>(find.byType(TodayScreen)).onOpenProfile!();
+    await tester.pumpAndSettle();
+
+    // A hidden second goals form kept the profile of its opening: saving it
+    // after the first one could write the old values back.
+    final profile = tester.widget<ProfileScreen>(find.byType(ProfileScreen));
+    profile.onEditProfile();
+    profile.onEditProfile();
+    await tester.pumpAndSettle();
+    expect(find.byType(GoalsScreen, skipOffstage: false), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('settings-close')));
+    await tester.pumpAndSettle();
+    expect(find.byType(GoalsScreen, skipOffstage: false), findsNothing);
+
+    profile.onOpenSettings();
+    profile.onOpenSettings();
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsScreen, skipOffstage: false), findsOneWidget);
   });
 }
