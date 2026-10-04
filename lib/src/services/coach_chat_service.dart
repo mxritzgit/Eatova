@@ -1086,6 +1086,15 @@ class CoachChatService {
       return await afterDeadline(
         startedAt, authorization, verifyIdentity, false,
       );
+    } on AuthRetryableFetchException catch (e) {
+      // Refreshing the expired bearer failed for lack of a connection (or a
+      // GoTrue 5xx), not because the session ended; nothing was sent. "Sign
+      // in again" would be wrong advice to someone who is merely offline.
+      throw CoachChatException(
+        e.statusCode == null
+            ? _l10n.coachErrorNoConnection
+            : _unreachableMessage,
+      );
     } on AuthException {
       throw CoachChatException(_l10n.coachErrorSessionExpired);
     } on FunctionsHttpException catch (e, stack) {
