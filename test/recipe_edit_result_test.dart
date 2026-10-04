@@ -6,6 +6,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_dispatcher.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'outbox/outbox_test_helpers.dart' as h;
@@ -281,9 +282,11 @@ void main() {
       expect(result.handle.value.resolving, isTrue);
       expect(result.handle.value.canEdit, isFalse);
       env.server.offline = false;
-      await env.store.sync!.userRecipes.delete(
-        ack.recipe!.slug,
-        expectedRevision: ack.recipe!.serverRevision,
+      await env.store.sync!.operations.apply(
+        SyncOp.recipeDelete(
+          ack.recipe!.slug,
+          expectedRevision: ack.recipe!.serverRevision,
+        ),
       );
       await result.handle.refresh();
       expect(result.handle.value.recipe, isNull);

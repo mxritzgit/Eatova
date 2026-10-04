@@ -5,7 +5,6 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/sync_operation_sync.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
-import 'package:eatova/src/services/user_recipes_sync.dart';
 import 'package:eatova/src/services/uuid.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -392,25 +391,5 @@ void main() {
       service.apply(SyncOp.statsIncrement(requestId: mealId, meals: 1)),
       throwsFormatException,
     );
-  });
-
-  test('recipe write convenience service shares the guarded RPC', () async {
-    final id = uuidV4();
-    final service = UserRecipesSync(
-      client((request) async {
-        final body = jsonDecode(request.body) as Map;
-        expect(body['p_operation_id'], id);
-        expect(body['p_payload']['expected_revision'], 8);
-        return response(request, {'recipe_mutation': mutation(deleted: true)});
-      }),
-      owner,
-    );
-    final result = await service.delete(
-      recipe.slug,
-      operationId: id,
-      expectedRevision: 8,
-    );
-    expect(result.currentDeleted, isTrue);
-    expect(result.currentRevision, 9);
   });
 }
