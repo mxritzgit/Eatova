@@ -13,6 +13,7 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
+import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
@@ -251,6 +252,32 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  // Light pass (2026-10-04): the capture chrome is white for the camera
+  // image. Without a picture (denied, loading) it sat on the light sheet,
+  // where the white shutter ring vanished; the viewfinder now stays dark in
+  // both modes while the sheet around it follows the display mode.
+  testWidgets('hell: der Sucher bleibt dunkel, auch ohne Kamerabild',
+      (tester) async {
+    CameraPlatform.instance = _FakeCameraPlatform()..denyCamera = true;
+    await pumpLocalized(
+      tester,
+      const MealCameraSheet(initialSlot: MealSlot.lunch),
+      brightness: Brightness.light,
+      safeArea: false,
+      settle: true,
+    );
+    final failed = find.byKey(const ValueKey('meal-camera-failed'));
+    expect(failed, findsOneWidget);
+    expect(Theme.of(tester.element(failed)).brightness, Brightness.dark);
+    expect(tester.widget<ColoredBox>(failed).color, AppTokens.dark.bg);
+    final shutter = find.byKey(const ValueKey('meal-camera-shutter'));
+    expect(Theme.of(tester.element(shutter)).brightness, Brightness.dark);
+    // The sheet itself stays light.
+    final close = find.byKey(const ValueKey('meal-camera-close'));
+    expect(Theme.of(tester.element(close)).brightness, Brightness.light);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Ausloeser und Galerie tragen Namen fuer den Screenreader',
       (tester) async {

@@ -13,6 +13,7 @@ import '../models/meal_analysis_request.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_compressor.dart';
 import '../services/meal_photo_temp_file.dart';
+import '../theme/app_theme.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/design/sheets.dart';
@@ -41,6 +42,9 @@ const Set<String> _permissionErrorCodes = <String>{
   'CameraAccessDeniedWithoutPrompt',
   'CameraAccessRestricted',
 };
+
+/// The viewfinder's theme: the dark palette in either display mode.
+final ThemeData _viewfinderTheme = buildEatovaTheme(Brightness.dark);
 
 class _MealCameraSheetState extends State<MealCameraSheet>
     with WidgetsBindingObserver {
@@ -320,34 +324,44 @@ class _MealCameraSheetState extends State<MealCameraSheet>
             padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(rCard),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (ready)
-                    _CoveredCameraPreview(controller: controller)
-                  else if (_failure != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 104),
-                      child: _CameraFailedLayer(
-                        failure: _failure!,
-                        onOpenSettings: _openSettings,
+              // The viewfinder is dark in both modes, like the barcode
+              // scanner's: the capture chrome is white for the camera image,
+              // so the loading and denied states share that dark ground
+              // (on the light sheet a white shutter would vanish).
+              child: Theme(
+                data: _viewfinderTheme,
+                child: ColoredBox(
+                  color: AppTokens.dark.bg,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (ready)
+                        _CoveredCameraPreview(controller: controller)
+                      else if (_failure != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 104),
+                          child: _CameraFailedLayer(
+                            failure: _failure!,
+                            onOpenSettings: _openSettings,
+                          ),
+                        )
+                      else
+                        const _CameraLoadingLayer(),
+                      if (ready) const _EdgeScrim(),
+                      Positioned(
+                        bottom: 14,
+                        left: 20,
+                        right: 20,
+                        child: _CaptureBar(
+                          canCapture: ready && !_busy,
+                          busy: _busy,
+                          onCapture: _capture,
+                          onGallery: _pickFromGallery,
+                        ),
                       ),
-                    )
-                  else
-                    const _CameraLoadingLayer(),
-                  if (ready) const _EdgeScrim(),
-                  Positioned(
-                    bottom: 14,
-                    left: 20,
-                    right: 20,
-                    child: _CaptureBar(
-                      canCapture: ready && !_busy,
-                      busy: _busy,
-                      onCapture: _capture,
-                      onGallery: _pickFromGallery,
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
