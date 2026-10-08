@@ -26,6 +26,47 @@ export interface NormalizedMealResult {
   items: NormalizedMealItem[];
 }
 
+const nullableInt = { type: ['integer', 'null'] };
+
+/**
+ * Structured-output schema of the model answer: one object in the prompt's
+ * shape, never prose around it. It fixes the shape only; ranges, labels and
+ * the contract checks stay in normalizeMealResult and the handler.
+ */
+export const MEAL_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'mealName', 'caloriesKcal', 'estimatedGrams', 'kcalPer100G', 'proteinG',
+    'carbsG', 'fatG', 'confidence', 'explanation', 'items',
+  ],
+  properties: {
+    mealName: { type: 'string' },
+    caloriesKcal: { type: 'integer' },
+    estimatedGrams: { type: 'integer' },
+    kcalPer100G: { type: 'number' },
+    proteinG: nullableInt,
+    carbsG: nullableInt,
+    fatG: nullableInt,
+    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+    explanation: { type: 'string' },
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'grams', 'caloriesKcal', 'kcalPer100G'],
+        properties: {
+          name: { type: 'string' },
+          grams: { type: 'integer' },
+          caloriesKcal: { type: 'integer' },
+          kcalPer100G: { type: 'number' },
+        },
+      },
+    },
+  },
+};
+
 export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMealResult {
   const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
   const items = itemsRaw
@@ -211,12 +252,13 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * P6-04b: `usage` is as provider-controlled as the model output next to it,
  * and the "the model gave us nothing usable" log line wrote it through
- * unfiltered. Allowlist: the three token counters, as numbers, nothing else.
+ * unfiltered. Allowlist: the Messages API token counters, as numbers,
+ * nothing else.
  */
 export function loggableUsage(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return undefined;
   const counters: Record<string, number> = {};
-  for (const key of ['prompt_tokens', 'completion_tokens', 'total_tokens']) {
+  for (const key of ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens']) {
     const count = value[key];
     if (typeof count === 'number' && Number.isFinite(count)) counters[key] = count;
   }

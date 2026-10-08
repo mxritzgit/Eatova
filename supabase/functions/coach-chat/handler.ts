@@ -2,11 +2,15 @@
 //
 // Split from index.ts so the whole request path is testable without a server.
 //
-// 3-layer safety so Gemini stays a fitness/nutrition coach:
+// 3-layer safety so the model stays a fitness/nutrition coach:
 //   Layer 1 - deterministic pre-filter (prefilter.ts), deliberately lax; it
 //             only saves cost, Layer 2 is the real protection.
-//   Layer 2 - LLM classifier (small Gemini call); categories in guardrails.ts.
+//   Layer 2 - LLM classifier (short structured Claude call); categories in
+//             guardrails.ts.
 //   Layer 3 - hardened system prompt plus a refusal-pattern output check.
+//
+// Text and photo understanding run on the Claude Messages API
+// (../_shared/claude.ts); only recipe image generation stays on OpenRouter.
 //
 // DAILY_LIMIT/day/user is reserved atomically via claim_chat_quota, granted to
 // service_role only, so the client cannot bypass it.
@@ -36,8 +40,24 @@ import { positiveIntFromEnv } from "../_shared/env.ts";
 import { loggableFinishReason } from "../_shared/provider_log.ts";
 import { pruneRateLimits } from "../_shared/rate_limit_prune.ts";
 import {
+  cachedSystem,
+  CLAUDE_MAX_IMAGE_EDGE_PX,
+  CLAUDE_MESSAGES_URL,
+  claudeErrorStatus,
+  claudeFailureStatus,
+  claudeHeaders,
+  claudeImage,
+  type ClaudeMessage,
+  type ClaudeRequest,
+  claudeRequestBody,
+  claudeText,
+  effortFromEnv,
+  finishReasonFromStop,
+} from "../_shared/claude.ts";
+import {
   parseRecipeDraft,
   parseRecipeRefusal,
+  RECIPE_OUTPUT_SCHEMA,
   type RecipeDraft,
   recipeImagePrompt,
   recipeSummary,
@@ -48,6 +68,7 @@ import {
   parseTrainingPlanDraft,
   parseTrainingPlanRefusal,
   type CoachTrainingProposal,
+  TRAINING_PLAN_OUTPUT_SCHEMA,
   trainingPlanSummary,
   trainingPlanSystemPrompt,
 } from "./training_plan.ts";
@@ -63,33 +84,31 @@ import {
   type CoachWorkoutLog,
   decodeWorkoutLogExtraction,
   parseWorkoutLogCommand,
+  WORKOUT_LOG_OUTPUT_SCHEMA,
   workoutLogRefusalText,
   workoutLogSummary,
   workoutLogSystemPrompt,
 } from "./workout_log.ts";
 
-// Models and daily limit are overridable via function secrets. Keep the
-// answer and classifier on the same low-latency multimodal Gemini model: it
-// handles normal coach messages and image_url parts in one OpenRouter route,
-// which avoids provider hand-offs and keeps behaviour consistent for photo
-// follow-ups. Operators can still pin a different model with the secrets.
-const DEFAULT_COACH_MODEL = "google/gemini-3.8-flash";
-const MODEL_ANSWER     = Deno.env.get("COACH_MODEL_ANSWER") ?? DEFAULT_COACH_MODEL;
-const MODEL_CLASSIFIER = Deno.env.get("COACH_MODEL_CLASSIFIER") ?? DEFAULT_COACH_MODEL;
-// /log extraction defaults to the answer model; pinnable on its own.
-const MODEL_LOG        = Deno.env.get("COACH_MODEL_LOG") ?? MODEL_ANSWER;
-// Image GENERATION needs its own model: the "-image" family outputs images and
-// is NOT usable for photo->JSON analysis (see analyze-meal).
+// Thinking depth of every Coach call (classifier, answer, recipe, plan, log).
+// Measured on 2026-10-08 with the real prompts: "high" costs nothing extra on
+// greetings, classification, plans and logs, and adds roughly 3-5 s to answers
+// that reason over app data. COACH_EFFORT=medium trades that back without a
+// deploy.
+const COACH_EFFORT = effortFromEnv("COACH_EFFORT", "high");
+// Image GENERATION stays on OpenRouter: Claude produces no images.
 const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
 
 const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
-// Gemini counts reasoning AND visible text against this cap. The former
-// 800-token budget cut off ordinary recipes mid-sentence. Leave headroom for
-// both; the prompt still asks for concise answers, not for filling this cap.
-const ANSWER_MAX_TOKENS      = 3072;
-// Structured recipe JSON needs room for reasoning as well as every field.
-const RECIPE_MAX_TOKENS      = 3072;
-// A full log (20 exercises x 10 sets) plus low reasoning fits with headroom.
+// Thinking AND visible text count against these caps; the prompts still ask
+// for concise output, not for filling them. Sonnet writes about 120 tokens/s,
+// so each cap also stays inside PROVIDER_TIMEOUTS_MS.answer.
+const CLASSIFIER_MAX_TOKENS  = 1024;
+const ANSWER_MAX_TOKENS      = 4096;
+const RECIPE_MAX_TOKENS      = 4096;
+// A typical plan is 2,500-3,300 tokens; larger ones are bound by the deadline.
+const PLAN_MAX_TOKENS        = 5000;
+// A full log (20 exercises x 10 sets) fits with headroom.
 const LOG_MAX_TOKENS         = 4096;
 const MAX_IMAGE_BASE64_CHARS = 6_000_000;
 const MAX_CONTENT_LENGTH     = 6_250_000;
@@ -192,9 +211,11 @@ function providerFailureDetail(error: unknown): string {
 }
 
 // 4xx the CLIENT caused with its input. An allowlist, not "anything under
-// 500": 401, 402, 404 and 429 are OUR outages (key, credit, model name,
-// throttle) and must not cost the user a slot.
-const CLIENT_FAULT_STATUSES = new Set([400, 403, 413, 415, 422]);
+// 500": 401, 402, 403, 404, 429 and 529 are OUR outages (key, credit, key
+// permission, model name, throttle, overload) and must not cost the user a
+// slot. Claude reports an empty credit balance as 400; claudeFailureStatus()
+// turns that into 402 before this set is consulted.
+const CLIENT_FAULT_STATUSES = new Set([400, 413, 415, 422]);
 
 // true = the slot stays spent because the input burned the paid call; anything
 // else is an outage and is refunded, since an unknown error proves nothing.
@@ -202,7 +223,7 @@ function isClientFaultFailure(e: unknown): boolean {
   return e instanceof ProviderError && CLIENT_FAULT_STATUSES.has(e.status);
 }
 
-// Redaction for provider error bodies (CWE-532): on 4xx OpenRouter mirrors
+// Redaction for provider error bodies (CWE-532): on 4xx a provider may mirror
 // parts of the USER INPUT back, which must not reach operational logs. Length
 // plus SHA-256 prefix is enough for dedupe and reveals nothing.
 async function redactedBodyMeta(body: string): Promise<string> {
@@ -355,71 +376,70 @@ const UNUSABLE_CLASSIFICATION: ClassifierResult = {
   parseFailed: true,
 };
 
+const CLASSIFIER_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    category: { type: "string", enum: CLASSIFIER_CATEGORIES },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+  },
+  required: ["category", "confidence"],
+  additionalProperties: false,
+};
+
+/// Non-ok provider response -> ProviderError with the status that decides the
+/// refund. The body is read once, bounded, and only digested for the log.
+async function providerFailure(resp: Response, signal: AbortSignal, label: string): Promise<ProviderError> {
+  let raw: string | null = null;
+  let meta: string;
+  try {
+    raw = await readProviderBody(resp, MAX_PROVIDER_RESPONSE_BYTES, signal);
+    meta = raw === null ? "body_too_large" : await redactedBodyMeta(raw);
+  } catch {
+    // Preserve a known paid 4xx status even when its diagnostic body fails.
+    meta = "body_unavailable";
+  }
+  return new ProviderError(claudeFailureStatus(resp.status, raw), `${label} failed: ${resp.status} (${meta})`);
+}
+
+/// One buffered Messages API call. `signal` bounds the fetch AND the body read;
+/// a non-ok status or an unreadable envelope throws a ProviderError.
+async function claudeMessage(
+  apiKey: string,
+  request: ClaudeRequest,
+  signal: AbortSignal,
+  label: string,
+): Promise<any> {
+  const resp = await fetch(CLAUDE_MESSAGES_URL, {
+    method: "POST",
+    headers: claudeHeaders(apiKey),
+    signal,
+    body: JSON.stringify(claudeRequestBody(request)),
+  });
+  if (!resp.ok) throw await providerFailure(resp, signal, label);
+  return await readProviderJson(resp, signal);
+}
+
 async function classify(
   apiKey: string,
   budget: ProviderCallBudget,
   message: string,
 ): Promise<ClassifierResult> {
   await budget("coach_classifier");
-  const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.classify);
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://eatova.de",
-      "X-Title": "Eatova Coach",
-    },
-    // Deadline for fetch AND the resp.json()/text() below (finding 6); the
-    // timeout throws into the existing infra-error path (refund + 504).
-    signal,
-    body: JSON.stringify({
-      model: MODEL_CLASSIFIER,
-      messages: [
-        { role: "system", content: CLASSIFIER_SYSTEM_PROMPT },
-        // Text ONLY: the image is never sent, so the image path costs the same
-        // as the text path (no vision tokens). Consequences in guardrails.ts.
-        { role: "user", content: message },
-      ],
-      temperature: 0,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "coach_classification",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              category: { type: "string", enum: CLASSIFIER_CATEGORIES },
-              confidence: { type: "string", enum: ["low", "medium", "high"] },
-            },
-            required: ["category", "confidence"],
-            additionalProperties: false,
-          },
-        },
-      },
-      provider: { require_parameters: true },
-      // Keep reasoning small, but leave headroom for a complete JSON object.
-      // max_tokens includes reasoning on providers that emit thinking tokens.
-      reasoning: { effort: "minimal" },
-      max_tokens: 256,
-    }),
-  });
-  if (!resp.ok) {
-    // Infra error -> throw: the slot is already claimed, so the handler
-    // refunds it and answers 502 instead of inventing a refusal that costs a
-    // slot without any classification. Status, not the raw body: it drives the
-    // refund and is the only log-safe part.
-    const meta = await providerErrorBodyMeta(resp, signal);
-    throw new ProviderError(
-      resp.status,
-      `Classifier-Call fehlgeschlagen: ${resp.status} (${meta})`,
-    );
-  }
-  const data = await readProviderJson(resp, signal);
-  const choice = data?.choices?.[0];
-  const raw = choice?.message?.content;
-  const finishReason = loggableFinishReason(choice?.finish_reason);
+  // Deadline for fetch AND the body read (finding 6); the timeout throws into
+  // the existing infra-error path (refund + 504). An infra error throws too:
+  // the slot is already claimed, so the handler refunds it and answers 502
+  // instead of inventing a refusal that costs a slot without a classification.
+  const data = await claudeMessage(apiKey, {
+    system: cachedSystem(CLASSIFIER_SYSTEM_PROMPT),
+    // Text ONLY: the image is never sent, so the image path costs the same
+    // as the text path (no vision tokens). Consequences in guardrails.ts.
+    messages: [{ role: "user", content: message }],
+    maxTokens: CLASSIFIER_MAX_TOKENS,
+    effort: COACH_EFFORT,
+    schema: CLASSIFIER_OUTPUT_SCHEMA,
+  }, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.classify), "Classifier call");
+  const raw = claudeText(data);
+  const finishReason = loggableFinishReason(finishReasonFromStop(data?.stop_reason));
   // Explicit provider safety rejections are paid input failures, not outages.
   // Stop every mode without refunding or invoking the image fallback.
   if (finishReason === "content_filter") {
@@ -458,9 +478,6 @@ async function classify(
 // Layer 3 - the actual answer
 // ---------------------------------------------------------------------------
 interface HistoryMessage { role: "user" | "assistant"; content: string }
-type UserContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
 
 function safeImageMimeType(raw: string): string {
   const mime = raw.toLowerCase().trim();
@@ -468,9 +485,16 @@ function safeImageMimeType(raw: string): string {
   return "image/jpeg";
 }
 
-function makeImageDataUrl(imageBase64: string, imageMimeType: string): string {
-  const clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
-  return `data:${safeImageMimeType(imageMimeType)};base64,${clean}`;
+/// The current question as Claude content. The API rejects empty text blocks,
+/// so a photo without words is sent as the image alone; the image goes first,
+/// as Anthropic recommends for vision. Line breaks are not base64 data.
+function userContent(userMessage: string, image?: { base64: string; mimeType: string }): ClaudeMessage["content"] {
+  if (!image) return userMessage;
+  const data = image.base64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").replace(/[\r\n]/g, "");
+  return [
+    claudeImage(data, safeImageMimeType(image.mimeType)),
+    ...(userMessage.length > 0 ? [{ type: "text" as const, text: userMessage }] : []),
+  ];
 }
 
 // Both incoming and generated images use measured structure and raster limits.
@@ -559,10 +583,20 @@ function leaksPrompt(text: string): boolean {
   return PROMPT_LEAK_RE.test(text) || hasPromptShingle(leakWords(text), 0);
 }
 
-/// Request body of the answer call. Shared by the buffered and the streamed
-/// path so the model never sees two different prompts for the same question;
-/// `stream` is the ONLY difference between them.
-function answerPayload(
+/// History as Claude turns. Empty rows (a photo sent without words) would be
+/// rejected as empty text, and a reply whose question fell out of the budget
+/// cannot open the conversation; consecutive same-role turns are merged by the
+/// API.
+function historyTurns(history: HistoryMessage[]): ClaudeMessage[] {
+  const turns = history.filter((row) => row.content.trim().length > 0);
+  while (turns.length > 0 && turns[0].role === "assistant") turns.shift();
+  return turns.map(({ role, content }) => ({ role, content }));
+}
+
+/// Request of the answer call. Shared by the buffered and the streamed path so
+/// the model never sees two different prompts for the same question; `stream`
+/// is the ONLY difference between them.
+function answerRequest(
   history: HistoryMessage[],
   userMessage: string,
   image?: { base64: string; mimeType: string },
@@ -570,14 +604,7 @@ function answerPayload(
   stream = false,
   trainingContext?: TrainingContext,
   locale: CoachLocale = "de",
-): Record<string, unknown> {
-  const userContent: string | UserContentPart[] = image
-    ? [
-        { type: "text", text: userMessage },
-        { type: "image_url", image_url: { url: makeImageDataUrl(image.base64, image.mimeType) } },
-      ]
-    : userMessage;
-
+): ClaudeRequest {
   // Deliberately NOT a system message: the content is user-influenced
   // (self-chosen meal names) and must not sit at the system prompt's trust
   // level. It goes in as its own user message, framed as DATA.
@@ -596,29 +623,25 @@ function answerPayload(
   }
 
   return {
-    model: MODEL_ANSWER,
+    // The shared prompt is the cached prefix for every user. The app language
+    // closes it: mixed or ambiguous input (dictated German and English) is
+    // answered in it.
+    system: cachedSystem(
+      ANSWER_SYSTEM_PROMPT,
+      (trainingContext ? TRAINING_CONTEXT_RULES + "\n\n" : "") +
+        `APP LANGUAGE: ${locale === "en" ? "English" : "German"}`,
+    ),
     // Context sits right before the current question, AFTER the history:
     // up to 10 turns earlier it lost its weight (F5-07).
     messages: [
-      {
-        role: "system",
-        // The app language closes the prompt: mixed or ambiguous input
-        // (dictated German and English) is answered in it.
-        content: ANSWER_SYSTEM_PROMPT + (trainingContext ? "\n" + TRAINING_CONTEXT_RULES : "") +
-          `\n\nAPP LANGUAGE: ${locale === "en" ? "English" : "German"}`,
-      },
-      ...history,
+      ...historyTurns(history),
       ...contextMessages,
       ...(trainingContext ? [trainingContextMessage(trainingContext)] : []),
-      { role: "user", content: userContent },
+      { role: "user", content: userContent(userMessage, image) },
     ],
-    temperature: 0.5,
-    max_tokens: ANSWER_MAX_TOKENS,
-    // Use the lowest effort advertised by Gemini 3.8 Flash, preserving
-    // output room and latency. Exclusion only removes reasoning from the
-    // wire; it does NOT stop reasoning from consuming the token budget.
-    reasoning: { effort: "low", exclude: true },
-    ...(stream ? { stream: true } : {}),
+    maxTokens: ANSWER_MAX_TOKENS,
+    effort: COACH_EFFORT,
+    stream,
   };
 }
 
@@ -645,7 +668,7 @@ function finalizeAnswer(
     refusal = true;
     reply = reply.replace(/^__REFUSE__\s*/, "").trim();
   }
-  // Safety net: cut the reply if Gemini tries to leak the prompt. P5-05: this
+  // Safety net: cut the reply if the model tries to leak the prompt. P5-05: this
   // check fires on the MODEL's reply, not on the input, so the reply language
   // follows the request locale like every other refusal — it used to be the
   // only one hardcoded in German. F1: leaksPrompt() also fires on recited
@@ -665,7 +688,7 @@ function finalizeAnswer(
       // 200 without content is a provider failure, not a refusal (F5-02):
       // the catch refunds the slot and answers 502, nothing is persisted.
       // Only the finish_reason is logged — status meta, never a body.
-      throw new ProviderError(502, `OpenRouter-Antwort leer (finish_reason=${finishReason})`);
+      throw new ProviderError(502, `Provider answer empty (finish_reason=${finishReason})`);
     }
   }
   // Cut off by the token budget: mark it so the user sees the reply is
@@ -688,36 +711,18 @@ async function answer(
   trainingContext?: TrainingContext,
 ): Promise<{ reply: string; refusal: boolean }> {
   await budget("coach_answer");
-  const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer);
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://eatova.de",
-      "X-Title": "Eatova Coach",
-    },
-    // Deadline for fetch AND the resp.json()/text() below (finding 6); the
-    // timeout throws into the existing answer refund paths (refund + 504).
-    signal,
-    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, false, trainingContext, locale)),
-  });
-  if (!resp.ok) {
-    const meta = await providerErrorBodyMeta(resp, signal);
-    throw new ProviderError(
-      resp.status,
-      `OpenRouter-Call fehlgeschlagen: ${resp.status} (${meta})`,
-    );
-  }
-  const data = await readProviderJson(resp, signal);
-  const choice = data?.choices?.[0];
-  // P6-04c: this used to cap the value at 32 characters before putting it into
-  // a ProviderError message, i.e. into console.error and function_logs. A cap
-  // is no redaction — `finish_reason` is a free string, and the first 32
-  // characters of whatever the model wrote there are still provider-chosen
-  // (CWE-532). Same allowlist as analyze-meal now: contract value or category.
-  const finishReason = loggableFinishReason(choice?.finish_reason) ?? "unknown";
-  return finalizeAnswer(choice?.message?.content ?? "", finishReason, locale);
+  // Deadline for fetch AND the body read (finding 6); the timeout throws into
+  // the existing answer refund paths (refund + 504).
+  const data = await claudeMessage(
+    apiKey,
+    answerRequest(history, userMessage, image, userContext, false, trainingContext, locale),
+    AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
+    "Answer call",
+  );
+  // P6-04c: the completion reason reaches logs only as an allowlisted value
+  // or category, never as a provider-chosen string (CWE-532).
+  const finishReason = loggableFinishReason(finishReasonFromStop(data?.stop_reason)) ?? "unknown";
+  return finalizeAnswer(claudeText(data), finishReason, locale);
 }
 
 // ---------------------------------------------------------------------------
@@ -750,57 +755,51 @@ interface AnswerStreamState {
   ended: boolean;
 }
 
-/// Status of a mid-stream error frame. F2: this used to be a flat 502, which
+/// Status of a mid-stream error event. F2: this used to be a flat 502, which
 /// made isClientFaultFailure() unreachable for a streamed failure and refunded
 /// the slot for input the provider already billed — the buffered path keeps it
-/// spent. Only the allowlist is trusted; anything else, including a non-HTTP
-/// code, stays an outage. The frame itself is never read beyond this number
-/// (CWE-532).
+/// spent. Only the allowlist is trusted; anything else stays an outage. The
+/// event is never read beyond its error type (CWE-532).
 function frameErrorStatus(error: unknown): number {
-  const code = (error as { code?: unknown } | null)?.code;
-  const status = typeof code === "number"
-    ? code
-    : typeof code === "string"
-    ? Number(code)
-    : Number.NaN;
+  const status = claudeErrorStatus(error);
   return CLIENT_FAULT_STATUSES.has(status) ? status : 502;
 }
 
-/// Splits whatever whole lines are in `state.raw` into OpenRouter SSE frames.
-/// Handles the three shapes a real stream has: several frames in one read, one
-/// frame split across reads, and `:`-comment keep-alives.
+/// Splits whatever whole lines are in `state.raw` into Messages API stream
+/// events. Handles the three shapes a real stream has: several events in one
+/// read, one event split across reads, and `ping` keep-alives. Every `data:`
+/// payload names its own type, so the `event:` lines are not needed.
 function consumeProviderFrames(state: AnswerStreamState): void {
   for (;;) {
     const cut = state.raw.indexOf("\n");
     if (cut < 0) return;
     const line = state.raw.slice(0, cut).replace(/\r$/, "");
     state.raw = state.raw.slice(cut + 1);
-    // Blank = frame separator, ":" = keep-alive comment, anything else without
-    // a data: prefix (event:, id:, retry:) carries no tokens.
+    // Blank = frame separator, ":" = comment, anything else without a data:
+    // prefix (event:, id:, retry:) carries no tokens.
     if (line.length === 0 || line.startsWith(":") || !line.startsWith("data:")) continue;
-    const payload = line.slice("data:".length).trim();
-    if (payload === "[DONE]") {
-      state.ended = true;
-      return;
-    }
     let frame: any;
     try {
-      frame = JSON.parse(payload);
+      frame = JSON.parse(line.slice("data:".length).trim());
     } catch {
       throw new ProviderError(502, "Provider stream contains invalid data");
     }
-    if (frame?.error) {
-      // Mid-stream provider failure. No body in the message — OpenRouter
-      // mirrors user input into its error objects (CWE-532).
-      throw new ProviderError(
-        frameErrorStatus(frame.error),
-        "OpenRouter-Stream: Fehler-Frame vom Provider",
-      );
+    if (frame?.type === "error") {
+      // Mid-stream provider failure. No body in the message — a provider may
+      // mirror user input into its error objects (CWE-532).
+      throw new ProviderError(frameErrorStatus(frame.error), "Provider stream error event");
     }
-    const choice = frame?.choices?.[0];
-    const piece = choice?.delta?.content;
-    if (typeof piece === "string") state.text += piece;
-    const reason = loggableFinishReason(choice?.finish_reason);
+    if (frame?.type === "message_stop") {
+      state.ended = true;
+      return;
+    }
+    // Only answer text is collected; thinking and signature deltas are not.
+    if (frame?.type === "content_block_delta" && frame.delta?.type === "text_delta" &&
+        typeof frame.delta.text === "string") {
+      state.text += frame.delta.text;
+    }
+    if (frame?.type !== "message_delta") continue;
+    const reason = loggableFinishReason(finishReasonFromStop(frame.delta?.stop_reason));
     if (reason === "content_filter") {
       // A known safety rejection is final. Stop reading and keep its paid slot,
       // even if a later transport failure would otherwise look refundable.
@@ -832,29 +831,20 @@ async function openAnswerStream(
   const abort = new AbortController();
   await budget("coach_answer");
   const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer), ...(requestSignal ? [requestSignal] : [])]);
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const resp = await fetch(CLAUDE_MESSAGES_URL, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://eatova.de",
-      "X-Title": "Eatova Coach",
-    },
+    headers: claudeHeaders(apiKey),
     // The answer deadline has to survive the streamed body: an aborted signal
     // rejects the reader too, so a stream that STALLS mid-answer still ends at
     // PROVIDER_TIMEOUTS_MS.answer instead of hanging until the platform limit
     // Includes all bytes held for final approval.
     signal,
-    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, true, trainingContext, locale)),
+    body: JSON.stringify(claudeRequestBody(
+      answerRequest(history, userMessage, image, userContext, true, trainingContext, locale),
+    )),
   });
-  if (!resp.ok) {
-    const meta = await providerErrorBodyMeta(resp, signal);
-    throw new ProviderError(
-      resp.status,
-      `OpenRouter-Stream fehlgeschlagen: ${resp.status} (${meta})`,
-    );
-  }
-  if (!resp.body) throw new ProviderError(502, "OpenRouter-Stream ohne Body");
+  if (!resp.ok) throw await providerFailure(resp, signal, "Answer stream");
+  if (!resp.body) throw new ProviderError(502, "Answer stream without body");
   return {
     reader: resp.body.getReader(),
     decoder: new TextDecoder(),
@@ -1082,8 +1072,26 @@ function wantsStream(req: Request): boolean {
 // to recipes/stats/account; only the chat transcript is persisted here.
 // ---------------------------------------------------------------------------
 
-/// Draft call with forced JSON output. Throws on infra errors like answer();
-/// refusal and unreadable output are the caller's decision.
+/// A buffered structured draft: the trimmed JSON text and its completion
+/// reason. Throws on infra errors like answer(); refusal and unreadable
+/// output are the caller's decision.
+async function structuredDraft(
+  apiKey: string,
+  request: Omit<ClaudeRequest, "effort" | "stream">,
+  label: string,
+): Promise<{ content: string; finishReason: string | undefined }> {
+  const data = await claudeMessage(
+    apiKey,
+    { ...request, effort: COACH_EFFORT },
+    AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
+    label,
+  );
+  return {
+    content: claudeText(data).trim(),
+    finishReason: loggableFinishReason(finishReasonFromStop(data?.stop_reason)),
+  };
+}
+
 async function draftRecipe(
   apiKey: string,
   budget: ProviderCallBudget,
@@ -1091,52 +1099,27 @@ async function draftRecipe(
   locale: "de" | "en",
 ): Promise<{ content: string; finishReason: string | undefined }> {
   await budget("coach_recipe");
-  const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer);
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://eatova.de",
-      "X-Title": "Eatova Coach",
-    },
-    signal,
-    body: JSON.stringify({
-      model: MODEL_ANSWER,
-      messages: [
-        { role: "system", content: recipeSystemPrompt(locale) },
-        { role: "user", content: wish },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.4,
-      max_tokens: RECIPE_MAX_TOKENS,
-      reasoning: { effort: "low", exclude: true },
-    }),
-  });
-  if (!resp.ok) {
-    const meta = await providerErrorBodyMeta(resp, signal);
-    throw new ProviderError(
-      resp.status,
-      `Rezept-Call fehlgeschlagen: ${resp.status} (${meta})`,
-    );
-  }
-  const data = await readProviderJson(resp, signal);
-  const choice = data?.choices?.[0];
-  const content = choice?.message?.content;
-  return {
-    content: typeof content === "string" ? content.trim() : "",
-    finishReason: loggableFinishReason(choice?.finish_reason),
-  };
+  return await structuredDraft(apiKey, {
+    system: cachedSystem(recipeSystemPrompt(locale)),
+    messages: [{ role: "user", content: wish }],
+    maxTokens: RECIPE_MAX_TOKENS,
+    schema: RECIPE_OUTPUT_SCHEMA,
+  }, "Recipe call");
 }
 
 /// Image generation via the OpenRouter image API. TOLERANT: any error returns
 /// null and the recipe comes back without an image — no refund, no abort,
-/// because the user got the main deliverable.
+/// because the user got the main deliverable. Without an OpenRouter key the
+/// call is skipped before its budget claim.
 async function generateRecipeImage(
   apiKey: string,
   budget: ProviderCallBudget,
   prompt: string,
 ): Promise<{ base64: string; mimeType: string } | null> {
+  if (!apiKey) {
+    console.error("recipe image skipped: image provider not configured");
+    return null;
+  }
   // Numbers only in every log line below (duration, size, container): the
   // budget was the blind spot that hid the 2026-09-01 outage.
   const started = Date.now();
@@ -1262,6 +1245,8 @@ async function handleRecipeMode(params: {
   requestSignal: AbortSignal;
   serviceKey: string;
   supabaseUrl: string;
+  claudeKey: string;
+  /// Recipe images only; may be empty.
   openRouterKey: string;
   userId: string;
   sessionId: string;
@@ -1273,6 +1258,7 @@ async function handleRecipeMode(params: {
   const {
     serviceKey,
     supabaseUrl,
+    claudeKey,
     openRouterKey,
     userId,
     sessionId,
@@ -1294,7 +1280,7 @@ async function handleRecipeMode(params: {
 
   let completion: Awaited<ReturnType<typeof draftRecipe>>;
   try {
-    completion = await draftRecipe(openRouterKey, params.budget, message, locale);
+    completion = await draftRecipe(claudeKey, params.budget, message, locale);
   } catch (e) {
     // Infra error: nothing delivered -> refund + honest status, as in the
     // answer path. Client-caused 4xx keep the slot (isClientFaultFailure).
@@ -1386,44 +1372,17 @@ async function handleRecipeMode(params: {
 // refund a paid generation; a completed proposal remains in the chat history.
 async function draftTrainingPlan(apiKey: string, budget: ProviderCallBudget, wish: string, locale: CoachLocale, trainingContext?: TrainingContext): Promise<{ content: string; finishReason: string | undefined }> {
   await budget("coach_plan");
-  const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer);
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://eatova.de",
-      "X-Title": "Eatova Coach",
-    },
-    signal,
-    body: JSON.stringify({
-      model: MODEL_ANSWER,
-      messages: [
-        { role: "system", content: trainingPlanSystemPrompt(locale) + (trainingContext ? "\n" + TRAINING_CONTEXT_RULES : "") },
-        ...(trainingContext ? [trainingContextMessage(trainingContext)] : []),
-        { role: "user", content: wish },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.3,
-      max_tokens: 4000,
-    }),
-  });
-  if (!resp.ok) {
-    // Response cleanup must not overwrite a known client-fault status and
-    // accidentally refund that paid call when the body stream is broken.
-    void resp.body?.cancel().catch(() => {});
-    throw new ProviderError(resp.status, `training plan provider status ${resp.status}`);
-  }
-  // Bound the entire provider envelope before parsing; no response or error
-  // body is ever copied into diagnostics.
-  const raw = await readProviderBody(resp, MAX_PROVIDER_RESPONSE_BYTES, signal);
-  if (raw === null) throw new Error("training plan provider response too large");
-  const data = JSON.parse(raw);
-  const content = data?.choices?.[0]?.message?.content;
-  return {
-    content: typeof content === "string" ? content.trim() : "",
-    finishReason: loggableFinishReason(data?.choices?.[0]?.finish_reason),
-  };
+  // The envelope is bounded before parsing; no response or error body is ever
+  // copied into diagnostics.
+  return await structuredDraft(apiKey, {
+    system: cachedSystem(trainingPlanSystemPrompt(locale), trainingContext ? TRAINING_CONTEXT_RULES : undefined),
+    messages: [
+      ...(trainingContext ? [trainingContextMessage(trainingContext)] : []),
+      { role: "user", content: wish },
+    ],
+    maxTokens: PLAN_MAX_TOKENS,
+    schema: TRAINING_PLAN_OUTPUT_SCHEMA,
+  }, "Training plan call");
 }
 
 async function storeTrainingPlanMessage(
@@ -1458,12 +1417,12 @@ async function storeTrainingPlanMessage(
 async function handlePlanMode(params: {
   budget: ProviderCallBudget;
   requestSignal: AbortSignal;
-  serviceKey: string; supabaseUrl: string; openRouterKey: string;
+  serviceKey: string; supabaseUrl: string; claudeKey: string;
   userId: string; sessionId: string; message: string; locale: CoachLocale;
   remaining: number | null; quotaDay: string | null;
   trainingContext?: TrainingContext;
 }): Promise<Response> {
-  const { serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
+  const { serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
@@ -1476,7 +1435,7 @@ async function handlePlanMode(params: {
 
   let completion: Awaited<ReturnType<typeof draftTrainingPlan>>;
   try {
-    completion = await draftTrainingPlan(openRouterKey, params.budget, message, locale, params.trainingContext);
+    completion = await draftTrainingPlan(claudeKey, params.budget, message, locale, params.trainingContext);
   } catch (e) {
     // JSON/transport errors can contain private prompt or provider response
     // text. Only the stable class/status crosses the diagnostic boundary.
@@ -1539,42 +1498,14 @@ async function extractWorkoutLog(
 ): Promise<{ content: string; finishReason: string | undefined }> {
   // Reuses the plan budget operation: no change to reserve_ai_provider_call.
   await budget("coach_plan");
-  const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer);
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://eatova.de",
-      "X-Title": "Eatova Coach",
-    },
-    signal,
-    body: JSON.stringify({
-      model: MODEL_LOG,
-      messages: [
-        { role: "system", content: workoutLogSystemPrompt(locale, localDate) },
-        { role: "user", content: wish },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0,
-      max_tokens: LOG_MAX_TOKENS,
-      reasoning: { effort: "low", exclude: true },
-      provider: { require_parameters: true },
-    }),
-  });
-  if (!resp.ok) {
-    // Keep the known status even if the error body cannot be cancelled.
-    void resp.body?.cancel().catch(() => {});
-    throw new ProviderError(resp.status, `workout log provider status ${resp.status}`);
-  }
-  const raw = await readProviderBody(resp, MAX_PROVIDER_RESPONSE_BYTES, signal);
-  if (raw === null) throw new Error("workout log provider response too large");
-  const data = JSON.parse(raw);
-  const content = data?.choices?.[0]?.message?.content;
-  return {
-    content: typeof content === "string" ? content.trim() : "",
-    finishReason: loggableFinishReason(data?.choices?.[0]?.finish_reason),
-  };
+  // The calendar makes the prompt day-specific; it is still shared by every
+  // user on the same local day.
+  return await structuredDraft(apiKey, {
+    system: cachedSystem(workoutLogSystemPrompt(locale, localDate)),
+    messages: [{ role: "user", content: wish }],
+    maxTokens: LOG_MAX_TOKENS,
+    schema: WORKOUT_LOG_OUTPUT_SCHEMA,
+  }, "Workout log call");
 }
 
 async function storeWorkoutLogMessage(
@@ -1609,12 +1540,12 @@ async function storeWorkoutLogMessage(
 async function handleWorkoutLogMode(params: {
   budget: ProviderCallBudget;
   requestSignal: AbortSignal;
-  serviceKey: string; supabaseUrl: string; openRouterKey: string;
+  serviceKey: string; supabaseUrl: string; claudeKey: string;
   userId: string; sessionId: string; message: string; locale: CoachLocale;
   localDate: string; medicalRisk: boolean;
   remaining: number | null; quotaDay: string | null;
 }): Promise<Response> {
-  const { serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
+  const { serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
   const refund = () => params.requestSignal.aborted ? Promise.resolve() : rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "user", content: message,
@@ -1628,7 +1559,7 @@ async function handleWorkoutLogMode(params: {
 
   let completion: Awaited<ReturnType<typeof extractWorkoutLog>>;
   try {
-    completion = await extractWorkoutLog(openRouterKey, params.budget, message, locale, params.localDate);
+    completion = await extractWorkoutLog(claudeKey, params.budget, message, locale, params.localDate);
   } catch (e) {
     // Status class only: transport and JSON errors can quote private text.
     // A budget stop is no outage; its code is a fixed enum.
@@ -2482,8 +2413,10 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   const supabaseUrl     = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey         = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const serviceKey      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const claudeKey       = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  // Recipe images only: without it a recipe arrives without a picture.
   const openRouterKey   = Deno.env.get("OPENROUTER_API_KEY") ?? "";
-  if (!supabaseUrl || !serviceKey || !anonKey || !openRouterKey) {
+  if (!supabaseUrl || !serviceKey || !anonKey || !claudeKey) {
     return json({ error: "Edge function not configured" }, 500);
   }
 
@@ -2702,16 +2635,25 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   // Reject invalid structure, padding and raster sizes before session writes
   // or paid quota. Compressed pixels are still decoded by the provider.
   if (hasImage) {
-    const measured = imageMimeFromMagic(imageBase64);
+    const measured = imageContainerFromBase64(imageBase64.replace(/[\r\n]/g, ""));
     if (measured === null) {
       return json({ error: "Invalid image_base64" }, 400);
     }
+    // The provider rejects longer edges (a scrolling screenshot can have one);
+    // answer like any oversized photo, before session writes or quota.
+    if (Math.max(measured.width, measured.height) > CLAUDE_MAX_IMAGE_EDGE_PX) {
+      return json({
+        error: "image_too_large",
+        reply: refusalForReason("image_too_large", locale),
+        refusal: true,
+        refusal_reason: "image_too_large",
+      }, 413);
+    }
     // P5-07b: the MEASURED container wins over the client's self-report, the
     // same rule the generated recipe image already follows. A client shipping
-    // PNG bytes as `image/jpeg` would otherwise build a data: URL that
-    // misdescribes its own payload to the provider. Nothing reads
-    // imageMimeType before this point.
-    imageMimeType = measured;
+    // PNG bytes as `image/jpeg` would otherwise describe its own payload
+    // wrongly to the provider. Nothing reads imageMimeType before this point.
+    imageMimeType = measured.mime;
   }
 
   // Before the prefilter, so refusals land in the right conversation.
@@ -2800,7 +2742,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       : isPlanMode || trainingContext ? PLAN_REFUSAL_CATEGORIES : refusalCategoriesFor(hasImage);
     let cls: ClassifierResult;
     try {
-      cls = await classify(openRouterKey, budget, classificationInput);
+      cls = await classify(claudeKey, budget, classificationInput);
       // A provider formatting failure says nothing about the user's topic.
       // Stop before answering/persisting and reuse the outage refund path.
       // Image captions share this outage handling. Structured proposals use
@@ -2869,7 +2811,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     return await handlePlanMode({
       budget,
       requestSignal: req.signal,
-      serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale,
+      serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale,
       remaining: claim.remaining, quotaDay,
       trainingContext,
     });
@@ -2879,7 +2821,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     return await handleWorkoutLogMode({
       budget,
       requestSignal: req.signal,
-      serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale,
+      serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale,
       localDate: localDate as string, medicalRisk,
       remaining: claim.remaining, quotaDay,
     });
@@ -2895,6 +2837,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       requestSignal: req.signal,
       serviceKey,
       supabaseUrl,
+      claudeKey,
       openRouterKey,
       userId,
       sessionId,
@@ -2978,7 +2921,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     let state: AnswerStreamState;
     try {
       state = await openAnswerStream(
-        openRouterKey,
+        claudeKey,
         budget,
         history,
         message,
@@ -3033,7 +2976,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   let refusal: boolean;
   try {
     const out = await answer(
-      openRouterKey,
+      claudeKey,
       budget,
       history,
       message,

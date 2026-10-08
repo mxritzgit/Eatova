@@ -35,6 +35,62 @@ export interface CoachTrainingProposal {
   workouts: TrainingWorkout[];
 }
 
+const planText = { type: "string" };
+const planInteger = { type: "integer" };
+const planNullableInteger = { type: ["integer", "null"] };
+
+/** Structured-output schema: one proposal or one refusal. Numeric ranges, the
+ *  reps-or-duration rule and text limits are enforced by parseTrainingPlan. */
+export const TRAINING_PLAN_OUTPUT_SCHEMA = {
+  anyOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["schema_version", "title", "description", "goal", "workouts"],
+      properties: {
+        schema_version: { type: "integer", enum: [1] },
+        title: planText,
+        description: planText,
+        goal: planText,
+        workouts: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "description", "exercises"],
+            properties: {
+              title: planText,
+              description: planText,
+              exercises: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["name", "sets", "reps", "duration_seconds", "rest_seconds", "notes"],
+                  properties: {
+                    name: planText,
+                    sets: planInteger,
+                    reps: planNullableInteger,
+                    duration_seconds: planNullableInteger,
+                    rest_seconds: planInteger,
+                    notes: planText,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["refuse"],
+      properties: { refuse: planText },
+    },
+  ],
+};
+
 /** Exact command token, case insensitive; null means ordinary chat. */
 export function parsePlanCommand(message: string): string | null {
   const match = /^\/plan(?:\s+([\s\S]*))?$/i.exec(message.trim());

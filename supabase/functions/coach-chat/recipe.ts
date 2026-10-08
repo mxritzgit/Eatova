@@ -33,9 +33,45 @@ export interface RecipeDraft {
   estimated_g: number;
 }
 
+const recipeTextField = { type: "string" };
+const recipeIntField = { type: "integer" };
+
+/// Structured-output schema: exactly one recipe or one refusal object, never
+/// prose or a second "corrected" object. Limits stay in parseRecipeDraft.
+export const RECIPE_OUTPUT_SCHEMA = {
+  anyOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "title", "description", "portion", "ingredients", "preparation",
+        "calories_kcal", "protein_g", "carbs_g", "fat_g", "estimated_g",
+      ],
+      properties: {
+        title: recipeTextField,
+        description: recipeTextField,
+        portion: recipeTextField,
+        ingredients: recipeTextField,
+        preparation: recipeTextField,
+        calories_kcal: recipeIntField,
+        protein_g: recipeIntField,
+        carbs_g: recipeIntField,
+        fat_g: recipeIntField,
+        estimated_g: recipeIntField,
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["refuse"],
+      properties: { refuse: recipeTextField },
+    },
+  ],
+};
+
 /// System prompt for the draft call; food recipes only. The refusal is a JSON
-/// field, not the chat path's __REFUSE__ marker, because response_format
-/// forces JSON and would coerce a plain-text marker away.
+/// field, not the chat path's __REFUSE__ marker, because the output schema
+/// forces JSON and leaves no room for a plain-text marker.
 export function recipeSystemPrompt(locale: "de" | "en"): string {
   const language = locale === "en" ? "English" : "German";
   return `You are the recipe generator inside the Eatova fitness app. The user describes ONE dish they want. Create exactly ONE realistic, cookable recipe for it.
