@@ -21,10 +21,10 @@ import { extractionSchema } from './schema.ts';
 // (more on longer captions), "low" missed the variant.
 const RECIPE_IMPORT_EFFORT = effortFromEnv('RECIPE_IMPORT_EFFORT', 'medium');
 const REQUEST_BUDGET_MS = 55_000;
-// Provider share of the request budget, after up to 10 s of source fetching.
-const PROVIDER_WINDOW_MS = 40_000;
-// A second attempt shorter than this would only time out after being paid for.
-const RETRY_MIN_MS = 15_000;
+// `window`: provider share of the request budget, after up to 10 s of source
+// fetching. `retryMin`: a second attempt shorter than this would only time out
+// after being paid for. Mutable only so offline tests can shorten them.
+export const PROVIDER_TIMINGS_MS = { window: 40_000, retryMin: 15_000 };
 const MAX_BODY_BYTES = 90_000;
 const MAX_TEXT_CHARS = 20_000;
 type Secrets = { supabaseUrl: string; anonKey: string; serviceKey: string; providerKey: string };
@@ -188,9 +188,10 @@ export async function handleRequest(request: Request): Promise<Response> {
     // "high". A second paid attempt follows only a quick transient failure or
     // a malformed complete answer, and only with time left to finish.
     const providerStarted = Date.now();
-    const providerDeadline = stepSignal(total, PROVIDER_WINDOW_MS);
+    const window = PROVIDER_TIMINGS_MS.window;
+    const providerDeadline = stepSignal(total, window);
     const retryPossible = () =>
-      !providerDeadline.aborted && PROVIDER_WINDOW_MS - (Date.now() - providerStarted) >= RETRY_MIN_MS;
+      !providerDeadline.aborted && window - (Date.now() - providerStarted) >= PROVIDER_TIMINGS_MS.retryMin;
     let lastError = new ImportError(502, 'provider_invalid_response');
     for (let attempt = 0; attempt < 2; attempt++) {
       await budget('coach_recipe');

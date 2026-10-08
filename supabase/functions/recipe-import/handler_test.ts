@@ -1,6 +1,6 @@
 import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { userToken } from '../_shared/auth_test_fixtures.ts';
-import { handleRequest } from './handler.ts';
+import { handleRequest, PROVIDER_TIMINGS_MS } from './handler.ts';
 import { CLAUDE_URL, claudeResponse, isClaudeCall, outputSchema } from '../_shared/claude_test_fixtures.ts';
 import { extractionPrompt } from './extraction.ts';
 import { extractionSchema } from './schema.ts';
@@ -23,6 +23,8 @@ type Options = {
   // finishReason uses the handler's vocabulary ("stop", "length", ...);
   // claudeResponse turns it into the matching stop_reason.
   model?: unknown; providerStatus?: number; providerRaw?: string; finishReason?: string | null;
+  // The provider never answers; the call ends only when its signal aborts.
+  providerHang?: boolean;
   providerSequence?: Array<{ status?: number; raw?: string }>;
   budgetSequence?: unknown[];
   metadataStatus?: number; metadata?: unknown;
@@ -65,6 +67,11 @@ async function stub(options: Options, run: (calls: Call[]) => Promise<void>): Pr
     if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budgetSequence?.[calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length - 1] ?? options.budget ?? { allowed: true, reason: 'allowed' }));
     if (target.startsWith('https://www.tiktok.com/oembed?')) return Promise.resolve(Response.json(options.metadata ?? { title: TEXT, author_name: 'Cook' }, { status: options.metadataStatus ?? 200 }));
     if (isClaudeCall(target)) {
+      if (options.providerHang) {
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+        });
+      }
       if (options.providerCancelStall) return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
         cancel() { return new Promise<void>(() => {}); },
       }), { status: 400 }));
@@ -309,8 +316,10 @@ Deno.test('recipe-import exact CORS origin and no-store apply to preflight and r
 });
 
 Deno.test('recipe-import retries malformed or transient provider results with a fresh reservation', async () => {
+  // A transient status, a broken envelope and a complete but unusable answer
+  // may come out differently on a second, separately reserved attempt.
   for (const first of [{ status: 503, raw: 'unavailable' }, { raw: '{"broken":' },
-    { raw: JSON.stringify(claudeResponse('{}', 'length')) }]) {
+    { raw: JSON.stringify(claudeResponse('{}', 'stop')) }]) {
     await stub({ providerSequence: [first, {}] }, async (calls) => {
       const response = await handleRequest(request());
       check(response.status === 200 && (await response.json()).status === 'ready', 'Retry recovered');
@@ -358,25 +367,51 @@ Deno.test('recipe-import v2 explicitly supports ingredient-only and unqualified 
   });
 });
 
-Deno.test('recipe-import accepts only end_turn: a valid recipe cut at max_tokens, refused or unfinished is no result', async () => {
+Deno.test('recipe-import accepts only end_turn: a valid recipe cut at max_tokens, refused or unfinished is no result and no retry', async () => {
   // The model text below is a complete, source-proven recipe; only the
-  // stop_reason says it is not final. Each attempt keeps its own reservation.
+  // stop_reason says it is not final. A decline or a cut-off answer would
+  // repeat, so a second paid attempt is never made for it.
   for (const finishReason of ['length', 'content_filter', 'model_context_window_exceeded', 'pause_turn', 'tool_calls', null]) {
     await stub({ finishReason }, async (calls) => {
       const response = await handleRequest(request());
       const body = await response.text();
       check(response.status === 502 && JSON.parse(body).error === 'provider_invalid_response', `${finishReason}: ${response.status} ${body}`);
       check(!body.includes('Pasta kochen'), `${finishReason}: no partial recipe leaks`);
-      check(calls.filter((c) => isClaudeCall(c.url)).length === 2, `${finishReason}: malformed first attempt retried once`);
-      check(calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 2, `${finishReason}: each attempt reserved`);
+      check(calls.filter((c) => isClaudeCall(c.url)).length === 1, `${finishReason}: no second attempt`);
+      check(calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 1, `${finishReason}: one reservation`);
     });
   }
-  // A truncated first answer followed by a complete one recovers.
+  // Even when a second answer would be complete, a cut-off one is not retried.
   await stub({ providerSequence: [{ raw: JSON.stringify(claudeResponse(JSON.stringify(MODEL), 'length')) }, {}] }, async (calls) => {
     const response = await handleRequest(request());
-    check(response.status === 200 && (await response.json()).status === 'ready', 'end_turn after max_tokens recovers');
-    check(calls.filter((c) => isClaudeCall(c.url)).length === 2, 'exactly one retry');
+    check(response.status === 502, 'max_tokens is final');
+    check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'no retry after max_tokens');
   });
+});
+
+Deno.test('recipe-import never pays for a second attempt that cannot finish in time', async () => {
+  const saved = { ...PROVIDER_TIMINGS_MS };
+  try {
+    // A timeout uses up the window: 504 after one paid attempt.
+    PROVIDER_TIMINGS_MS.window = 60;
+    PROVIDER_TIMINGS_MS.retryMin = 10;
+    await stub({ providerHang: true }, async (calls) => {
+      const response = await handleRequest(request());
+      check(response.status === 504 && (await response.json()).error === 'request_timeout', 'timeout');
+      check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'no retry after a timeout');
+      check(calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 1, 'one reservation');
+    });
+    // A retryable failure with too little window left is not retried either.
+    PROVIDER_TIMINGS_MS.window = 5_000;
+    PROVIDER_TIMINGS_MS.retryMin = 10_000;
+    await stub({ providerSequence: [{ status: 503, raw: 'unavailable' }, {}] }, async (calls) => {
+      const response = await handleRequest(request());
+      check(response.status === 502, 'outage reported');
+      check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'no retry without enough time');
+    });
+  } finally {
+    Object.assign(PROVIDER_TIMINGS_MS, saved);
+  }
 });
 
 Deno.test('recipe-import without ANTHROPIC_API_KEY is not configured, whatever former provider key remains', async () => {
@@ -408,8 +443,8 @@ Deno.test('recipe-import request carries extractionSchema, the cached extraction
       check(Object.keys(body).sort().join(',') === 'max_tokens,messages,model,output_config,system,thinking', `request fields: ${Object.keys(body)}`);
       check(body.model === 'claude-sonnet-5-5' && body.max_tokens === 12_000, 'model and output cap');
       check(JSON.stringify(body.thinking) === '{"type":"adaptive"}', 'adaptive thinking');
-      check(JSON.stringify(body.output_config) === JSON.stringify({ effort: 'high', format: { type: 'json_schema', schema: extractionSchema } }),
-        'effort high and extractionSchema');
+      check(JSON.stringify(body.output_config) === JSON.stringify({ effort: 'medium', format: { type: 'json_schema', schema: extractionSchema } }),
+        'effort medium and extractionSchema');
       // The whole prompt is one cached block; the source text is user data.
       check(JSON.stringify(body.system) === JSON.stringify([{ type: 'text', text: extractionPrompt(locale), cache_control: { type: 'ephemeral' } }]),
         `${locale}: cached extraction prompt`);

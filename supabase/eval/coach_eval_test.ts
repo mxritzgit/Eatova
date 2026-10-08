@@ -287,7 +287,7 @@ for (const mode of ["standard", "remainder"] as const) Deno.test(`eval exercises
     // No harness truncation: every call keeps the server's own output cap.
     const caps = { classifier: 1024, answer: 4096 };
     for (const call of report.calls) {
-      const cap = call.route === "structured" ? (call.caseId === "plan-positive" ? 5000 : 4096) : caps[call.route];
+      const cap = call.route === "structured" ? (call.caseId === "plan-positive" ? 4500 : 4096) : caps[call.route];
       assert(call.maxTokens === cap && call.inputBytes <= EVAL_LIMITS.inputBytes, `${call.caseId} ${call.route} ${call.maxTokens}`);
     }
     assert(cents(report.reservedUsd) === report.calls.reduce((sum, call) => sum + cents(call.reservedUsd), 0));

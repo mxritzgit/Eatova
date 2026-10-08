@@ -10,8 +10,8 @@ export const EVAL_PRICES = Object.freeze({ input: 2.0, output: 10.0, cacheWrite:
 /**
  * The server's own output caps (functions/coach-chat/handler.ts). Thinking
  * counts against them, so a lower harness cap would truncate answers. Recipe
- * and /log drafts send 4,096, plans 5,000; any structured draft above 5,000 is
- * lowered to it.
+ * and /log drafts send 4,096, plans 4,500; 5,000 stays the structured ceiling
+ * and any structured draft above it is lowered to it.
  */
 export const EVAL_OUTPUT_CAPS = Object.freeze({ classifier: 1024, answer: 4096, structured: 5000 });
 export const EVAL_LIMITS = Object.freeze({
@@ -284,9 +284,10 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
   Deno.env.set("SUPABASE_ANON_KEY", "synthetic-public");
   Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-backend");
   Deno.env.set("ANTHROPIC_API_KEY", apiKey);
-  // Deployed defaults: no model pin, COACH_EFFORT at the handler's default.
+  // Deployed defaults: no model pin, both Coach efforts at the handler's defaults.
   Deno.env.delete("CLAUDE_MODEL");
   Deno.env.delete("COACH_EFFORT");
+  Deno.env.delete("COACH_PLAN_EFFORT");
   // Recipe images still go to OpenRouter. A placeholder (never a real key)
   // lets the handler reach that call, which is refused locally below.
   Deno.env.set("OPENROUTER_API_KEY", "synthetic-image-placeholder");
@@ -390,7 +391,7 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
       : error instanceof Error && ["NotCapable", "TypeError", "TimeoutError", "AbortError", "ReferenceError", "SyntaxError"].includes(error.name) ? error.name : "unexpected_evaluation_failure";
   } finally { globalThis.fetch = original; console.error = originalError; console.log = originalLog; console.warn = originalWarn; }
   const limits = { ...EVAL_LIMITS, ...(mode === "remainder" ? REMAINDER_EVAL_LIMITS : mode === "log" ? LOG_EVAL_LIMITS : {}), outputCaps: EVAL_OUTPUT_CAPS, prices: EVAL_PRICES };
-  return { schemaVersion: 2, createdAt: new Date().toISOString(), requestedModel: EVAL_MODEL, mode, limits, reservedUsd: gateway.reservedUsd, imagesSkipped, failure, calls: gateway.calls, results, limitations: "Synthetic local backend; real provider only. Server prompts, thinking, effort, schemas and output caps (classifier 1024, answer 4096, recipe and /log 4096, plan 5000) are sent unchanged; no retries, no fallbacks. Text-only sample, no medical sign-off, no deployed authorization proof. The model id and returned model are recorded, not an immutable model build." };
+  return { schemaVersion: 2, createdAt: new Date().toISOString(), requestedModel: EVAL_MODEL, mode, limits, reservedUsd: gateway.reservedUsd, imagesSkipped, failure, calls: gateway.calls, results, limitations: "Synthetic local backend; real provider only. Server prompts, thinking, effort, schemas and output caps (classifier 1024, answer 4096, recipe and /log 4096, plan 4500) are sent unchanged; no retries, no fallbacks. Text-only sample, no medical sign-off, no deployed authorization proof. The model id and returned model are recorded, not an immutable model build." };
 }
 
 if (import.meta.main) {

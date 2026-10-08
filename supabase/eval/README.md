@@ -25,12 +25,12 @@ deno run --allow-env --allow-net=api.anthropic.com --no-remote --no-npm \
 
 The run evaluates the deployed configuration: the harness removes
 `CLAUDE_MODEL` and `COACH_EFFORT` from its own process, so the handler uses its
-defaults (model `claude-sonnet-5-5`, effort `high`, adaptive thinking). If
+defaults (model `claude-sonnet-5-5`, effort `high`, plans `medium`, adaptive thinking). If
 production pins either secret, this run does not cover that value. Requests
 keep the server's prompts, roles, cache breakpoints, thinking, effort, output
 schemas and output caps. Thinking counts against `max_tokens`, so the harness
 does not lower them: classifier 1,024, answer 4,096, recipe and /log drafts
-4,096, plan 5,000 tokens (a structured draft above 5,000 would be lowered).
+4,096, plan 4,500 tokens (5,000 is the structured ceiling; a draft above it would be lowered).
 The harness rejects concurrent calls, other hosts or models, tools, MCP,
 fallbacks, sampling or routing fields, images and documents, and input over
 16,384 UTF-8 bytes (system prompt, messages and output schema together; the
@@ -50,7 +50,7 @@ the full output cap is priced as output. Rounded up to whole cents:
 | Classifier (1,024) | 4 cents (about 4.0 KB) | 7 cents |
 | Answer (4,096) | 7 cents (about 7.0-7.5 KB) | 10 cents |
 | Recipe / log draft (4,096) | 6 / 7 cents (2.2 / 6.3 KB) | 10 cents |
-| Plan (5,000) | 7 cents (3.8 KB) | 11 cents |
+| Plan (4,500; ceiling 5,000) | 7 cents (3.8 KB) | 10 cents (11 at the ceiling) |
 
 Batch caps assume every call at the input limit. The standard batch allows 24
 calls and $2.06: 12 classifiers, 9 answers (refusal cases may pass their
