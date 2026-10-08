@@ -430,6 +430,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
   };
 }
 
+// 1x1 PNG: with a photo in the request, an input-fault error stays the user's.
+const FOTO = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
 function makeRequest(payload: JsonRecord, stream = false, signal?: AbortSignal): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
@@ -1300,9 +1303,10 @@ Deno.test("F1: die Krisen-Antwort im woertlichen Wortlaut ist kein Leck", async 
 // isClientFaultFailure() fuer gestreamte Ausfaelle unerreichbar, und eine vom
 // Client verursachte 4xx bekam den Slot zurueck, den der gepufferte Pfad
 // verbraucht laesst. Der Fehlertyp wird auf seinen HTTP-Status abgebildet;
-// vertraut wird nur die Allowlist {400,413,415,422}. 403 (permission_error)
-// ist seit dem Wechsel auf Claude UNSER Ausfall (Key-Berechtigung) und
-// erstattet.
+// vertraut wird nur die Allowlist {400,413,415,422}, und auch die nur, wenn
+// ein Foto mitlief: jeden Text prueft der Server selbst, also ist ein
+// Eingabefehler auf einem reinen Text-Call unser Fehler. 403
+// (permission_error) ist seit dem Wechsel auf Claude UNSER Ausfall.
 // ---------------------------------------------------------------------------
 
 /** Ein error-Event ohne Fehlertyp oder ganz ohne error-Objekt. */
@@ -1326,30 +1330,32 @@ Deno.test("F2: der Fehlertyp des error-Events entscheidet ueber die Erstattung",
     { event: fehlerEventRoh({ message: "x" }), refund: true, was: "ohne Typ bleibt es die 502" },
     { event: fehlerEventRoh(undefined), refund: true, was: "ohne error-Objekt bleibt es die 502" },
   ];
-  for (const fall of faelle) {
+  for (const fall of faelle) for (const mitFoto of [true, false]) {
     // Erst ein Delta ueber die Kopfpruefung (10 Zeichen), aber unter dem
     // Riegel: der Kopf ist durch, die SSE-Header sind raus, und trotzdem ging
     // noch kein delta raus — genau die Stelle, an der die Erstattungsregel
     // haengt.
+    const refund = fall.refund || !mitFoto;
+    const was = `${fall.was}, ${mitFoto ? "mit" : "ohne"} Foto`;
     const stub = installFetch({
       answerChunks: [...KOPF, textDelta("Klar, gerne."), fall.event],
     });
     try {
-      const res = await handleRequest(makeRequest({ message: FRAGE }, true));
-      assertEquals(res.status, 200, `Status (${fall.was})`);
+      const res = await handleRequest(makeRequest({ message: FRAGE, ...(mitFoto ? { image_base64: FOTO } : {}) }, true));
+      assertEquals(res.status, 200, `Status (${was})`);
       const events = parseSse(await res.text());
-      assertEquals(deltaTexte(events).length, 0, `kein delta (${fall.was})`);
+      assertEquals(deltaTexte(events).length, 0, `kein delta (${was})`);
       assertEquals(
         events[events.length - 1].data.error,
         "provider_error",
-        `Fehlercode (${fall.was})`,
+        `Fehlercode (${was})`,
       );
       assertEquals(
         stub.callsTo("refund_chat_quota").length,
-        fall.refund ? 1 : 0,
-        `Erstattung (${fall.was})`,
+        refund ? 1 : 0,
+        `Erstattung (${was})`,
       );
-      assertEquals(stub.quotaUsed(), fall.refund ? 0 : 1, `Ledger (${fall.was})`);
+      assertEquals(stub.quotaUsed(), refund ? 0 : 1, `Ledger (${was})`);
     } finally {
       stub.restore();
     }
@@ -1358,10 +1364,10 @@ Deno.test("F2: der Fehlertyp des error-Events entscheidet ueber die Erstattung",
 
 Deno.test("F2: ein Fehler-Frame VOR dem Kopf bleibt eine ehrliche 502 ohne Erstattung", async () => {
   // Noch kein SSE-Header raus, also darf der Status ehrlich sein — und ein
-  // Client-Fehler kostet den Slot, exakt wie im gepufferten Pfad.
+  // Client-Fehler auf einem Foto kostet den Slot, exakt wie im gepufferten Pfad.
   const stub = installFetch({ answerChunks: [...KOPF, fehlerEvent("invalid_request_error")] });
   try {
-    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const res = await handleRequest(makeRequest({ message: FRAGE, image_base64: FOTO }, true));
     assertEquals(res.status, 502, "Status");
     assertEquals(res.headers.get("content-type"), "application/json; charset=utf-8", "Content-Type");
     assertEquals((await res.json() as JsonRecord).error, "provider_error", "Fehlercode");
@@ -1372,20 +1378,22 @@ Deno.test("F2: ein Fehler-Frame VOR dem Kopf bleibt eine ehrliche 502 ohne Ersta
   }
 });
 
-Deno.test("Claude: overloaded_error erstattet, invalid_request_error behaelt den Slot — vor und nach dem Kopf", async () => {
+Deno.test("Claude: overloaded_error erstattet, invalid_request_error nur mit Foto nicht — vor und nach dem Kopf", async () => {
   // Ueberlast ist der haeufigste Fehler mitten im Stream und UNSER Ausfall;
-  // ein abgelehnter Request hat die Eingabe des Nutzers bezahlt verbrannt.
-  for (const { typ, refund } of [
-    { typ: "overloaded_error", refund: true },
-    { typ: "invalid_request_error", refund: false },
+  // ein abgelehntes Foto hat die Eingabe des Nutzers bezahlt verbrannt, ein
+  // abgelehnter reiner Text-Request dagegen unsere Anfrage.
+  for (const { typ, mitFoto, refund } of [
+    { typ: "overloaded_error", mitFoto: true, refund: true },
+    { typ: "invalid_request_error", mitFoto: true, refund: false },
+    { typ: "invalid_request_error", mitFoto: false, refund: true },
   ]) {
     for (const nachDemKopf of [false, true]) {
-      const was = `${typ}, ${nachDemKopf ? "nach" : "vor"} dem Kopf`;
+      const was = `${typ}, ${mitFoto ? "mit" : "ohne"} Foto, ${nachDemKopf ? "nach" : "vor"} dem Kopf`;
       const stub = installFetch({
         answerChunks: [...KOPF, ...(nachDemKopf ? [textDelta(LANGER_TEXT_A)] : []), fehlerEvent(typ)],
       });
       try {
-        const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+        const res = await handleRequest(makeRequest({ message: FRAGE, ...(mitFoto ? { image_base64: FOTO } : {}) }, true));
         let fehler: unknown;
         if (nachDemKopf) {
           assertEquals(res.status, 200, `${was}: SSE-Status festgenagelt`);

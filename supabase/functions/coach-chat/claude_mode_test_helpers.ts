@@ -65,6 +65,8 @@ export interface ClaudeContract {
   schema?: unknown;
   /** Text the cached system prompt must contain. */
   systemIncludes?: string[];
+  /** Thinking effort; plans run at "medium", every other Coach call at "high". */
+  effort?: string;
 }
 
 /**
@@ -96,8 +98,8 @@ export function assertClaudeContract(
     "output_config",
     body.output_config,
     expected.schema === undefined
-      ? { effort: "high" }
-      : { effort: "high", format: { type: "json_schema", schema: expected.schema } },
+      ? { effort: expected.effort ?? "high" }
+      : { effort: expected.effort ?? "high", format: { type: "json_schema", schema: expected.schema } },
   );
   for (const key of ["temperature", "top_p", "top_k", "reasoning", "response_format", "provider"]) {
     if (key in body) fail(`no ${key}`, body[key], undefined);

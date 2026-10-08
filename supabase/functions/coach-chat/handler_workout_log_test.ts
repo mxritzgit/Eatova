@@ -522,11 +522,13 @@ Deno.test("log handler: only finish_reason stop approves a draft", async () => {
 // Client faults are {400, 413, 415, 422}. 403 (permission_error: our key) and
 // 529 (overload) are outages, and a 400 that reports an empty credit balance
 // is our 402. A broken error body must not change the verdict.
-Deno.test("log handler: provider infra statuses refund; input fault statuses stay spent", async () => {
+Deno.test("log handler: every provider failure refunds, input-fault statuses included (text-only extraction)", async () => {
+  // The workout text is validated by the server; a 400/413 on this text-only
+  // call is our request, model setting or account, never the user's input.
   const cases: { status: number; errorBody?: string; clientFault: boolean }[] = [
-    ...[400, 413, 415, 422].map((status) => ({ status, clientFault: true })),
+    ...[400, 413, 415, 422].map((status) => ({ status, clientFault: false })),
     ...[401, 402, 403, 404, 429, 500, 503, 529].map((status) => ({ status, clientFault: false })),
-    { status: 400, errorBody: claudeErrorBody(claudeErrorTypeFor(400)), clientFault: true },
+    { status: 400, errorBody: claudeErrorBody(claudeErrorTypeFor(400)), clientFault: false },
     { status: 403, errorBody: claudeErrorBody(claudeErrorTypeFor(403)), clientFault: false },
     { status: 400, errorBody: claudeErrorBody("invalid_request_error", CREDIT_BALANCE_MESSAGE), clientFault: false },
     { status: 400, errorBody: claudeErrorBody("billing_error"), clientFault: false },

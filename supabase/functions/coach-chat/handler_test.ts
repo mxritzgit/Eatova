@@ -3391,3 +3391,63 @@ Deno.test("Konfiguration: ohne OPENROUTER_API_KEY antwortet der Chat trotzdem", 
     else Deno.env.set("OPENROUTER_API_KEY", saved);
   }
 });
+
+Deno.test("Review: ein vom Token-Limit abgeschnittener Classifier erstattet in jedem Modus", async () => {
+  // Our own cap cut the verdict off: nothing was classified because of us, so
+  // even the structured modes (which refuse unusable verdicts) refund.
+  for (const extra of [{}, { mode: "recipe" }, { mode: "plan" }, logMode()]) {
+    const label = JSON.stringify(Object.keys(extra));
+    const stub = installFetch({ classifierContent: '{"category":"fit', classifierFinishReason: "length" });
+    const logs = quietConsole(true);
+    try {
+      const res = await handleRequest(makeRequest({ message: "Bitte hilf mir damit", ...extra }));
+      assertEquals(res.status, 502, `${label}: Ausfall`);
+      assertEquals((await res.json() as JsonRecord).error, "provider_error", `${label}: Fehlercode`);
+      assertEquals(stub.providerCalls().length, 1, `${label}: keine Generierung ohne Pruefung`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, `${label}: genau ein Refund`);
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Review: ein Rezeptwunsch mit Foto ist ein Protokollfehler VOR Session, Quota und Provider", async () => {
+  // The recipe draft is text-only: a photo would be dropped unread, and a photo
+  // without words would reach the provider as an empty wish.
+  for (const message of ["Pasta mit Gemuese", ""]) {
+    const stub = installFetch({ quota: "forbidden" });
+    try {
+      const res = await handleRequest(makeRequest({ message, mode: "recipe", image_base64: IMAGE_BASE64 }));
+      assertEquals(res.status, 400, `"${message}": Status`);
+      assertEquals((await res.json() as JsonRecord).error, "recipe_image_not_supported", `"${message}": Fehlercode`);
+      assertEquals(stub.callsTo("ensure_default_chat_session").length, 0, `"${message}": keine Session`);
+      assertEquals(stub.providerCalls().length, 0, `"${message}": kein Provider-Call`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Review: ein abgeschnittenes Emoji erreicht den Provider nie als einzelnes Surrogat", async () => {
+  // The app caps meal names and context by UTF-16 unit and can cut an emoji in
+  // half. A lone surrogate makes the whole Messages API body invalid JSON (a
+  // 400 on every question that day); it must arrive as U+FFFD instead.
+  const loneSurrogate = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+  const stub = installFetch({ classifierCategory: "nutrition" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Was esse ich heute Abend?",
+      user_context: "Mittag: Burger \ud83c (720 kcal)",
+    }));
+    assertEquals(res.status, 200, "Antwort");
+    const body = stub.answerBodies()[0];
+    const texts = (body.messages as JsonRecord[])
+      .map((message) => typeof message.content === "string" ? message.content : JSON.stringify(message.content))
+      .join("\n");
+    assert(texts.includes("Burger �"), "Ersatzzeichen statt halbem Emoji");
+    assert(!loneSurrogate.test(texts), "kein einzelnes Surrogat im Request");
+  } finally {
+    stub.restore();
+  }
+});

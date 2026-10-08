@@ -2971,8 +2971,8 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   };
 
   // A3 — streamed delivery, opt-in only. Recipe mode can never reach this
-  // line (it returned above), which is the contract: it needs whole-JSON
-  // response_format plus an image and always stays buffered.
+  // line (it returned above), which is the contract: it needs one complete
+  // structured JSON object plus an image and always stays buffered.
   if (wantsStream(req)) {
     let state: AnswerStreamState;
     try {

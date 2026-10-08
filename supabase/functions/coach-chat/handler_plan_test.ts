@@ -251,7 +251,7 @@ Deno.test("plan handler: one slot, complete validated proposal, assistant histor
     equal(saved.body, { user_id: USER, session_id: SESSION, content: body.reply, training_plan: PLAN, role: "assistant", refusal: false, refusal_reason: null }, "explicit allowed transcript fields only");
     const draftCall = stub.draftCalls()[0];
     assert(asksForSchema(draftCall.body, TRAINING_PLAN_OUTPUT_SCHEMA), "JSON contract: the exported plan schema");
-    equal(draftCall.body.max_tokens, 5000, "bounded output budget");
+    equal(draftCall.body.max_tokens, 4500, "bounded output budget");
     const quotaIndex = stub.calls.findIndex((call) => call.url.includes("claim_chat_quota"));
     const classifierIndex = stub.calls.findIndex((call) => isClaudeCall(call.url));
     assert(quotaIndex < classifierIndex, "quota precedes every paid call");
@@ -394,11 +394,13 @@ Deno.test("plan handler: malformed or semantically unsafe proposals refund the o
 // Client faults are {400, 413, 415, 422}. 403 (permission_error: our key) and
 // 529 (overload) are outages, and a 400 that reports an empty credit balance
 // is our 402. A broken error body must not change the verdict.
-Deno.test("plan handler: provider infra statuses refund; input fault statuses stay spent", async () => {
+Deno.test("plan handler: every provider failure refunds, input-fault statuses included (text-only draft)", async () => {
+  // The wish is validated by the server; a 400/413 on a text-only draft is our
+  // request, model setting or account, never the user's input.
   const cases: { status: number; errorBody?: string; clientFault: boolean }[] = [
-    ...[400, 413, 415, 422].map((status) => ({ status, clientFault: true })),
+    ...[400, 413, 415, 422].map((status) => ({ status, clientFault: false })),
     ...[401, 402, 403, 404, 429, 500, 503, 529].map((status) => ({ status, clientFault: false })),
-    { status: 400, errorBody: claudeErrorBody(claudeErrorTypeFor(400)), clientFault: true },
+    { status: 400, errorBody: claudeErrorBody(claudeErrorTypeFor(400)), clientFault: false },
     { status: 403, errorBody: claudeErrorBody(claudeErrorTypeFor(403)), clientFault: false },
     { status: 400, errorBody: claudeErrorBody("invalid_request_error", CREDIT_BALANCE_MESSAGE), clientFault: false },
     { status: 400, errorBody: claudeErrorBody("billing_error"), clientFault: false },
@@ -617,7 +619,7 @@ Deno.test("Security completion: plan requires valid terminal metadata", async ()
   }
 });
 
-Deno.test("plan handler: the draft carries TRAINING_PLAN_OUTPUT_SCHEMA, 5000 tokens and the Claude contract", async () => {
+Deno.test("plan handler: the draft carries TRAINING_PLAN_OUTPUT_SCHEMA, 4500 tokens, medium effort and the Claude contract", async () => {
   for (const context of [undefined, trainingBrief("adapt", PLAN)]) {
     const label = context ? "with brief" : "without brief";
     const stub = stubNetwork(PLAN_JSON);
@@ -628,7 +630,8 @@ Deno.test("plan handler: the draft carries TRAINING_PLAN_OUTPUT_SCHEMA, 5000 tok
       equal(stub.draftCalls().length, 1, `${label}: one draft`);
       const draft = stub.draftCalls()[0];
       assertClaudeContract(draft, {
-        maxTokens: 5000,
+        maxTokens: 4500,
+        effort: "medium",
         schema: TRAINING_PLAN_OUTPUT_SCHEMA,
         systemIncludes: ["Write all text fields in English", ...(context ? ["edited COPY"] : [])],
       }, `${label}: plan draft`);

@@ -555,14 +555,13 @@ Deno.test("Bild-Fehler != Rezept-Fehler: 200 ohne image_base64, kein Refund", as
   }
 });
 
-// Status matrix instead of a single 500: `isClientFaultFailure` splits the
-// draft failures into two prices, and only an OUTAGE gives the slot back. Ein
-// Refund auf einem client-verschuldeten 4xx waere eine Gratis-Anfrage auf
-// Bestellung — ein praeparierter Wunsch, der den Anbieter 400 antworten
-// laesst, kostet dann nie einen Slot. Der Ledger, nicht die Anzahl der Calls,
-// ist die Zusicherung: `quotaUsed` zeigt, ob der Slot wirklich zurueck ist.
-// Claude meldet ein leeres Guthaben als 400; das ist unser Ausfall (402).
-Deno.test("Draft-Fehler: nur der OUTAGE erstattet, der Client-4xx behaelt den Slot", async () => {
+// Status matrix instead of a single 500. Der Rezeptwunsch ist reiner Text, den
+// der Server vorher prueft: ein 4xx des Anbieters liegt dann an unserer
+// Anfrage, Modell-Einstellung oder am Konto, nie am Nutzer, und erstattet.
+// Der Ledger, nicht die Anzahl der Calls, ist die Zusicherung: `quotaUsed`
+// zeigt, ob der Slot wirklich zurueck ist. Claude meldet ein leeres Guthaben
+// als 400; das ist ebenfalls unser Ausfall (402).
+Deno.test("Draft-Fehler: jeder Anbieterfehler erstattet, auch ein Eingabe-4xx (reiner Text)", async () => {
   const faelle: { draftStatus: number; draftErrorBody?: string; refund: boolean; was: string }[] = [
     { draftStatus: 500, refund: true, was: "Anbieter-Ausfall" },
     { draftStatus: 502, refund: true, was: "Gateway-Ausfall" },
@@ -581,11 +580,11 @@ Deno.test("Draft-Fehler: nur der OUTAGE erstattet, der Client-4xx behaelt den Sl
     { draftStatus: 403, refund: true, was: "Key ohne Berechtigung" },
     { draftStatus: 404, refund: true, was: "Modellname unbekannt" },
     { draftStatus: 429, refund: true, was: "Anbieter-Drossel" },
-    // Vom Wunsch des Nutzers verursacht: bezahlter Call, Slot bleibt weg.
-    { draftStatus: 400, refund: false, was: "Eingabe abgelehnt" },
-    { draftStatus: 413, refund: false, was: "zu grosse Eingabe" },
-    { draftStatus: 415, refund: false, was: "falscher Medientyp" },
-    { draftStatus: 422, refund: false, was: "unverarbeitbare Eingabe" },
+    // Eingabe-Status auf einem reinen Text-Call: unsere Anfrage.
+    { draftStatus: 400, refund: true, was: "Anfrage abgelehnt" },
+    { draftStatus: 413, refund: true, was: "zu grosse Anfrage" },
+    { draftStatus: 415, refund: true, was: "falscher Medientyp" },
+    { draftStatus: 422, refund: true, was: "unverarbeitbare Anfrage" },
   ];
   for (const fall of faelle) {
     const stub = installFetch({ draftStatus: fall.draftStatus, draftErrorBody: fall.draftErrorBody });
