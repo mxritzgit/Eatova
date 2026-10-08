@@ -3,6 +3,9 @@
 
 import { CLAUDE_URL, isClassifierRequest, outputSchema, systemText } from "../_shared/claude_test_fixtures.ts";
 
+// One definition each, in the shared fixtures.
+export { claudeErrorTypeFor, CREDIT_BALANCE_MESSAGE } from "../_shared/claude_test_fixtures.ts";
+
 type JsonRecord = Record<string, unknown>;
 
 /** A structured draft (recipe, plan or log): a schema that is not the classifier's. */
@@ -27,25 +30,6 @@ export function simulatedThinkingTokens(body: JsonRecord): number {
   if (effort === "high") return 1024;
   return 2048;
 }
-
-/** Messages API error type for a non-ok status, as the API names it. */
-export function claudeErrorTypeFor(status: number): string {
-  switch (status) {
-    case 400: return "invalid_request_error";
-    case 401: return "authentication_error";
-    case 402: return "billing_error";
-    case 403: return "permission_error";
-    case 404: return "not_found_error";
-    case 413: return "request_too_large";
-    case 429: return "rate_limit_error";
-    case 529: return "overloaded_error";
-    default: return "api_error";
-  }
-}
-
-/** The API reports an empty credit balance as a 400 invalid_request_error. */
-export const CREDIT_BALANCE_MESSAGE =
-  "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.";
 
 /** An error body whose read fails and whose cancel throws, quoting private text. */
 export function brokenBody(privateText: string): ReadableStream<Uint8Array> {
