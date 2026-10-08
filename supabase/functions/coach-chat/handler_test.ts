@@ -906,15 +906,28 @@ Deno.test("Review: erkannte Sicherheitskategorien bleiben bei unvollstaendigen M
   }
 });
 
-Deno.test("Review: Provider-Sicherheitsfilter bleibt in jedem Modus ohne Refund gesperrt", async () => {
+Deno.test("Review: Provider-Ablehnung des Classifiers antwortet in jedem Modus mit Hinweis, ohne Refund", async () => {
+  // The provider's safety system declined to classify, so nothing is known
+  // about the message, which may be a crisis. Every mode refuses with the
+  // signposting text instead of a bare provider error; the slot stays spent.
   for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }, logMode()]) {
     const stub = installFetch({ classifierContent: "", classifierFinishReason: "content_filter" });
-    const logs = quietConsole((extra as JsonRecord).mode === "log");
+    const logs = quietConsole(true);
+    const label = JSON.stringify(Object.keys(extra));
     try {
       const res = await handleRequest(makeRequest({ message: "Bitte hilf mir damit", ...extra }));
-      assertEquals(res.status, 502, "keine verwendbare Providerantwort");
-      assertEquals(stub.providerCalls().length, 1, "kein weiterer Provider-Call");
-      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein gratis Wiederholungsbudget");
+      const body = await res.json() as JsonRecord;
+      assertEquals(res.status, 200, `${label}: Ablehnung statt Fehler`);
+      assertEquals(body.refusal, true, `${label}: refusal`);
+      assertEquals(body.refusal_reason, "provider_refusal", `${label}: Grund`);
+      assert(String(body.reply).includes("0800 111 0 111"), `${label}: Hilfe-Hinweis`);
+      assertEquals(stub.providerCalls().length, 1, `${label}: kein weiterer Provider-Call`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${label}: kein gratis Wiederholungsbudget`);
+      const rows = stub.calls
+        .filter((call) => call.url.includes("/rest/v1/chat_messages") && call.method === "POST")
+        .map((call) => JSON.parse(call.body) as JsonRecord);
+      assertEquals(rows.map((row) => row.role).join(","), "user,assistant", `${label}: Frage und Ablehnung gespeichert`);
+      assertEquals(rows[1].refusal_reason, "classifier_provider_refusal", `${label}: gespeicherter Grund`);
     } finally {
       logs.restore();
       stub.restore();
@@ -2086,21 +2099,27 @@ Deno.test("Fund 1: echter Provider-Ausfall wird weiterhin refundiert", async () 
   }
 });
 
-Deno.test("Fund 1: Classifier-4xx durch den Client behaelt den Slot ebenfalls", async () => {
-  // Same path one layer earlier: a rejected classifier input is a paid call.
-  // Refunding it would make the slot reusable via a provokable rejection —
-  // the very bypass the CWE-770 fix closed.
+Deno.test("Fund 1 (Claude): ein Eingabe-4xx auf reinen Text-Calls ist unser Fehler und wird refundiert", async () => {
+  // The server validates every text before a paid call; only a photo can make
+  // the provider reject input the user is to blame for. A 400/413 on the
+  // text-only classifier or answer therefore means our request shape, model
+  // setting or account, and must not cost the user a slot.
   for (const status of [400, 413, 415, 422]) {
-    const stub = installFetch({ classifierStatus: status });
-    try {
-      const res = await handleRequest(makeRequest({
-        message: "Wie viel Protein brauche ich beim Cutting?",
-      }));
-      assertEquals(res.status, 502, `${status}: Status`);
-      assertEquals(stub.callsTo("claim_chat_quota").length, 1, `${status}: Slot geclaimt`);
-      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${status}: kein Refund`);
-    } finally {
-      stub.restore();
+    for (const [name, options] of [
+      ["Classifier", { classifierStatus: status }],
+      ["Answer", { classifierCategory: "fitness", answerStatus: status }],
+    ] as const) {
+      const stub = installFetch(options);
+      try {
+        const res = await handleRequest(makeRequest({
+          message: "Wie viel Protein brauche ich beim Cutting?",
+        }));
+        assertEquals(res.status, 502, `${name} ${status}: Status`);
+        assertEquals(stub.callsTo("claim_chat_quota").length, 1, `${name} ${status}: Slot geclaimt`);
+        assertEquals(stub.callsTo("refund_chat_quota").length, 1, `${name} ${status}: genau ein Refund`);
+      } finally {
+        stub.restore();
+      }
     }
   }
 });
@@ -3009,7 +3028,8 @@ Deno.test("Provider body: oversized paid rejection is bounded without refund", a
     return baseFetch(input, init);
   }) as typeof fetch;
   try {
-    const res = await handleRequest(makeRequest({ message: "Please help with dinner" }));
+    // With a photo: the one input whose 4xx stays the user's fault.
+    const res = await handleRequest(makeRequest({ message: "Please help with dinner", image_base64: IMAGE_BASE64 }));
     assertEquals(res.status, 502, "provider rejection remains a controlled failure");
     assert(pulled <= 10 && cancelled, "oversized error response must stop before unlimited buffering");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "known paid 4xx stays non-refundable");
@@ -3164,24 +3184,26 @@ Deno.test("Claude 403: permission_error ist unser Schluessel und refundiert Klas
   }
 });
 
-Deno.test("Claude 400: leeres Guthaben ist unser Ausfall (Refund), ein gewoehnlicher 400 bleibt bezahlt", async () => {
+Deno.test("Claude 400: leeres Guthaben ist unser Ausfall (Refund), ein Foto-400 bleibt bezahlt", async () => {
   // The API reports an empty credit balance as 400 invalid_request_error.
-  // Read as a client fault it would charge every user for our billing.
+  // Read as a client fault it would charge every user for our billing. With a
+  // photo in the request, an ordinary 400 is the user's input and stays paid.
   const credit = claudeErrorBody("invalid_request_error", CREDIT_BALANCE_MESSAGE);
   const billing = claudeErrorBody("billing_error", "Billing issue on this organization.");
   const plain = claudeErrorBody("invalid_request_error", "messages.0.content.0.image.source.base64: invalid image data");
-  const cases: { name: string; options: StubOptions; refunds: number }[] = [
-    { name: "Classifier, Guthaben", options: { classifierStatus: 400, providerErrorBody: credit }, refunds: 1 },
-    { name: "Answer, Guthaben", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: credit }, refunds: 1 },
-    { name: "Answer, billing_error", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: billing }, refunds: 1 },
-    { name: "Classifier, gewoehnlich", options: { classifierStatus: 400, providerErrorBody: plain }, refunds: 0 },
-    { name: "Answer, gewoehnlich", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: plain }, refunds: 0 },
+  const photo = { image_base64: IMAGE_BASE64 };
+  const cases: { name: string; options: StubOptions; extra: JsonRecord; refunds: number }[] = [
+    { name: "Classifier, Guthaben", options: { classifierStatus: 400, providerErrorBody: credit }, extra: {}, refunds: 1 },
+    { name: "Answer mit Foto, Guthaben", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: credit }, extra: photo, refunds: 1 },
+    { name: "Answer mit Foto, billing_error", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: billing }, extra: photo, refunds: 1 },
+    { name: "Classifier, gewoehnlich", options: { classifierStatus: 400, providerErrorBody: plain }, extra: {}, refunds: 1 },
+    { name: "Answer mit Foto, gewoehnlich", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: plain }, extra: photo, refunds: 0 },
   ];
-  for (const { name, options, refunds } of cases) {
+  for (const { name, options, extra, refunds } of cases) {
     const stub = installFetch(options);
     const logs = captureConsoleError();
     try {
-      const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich beim Cutting?" }));
+      const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich beim Cutting?", ...extra }));
       assertEquals(res.status, 502, `${name}: Status`);
       assertEquals((await res.json() as JsonRecord).error, "provider_error", `${name}: Fehlercode`);
       assertEquals(stub.callsTo("claim_chat_quota").length, 1, `${name}: Slot geclaimt`);
