@@ -2,6 +2,8 @@
 import { handleRequest as coach } from "../../supabase/functions/coach-chat/handler.ts";
 import { handleRequest as analyze } from "../../supabase/functions/analyze-meal/handler.ts";
 import { PNG_BASE64 } from "../../supabase/functions/analyze-meal/image_fixtures.ts";
+import { CLAUDE_MODEL } from "../../supabase/functions/_shared/claude.ts";
+import { CLAUDE_URL, claudeResponse } from "../../supabase/functions/_shared/claude_test_fixtures.ts";
 
 type RecordData = Record<string, unknown>;
 type Handler = (request: Request) => Response | Promise<Response>;
@@ -12,6 +14,7 @@ if (!["http://127.0.0.1:54991/", "http://127.0.0.1:54992/"].includes(base.href))
 }
 const ANON = "synthetic-anon-key";
 const SERVICE = "synthetic-service-key";
+const PROVIDER_KEY = "synthetic-provider-key";
 const SESSION_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SESSION_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const nativeFetch = globalThis.fetch;
@@ -115,24 +118,26 @@ globalThis.fetch = async (resource: string | URL | Request, init?: RequestInit):
       return json([]);
     }
   }
-  if (url.href === "https://openrouter.ai/api/v1/chat/completions") {
+  if (url.href === CLAUDE_URL) {
     check(actor, "Provider called before verified identity");
-    check(body.model !== "attacker-model", "Client selected provider model");
+    check(body.model === CLAUDE_MODEL && body.model !== "attacker-model", "Client selected provider model");
+    check(headers.get("x-api-key") === PROVIDER_KEY && !headers.has("authorization"), "Provider must get only the server key");
     check(!JSON.stringify(body).includes("untrusted-system-marker"), "Client injected privileged message");
+    // The operation follows from the requested output schema, not from the client.
+    const properties = body.output_config?.format?.schema?.properties ?? {};
+    const operation = "category" in properties ? "coach_classifier" : "mealName" in properties ? "analyze_meal" : "coach_answer";
     if (input.requireProviderBudgets) {
-      const operation = body.max_tokens === 256 ? "coach_classifier"
-        : body.max_tokens === 3072 ? "coach_answer" : "analyze_meal";
       check(pendingReservations.shift() === operation, "Paid call lacks its own prior provider-budget reservation");
     }
     providerCalls++;
-    const modelContent = body.max_tokens === 256
+    const modelContent = operation === "coach_classifier"
       ? JSON.stringify({ category: "fitness", confidence: "high" })
-      : body.max_tokens === 3072
+      : operation === "coach_answer"
       ? "Begin with a comfortable walk."
       : JSON.stringify({ mealName: "Synthetic meal", caloriesKcal: 200, estimatedGrams: 100,
         kcalPer100G: 200, proteinG: 10, carbsG: 20, fatG: 9, confidence: "medium",
         explanation: "Synthetic estimate", items: [{ name: "Synthetic meal", grams: 100, caloriesKcal: 200, kcalPer100G: 200 }] });
-    return json({ choices: [{ finish_reason: "stop", message: { content: modelContent } }] });
+    return json(claudeResponse(modelContent));
   }
   throw new Error("Unexpected outbound destination or operation in isolated probe");
 };
@@ -140,7 +145,9 @@ globalThis.fetch = async (resource: string | URL | Request, init?: RequestInit):
 Deno.env.set("SUPABASE_URL", base.origin);
 Deno.env.set("SUPABASE_ANON_KEY", ANON);
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", SERVICE);
-Deno.env.set("OPENROUTER_API_KEY", "synthetic-provider-key");
+Deno.env.set("ANTHROPIC_API_KEY", PROVIDER_KEY);
+// Recipe images (OpenRouter) are not part of this probe; no key, no call.
+Deno.env.delete("OPENROUTER_API_KEY");
 Deno.env.set("EATOVA_MIRROR_SEARCH_KEY", "synthetic-search-key");
 Deno.env.set("EATOVA_MIRROR_BASE_URL", "https://mirror.invalid");
 Deno.env.delete("EATOVA_MIRROR_KEY_UID");

@@ -1,13 +1,30 @@
 import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
+import {
+  cachedSystem,
+  CLAUDE_MESSAGES_URL,
+  claudeHeaders,
+  claudeRequestBody,
+  claudeText,
+  effortFromEnv,
+  finishReasonFromStop,
+} from '../_shared/claude.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
 import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { extractionPrompt, parseExtraction } from './extraction.ts';
 import { loadSource } from './source.ts';
-import { extractionResponseFormat } from './schema.ts';
+import { extractionSchema } from './schema.ts';
 
+// Measured on 2026-10-08 with a three-recipe caption plus a vegan variant:
+// "medium" found all four candidates in ~9.5 s, "high" the same in 20-23 s
+// (more on longer captions), "low" missed the variant.
+const RECIPE_IMPORT_EFFORT = effortFromEnv('RECIPE_IMPORT_EFFORT', 'medium');
 const REQUEST_BUDGET_MS = 55_000;
+// `window`: provider share of the request budget, after up to 10 s of source
+// fetching. `retryMin`: a second attempt shorter than this would only time out
+// after being paid for. Mutable only so offline tests can shorten them.
+export const PROVIDER_TIMINGS_MS = { window: 40_000, retryMin: 15_000 };
 const MAX_BODY_BYTES = 90_000;
 const MAX_TEXT_CHARS = 20_000;
 type Secrets = { supabaseUrl: string; anonKey: string; serviceKey: string; providerKey: string };
@@ -146,7 +163,7 @@ export async function handleRequest(request: Request): Promise<Response> {
   try {
     const secrets: Secrets = {
       supabaseUrl: Deno.env.get('SUPABASE_URL') ?? '', anonKey: Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', providerKey: Deno.env.get('OPENROUTER_API_KEY') ?? '',
+      serviceKey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', providerKey: Deno.env.get('ANTHROPIC_API_KEY') ?? '',
     };
     if (Object.values(secrets).some((value) => !value)) throw new ImportError(503, 'not_configured');
     const userId = await authenticate(request, secrets, total);
@@ -166,29 +183,33 @@ export async function handleRequest(request: Request): Promise<Response> {
       { scope: 'recipe-import:user-day', subject: userId, limit: 20, window_seconds: 86_400 },
     ], total);
     const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId, signal: total });
-    const providerDeadline = stepSignal(total, 35_000);
+    // One attempt gets the whole provider window: output grows with the
+    // source, and a three-recipe caption took ~10 s at "medium" and ~20-32 s at
+    // "high". A second paid attempt follows only a quick transient failure or
+    // a malformed complete answer, and only with time left to finish.
+    const providerStarted = Date.now();
+    const window = PROVIDER_TIMINGS_MS.window;
+    const providerDeadline = stepSignal(total, window);
+    const retryPossible = () =>
+      !providerDeadline.aborted && window - (Date.now() - providerStarted) >= PROVIDER_TIMINGS_MS.retryMin;
     let lastError = new ImportError(502, 'provider_invalid_response');
     for (let attempt = 0; attempt < 2; attempt++) {
       await budget('coach_recipe');
-      const signal = stepSignal(providerDeadline, attempt === 0 ? 25_000 : 15_000);
+      const signal = providerDeadline;
       let provider: unknown;
       try {
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const response = await fetch(CLAUDE_MESSAGES_URL, {
           method: 'POST', signal, redirect: 'error',
-          headers: { authorization: `Bearer ${secrets.providerKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            model: Deno.env.get('RECIPE_IMPORT_MODEL') ?? Deno.env.get('COACH_MODEL_ANSWER') ?? 'google/gemini-3.8-flash',
-            messages: [
-              { role: 'system', content: extractionPrompt(input.locale) },
-              { role: 'user', content: JSON.stringify({ source_text: source.text }) },
-            ],
-            response_format: extractionResponseFormat, provider: { require_parameters: true }, temperature: 0,
-            reasoning: { effort: 'minimal' }, max_tokens: 12_000,
-          }),
+          headers: claudeHeaders(secrets.providerKey),
+          body: JSON.stringify(claudeRequestBody({
+            system: cachedSystem(extractionPrompt(input.locale)),
+            messages: [{ role: 'user', content: JSON.stringify({ source_text: source.text }) }],
+            maxTokens: 12_000, effort: RECIPE_IMPORT_EFFORT, schema: extractionSchema,
+          })),
         });
         if (!response.ok) {
           void response.body?.cancel().catch(() => {});
-          if (attempt === 0 && (response.status === 429 || response.status >= 500) && !providerDeadline.aborted) {
+          if (attempt === 0 && (response.status === 429 || response.status >= 500) && retryPossible()) {
             lastError = new ImportError(502, 'provider_unavailable');
             continue;
           }
@@ -197,16 +218,19 @@ export async function handleRequest(request: Request): Promise<Response> {
         provider = await boundedJson(response, 192_000, signal);
       } catch (error) {
         if (error instanceof ImportError) throw error;
-        lastError = new ImportError(signal.aborted ? 504 : 502, signal.aborted ? 'request_timeout' : 'provider_invalid_response');
-        if (attempt === 0 && !providerDeadline.aborted) continue;
+        // A timeout leaves no time for a second attempt.
+        if (signal.aborted) throw new ImportError(504, 'request_timeout');
+        lastError = new ImportError(502, 'provider_invalid_response');
+        if (attempt === 0 && retryPossible()) continue;
         throw lastError;
       }
-      const choice = record(provider) && Array.isArray(provider.choices) ? provider.choices[0] : null;
-      const result = record(choice) && choice.finish_reason === 'stop' && record(choice.message) && typeof choice.message.content === 'string'
-        ? await parseExtraction(choice.message.content, source, input.version) : null;
+      const stop = record(provider) ? finishReasonFromStop(provider.stop_reason) : undefined;
+      const result = stop === 'stop' ? await parseExtraction(claudeText(provider), source, input.version) : null;
       if (result) return json(request, result);
       lastError = new ImportError(502, 'provider_invalid_response');
-      if (providerDeadline.aborted) break;
+      // A safety decline or a cut-off answer would repeat; only a malformed
+      // complete answer may come out differently.
+      if (stop !== 'stop' || !retryPossible()) break;
     }
     throw lastError;
   } catch (error) {

@@ -21,6 +21,7 @@ import { handleRequest } from './handler.ts';
 import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import { PNG_BASE64 } from './image_fixtures.ts';
+import { CLAUDE_URL, claudeResponse, isClaudeCall } from '../_shared/claude_test_fixtures.ts';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const BASE_URL = 'https://supabase.test.invalid';
@@ -46,7 +47,7 @@ const MODEL_RESULT = {
 Deno.env.set('SUPABASE_URL', BASE_URL);
 Deno.env.set('SUPABASE_ANON_KEY', ANON_KEY);
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'test-service-key');
-Deno.env.set('OPENROUTER_API_KEY', 'test-openrouter-key');
+Deno.env.set('ANTHROPIC_API_KEY', 'test-anthropic-key');
 
 /** Gate order since the 2026-08-29 fix: the two attempt counters first, then
  *  body validation, then the two day buckets that must count analyses. */
@@ -84,7 +85,7 @@ interface StubOptions {
   userDayAllowed?: boolean;
   globalAllowed?: boolean;
   /** Substrings of URLs whose fetch never answers on its own. */
-  hangOn?: ('auth' | 'gate' | 'auth-fail' | 'prune' | 'openrouter')[];
+  hangOn?: ('auth' | 'gate' | 'auth-fail' | 'prune' | 'provider')[];
   /** Routes that answer 200 WITH HEADERS and then stall on the body (P6-07b). */
   stallBodyOn?: ('auth' | 'gate')[];
   /**
@@ -253,9 +254,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (hangOn.has('prune')) return hang(signal);
       return Promise.resolve(new Response(null, { status: 204 }));
     }
-    if (url.includes('openrouter.ai')) {
-      if (hangOn.has('openrouter')) return hang(signal);
-      return Promise.resolve(jsonRes({ choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }] }));
+    if (isClaudeCall(url)) {
+      if (hangOn.has('provider')) return hang(signal);
+      return Promise.resolve(jsonRes(claudeResponse(JSON.stringify(MODEL_RESULT))));
     }
     throw new Error(`Unerwarteter fetch im Test: ${url}`);
   }
@@ -473,7 +474,7 @@ Deno.test('P6-01: fehlendes Bild -> 400 ohne globalen Slot', async () => {
     // The decisive assertion: a few hundred bytes of junk must not be able to
     // empty the shared day cap for everyone until 00:00 UTC.
     assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -509,7 +510,7 @@ Deno.test('P6-01: nur der bezahlte Weg verbraucht den globalen Slot', async () =
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
     assertEquals(res.status, 200, 'Status');
     assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 1, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 1, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -541,7 +542,7 @@ Deno.test('P6-07: haengender Auth-Lookup bricht ab statt zu blockieren', async (
     // out on 401/403 (lib/src/services/meal_analyzer.dart).
     assertEquals(res.status, 503, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'auth_unavailable', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -556,7 +557,7 @@ Deno.test('P6-07: haengendes Rate-Limit-RPC bricht ab statt zu blockieren', asyn
     assert(Date.now() - started < 5_000, 'Rate-Limit-RPC lief in kein Zeitlimit');
     assertEquals(res.status, 500, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -605,7 +606,7 @@ Deno.test('P6-07: das Restbudget deckelt den Provider-Call', async () => {
   // Budget 80 ms: whatever the preliminary steps left over is what the
   // provider gets, never the full 45 s on top of them.
   const handler = await loadHandler('tiny-budget', { ANALYZE_MEAL_REQUEST_BUDGET_MS: '80' });
-  const stub = installFetch({ hangOn: ['openrouter'] });
+  const stub = installFetch({ hangOn: ['provider'] });
   const started = Date.now();
   try {
     const res = await handleWithGuard(handler, makeRequest({ imageBase64: IMAGE_BASE64 }));
@@ -695,7 +696,7 @@ Deno.test('P6-01b: ein tropfender Upload endet mit 408 VOR den Tagesgates', asyn
     // slot burnt there stays burnt. A client that only uploads slowly must not
     // be able to reach them — the two rolling attempt gates are its whole cost.
     assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
     // The body ceiling governs, NOT the request budget (55 s): what is left
     // for the stages behind it is a server-side number again.
     assert(elapsed < 3_000, `Abbruch dauerte ${elapsed} ms — es greift nicht die Body-Grenze`);
@@ -715,7 +716,7 @@ Deno.test('P6-01b: ein langsamer, aber vollstaendiger Upload kommt normal durch'
     const res = await handleWithGuard(handler, request);
     assertEquals(res.status, 200, 'Status');
     assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 1, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 1, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -775,7 +776,7 @@ Deno.test('D1: ein langsamer, aber stetig liefernder Upload laeuft durch', async
       `Upload dauerte nur ${elapsed} ms — er hat die Leerlaufgrenze gar nicht ueberschritten`,
     );
     assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 1, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 1, 'Provider-Calls');
   } finally {
     paced.stop();
     stub.restore();
@@ -798,7 +799,7 @@ Deno.test('D1: ein Upload, der nach Fortschritt stehen bleibt, endet weiterhin i
     assert(elapsed >= 400, `Abbruch nach ${elapsed} ms — die Leerlaufuhr laeuft gar nicht`);
     assert(elapsed < 3_000, `Abbruch dauerte ${elapsed} ms — der haengende Upload wird nicht gedeckelt`);
     assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     paced.stop();
     stub.restore();
@@ -822,7 +823,7 @@ Deno.test('D1: ein endlos tropfender Upload laeuft in die Gesamtgrenze', async (
     assertEquals((await res.json() as JsonRecord).error, 'request_timeout', 'Fehlercode');
     assert(elapsed >= 1_800, `Abbruch nach ${elapsed} ms — die Gesamtgrenze greift zu frueh`);
     assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     paced.stop();
     stub.restore();
@@ -849,7 +850,7 @@ Deno.test('D2: stockender Auth-Body ergibt 503 auth_unavailable, nicht 500', asy
     // signs the user out on 401/403 (lib/src/services/meal_analyzer.dart).
     assertEquals(res.status, 503, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'auth_unavailable', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -867,7 +868,7 @@ Deno.test('D2: stockender Limiter-Body ergibt rate_limit_unavailable, nicht inte
     // maps and the operator line that names the limiter.
     assertEquals(res.status, 500, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -900,7 +901,7 @@ Deno.test('D3: grosser ANALYZE_MEAL_SUPABASE_TIMEOUT_MS laesst das Upload-Fenste
     assertEquals(res.status, 200, 'Status');
     assert(elapsed >= 2_100, `Upload dauerte nur ${elapsed} ms — er blieb unter dem alten 2-s-Boden`);
     assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 1, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 1, 'Provider-Calls');
   } finally {
     paced.stop();
     stub.restore();
@@ -1003,7 +1004,7 @@ Deno.test('A4: der Body wird ZWISCHEN den Batches gelesen — ein tropfender Upl
     assertEquals((await res.json() as JsonRecord).error, 'request_timeout', 'Fehlercode');
     assertEquals(stub.rateLimitCalls(), 1, 'nur der erste Batch darf gelaufen sein');
     assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -1053,7 +1054,7 @@ Deno.test('A4: eine Tages-Absage verbraucht das globale Gate im selben Batch nic
       'verbrauchte Gates',
     );
     assertEquals(batchGates(stub, 1).length, 2, 'gesendete Gates im zweiten Batch');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -1109,7 +1110,7 @@ Deno.test('A4: ein kurzes Ergebnis ohne Absage ist ein Ausfall, kein Freibrief',
     assertEquals(res.status, 500, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
     assertEquals(stub.rateLimitScopes().join(','), 'analyze-meal:ip', 'verbrauchte Gates');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -1133,7 +1134,7 @@ Deno.test('A6: mehr Elemente als Gates ist ein Ausfall, kein Urteil fuer ein nie
     assertEquals(res.status, 500, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
     assertEquals(stub.rateLimitCalls(), 1, 'nach dem ersten Batch ist Schluss');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -1165,7 +1166,7 @@ Deno.test('A6: ein Element ohne lesbares allowed ist ein Ausfall, kein Freibrief
         'rate_limit_unavailable',
         `${fall.was}: Fehlercode`,
       );
-      assertEquals(stub.callsTo('openrouter.ai').length, 0, `${fall.was}: Provider-Calls`);
+      assertEquals(stub.callsTo(CLAUDE_URL).length, 0, `${fall.was}: Provider-Calls`);
       assertEquals(stub.rateLimitCalls(), 1, `${fall.was}: nach dem ersten Batch ist Schluss`);
     } finally {
       stub.restore();
@@ -1183,7 +1184,7 @@ Deno.test('A6: ein leeres Ergebnis-Array ist ein Ausfall, kein Freibrief', async
     assertEquals(res.status, 500, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
     assertEquals(stub.rateLimitScopes().length, 0, 'kein Tor verbraucht');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }

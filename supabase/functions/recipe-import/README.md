@@ -114,15 +114,19 @@ features. It does not consume a coach chat message slot. No new database schema
 is required. Existing provider-budget and rate-limit migrations must be deployed.
 
 Existing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
-`OPENROUTER_API_KEY` configuration is used. Optional `RECIPE_IMPORT_MODEL`
-overrides `COACH_MODEL_ANSWER` / the existing Gemini default. Deployment must
+`ANTHROPIC_API_KEY` configuration is used. The model is `CLAUDE_MODEL` (default
+`claude-sonnet-5-5`) at `RECIPE_IMPORT_EFFORT` (default `medium`). Deployment must
 retain the Supabase JWT gateway verification. Total handler budget is 55 seconds;
 source fetching has a 10-second ceiling (2.5 seconds per source request) and model
-calls share a 35-second ceiling. Structured outputs use `json_schema` and
-`provider.require_parameters=true`. Nested array caps remain server-side because
-the live Gemini route rejected nested `maxItems` constraints. Incomplete JSON,
-non-stop finish reasons and transient HTTP errors permit one bounded retry with a
-fresh paid-call reservation. Permanent provider errors are not retried.
+calls share a 40-second window; the first attempt may use all of it, because
+output grows with the source. Structured outputs use `output_config.format`
+with the JSON schema in [schema.ts](schema.ts). Array caps remain server-side
+because structured outputs support no array or numeric constraints. A malformed
+complete answer, a transport error and transient HTTP errors (429, 5xx,
+including 529 overload) permit one more attempt with a fresh paid-call
+reservation, but only while at least 15 seconds of the window remain. A
+timeout, a safety decline (`refusal`), a cut-off answer (`max_tokens`) and
+permanent provider errors are not retried.
 
 Errors are machine codes: `invalid_request` / `invalid_json` (400), `unauthorized`
 (401), `payload_too_large` (413), `unsupported_content_type` (415), `rate_limited`

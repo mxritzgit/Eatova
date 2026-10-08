@@ -13,6 +13,19 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 import { handleRequest, PROVIDER_TIMEOUTS_MS, REQUEST_BODY_TIMEOUTS_MS } from "./handler.ts";
 import { resetAuthFailCacheForTests } from "../_shared/auth_fail_gate.ts";
 import { JPEG_BASE64, PNG_BASE64, WEBP_BASE64 } from "../analyze-meal/image_fixtures.ts";
+import {
+  CLAUDE_URL,
+  claudeErrorBody,
+  claudeErrorTypeFor,
+  claudeResponse,
+  CREDIT_BALANCE_MESSAGE,
+  imageBlocks,
+  isClassifierRequest,
+  isClaudeCall,
+  isProviderCall,
+  outputSchema,
+  systemText,
+} from "../_shared/claude_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -76,6 +89,7 @@ function quietConsole(active: boolean): { lines: string[]; restore(): void } {
 Deno.env.set("SUPABASE_URL", BASE_URL);
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
+Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
 Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 type JsonRecord = Record<string, unknown>;
@@ -97,7 +111,11 @@ interface StubOptions {
    * failure (W1): a paid call after which no classification exists.
    */
   classifierContent?: string;
-  /** Provider completion status, including truncated structured output. */
+  /**
+   * Provider completion status in finish_reason terms, including truncated
+   * structured output; translated to Claude's stop_reason. Present but
+   * undefined omits stop_reason.
+   */
   classifierFinishReason?: string | null;
   /**
    * Behaviour of claim_chat_quota. "ok" grants a slot, "exhausted" answers
@@ -110,13 +128,14 @@ interface StubOptions {
   /** HTTP status of the classifier call (infra failure simulation). */
   classifierStatus?: number;
   /**
-   * HTTP status of the expensive answer call. 4xx = the provider rejected the
-   * input, 5xx = outage; that split decides the refund.
+   * HTTP status of the expensive answer call. Client-fault 4xx (400, 413, 415,
+   * 422) keep the slot; every other status is an outage and is refunded.
    */
   answerStatus?: number;
   /**
-   * Raw error body from the provider. Real 4xx mirror parts of the user
-   * input, the basis of the log redaction test (CWE-532).
+   * Raw error body from the provider (default: the Messages API error for the
+   * status). Real 4xx can mirror parts of the user input, the basis of the log
+   * redaction test (CWE-532).
    */
   providerErrorBody?: string;
   /**
@@ -163,8 +182,11 @@ interface StubOptions {
 
 interface FetchStub {
   calls: RecordedCall[];
-  openRouterBodies: JsonRecord[];
+  /** Request bodies of every Messages API call, in call order. */
+  claudeBodies: JsonRecord[];
   callsTo(fragment: string): RecordedCall[];
+  /** Every paid provider call: Claude and the OpenRouter image API. */
+  providerCalls(): RecordedCall[];
   classifierBodies(): JsonRecord[];
   answerBodies(): JsonRecord[];
   /** The p_gates arrays of every BATCHED limiter call, in call order. */
@@ -213,7 +235,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   // P7-02: every stub starts from a cold isolate (empty auth-fail caches).
   resetAuthFailCacheForTests();
   const calls: RecordedCall[] = [];
-  const openRouterBodies: JsonRecord[] = [];
+  const claudeBodies: JsonRecord[] = [];
   const original = globalThis.fetch;
   let authFailConsumes = 0;
   let providerBudgetUsed = 0;
@@ -315,45 +337,41 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
       return new Response(null, { status: 204 });
     }
-    if (url.includes("openrouter.ai")) {
+    // Recipe images stay on OpenRouter; no test here expects one, so an
+    // unexpected image call fails like an outage and stays countable.
+    if (url.startsWith("https://openrouter.ai/")) return jsonRes({ error: "unexpected image call" }, 503);
+    if (isClaudeCall(url)) {
       const parsed = JSON.parse(body) as JsonRecord;
-      openRouterBodies.push(parsed);
-      // Classifier and answer call differ unambiguously in token budget
-      // (256 vs. 3072).
-      if (parsed.max_tokens === 256) {
+      claudeBodies.push(parsed);
+      // The classifier is the one call that asks for the category schema.
+      if (isClassifierRequest(parsed)) {
         if (options.classifierHangs) return hangUntilAbort(signal);
         if (options.classifierStatus !== undefined) {
           // Classifier infra failure (provider answers non-ok).
           return new Response(
-            options.providerErrorBody ?? "upstream unavailable",
+            options.providerErrorBody ?? claudeErrorBody(claudeErrorTypeFor(options.classifierStatus)),
             { status: options.classifierStatus },
           );
         }
-        return jsonRes({
-          choices: [{
-            finish_reason: Object.hasOwn(options, "classifierFinishReason") ? options.classifierFinishReason : "stop",
-            message: {
-              content: options.classifierContent ?? JSON.stringify({
-                category: options.classifierCategory ?? "fitness",
-                confidence: "high",
-              }),
-            },
-          }],
-        });
+        const finishReason = Object.hasOwn(options, "classifierFinishReason") ? options.classifierFinishReason : "stop";
+        const response = claudeResponse(
+          options.classifierContent ?? JSON.stringify({
+            category: options.classifierCategory ?? "fitness",
+            confidence: "high",
+          }),
+          finishReason ?? null,
+        );
+        if (finishReason === undefined) delete response.stop_reason;
+        return jsonRes(response);
       }
       if (options.answerHangs) return hangUntilAbort(signal);
       if (options.answerStatus !== undefined) {
         return new Response(
-          options.providerErrorBody ?? "upstream rejected the request",
+          options.providerErrorBody ?? claudeErrorBody(claudeErrorTypeFor(options.answerStatus)),
           { status: options.answerStatus },
         );
       }
-      return jsonRes({
-        choices: [{
-          message: { content: options.answerContent ?? "Klar, machen wir." },
-          finish_reason: options.answerFinishReason ?? "stop",
-        }],
-      });
+      return jsonRes(claudeResponse(options.answerContent ?? "Klar, machen wir.", options.answerFinishReason ?? "stop"));
     }
     if (url.includes("/rest/v1/chat_messages")) {
       // POST = storeMessage, GET = loadHistory.
@@ -387,10 +405,12 @@ function installFetch(options: StubOptions = {}): FetchStub {
 
   return {
     calls,
-    openRouterBodies,
+    claudeBodies,
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
-    classifierBodies: () => openRouterBodies.filter((b) => b.max_tokens === 256),
-    answerBodies: () => openRouterBodies.filter((b) => b.max_tokens === 3072),
+    providerCalls: () => calls.filter((call) => isProviderCall(call.url)),
+    classifierBodies: () => claudeBodies.filter((b) => isClassifierRequest(b)),
+    // The chat answer is the one Claude call without a JSON schema.
+    answerBodies: () => claudeBodies.filter((b) => outputSchema(b) === undefined),
     gateBatches: () =>
       calls
         .filter((call) => call.url.includes("/rpc/consume_edge_rate_limits"))
@@ -435,7 +455,7 @@ for (const locale of ["de", "en"] as const) {
         assert(!reply.includes("natuerlichem Training") && !reply.includes("natural training"), "do not redirect unresolved symptoms to further training");
         assertEquals(body.recipe, undefined, "no recipe");
         assertEquals(body.training_plan, undefined, "no training plan");
-        assertEquals(stub.openRouterBodies.length, 1, "classifier only");
+        assertEquals(stub.providerCalls().length, 1, "classifier only");
         assertEquals(stub.callsTo("refund_chat_quota").length, 0, "same paid refusal quota contract");
         const assistant = stub.callsTo("/rest/v1/chat_messages").filter((call) => call.method === "POST").map((call) => JSON.parse(call.body)).find((row) => row.role === "assistant");
         assertEquals(assistant.content, reply, "history contains only the fixed refusal");
@@ -468,9 +488,9 @@ Deno.test("REGRESSION: Bild + Self-Harm-Text -> Krisen-Antwort statt Bypass", as
     assertEquals(body.remaining, 4, "remaining aus dem Quota-Claim");
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "claim_chat_quota-Calls");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund fuer Refusals");
-    // Exactly one OpenRouter call, the classifier. The expensive answer call
+    // Exactly one provider call, the classifier. The expensive answer call
     // (with vision tokens) must not happen.
-    assertEquals(stub.openRouterBodies.length, 1, "OpenRouter-Calls");
+    assertEquals(stub.providerCalls().length, 1, "Provider-Calls");
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer-Calls");
     assertEquals(stub.answerBodies().length, 0, "Answer-Calls");
   } finally {
@@ -490,20 +510,23 @@ Deno.test("Kostengarantie: der Klassifizierer sieht nie das Bild", async () => {
     const bodies = stub.classifierBodies();
     assertEquals(bodies.length, 1, "genau ein Klassifizierer-Call");
     const raw = JSON.stringify(bodies[0]);
-    assert(!raw.includes("image_url"), "Klassifizierer-Body enthaelt image_url");
+    assertEquals(imageBlocks(bodies[0]).length, 0, "Klassifizierer-Body enthaelt einen Bildblock");
+    assert(!raw.includes('"type":"image"'), "Klassifizierer-Body enthaelt einen Bildblock");
     assert(!raw.includes(IMAGE_BASE64), "Klassifizierer-Body enthaelt die Base64-Nutzlast");
     assert(
       !raw.includes(IMAGE_BASE64.slice(0, 32)),
       "Klassifizierer-Body enthaelt ein Fragment der Base64-Nutzlast",
     );
     // So the image path costs exactly the same as the text path.
-    assertEquals(bodies[0].max_tokens, 256, "max_tokens");
+    assertEquals(bodies[0].max_tokens, 1024, "max_tokens");
 
+    // The system prompt travels in `system`; the only message is the user's.
+    assert(systemText(bodies[0]).length > 0, "System-Prompt fehlt");
     const messages = bodies[0].messages as { role: string; content: unknown }[];
-    assertEquals(messages.length, 2, "system + user");
-    assertEquals(messages[1].role, "user", "zweite Message ist die User-Message");
-    assertEquals(typeof messages[1].content, "string", "content ist ein reiner String");
-    assertEquals(messages[1].content, SELF_HARM_TEXT, "content ist der Nachrichtentext");
+    assertEquals(messages.length, 1, "nur die User-Message");
+    assertEquals(messages[0].role, "user", "die Message ist die User-Message");
+    assertEquals(typeof messages[0].content, "string", "content ist ein reiner String");
+    assertEquals(messages[0].content, SELF_HARM_TEXT, "content ist der Nachrichtentext");
   } finally {
     stub.restore();
   }
@@ -573,31 +596,33 @@ Deno.test("Bild + off_topic -> Layer 3 entscheidet (Quota + Answer-Call)", async
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "claim_chat_quota-Calls");
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer lief trotzdem");
     assertEquals(stub.answerBodies().length, 1, "Answer-Call");
-    const classifierFormat = stub.classifierBodies()[0].response_format as JsonRecord;
+    const classifier = stub.classifierBodies()[0];
+    const answerBody = stub.answerBodies()[0];
+    const classifierFormat = (classifier.output_config as JsonRecord).format as JsonRecord;
     assertEquals(classifierFormat.type, "json_schema", "Classifier requests a constrained schema");
-    const schemaConfig = classifierFormat.json_schema as JsonRecord;
-    assertEquals(schemaConfig.strict, true, "strict schema");
-    const schema = schemaConfig.schema as JsonRecord;
+    // Structured outputs are always enforced; the schema itself must be closed.
+    const schema = outputSchema(classifier) as JsonRecord;
+    assertEquals(JSON.stringify(schema.required), '["category","confidence"]', "both fields required");
+    const properties = schema.properties as Record<string, JsonRecord>;
+    assert(Array.isArray(properties.category.enum) && (properties.category.enum as string[]).includes("self_harm"),
+      "closed category enum");
+    assertEquals(JSON.stringify(properties.confidence.enum), '["low","medium","high"]', "closed confidence enum");
     assertEquals(schema.additionalProperties, false, "no invented fields");
-    assertEquals((stub.classifierBodies()[0].provider as JsonRecord).require_parameters, true,
-      "route only to providers that support the schema");
-    const classifierReasoning = stub.classifierBodies()[0].reasoning as JsonRecord;
-    assertEquals(classifierReasoning.effort, "minimal", "Classifier disables unnecessary reasoning");
-    assertEquals(
-      stub.classifierBodies()[0].model,
-      "google/gemini-3.8-flash",
-      "Classifier uses Gemini Flash by default",
-    );
-    assertEquals(
-      stub.answerBodies()[0].model,
-      "google/gemini-3.8-flash",
-      "Coach answer uses Gemini Flash by default",
-    );
+    // No provider routing any more: both calls go to the Messages API, which
+    // serves the schema itself.
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 2, "classifier and answer on the Messages API");
+    for (const [name, body] of [["Classifier", classifier], ["Answer", answerBody]] as const) {
+      for (const field of ["provider", "response_format", "reasoning", "temperature", "top_p", "top_k"]) {
+        assert(!(field in body), `${name}: no OpenRouter or sampling field ${field}`);
+      }
+      assertEquals(body.model, "claude-sonnet-5-5", `${name} uses Sonnet by default`);
+      assertEquals(JSON.stringify(body.thinking), '{"type":"adaptive"}', `${name}: adaptive thinking`);
+      assertEquals((body.output_config as JsonRecord).effort, "high", `${name}: COACH_EFFORT default`);
+    }
+    // The cap bounds thinking plus the JSON object.
+    assertEquals(classifier.max_tokens, 1024, "Classifier keeps its small cap");
     // The answer call gets the image; that is where it belongs.
-    assert(
-      JSON.stringify(stub.answerBodies()[0]).includes("image_url"),
-      "Answer-Call muss das Bild enthalten",
-    );
+    assertEquals(imageBlocks(answerBody).length, 1, "Answer-Call muss das Bild enthalten");
   } finally {
     stub.restore();
   }
@@ -654,7 +679,7 @@ Deno.test("CWE-770-Fix: Classifier-Refusal verbraucht den Tages-Slot, kein Refun
 Deno.test("CWE-770-Fix: erschoepfte Quota -> 429 VOR jedem bezahlten Provider-Call", async () => {
   // The finding itself: the classifier ran before the quota claim, so an
   // exhausted user still reached paid classification. The 429 must now come
-  // before OpenRouter is touched at all.
+  // before the provider is touched at all.
   const stub = installFetch({ quota: "exhausted", classifierCategory: "fitness" });
   try {
     const res = await handleRequest(makeRequest({
@@ -665,7 +690,7 @@ Deno.test("CWE-770-Fix: erschoepfte Quota -> 429 VOR jedem bezahlten Provider-Ca
     assertEquals(body.error, "quota_exceeded", "error");
     assertEquals(body.remaining, 0, "remaining");
     assertEquals(body.daily_limit, 5, "daily_limit");
-    assertEquals(stub.openRouterBodies.length, 0, "kein OpenRouter-Call bei erschoepfter Quota");
+    assertEquals(stub.providerCalls().length, 0, "kein Provider-Call bei erschoepfter Quota");
     assertEquals(stub.classifierBodies().length, 0, "Klassifizierer-Calls");
     assertEquals(stub.answerBodies().length, 0, "Answer-Calls");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "nichts zu refunden");
@@ -732,9 +757,10 @@ Deno.test("Textpfad unveraendert: on-topic laeuft durch bis zur Antwort", async 
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer-Call");
     assertEquals(stub.answerBodies().length, 1, "Answer-Call");
     // No image in the text path.
+    assertEquals(imageBlocks(stub.answerBodies()[0]).length, 0, "Textpfad darf keinen Bildblock schicken");
     assert(
-      !JSON.stringify(stub.answerBodies()[0]).includes("image_url"),
-      "Textpfad darf kein image_url schicken",
+      !JSON.stringify(stub.answerBodies()[0]).includes('"type":"image"'),
+      "Textpfad darf keinen Bildblock schicken",
     );
   } finally {
     stub.restore();
@@ -750,7 +776,7 @@ Deno.test("Textpfad unveraendert: on-topic laeuft durch bis zur Antwort", async 
 Deno.test("Chat: unbrauchbare Klassifikation ist ein Providerfehler, keine Themenablehnung", async () => {
   for (
     const content of [
-      "", // Gemini can exhaust its completion budget before emitting JSON
+      "", // the model can exhaust its token cap before emitting JSON
       "Ich denke, das ist Fitness.", // no JSON at all
       '{"category":"banane","confidence":"high"}', // unknown category
       '{"category":', // truncated JSON
@@ -880,15 +906,28 @@ Deno.test("Review: erkannte Sicherheitskategorien bleiben bei unvollstaendigen M
   }
 });
 
-Deno.test("Review: Provider-Sicherheitsfilter bleibt in jedem Modus ohne Refund gesperrt", async () => {
+Deno.test("Review: Provider-Ablehnung des Classifiers antwortet in jedem Modus mit Hinweis, ohne Refund", async () => {
+  // The provider's safety system declined to classify, so nothing is known
+  // about the message, which may be a crisis. Every mode refuses with the
+  // signposting text instead of a bare provider error; the slot stays spent.
   for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }, logMode()]) {
     const stub = installFetch({ classifierContent: "", classifierFinishReason: "content_filter" });
-    const logs = quietConsole((extra as JsonRecord).mode === "log");
+    const logs = quietConsole(true);
+    const label = JSON.stringify(Object.keys(extra));
     try {
       const res = await handleRequest(makeRequest({ message: "Bitte hilf mir damit", ...extra }));
-      assertEquals(res.status, 502, "keine verwendbare Providerantwort");
-      assertEquals(stub.openRouterBodies.length, 1, "kein weiterer Provider-Call");
-      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein gratis Wiederholungsbudget");
+      const body = await res.json() as JsonRecord;
+      assertEquals(res.status, 200, `${label}: Ablehnung statt Fehler`);
+      assertEquals(body.refusal, true, `${label}: refusal`);
+      assertEquals(body.refusal_reason, "provider_refusal", `${label}: Grund`);
+      assert(String(body.reply).includes("0800 111 0 111"), `${label}: Hilfe-Hinweis`);
+      assertEquals(stub.providerCalls().length, 1, `${label}: kein weiterer Provider-Call`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${label}: kein gratis Wiederholungsbudget`);
+      const rows = stub.calls
+        .filter((call) => call.url.includes("/rest/v1/chat_messages") && call.method === "POST")
+        .map((call) => JSON.parse(call.body) as JsonRecord);
+      assertEquals(rows.map((row) => row.role).join(","), "user,assistant", `${label}: Frage und Ablehnung gespeichert`);
+      assertEquals(rows[1].refusal_reason, "classifier_provider_refusal", `${label}: gespeicherter Grund`);
     } finally {
       logs.restore();
       stub.restore();
@@ -910,7 +949,7 @@ Deno.test("Layer 1 bleibt vor Layer 2: eindeutiger Text blockt ohne LLM-Call", a
     const body = await res.json() as JsonRecord;
     assertEquals(body.reply, CRISIS_REPLY, "Krisen-Antwort aus Layer 1");
     assertEquals(body.refusal_reason, "self_harm", "refusal_reason");
-    assertEquals(stub.openRouterBodies.length, 0, "Layer 1 darf keinen LLM-Call ausloesen");
+    assertEquals(stub.providerCalls().length, 0, "Layer 1 darf keinen LLM-Call ausloesen");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "claim_chat_quota-Calls");
   } finally {
     stub.restore();
@@ -1076,7 +1115,7 @@ Deno.test("P6-02: abgelehntes IP-Tor -> kurzer Text, IP-Retry-After, User-Tor un
       "keine Einzel-RPC",
     );
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota hinter dem Tor");
-    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+    assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -1097,7 +1136,7 @@ Deno.test("P6-02: abgelehntes User-Tor -> langer Text mit dem Stunden-Retry-Afte
     const retry = retryAfterOf(res);
     assert(retry > 3590 && retry <= 3600, `Retry-After aus dem Stunden-Fenster erwartet, war ${retry}`);
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota hinter dem Tor");
-    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+    assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -1112,7 +1151,7 @@ Deno.test("P6-02: Fehler der gebuendelten RPC bleibt ein 500, kein erfundenes 42
     assertEquals(body.error, "rate_limit_unavailable", "Fehlercode");
     assertEquals(res.headers.get("Retry-After"), null, "kein Retry-After auf dem Ausfall");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota hinter dem Ausfall");
-    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+    assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -1135,7 +1174,7 @@ Deno.test("P6-02: verkuerztes Ergebnis OHNE Ablehnung faellt geschlossen", async
     assertEquals(res.status, 500, "Status");
     assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
-    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+    assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -1147,7 +1186,7 @@ Deno.test("P6-02: leeres Ergebnis-Array ist ein Ausfall, kein freier Durchlauf",
     const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
     assertEquals(res.status, 500, "Status");
     assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
-    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+    assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -1278,7 +1317,7 @@ Deno.test("P6-02: ein Element ohne lesbares allowed ist ein Ausfall, kein freier
       );
       assertEquals(res.headers.get("Retry-After"), null, `${fall.was}: kein erfundenes Retry-After`);
       assertEquals(stub.callsTo("claim_chat_quota").length, 0, `${fall.was}: keine Quota`);
-      assertEquals(stub.openRouterBodies.length, 0, `${fall.was}: kein bezahlter Aufruf`);
+      assertEquals(stub.providerCalls().length, 0, `${fall.was}: kein bezahlter Aufruf`);
     } finally {
       stub.restore();
     }
@@ -1304,7 +1343,7 @@ Deno.test("P6-02: MEHR Elemente als Tore ist ebenfalls ein Ausfall", async () =>
     assertEquals(res.status, 500, "Status");
     assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
-    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+    assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -1330,7 +1369,7 @@ Deno.test("P6-02: fehlende Ersatzwerte kommen aus DEM Tor, nicht aus dem ersten"
       retry > 3590 && retry <= 3600,
       `Retry-After aus dem Stunden-Fenster des User-Tors erwartet, war ${retry}`,
     );
-    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+    assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -1364,7 +1403,7 @@ Deno.test("CWE-400-Fix: ueberlange Nachricht -> 413 VOR Session, Persistenz und 
     assertEquals(stub.callsTo("ensure_default_chat_session").length, 0, "keine Session-Erzeugung");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "Quota unangetastet");
     assertEquals(stub.callsTo("touch_chat_session").length, 0, "kein touchSession");
-    assertEquals(stub.openRouterBodies.length, 0, "kein Provider-Call");
+    assertEquals(stub.providerCalls().length, 0, "kein Provider-Call");
   } finally {
     stub.restore();
   }
@@ -1390,11 +1429,12 @@ Deno.test("CWE-400-Fix: exakt 1000 Zeichen (auch multi-byte) bleiben erlaubt", a
 
 Deno.test("CWE-400-Fix: oversized History-Row wird im Provider-Payload auf 4000 Zeichen gekappt", async () => {
   // Legacy quarantine: a 9000-character row persisted before the fix must no
-  // longer reach the answer call at full length.
+  // longer reach the answer call at full length. Its question comes first,
+  // since a leading assistant row is never sent.
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "Weiter geht's.",
-    historyRows: [{ role: "assistant", content: "B".repeat(9000) }],
+    historyRows: [{ role: "assistant", content: "B".repeat(9000) }, { role: "user", content: "Frage davor" }],
   });
   try {
     const res = await handleRequest(makeRequest({
@@ -1404,8 +1444,9 @@ Deno.test("CWE-400-Fix: oversized History-Row wird im Provider-Payload auf 4000 
     const answers = stub.answerBodies();
     assertEquals(answers.length, 1, "Answer-Call");
     const messages = answers[0].messages as { role: string; content: unknown }[];
-    // [system, history row, current user message]
-    assertEquals(messages.length, 3, "system + history + user");
+    // [history question, history row, current user message]
+    assertEquals(messages.length, 3, "2 History + User");
+    assertEquals(messages[0].content, "Frage davor", "History beginnt mit der Frage");
     assertEquals(messages[1].role, "assistant", "History-Row ist die Assistant-Zeile");
     const historyContent = String(messages[1].content);
     assertEquals(historyContent.length, 4000, "Row-Cap greift");
@@ -1418,11 +1459,13 @@ Deno.test("CWE-400-Fix: oversized History-Row wird im Provider-Payload auf 4000 
 Deno.test("CWE-400-Fix: Aggregat-Budget verwirft aelteste History-Eintraege zuerst", async () => {
   // 10 rows of 4000 chars (after the row cap) = 40000 > budget 24000, so only
   // the 6 newest reach the provider. Rows are PostgREST order: H0 is newest.
+  // Alternating roles keep the oldest kept row (H5) a question, since a
+  // leading assistant row is never sent.
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "Passt.",
     historyRows: Array.from({ length: 10 }, (_, i) => ({
-      role: "assistant",
+      role: i % 2 === 0 ? "assistant" : "user",
       content: `H${i}` + "x".repeat(4000),
     })),
   });
@@ -1434,9 +1477,9 @@ Deno.test("CWE-400-Fix: Aggregat-Budget verwirft aelteste History-Eintraege zuer
     const answers = stub.answerBodies();
     assertEquals(answers.length, 1, "Answer-Call");
     const messages = answers[0].messages as { role: string; content: string }[];
-    // [system, 6 history rows, current user message]
-    assertEquals(messages.length, 8, "system + 6 History-Rows + user");
-    const history = messages.slice(1, -1).map((m) => String(m.content));
+    // [6 history rows, current user message]
+    assertEquals(messages.length, 7, "6 History-Rows + user");
+    const history = messages.slice(0, -1).map((m) => String(m.content));
     assertEquals(history.length, 6, "Budget behaelt genau 6 Rows");
     // Chronological: H5 (oldest kept) ... H0 (newest).
     assert(history[0].startsWith("H5"), `aelteste behaltene Row ist H5, war ${history[0].slice(0, 3)}`);
@@ -1526,7 +1569,7 @@ Deno.test("CWE-400-Fix: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucke
     assertEquals(otherGates.length, 0, "keine ip/user-Gates auf dem Fehlschlag-Pfad");
     assertEquals(stub.gateBatches().length, 0, "kein gebuendelter Limiter-Call auf dem Fehlschlag-Pfad");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
-    assertEquals(stub.openRouterBodies.length, 0, "kein Provider-Call");
+    assertEquals(stub.providerCalls().length, 0, "kein Provider-Call");
   } finally {
     stub.restore();
   }
@@ -1794,7 +1837,7 @@ Deno.test("Finding 6: Timeout-Antworten tragen kein Provider-Detail und keinen R
         "error,session_id",
         `${name}: nur sanitisierte Felder im Body`,
       );
-      for (const marker of ["TimeoutError", "timed out", "openrouter", "fehlgeschlagen", "DOMException", "stack"]) {
+      for (const marker of ["TimeoutError", "timed out", "openrouter", "anthropic", "fehlgeschlagen", "DOMException", "stack"]) {
         assert(
           !raw.toLowerCase().includes(marker.toLowerCase()),
           `${name}: Response-Body leakt "${marker}": ${raw}`,
@@ -1848,7 +1891,7 @@ Deno.test("Lokalisierung: EN-Krise aus Layer 1", async () => {
     const body = await res.json() as JsonRecord;
     assertEquals(body.reply, CRISIS_REPLY_EN, "EN-Krisen-Antwort aus Layer 1");
     assertEquals(body.refusal_reason, "self_harm", "refusal_reason");
-    assertEquals(stub.openRouterBodies.length, 0, "Layer 1 darf keinen LLM-Call ausloesen");
+    assertEquals(stub.providerCalls().length, 0, "Layer 1 darf keinen LLM-Call ausloesen");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "claim_chat_quota-Calls");
   } finally {
     stub.restore();
@@ -1888,7 +1931,7 @@ Deno.test("Lokalisierung: EN too_long", async () => {
     );
     assertEquals(stub.callsTo("/rest/v1/chat_messages").length, 0, "kein storeMessage/loadHistory");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "Quota unangetastet");
-    assertEquals(stub.openRouterBodies.length, 0, "kein Provider-Call");
+    assertEquals(stub.providerCalls().length, 0, "kein Provider-Call");
   } finally {
     stub.restore();
   }
@@ -2014,7 +2057,8 @@ Deno.test("PERF: Assistant-Store und touch_chat_session laufen nebenlaeufig", as
 // ---------------------------------------------------------------------------
 
 Deno.test("Fund 1: client-verschuldeter Provider-4xx behaelt den Slot (kein Refund)", async () => {
-  for (const status of [400, 403, 413, 415, 422]) {
+  // 403 is not here: on the Messages API it is permission_error, our key.
+  for (const status of [400, 413, 415, 422]) {
     const stub = installFetch({ classifierCategory: "fitness", answerStatus: status });
     try {
       const res = await handleRequest(makeRequest({
@@ -2038,9 +2082,10 @@ Deno.test("Fund 1: client-verschuldeter Provider-4xx behaelt den Slot (kein Refu
 
 Deno.test("Fund 1: echter Provider-Ausfall wird weiterhin refundiert", async () => {
   // Counter-check: the split may only disable the refund for client fault.
-  // 500/502/503 are outages, 429 the provider throttle, 402 our empty
-  // balance — none of them the user's fault, all refunded.
-  for (const status of [402, 429, 500, 502, 503]) {
+  // 500/502/503 and 529 are outages, 429 the provider throttle, 401/403 our
+  // key, 402 our empty balance, 404 our model name — none of them the user's
+  // fault, all refunded.
+  for (const status of [401, 402, 403, 404, 429, 500, 502, 503, 529]) {
     const stub = installFetch({ classifierCategory: "fitness", answerStatus: status });
     try {
       const res = await handleRequest(makeRequest({
@@ -2054,20 +2099,28 @@ Deno.test("Fund 1: echter Provider-Ausfall wird weiterhin refundiert", async () 
   }
 });
 
-Deno.test("Fund 1: Classifier-4xx durch den Client behaelt den Slot ebenfalls", async () => {
-  // Same path one layer earlier: a moderation 403 on the classifier is a paid
-  // call. Refunding it would make the slot reusable via a provokable
-  // rejection — the very bypass the CWE-770 fix closed.
-  const stub = installFetch({ classifierStatus: 403 });
-  try {
-    const res = await handleRequest(makeRequest({
-      message: "Wie viel Protein brauche ich beim Cutting?",
-    }));
-    assertEquals(res.status, 502, "Status");
-    assertEquals(stub.callsTo("claim_chat_quota").length, 1, "Slot geclaimt");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
-  } finally {
-    stub.restore();
+Deno.test("Fund 1 (Claude): ein Eingabe-4xx auf reinen Text-Calls ist unser Fehler und wird refundiert", async () => {
+  // The server validates every text before a paid call; only a photo can make
+  // the provider reject input the user is to blame for. A 400/413 on the
+  // text-only classifier or answer therefore means our request shape, model
+  // setting or account, and must not cost the user a slot.
+  for (const status of [400, 413, 415, 422]) {
+    for (const [name, options] of [
+      ["Classifier", { classifierStatus: status }],
+      ["Answer", { classifierCategory: "fitness", answerStatus: status }],
+    ] as const) {
+      const stub = installFetch(options);
+      try {
+        const res = await handleRequest(makeRequest({
+          message: "Wie viel Protein brauche ich beim Cutting?",
+        }));
+        assertEquals(res.status, 502, `${name} ${status}: Status`);
+        assertEquals(stub.callsTo("claim_chat_quota").length, 1, `${name} ${status}: Slot geclaimt`);
+        assertEquals(stub.callsTo("refund_chat_quota").length, 1, `${name} ${status}: genau ein Refund`);
+      } finally {
+        stub.restore();
+      }
+    }
   }
 });
 
@@ -2090,7 +2143,7 @@ Deno.test("Fund 1: base64 ohne Bild-Header -> 400 VOR Quota-Claim und Provider-C
       const body = await res.json() as JsonRecord;
       assertEquals(body.error, "Invalid image_base64", `${name}: error`);
       assertEquals(stub.callsTo("claim_chat_quota").length, 0, `${name}: kein Quota-Claim`);
-      assertEquals(stub.openRouterBodies.length, 0, `${name}: kein Provider-Call`);
+      assertEquals(stub.providerCalls().length, 0, `${name}: kein Provider-Call`);
     } finally {
       stub.restore();
     }
@@ -2120,12 +2173,12 @@ Deno.test("Fund 1: echte JPEG/PNG/WebP-Dateien passieren den Guard", async () =>
   }
 });
 
-// P5-07b: the data: URL used to carry the mime type the CLIENT claimed, while
+// P5-07b: the image used to carry the mime type the CLIENT claimed, while
 // imageMimeFromMagic measured the real container two lines later purely to
 // accept or reject it. PNG bytes declared as image/jpeg therefore reached the
 // provider mislabelled. The measurement now wins; the claim is only the
 // fallback for bytes nothing can be measured from, and those get a 400.
-Deno.test("P5-07b: die data:-URL traegt den GEMESSENEN Typ, nicht die Behauptung des Clients", async () => {
+Deno.test("P5-07b: der Bildblock traegt den GEMESSENEN Typ, nicht die Behauptung des Clients", async () => {
   const faelle = [
     { name: "PNG-Bytes als image/jpeg", base64: PNG_BASE64, behauptet: "image/jpeg", erwartet: "image/png" },
     { name: "JPEG-Bytes als image/webp", base64: JPEG_BASE64, behauptet: "image/webp", erwartet: "image/jpeg" },
@@ -2144,11 +2197,13 @@ Deno.test("P5-07b: die data:-URL traegt den GEMESSENEN Typ, nicht die Behauptung
 
       const antworten = stub.answerBodies();
       assertEquals(antworten.length, 1, `${name}: genau ein Answer-Call`);
-      const roh = JSON.stringify(antworten[0]);
-      const treffer = /data:(image\/[a-z]+);base64,/.exec(roh);
-      assert(treffer !== null, `${name}: keine data:-URL im Answer-Body`);
+      const bilder = imageBlocks(antworten[0]);
+      assertEquals(bilder.length, 1, `${name}: kein Bildblock im Answer-Body`);
+      const quelle = bilder[0].source as JsonRecord;
+      assertEquals(quelle.type, "base64", `${name}: Quelltyp`);
+      assertEquals(quelle.data, base64, `${name}: Nutzlast unveraendert`);
       assertEquals(
-        treffer![1],
+        quelle.media_type,
         erwartet,
         `${name}: der Provider bekommt einen Typ, der die Nutzlast falsch ` +
           `beschreibt (behauptet war "${behauptet || "nichts"}")`,
@@ -2206,7 +2261,7 @@ Deno.test("Fund 2: DE-Tageslimit bleibt woertlich der Bestandstext", async () =>
 
 // ---------------------------------------------------------------------------
 // Finding 3: the raw provider error body reached the function log via the
-// error message (CWE-532). OpenRouter mirrors parts of the user input on 4xx,
+// error message (CWE-532). Providers can mirror parts of the user input on 4xx,
 // the same case analyze-meal closed with redactedContentMeta.
 // ---------------------------------------------------------------------------
 
@@ -2222,9 +2277,10 @@ function captureConsoleError(): { lines: string[]; restore(): void } {
 Deno.test("Fund 3: Provider-Fehler-Body landet nicht im Log, nur Status + Digest", async () => {
   // Realistic moderation body: it quotes the user's message.
   const leaked = "input flagged: 'ich haette gern einen plan fuer meine reha nach der OP'";
+  const errorBody = claudeErrorBody("invalid_request_error", leaked);
   const cases: { name: string; options: StubOptions }[] = [
-    { name: "Answer", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: leaked } },
-    { name: "Classifier", options: { classifierStatus: 400, providerErrorBody: leaked } },
+    { name: "Answer", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: errorBody } },
+    { name: "Classifier", options: { classifierStatus: 400, providerErrorBody: errorBody } },
   ];
   for (const { name, options } of cases) {
     const stub = installFetch(options);
@@ -2328,17 +2384,18 @@ Deno.test("P6-04c: fremder finish_reason wird kategorisiert, nicht gekappt gelog
 });
 
 Deno.test("P6-04c: Vertragswert bleibt im Log lesbar", async () => {
+  // tool_calls (Claude: tool_use) is a contract value that is no answer.
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "",
-    answerFinishReason: "error",
+    answerFinishReason: "tool_calls",
   });
   const logs = captureConsoleError();
   try {
     await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
     const joined = logs.lines.join("\n");
     assert(
-      joined.includes("Provider completion failed"),
+      joined.includes("Provider completion failed (finish_reason=tool_calls)"),
       `Vertragswert fehlt im Log: ${joined}`,
     );
   } finally {
@@ -2397,7 +2454,7 @@ Deno.test("F5-02: Layer-3-Refusal mit Text -> 200, refusal:true, Slot bleibt ver
   }
 });
 
-Deno.test("F5-03: finish_reason=length -> Antwort mit Auslassungszeichen, max_tokens 3072", async () => {
+Deno.test("F5-03: finish_reason=length -> Antwort mit Auslassungszeichen, max_tokens 4096", async () => {
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "Iss nach dem Training etwa 30 g Protein, zum Beispiel",
@@ -2412,7 +2469,7 @@ Deno.test("F5-03: finish_reason=length -> Antwort mit Auslassungszeichen, max_to
     assert(String(body.reply).startsWith("Iss nach dem Training"), "Modelltext bleibt erhalten");
     const answers = stub.answerBodies();
     assertEquals(answers.length, 1, "Answer-Call");
-    assertEquals(answers[0].max_tokens, 3072, "max_tokens");
+    assertEquals(answers[0].max_tokens, 4096, "max_tokens");
     // The persisted row carries the same marker as the response.
     const stored = stub.callsTo("/rest/v1/chat_messages")
       .filter((c) => c.method === "POST")
@@ -2428,8 +2485,7 @@ Deno.test("F5-03/F5-07: System-Prompt verlangt Plain-Text und erklaert die App-D
   const stub = installFetch({ classifierCategory: "nutrition" });
   try {
     await handleRequest(makeRequest({ message: "Was esse ich heute noch?" }));
-    const messages = stub.answerBodies()[0].messages as { role: string; content: unknown }[];
-    const system = String(messages[0].content);
+    const system = systemText(stub.answerBodies()[0]);
     assert(system.includes("USING APP DATA"), "Block USING APP DATA fehlt");
     assert(/no Markdown/i.test(system), "Plain-Text-Regel fehlt");
     assert(/bullet/i.test(system), "Bullet-Verbot fehlt");
@@ -2440,19 +2496,29 @@ Deno.test("F5-03/F5-07: System-Prompt verlangt Plain-Text und erklaert die App-D
 });
 
 Deno.test("Chat answer: mixed languages follow the app locale; finished workouts point to /log", async () => {
+  const cachedPrefixes = new Set<string>();
   for (const [locale, language] of [["en", "English"], ["de", "German"], [undefined, "German"]] as const) {
     const stub = installFetch({ classifierCategory: "fitness" });
     try {
       await handleRequest(makeRequest({ message: "Heute leg day gemacht, what should I eat now?", ...(locale ? { locale } : {}) }));
-      const system = String((stub.answerBodies()[0].messages as { content: unknown }[])[0].content);
+      const answer = stub.answerBodies()[0];
+      const system = systemText(answer);
       assert(system.endsWith(`APP LANGUAGE: ${language}`), `${locale}: app language closes the prompt`);
       assert(/mixes languages[^\n]*app language/i.test(system), `${locale}: mixed input follows the app language`);
       assert(!/Default to German/.test(system), `${locale}: no German default for mixed input`);
       assert(system.includes("/log"), `${locale}: completed workouts suggest /log`);
+      // The shared prompt is the cached prefix; the language sits after it.
+      const blocks = answer.system as JsonRecord[];
+      assertEquals(blocks.length, 2, `${locale}: cached prefix plus request tail`);
+      assertEquals(JSON.stringify(blocks[0].cache_control), '{"type":"ephemeral"}', `${locale}: cache breakpoint`);
+      assertEquals(blocks[1].cache_control, undefined, `${locale}: tail after the breakpoint`);
+      assertEquals(blocks[1].text, `APP LANGUAGE: ${language}`, `${locale}: tail without training rules`);
+      cachedPrefixes.add(String(blocks[0].text));
     } finally {
       stub.restore();
     }
   }
+  assertEquals(cachedPrefixes.size, 1, "every locale shares one cached prefix");
 });
 
 Deno.test("F5-07: Kontext-Message steht direkt VOR der aktuellen User-Message, nach der History", async () => {
@@ -2469,15 +2535,18 @@ Deno.test("F5-07: Kontext-Message steht direkt VOR der aktuellen User-Message, n
       user_context: "Heute: 1450 von 2100 kcal, 96 g Protein.",
     }));
     assertEquals(res.status, 200, "Status");
-    const messages = stub.answerBodies()[0].messages as { role: string; content: unknown }[];
-    // [system, history user, history assistant, context, current user]
-    assertEquals(messages.length, 5, "system + 2 History + Kontext + User");
-    assertEquals(messages[0].role, "system", "System zuerst");
-    assertEquals(String(messages[1].content), "Hallo Coach", "History chronologisch");
-    assertEquals(String(messages[2].content), "Gern, was moechtest du wissen?", "History chronologisch");
-    assert(String(messages[3].content).includes("<app_context>"), "Kontext an vorletzter Stelle");
-    assertEquals(messages[3].role, "user", "Kontext bleibt eine User-Message (DATA)");
-    assertEquals(String(messages[4].content), "Was esse ich heute noch?", "aktuelle Frage zuletzt");
+    const answer = stub.answerBodies()[0];
+    const messages = answer.messages as { role: string; content: unknown }[];
+    // [history user, history assistant, context, current user]; the system
+    // prompt travels separately in `system`.
+    assertEquals(messages.length, 4, "2 History + Kontext + User");
+    assert(systemText(answer).length > 0, "System-Prompt im system-Feld");
+    assert(!systemText(answer).includes("1450 von 2100 kcal"), "Kontext nie im System-Prompt");
+    assertEquals(String(messages[0].content), "Hallo Coach", "History chronologisch");
+    assertEquals(String(messages[1].content), "Gern, was moechtest du wissen?", "History chronologisch");
+    assert(String(messages[2].content).includes("<app_context>"), "Kontext an vorletzter Stelle");
+    assertEquals(messages[2].role, "user", "Kontext bleibt eine User-Message (DATA)");
+    assertEquals(String(messages[3].content), "Was esse ich heute noch?", "aktuelle Frage zuletzt");
   } finally {
     stub.restore();
   }
@@ -2505,7 +2574,7 @@ Deno.test("F5-08: Refusal-Zeilen UND ihre Ausloeser fehlen im Provider-Payload",
     assert(historyGets[0].url.includes("limit=20"), `doppeltes Limit fehlt: ${historyGets[0].url}`);
 
     const messages = stub.answerBodies()[0].messages as { role: string; content: unknown }[];
-    const history = messages.slice(1, -1).map((m) => String(m.content));
+    const history = messages.slice(0, -1).map((m) => String(m.content));
     assertEquals(history.length, 4, "4 History-Zeilen (2 Paare) bleiben");
     assertEquals(history[0], "Hallo Coach", "aelteste Zeile");
     assertEquals(history[3], "Etwa 30 g Protein reichen.", "neueste Zeile");
@@ -2536,7 +2605,7 @@ Deno.test("F5-08: nach dem Paar-Filter greift HISTORY_LIMIT (10) auf den neueste
   try {
     await handleRequest(makeRequest({ message: "Weiter" }));
     const messages = stub.answerBodies()[0].messages as { role: string; content: unknown }[];
-    const history = messages.slice(1, -1).map((m) => String(m.content));
+    const history = messages.slice(0, -1).map((m) => String(m.content));
     assertEquals(history.length, 10, "HISTORY_LIMIT nach dem Filter");
     assert(!history.some((c) => /^(A|U)(1|5|9)$/.test(c)), `Refusal-Paare enthalten: ${history.join(",")}`);
     assertEquals(history[history.length - 1], "A0", "neueste Zeile zuletzt");
@@ -2574,21 +2643,25 @@ Deno.test("F9-04: die PATCH-Bedingung nennt genau die Default-Titel, eigene Tite
   }
 });
 
-Deno.test("Kosmetik: HTTP-Referer zeigt auf eatova.de", async () => {
-  const seen: string[] = [];
+Deno.test("Claude-Header: eigener Schluessel, gepinnte API-Version, kein OpenRouter-Schluessel", async () => {
+  const seen: Headers[] = [];
   const stub = installFetch({ classifierCategory: "fitness" });
   const patched = globalThis.fetch;
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    if (url.includes("openrouter.ai")) {
-      seen.push(String(new Headers(init?.headers).get("HTTP-Referer")));
-    }
+    if (isClaudeCall(url)) seen.push(new Headers(init?.headers));
     return patched(input, init);
   }) as typeof globalThis.fetch;
   try {
-    await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
+    assertEquals(res.status, 200, "Status");
     assertEquals(seen.length, 2, "Classifier + Answer");
-    for (const referer of seen) assertEquals(referer, "https://eatova.de", "Referer");
+    for (const headers of seen) {
+      assertEquals(headers.get("x-api-key"), "test-anthropic-key", "x-api-key");
+      assertEquals(headers.get("anthropic-version"), "2023-06-01", "anthropic-version");
+      assertEquals(headers.get("authorization"), null, "kein Bearer-Header");
+      assert(![...headers.values()].some((value) => value.includes("test-openrouter-key")), "OpenRouter-Schluessel geht nie an Claude");
+    }
   } finally {
     globalThis.fetch = patched;
     stub.restore();
@@ -2762,7 +2835,7 @@ Deno.test("P5-08: uebergrosser Body OHNE Content-Length -> 413 aus readBodyLimit
     const parsed = await res.json() as JsonRecord;
     assertEquals(parsed.error, "payload_too_large", "Fehlercode");
     // Auth and the rate limiters ran, but nothing was paid or claimed.
-    assertEquals(stub.callsTo("openrouter.ai").length, 0, "kein Provider-Call");
+    assertEquals(stub.providerCalls().length, 0, "kein Provider-Call");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "kein Quota-Claim");
   } finally {
     stub.restore();
@@ -2787,7 +2860,7 @@ Deno.test("P5-08: kaputtes JSON -> 400 Invalid JSON, kein Quota-Claim", async ()
       const body = await res.json() as JsonRecord;
       assertEquals(body.error, "Invalid JSON", `${JSON.stringify(raw)}: Fehlercode`);
       assertEquals(
-        stub.callsTo("openrouter.ai").length,
+        stub.providerCalls().length,
         0,
         `${JSON.stringify(raw)}: kein Provider-Call`,
       );
@@ -2826,7 +2899,7 @@ Deno.test("P5-08: zu grosses image_base64 -> 413 image_too_large in beiden Sprac
       assertEquals(body.refusal_reason, "image_too_large", `${testCase.locale}: refusal_reason`);
       assertEquals(body.reply, testCase.expected, `${testCase.locale}: Katalogtext`);
       assertEquals(
-        stub.callsTo("openrouter.ai").length,
+        stub.providerCalls().length,
         0,
         `${testCase.locale}: kein Provider-Call`,
       );
@@ -2851,7 +2924,7 @@ for (const authStatus of [429, 500, 503]) {
       assertEquals((await res.json()).error, "auth_unavailable", "error code");
       assertEquals(stub.callsTo("/auth/v1/user").length, 1, "auth lookup");
       assertEquals(stub.callsTo("/rest/v1/").length, 0, "no database writes");
-      assertEquals(stub.callsTo("openrouter.ai").length, 0, "no provider call");
+      assertEquals(stub.providerCalls().length, 0, "no provider call");
     } finally { stub.restore(); }
   });
 }
@@ -2877,7 +2950,7 @@ Deno.test("Provider budget: global exhaustion and disable stop all paid Coach pa
       try {
         const res = await handleRequest(makeRequest({ message: "Please help with dinner", ...extra }));
         assertEquals(res.status, providerBudgetReason === "disabled" ? 503 : 429, "budget status");
-        assertEquals(stub.openRouterBodies.length, 0, "no paid call without global budget");
+        assertEquals(stub.providerCalls().length, 0, "no paid call without global budget");
         assertEquals(stub.callsTo("refund_chat_quota").length, 1, "user question refunded, not provider call budget");
       } finally { logs.restore(); stub.restore(); }
     }
@@ -2891,7 +2964,7 @@ Deno.test("Provider budget: question refunds cannot reopen paid classifier allow
       const res = await handleRequest(makeRequest({ message: "Please help with dinner" }));
       assertEquals(res.status, attempt < 3 ? 502 : 429, "refunded failures still spend call budget");
     }
-    assertEquals(stub.openRouterBodies.length, 3, "paid classifier calls stay capped after six question refunds");
+    assertEquals(stub.providerCalls().length, 3, "paid classifier calls stay capped after six question refunds");
     assertEquals(stub.callsTo("refund_chat_quota").length, 6, "question quota is independently refunded");
   } finally { stub.restore(); }
 });
@@ -2908,7 +2981,7 @@ Deno.test("Provider budget: invalid Coach input spends no provider allowance", a
     try {
       await handleRequest(makeRequest(payload));
       assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "invalid input has no provider reservation");
-      assertEquals(stub.openRouterBodies.length, 0, "no paid invalid-input work");
+      assertEquals(stub.providerCalls().length, 0, "no paid invalid-input work");
     } finally { logs.restore(); stub.restore(); }
   }
 });
@@ -2923,7 +2996,7 @@ Deno.test("Provider budget: each answer mode needs a second reservation after cl
       if (mode === "stream") req.headers.set("accept", "text/event-stream");
       const res = await handleRequest(req);
       assertEquals(res.status, 429, "budget denial before answer headers");
-      assertEquals(stub.openRouterBodies.length, mode === "image-only" ? 0 : 1, "no answer/draft without its own reservation");
+      assertEquals(stub.providerCalls().length, mode === "image-only" ? 0 : 1, "no answer/draft without its own reservation");
       const operations = stub.callsTo("reserve_ai_provider_call").map((call) => JSON.parse(call.body).p_operation);
       // /log reuses the plan operation, so reserve_ai_provider_call is unchanged.
       assertEquals(operations.at(-1), mode === "recipe" ? "coach_recipe" : mode === "plan" || mode === "log" ? "coach_plan" : "coach_answer", "correct paid operation");
@@ -2942,7 +3015,7 @@ Deno.test("Provider body: oversized paid rejection is bounded without refund", a
   let pulled = 0;
   let cancelled = false;
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-    if (String(input).includes("openrouter.ai") && JSON.parse(String(init?.body)).max_tokens === 3072) {
+    if (isClaudeCall(String(input)) && !isClassifierRequest(JSON.parse(String(init?.body)))) {
       return Promise.resolve(new Response(new ReadableStream({
         pull(controller) {
           pulled++;
@@ -2955,7 +3028,8 @@ Deno.test("Provider body: oversized paid rejection is bounded without refund", a
     return baseFetch(input, init);
   }) as typeof fetch;
   try {
-    const res = await handleRequest(makeRequest({ message: "Please help with dinner" }));
+    // With a photo: the one input whose 4xx stays the user's fault.
+    const res = await handleRequest(makeRequest({ message: "Please help with dinner", image_base64: IMAGE_BASE64 }));
     assertEquals(res.status, 502, "provider rejection remains a controlled failure");
     assert(pulled <= 10 && cancelled, "oversized error response must stop before unlimited buffering");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "known paid 4xx stays non-refundable");
@@ -2969,7 +3043,7 @@ Deno.test('raster boundary: invalid photo does not create a session or spend quo
       assertEquals(response.status, 400, 'invalid photo');
       assertEquals(stub.callsTo('ensure_default_chat_session').length, 0, 'no session side effect');
       assertEquals(stub.callsTo('claim_chat_quota').length, 0, 'no paid quota');
-      assertEquals(stub.openRouterBodies.length, 0, 'no provider');
+      assertEquals(stub.providerCalls().length, 0, 'no provider');
     } finally { stub.restore(); }
   }
 });
@@ -3023,7 +3097,7 @@ for (const scenario of ["silent", "idle", "drip", "empty-drip", "abort", "alread
       assertEquals(stub.callsTo("chat_sessions").length, 0, "no session read/write");
       assertEquals(stub.callsTo("claim_chat_quota").length, 0, "no question quota");
       assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "no provider budget");
-      assertEquals(stub.callsTo("openrouter.ai").length, 0, "no paid request");
+      assertEquals(stub.providerCalls().length, 0, "no paid request");
     } finally {
       clearInterval(drip);
       clearTimeout(abortTimer);
@@ -3078,4 +3152,302 @@ Deno.test("upload deadline: stream errors are sanitized and stop before persiste
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "no question quota");
     assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "no provider budget");
   } finally { stub.restore(); }
+});
+
+// ---------------------------------------------------------------------------
+// Claude Messages API (2026-10-08): the provider switch changed which 4xx are
+// ours, added an image edge limit, and changed how photos and history turns
+// are laid out.
+// ---------------------------------------------------------------------------
+
+Deno.test("Claude 403: permission_error ist unser Schluessel und refundiert Klassifizierer und Antwort", async () => {
+  // OpenRouter answered input moderation with 403; on the Messages API a 403
+  // is permission_error, a property of OUR key. Keeping the slot would charge
+  // the user for our configuration.
+  const cases: { name: string; options: StubOptions; extra?: JsonRecord }[] = [
+    { name: "Classifier", options: { classifierStatus: 403 } },
+    { name: "Answer", options: { classifierCategory: "fitness", answerStatus: 403 } },
+    { name: "Answer mit Bild", options: { classifierCategory: "fitness", answerStatus: 403 }, extra: { image_base64: IMAGE_BASE64 } },
+  ];
+  for (const { name, options, extra } of cases) {
+    const stub = installFetch(options);
+    try {
+      const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich beim Cutting?", ...extra }));
+      assertEquals(res.status, 502, `${name}: Status`);
+      assertEquals((await res.json() as JsonRecord).error, "provider_error", `${name}: Fehlercode`);
+      assertEquals(stub.callsTo("claim_chat_quota").length, 1, `${name}: Slot geclaimt`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, `${name}: genau ein Refund`);
+      assertEquals(stub.answerBodies().length, name === "Classifier" ? 0 : 1, `${name}: Answer-Calls`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Claude 400: leeres Guthaben ist unser Ausfall (Refund), ein Foto-400 bleibt bezahlt", async () => {
+  // The API reports an empty credit balance as 400 invalid_request_error.
+  // Read as a client fault it would charge every user for our billing. With a
+  // photo in the request, an ordinary 400 is the user's input and stays paid.
+  const credit = claudeErrorBody("invalid_request_error", CREDIT_BALANCE_MESSAGE);
+  const billing = claudeErrorBody("billing_error", "Billing issue on this organization.");
+  const plain = claudeErrorBody("invalid_request_error", "messages.0.content.0.image.source.base64: invalid image data");
+  const photo = { image_base64: IMAGE_BASE64 };
+  const cases: { name: string; options: StubOptions; extra: JsonRecord; refunds: number }[] = [
+    { name: "Classifier, Guthaben", options: { classifierStatus: 400, providerErrorBody: credit }, extra: {}, refunds: 1 },
+    { name: "Answer mit Foto, Guthaben", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: credit }, extra: photo, refunds: 1 },
+    { name: "Answer mit Foto, billing_error", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: billing }, extra: photo, refunds: 1 },
+    { name: "Classifier, gewoehnlich", options: { classifierStatus: 400, providerErrorBody: plain }, extra: {}, refunds: 1 },
+    { name: "Answer mit Foto, gewoehnlich", options: { classifierCategory: "fitness", answerStatus: 400, providerErrorBody: plain }, extra: photo, refunds: 0 },
+  ];
+  for (const { name, options, extra, refunds } of cases) {
+    const stub = installFetch(options);
+    const logs = captureConsoleError();
+    try {
+      const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich beim Cutting?", ...extra }));
+      assertEquals(res.status, 502, `${name}: Status`);
+      assertEquals((await res.json() as JsonRecord).error, "provider_error", `${name}: Fehlercode`);
+      assertEquals(stub.callsTo("claim_chat_quota").length, 1, `${name}: Slot geclaimt`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, refunds, `${name}: Refunds`);
+      // The body only decides the refund; it is never logged.
+      const joined = logs.lines.join("\n");
+      assert(!/credit balance|Billing issue|invalid image data/.test(joined), `${name}: Fehler-Body im Log: ${joined}`);
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  }
+});
+
+/** Structurally valid PNG with the given header size. The guard reads chunk
+ *  layout and dimensions only, never pixels or CRCs. */
+function pngOfSize(width: number, height: number): string {
+  const be32 = (n: number) => [n >>> 24 & 255, n >>> 16 & 255, n >>> 8 & 255, n & 255];
+  const chunk = (tag: string, data: number[]) =>
+    [...be32(data.length), ...[...tag].map((c) => c.charCodeAt(0)), ...data, 0, 0, 0, 0];
+  const bytes = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...chunk("IHDR", [...be32(width), ...be32(height), 8, 2, 0, 0, 0]),
+    ...chunk("IDAT", [0x78, 0x9c, 0x63, 0x00, 0x00]),
+    ...chunk("IEND", []),
+  ];
+  return btoa(String.fromCharCode(...bytes));
+}
+
+for (const [width, height] of [[8001, 1], [1, 8001]] as const) {
+  Deno.test(`Claude-Kantenlimit: ${width}x${height} px -> 413 image_too_large VOR Session, Quota und Provider`, async () => {
+    // Claude rejects an edge over 8000 px (a scrolling screenshot can have
+    // one). Small in bytes, so only the measured edge can stop it in time.
+    for (const testCase of [
+      { locale: "de", expected: IMAGE_TOO_LARGE_REPLY },
+      { locale: "en", expected: IMAGE_TOO_LARGE_REPLY_EN },
+    ]) {
+      const stub = installFetch({ quota: "forbidden" });
+      try {
+        const res = await handleRequest(makeRequest({
+          message: "Was steht auf dem Screenshot?",
+          image_base64: pngOfSize(width, height),
+          locale: testCase.locale,
+        }));
+        assertEquals(res.status, 413, `${testCase.locale}: Status`);
+        const body = await res.json() as JsonRecord;
+        assertEquals(body.error, "image_too_large", `${testCase.locale}: Fehlercode`);
+        assertEquals(body.refusal, true, `${testCase.locale}: refusal`);
+        assertEquals(body.refusal_reason, "image_too_large", `${testCase.locale}: refusal_reason`);
+        assertEquals(body.reply, testCase.expected, `${testCase.locale}: Katalogtext`);
+        assertEquals(stub.callsTo("ensure_default_chat_session").length, 0, `${testCase.locale}: keine Session-Erzeugung`);
+        assertEquals(stub.callsTo("/rest/v1/chat_sessions").length, 0, `${testCase.locale}: keine Session-Pruefung`);
+        assertEquals(stub.callsTo("/rest/v1/chat_messages").length, 0, `${testCase.locale}: keine Persistenz`);
+        assertEquals(stub.callsTo("claim_chat_quota").length, 0, `${testCase.locale}: kein Quota-Claim`);
+        assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, `${testCase.locale}: kein Provider-Budget`);
+        assertEquals(stub.providerCalls().length, 0, `${testCase.locale}: kein Provider-Call`);
+      } finally {
+        stub.restore();
+      }
+    }
+  });
+}
+
+Deno.test("Claude-Kantenlimit: genau 8000 px passieren den Guard", async () => {
+  const image = pngOfSize(8000, 1);
+  const stub = installFetch({ classifierCategory: "fitness" });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Was steht auf dem Screenshot?", image_base64: image }));
+    assertEquals(res.status, 200, "Status");
+    const blocks = imageBlocks(stub.answerBodies()[0]);
+    assertEquals(blocks.length, 1, "das Bild erreicht den Answer-Call");
+    assertEquals((blocks[0].source as JsonRecord).data, image, "Nutzlast unveraendert");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Claude-Bildinhalt: Bild zuerst, dann Text; ohne Text nur der Bildblock", async () => {
+  // The API rejects empty text blocks, and line breaks are no base64 data.
+  const wrapped = IMAGE_BASE64.slice(0, 40) + "\r\n" + IMAGE_BASE64.slice(40);
+  for (const message of ["Was ist das hier?", ""]) {
+    const stub = installFetch({ classifierCategory: "fitness" });
+    try {
+      const res = await handleRequest(makeRequest({ message, image_base64: wrapped, image_mime_type: "image/jpeg" }));
+      assertEquals(res.status, 200, `${JSON.stringify(message)}: Status`);
+      const answers = stub.answerBodies();
+      assertEquals(answers.length, 1, `${JSON.stringify(message)}: ein Answer-Call`);
+      const content = (answers[0].messages as JsonRecord[]).at(-1)!.content as JsonRecord[];
+      assertEquals(
+        JSON.stringify(content.map((block) => block.type)),
+        JSON.stringify(message ? ["image", "text"] : ["image"]),
+        `${JSON.stringify(message)}: Blockfolge`,
+      );
+      assertEquals(
+        JSON.stringify(content[0].source),
+        JSON.stringify({ type: "base64", media_type: "image/png", data: IMAGE_BASE64 }),
+        `${JSON.stringify(message)}: gemessener Typ, Base64 ohne Zeilenumbrueche`,
+      );
+      if (message) assertEquals(content[1].text, message, "der Text folgt dem Bild");
+      assertEquals(stub.classifierBodies().length, message ? 1 : 0, `${JSON.stringify(message)}: Klassifizierer nur mit Text`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Claude-History: leere Zeilen und eine fuehrende Assistant-Zeile erreichen den Provider nicht", async () => {
+  // A photo sent without words is stored as an empty user row; the API
+  // rejects empty text, and its reply cannot open the conversation. The same
+  // holds for a reply whose question fell out of the history budget.
+  const cases: { name: string; rows: JsonRecord[]; expected: [string, string][] }[] = [
+    {
+      name: "Foto ohne Text zuerst",
+      // PostgREST order: newest first.
+      rows: [
+        { role: "assistant", content: "Letzte Antwort" },
+        { role: "user", content: "Noch eine Frage" },
+        { role: "assistant", content: "  \n " },
+        { role: "user", content: "Frage danach" },
+        { role: "assistant", content: "FOTO_ANTWORT" },
+        { role: "user", content: "" },
+      ],
+      expected: [["user", "Frage danach"], ["user", "Noch eine Frage"], ["assistant", "Letzte Antwort"], ["user", "Und jetzt?"]],
+    },
+    {
+      name: "verwaiste Antwort",
+      rows: [{ role: "assistant", content: "VERWAISTE_ANTWORT" }],
+      expected: [["user", "Und jetzt?"]],
+    },
+  ];
+  for (const { name, rows, expected } of cases) {
+    const stub = installFetch({ classifierCategory: "fitness", historyRows: rows });
+    try {
+      const res = await handleRequest(makeRequest({ message: "Und jetzt?" }));
+      assertEquals(res.status, 200, `${name}: Status`);
+      const messages = stub.answerBodies()[0].messages as { role: string; content: unknown }[];
+      assertEquals(
+        JSON.stringify(messages.map((m) => [m.role, m.content])),
+        JSON.stringify(expected),
+        `${name}: gefilterte History`,
+      );
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Konfiguration: ohne ANTHROPIC_API_KEY -> 500 vor jedem fetch", async () => {
+  const saved = Deno.env.get("ANTHROPIC_API_KEY");
+  try {
+    for (const value of [undefined, ""]) {
+      if (value === undefined) Deno.env.delete("ANTHROPIC_API_KEY");
+      else Deno.env.set("ANTHROPIC_API_KEY", value);
+      const stub = installFetch({ quota: "forbidden" });
+      try {
+        const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+        assertEquals(res.status, 500, `${JSON.stringify(value)}: Status`);
+        assertEquals((await res.json() as JsonRecord).error, "Edge function not configured", `${JSON.stringify(value)}: Fehlercode`);
+        assertEquals(stub.calls.length, 0, `${JSON.stringify(value)}: kein einziger Backend- oder Provider-Call`);
+      } finally {
+        stub.restore();
+      }
+    }
+  } finally {
+    if (saved === undefined) Deno.env.delete("ANTHROPIC_API_KEY");
+    else Deno.env.set("ANTHROPIC_API_KEY", saved);
+  }
+});
+
+Deno.test("Konfiguration: ohne OPENROUTER_API_KEY antwortet der Chat trotzdem", async () => {
+  // OpenRouter only generates recipe images now; chat never needs its key.
+  const saved = Deno.env.get("OPENROUTER_API_KEY");
+  Deno.env.delete("OPENROUTER_API_KEY");
+  const stub = installFetch({ classifierCategory: "fitness", answerContent: "Etwa 1,6 g pro kg Koerpergewicht." });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 200, "Status");
+    assertEquals((await res.json() as JsonRecord).reply, "Etwa 1,6 g pro kg Koerpergewicht.", "Antwort");
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 2, "Klassifizierer und Antwort auf Claude");
+    assertEquals(stub.callsTo("openrouter.ai").length, 0, "kein OpenRouter-Call");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+  } finally {
+    stub.restore();
+    if (saved === undefined) Deno.env.delete("OPENROUTER_API_KEY");
+    else Deno.env.set("OPENROUTER_API_KEY", saved);
+  }
+});
+
+Deno.test("Review: ein vom Token-Limit abgeschnittener Classifier erstattet in jedem Modus", async () => {
+  // Our own cap cut the verdict off: nothing was classified because of us, so
+  // even the structured modes (which refuse unusable verdicts) refund.
+  for (const extra of [{}, { mode: "recipe" }, { mode: "plan" }, logMode()]) {
+    const label = JSON.stringify(Object.keys(extra));
+    const stub = installFetch({ classifierContent: '{"category":"fit', classifierFinishReason: "length" });
+    const logs = quietConsole(true);
+    try {
+      const res = await handleRequest(makeRequest({ message: "Bitte hilf mir damit", ...extra }));
+      assertEquals(res.status, 502, `${label}: Ausfall`);
+      assertEquals((await res.json() as JsonRecord).error, "provider_error", `${label}: Fehlercode`);
+      assertEquals(stub.providerCalls().length, 1, `${label}: keine Generierung ohne Pruefung`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, `${label}: genau ein Refund`);
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Review: ein Rezeptwunsch mit Foto ist ein Protokollfehler VOR Session, Quota und Provider", async () => {
+  // The recipe draft is text-only: a photo would be dropped unread, and a photo
+  // without words would reach the provider as an empty wish.
+  for (const message of ["Pasta mit Gemuese", ""]) {
+    const stub = installFetch({ quota: "forbidden" });
+    try {
+      const res = await handleRequest(makeRequest({ message, mode: "recipe", image_base64: IMAGE_BASE64 }));
+      assertEquals(res.status, 400, `"${message}": Status`);
+      assertEquals((await res.json() as JsonRecord).error, "recipe_image_not_supported", `"${message}": Fehlercode`);
+      assertEquals(stub.callsTo("ensure_default_chat_session").length, 0, `"${message}": keine Session`);
+      assertEquals(stub.providerCalls().length, 0, `"${message}": kein Provider-Call`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Review: ein abgeschnittenes Emoji erreicht den Provider nie als einzelnes Surrogat", async () => {
+  // The app caps meal names and context by UTF-16 unit and can cut an emoji in
+  // half. A lone surrogate makes the whole Messages API body invalid JSON (a
+  // 400 on every question that day); it must arrive as U+FFFD instead.
+  const loneSurrogate = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+  const stub = installFetch({ classifierCategory: "nutrition" });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Was esse ich heute Abend?",
+      user_context: "Mittag: Burger \ud83c (720 kcal)",
+    }));
+    assertEquals(res.status, 200, "Antwort");
+    const body = stub.answerBodies()[0];
+    const texts = (body.messages as JsonRecord[])
+      .map((message) => typeof message.content === "string" ? message.content : JSON.stringify(message.content))
+      .join("\n");
+    assert(texts.includes("Burger �"), "Ersatzzeichen statt halbem Emoji");
+    assert(!loneSurrogate.test(texts), "kein einzelnes Surrogat im Request");
+  } finally {
+    stub.restore();
+  }
 });

@@ -1,4 +1,11 @@
 import { userToken } from "../_shared/auth_test_fixtures.ts";
+import {
+  claudeResponse,
+  isClassifierRequest,
+  isClaudeCall,
+  isProviderCall,
+  outputSchema,
+} from "../_shared/claude_test_fixtures.ts";
 import { handleRequest } from "./handler.ts";
 import { parseTrainingPlan } from "./training_plan.ts";
 
@@ -33,17 +40,18 @@ async function run(
   Deno.env.set("SUPABASE_URL", "https://ci.invalid");
   Deno.env.set("SUPABASE_ANON_KEY", "ci-dummy-key");
   Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "ci-dummy-service");
+  Deno.env.set("ANTHROPIC_API_KEY", "ci-dummy-anthropic");
   Deno.env.set("OPENROUTER_API_KEY", "ci-dummy-provider");
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
-  const calls: { path: string; method: string; body: Row }[] = [];
+  const calls: { href: string; path: string; method: string; body: Row }[] = [];
   const unexpected: string[] = [];
   Date.now = () => NOW;
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => Promise.resolve().then(() => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const method = init?.method ?? "GET";
     const data = typeof init?.body === "string" ? JSON.parse(init.body) as Row : {};
-    calls.push({ path: url.pathname, method, body: data });
+    calls.push({ href: url.href, path: url.pathname, method, body: data });
     if (url.hostname === "ci.invalid") {
       switch (url.pathname) {
         case "/rest/v1/rpc/reserve_ai_provider_call": return json({ allowed: true, reason: "allowed" });
@@ -67,12 +75,12 @@ async function run(
           return json([{ id: MESSAGE }], 201);
       }
     }
-    if (url.href === "https://openrouter.ai/api/v1/chat/completions") {
+    if (isClaudeCall(url.href)) {
       let content: string;
-      if (data.max_tokens === 256) content = JSON.stringify({ category: "fitness", confidence: "high" });
-      else if (data.response_format) content = JSON.stringify(options.providerDraft ?? draft());
+      if (isClassifierRequest(data)) content = JSON.stringify({ category: "fitness", confidence: "high" });
+      else if (outputSchema(data)) content = JSON.stringify(options.providerDraft ?? draft());
       else content = "Ordinary coaching answer.";
-      return json({ choices: [{ message: { content }, finish_reason: "stop" }] });
+      return json(claudeResponse(content));
     }
     unexpected.push(`${method} ${url.pathname}`);
     throw new Error("Unstubbed request blocked");
@@ -126,11 +134,10 @@ for (const command of ["/planet training", "/planx", "/dance training", "/logboo
   Deno.test(`QA: unknown command ${command} stays ordinary chat`, async () => {
     const result = await run({ message: command });
     check(result.status === 200 && !result.result.training_plan, "Unknown command generated a plan");
-    // The classifier also requests structured JSON now. Only the larger
-    // response-format call is the training-plan draft; classifier calls use
-    // the dedicated 256-token budget.
+    // The classifier also requests structured output. Only a schema call
+    // other than the classifier's category schema is a draft.
     check(
-      !result.calls.some((call) => call.body.response_format && call.body.max_tokens !== 256),
+      !result.calls.some((call) => outputSchema(call.body) && !isClassifierRequest(call.body)),
       "Unknown command used draft generation",
     );
   });
@@ -143,7 +150,7 @@ for (const explicitMode of [true, false]) {
       image_mime_type: "image/png",
     });
     check(result.status === 400 && result.result.error === "plan_image_not_supported", `Photo+plan routed to ${result.status}`);
-    check(!result.calls.some((call) => call.path.includes("chat/completions")), "Rejected attachment consumed a provider call");
+    check(!result.calls.some((call) => isProviderCall(call.href)), "Rejected attachment consumed a provider call");
   });
 }
 
@@ -167,7 +174,7 @@ for (const explicitMode of [true, false]) {
     });
     const expected = explicitMode ? "log_fields_not_supported" : "log_mode_required";
     check(result.status === 400 && result.result.error === expected, `Photo+log routed to ${result.status}`);
-    check(!result.calls.some((call) => call.path.includes("chat/completions")), "Rejected attachment consumed a provider call");
+    check(!result.calls.some((call) => isProviderCall(call.href)), "Rejected attachment consumed a provider call");
   });
 }
 

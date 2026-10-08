@@ -114,18 +114,22 @@ void main() {
   // stale provider name pass in both the implementation and the test.
   const providerDisclosures = <String, String>{
     'de':
-        'Der Coach nutzt OpenRouter zur Weiterleitung an Gemini-Modelle von '
-        'Google. Je nach Anfrage werden deine Frage, die oben genannten '
-        'Angaben, bis zu zehn vorherige Chatnachrichten, ein angehängtes Foto '
-        'oder ausgewählte Trainingsplaninformationen übermittelt. Dabei '
+        'Der Coach nutzt Claude-Modelle von Anthropic. Je nach Anfrage werden '
+        'deine Frage, die oben genannten Angaben, bis zu zehn vorherige '
+        'Chatnachrichten, ein angehängtes Foto oder ausgewählte '
+        'Trainingsplaninformationen übermittelt. Bilder für Rezeptkarten '
+        'erstellt ein Bildmodell von Google über OpenRouter, nur aus Titel '
+        'und Beschreibung des Rezepts. Dabei '
         'können Daten auch außerhalb der EU, einschließlich der USA, '
         'verarbeitet werden. Mehr zu Empfängern und Datenverwendung steht '
         'in der Datenschutzerklärung.',
     'en':
-        'The coach uses OpenRouter to route requests to Google Gemini models. '
+        "The coach uses Anthropic's Claude models. "
         'Depending on your request, this includes your question, the details '
         'listed above, up to ten previous chat messages, an attached photo '
-        'or selected training plan information. Data may also be processed '
+        'or selected training plan information. Pictures for recipe cards '
+        'are created by a Google image model via OpenRouter, from the '
+        "recipe's title and description only. Data may also be processed "
         'outside the EU, including in the USA. The privacy policy explains '
         'the recipients and how they use the data.',
   };

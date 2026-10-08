@@ -12,7 +12,7 @@ Deno.test('CORS: exact origins on preflight and auth denials; no cookie credenti
     SUPABASE_URL: 'https://supabase.test.invalid',
     SUPABASE_ANON_KEY: 'test-anon-key',
     SUPABASE_SERVICE_ROLE_KEY: 'test-service-key',
-    OPENROUTER_API_KEY: 'test-provider-key',
+    ANTHROPIC_API_KEY: 'test-provider-key',
     EATOVA_MIRROR_SEARCH_KEY: 'synthetic-search-key',
   };
   const previous = new Map(Object.keys(config).map((key) => [key, Deno.env.get(key)]));

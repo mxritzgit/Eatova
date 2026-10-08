@@ -1,5 +1,5 @@
-// Array caps are enforced by the parser. Nested maxItems made the live
-// Gemini provider reject this schema with INVALID_ARGUMENT.
+// Structured-output schema of the extraction. Array caps are enforced by the
+// parser: structured outputs support no array or numeric constraints.
 const text = { type: 'string' };
 const number = { type: ['number', 'null'] };
 const quotes = { type: 'array', items: text };
@@ -12,21 +12,15 @@ const properties = {
   carbs_g: number, fat_g: number, estimated_g: number,
 };
 
-export const extractionResponseFormat = {
-  type: 'json_schema',
-  json_schema: {
-    name: 'recipe_import', strict: true,
-    schema: {
-      type: 'object', additionalProperties: false,
-      required: ['status', 'truncated', 'candidates'],
-      properties: {
-        status: { type: 'string', enum: ['ready', 'needs_text', 'no_recipe'] },
-        truncated: { type: 'boolean' },
-        candidates: {
-          type: 'array',
-          items: { type: 'object', additionalProperties: false, required: Object.keys(properties), properties },
-        },
-      },
+export const extractionSchema = {
+  type: 'object', additionalProperties: false,
+  required: ['status', 'truncated', 'candidates'],
+  properties: {
+    status: { type: 'string', enum: ['ready', 'needs_text', 'no_recipe'] },
+    truncated: { type: 'boolean' },
+    candidates: {
+      type: 'array',
+      items: { type: 'object', additionalProperties: false, required: Object.keys(properties), properties },
     },
   },
 };

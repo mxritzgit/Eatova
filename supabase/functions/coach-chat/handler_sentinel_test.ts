@@ -7,6 +7,13 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 // dependencies, `deno test --allow-env`.
 
 import { handleRequest } from "./handler.ts";
+import {
+  claudeErrorBody,
+  claudeResponse,
+  isClassifierRequest,
+  isClaudeCall,
+  isProviderCall,
+} from "../_shared/claude_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -15,6 +22,7 @@ const BASE_URL = "https://supabase.test.invalid";
 Deno.env.set("SUPABASE_URL", BASE_URL);
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
+Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
 Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 type JsonRecord = Record<string, unknown>;
@@ -33,7 +41,7 @@ interface StubOptions {
    * through unchanged, so a broken shape stays testable.
    */
   rateLimitBody?: unknown;
-  /** The expensive answer call (max_tokens 3072) fails with 500. */
+  /** The expensive answer call (not the classifier) fails with 500. */
   answerFails?: boolean;
   /** GET on chat_messages (loadHistory) answers 500. */
   historyFails?: boolean;
@@ -107,22 +115,13 @@ function installFetch(options: StubOptions = {}) {
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
       return new Response(null, { status: 204 });
     }
-    if (url.includes("openrouter.ai")) {
+    if (isClaudeCall(url)) {
       const parsed = JSON.parse(body) as JsonRecord;
-      if (parsed.max_tokens === 256) {
-        return jsonRes({
-          choices: [{
-            finish_reason: "stop",
-            message: {
-              content: JSON.stringify({ category: "fitness", confidence: "high" }),
-            },
-          }],
-        });
+      if (isClassifierRequest(parsed)) {
+        return jsonRes(claudeResponse(JSON.stringify({ category: "fitness", confidence: "high" })));
       }
-      if (options.answerFails) return jsonRes({ error: "upstream" }, 500);
-      return jsonRes({
-        choices: [{ message: { content: "Klar, machen wir." }, finish_reason: "stop" }],
-      });
+      if (options.answerFails) return new Response(claudeErrorBody("api_error", "upstream"), { status: 500 });
+      return jsonRes(claudeResponse("Klar, machen wir."));
     }
     if (url.includes("/rest/v1/chat_messages")) {
       if (method === "POST") {
@@ -283,7 +282,7 @@ Deno.test("E5: User-Message nicht speicherbar -> Fehler statt Antwort auf eine N
     assertEquals(res.status, 500, "Status");
     assertEquals(body.error, "store_failed", "Fehlercode");
     assert(
-      stub.calls.every((c) => !c.url.includes("openrouter.ai") || JSON.parse(c.body).max_tokens === 256),
+      stub.calls.every((c) => !isProviderCall(c.url) || (isClaudeCall(c.url) && isClassifierRequest(JSON.parse(c.body)))),
       "kein teurer Answer-Call fuer eine Nachricht, die nicht persistiert ist",
     );
     // The claimed slot is refunded here too.

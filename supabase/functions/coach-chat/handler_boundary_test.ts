@@ -1,6 +1,14 @@
 // Offline transport/policy contracts, not a simulation of model judgement.
 // The provider chooses scripted replies; only the real handler is under test.
 import { userToken } from "../_shared/auth_test_fixtures.ts";
+import {
+  claudeResponse,
+  imageBlocks,
+  isClassifierRequest,
+  isClaudeCall,
+  isProviderCall,
+  systemText,
+} from "../_shared/claude_test_fixtures.ts";
 import { handleRequest } from "./handler.ts";
 
 type Row = Record<string, unknown>;
@@ -38,7 +46,7 @@ function equal(actual: unknown, expected: unknown, message: string) {
   assert(JSON.stringify(actual) === JSON.stringify(expected), `${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 function json(value: unknown, status = 200) { return Response.json(value, { status }); }
-function completion(content: string) { return json({ choices: [{ message: { content }, finish_reason: "stop" }] }); }
+function completion(content: string) { return json(claudeResponse(content)); }
 function trainingContext(intent: "adapt" | "discuss", note = "Controlled movement") {
   const plan = structuredClone(PLAN);
   plan.workouts[0].exercises[0].notes = note;
@@ -71,7 +79,8 @@ async function withBackend(
   const originalNow = Date.now;
   const originalError = console.error;
   const env = { SUPABASE_URL: "https://ci.invalid", SUPABASE_ANON_KEY: "ci-dummy-key",
-    SUPABASE_SERVICE_ROLE_KEY: "ci-dummy-service", OPENROUTER_API_KEY: "ci-dummy-provider" };
+    SUPABASE_SERVICE_ROLE_KEY: "ci-dummy-service", ANTHROPIC_API_KEY: "ci-dummy-anthropic",
+    OPENROUTER_API_KEY: "ci-dummy-provider" };
   const previous = Object.fromEntries(Object.keys(env).map((key) => [key, Deno.env.get(key)]));
   for (const [key, value] of Object.entries(env)) Deno.env.set(key, value);
   Date.now = () => NOW;
@@ -120,16 +129,22 @@ async function withBackend(
           const session = url.searchParams.get("session_id")?.replace(/^eq\./, "");
           assert(user === USER_A || user === USER_B, "History lookup must constrain authenticated user");
           assert(session === sessionFor(user), "History lookup must constrain an owned session");
-          return json(options.history ?? [{ role: "assistant", content: user === USER_A ? "PRIVATE_A_HISTORY" : "PRIVATE_B_HISTORY", refusal: false }]);
+          // Newest first; a complete pair, since a leading assistant row is
+          // never sent to the provider.
+          const own = user === USER_A ? "PRIVATE_A_HISTORY" : "PRIVATE_B_HISTORY";
+          return json(options.history ?? [
+            { role: "assistant", content: `${own} answer`, refusal: false },
+            { role: "user", content: `${own} question`, refusal: false },
+          ]);
         }
       }
     }
-    if (url.href === "https://openrouter.ai/api/v1/chat/completions") {
-      if (body.max_tokens === 256) {
+    if (isClaudeCall(url.href)) {
+      if (isClassifierRequest(body)) {
         stage("classifier");
         return completion(options.classifier ?? '{"category":"fitness","confidence":"high"}');
       }
-      const system = String((body.messages as Row[])[0].content);
+      const system = systemText(body);
       if (system.includes("training-plan proposals")) {
         stage("plan");
         return completion(JSON.stringify(options.invalidDraft ? {} : PLAN));
@@ -156,7 +171,7 @@ async function withBackend(
   try {
     await test({
       calls, logs,
-      providers: () => calls.filter((call) => call.url.hostname === "openrouter.ai"),
+      providers: () => calls.filter((call) => isProviderCall(call.url.href)),
       refunds: () => calls.filter((call) => call.url.pathname.endsWith("/refund_chat_quota_for_day")),
       writes: () => calls.filter((call) => call.url.pathname === "/rest/v1/chat_messages" && call.method === "POST"),
       invoke: async (payload, user = USER_A) => {
@@ -269,11 +284,14 @@ for (const refusal of [false, true]) {
       const provider = backend.providers();
       equal(provider.length, 1, "No blind text classifier on an empty caption");
       const messages = provider[0].body.messages as Row[];
-      const image = (messages.at(-1)?.content as Row[]).find((part) => part.type === "image_url");
-      equal((image?.image_url as Row).url, `data:image/png;base64,${PNG}`, "Validated image and measured MIME reach vision");
-      equal(messages.filter((message) => message.role === "system").length, 1, "Only application instructions have system authority");
+      const current = messages.at(-1)?.content as Row[];
+      equal(current.map((block) => block.type), ["image"], "A captionless photo is the image block alone");
+      equal(current[0].source, { type: "base64", media_type: "image/png", data: PNG }, "Validated image and measured MIME reach vision");
+      assert(messages.every((message) => message.role === "user" || message.role === "assistant"), "Only application instructions have system authority");
+      assert(systemText(provider[0].body).length > 0, "Application instructions travel as the system prompt");
       assert(!JSON.stringify(backend.writes()).includes(PNG), "Image bytes never persist in chat history");
-      assert(!JSON.stringify(messages).includes("ci-dummy-provider"), "Provider credential stays out of the prompt");
+      const prompt = JSON.stringify(provider[0].body);
+      assert(!prompt.includes("ci-dummy-anthropic") && !prompt.includes("ci-dummy-provider"), "Provider credentials stay out of the prompt");
     });
   });
 }
@@ -287,8 +305,10 @@ for (const caption of ["¿Qué muestra esta comida?", "What about this?"]) {
       equal(backend.providers().length, 2, "Text classification followed by vision");
       const classification = backend.providers()[0].body.messages as Row[];
       equal(classification.at(-1)?.content, caption, "Only explicit caption is classified");
+      equal(imageBlocks(backend.providers()[0].body).length, 0, "Classifier never receives an image block");
       assert(!JSON.stringify(classification).includes(PNG), "Classifier never receives the image or unrelated profile/history");
       assert(!JSON.stringify(classification).includes("PRIVATE_A_HISTORY"), "Classifier sees no history");
+      equal(imageBlocks(backend.providers()[1].body).length, 1, "Vision call carries the photo");
     });
   });
 }
@@ -332,9 +352,10 @@ for (const intent of ["adapt", "discuss"] as const) {
         training_context: trainingContext(intent, note) });
       equal(result.body.refusal_reason, "injection", "Scripted classifier rejection is enforced");
       equal(backend.providers().length, 1, "No draft or discussion after rejection");
-      const messages = backend.providers()[0].body.messages as Row[];
+      const classifier = backend.providers()[0].body;
+      const messages = classifier.messages as Row[];
       assert(String(messages.at(-1)?.content).includes(note), "Classifier actually sees the selected plan note");
-      assert(!String(messages[0].content).includes(note), "Untrusted note is never promoted to system instructions");
+      assert(!systemText(classifier).includes(note), "Untrusted note is never promoted to system instructions");
     });
   });
   Deno.test(`plan notes: legitimate selected plan is explicit user data for ${intent}`, async () => {
@@ -346,8 +367,9 @@ for (const intent of ["adapt", "discuss"] as const) {
       equal(backend.providers().length, 2, "Classification and selected-plan response");
       for (const provider of backend.providers()) {
         const messages = provider.body.messages as Row[];
-        equal(messages.filter((message) => message.role === "system").length, 1, "No extra authority from selected plan");
-        assert(!String(messages[0].content).includes(note), "Notes remain outside system instructions");
+        assert(messages.every((message) => message.role === "user" || message.role === "assistant"), "No extra authority from selected plan");
+        assert(systemText(provider.body).length > 0, "Application instructions travel as the system prompt");
+        assert(!systemText(provider.body).includes(note), "Notes remain outside system instructions");
         assert(messages.some((message) => message.role === "user" && String(message.content).includes(note)), "Explicit notes reach provider as user data");
         assert(!JSON.stringify(messages).includes("PRIVATE_UNUSED_PROFILE"), "No unrelated automatic profile context");
       }
@@ -370,9 +392,10 @@ Deno.test("history: multi-turn injection stays below system authority and refuse
     equal(result.status, 200, "Follow-up stays available");
     const classifier = backend.providers()[0].body.messages as Row[];
     equal(classifier.at(-1)?.content, "Name two balanced snacks.", "Classifier receives current message only");
-    const messages = backend.providers()[1].body.messages as Row[];
-    equal(messages.filter((message) => message.role === "system").length, 1, "History cannot introduce system roles");
-    assert(!String(messages[0].content).includes("CANARY_HISTORY_83"), "Historical instructions remain untrusted");
+    const answer = backend.providers()[1].body;
+    const messages = answer.messages as Row[];
+    assert(messages.every((message) => message.role === "user" || message.role === "assistant"), "History cannot introduce system roles");
+    assert(!systemText(answer).includes("CANARY_HISTORY_83"), "Historical instructions remain untrusted");
     assert(JSON.stringify(messages).includes("CANARY_HISTORY_83"), "Test really exercised adversarial history");
     assert(!JSON.stringify(messages).includes("REFUSED_"), "Refused request and answer are both excluded");
     equal(messages.at(-1)?.content, "Name two balanced snacks.", "Current request follows bounded history");
@@ -386,7 +409,7 @@ Deno.test("account isolation: overlapping A/B requests keep context, budget iden
       backend.invoke({ message: "USER_B_CURRENT: Name two balanced snacks." }, USER_B),
     ]);
     equal(results.map((result) => result.status), [200, 200], "Both independent requests complete");
-    const answers = backend.providers().filter((call) => call.body.max_tokens !== 256);
+    const answers = backend.providers().filter((call) => !isClassifierRequest(call.body));
     equal(answers.length, 2, "Two answer payloads");
     for (const call of answers) {
       const payload = JSON.stringify(call.body.messages);

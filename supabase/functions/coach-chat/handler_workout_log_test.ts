@@ -1,9 +1,26 @@
 import { userToken } from "../_shared/auth_test_fixtures.ts";
 // /log mode through the real handler: closed network stub, frozen clock and a
 // claim-day ledger. The server returns a proposal only; nothing here may
-// write training data.
+// write training data. Text calls go to the Claude Messages API.
+import {
+  CLAUDE_URL,
+  claudeErrorBody,
+  claudeResponse,
+  isClaudeCall,
+  isClassifierRequest,
+  outputSchema,
+  systemText,
+} from "../_shared/claude_test_fixtures.ts";
+import {
+  asksForSchema,
+  assertClaudeContract,
+  brokenBody,
+  claudeErrorTypeFor,
+  CREDIT_BALANCE_MESSAGE,
+} from "./claude_mode_test_helpers.ts";
 import { handleRequest, PROVIDER_TIMEOUTS_MS, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
-import { WORKOUT_LOG_SAFETY_LINE, workoutLogRefusalText } from "./workout_log.ts";
+import { TRAINING_PLAN_OUTPUT_SCHEMA } from "./training_plan.ts";
+import { WORKOUT_LOG_OUTPUT_SCHEMA, WORKOUT_LOG_SAFETY_LINE, workoutLogRefusalText } from "./workout_log.ts";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -33,15 +50,20 @@ const EXTRACTION = extractionFor([{ reps: 5, weight: 100 }, { reps: 5, weight: 1
 Deno.env.set("SUPABASE_URL", BASE);
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
+Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
+// Recipe images only; log mode must never use it.
 Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 type Row = Record<string, unknown>;
-type Call = { url: string; method: string; body: Row; signal: AbortSignal | null | undefined };
+type Call = { url: string; method: string; headers: Headers; body: Row; signal: AbortSignal | null | undefined };
 type Options = {
   extraction?: string;
   extractionFinishReason?: string | null;
   extractionStatus?: number;
-  extractionCancelFails?: boolean;
+  /** Error body of a failed extraction (default: private plain text). */
+  extractionErrorBody?: string;
+  /** The error body's read fails and its cancel throws. */
+  extractionBodyBroken?: boolean;
   extractionError?: Error;
   extractionBodyInvalid?: boolean;
   extractionStalls?: boolean;
@@ -102,7 +124,7 @@ function stubNetwork(options: Options = {}) {
     const method = (init?.method ?? "GET").toUpperCase();
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Row : {};
     const signal = init?.signal;
-    calls.push({ url, method, body, signal });
+    calls.push({ url, method, headers: new Headers(init?.headers), body, signal });
     if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) {
       return Promise.resolve(response(body.p_operation === options.budgetDeniedFor
         ? { allowed: false, reason: "budget_exhausted" } : { allowed: true, reason: "allowed" }));
@@ -132,27 +154,35 @@ function stubNetwork(options: Options = {}) {
       ledger.set(day, Math.max(0, (ledger.get(day) ?? 0) - 1));
       return Promise.resolve(new Response(null, { status: 204 }));
     }
-    if (url === "https://openrouter.ai/api/v1/chat/completions") {
+    if (isClaudeCall(url)) {
+      assert(url === CLAUDE_URL, "Messages API endpoint");
       assert(signal, "provider deadline");
-      if (body.max_tokens === 256) {
-        return Promise.resolve(response({ choices: [{ message: { content: options.classifier ?? JSON.stringify({
+      if (isClassifierRequest(body)) {
+        return Promise.resolve(response(claudeResponse(options.classifier ?? JSON.stringify({
           category: options.category ?? "fitness", confidence: "high",
-        }) }, finish_reason: "stop" }] }));
+        }))));
       }
-      if (body.max_tokens === 3072) return Promise.resolve(response({ choices: [{ message: { content: "Normal chat reply." }, finish_reason: "stop" }] }));
-      // 4096 = log extraction; 4000 = plan draft (existing-client control).
-      assert(body.max_tokens === 4096 || body.max_tokens === 4000, "only a structured draft remains");
+      // Chat answers carry no output schema.
+      if (outputSchema(body) === undefined) return Promise.resolve(response(claudeResponse("Normal chat reply.")));
+      // Log extraction, or a plan draft (existing-client control).
+      assert(asksForSchema(body, WORKOUT_LOG_OUTPUT_SCHEMA) || asksForSchema(body, TRAINING_PLAN_OUTPUT_SCHEMA),
+        "only a structured draft remains");
       options.extractionRequested?.();
       if (options.extractionStalls) return stall(signal);
       if (options.extractionError) return Promise.reject(options.extractionError);
-      if (options.extractionStatus) return Promise.resolve(new Response(options.extractionCancelFails ? new ReadableStream({
-        cancel() { throw new TypeError("PRIVATE_REQUEST_CONTENT"); },
-      }) : "PRIVATE_REQUEST_CONTENT", { status: options.extractionStatus }));
+      if (options.extractionStatus) {
+        return Promise.resolve(new Response(
+          options.extractionBodyBroken
+            ? brokenBody("PRIVATE_REQUEST_CONTENT")
+            : options.extractionErrorBody ?? "PRIVATE_REQUEST_CONTENT",
+          { status: options.extractionStatus },
+        ));
+      }
       if (options.extractionBodyInvalid) return Promise.resolve(new Response("PRIVATE_REQUEST_CONTENT"));
-      return Promise.resolve(response({ choices: [{
-        message: { content: options.extraction ?? EXTRACTION },
-        finish_reason: options.extractionFinishReason === undefined ? "stop" : options.extractionFinishReason,
-      }] }));
+      return Promise.resolve(response(claudeResponse(
+        options.extraction ?? EXTRACTION,
+        options.extractionFinishReason === undefined ? "stop" : options.extractionFinishReason,
+      )));
     }
     if (url.includes("/rest/v1/chat_messages")) {
       if (method === "GET") return Promise.resolve(response([]));
@@ -178,8 +208,8 @@ function stubNetwork(options: Options = {}) {
   return {
     calls, logs, ledger,
     callsTo: (part: string) => calls.filter((call) => call.url.includes(part)),
-    providerCalls: () => calls.filter((call) => call.url.includes("chat/completions")),
-    extractionCalls: () => calls.filter((call) => call.url.includes("chat/completions") && call.body.max_tokens === 4096),
+    providerCalls: () => calls.filter((call) => isClaudeCall(call.url) || call.url.includes("openrouter.ai")),
+    extractionCalls: () => calls.filter((call) => isClaudeCall(call.url) && asksForSchema(call.body, WORKOUT_LOG_OUTPUT_SCHEMA)),
     assistantRows: () => calls.filter((call) => call.url.includes("chat_messages") && call.method === "POST" && call.body.role === "assistant"),
     budgetOperations: () => calls.filter((call) => call.url.includes("reserve_ai_provider_call")).map((call) => call.body.p_operation),
     sideEffects: () => calls.filter((call) => !call.url.includes("/auth/v1/user") && !call.url.includes("edge_rate_limits")),
@@ -238,21 +268,25 @@ Deno.test("log handler: one slot, validated buffered proposal, assistant history
     equal(saved[0].body, { user_id: USER, session_id: SESSION, content: body.reply, workout_log: LOG, role: "assistant", refusal: false, refusal_reason: null }, "explicit transcript fields only");
     assert(saved[0].url.includes("select=id"), "returns the stored id");
     const extraction = stub.extractionCalls()[0].body;
-    equal(extraction.model, "google/gemini-3.8-flash", "answer model by default");
-    equal(extraction.temperature, 0, "deterministic");
-    equal(extraction.response_format, { type: "json_object" }, "JSON contract");
-    equal(extraction.reasoning, { effort: "low", exclude: true }, "low excluded reasoning");
-    equal(extraction.provider, { require_parameters: true }, "parameters required");
+    equal(extraction.model, "claude-sonnet-5-5", "the shared Claude model by default");
+    // Determinism and the JSON shape come from the exported output schema;
+    // Sonnet 5.5 rejects sampling parameters, so none are sent.
+    for (const key of ["temperature", "top_p", "top_k"]) equal(key in extraction, false, `no ${key}`);
+    equal(extraction.output_config, { effort: "high", format: { type: "json_schema", schema: WORKOUT_LOG_OUTPUT_SCHEMA } }, "JSON contract");
+    equal(extraction.thinking, { type: "adaptive" }, "adaptive thinking, text not displayed");
+    // OpenRouter-only routing and reasoning flags have no Claude equivalent.
+    for (const key of ["response_format", "reasoning", "provider"]) equal(key in extraction, false, `no ${key}`);
     equal(extraction.max_tokens, 4096, "bounded output");
     const messages = extraction.messages as Row[];
-    equal(messages.length, 2, "system prompt plus the wish only");
-    equal(messages[1], { role: "user", content: WISH }, "the wish reaches the model as user data");
-    assert(String(messages[0].content).includes("2026-10-03 Saturday"), "calendar from local_date");
-    assert(String(messages[0].content).includes("in English"), "app language");
-    const classifier = stub.providerCalls()[0].body.messages as Row[];
-    assert(String(classifier[0].content).includes("dead after leg day"), "gym slang example in the shared classifier prompt");
+    equal(messages.length, 1, "the wish only; the prompt is the system block");
+    equal(messages[0], { role: "user", content: WISH }, "the wish reaches the model as user data");
+    assert(systemText(extraction).includes("2026-10-03 Saturday"), "calendar from local_date");
+    assert(systemText(extraction).includes("in English"), "app language");
+    const classifier = stub.providerCalls()[0].body;
+    assert(isClassifierRequest(classifier), "the classifier runs first");
+    assert(systemText(classifier).includes("dead after leg day"), "gym slang example in the shared classifier prompt");
     const quotaIndex = stub.calls.findIndex((call) => call.url.includes("claim_chat_quota"));
-    const classifierIndex = stub.calls.findIndex((call) => call.url.includes("chat/completions"));
+    const classifierIndex = stub.calls.findIndex((call) => isClaudeCall(call.url));
     assert(quotaIndex >= 0 && quotaIndex < classifierIndex, "quota precedes every paid call");
     const userIndex = stub.calls.findIndex((call) => call.body.role === "user");
     assert(userIndex < stub.calls.indexOf(stub.extractionCalls()[0]), "user persistence precedes paid extraction");
@@ -474,7 +508,7 @@ Deno.test("log handler: invalid drafts refund the original claim day once and ar
 });
 
 Deno.test("log handler: only finish_reason stop approves a draft", async () => {
-  for (const reason of [null, "length", "tool_calls", "error", "unexpected"]) {
+  for (const reason of [null, "length", "tool_calls", "error", "unexpected", "pause_turn"]) {
     const stub = stubNetwork({ extractionFinishReason: reason });
     try {
       const res = await handleRequest(request());
@@ -485,17 +519,32 @@ Deno.test("log handler: only finish_reason stop approves a draft", async () => {
   }
 });
 
-Deno.test("log handler: provider infra statuses refund; input fault statuses stay spent", async () => {
-  for (const { status, cancelFails } of [400, 403, 413, 415, 422, 401, 402, 404, 429, 500, 503]
-    .flatMap((status) => [{ status, cancelFails: false }, { status, cancelFails: true }])) {
-    const stub = stubNetwork({ extractionStatus: status, extractionCancelFails: cancelFails });
-    try {
-      const res = await handleRequest(request());
-      equal(res.status, 502, "provider failure");
-      const clientFault = [400, 403, 413, 415, 422].includes(status);
-      equal(stub.ledger.get(CLAIM_DAY), clientFault ? 1 : 0, `quota rule for ${status}`);
-      assert(!stub.logs.join(" ").includes("PRIVATE_"), "no response body logging");
-    } finally { stub.restore(); }
+// Client faults are {400, 413, 415, 422}. 403 (permission_error: our key) and
+// 529 (overload) are outages, and a 400 that reports an empty credit balance
+// is our 402. A broken error body must not change the verdict.
+Deno.test("log handler: every provider failure refunds, input-fault statuses included (text-only extraction)", async () => {
+  // The workout text is validated by the server; a 400/413 on this text-only
+  // call is our request, model setting or account, never the user's input.
+  const cases: { status: number; errorBody?: string; clientFault: boolean }[] = [
+    ...[400, 413, 415, 422].map((status) => ({ status, clientFault: false })),
+    ...[401, 402, 403, 404, 429, 500, 503, 529].map((status) => ({ status, clientFault: false })),
+    { status: 400, errorBody: claudeErrorBody(claudeErrorTypeFor(400)), clientFault: false },
+    { status: 403, errorBody: claudeErrorBody(claudeErrorTypeFor(403)), clientFault: false },
+    { status: 400, errorBody: claudeErrorBody("invalid_request_error", CREDIT_BALANCE_MESSAGE), clientFault: false },
+    { status: 400, errorBody: claudeErrorBody("billing_error"), clientFault: false },
+  ];
+  for (const { status, errorBody, clientFault } of cases) {
+    for (const bodyBroken of errorBody === undefined ? [false, true] : [false]) {
+      const label = `${status}${errorBody ? ` ${errorBody.slice(0, 60)}` : ""}${bodyBroken ? " (broken body)" : ""}`;
+      const stub = stubNetwork({ extractionStatus: status, extractionErrorBody: errorBody, extractionBodyBroken: bodyBroken });
+      try {
+        const res = await bounded(handleRequest(request()));
+        equal(res.status, 502, `${label}: provider failure`);
+        equal(stub.ledger.get(CLAIM_DAY), clientFault ? 1 : 0, `quota rule for ${label}`);
+        assert(!stub.logs.join(" ").includes("PRIVATE_"), `${label}: no response body logging`);
+        assert(!stub.logs.join(" ").includes("credit balance"), `${label}: no provider error text logging`);
+      } finally { stub.restore(); }
+    }
   }
 });
 
@@ -668,6 +717,30 @@ Deno.test("log handler: existing clients keep their modes (absent, chat, /plan t
       const res = await handleRequest(req);
       equal(res.status, 200, `${JSON.stringify(payload)}: status`);
       assert((await res.json())[field], `${JSON.stringify(payload)}: ${field}`);
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("log handler: the extraction carries WORKOUT_LOG_OUTPUT_SCHEMA, 4096 tokens and the Claude contract", async () => {
+  for (const [locale, language] of [["en", "English"], ["de", "German"]] as const) {
+    const stub = stubNetwork();
+    try {
+      const res = await handleRequest(request({ locale }));
+      equal(res.status, 200, `${locale}: status`);
+      await res.json();
+      equal(stub.extractionCalls().length, 1, `${locale}: one extraction`);
+      const extraction = stub.extractionCalls()[0];
+      assertClaudeContract(extraction, {
+        maxTokens: 4096,
+        schema: WORKOUT_LOG_OUTPUT_SCHEMA,
+        systemIncludes: ["2026-10-03", `All text fields are in ${language}`],
+      }, `${locale}: log extraction`);
+      equal(extraction.body.stream, undefined, `${locale}: buffered, never streamed`);
+      equal(extraction.body.messages, [{ role: "user", content: WISH }], `${locale}: only the wish`);
+      const classifier = stub.providerCalls().filter((call) => isClassifierRequest(call.body));
+      equal(classifier.length, 1, `${locale}: one classifier call`);
+      equal(classifier[0].body.max_tokens, 1024, `${locale}: classifier budget`);
+      equal(stub.callsTo("openrouter.ai").length, 0, `${locale}: log mode never reaches OpenRouter`);
     } finally { stub.restore(); }
   }
 });

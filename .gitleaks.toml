@@ -1,7 +1,7 @@
 # gitleaks config for the security.yml secret scan (Audit 2026-06-09, M2).
 # Extends the default rules and allowlists exactly the one credential-shaped
 # string that is public by design: the RLS-protected Supabase ANON JWT
-# (role=anon). A service_role, OpenRouter or sb_secret_ key still matches.
+# (role=anon). A service_role, Anthropic, OpenRouter or sb_secret_ key still matches.
 
 title = "Eatova gitleaks config"
 

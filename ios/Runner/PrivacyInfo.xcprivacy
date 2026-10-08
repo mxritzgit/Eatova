@@ -66,7 +66,7 @@
 		  `coachContext` in home_store.dart (Gewicht, Zielgewicht, kcal, Makros,
 		  heutige Mahlzeiten aus `_todaysFoodSummary`) ->
 		  `CoachChatService.send` (`user_context`) -> Edge Function ->
-		  OpenRouter/xAI. Verknuepft mit der Identitaet: jede Zeile haengt an
+		  Anthropic (US). Verknuepft mit der Identitaet: jede Zeile haengt an
 		  der Supabase-user_id. Zweck ist die Kernfunktion (Tagesziel,
 		  Kalorienrechnung, Coach-Antwort), keine Analyse, keine Werbung.
 		-->
@@ -170,8 +170,8 @@
 		  Fotos: Mahlzeitenfotos und Coach-Bilder.
 		  Beleg: `buildAnalyzeMealBody` in meal_analyzer.dart (imageBase64 an die
 		  Edge Function analyze-meal) und `_send` in coach_chat_screen.dart
-		  (imageBase64 an coach-chat). Von dort weiter an OpenRouter (US),
-		  Google Gemini (US) bzw. xAI (US) zur Bilderkennung. Kein
+		  (imageBase64 an coach-chat). Von dort weiter an Anthropic (US)
+		  zur Bilderkennung. Kein
 		  Supabase-Storage-Bucket, kein dauerhafter Ablageort in der App — aber
 		  die Uebertragung laeuft im
 		  authentifizierten Request des Nutzers, ist also der Identitaet
@@ -201,7 +201,7 @@
 		  vergebene Mahlzeitennamen und Favoriten.
 		  Beleg: Tabellen chat_messages, user_recipes, favorite_meals,
 		  logged_meals (coach_chat_service.dart, user_recipes_sync.dart). Die
-		  Chat-Nachricht selbst geht zusaetzlich an OpenRouter/xAI
+		  Chat-Nachricht selbst geht zusaetzlich an Anthropic
 		  (`CoachChatService.send`). Alles an der user_id haengend.
 		-->
 		<dict>

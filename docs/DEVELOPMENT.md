@@ -41,7 +41,7 @@ them. Empty `OFF_MIRROR_URL` is a hard local mirror disable; an empty search
 key can make lookup fall back to OFF. See [search configuration](../lib/src/config/search_config.dart)
 and [runtime credential rotation](BACKEND.md#product-search-key-rotation).
 
-Do not put service-role, management, OpenRouter or Meilisearch master keys in
+Do not put service-role, management, Anthropic, OpenRouter or Meilisearch master keys in
 Dart defines. Local runtime files, keystores and credentials stay out of Git.
 For the maintained workspace, named credentials are retrieved from Infisical
 inside the executing process; no secret values belong in documentation or logs.

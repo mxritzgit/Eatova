@@ -36,20 +36,61 @@ Sources: [store and sync](../lib/src/app/home_store_sync.dart),
 
 ## AI configuration
 
+Text and photo understanding run on the **Anthropic Messages API** (Claude);
+only recipe pictures are generated through OpenRouter.
+
 | Setting | Source default | Used by |
 | --- | --- | --- |
-| `OPENROUTER_MODEL` | `google/gemini-3.8-flash` | Meal image analysis |
-| `COACH_MODEL_ANSWER` | `google/gemini-3.8-flash` | Chat, recipe text, training drafts |
-| `COACH_MODEL_CLASSIFIER` | `google/gemini-3.8-flash` | Coach safety/topic classifier |
-| `COACH_MODEL_LOG` | value of `COACH_MODEL_ANSWER` | Coach `/log` workout extraction |
-| `COACH_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | Recipe picture generation |
+| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Coach (classifier, replies, recipe text, training drafts, `/log`), meal photo analysis, recipe import |
+| `COACH_EFFORT` | `high` | Thinking depth of Coach classifier (capped at `high`), replies, recipes and `/log` |
+| `COACH_PLAN_EFFORT` | `medium` | Thinking depth of Coach training plans |
+| `ANALYZE_MEAL_EFFORT` | `medium` | Thinking depth of meal photo analysis |
+| `RECIPE_IMPORT_EFFORT` | `medium` | Thinking depth of recipe import |
+| `COACH_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | Recipe picture generation (OpenRouter) |
 | `COACH_DAILY_LIMIT` | `5` | Daily per-user Coach quota |
 
-The source of truth is [analyze-meal/handler.ts](../supabase/functions/analyze-meal/handler.ts)
-and [coach-chat/handler.ts](../supabase/functions/coach-chat/handler.ts). Provider
-credentials use `OPENROUTER_API_KEY`, only in the function environment. Function
-secrets override source defaults, so an old `OPENROUTER_MODEL` can keep a
-deployment on a different model even after merging a model change.
+The source of truth is [_shared/claude.ts](../supabase/functions/_shared/claude.ts),
+[analyze-meal/handler.ts](../supabase/functions/analyze-meal/handler.ts),
+[coach-chat/handler.ts](../supabase/functions/coach-chat/handler.ts) and
+[recipe-import/handler.ts](../supabase/functions/recipe-import/handler.ts).
+Credentials: `ANTHROPIC_API_KEY` (required by all three functions) and
+`OPENROUTER_API_KEY` (recipe pictures only; without it a recipe arrives without
+a picture). Both live only in the function environment. Effort accepts `low`,
+`medium`, `high`, `xhigh` or `max`; an unknown value is logged and ignored.
+Changing an effort or model secret needs no redeploy.
+
+Calls use raw `fetch`, not the Anthropic SDK: the functions stay
+dependency-free, provider bodies stay byte-bounded, and each call keeps its own
+deadline, retry and refund policy. Every call sends adaptive thinking, an
+explicit effort, no sampling parameters, and the system prompt as a cached
+prefix. Structured routes (classifier, recipe, plan, `/log`, meal analysis,
+import) request a JSON schema through `output_config.format`, so the model
+returns exactly one object; the existing validators still enforce limits.
+Claude's `stop_reason` maps onto the former completion vocabulary
+(`end_turn` = stop, `max_tokens` = length, `refusal` = content filter). An
+empty credit balance (HTTP 400) and a key-permission error (403) count as our
+outage and refund the Coach slot; on a text-only call every input-fault
+status (400, 413) counts as our outage, because the server validated the
+text itself. A classifier call the provider declines for safety becomes a
+signposting refusal, not an error. Lone UTF-16 surrogates (an emoji cut by a
+length cap) are replaced before sending, since the API rejects them as
+invalid JSON. Images with an edge above 8,000 px are rejected with
+`image_too_large` before quota, because the API refuses them.
+
+Measured on 2026-10-08 with the real prompts (Sonnet 5.5, single requests, not
+a benchmark): greetings and classification about 1.5 s at any effort; Coach
+answers 5-6 s, or about 9 s at `high` when they reason over app data
+(about 6 s at `medium`); recipes about 5-16 s plus the picture; plans 17-21 s
+at `medium` (at `high` a 5-7 session plan took 33 s or hit the token cap
+near the 45 s deadline); `/log` 2-4 s; meal analysis 4-5 s at `medium` and
+10-12 s at `high` with the same estimates; a three-recipe import about 10 s at
+`medium` and 20-32 s at `high` with the same candidates (`low` missed a
+variant). Plans use at most four distinct workouts, rotated across the week
+when the user trains more often, so they fit that deadline.
+
+The OpenRouter-era secrets `OPENROUTER_MODEL`, `COACH_MODEL_ANSWER`,
+`COACH_MODEL_CLASSIFIER`, `COACH_MODEL_LOG` and `RECIPE_IMPORT_MODEL` are no
+longer read and can be removed after the rollout.
 
 Ordinary Coach replies support SSE and JSON. SSE text is held server-side until
 the full provider completion and output checks pass. The wire format remains
@@ -164,7 +205,8 @@ prove current provider availability or a successful live generation.
 | Variable | Purpose |
 | --- | --- |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Function-side project/auth/database clients; privileged key stays on the server |
-| `OPENROUTER_API_KEY` | Provider credential for meal analysis and Coach |
+| `ANTHROPIC_API_KEY` | Claude credential for Coach, meal analysis and recipe import |
+| `OPENROUTER_API_KEY` | Image-model credential for Coach recipe pictures (optional) |
 | Model/quota settings above | Optional overrides |
 | `EATOVA_ALLOWED_ORIGINS` | Optional comma-separated CORS allow-list |
 | `EATOVA_MIRROR_SEARCH_KEY` | Search-only Meilisearch key; required for normal mirror operation |

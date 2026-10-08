@@ -20,6 +20,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 // einzufrieren. `deno test --allow-env`, kein Netz.
 
 import { handleRequest, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
+import { claudeResponse, isClassifierRequest, isClaudeCall, isProviderCall } from "../_shared/claude_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -29,6 +30,7 @@ const CLIENT_IP = "203.0.113.7";
 Deno.env.set("SUPABASE_URL", BASE_URL);
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
+Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
 Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 /** Frist im Test: kurz genug fuer eine schnelle Suite, lang genug, dass die
@@ -113,6 +115,8 @@ interface StubOptions {
 interface FetchStub {
   calls: RecordedCall[];
   callsTo(fragment: string): RecordedCall[];
+  /** Paid calls: Claude and the OpenRouter image API. */
+  providerCalls(): RecordedCall[];
   gateScopes(): string[];
   restore(): void;
 }
@@ -175,17 +179,12 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/touch_chat_session")) return new Response(null, { status: 204 });
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) return jsonRes([{ used: 1, remaining: 4, quota_day: "2026-09-08" }]);
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) return new Response(null, { status: 204 });
-    if (url.includes("openrouter.ai")) {
-      const parsed = JSON.parse(body) as JsonRecord;
-      // Klassifizierer und Antwort trennen sich am Token-Budget (256 vs. 3072).
-      if (parsed.max_tokens === 256) {
-        return jsonRes({
-          choices: [{ message: { content: JSON.stringify({ category: "fitness", confidence: "high" }) }, finish_reason: "stop" }],
-        });
+    if (isClaudeCall(url)) {
+      // The classifier asks for the category schema, the answer for none.
+      if (isClassifierRequest(JSON.parse(body) as JsonRecord)) {
+        return jsonRes(claudeResponse(JSON.stringify({ category: "fitness", confidence: "high" })));
       }
-      return jsonRes({
-        choices: [{ message: { content: "Klar, machen wir." }, finish_reason: "stop" }],
-      });
+      return jsonRes(claudeResponse("Klar, machen wir."));
     }
     if (url.includes("/rest/v1/chat_messages")) {
       if (method === "POST") return new Response(null, { status: 201 });
@@ -213,6 +212,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   return {
     calls,
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
+    providerCalls: () => calls.filter((call) => isProviderCall(call.url)),
     gateScopes: () =>
       calls
         .filter((call) => call.url.includes("consume_edge_rate_limit"))
@@ -307,7 +307,7 @@ Deno.test("E1: ein haengender Anspruch endet als 500, ohne Erstattung auf Verdac
       assertEquals(res.status, 500, "Status");
       assertEquals((await res.json() as JsonRecord).error, "rpc_unavailable", "Fehlercode");
       assertEquals(stub.callsTo("refund_chat_quota").length, 0, "keine Erstattung auf Verdacht");
-      assertEquals(stub.callsTo("openrouter.ai").length, 0, "kein bezahlter Aufruf hinter dem Anspruch");
+      assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf hinter dem Anspruch");
     } finally {
       stub.restore();
     }
@@ -328,7 +328,7 @@ Deno.test("E1: ein haengendes IP-Tor faellt geschlossen statt durchzulassen", as
       // Ein stockender Limiter ist ein Ausfall, kein gemessenes Limit — und er
       // darf die Anfrage nicht an den bezahlten Aufrufen vorbeilassen.
       assertEquals(stub.callsTo("claim_chat_quota").length, 0, "kein Anspruch hinter dem offenen Tor");
-      assertEquals(stub.callsTo("openrouter.ai").length, 0, "kein bezahlter Aufruf");
+      assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf");
     } finally {
       stub.restore();
     }

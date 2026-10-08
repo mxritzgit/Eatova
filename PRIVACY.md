@@ -1,7 +1,13 @@
 # Privacy Policy — Eatova
 
 _Repository data-flow update: 2026-09-14; Coach `/log`, workout logging and
-rest alerts: 2026-10-03_
+rest alerts: 2026-10-03; text and photo AI moved to Anthropic Claude:
+2026-10-08_
+
+> **Pending publication (2026-10-08):** the source now sends coach, meal-scan
+> and recipe-import requests to Anthropic instead of OpenRouter/Google. The
+> published policy at eatova.de still names OpenRouter/Google until it is
+> updated; that update belongs before or with the backend rollout.
 
 > The published German policy for the app and website lives at
 > **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This repository
@@ -189,36 +195,37 @@ the device, before the photo is uploaded.
   recipes, plans, shopping checks and workout history. It is encrypted with a
   key held in the operating system's keystore; pending writes use an
   account-scoped durable outbox.
-- **OpenRouter** routes your AI requests to the underlying model providers, solely
-  to generate the response. The current source configures Google's Gemini
-  family for these requests:
+- **Anthropic** (the Claude API) generates the AI text and reads photos, solely
+  to produce the response. The current source uses **Claude Sonnet 5.5** for:
   - coach-chat messages — together with the profile/progress snapshot and any
-    photo you attach, as described above — use **Gemini 3.8 Flash**, as does the
-    safety/topic classifier;
-  - a recipe you ask the coach for is drafted by the same Gemini model,
-    from your wording alone (no profile snapshot, no photo);
-  - training requests use Gemini 3.8 Flash with the explicit brief and any
-    selected-plan context;
-  - a workout you describe with `/log` is read by the same Gemini model (by
-    default), from your wording alone (no profile snapshot, no photo);
-  - meal photos use Gemini 3.8 Flash for analysis; recipe pictures use a separate
-    image-generation model, `google/gemini-3.1-flash-image`.
+    photo you attach, as described above — and the safety/topic classifier;
+  - a recipe you ask the coach for, drafted from your wording alone (no profile
+    snapshot, no photo);
+  - training requests, with the explicit brief and any selected-plan context;
+  - a workout you describe with `/log`, read from your wording alone (no
+    profile snapshot, no photo);
+  - meal photo analysis, with the optional food note you add;
+  - recipe import, which reads the text of a recipe you paste or share.
+- **OpenRouter** (routing to **Google**'s image model
+  `google/gemini-3.1-flash-image`) generates only the picture for a coach
+  recipe card. Its prompt contains only the generated recipe title and
+  description, never your wording, profile or photos.
 
   Server settings can override these defaults. The exact configuration names
   and dated rollout evidence are in [Backend](docs/BACKEND.md#ai-configuration).
   The classifier receives the message text, not the profile snapshot, chat
   history or attached image. Ordinary chat can include up to ten recent messages.
 
-  All of these run through our server (Supabase Edge Functions). We rely on
-  OpenRouter's and the underlying providers' data-use terms to keep your API
-  traffic out of model training; our server does not send a per-request
-  opt-out parameter, so this rests on OpenRouter account configuration and
-  provider policy rather than on something our code enforces.
+  All of these run through our server (Supabase Edge Functions). We rely on the
+  providers' commercial API terms to keep your API traffic out of model
+  training; our server does not send a per-request opt-out parameter, so this
+  rests on account configuration and provider policy rather than on something
+  our code enforces.
 - **Google Sign-In** (optional). If you sign in with Google, Google processes
   your Google account identifier, email address, name and the device/connection
   data involved in the sign-in in order to issue the identity token we exchange
   for an Eatova session. Email/password sign-in does not use Google's
-  authentication service; the optional Gemini AI features are separate.
+  authentication service; the optional AI features are separate.
 - **Our own product-search index** (Meilisearch, `eatova.de/meili`, on a server
   we operate in Germany) answers product and barcode searches from a copy of the
   public Open Food Facts database. It receives the search term or barcode and the
@@ -263,21 +270,22 @@ runs on a server in Germany.
 
 The configured AI path involves recipients in, or routing to, the United States:
 
-- **OpenRouter, Inc.** (San Francisco, USA) — the router your AI requests pass
-  through,
-- **Google** (USA) — the provider of the Gemini models for Coach/classification,
-  recipes, training drafts, meal analysis and recipe pictures. This entry is about the
-  Gemini models only; Google Sign-In is a separate service provided to users in
+- **Anthropic, PBC** (San Francisco, USA) — the provider of the Claude models
+  for Coach/classification, recipes, training drafts, workout logs, meal
+  analysis and recipe import,
+- **OpenRouter, Inc.** (San Francisco, USA) and **Google** (USA) — only for the
+  generated recipe pictures (router and image model). This entry is about the
+  image model only; Google Sign-In is a separate service provided to users in
   the EU by Google's European entity.
 
 These AI transfers happen when you use coach chat, a coach recipe/training
-proposal, a coach workout log or AI meal analysis. The published policy
+proposal, a coach workout log, AI meal analysis or recipe import. The published policy
 identifies the **Standard Contractual Clauses** adopted by the EU
 Commission (Art. 46(2)(c) GDPR). Despite these safeguards, a residual risk
 remains that US authorities can access data held by US providers, and that your
 rights may be harder to enforce there than in the EU. If you do not want this,
-simply do not use the coach and the AI meal scan; every other feature of the app
-works without them.
+simply do not use the coach, the AI meal scan and recipe import; every other
+feature of the app works without them.
 
 Apple's speech recognition may also process audio on Apple's servers where no
 on-device model is available for your language (see above).

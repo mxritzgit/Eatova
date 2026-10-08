@@ -8,6 +8,7 @@ import {
   parseWorkoutLog,
   parseWorkoutLogCommand,
   transformExtraction,
+  WORKOUT_LOG_OUTPUT_SCHEMA,
   WORKOUT_LOG_SAFETY_LINE,
   workoutLogRefusalText,
   workoutLogSummary,
@@ -291,4 +292,16 @@ Deno.test("prompt: language, the 8-day calendar, all 19 rules and the extraction
   }
   assert(/\n16\. [^\n]*health_mention true[^\n]*pain/.test(en), "rule 16 flags pain without copying it");
   assert(/never invent/i.test(en) && /data/i.test(en), "data-only, no invention");
+});
+
+Deno.test("log schema: ok and refuse are separate envelopes and a unit is always named", () => {
+  const schema = JSON.parse(JSON.stringify(WORKOUT_LOG_OUTPUT_SCHEMA)) as { anyOf: Row[] };
+  const [ok, refuse] = schema.anyOf.map((variant) => variant.properties as Record<string, Row>);
+  equal(ok.status.enum, ["ok"], "ok envelope");
+  equal(ok.refuse_reason, { type: "null" }, "ok has no refusal reason");
+  equal(refuse.status.enum, ["refuse"], "refuse envelope");
+  equal(refuse.refuse_reason.enum, [...LOG_REFUSAL_REASONS], "refusal reasons");
+  equal(refuse.workout, { type: "null" }, "refuse has no workout");
+  const exercise = ((ok.workout.properties as Record<string, Row>).exercises.items as Row).properties as Record<string, Row>;
+  equal(exercise.weight_unit, { type: "string", enum: ["kg", "lb"] }, "unit never null");
 });

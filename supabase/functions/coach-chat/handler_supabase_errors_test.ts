@@ -1,4 +1,11 @@
 import { userToken } from "../_shared/auth_test_fixtures.ts";
+import {
+  claudeErrorBody,
+  claudeResponse,
+  isClassifierRequest,
+  isClaudeCall,
+  isProviderCall,
+} from "../_shared/claude_test_fixtures.ts";
 // Real handler, stubbed transport: failures before and after response headers.
 import { handleRequest, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
 
@@ -12,6 +19,7 @@ const RECIPE = { title: "Auflauf", calories_kcal: 520, estimated_g: 450 };
 Deno.env.set("SUPABASE_URL", "https://supabase.test.invalid");
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
+Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
 Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 type Stage = "auth" | "limits" | "session" | "ownership" | "history" | "claim" |
@@ -110,17 +118,15 @@ async function withStub(
         return Promise.resolve(answer(stage, [{ id: "33333333-3333-4333-8333-333333333333" }]));
       }
       if (url.endsWith("/api/v1/images")) return Promise.resolve(json({ data: [] }));
-      if (url.endsWith("/api/v1/chat/completions")) {
-        if (body.max_tokens === 256) {
-          return Promise.resolve(json({ choices: [{ message: { content: '{"category":"nutrition","confidence":"high"}' }, finish_reason: "stop" }] }));
+      if (isClaudeCall(url)) {
+        if (isClassifierRequest(body)) {
+          return Promise.resolve(json(claudeResponse('{"category":"nutrition","confidence":"high"}')));
         }
         if (options.midnightFailure) {
           clockMs = originalDate.parse("2026-09-09T00:00:01.000Z");
-          return Promise.resolve(json({ error: "provider unavailable" }, 503));
+          return Promise.resolve(new Response(claudeErrorBody("api_error", "provider unavailable"), { status: 503 }));
         }
-        return Promise.resolve(json({ choices: [{
-          message: { content: options.recipe ? JSON.stringify(RECIPE) : REPLY }, finish_reason: "stop",
-        }] }));
+        return Promise.resolve(json(claudeResponse(options.recipe ? JSON.stringify(RECIPE) : REPLY)));
       }
       throw new Error(`Unexpected fixture route: ${method} ${url}`);
     } catch (error) {
@@ -163,7 +169,8 @@ for (const stage of ["user-store", "title", "assistant-store", "recipe-store", "
       equal(refunds.length, stage === "user-store" ? 1 : 0, "refund count");
       if (stage === "user-store") {
         equal(body.error, "store_failed", "critical write failure");
-        equal(calls.some((call) => call.body.max_tokens === 3072), false, "no paid answer after failed user store");
+        equal(calls.some((call) => isClaudeCall(call.url) && !isClassifierRequest(call.body)), false,
+          "no paid answer after failed user store");
       } else if (stage === "recipe-store") {
         equal(body.recipe.title, "Auflauf", "finished recipe delivered");
         equal("assistant_message_id" in body, false, "no invented persisted id");
@@ -185,7 +192,7 @@ for (const fault of ["transport", "body-timeout", "body-invalid"] as const) {
       await withStub({ stage, fault }, async (response, calls) => {
         equal(response.status, status, "status");
         equal((await response.json()).error, code, "public error");
-        equal(calls.some((call) => call.url.includes("openrouter.ai")), false, "no provider call");
+        equal(calls.some((call) => isProviderCall(call.url)), false, "no provider call");
         equal(calls.some((call) => call.url.includes("refund_chat_quota")), false, "no speculative refund");
         if (stage === "ownership") {
           equal(calls.some((call) => call.url.includes("ensure_default_chat_session")), false, "no default-session fallback on outage");
@@ -202,7 +209,7 @@ for (const fault of ["http-error", "shape-invalid"] as const) {
         if (fault === "http-error" || stage === "limits") {
           equal(response.status, 500, "status");
           equal((await response.json()).error, stage === "limits" ? "rate_limit_unavailable" : "rpc_unavailable", "public error");
-          equal(calls.some((call) => call.url.includes("openrouter.ai")), false, "no provider call");
+          equal(calls.some((call) => isProviderCall(call.url)), false, "no provider call");
         } else {
           equal(response.status, 200, "a successful quota claim with unreadable count can still answer");
         }
@@ -215,7 +222,7 @@ Deno.test("Coach limiter HTTP error responds despite a stalled body cancellation
   await withStub({ stage: "limits", fault: "cancel-stall", maxWaitMs: 1000 }, async (response, calls) => {
     equal(response.status, 500, "status");
     equal((await response.json()).error, "rate_limit_unavailable", "public code");
-    equal(calls.some((call) => call.url.includes("openrouter.ai")), false, "no provider call");
+    equal(calls.some((call) => isProviderCall(call.url)), false, "no provider call");
   });
 });
 
@@ -223,7 +230,7 @@ Deno.test("Coach auth outage responds despite a stalled body cancellation", asyn
   await withStub({ stage: "auth", fault: "cancel-stall", maxWaitMs: 1000 }, async (response, calls) => {
     equal(response.status, 503, "status");
     equal((await response.json()).error, "auth_unavailable", "public code");
-    equal(calls.some((call) => call.url.includes("openrouter.ai")), false, "no provider call");
+    equal(calls.some((call) => isProviderCall(call.url)), false, "no provider call");
   });
 });
 

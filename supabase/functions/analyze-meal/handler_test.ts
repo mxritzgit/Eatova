@@ -12,6 +12,8 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 import { handleRequest } from './handler.ts';
 import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { PNG_BASE64 } from './image_fixtures.ts';
+import { MEAL_OUTPUT_SCHEMA } from './normalize.ts';
+import { CLAUDE_URL, claudeErrorBody, claudeResponse, isClaudeCall, systemText } from '../_shared/claude_test_fixtures.ts';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const BASE_URL = 'https://supabase.test.invalid';
@@ -54,12 +56,12 @@ const MODEL_RESULT = {
 const PROVIDER_ECHO = 'ECHO-Steak-mit-Kartoffeln-und-Nutzerhinweis-4711';
 /** Same idea for the request side: user data that must not reach a log. */
 const BODY_PROBE = 'PROBE-Nutzerdaten-aus-dem-Body-4711';
-const OPENROUTER_KEY = 'test-openrouter-key';
+const PROVIDER_KEY = 'test-anthropic-key';
 
 Deno.env.set('SUPABASE_URL', BASE_URL);
 Deno.env.set('SUPABASE_ANON_KEY', ANON_KEY);
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'test-service-key');
-Deno.env.set('OPENROUTER_API_KEY', OPENROUTER_KEY);
+Deno.env.set('ANTHROPIC_API_KEY', PROVIDER_KEY);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -119,7 +121,7 @@ interface StubOptions {
   /** HTTP status of the consume for the auth-fail scope (limiter outage). */
   authFailGateStatus?: number;
   /**
-   * P6-04, provider failures. Until this existed the openrouter.ai route could
+   * P6-04, provider failures. Until this existed the provider route could
    * only succeed, so the whole error family — five codes, all of them logging
    * paths — was untested.
    */
@@ -127,7 +129,7 @@ interface StubOptions {
   providerStatus?: number;
   /** RAW provider body, bypassing JSON.stringify: "no JSON at all". */
   providerRaw?: string;
-  /** Provider answer as an object, for the choices/content shapes. */
+  /** Provider answer as an object, for the content/stop_reason shapes. */
   providerJson?: JsonRecord;
   /** The provider fetch aborts exactly like a real one on signal timeout. */
   providerTimeout?: boolean;
@@ -147,7 +149,7 @@ interface GateParams {
 
 interface FetchStub {
   calls: RecordedCall[];
-  openRouterBodies: JsonRecord[];
+  providerBodies: JsonRecord[];
   callsTo(fragment: string): RecordedCall[];
   /** Scopes of the gates the limiter actually COUNTED, in order. */
   rateLimitScopes(): string[];
@@ -186,7 +188,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   // P7-02: every stub starts from a cold isolate (empty auth-fail caches).
   resetAuthFailCacheForTests();
   const calls: RecordedCall[] = [];
-  const openRouterBodies: JsonRecord[] = [];
+  const providerBodies: JsonRecord[] = [];
   // What the limiter actually COUNTED, in order, normalised to the p_-names.
   // Recorded here rather than derived from the request bodies because a batch
   // stops at the first denial: the gates behind it were sent but never
@@ -293,8 +295,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes('/rest/v1/rpc/prune_edge_rate_limits')) {
       return new Response(null, { status: 204 });
     }
-    if (url.includes('openrouter.ai')) {
-      openRouterBodies.push(JSON.parse(body) as JsonRecord);
+    if (isClaudeCall(url)) {
+      providerBodies.push(JSON.parse(body) as JsonRecord);
       if (options.providerTimeout) {
         // Exactly what a real fetch rejects with once AbortSignal.timeout
         // fires; handler.ts recognises the provider timeout by this shape.
@@ -307,11 +309,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
         });
       }
       if (options.providerStatus !== undefined) {
-        return jsonRes({ error: { message: `upstream rejected: ${PROVIDER_ECHO}` } }, options.providerStatus);
+        return jsonRes(JSON.parse(claudeErrorBody('api_error', `upstream rejected: ${PROVIDER_ECHO}`)), options.providerStatus);
       }
-      return jsonRes(
-        options.providerJson ?? { choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }] },
-      );
+      return jsonRes(options.providerJson ?? claudeResponse(JSON.stringify(MODEL_RESULT)));
     }
     throw new Error(`Unerwarteter fetch im Test: ${url}`);
   }
@@ -333,7 +333,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       options.onAuthSignal?.(init?.signal);
       if (init?.signal?.aborted) return Promise.reject(init.signal.reason);
     }
-    if (url.includes('openrouter.ai') && options.abortOnProvider) {
+    if (isClaudeCall(url) && options.abortOnProvider) {
       options.abortOnProvider.abort();
       options.onProviderSignal?.(init?.signal);
       if (init?.signal?.aborted && !options.ignoreProviderAbort) return Promise.reject(init.signal.reason);
@@ -349,7 +349,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
 
   return {
     calls,
-    openRouterBodies,
+    providerBodies,
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
     // Batched calls expanded into the gates they COUNTED, so every order
     // assertion reads exactly as it did when the gates were four calls.
@@ -429,7 +429,7 @@ function captureConsole(): ConsoleCapture {
 function assertRedacted(logs: string, responseText: string, label: string): void {
   assertLogRedacted(logs, label);
   assert(!responseText.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext in der Antwort: ${responseText}`);
-  assert(!responseText.includes(OPENROUTER_KEY), `${label}: Provider-Key in der Antwort: ${responseText}`);
+  assert(!responseText.includes(PROVIDER_KEY), `${label}: Provider-Key in der Antwort: ${responseText}`);
 }
 
 /**
@@ -440,7 +440,7 @@ function assertRedacted(logs: string, responseText: string, label: string): void
  */
 function assertLogRedacted(logs: string, label: string): void {
   assert(!logs.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext im Log: ${logs}`);
-  assert(!logs.includes(OPENROUTER_KEY), `${label}: Provider-Key im Log: ${logs}`);
+  assert(!logs.includes(PROVIDER_KEY), `${label}: Provider-Key im Log: ${logs}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -463,7 +463,7 @@ Deno.test('Provider budget: exhausted shared allowance stops photo analysis befo
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
     assertEquals(res.status, 429, 'budget status');
     assertEquals((await res.json()).error, 'ai_budget_exhausted', 'stable public error');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'no unreserved paid photo call');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'no unreserved paid photo call');
     const claim = JSON.parse(stub.callsTo('reserve_ai_provider_call')[0].body);
     assertEquals(claim.p_operation, 'analyze_meal', 'shared budget operation');
     assertEquals(claim.p_user_id, USER_ID, 'verified account identity');
@@ -476,13 +476,13 @@ Deno.test('Provider budget: invalid image never spends shared provider allowance
     const res = await handleRequest(makeRequest({ imageBase64: 'invalid!' }));
     assertEquals(res.status, 400, 'invalid image rejected');
     assertEquals(stub.callsTo('reserve_ai_provider_call').length, 0, 'no provider reservation');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'no paid call');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'no paid call');
   } finally { stub.restore(); }
 });
 
 Deno.test('Provider body: oversized successful and failed analysis envelopes are rejected', async () => {
   for (const providerStatus of [200, 500]) {
-    const providerRaw = JSON.stringify({ choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }], padding: 'x'.repeat(530000) });
+    const providerRaw = JSON.stringify({ ...claudeResponse(JSON.stringify(MODEL_RESULT)), padding: 'x'.repeat(530000) });
     const stub = installFetch({ providerStatus, providerRaw });
     try {
       const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
@@ -589,7 +589,7 @@ Deno.test('IP-Limit erschoepft -> 429 mit retry-after, ohne bezahlten Provider-C
       `retry-after muss eine positive Sekundenzahl sein, war: ${res.headers.get('retry-after')}`,
     );
 
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
     // After a rejected IP gate the user gate must not consume anything, or a
     // blocked IP would burn other users' budgets.
     assertEquals(stub.rateLimitScopes().join(','), 'analyze-meal:ip', 'Gate-Reihenfolge');
@@ -612,7 +612,7 @@ Deno.test('User-Limit erschoepft -> 429 vor dem globalen Gate', async () => {
       'analyze-meal:ip,analyze-meal:user',
       'Gate-Reihenfolge',
     );
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -632,7 +632,7 @@ Deno.test('F9-01: globales Tageslimit erschoepft -> 429 als letztes Gate, kein P
     // The bill cap is the last gate: it only counts requests that passed
     // every per-user budget, i.e. those that would have paid for a call.
     assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
 
     const params = stub.rateLimitParams('analyze-meal:global')!;
     assertEquals(params.p_subject, 'all', 'ein Bucket fuer alle Nutzer');
@@ -655,7 +655,7 @@ Deno.test('F9-01: User-Tageslimit erschoepft -> 429 vor dem globalen Gate', asyn
       'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day',
       'Gate-Reihenfolge',
     );
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
 
     const params = stub.rateLimitParams('analyze-meal:user-day')!;
     assertEquals(params.p_subject, USER_ID, 'Subject ist der Nutzer');
@@ -676,7 +676,7 @@ Deno.test('Limiter antwortet 200 ohne allowed -> 500 rate_limit_unavailable', as
     assertEquals(res.status, 500, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'rate_limit_unavailable', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -691,7 +691,7 @@ Deno.test('A4: Batch-Element ohne allowed -> 500 rate_limit_unavailable', async 
     assertEquals(res.status, 500, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'rate_limit_unavailable', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -704,7 +704,7 @@ Deno.test('zu grosses Bild -> 413 image_too_large, ohne bezahlten Provider-Call'
     assertEquals(res.status, 413, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'image_too_large', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -720,7 +720,7 @@ Deno.test('Body ueber dem Cap -> 413 payload_too_large', async () => {
     assertEquals(res.status, 413, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'payload_too_large', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -735,7 +735,7 @@ Deno.test('falscher content-type -> 415 unsupported_content_type', async () => {
     assertEquals(res.status, 415, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'unsupported_content_type', 'Fehlercode');
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
   }
@@ -745,8 +745,11 @@ Deno.test('fehlendes Provider-Secret -> 500 provider_not_configured, ohne Roundt
   // Also proves the secrets are read PER REQUEST: at module load the value
   // would be frozen and this delete would have no effect.
   const stub = installFetch();
-  const previous = Deno.env.get('OPENROUTER_API_KEY') ?? '';
-  Deno.env.delete('OPENROUTER_API_KEY');
+  const previous = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
+  const previousOpenRouter = Deno.env.get('OPENROUTER_API_KEY');
+  Deno.env.delete('ANTHROPIC_API_KEY');
+  // A leftover secret of the former provider must not count as configured.
+  Deno.env.set('OPENROUTER_API_KEY', 'stale-former-provider-key');
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
     assertEquals(res.status, 500, 'Status');
@@ -754,7 +757,9 @@ Deno.test('fehlendes Provider-Secret -> 500 provider_not_configured, ohne Roundt
     assertEquals(body.error, 'provider_not_configured', 'Fehlercode');
     assertEquals(stub.calls.length, 0, 'Roundtrips');
   } finally {
-    Deno.env.set('OPENROUTER_API_KEY', previous);
+    Deno.env.set('ANTHROPIC_API_KEY', previous);
+    if (previousOpenRouter === undefined) Deno.env.delete('OPENROUTER_API_KEY');
+    else Deno.env.set('OPENROUTER_API_KEY', previousOpenRouter);
     stub.restore();
   }
 });
@@ -808,41 +813,38 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
     // The global bucket is operator information, not client information.
     assertEquals('global' in rateLimit, false, 'rateLimit.global bleibt intern');
     assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
-    // Cosmetic: the referer names the real domain.
-    assertEquals(
-      stub.callsTo('openrouter.ai')[0].headers.get('http-referer'),
-      'https://eatova.de',
-      'HTTP-Referer',
-    );
+    // The server's key goes in x-api-key with the pinned API version; no
+    // bearer header; the old referer/title headers are gone.
+    const providerHeaders = stub.callsTo(CLAUDE_URL)[0].headers;
+    assertEquals(providerHeaders.get('x-api-key'), PROVIDER_KEY, 'x-api-key');
+    assertEquals(providerHeaders.get('anthropic-version'), '2023-06-01', 'anthropic-version');
+    assertEquals(providerHeaders.has('authorization'), false, 'kein Bearer-Header');
     // Table hygiene runs fire-and-forget and must not tear down the request.
     assertEquals(stub.callsTo('prune_edge_rate_limits').length, 1, 'Prune-Calls');
 
     // Shape of the provider request: this is what costs money.
-    assertEquals(stub.openRouterBodies.length, 1, 'Provider-Calls');
-    const providerBody = stub.openRouterBodies[0];
-    assertEquals(
-      providerBody.model,
-      'google/gemini-3.8-flash',
-      'OpenRouter uses the Gemini Flash vision model by default',
-    );
+    assertEquals(stub.providerBodies.length, 1, 'Provider-Calls');
+    const providerBody = stub.providerBodies[0];
+    assertEquals(providerBody.model, 'claude-sonnet-5-5', 'Claude Sonnet 5.5 by default');
     assertEquals(providerBody.max_tokens, 4096, 'max_tokens');
-    assertEquals((providerBody.response_format as JsonRecord).type, 'json_object', 'response_format');
+    const format = (providerBody.output_config as JsonRecord).format as JsonRecord;
+    assertEquals(format.type, 'json_schema', 'structured output');
 
+    // The trusted task is the top-level system prompt; the only message is the
+    // user's (untrusted) photo and observations.
     const messages = providerBody.messages as JsonRecord[];
-    assertEquals(messages[0].role, 'system', 'Trusted task role');
-    assertEquals(messages[1].role, 'user', 'Untrusted observations role');
-    const content = messages[1].content as JsonRecord[];
-    assertEquals(content.length, 2, 'Prompt + Bild');
-    assertEquals(
-      (content[1].image_url as JsonRecord).url,
-      `data:image/png;base64,${IMAGE_BASE64}`,
-      'data:-URL mit dem aus dem Praefix geparsten MIME-Typ',
-    );
+    assertEquals(messages.length, 1, 'eine Nachricht');
+    assertEquals(messages[0].role, 'user', 'Untrusted observations role');
+    const content = messages[0].content as JsonRecord[];
+    assertEquals(content.length, 2, 'Bild + Beobachtungen');
+    const image = content[0].source as JsonRecord;
+    assertEquals(image.media_type, 'image/png', 'MIME-Typ aus den Bytes, nicht aus dem Praefix');
+    assertEquals(image.data, IMAGE_BASE64, 'Bild ohne data:-Praefix');
 
-    const promptText = String(messages[0].content);
+    const promptText = systemText(providerBody);
     assert(promptText.includes('ENGLISCH'), 'language "en" muss die Sprachregel umstellen');
     assert(!promptText.includes('mit extra Sauce'), 'Nutzerhinweis darf nicht in Systemtext gelangen');
-    assertEquals(JSON.parse(String(content[0].text)).foodObservations, 'mit extra Sauce', 'Freitext-Hinweis im Nutzerinhalt');
+    assertEquals(JSON.parse(String(content[1].text)).foodObservations, 'mit extra Sauce', 'Freitext-Hinweis im Nutzerinhalt');
     assert(promptText.includes('~50% mehr als Standardportion'), 'portionHint "large" fehlt im Prompt');
     // F9-10: text inside the photo is content, never an instruction.
     assert(
@@ -850,6 +852,112 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
       'Schutzsatz gegen Anweisungen im Bild fehlt im BASE_PROMPT',
     );
   } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Claude Messages API contract of the scan (2026-10-08 provider switch).
+// ---------------------------------------------------------------------------
+
+Deno.test('Claude-Vertrag: Bild zuerst, gecachter BASE_PROMPT, MEAL_OUTPUT_SCHEMA, effort medium, keine Sampling-Parameter', async () => {
+  const stub = installFetch();
+  try {
+    for (const payload of [
+      { imageBase64: IMAGE_BASE64, portionHint: 'small', language: 'de' },
+      { imageBase64: IMAGE_BASE64, portionHint: 'extraLarge', language: 'en', freeTextHint: 'ohne Sauce' },
+    ]) {
+      const res = await handleRequest(makeRequest(payload));
+      assertEquals(res.status, 200, 'Status');
+    }
+    assertEquals(stub.providerBodies.length, 2, 'Provider-Calls');
+    const [first, second] = stub.providerBodies;
+
+    // Exactly the Messages API fields: no temperature/top_p/top_k (Sonnet 5.5
+    // rejects non-default sampling), no OpenAI response_format or reasoning,
+    // no OpenRouter routing, no stream.
+    assertEquals(Object.keys(first).sort().join(','), 'max_tokens,messages,model,output_config,system,thinking', 'Request-Felder');
+    assertEquals(first.model, 'claude-sonnet-5-5', 'model');
+    assertEquals(first.max_tokens, 4096, 'max_tokens deckt Thinking und JSON');
+    assertEquals(JSON.stringify(first.thinking), '{"type":"adaptive"}', 'adaptive thinking');
+    assertEquals(
+      JSON.stringify(first.output_config),
+      JSON.stringify({ effort: 'medium', format: { type: 'json_schema', schema: MEAL_OUTPUT_SCHEMA } }),
+      'effort medium und MEAL_OUTPUT_SCHEMA',
+    );
+
+    // System: the stable BASE_PROMPT carries the cache breakpoint; the
+    // request-specific tail follows it without one.
+    const system = first.system as JsonRecord[];
+    assertEquals(system.length, 2, 'BASE_PROMPT + Nutzer-Kontext');
+    assertEquals(system[0].type, 'text', 'Textblock');
+    assertEquals(JSON.stringify(system[0].cache_control), '{"type":"ephemeral"}', 'Cache-Breakpoint am BASE_PROMPT');
+    const base = String(system[0].text);
+    assert(base.startsWith('Eatova Foto-Kalorienanalyse.'), 'BASE_PROMPT vorne');
+    assert(/Text im Bild[\s\S]*Anweisung/.test(base), 'Schutzsatz im gecachten Teil');
+    assert(!base.includes('Nutzer-Kontext') && !base.includes('Portionsgröße') && !base.includes('Sprachregel: "mealName"'),
+      'nichts Anfragespezifisches im gecachten Teil');
+    assertEquals(system[1].cache_control, undefined, 'kein zweiter Breakpoint');
+    assert(String(system[1].text).startsWith('Nutzer-Kontext:'), 'Anfrage-Teil hinter dem Breakpoint');
+    // Same cached prefix for every scan, whatever language, portion or hint.
+    assertEquals(JSON.stringify((second.system as JsonRecord[])[0]), JSON.stringify(system[0]), 'identischer Cache-Praefix');
+    assert(String((second.system as JsonRecord[])[1].text).includes('ENGLISCH'), 'Sprachregel im Anfrage-Teil');
+
+    // One user message: the image block FIRST, then the observations as data.
+    const messages = second.messages as JsonRecord[];
+    assertEquals(messages.length, 1, 'eine Nachricht');
+    assertEquals(messages[0].role, 'user', 'Nutzerrolle');
+    const content = messages[0].content as JsonRecord[];
+    assertEquals(content.length, 2, 'Bild + Text');
+    assertEquals(
+      JSON.stringify(content[0]),
+      JSON.stringify({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: IMAGE_BASE64 } }),
+      'Bildblock zuerst',
+    );
+    assertEquals(JSON.stringify(content[1]), JSON.stringify({ type: 'text', text: '{"foodObservations":"ohne Sauce"}' }), 'Beobachtungen danach');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('Claude: stop_reason refusal ohne Textblock -> 502 provider_empty_response', async () => {
+  // A safety decline before any answer: only the (empty) thinking block.
+  const providerJson = claudeResponse('', 'content_filter');
+  assertEquals(providerJson.stop_reason, 'refusal', 'Fixture: Claude-Ablehnung');
+  const stub = installFetch({ providerJson });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const text = await res.text();
+    assertEquals(res.status, 502, 'Status');
+    assertEquals((JSON.parse(text) as JsonRecord).error, 'provider_empty_response', 'Fehlercode');
+    assertEquals(stub.providerBodies.length, 1, 'ein bezahlter Call, kein Retry');
+    const logged = logs.text();
+    assert(logged.includes('Empty model content'), `Logzeile fehlt: ${logged}`);
+    assert(logged.includes('"finishReason":"content_filter"'), `refusal nicht als content_filter geloggt: ${logged}`);
+    assertRedacted(logged, text, 'provider_empty_response');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('Claude: Thinking-Block ist nie Antworttext', async () => {
+  // Only `text` blocks are the answer; a thinking block (here with content,
+  // as under a summarized display) must neither parse nor leak.
+  const response = claudeResponse(JSON.stringify(MODEL_RESULT));
+  response.content = [{ type: 'thinking', thinking: `{"mealName":"${PROVIDER_ECHO}"}`, signature: 'sig' },
+    ...(response.content as JsonRecord[]).slice(1)];
+  const stub = installFetch({ providerJson: response });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const text = await res.text();
+    assertEquals(res.status, 200, 'Status');
+    assertEquals(((JSON.parse(text) as JsonRecord).result as JsonRecord).mealName, 'Steak mit Kartoffeln', 'Antwort aus dem Textblock');
+    assertRedacted(logs.text(), text, 'thinking');
+  } finally {
+    logs.restore();
     stub.restore();
   }
 });
@@ -892,7 +1000,7 @@ Deno.test('F-28-1: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucket bis
     assertEquals(params?.p_window_seconds, 3600, 'Stunden-Fenster');
     // Keyed by the client IP, never by a token-derived value.
     assertEquals(params?.p_subject, 'ip:203.0.113.7', 'Subject');
-    assertEquals(stub.openRouterBodies.length, 0, 'kein Provider-Call');
+    assertEquals(stub.providerBodies.length, 0, 'kein Provider-Call');
   } finally {
     stub.restore();
   }
@@ -1033,29 +1141,26 @@ const PROVIDER_CASES: ProviderCase[] = [
     digest: false,
   },
   {
-    // P6-04b: the marker rides in finish_reason and in usage, the two
+    // P6-04b: the marker rides in stop_reason and in usage, the two
     // provider-controlled values this path logs. Without it assertRedacted was
     // vacuous for the one provider case that actually writes a log line.
     name: 'Modell schreibt nichts in content',
     options: {
-      providerJson: {
-        choices: [{ finish_reason: PROVIDER_ECHO, message: { content: '   ' } }],
-        usage: { total_tokens: 4096, note: PROVIDER_ECHO },
-      },
+      providerJson: claudeResponse('   ', PROVIDER_ECHO, { output_tokens: 4096, note: PROVIDER_ECHO }),
     },
     status: 502,
     code: 'provider_empty_response',
     digest: false,
   },
   {
-    // P6-04c: the marker must ride in finish_reason here TOO, not only in
+    // P6-04c: the marker must ride in stop_reason here TOO, not only in
     // content. loggableFinishReason has a SECOND call site — the 'Invalid
     // model JSON' line, which this case is the only one to reach — and
     // without a marker in finish_reason assertRedacted was vacuous for it:
     // turning that call site back into the raw value left the suite green.
     name: 'Modell antwortet Fliesstext statt JSON',
     options: {
-      providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: PROVIDER_ECHO } }] },
+      providerJson: claudeResponse(PROVIDER_ECHO, PROVIDER_ECHO),
     },
     status: 502,
     code: 'provider_invalid_json',
@@ -1085,7 +1190,7 @@ for (const testCase of PROVIDER_CASES) {
       assertEquals(res.status, testCase.status, 'Status');
       assertEquals((JSON.parse(text) as JsonRecord).error, testCase.code, 'Fehlercode');
       // The call happened and was paid for; the four gates ran before it.
-      assertEquals(stub.openRouterBodies.length, 1, 'Provider-Calls');
+      assertEquals(stub.providerBodies.length, 1, 'Provider-Calls');
       assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
 
       assertRedacted(logs.text(), text, testCase.code);
@@ -1107,10 +1212,11 @@ for (const testCase of PROVIDER_CASES) {
 // cannot ride along.
 Deno.test('P6-04b: bekannter finish_reason und Token-Zahlen bleiben im Log', async () => {
   const stub = installFetch({
-    providerJson: {
-      choices: [{ finish_reason: 'length', message: { content: '   ' } }],
-      usage: { total_tokens: 4096, prompt_tokens: 1200, note: PROVIDER_ECHO },
-    },
+    // max_tokens is Claude's "length"; all four Messages API counters stay.
+    providerJson: claudeResponse('   ', 'length', {
+      input_tokens: 1200, output_tokens: 4096, cache_read_input_tokens: 777, cache_creation_input_tokens: 333,
+      note: PROVIDER_ECHO,
+    }),
   });
   const logs = captureConsole();
   try {
@@ -1119,8 +1225,10 @@ Deno.test('P6-04b: bekannter finish_reason und Token-Zahlen bleiben im Log', asy
     const text = await res.text();
     const logged = logs.text();
     assert(logged.includes('"finishReason":"length"'), `finishReason fehlt im Log: ${logged}`);
-    assert(logged.includes('4096'), `total_tokens fehlt im Log: ${logged}`);
-    assert(logged.includes('1200'), `prompt_tokens fehlt im Log: ${logged}`);
+    assert(logged.includes('"output_tokens":4096'), `output_tokens fehlt im Log: ${logged}`);
+    assert(logged.includes('"input_tokens":1200'), `input_tokens fehlt im Log: ${logged}`);
+    assert(logged.includes('"cache_read_input_tokens":777'), `cache_read_input_tokens fehlt im Log: ${logged}`);
+    assert(logged.includes('"cache_creation_input_tokens":333'), `cache_creation_input_tokens fehlt im Log: ${logged}`);
     // The allowlist drops everything else the provider put into `usage`.
     assert(!logged.includes('note'), `nicht gelistetes usage-Feld im Log: ${logged}`);
     assertRedacted(logged, text, 'provider_empty_response');
@@ -1132,7 +1240,7 @@ Deno.test('P6-04b: bekannter finish_reason und Token-Zahlen bleiben im Log', asy
 
 Deno.test('P6-04b: unbekannter finish_reason wird kategorisiert, nicht durchgereicht', async () => {
   const stub = installFetch({
-    providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: '   ' } }] },
+    providerJson: claudeResponse('   ', PROVIDER_ECHO),
   });
   const logs = captureConsole();
   try {
@@ -1152,7 +1260,7 @@ Deno.test('P6-04b: unbekannter finish_reason wird kategorisiert, nicht durchgere
 // value left the whole suite green.
 Deno.test('P6-04c: auch die Invalid-JSON-Logzeile kategorisiert den finish_reason', async () => {
   const stub = installFetch({
-    providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: 'kein JSON' } }] },
+    providerJson: claudeResponse('kein JSON', PROVIDER_ECHO),
   });
   const logs = captureConsole();
   try {
@@ -1177,23 +1285,17 @@ Deno.test('P6-04c: auch die Invalid-JSON-Logzeile kategorisiert den finish_reaso
 
 Deno.test('P6-06: schemafremde Modellantwort -> 502 statt 200 mit lauter null', async () => {
   const stub = installFetch({
-    providerJson: {
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            ok: true,
-            answer: 'Ich bin ein Sprachmodell.',
-            // P6-04c: the two log lines P6-06 introduced write into
-            // function_logs like every other provider path, so the marker
-            // rides in the fields a well-meaning "more diagnostics" patch
-            // reaches for first — mealName and explanation, both derived from
-            // the photo and the user hint.
-            mealName: PROVIDER_ECHO,
-            explanation: PROVIDER_ECHO,
-          }),
-        },
-      }],
-    },
+    providerJson: claudeResponse(JSON.stringify({
+      ok: true,
+      answer: 'Ich bin ein Sprachmodell.',
+      // P6-04c: the two log lines P6-06 introduced write into
+      // function_logs like every other provider path, so the marker
+      // rides in the fields a well-meaning "more diagnostics" patch
+      // reaches for first — mealName and explanation, both derived from
+      // the photo and the user hint.
+      mealName: PROVIDER_ECHO,
+      explanation: PROVIDER_ECHO,
+    })),
   });
   const logs = captureConsole();
   try {
@@ -1217,23 +1319,17 @@ Deno.test('P6-06: ein einzelnes fehlendes Feld bleibt 200 — mit Warnung fuer d
   // A model that omits estimatedGrams still delivered an analysis; only the
   // one that delivers nothing usable is rejected.
   const stub = installFetch({
-    providerJson: {
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            // P6-04c: marker in the two free-text fields. It may go back to
-            // the caller who supplied the photo — this is a 200 — but it must
-            // not reach the operator warning, hence assertLogRedacted below
-            // instead of the full assertRedacted.
-            mealName: PROVIDER_ECHO,
-            explanation: PROVIDER_ECHO,
-            caloriesKcal: 94,
-            kcalPer100G: 52,
-            items: [{ name: 'Apfel', grams: 180, caloriesKcal: 94, kcalPer100G: 52 }],
-          }),
-        },
-      }],
-    },
+    providerJson: claudeResponse(JSON.stringify({
+      // P6-04c: marker in the two free-text fields. It may go back to
+      // the caller who supplied the photo — this is a 200 — but it must
+      // not reach the operator warning, hence assertLogRedacted below
+      // instead of the full assertRedacted.
+      mealName: PROVIDER_ECHO,
+      explanation: PROVIDER_ECHO,
+      caloriesKcal: 94,
+      kcalPer100G: 52,
+      items: [{ name: 'Apfel', grams: 180, caloriesKcal: 94, kcalPer100G: 52 }],
+    })),
   });
   const logs = captureConsole();
   try {
@@ -1253,16 +1349,10 @@ Deno.test('P6-06: ein einzelnes fehlendes Feld bleibt 200 — mit Warnung fuer d
 
 Deno.test('P6-06: nur items tragen Energie -> 200, keine Ablehnung', async () => {
   const stub = installFetch({
-    providerJson: {
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            mealName: 'Teller',
-            items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
-          }),
-        },
-      }],
-    },
+    providerJson: claudeResponse(JSON.stringify({
+      mealName: 'Teller',
+      items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
+    })),
   });
   const logs = captureConsole();
   try {
@@ -1279,19 +1369,13 @@ Deno.test('P6-06: nur items tragen Energie -> 200, keine Ablehnung', async () =>
 
 Deno.test('P6-06: vollstaendige Modellantwort loest weder Warnung noch Ablehnung aus', async () => {
   const stub = installFetch({
-    providerJson: {
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            mealName: 'Teller',
-            caloriesKcal: 780,
-            estimatedGrams: 300,
-            kcalPer100G: 260,
-            items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
-          }),
-        },
-      }],
-    },
+    providerJson: claudeResponse(JSON.stringify({
+      mealName: 'Teller',
+      caloriesKcal: 780,
+      estimatedGrams: 300,
+      kcalPer100G: 260,
+      items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
+    })),
   });
   const logs = captureConsole();
   try {
@@ -1358,7 +1442,7 @@ Deno.test('Client cancellation reaches an in-flight analyze-meal provider call',
     const logs = captureConsole();
     try {
       const response = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }, { signal: controller.signal }));
-      assertEquals(stub.callsTo('openrouter.ai').length, 1, 'no retry after a consumed provider reservation');
+      assertEquals(stub.callsTo(CLAUDE_URL).length, 1, 'no retry after a consumed provider reservation');
       assertEquals(stub.callsTo('reserve_ai_provider_call').length, 1, 'one non-refundable provider claim');
       assert(providerSignal?.aborted === true, 'outbound provider signal follows client cancellation');
       assertEquals(response.status, 499, 'cancelled provider work stops promptly');
@@ -1385,7 +1469,7 @@ Deno.test('Client cancellation stops analyze-meal before quota and provider call
     assertEquals(response.status, 499, 'client abort is distinct from auth outage');
     assertEquals((await response.json() as JsonRecord).error, 'request_aborted', 'public cancellation code');
     assertEquals(stub.rateLimitCalls(), 0, 'no quota calls after abort');
-    assertEquals(stub.openRouterBodies.length, 0, 'no provider call after abort');
+    assertEquals(stub.providerBodies.length, 0, 'no provider call after abort');
   } finally {
     logs.restore();
     stub.restore();
@@ -1406,7 +1490,7 @@ Deno.test('Analyze-meal auth outage responds despite a stalled body cancellation
     assertEquals(response.status, 503, 'auth outage stays distinct from logout');
     assertEquals((await response.json() as JsonRecord).error, 'auth_unavailable', 'public code');
     assertEquals(stub.rateLimitCalls(), 0, 'no gates after auth outage');
-    assertEquals(stub.openRouterBodies.length, 0, 'no provider call');
+    assertEquals(stub.providerBodies.length, 0, 'no provider call');
   } finally {
     clearTimeout(timer);
     logs.restore();
@@ -1442,7 +1526,7 @@ for (const testCase of BODY_CASES) {
       const text = await res.text();
       assertEquals(res.status, 400, 'Status');
       assertEquals((JSON.parse(text) as JsonRecord).error, testCase.code, 'Fehlercode');
-      assertEquals(stub.openRouterBodies.length, 0, 'Provider-Calls');
+      assertEquals(stub.providerBodies.length, 0, 'Provider-Calls');
       // P6-01: a rejected body costs the two rolling attempt gates, never a
       // day slot.
       assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
@@ -1467,7 +1551,7 @@ for (const authStatus of [429, 500, 503]) {
       assertEquals((await res.json()).error, "auth_unavailable", "error code");
       assertEquals(stub.callsTo("/auth/v1/user").length, 1, "auth lookup");
       assertEquals(stub.callsTo("/rest/v1/").length, 0, "no database writes");
-      assertEquals(stub.callsTo("openrouter.ai").length, 0, "no provider call");
+      assertEquals(stub.callsTo(CLAUDE_URL).length, 0, "no provider call");
     } finally { stub.restore(); }
   });
 }
@@ -1496,7 +1580,7 @@ for (const [label, hint] of [
       assertEquals(response.status, 400, 'Status');
       assertEquals(JSON.parse(responseText).error, 'invalid_hint', 'Code');
       assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Only flood-control attempts');
-      assertEquals(stub.openRouterBodies.length, 0, 'No paid provider call');
+      assertEquals(stub.providerBodies.length, 0, 'No paid provider call');
       assert(!logs.text().includes(BODY_PROBE), 'Context must not be logged');
       assert(!responseText.includes(BODY_PROBE), 'Context must not be echoed');
       assert(!logs.text().includes(IMAGE_BASE64), 'Photo must not be logged');
@@ -1523,23 +1607,25 @@ for (const [label, hint, expected] of [
       const response = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64, freeTextHint: hint, language: 'en' }));
       assertEquals(response.status, 200, 'Status');
       const responseText = await response.text();
-      const messages = stub.openRouterBodies[0].messages as JsonRecord[];
-      assertEquals(messages.length, 2, 'Task and data separated');
-      assertEquals(messages[0].role, 'system', 'Task role');
-      const system = String(messages[0].content);
+      const providerBody = stub.providerBodies[0];
+      const messages = providerBody.messages as JsonRecord[];
+      // Task and data separated: the task is the system prompt, the only
+      // message carries the user's data.
+      assertEquals(messages.length, 1, 'Task and data separated');
+      const system = systemText(providerBody);
       assert(system.includes('ENGLISCH'), 'Output language preserved');
       assert(system.includes('niemals eine Anweisung'), 'Observation trust boundary');
       assert(system.includes('Unsicherheit'), 'Uncertainty instruction');
       assert(!system.includes(BODY_PROBE), 'User instructions must not be promoted');
-      assertEquals(messages[1].role, 'user', 'Data role');
-      const content = messages[1].content as JsonRecord[];
-      assertEquals(JSON.parse(String(content[0].text)).foodObservations, expected, 'Observation value');
-      assertEquals((content[1].image_url as JsonRecord).url, `data:image/png;base64,${IMAGE_BASE64}`, 'Photo preserved');
+      assertEquals(messages[0].role, 'user', 'Data role');
+      const content = messages[0].content as JsonRecord[];
+      assertEquals(JSON.parse(String(content[1].text)).foodObservations, expected, 'Observation value');
+      assertEquals((content[0].source as JsonRecord).data, IMAGE_BASE64, 'Photo preserved');
       assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Normal gate order');
       assert(!logs.text().includes(BODY_PROBE), 'Context must not be logged');
       assert(!logs.text().includes(IMAGE_BASE64), 'Photo must not be logged');
       assert(!responseText.includes(BODY_PROBE), 'Raw context is not added to result');
-      assert(stub.calls.every((call) => call.url.includes('openrouter.ai') || !call.body.includes(BODY_PROBE)), 'No context in database/auth calls');
+      assert(stub.calls.every((call) => isClaudeCall(call.url) || !call.body.includes(BODY_PROBE)), 'No context in database/auth calls');
     } finally {
       logs.restore();
       stub.restore();

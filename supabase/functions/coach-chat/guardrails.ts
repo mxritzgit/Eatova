@@ -29,6 +29,12 @@ export interface ClassifierResult {
    * (W1); layer2RefusalReason() decides who reacts.
    */
   parseFailed: boolean;
+  /**
+   * true = the provider's own safety system declined the classification call.
+   * Nothing is known about the message, which may be a crisis; every mode
+   * refuses with a signposting reply instead of an error.
+   */
+  providerRefusal?: boolean;
 }
 
 // Categories Layer 2 refuses. A refusal still costs the daily slot: the
@@ -107,8 +113,9 @@ export function refusalCategoriesFor(
   return hasImage ? IMAGE_REFUSAL_CATEGORIES : REFUSAL_CATEGORIES;
 }
 
-/** The model's category, or "classifier_unusable" when nothing classified. */
-export type Layer2RefusalReason = ClassifierCategory | "classifier_unusable";
+/** The model's category, "classifier_unusable" when nothing classified, or
+ *  "provider_refusal" when the provider declined to classify. */
+export type Layer2RefusalReason = ClassifierCategory | "classifier_unusable" | "provider_refusal";
 
 /**
  * Does Layer 2 refuse, and why? null = let through. With `parseFailed` only
@@ -123,6 +130,8 @@ export function layer2RefusalReason(options: {
   refuseOnUnusableOutput: boolean;
 }): Layer2RefusalReason | null {
   const { result, categories, refuseOnUnusableOutput } = options;
+  // Every mode: an unknown message the provider would not touch is never answered.
+  if (result.providerRefusal) return "provider_refusal";
   if (result.parseFailed && refuseOnUnusableOutput) return "classifier_unusable";
   return categories.has(result.category) ? result.category : null;
 }

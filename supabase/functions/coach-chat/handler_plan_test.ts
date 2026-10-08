@@ -1,6 +1,24 @@
 import { userToken } from "../_shared/auth_test_fixtures.ts";
-// Real handler flow with a closed network stub and frozen quota dates.
+// Real handler flow with a closed network stub and frozen quota dates. Text
+// calls go to the Claude Messages API; nothing in plan mode reaches OpenRouter.
+import {
+  CLAUDE_URL,
+  claudeErrorBody,
+  claudeResponse,
+  isClaudeCall,
+  isClassifierRequest,
+  outputSchema,
+  systemText,
+} from "../_shared/claude_test_fixtures.ts";
+import {
+  asksForSchema,
+  assertClaudeContract,
+  brokenBody,
+  claudeErrorTypeFor,
+  CREDIT_BALANCE_MESSAGE,
+} from "./claude_mode_test_helpers.ts";
 import { handleRequest, PROVIDER_TIMEOUTS_MS, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
+import { TRAINING_PLAN_OUTPUT_SCHEMA } from "./training_plan.ts";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -20,15 +38,20 @@ const PLAN_JSON = JSON.stringify(PLAN);
 Deno.env.set("SUPABASE_URL", BASE);
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
+Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
+// Recipe images only; plan mode must never use it.
 Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 type Row = Record<string, unknown>;
-type Call = { url: string; method: string; body: Row; signal: AbortSignal | null | undefined };
+type Call = { url: string; method: string; headers: Headers; body: Row; signal: AbortSignal | null | undefined };
 type Options = {
   draft?: string;
   draftFinishReason?: string | null;
   draftStatus?: number;
-  draftCancelFails?: boolean;
+  /** Error body of a failed draft (default: private plain text). */
+  draftErrorBody?: string;
+  /** The error body's read fails and its cancel throws. */
+  draftBodyBroken?: boolean;
   draftError?: Error;
   draftBodyInvalid?: boolean;
   draftStalls?: boolean;
@@ -89,7 +112,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
     const method = (init?.method ?? "GET").toUpperCase();
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Row : {};
     const signal = init?.signal;
-    calls.push({ url, method, body, signal });
+    calls.push({ url, method, headers: new Headers(init?.headers), body, signal });
     if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(response({ allowed: true, reason: "allowed" }));
     if (url.includes("/auth/v1/user")) return Promise.resolve(response({ id: USER }, options.authStatus));
     if (url.includes("/rpc/consume_edge_rate_limits")) {
@@ -116,24 +139,35 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
       ledger.set(day, Math.max(0, (ledger.get(day) ?? 0) - 1));
       return Promise.resolve(new Response(null, { status: 204 }));
     }
-    if (url === "https://openrouter.ai/api/v1/chat/completions") {
+    if (isClaudeCall(url)) {
+      assert(url === CLAUDE_URL, "Messages API endpoint");
       assert(signal, "provider deadline");
-      if (body.max_tokens === 256) {
+      if (isClassifierRequest(body)) {
         if (options.classifierError) return Promise.reject(options.classifierError);
         if (options.classifierBodyInvalid) return Promise.resolve(new Response("PRIVATE_REQUEST_CONTENT"));
-        return Promise.resolve(response({ choices: [{ message: { content: options.classifier ?? JSON.stringify({
+        if (options.classifierStatus) {
+          return Promise.resolve(new Response(claudeErrorBody(claudeErrorTypeFor(options.classifierStatus)), { status: options.classifierStatus }));
+        }
+        return Promise.resolve(response(claudeResponse(options.classifier ?? JSON.stringify({
           category: options.category ?? "fitness", confidence: "high",
-        }) }, finish_reason: "stop" }] }, options.classifierStatus));
+        }))));
       }
-      if (body.max_tokens === 3072) return Promise.resolve(response({ choices: [{ message: { content: "Normal chat reply." }, finish_reason: "stop" }] }));
+      // Chat answers carry no output schema.
+      if (outputSchema(body) === undefined) return Promise.resolve(response(claudeResponse("Normal chat reply.")));
       options.draftRequested?.();
       if (options.draftStalls) return stall(signal);
       if (options.draftError) return Promise.reject(options.draftError);
-      if (options.draftStatus) return Promise.resolve(new Response(options.draftCancelFails ? new ReadableStream({
-        cancel() { throw new TypeError("PRIVATE_REQUEST_CONTENT"); },
-      }) : "PRIVATE_REQUEST_CONTENT", { status: options.draftStatus }));
+      if (options.draftStatus) {
+        return Promise.resolve(new Response(
+          options.draftBodyBroken ? brokenBody("PRIVATE_REQUEST_CONTENT") : options.draftErrorBody ?? "PRIVATE_REQUEST_CONTENT",
+          { status: options.draftStatus },
+        ));
+      }
       if (options.draftBodyInvalid) return Promise.resolve(new Response("PRIVATE_REQUEST_CONTENT"));
-      return Promise.resolve(response({ choices: [{ message: { content: options.draft ?? defaultDraft }, finish_reason: options.draftFinishReason === undefined ? "stop" : options.draftFinishReason }] }));
+      return Promise.resolve(response(claudeResponse(
+        options.draft ?? defaultDraft,
+        options.draftFinishReason === undefined ? "stop" : options.draftFinishReason,
+      )));
     }
     if (url.includes("/rest/v1/chat_messages")) {
       if (method === "GET") return Promise.resolve(response([]));
@@ -159,7 +193,11 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
   return {
     calls, logs, ledger,
     callsTo: (part: string) => calls.filter((call) => call.url.includes(part)),
-    draftCalls: () => calls.filter((call) => call.url.includes("chat/completions") && call.body.max_tokens !== 256 && call.body.max_tokens !== 3072),
+    providerCalls: () => calls.filter((call) => isClaudeCall(call.url) || call.url.includes("openrouter.ai")),
+    // Drafts: a Claude call with an output schema that is not the classifier's.
+    draftCalls: () => calls.filter((call) =>
+      isClaudeCall(call.url) && outputSchema(call.body) !== undefined && !isClassifierRequest(call.body)
+    ),
     restore: () => {
       globalThis.fetch = originalFetch;
       Date.now = originalNow;
@@ -203,18 +241,19 @@ Deno.test("plan handler: one slot, complete validated proposal, assistant histor
     equal(body.daily_limit, 5, "daily limit");
     equal(stub.ledger.get(CLAIM_DAY), 1, "one spent slot");
     equal(stub.draftCalls().length, 1, "one draft request");
-    equal(stub.callsTo("chat/completions").length, 2, "classifier plus draft only");
+    equal(stub.providerCalls().length, 2, "classifier plus draft only");
     equal(stub.callsTo("chat_messages").filter((call) => call.method === "GET").length, 0, "no provider history loading");
     equal(stub.callsTo("images").length, 0, "no image generation");
+    equal(stub.callsTo("openrouter.ai").length, 0, "plan mode never reaches OpenRouter");
     equal(stub.callsTo("training_plans").length, 0, "never adopts a draft");
     const saved = stub.callsTo("chat_messages").find((call) => call.body.training_plan !== undefined);
     assert(saved, "stored proposal");
     equal(saved.body, { user_id: USER, session_id: SESSION, content: body.reply, training_plan: PLAN, role: "assistant", refusal: false, refusal_reason: null }, "explicit allowed transcript fields only");
     const draftCall = stub.draftCalls()[0];
-    equal(draftCall.body.response_format, { type: "json_object" }, "JSON contract");
-    equal(draftCall.body.max_tokens, 4000, "bounded output budget");
+    assert(asksForSchema(draftCall.body, TRAINING_PLAN_OUTPUT_SCHEMA), "JSON contract: the exported plan schema");
+    equal(draftCall.body.max_tokens, 4500, "bounded output budget");
     const quotaIndex = stub.calls.findIndex((call) => call.url.includes("claim_chat_quota"));
-    const classifierIndex = stub.calls.findIndex((call) => call.url.includes("chat/completions"));
+    const classifierIndex = stub.calls.findIndex((call) => isClaudeCall(call.url));
     assert(quotaIndex < classifierIndex, "quota precedes every paid call");
     const userIndex = stub.calls.findIndex((call) => call.body.role === "user");
     const draftIndex = stub.calls.indexOf(draftCall);
@@ -228,7 +267,8 @@ Deno.test("plan handler: exact /plan command routes and strips its token before 
     const res = await handleRequest(request({ mode: undefined, message: " /PLAN\t2 home workouts " }));
     equal(res.status, 200, "status");
     assert((await res.json()).training_plan, "plan mode selected");
-    for (const call of stub.callsTo("chat/completions")) {
+    equal(stub.providerCalls().length, 2, "classifier and draft");
+    for (const call of stub.providerCalls()) {
       const messages = call.body.messages as Row[];
       equal(messages.at(-1)?.content, "2 home workouts", "only the wish reaches model");
     }
@@ -263,7 +303,7 @@ Deno.test("plan handler: empty command, unsafe text and photo combination never 
       const res = await handleRequest(request(payload));
       const body = await res.json();
       equal(stub.callsTo("claim_chat_quota").length, 0, "no quota");
-      equal(stub.callsTo("chat/completions").length, 0, "no paid call");
+      equal(stub.providerCalls().length, 0, "no paid call");
       equal(body.training_plan, undefined, "no draft");
       if (payload.image_base64) equal(res.status, 400, "photo protocol error");
       else if ((payload.message?.length ?? 0) > 1000) equal(res.status, 413, "command cannot evade size cap");
@@ -281,7 +321,7 @@ Deno.test("plan handler: quota exhaustion and unavailable auth fail before paid 
     try {
       const res = await handleRequest(request(payload));
       equal(res.status, status, "failure status");
-      equal(stub.callsTo("chat/completions").length, 0, "no provider call");
+      equal(stub.providerCalls().length, 0, "no provider call");
       equal(stub.callsTo("chat_messages").length, 0, "no transcript data write");
       if (payload.session_id) {
         assert(stub.callsTo("chat_sessions")[0].url.includes(`user_id=eq.${USER}`), "owner-scoped lookup");
@@ -351,17 +391,32 @@ Deno.test("plan handler: malformed or semantically unsafe proposals refund the o
   }
 });
 
-Deno.test("plan handler: provider infra statuses refund; input fault statuses stay spent", async () => {
-  for (const { status, cancelFails } of [400, 403, 413, 415, 422, 401, 402, 404, 429, 500, 503]
-    .flatMap((status) => [{ status, cancelFails: false }, { status, cancelFails: true }])) {
-    const stub = stubNetwork(PLAN_JSON, { draftStatus: status, draftCancelFails: cancelFails });
-    try {
-      const res = await handleRequest(request());
-      equal(res.status, 502, "provider failure");
-      const clientFault = [400, 403, 413, 415, 422].includes(status);
-      equal(stub.ledger.get(CLAIM_DAY), clientFault ? 1 : 0, `quota rule for ${status}`);
-      assert(!stub.logs.join(" ").includes("PRIVATE_REQUEST_CONTENT"), "no response body logging");
-    } finally { stub.restore(); }
+// Client faults are {400, 413, 415, 422}. 403 (permission_error: our key) and
+// 529 (overload) are outages, and a 400 that reports an empty credit balance
+// is our 402. A broken error body must not change the verdict.
+Deno.test("plan handler: every provider failure refunds, input-fault statuses included (text-only draft)", async () => {
+  // The wish is validated by the server; a 400/413 on a text-only draft is our
+  // request, model setting or account, never the user's input.
+  const cases: { status: number; errorBody?: string; clientFault: boolean }[] = [
+    ...[400, 413, 415, 422].map((status) => ({ status, clientFault: false })),
+    ...[401, 402, 403, 404, 429, 500, 503, 529].map((status) => ({ status, clientFault: false })),
+    { status: 400, errorBody: claudeErrorBody(claudeErrorTypeFor(400)), clientFault: false },
+    { status: 403, errorBody: claudeErrorBody(claudeErrorTypeFor(403)), clientFault: false },
+    { status: 400, errorBody: claudeErrorBody("invalid_request_error", CREDIT_BALANCE_MESSAGE), clientFault: false },
+    { status: 400, errorBody: claudeErrorBody("billing_error"), clientFault: false },
+  ];
+  for (const { status, errorBody, clientFault } of cases) {
+    for (const bodyBroken of errorBody === undefined ? [false, true] : [false]) {
+      const label = `${status}${errorBody ? ` ${errorBody.slice(0, 60)}` : ""}${bodyBroken ? " (broken body)" : ""}`;
+      const stub = stubNetwork(PLAN_JSON, { draftStatus: status, draftErrorBody: errorBody, draftBodyBroken: bodyBroken });
+      try {
+        const res = await bounded(handleRequest(request()));
+        equal(res.status, 502, `${label}: provider failure`);
+        equal(stub.ledger.get(CLAIM_DAY), clientFault ? 1 : 0, `quota rule for ${label}`);
+        assert(!stub.logs.join(" ").includes("PRIVATE_REQUEST_CONTENT"), `${label}: no response body logging`);
+        assert(!stub.logs.join(" ").includes("credit balance"), `${label}: no provider error text logging`);
+      } finally { stub.restore(); }
+    }
   }
 });
 
@@ -459,17 +514,21 @@ Deno.test("brief handler: classifier and draft both receive selected plan as dat
     const res = await handleRequest(request({ training_context: context, user_context: "PRIVATE_UNUSED_PROFILE" }));
     equal(res.status, 200, "status");
     equal((await res.json()).training_plan, PLAN, "draft only");
-    const providers = stub.callsTo("chat/completions");
+    const providers = stub.providerCalls();
     equal(providers.length, 2, "classifier and draft");
     for (const call of providers) {
       assert(JSON.stringify(call.body.messages).includes("Strength with limited time"), "brief reaches safety and answer");
       assert(JSON.stringify(call.body.messages).includes("Full body A"), "nested plan reaches safety and answer");
       assert(!JSON.stringify(call.body).includes("PRIVATE_UNUSED_PROFILE"), "no implicit profile");
     }
-    const messages = stub.draftCalls()[0].body.messages as Row[];
-    assert(!String(messages[0].content).includes("Full body A"), "plan never in system message");
-    equal(messages[1].role, "user", "plan is user data");
-    assert(String(messages[0].content).includes("edited COPY"), "explicit draft semantics");
+    // Claude's system prompt is the top-level `system`; messages are user data.
+    const draftBody = stub.draftCalls()[0].body;
+    const messages = draftBody.messages as Row[];
+    assert(!systemText(draftBody).includes("Full body A"), "plan never in system prompt");
+    equal(messages.map((message) => message.role), ["user", "user"], "brief and wish as user turns only");
+    assert(String(messages[0].content).includes("Full body A"), "plan is user data");
+    equal(messages[1].content, "3 days of strength training at home", "wish last");
+    assert(systemText(draftBody).includes("edited COPY"), "explicit draft semantics");
     equal(stub.callsTo("training_plans").length, 0, "no saved-plan writes");
     equal(stub.callsTo("chat_messages").filter((call) => call.method === "GET").length, 0, "no global history");
     const user = stub.callsTo("chat_messages").find((call) => call.body.role === "user");
@@ -490,7 +549,7 @@ Deno.test("brief handler: selected plan discussion returns ordinary text with no
     equal(stub.draftCalls().length, 0, "no plan generation");
     equal(stub.ledger.get(CLAIM_DAY), 1, "one request");
     equal(stub.callsTo("chat_messages").filter((call) => call.method === "GET").length, 0, "bounded selected context only");
-    const answer = stub.callsTo("chat/completions").find((call) => call.body.max_tokens === 3072)!;
+    const answer = stub.providerCalls().find((call) => outputSchema(call.body) === undefined)!;
     assert(JSON.stringify(answer.body.messages).includes("Full body A"), "discussion receives plan");
   } finally { stub.restore(); }
 });
@@ -507,7 +566,7 @@ Deno.test("brief handler: malformed or mismatched context never claims quota or 
       const res = await handleRequest(request({ training_context }));
       equal(res.status, 400, "protocol rejection");
       equal(stub.callsTo("claim_chat_quota").length, 0, "no quota");
-      equal(stub.callsTo("chat/completions").length, 0, "no provider");
+      equal(stub.providerCalls().length, 0, "no provider");
       equal(stub.callsTo("chat_messages").length, 0, "no transcript writes");
     } finally { stub.restore(); }
   }
@@ -521,7 +580,7 @@ Deno.test("brief handler: nested unsafe notes reach Layer 1, semantic risks reac
     const res = await handleRequest(request({ training_context: trainingBrief("adapt", plan) }));
     const body = await res.json();
     equal(body.refusal_reason, "prompt_injection", "nested prefilter");
-    equal(stub.callsTo("chat/completions").length, 0, "no paid call");
+    equal(stub.providerCalls().length, 0, "no paid call");
     equal(stub.callsTo("claim_chat_quota").length, 0, "no quota");
   } finally { stub.restore(); }
   const classified = stubNetwork(PLAN_JSON, { category: "self_harm" });
@@ -549,13 +608,38 @@ Deno.test("Security S01: filtered training plan cannot become an adoptable propo
 });
 
 Deno.test("Security completion: plan requires valid terminal metadata", async () => {
-  for (const reason of [null, "unexpected", "tool_calls", "error", "length"]) {
+  for (const reason of [null, "unexpected", "tool_calls", "error", "length", "pause_turn"]) {
     const stub = stubNetwork(PLAN_JSON, { draftFinishReason: reason });
     try {
       const response = await handleRequest(request());
       equal(response.status, 502, "no approved plan without complete terminal status");
       equal(stub.callsTo("chat_messages").filter(call => call.body.training_plan !== undefined).length, 0, "no unapproved plan");
       equal(stub.callsTo("refund_chat_quota").length, 1, "outage refund");
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("plan handler: the draft carries TRAINING_PLAN_OUTPUT_SCHEMA, 4500 tokens, medium effort and the Claude contract", async () => {
+  for (const context of [undefined, trainingBrief("adapt", PLAN)]) {
+    const label = context ? "with brief" : "without brief";
+    const stub = stubNetwork(PLAN_JSON);
+    try {
+      const res = await handleRequest(request(context ? { training_context: context } : {}));
+      equal(res.status, 200, `${label}: status`);
+      await res.json();
+      equal(stub.draftCalls().length, 1, `${label}: one draft`);
+      const draft = stub.draftCalls()[0];
+      assertClaudeContract(draft, {
+        maxTokens: 4500,
+        effort: "medium",
+        schema: TRAINING_PLAN_OUTPUT_SCHEMA,
+        systemIncludes: ["Write all text fields in English", ...(context ? ["edited COPY"] : [])],
+      }, `${label}: plan draft`);
+      equal(draft.body.stream, undefined, `${label}: buffered, never streamed`);
+      equal((draft.body.messages as Row[]).at(-1), { role: "user", content: "3 days of strength training at home" }, `${label}: the wish is the last user turn`);
+      const classifier = stub.providerCalls().filter((call) => isClassifierRequest(call.body));
+      equal(classifier.length, 1, `${label}: one classifier call`);
+      equal(classifier[0].body.max_tokens, 1024, `${label}: classifier budget`);
     } finally { stub.restore(); }
   }
 });

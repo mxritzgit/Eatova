@@ -9,7 +9,7 @@ const unexpectedFields = ["user_id", "tenant_id", "isAdmin", "isPremium", "role"
 Deno.env.set("SUPABASE_URL", BASE);
 Deno.env.set("SUPABASE_ANON_KEY", "synthetic-anon");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-service");
-Deno.env.set("OPENROUTER_API_KEY", "synthetic-provider");
+Deno.env.set("ANTHROPIC_API_KEY", "synthetic-provider");
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);

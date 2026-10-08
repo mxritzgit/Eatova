@@ -3140,3 +3140,62 @@ Sentry FLUTTER-K, 12 events on 1.1.0 (383), the first build made with
   - Today keeps its one retry.
 - **Tests:** `test/services/apple_health_transient_error_test.dart`. The
   twelve-day case failed with 24 queries before the fix.
+
+## Claude Sonnet 5.5 for text and vision AI, 2026-10-08
+
+The owner received free Anthropic API credits and asked to move every AI call
+except image generation from OpenRouter/Gemini to the Claude API with
+Sonnet 5.5 at effort "high", provided it stays fast enough, plus a review of
+the Coach by three Opus 5.5 subagents (parsing, storage, creation). The key is
+the Infisical secret `ClaudeAPI` (env `CLAUDEAPI` under `infisical run`).
+Branch `feat/claude-sonnet-provider`; the PR records CI and merge state.
+
+- **Provider.** `_shared/claude.ts` holds the Messages API contract (raw
+  `fetch`, no SDK: functions stay dependency-free, bodies byte-bounded, own
+  deadlines/refunds). Coach (classifier, JSON and SSE answers, `/recipe`,
+  `/plan`, `/log`), `analyze-meal` and `recipe-import` use
+  `claude-sonnet-5-5` with adaptive thinking, structured outputs for every
+  JSON route and the system prompt as a cached prefix. Recipe pictures stay on
+  OpenRouter; `OPENROUTER_API_KEY` is now optional (no key = recipe without
+  picture). Secrets: `ANTHROPIC_API_KEY` (required), `CLAUDE_MODEL`,
+  `COACH_EFFORT`, `COACH_PLAN_EFFORT`, `ANALYZE_MEAL_EFFORT`,
+  `RECIPE_IMPORT_EFFORT`. The old `OPENROUTER_MODEL`/`COACH_MODEL_*` secrets
+  that production still has are no longer read.
+- **Effort, decided from live measurements** (see
+  [Backend](BACKEND.md#ai-configuration)): Coach answers, classifier
+  (capped at high), recipes and `/log` at `high`; plans, meal scan and recipe
+  import at `medium`, because `high` doubled their time (plans hit the token
+  cap near the 45 s deadline, the scan took 10-12 s instead of 4-5 s, a
+  three-recipe import 20-32 s instead of ~10 s) without better results.
+  Effort secrets change behavior without a redeploy.
+- **Review findings fixed** (all three Opus reviews reproduced issues with
+  probes; the orchestrator verified each live or in tests): a cut emoji (lone
+  surrogate) made every request invalid JSON; text-only 4xx were charged to
+  the user; a classifier declined by the provider returned a bare 502 (now a
+  signposting refusal with the helpline); a truncated classifier charged
+  structured modes; 5-7 session plans could not finish (prompt now caps four
+  rotated workouts, 4,500 tokens, `medium`); long imports timed out and paid
+  for a hopeless retry (one 40 s attempt, no retry after timeout, refusal or
+  cut-off); schema-valid `/log` and plan answers the validators rejected
+  (stricter schemas); recipe mode with a photo. Measured: the API accepts
+  5.1 MB images (the 5 MB fear did not hold) but rejects edges above
+  8,000 px, which are now refused before quota.
+- **Not changed (low):** an assistant reply above the 16 KB row limit is
+  delivered but not stored (needs ~4,000 tokens of multi-byte text); the meal
+  explanation can mention an ignored hint; one 14.5 s classifier latency spike
+  was observed once (retests 1-2 s; a timeout refunds).
+- **Verification:** 970 Deno tests green, also file by file (the CI isolation
+  check), lint and all entrypoint checks; eval harness tests 19/19; operations
+  tests 66/66; strict Flutter analyzer clean (full Flutter suite: see PR).
+  Every new guarantee was shown to fail against its reverted fix. A live end-to-end run of the real handlers
+  against Claude (Supabase stubbed) passed chat JSON/SSE, history, photo-only,
+  refusals, recipe, 2- and 7-session plans, `/log`, meal scan and import; the
+  eval harness was migrated but no paid evaluation was run.
+- **Open, needs the owner:** set `ANTHROPIC_API_KEY` as a function secret,
+  deploy `coach-chat`, `analyze-meal` and `recipe-import` from the merged
+  source, then remove the unused model secrets. Update the published privacy
+  policy at eatova.de (Anthropic as recipient) with the rollout. The
+  OpenRouter account behind the Infisical dev key had about $0.79 of $5 left
+  and answered image requests with 402; production uses a different key whose
+  balance was not checked. The app build only changes the Coach disclosure
+  text.

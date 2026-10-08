@@ -84,20 +84,21 @@ and limits, including Android weight sync and export sharing. The newer
 
 ## AI models
 
-All AI requests run through Supabase Edge Functions and **OpenRouter**. Current
-source defaults are:
+All AI requests run through Supabase Edge Functions. Text and photo
+understanding use the **Anthropic Messages API**; only recipe pictures use
+**OpenRouter**. Current source defaults are:
 
-| Use | Model ID | Server override |
-| --- | --- | --- |
-| Meal photo analysis | `google/gemini-3.8-flash` | `OPENROUTER_MODEL` |
-| Coach replies, recipe text and training drafts | `google/gemini-3.8-flash` | `COACH_MODEL_ANSWER` |
-| Coach safety/topic classifier | `google/gemini-3.8-flash` | `COACH_MODEL_CLASSIFIER` |
-| Recipe share extraction | `google/gemini-3.8-flash` | `RECIPE_IMPORT_MODEL`, then `COACH_MODEL_ANSWER` |
-| Generated recipe pictures | `google/gemini-3.1-flash-image` | `COACH_IMAGE_MODEL` |
+| Use | Model ID | Thinking effort | Server override |
+| --- | --- | --- | --- |
+| Coach replies, classifier, recipe text, `/log` | `claude-sonnet-5-5` | `high` | `CLAUDE_MODEL`, `COACH_EFFORT` |
+| Coach training plans | `claude-sonnet-5-5` | `medium` | `CLAUDE_MODEL`, `COACH_PLAN_EFFORT` |
+| Meal photo analysis | `claude-sonnet-5-5` | `medium` | `CLAUDE_MODEL`, `ANALYZE_MEAL_EFFORT` |
+| Recipe share extraction | `claude-sonnet-5-5` | `medium` | `CLAUDE_MODEL`, `RECIPE_IMPORT_EFFORT` |
+| Generated recipe pictures | `google/gemini-3.1-flash-image` (OpenRouter) | — | `COACH_IMAGE_MODEL` |
 
-Grok is no longer the configured default. Server overrides can change the
-effective model independently of a client build. See
-[Backend](docs/BACKEND.md#ai-configuration) for sources and deployment checks.
+Server overrides can change the effective model or effort independently of a
+client build. See [Backend](docs/BACKEND.md#ai-configuration) for sources,
+measured latencies and deployment checks.
 
 ## Tech stack
 
@@ -108,7 +109,7 @@ effective model independently of a client build. See
 | UI | Shared theme tokens, Bricolage Grotesque/Figtree, original vector icons, floating glass tab bar, light and dark theme (follows the device by default) |
 | Backend | Supabase Auth, Postgres with RLS, Deno Edge Functions |
 | Product lookup | Self-hosted Meilisearch/Open Food Facts index; public OFF fallback |
-| AI | OpenRouter with separate Gemini text/vision and image models |
+| AI | Anthropic Claude (Sonnet 5.5) for text and vision; OpenRouter image model for recipe pictures |
 | Local persistence | Encrypted SQLite, OS-keystore key, transactional account-scoped outbox |
 | Health | HealthKit on iOS; Health Connect steps on Android |
 | Diagnostics | Optional Sentry, enabled by build configuration and sanitized before sending |
@@ -123,7 +124,8 @@ Flutter screens / widgets / theme
      services + local cache/outbox
               |
               +-- Supabase Auth + Postgres/RLS
-              +-- Edge Functions --> OpenRouter --> Gemini models
+              +-- Edge Functions --> Anthropic Claude (text, vision)
+              |                 \-> OpenRouter --> image model (recipe pictures)
               +-- Meilisearch / Open Food Facts
               +-- HealthKit / Health Connect
               +-- Local notifications / optional Sentry

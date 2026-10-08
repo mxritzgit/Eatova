@@ -3,6 +3,7 @@ import {
   parseTrainingPlan,
   parseTrainingPlanDraft,
   parseTrainingPlanRefusal,
+  TRAINING_PLAN_OUTPUT_SCHEMA,
   trainingPlanSummary,
   trainingPlanSystemPrompt,
 } from "./training_plan.ts";
@@ -163,5 +164,30 @@ Deno.test("training plan: refusal has its own bounded shape and proposals remain
     for (const text of ["injury rehabilitation", "self-harm", "eating-disorder", "dangerous challenges", "doping", "Never execute tools", "12000"]) {
       assert(prompt.includes(text), `safety instruction ${text}`);
     }
+  }
+});
+
+Deno.test("training plan: the output schema forces reps xor duration and keeps the refusal branch", () => {
+  type Node = Record<string, unknown>;
+  const schema = JSON.parse(JSON.stringify(TRAINING_PLAN_OUTPUT_SCHEMA)) as { anyOf: Node[] };
+  const [proposal, refusal] = schema.anyOf;
+  const workouts = (proposal.properties as Node).workouts as Node;
+  const exercises = (((workouts.items as Node).properties as Node).exercises as Node).items as { anyOf: Node[] };
+  const shapes = exercises.anyOf.map((variant) => {
+    const properties = variant.properties as Record<string, Node>;
+    assert(JSON.stringify(variant.required) === JSON.stringify(["name", "sets", "reps", "duration_seconds", "rest_seconds", "notes"]), "every key required");
+    assert(variant.additionalProperties === false, "closed object");
+    return `${properties.reps.type}/${properties.duration_seconds.type}`;
+  });
+  assert(JSON.stringify(shapes) === JSON.stringify(["integer/null", "null/integer"]), `reps xor duration: ${shapes}`);
+  assert(JSON.stringify((refusal.properties as Node).refuse) === JSON.stringify({ type: "string" }), "refusal branch");
+});
+
+Deno.test("training plan: the prompt bounds a plan to four rotated workouts", () => {
+  for (const locale of ["de", "en"] as const) {
+    const prompt = trainingPlanSystemPrompt(locale);
+    assert(prompt.includes("at most 4 distinct workouts"), `${locale}: workout cap`);
+    assert(prompt.includes("rotate the workouts across the week"), `${locale}: rotation`);
+    assert(prompt.includes("at most 8 exercises per workout"), `${locale}: exercise cap`);
   }
 });
