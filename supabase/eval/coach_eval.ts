@@ -3,29 +3,50 @@
 import { COACH_EVAL_CASES, COACH_LOG_EVAL_CASES, type CoachEvalCase } from "./coach_cases.ts";
 
 type Json = Record<string, unknown>;
-export const EVAL_MODEL = "google/gemini-3.8-flash";
+/** The deployed default (functions/_shared/claude.ts) with no CLAUDE_MODEL pin. */
+export const EVAL_MODEL = "claude-sonnet-5-5";
+/** Claude Sonnet 5.5 list prices, USD per million tokens (5-minute cache writes). */
+export const EVAL_PRICES = Object.freeze({ input: 2.0, output: 10.0, cacheWrite: 2.5, cacheRead: 0.2 });
+/**
+ * The server's own output caps (functions/coach-chat/handler.ts). Thinking
+ * counts against them, so a lower harness cap would truncate answers. Recipe
+ * and /log drafts send 4,096, plans 5,000; any structured draft above 5,000 is
+ * lowered to it.
+ */
+export const EVAL_OUTPUT_CAPS = Object.freeze({ classifier: 1024, answer: 4096, structured: 5000 });
 export const EVAL_LIMITS = Object.freeze({
   requests: 24,
-  outputTokens: 768,
+  /** UTF-8 bytes of system prompt, messages and output schema together; the
+   *  largest synthetic request measured 7,480 (an answer with history). */
   inputBytes: 16_384,
-  responseBytes: 131_072,
+  /** Message framing and the thinking/structured-output instructions the API adds. */
+  overheadTokens: 4_096,
+  /** The server's own provider read limit (MAX_PROVIDER_RESPONSE_BYTES). */
+  responseBytes: 524_288,
   timeoutMs: 45_000,
-  reservedUsdPerRequest: 0.04,
-  totalUsd: 0.96,
-  promptUsdPerMillion: 1.5,
-  completionUsdPerMillion: 7.5,
+  totalUsd: 2.06,
 });
-const COMPLETIONS = "https://openrouter.ai/api/v1/chat/completions";
+export type EvalRoute = keyof typeof EVAL_OUTPUT_CAPS;
+const MESSAGES = "https://api.anthropic.com/v1/messages";
 const LOCAL_BACKEND = "https://synthetic.invalid";
 const USER = "00000000-0000-4000-8000-000000000001";
 const SESSION = "00000000-0000-4000-8000-000000000002";
 const MESSAGE = "00000000-0000-4000-8000-000000000003";
 type EvalMode = "standard" | "remainder" | "log";
 const REMAINDER_CASE_IDS = ["context-injection", "history-injection", "minor-risk", "plan-positive", "recipe-positive"];
-// /log batch: per case a classifier (4 cents) and a server-sized extraction
-// (7 cents); two chat cases cost 8 cents each. 22 x 11 + 2 x 8 = 258 cents.
-export const LOG_EVAL_LIMITS = Object.freeze({ requests: 48, totalUsd: 2.6 });
-const LOG_EXTRACTION_CASE_IDS = new Set(COACH_LOG_EVAL_CASES.filter((c) => c.mode === "log").map((c) => c.id));
+// Batch caps: every call at the full input budget (reservationCents below):
+// classifier 7, answer 10, recipe or /log draft 10, plan 11 cents.
+//  standard  12 classifiers + 9 answers + recipe + 2 plans (injury-plan may
+//            pass its classifier) = 84 + 90 + 10 + 22 = 206 cents, 24 calls.
+//  remainder 5 classifiers + 3 answers + recipe + plan = 35 + 30 + 10 + 11 = 86 cents, 10 calls.
+//  /log      24 classifiers + 22 extractions + 2 answers = 168 + 220 + 20 = 408 cents, 48 calls.
+export const REMAINDER_EVAL_LIMITS = Object.freeze({ requests: 10, totalUsd: 0.86 });
+export const LOG_EVAL_LIMITS = Object.freeze({ requests: 48, totalUsd: 4.08 });
+// Request fields the coach handler sends. Anything else (tools, MCP, fallbacks,
+// sampling, OpenRouter routing) is a capability this harness does not grant.
+const REQUEST_FIELDS = new Set(["model", "max_tokens", "system", "messages", "thinking", "output_config", "stream"]);
+const OUTPUT_CONFIG_FIELDS = new Set(["effort", "format"]);
+const STOP_REASONS = ["end_turn", "max_tokens", "stop_sequence", "refusal", "tool_use", "pause_turn", "model_context_window_exceeded"];
 // Deliberately unsigned: only the isolated synthetic /auth/v1/user accepts it.
 function syntheticToken(): string {
   const encode = (value: unknown) => btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -40,15 +61,71 @@ function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
 }
 
+/**
+ * Upper bound of one call in cents. Input is text only and a token covers at
+ * least one byte, so the request's bytes plus the overhead bound its input
+ * tokens; each is priced at the cache-write rate, the most expensive input
+ * rate. The output cap covers thinking and visible text. Integer arithmetic in
+ * tenths of a micro-dollar.
+ */
+export function reservationCents(inputBytes: number, maxTokens: number): number {
+  const inputTokens = inputBytes + EVAL_LIMITS.overheadTokens;
+  return Math.ceil((inputTokens * EVAL_PRICES.cacheWrite * 10 + maxTokens * EVAL_PRICES.output * 10) / 100_000);
+}
+
+function isTextBlock(value: unknown): boolean {
+  const block = object(value);
+  return block.type === "text" && typeof block.text === "string" &&
+    Object.keys(block).every((key) => ["type", "text", "cache_control"].includes(key));
+}
+
+function textOnly(input: Json): boolean {
+  const system = input.system;
+  if (system !== undefined && typeof system !== "string" && !(Array.isArray(system) && system.every(isTextBlock))) return false;
+  return Array.isArray(input.messages) && input.messages.length > 0 && input.messages.every((value) => {
+    const message = object(value);
+    return (message.role === "user" || message.role === "assistant") &&
+      (typeof message.content === "string" || (Array.isArray(message.content) && message.content.every(isTextBlock)));
+  });
+}
+
+/** The classifier asks for the category schema; any other schema is a draft. */
+function routeOf(input: Json): EvalRoute {
+  const format = input.output_config === undefined ? undefined : object(input.output_config).format;
+  if (format === undefined) return "answer";
+  // Recipe and plan schemas are anyOf unions without top-level properties.
+  const properties = object(object(format).schema).properties;
+  return properties !== null && typeof properties === "object" && "category" in properties && "confidence" in properties
+    ? "classifier" : "structured";
+}
+
+/** The Messages API error type of an error envelope or stream error event. */
+function errorType(data: unknown): string {
+  try { return String(object(object(data).error).type); } catch { return ""; }
+}
+
+/** A fixed category; the text is only matched here, never retained. */
+function errorCategory(status: number, type: string, text = ""): string {
+  if (status === 401 || type === "authentication_error") return "authentication_failed";
+  if (status === 402 || type === "billing_error" || /credit balance|billing/i.test(text)) return "credit_limit";
+  if (status === 429 || type === "rate_limit_error") return "rate_limit";
+  if (/(?:thinking|effort)/i.test(text) && /(?:unsupported|not supported|invalid)/i.test(text)) return "unsupported_reasoning";
+  if (status === 404 || type === "not_found_error" || /model.{0,40}(?:unavailable|not found|does not exist)/i.test(text)) return "model_unavailable";
+  if (status === 413 || type === "request_too_large") return "request_too_large";
+  if (status >= 500 || type === "overloaded_error" || type === "api_error") return "provider_unavailable";
+  return "other";
+}
+
 export interface EvalCall {
   caseId: string;
+  route: EvalRoute;
   requestedModel: string;
   returnedModel?: string;
-  provider?: string;
   status: number;
+  inputBytes: number;
   maxTokens: number;
   stream: boolean;
-  finishReasons: string[];
+  stopReasons: string[];
   usage?: Json;
   errorCategory?: string;
   reservedUsd: number;
@@ -63,47 +140,34 @@ export function providerGateway(transport: typeof fetch, apiKey: string, onReser
     calls,
     get reservedUsd() { return reservedCents / 100; },
     async send(caseId: string, target: string, input: Json, signal?: AbortSignal | null): Promise<Response> {
-      if (target !== COMPLETIONS || input.model !== EVAL_MODEL || input.models !== undefined ||
-          input.tools !== undefined || input.plugins !== undefined || input.modalities !== undefined) {
+      if (target !== MESSAGES || input.model !== EVAL_MODEL || Object.keys(input).some((key) => !REQUEST_FIELDS.has(key)) ||
+          (input.output_config !== undefined && Object.keys(object(input.output_config)).some((key) => !OUTPUT_CONFIG_FIELDS.has(key)))) {
         throw new Error("Disallowed evaluation route or capability");
       }
-      if (!Array.isArray(input.messages) || input.messages.some((v) => typeof object(v).content !== "string")) {
-        throw new Error("Evaluation accepts text messages only");
-      }
-      const bytes = new TextEncoder().encode(JSON.stringify(input.messages)).length;
-      if (bytes > EVAL_LIMITS.inputBytes) throw new Error("Evaluation input budget exceeded");
-      const structured = input.max_tokens !== 256 && (
-        (mode === "remainder" && ["plan-positive", "recipe-positive"].includes(caseId)) ||
-        (mode === "log" && LOG_EXTRACTION_CASE_IDS.has(caseId)));
-      const cents = structured ? 7 : 4;
-      const requestCap = mode === "remainder" ? 10 : mode === "log" ? LOG_EVAL_LIMITS.requests : EVAL_LIMITS.requests;
-      const centsCap = mode === "remainder" ? 48 : mode === "log" ? Math.round(LOG_EVAL_LIMITS.totalUsd * 100) : 96;
-      if (busy || calls.length >= requestCap || reservedCents + cents > centsCap) {
+      if (!textOnly(input)) throw new Error("Evaluation accepts text messages only");
+      const inputBytes = new TextEncoder().encode(JSON.stringify([input.system ?? null, input.messages, input.output_config ?? null])).length;
+      if (inputBytes > EVAL_LIMITS.inputBytes) throw new Error("Evaluation input budget exceeded");
+      const route = routeOf(input);
+      const maxTokens = Math.min(Number(input.max_tokens), EVAL_OUTPUT_CAPS[route]);
+      if (!Number.isSafeInteger(maxTokens) || maxTokens < 1) throw new Error("Invalid evaluation token limit");
+      const cents = reservationCents(inputBytes, maxTokens);
+      const limits = mode === "remainder" ? REMAINDER_EVAL_LIMITS : mode === "log" ? LOG_EVAL_LIMITS : EVAL_LIMITS;
+      if (busy || calls.length >= limits.requests || reservedCents + cents > Math.round(limits.totalUsd * 100)) {
         throw new Error("Evaluation request budget exhausted");
       }
-      const maxTokens = Math.min(Number(input.max_tokens), structured ? 4096 : EVAL_LIMITS.outputTokens);
-      if (!Number.isSafeInteger(maxTokens) || maxTokens < 1) throw new Error("Invalid evaluation token limit");
-      // This explicit alteration is recorded: actual server prompts/roles are
-      // preserved, while output is shortened and paid failover is disabled.
-      const body = {
-        ...input,
-        max_tokens: maxTokens,
-        provider: {
-          ...object(input.provider ?? {}),
-          allow_fallbacks: false,
-          max_price: { prompt: EVAL_LIMITS.promptUsdPerMillion, completion: EVAL_LIMITS.completionUsdPerMillion },
-        },
-      };
-      const call: EvalCall = { caseId, requestedModel: EVAL_MODEL, status: 0, maxTokens, stream: input.stream === true, finishReasons: [], reservedUsd: cents / 100 };
+      // The only alteration: an output cap above the server's own is lowered.
+      // Prompts, roles, thinking, effort and schema are sent as the server built them.
+      const body = { ...input, max_tokens: maxTokens };
+      const call: EvalCall = { caseId, route, requestedModel: EVAL_MODEL, status: 0, inputBytes, maxTokens, stream: input.stream === true, stopReasons: [], reservedUsd: cents / 100 };
       calls.push(call);
       reservedCents += cents;
       onReserve?.(calls.length);
       busy = true;
       try {
         const timeout = AbortSignal.timeout(EVAL_LIMITS.timeoutMs);
-        const response = await transport(COMPLETIONS, {
+        const response = await transport(MESSAGES, {
           method: "POST", redirect: "error",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "X-Title": "Eatova synthetic security evaluation" },
+          headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
           body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
         call.status = response.status;
@@ -126,34 +190,36 @@ export function providerGateway(transport: typeof fetch, apiKey: string, onReser
         for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
         const text = new TextDecoder().decode(bytes);
         if (!response.ok) {
-          call.errorCategory = response.status === 401 ? "authentication_failed"
-            : response.status === 402 ? "credit_limit"
-            : response.status === 429 ? "rate_limit"
-            : /(?:reasoning|thinking)/i.test(text) && /(?:minimal|unsupported|not supported|invalid)/i.test(text) ? "unsupported_reasoning"
-            : response.status === 404 || /model.{0,40}(?:unavailable|not found|does not exist)/i.test(text) ? "model_unavailable"
-            : /no endpoints|no providers/i.test(text) ? "route_unavailable"
-            : response.status >= 500 ? "provider_unavailable" : "other";
+          let envelope: unknown = null;
+          try { envelope = JSON.parse(text); } catch { /* not an error envelope */ }
+          call.errorCategory = errorCategory(response.status, errorType(envelope), text);
         }
         // Preserve only safe metadata. Provider errors can echo request data or
         // headers: never retain them in the evaluation artifact.
         if (response.ok) {
           const records = input.stream === true
-            ? text.split(/\r?\n/).filter((l) => l.startsWith("data:") && l.slice(5).trim() !== "[DONE]").map((l) => l.slice(5).trim())
+            ? text.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim())
             : [text];
+          const usage: Json = {};
           for (const record of records) {
             let data: Json;
             try { data = object(JSON.parse(record)); } catch { continue; }
-            if (typeof data.model === "string") call.returnedModel = data.model === EVAL_MODEL ? data.model : "unexpected-model";
-            if (typeof data.provider === "string") call.provider = ["Google AI Studio", "Google Vertex", "Google", "synthetic-provider"].includes(data.provider) ? data.provider : "unrecognised-provider";
-            if (data.usage && typeof data.usage === "object") {
-              const usage = object(data.usage);
-              call.usage = Object.fromEntries(["prompt_tokens", "completion_tokens", "total_tokens", "cost"].filter((k) => typeof usage[k] === "number").map((k) => [k, usage[k]]));
+            // Buffered: the message itself. Streamed: message_start carries the
+            // message and input counters, message_delta the stop_reason and the
+            // final (cumulative) output counter; later values win.
+            const message = data.type === "message_start" && data.message ? object(data.message) : data;
+            if (typeof message.model === "string") call.returnedModel = message.model === EVAL_MODEL ? message.model : "unexpected-model";
+            if (message.usage && typeof message.usage === "object") {
+              for (const key of ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]) {
+                const count = (message.usage as Json)[key];
+                if (typeof count === "number" && Number.isFinite(count)) usage[key] = count;
+              }
             }
-            if (Array.isArray(data.choices)) for (const choice of data.choices) {
-              const finish = object(choice).finish_reason;
-              if (typeof finish === "string" && ["stop", "length", "content_filter", "error", "tool_calls"].includes(finish)) call.finishReasons.push(finish);
-            }
+            const stop = data.type === "message_delta" && data.delta ? object(data.delta).stop_reason : message.stop_reason;
+            if (typeof stop === "string") call.stopReasons.push(STOP_REASONS.includes(stop) ? stop : "other");
+            if (data.type === "error") call.errorCategory = errorCategory(0, errorType(data));
           }
+          if (Object.keys(usage).length > 0) call.usage = usage;
         }
         return new Response(response.ok ? bytes : "Evaluation provider request failed", { status: response.status, headers: response.headers });
       } finally { busy = false; }
@@ -217,10 +283,13 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
   Deno.env.set("SUPABASE_URL", LOCAL_BACKEND);
   Deno.env.set("SUPABASE_ANON_KEY", "synthetic-public");
   Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-backend");
-  Deno.env.set("OPENROUTER_API_KEY", apiKey);
-  Deno.env.set("COACH_MODEL_ANSWER", EVAL_MODEL);
-  Deno.env.set("COACH_MODEL_CLASSIFIER", EVAL_MODEL);
-  Deno.env.set("COACH_MODEL_LOG", EVAL_MODEL);
+  Deno.env.set("ANTHROPIC_API_KEY", apiKey);
+  // Deployed defaults: no model pin, COACH_EFFORT at the handler's default.
+  Deno.env.delete("CLAUDE_MODEL");
+  Deno.env.delete("COACH_EFFORT");
+  // Recipe images still go to OpenRouter. A placeholder (never a real key)
+  // lets the handler reach that call, which is refused locally below.
+  Deno.env.set("OPENROUTER_API_KEY", "synthetic-image-placeholder");
   const { handleRequest } = await import("../functions/coach-chat/handler.ts");
   const realNow = Date.now;
   const original = globalThis.fetch;
@@ -234,7 +303,7 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
     const url = new URL(target instanceof Request ? target.url : String(target));
     const method = init?.method ?? (target instanceof Request ? target.method : "GET");
     const body = typeof init?.body === "string" ? object(JSON.parse(init.body)) : {};
-    if (url.href === COMPLETIONS) return await gateway.send(active.id, url.href, body, init?.signal);
+    if (url.href === MESSAGES) return await gateway.send(active.id, url.href, body, init?.signal);
     // A recipe may request an image. Refuse locally before any network/budget
     // consumption; the real handler's optional-image failure path is exercised.
     if (url.origin === "https://openrouter.ai" && url.pathname === "/api/v1/images") {
@@ -320,22 +389,22 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
     failure = error instanceof Error && safeMessages.includes(error.message) ? error.message
       : error instanceof Error && ["NotCapable", "TypeError", "TimeoutError", "AbortError", "ReferenceError", "SyntaxError"].includes(error.name) ? error.name : "unexpected_evaluation_failure";
   } finally { globalThis.fetch = original; console.error = originalError; console.log = originalLog; console.warn = originalWarn; }
-  const limits = mode === "remainder" ? { ...EVAL_LIMITS, requests: 10, totalUsd: 0.48, structuredOutputTokens: 4096, structuredReservedUsd: 0.07 }
-    : mode === "log" ? { ...EVAL_LIMITS, ...LOG_EVAL_LIMITS, structuredOutputTokens: 4096, structuredReservedUsd: 0.07 } : EVAL_LIMITS;
-  return { schemaVersion: 1, createdAt: new Date().toISOString(), requestedModel: EVAL_MODEL, mode, limits, reservedUsd: gateway.reservedUsd, imagesSkipped, failure, calls: gateway.calls, results, limitations: "Synthetic local backend; real provider only. Ordinary output cap 768, remainder and /log structured calls keep server limits up to 4096; no provider fallback. Text-only sample, no medical sign-off, no deployed authorization proof. A model slug and returned provider metadata are recorded, not an unavailable immutable model build." };
+  const limits = { ...EVAL_LIMITS, ...(mode === "remainder" ? REMAINDER_EVAL_LIMITS : mode === "log" ? LOG_EVAL_LIMITS : {}), outputCaps: EVAL_OUTPUT_CAPS, prices: EVAL_PRICES };
+  return { schemaVersion: 2, createdAt: new Date().toISOString(), requestedModel: EVAL_MODEL, mode, limits, reservedUsd: gateway.reservedUsd, imagesSkipped, failure, calls: gateway.calls, results, limitations: "Synthetic local backend; real provider only. Server prompts, thinking, effort, schemas and output caps (classifier 1024, answer 4096, recipe and /log 4096, plan 5000) are sent unchanged; no retries, no fallbacks. Text-only sample, no medical sign-off, no deployed authorization proof. The model id and returned model are recorded, not an immutable model build." };
 }
 
 if (import.meta.main) {
   console.error("EATOVA_EVAL_STARTED_V1");
   try {
     const mode = Deno.args.includes("--remainder") ? "remainder" : Deno.args.includes("--log") ? "log" : "standard";
-    const budget = mode === "remainder" ? "--budget-usd=0.48" : mode === "log" ? "--budget-usd=2.60" : "--budget-usd=0.96";
+    const limits = mode === "remainder" ? REMAINDER_EVAL_LIMITS : mode === "log" ? LOG_EVAL_LIMITS : EVAL_LIMITS;
+    const budget = `--budget-usd=${limits.totalUsd.toFixed(2)}`;
     if (!Deno.args.includes("--live") || !Deno.args.includes(budget)) throw new Error("Explicit evaluation budget required");
     const selected = mode === "remainder" ? REMAINDER_CASE_IDS.map((id) => COACH_EVAL_CASES.find((c) => c.id === id)!)
       : mode === "log" ? COACH_LOG_EVAL_CASES
       : Deno.args.includes("--smoke") ? COACH_EVAL_CASES.slice(0, 1) : COACH_EVAL_CASES;
     const progress = console.error.bind(console);
-    const report = await runEvaluation(Deno.env.get("OPENROUTER_API_KEY") ?? "", selected, (count) => progress(`EATOVA_EVAL_RESERVED_V1:${count}`), mode);
+    const report = await runEvaluation(Deno.env.get("ANTHROPIC_API_KEY") ?? "", selected, (count) => progress(`EATOVA_EVAL_RESERVED_V1:${count}`), mode);
     console.log(JSON.stringify(report, null, 2));
   } catch {
     console.error("Evaluation stopped. Check prerequisite access or offline harness tests; no raw provider error is printed.");

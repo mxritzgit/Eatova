@@ -9,6 +9,7 @@ import {
   hasEnergyStatement,
   kcalPer100GMismatch,
   loggableUsage,
+  MEAL_OUTPUT_SCHEMA,
   missingContractFields,
   normalizeMealResult,
   optionalInt,
@@ -408,16 +409,61 @@ Deno.test("CWE-532: Digest ist deterministisch und inhaltsabhaengig (Dedupe)", a
 // The finish_reason half of this rule moved to ../_shared/provider_log.ts
 // (P6-04c) and is proven in _shared/provider_log_test.ts.
 Deno.test("P6-04b: usage wird per Allowlist geloggt", () => {
+  // The Messages API counters; nested objects, provider strings and the old
+  // OpenAI counter names stay out.
   const usage = loggableUsage({
-    prompt_tokens: 1200,
-    completion_tokens: 0,
-    total_tokens: 4096,
+    input_tokens: 1200,
+    output_tokens: 0,
+    cache_read_input_tokens: 900,
+    cache_creation_input_tokens: 300,
+    cache_creation: { ephemeral_5m_input_tokens: 300 },
+    service_tier: "Diabetes Typ 2",
     note: "Diabetes Typ 2",
-    prompt_tokens_details: { cached: 1 },
+    total_tokens: 4096,
   });
-  assertEquals(JSON.stringify(usage), '{"prompt_tokens":1200,"completion_tokens":0,"total_tokens":4096}', "nur Zaehler");
-  assertEquals(loggableUsage({ total_tokens: "viele" }), undefined, "nicht-numerisch -> nichts");
+  assertEquals(
+    JSON.stringify(usage),
+    '{"input_tokens":1200,"output_tokens":0,"cache_read_input_tokens":900,"cache_creation_input_tokens":300}',
+    "nur Zaehler",
+  );
+  assertEquals(loggableUsage({ output_tokens: "viele" }), undefined, "nicht-numerisch -> nichts");
+  assertEquals(loggableUsage({ output_tokens: Number.POSITIVE_INFINITY }), undefined, "nicht endlich -> nichts");
   assertEquals(loggableUsage("4096"), undefined, "kein Objekt -> nichts");
+});
+
+Deno.test("MEAL_OUTPUT_SCHEMA: strikt und deckt den Vertrag ab", () => {
+  // Structured outputs need every object closed and every property required;
+  // a contract field missing from the schema would never be produced.
+  const objects: Record<string, unknown>[] = [];
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (record.type === "object") objects.push(record);
+    Object.values(record).forEach(walk);
+  };
+  walk(MEAL_OUTPUT_SCHEMA);
+  assertEquals(objects.length, 2, "Ergebnis und Item");
+  for (const object of objects) {
+    assertEquals(object.additionalProperties, false, "geschlossenes Objekt");
+    assertEquals(
+      JSON.stringify([...(object.required as string[])].sort()),
+      JSON.stringify(Object.keys(object.properties as Record<string, unknown>).sort()),
+      "alle Felder Pflicht",
+    );
+  }
+  for (const field of REQUIRED_MEAL_FIELDS) {
+    assert(MEAL_OUTPUT_SCHEMA.required.includes(field), `Vertragsfeld ${field} fehlt im Schema`);
+  }
+  // A schema-conformant answer is a complete analysis for the handler.
+  const answer = {
+    mealName: "Teller", caloriesKcal: 780, estimatedGrams: 300, kcalPer100G: 260, proteinG: null, carbsG: 30, fatG: 40,
+    confidence: "medium", explanation: "Teller als Referenz.",
+    items: [{ name: "Steak", grams: 300, caloriesKcal: 780, kcalPer100G: 260 }],
+  };
+  assertEquals(JSON.stringify(Object.keys(answer).sort()), JSON.stringify([...MEAL_OUTPUT_SCHEMA.required].sort()), "Beispiel deckt das Schema");
+  const result = normalizeMealResult(answer);
+  assertEquals(missingContractFields(answer, result).length, 0, "keine fehlenden Pflichtfelder");
+  assert(hasEnergyStatement(result), "Energieangabe vorhanden");
 });
 
 Deno.test("CWE-532: unparseableShape kategorisiert ohne Inhalt", () => {

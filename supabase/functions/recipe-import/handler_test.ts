@@ -1,13 +1,16 @@
 import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { userToken } from '../_shared/auth_test_fixtures.ts';
 import { handleRequest } from './handler.ts';
+import { CLAUDE_URL, claudeResponse, isClaudeCall, outputSchema } from '../_shared/claude_test_fixtures.ts';
+import { extractionPrompt } from './extraction.ts';
+import { extractionSchema } from './schema.ts';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const TEXT = 'Pasta\n200 g Pasta\nPasta kochen.';
 const VIDEO = 'https://www.tiktok.com/@cook/video/1234567890123456789';
 const ENV = {
   SUPABASE_URL: 'https://supabase.test.invalid', SUPABASE_ANON_KEY: 'test-anon-key',
-  SUPABASE_SERVICE_ROLE_KEY: 'test-service-key', OPENROUTER_API_KEY: 'test-provider-key',
+  SUPABASE_SERVICE_ROLE_KEY: 'test-service-key', ANTHROPIC_API_KEY: 'test-provider-key',
   EATOVA_ALLOWED_ORIGINS: 'https://app.test.invalid',
 };
 const MODEL = {
@@ -17,7 +20,9 @@ type Call = { url: string; body: Record<string, unknown>; headers: Headers; redi
 type Options = {
   authStatus?: number; authBody?: unknown; gate?: unknown; budget?: unknown;
   authCancelStall?: boolean; gateCancelStall?: boolean; providerCancelStall?: boolean;
-  model?: unknown; providerStatus?: number; providerRaw?: string; finishReason?: string;
+  // finishReason uses the handler's vocabulary ("stop", "length", ...);
+  // claudeResponse turns it into the matching stop_reason.
+  model?: unknown; providerStatus?: number; providerRaw?: string; finishReason?: string | null;
   providerSequence?: Array<{ status?: number; raw?: string }>;
   budgetSequence?: unknown[];
   metadataStatus?: number; metadata?: unknown;
@@ -59,12 +64,13 @@ async function stub(options: Options, run: (calls: Call[]) => Promise<void>): Pr
     }
     if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budgetSequence?.[calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length - 1] ?? options.budget ?? { allowed: true, reason: 'allowed' }));
     if (target.startsWith('https://www.tiktok.com/oembed?')) return Promise.resolve(Response.json(options.metadata ?? { title: TEXT, author_name: 'Cook' }, { status: options.metadataStatus ?? 200 }));
-    if (target === 'https://openrouter.ai/api/v1/chat/completions') {
+    if (isClaudeCall(target)) {
       if (options.providerCancelStall) return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
         cancel() { return new Promise<void>(() => {}); },
       }), { status: 400 }));
       const next = options.providerSequence?.[calls.filter((c) => c.url === target).length - 1];
-      return Promise.resolve(new Response(next?.raw ?? options.providerRaw ?? JSON.stringify({ choices: [{ finish_reason: options.finishReason ?? 'stop', message: { content: JSON.stringify(options.model ?? MODEL) } }] }), { status: next?.status ?? options.providerStatus ?? 200 }));
+      const answer = claudeResponse(JSON.stringify(options.model ?? MODEL), options.finishReason === undefined ? 'stop' : options.finishReason);
+      return Promise.resolve(new Response(next?.raw ?? options.providerRaw ?? JSON.stringify(answer), { status: next?.status ?? options.providerStatus ?? 200 }));
     }
     throw new Error('Unexpected outbound request');
   }) as typeof fetch;
@@ -240,7 +246,7 @@ Deno.test('recipe-import inaccessible or unsupported link asks for text without 
     const response = await handleRequest(request({ text, locale: 'de' }));
     const body = await response.json();
     check(response.status === 200 && body.status === 'needs_text' && body.candidates.length === 0, 'Honest fallback');
-    check(!calls.some((call) => call.url.includes('reserve_ai_provider_call') || call.url.includes('openrouter.ai')), 'No paid call for absent content');
+    check(!calls.some((call) => call.url.includes('reserve_ai_provider_call') || isClaudeCall(call.url)), 'No paid call for absent content');
   });
 });
 
@@ -252,7 +258,7 @@ Deno.test('recipe-import provider budget exhaustion, disabled and outage all fai
   ] as const) await stub({ budget }, async (calls) => {
     const response = await handleRequest(request());
     check(response.status === expected && (await response.json()).error === error, 'Budget error preserved');
-    check(!calls.some((call) => call.url.includes('openrouter.ai')), 'No unreserved provider call');
+    check(!calls.some((call) => isClaudeCall(call.url)), 'No unreserved provider call');
   });
 });
 
@@ -304,16 +310,18 @@ Deno.test('recipe-import exact CORS origin and no-store apply to preflight and r
 
 Deno.test('recipe-import retries malformed or transient provider results with a fresh reservation', async () => {
   for (const first of [{ status: 503, raw: 'unavailable' }, { raw: '{"broken":' },
-    { raw: JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{}' } }] }) }]) {
+    { raw: JSON.stringify(claudeResponse('{}', 'length')) }]) {
     await stub({ providerSequence: [first, {}] }, async (calls) => {
       const response = await handleRequest(request());
       check(response.status === 200 && (await response.json()).status === 'ready', 'Retry recovered');
-      const providers = calls.filter((c) => c.url.includes('openrouter.ai'));
+      const providers = calls.filter((c) => isClaudeCall(c.url));
       check(providers.length === 2 && calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 2, 'Each attempt reserved independently');
       for (const provider of providers) {
-        const format = provider.body.response_format as { type: string; json_schema: { strict: boolean } };
-        check(format.type === 'json_schema' && format.json_schema.strict === true, 'Structured schema requested');
-        check((provider.body.provider as { require_parameters: boolean }).require_parameters, 'Route must support requested parameters');
+        // Claude structured outputs are always strict: the schema itself is the contract.
+        const format = (provider.body.output_config as { format: { type: string } }).format;
+        check(format.type === 'json_schema' && JSON.stringify(outputSchema(provider.body)) === JSON.stringify(extractionSchema), 'Structured schema requested');
+        // Direct Messages API call: no gateway routing object any more.
+        check(provider.url === CLAUDE_URL && !('provider' in provider.body), 'Direct provider route');
       }
     });
   }
@@ -325,11 +333,11 @@ Deno.test('recipe-import retry never bypasses a denied budget or a permanent pro
   }, async (calls) => {
     const response = await handleRequest(request());
     check(response.status === 429, 'Second reservation fails closed');
-    check(calls.filter((c) => c.url.includes('openrouter.ai')).length === 1, 'No unreserved second request');
+    check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'No unreserved second request');
   });
   await stub({ providerStatus: 400 }, async (calls) => {
     check((await handleRequest(request())).status === 502, 'Permanent provider failure');
-    check(calls.filter((c) => c.url.includes('openrouter.ai')).length === 1, 'No futile permanent-error retries');
+    check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'No futile permanent-error retries');
   });
 });
 
@@ -348,4 +356,65 @@ Deno.test('recipe-import v2 explicitly supports ingredient-only and unqualified 
     const response = await handleRequest(request({ text: TEXT + '\n450 kcal, 30 g Protein.', locale: 'de' }));
     check((await response.json()).status === 'needs_text', 'Older clients keep their compatible contract');
   });
+});
+
+Deno.test('recipe-import accepts only end_turn: a valid recipe cut at max_tokens, refused or unfinished is no result', async () => {
+  // The model text below is a complete, source-proven recipe; only the
+  // stop_reason says it is not final. Each attempt keeps its own reservation.
+  for (const finishReason of ['length', 'content_filter', 'model_context_window_exceeded', 'pause_turn', 'tool_calls', null]) {
+    await stub({ finishReason }, async (calls) => {
+      const response = await handleRequest(request());
+      const body = await response.text();
+      check(response.status === 502 && JSON.parse(body).error === 'provider_invalid_response', `${finishReason}: ${response.status} ${body}`);
+      check(!body.includes('Pasta kochen'), `${finishReason}: no partial recipe leaks`);
+      check(calls.filter((c) => isClaudeCall(c.url)).length === 2, `${finishReason}: malformed first attempt retried once`);
+      check(calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 2, `${finishReason}: each attempt reserved`);
+    });
+  }
+  // A truncated first answer followed by a complete one recovers.
+  await stub({ providerSequence: [{ raw: JSON.stringify(claudeResponse(JSON.stringify(MODEL), 'length')) }, {}] }, async (calls) => {
+    const response = await handleRequest(request());
+    check(response.status === 200 && (await response.json()).status === 'ready', 'end_turn after max_tokens recovers');
+    check(calls.filter((c) => isClaudeCall(c.url)).length === 2, 'exactly one retry');
+  });
+});
+
+Deno.test('recipe-import without ANTHROPIC_API_KEY is not configured, whatever former provider key remains', async () => {
+  await stub({}, async (calls) => {
+    const previous = Deno.env.get('OPENROUTER_API_KEY');
+    Deno.env.delete('ANTHROPIC_API_KEY');
+    Deno.env.set('OPENROUTER_API_KEY', 'stale-former-provider-key');
+    try {
+      const response = await handleRequest(request());
+      check(response.status === 503 && (await response.json()).error === 'not_configured', 'Claude key required');
+      check(calls.length === 0, 'No auth, quota or provider call');
+    } finally {
+      if (previous === undefined) Deno.env.delete('OPENROUTER_API_KEY');
+      else Deno.env.set('OPENROUTER_API_KEY', previous);
+    }
+  });
+});
+
+Deno.test('recipe-import request carries extractionSchema, the cached extraction prompt and no sampling', async () => {
+  for (const locale of ['de', 'en'] as const) {
+    await stub({}, async (calls) => {
+      const response = await handleRequest(request({ text: TEXT, locale }));
+      check(response.status === 200, `${locale}: status ${response.status}`);
+      const provider = calls.find((c) => isClaudeCall(c.url))!;
+      check(provider.url === CLAUDE_URL && provider.redirect === 'error', 'Messages API, no redirects');
+      check(provider.headers.get('x-api-key') === ENV.ANTHROPIC_API_KEY && provider.headers.get('anthropic-version') === '2023-06-01', 'Claude headers');
+      check(!provider.headers.has('authorization'), 'No bearer credential');
+      const body = provider.body;
+      check(Object.keys(body).sort().join(',') === 'max_tokens,messages,model,output_config,system,thinking', `request fields: ${Object.keys(body)}`);
+      check(body.model === 'claude-sonnet-5-5' && body.max_tokens === 12_000, 'model and output cap');
+      check(JSON.stringify(body.thinking) === '{"type":"adaptive"}', 'adaptive thinking');
+      check(JSON.stringify(body.output_config) === JSON.stringify({ effort: 'high', format: { type: 'json_schema', schema: extractionSchema } }),
+        'effort high and extractionSchema');
+      // The whole prompt is one cached block; the source text is user data.
+      check(JSON.stringify(body.system) === JSON.stringify([{ type: 'text', text: extractionPrompt(locale), cache_control: { type: 'ephemeral' } }]),
+        `${locale}: cached extraction prompt`);
+      check(JSON.stringify(body.messages) === JSON.stringify([{ role: 'user', content: JSON.stringify({ source_text: TEXT }) }]), 'source as user data');
+      check(!JSON.stringify(body.system).includes('200 g Pasta'), 'source never in the system prompt');
+    });
+  }
 });
