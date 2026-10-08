@@ -17,6 +17,16 @@ the complete current product.
 
 ### October 2026
 
+- **Claude for Coach, meal scan and recipe import** (2026-10-08): text and
+  photo understanding moved from OpenRouter/Gemini to the Anthropic Messages
+  API (`claude-sonnet-5-5`, adaptive thinking; effort `high` for the Coach and
+  recipe import, `medium` for the meal scan). Structured routes request a JSON
+  schema, so recipe, plan, `/log`, meal and import answers are exactly one
+  object. Recipe pictures stay on OpenRouter. An empty provider credit balance
+  or key-permission error refunds the Coach slot; photos with an edge above
+  8,000 px are rejected before quota. The in-app Coach disclosure and the
+  privacy data-flow document name Anthropic. Backend deployment and the
+  website privacy policy are separate rollout steps.
 - **Training flow, Coach `/log` and dictation** (build 1.1.0+4):
   - Workout player: a list of exercise cards with one tap per set, weights
     carried forward or taken from Last time, undo and skip. Rests and timed

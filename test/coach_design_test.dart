@@ -484,7 +484,7 @@ void main() {
 
       expect(find.byKey(const ValueKey('coach-info-sheet')), findsOneWidget);
       expect(find.text('Das schickt jede Frage mit'), findsOneWidget);
-      expect(find.textContaining('OpenRouter'), findsOneWidget);
+      expect(find.textContaining('Anthropic'), findsOneWidget);
       expect(find.textContaining('5 von 5 Fragen heute frei'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }

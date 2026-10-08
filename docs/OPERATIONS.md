@@ -185,7 +185,7 @@ for exit `1`, exit `2`, and missed runs. Test those routes separately with
 synthetic results before a specifically authorized delivery test. If staging
 is omitted it is explicitly unchecked. Two distinct verified project identities
 alone do not prove separate credentials, data, billing or deployment isolation.
-The checker does not establish an OpenRouter money limit, external backups,
+The checker does not establish an Anthropic or OpenRouter money limit, external backups,
 Storage-file coverage, provider retention, Sentry rules or end-to-end recovery.
 
 ### Account export and deletion outside the app
@@ -202,7 +202,7 @@ inside that record. Never ask for passwords, login codes or complete chat logs.
 | App server records | Use the authenticated in-app export and account deletion; verify result in the correct project. The export covers server data only. | Completion and own-account scope; synthetic A/B rehearsal before changing the workflow |
 | Device and offline data | Before deletion, let the owner preserve wanted unsynced edits and device-only pictures. Explain that server export excludes them. Verify logout/account deletion clears local account caches on each device. | Owner/device check; separately record unavailable devices and OS-controlled copies |
 | Supabase Auth and operational records | Check permitted Auth metadata and configured platform log retention using restricted admin access. Avoid bulk log downloads; distinguish live-row deletion from retained audit records. | Provider-supported outcome or documented retention/exception; no unrelated users in the response |
-| OpenRouter and selected model providers | Identify the actual runtime key's owning account and routing/settings. Determine which provider records exist and use its supported access/deletion route. Do not claim zero retention from a different key's settings. | Account/configuration evidence and provider confirmation or explicit retention limit |
+| Anthropic (text/vision) and OpenRouter (recipe pictures) | Identify each runtime key's owning account and settings. Determine which provider records exist and use the provider's supported access/deletion route. Do not claim zero retention from a different key's settings. | Account/configuration evidence and provider confirmation or explicit retention limit |
 | Sentry | Verify the deployed project's settings and retention. Use only necessary authorized lookup; sanitized client events may provide no reliable account linkage. Do not invent a match. | Actual project settings and supported outcome, or a precise non-identifiability limitation |
 | Support and communications | Search only the relevant authorized support locations and account-correlated records; remove unrelated third-party information from an export. | Each responsible location's completion/retention evidence |
 | Backups and recovery copies | Record which retained copies may predate deletion and when they expire. Restrict access and keep a minimal, separately protected deletion-replay record when required by the approved retention process. | Agreed retention and expiry; any restore re-applies applicable deletions before reopening traffic |
@@ -219,7 +219,7 @@ decision. A technical database cascade alone does not close the external case.
 
 Remaining operator inputs are specific: production backup destination and
 RPO/RTO/retention; separately identified staging project and credentials; actual
-OpenRouter account/key and money budget; read access to Sentry/provider settings;
+Anthropic and OpenRouter accounts/keys and money budgets; read access to Sentry/provider settings;
 primary/backup responders and approved alert destination; privacy owner and
 provider access/deletion procedures. Keep their secrets and personal contact
 details outside this repository.

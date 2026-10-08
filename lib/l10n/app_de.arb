@@ -668,7 +668,7 @@
   "coachInfoBulletWeight": "Dein Gewicht und dein Zielgewicht",
   "coachInfoBulletMacros": "Deine heutigen Kalorien und die offenen Makros",
   "coachInfoBulletMeals": "Die Namen der Mahlzeiten, die du heute geloggt hast",
-  "coachInfoProvider": "Der Coach nutzt OpenRouter zur Weiterleitung an Gemini-Modelle von Google. Je nach Anfrage werden deine Frage, die oben genannten Angaben, bis zu zehn vorherige Chatnachrichten, ein angehängtes Foto oder ausgewählte Trainingsplaninformationen übermittelt. Dabei können Daten auch außerhalb der EU, einschließlich der USA, verarbeitet werden. Mehr zu Empfängern und Datenverwendung steht in der Datenschutzerklärung.",
+  "coachInfoProvider": "Der Coach nutzt Claude-Modelle von Anthropic. Je nach Anfrage werden deine Frage, die oben genannten Angaben, bis zu zehn vorherige Chatnachrichten, ein angehängtes Foto oder ausgewählte Trainingsplaninformationen übermittelt. Bilder für Rezeptkarten erstellt ein Bildmodell von Google über OpenRouter, nur aus Titel und Beschreibung des Rezepts. Dabei können Daten auch außerhalb der EU, einschließlich der USA, verarbeitet werden. Mehr zu Empfängern und Datenverwendung steht in der Datenschutzerklärung.",
   "coachInfoLimitLabel": "Coach-Limit",
   "coachInfoLimitBody": "{remaining} von {dailyLimit} Fragen heute frei. Reset um Mitternacht (UTC).",
   "@coachInfoLimitBody": {
