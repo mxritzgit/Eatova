@@ -3199,3 +3199,28 @@ Branch `feat/claude-sonnet-provider`; the PR records CI and merge state.
   and answered image requests with 402; production uses a different key whose
   balance was not checked. The app build only changes the Coach disclosure
   text.
+
+### Rollout, 2026-10-08 (owner: "Freigabe für alles")
+
+- [PR #141](https://github.com/mxritzgit/Eatova/pull/141) squash-merged as
+  `a0d7bfd` after 17/17 green checks; the merged tree equals the reviewed head.
+  The full Flutter suite also passed locally (6,947/6,947).
+- `ANTHROPIC_API_KEY` set on the verified project (ref as in earlier
+  rollouts, dashboard name "Shiftfit"); its SHA-256 digest matches the
+  Infisical `ClaudeAPI` value.
+- Deployed from `a0d7bfd` with Supabase CLI 2.120.0 (`--use-api`):
+  `coach-chat` v53 -> **v54**, `analyze-meal` v36 -> **v37**,
+  `recipe-import` v11 -> **v12**; all ACTIVE with `verify_jwt=true`.
+  Boot probe: without a token the gateway answers 401; with the service
+  bearer each handler answers its own 401, so all three passed their
+  configuration check and see the new key. No authenticated user request
+  was made against production.
+- Removed the unused secrets `COACH_MODEL_ANSWER`, `COACH_MODEL_CLASSIFIER`
+  and `OPENROUTER_MODEL`; `ANTHROPIC_API_KEY` and `OPENROUTER_API_KEY`
+  remain, and the probes still pass afterwards.
+- Website: the live privacy page is built from `Desktop/EatovaTestCodex`
+  (not a Git repository), not from `EatovaTest21st`, whose copy is older than
+  the live page. An Anthropic version of that page was prepared but not
+  published; publishing it is the remaining step, after which the
+  "Pending publication" note in `PRIVACY.md` can go.
+
