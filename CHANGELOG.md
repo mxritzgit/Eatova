@@ -19,11 +19,15 @@ the complete current product.
 
 - **Claude for Coach, meal scan and recipe import** (2026-10-08): text and
   photo understanding moved from OpenRouter/Gemini to the Anthropic Messages
-  API (`claude-sonnet-5-5`, adaptive thinking; effort `high` for the Coach and
-  recipe import, `medium` for the meal scan). Structured routes request a JSON
-  schema, so recipe, plan, `/log`, meal and import answers are exactly one
-  object. Recipe pictures stay on OpenRouter. An empty provider credit balance
-  or key-permission error refunds the Coach slot; photos with an edge above
+  API (`claude-sonnet-5-5`, adaptive thinking; effort `high` for Coach
+  replies, classifier, recipes and `/log`, `medium` for plans, the meal scan
+  and recipe import, chosen from measured latency). Structured routes request
+  a JSON schema, so recipe, plan, `/log`, meal and import answers are exactly
+  one object. Recipe pictures stay on OpenRouter. Plans use at most four
+  distinct workouts, rotated for 5-7 sessions a week. Provider outages on
+  text-only calls, an empty credit balance and key-permission errors refund the
+  Coach slot; a classifier the provider declines answers with a signposting
+  refusal; cut emoji no longer break requests; photos with an edge above
   8,000 px are rejected before quota. The in-app Coach disclosure and the
   privacy data-flow document name Anthropic. Backend deployment and the
   website privacy policy are separate rollout steps.

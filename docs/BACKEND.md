@@ -42,9 +42,10 @@ only recipe pictures are generated through OpenRouter.
 | Setting | Source default | Used by |
 | --- | --- | --- |
 | `CLAUDE_MODEL` | `claude-sonnet-5-5` | Coach (classifier, replies, recipe text, training drafts, `/log`), meal photo analysis, recipe import |
-| `COACH_EFFORT` | `high` | Thinking depth of every Coach call |
+| `COACH_EFFORT` | `high` | Thinking depth of Coach classifier (capped at `high`), replies, recipes and `/log` |
+| `COACH_PLAN_EFFORT` | `medium` | Thinking depth of Coach training plans |
 | `ANALYZE_MEAL_EFFORT` | `medium` | Thinking depth of meal photo analysis |
-| `RECIPE_IMPORT_EFFORT` | `high` | Thinking depth of recipe import |
+| `RECIPE_IMPORT_EFFORT` | `medium` | Thinking depth of recipe import |
 | `COACH_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | Recipe picture generation (OpenRouter) |
 | `COACH_DAILY_LIMIT` | `5` | Daily per-user Coach quota |
 
@@ -68,15 +69,24 @@ returns exactly one object; the existing validators still enforce limits.
 Claude's `stop_reason` maps onto the former completion vocabulary
 (`end_turn` = stop, `max_tokens` = length, `refusal` = content filter). An
 empty credit balance (HTTP 400) and a key-permission error (403) count as our
-outage and refund the Coach slot. Images with an edge above 8,000 px are
-rejected with `image_too_large` before quota, because the API refuses them.
+outage and refund the Coach slot; on a text-only call every input-fault
+status (400, 413) counts as our outage, because the server validated the
+text itself. A classifier call the provider declines for safety becomes a
+signposting refusal, not an error. Lone UTF-16 surrogates (an emoji cut by a
+length cap) are replaced before sending, since the API rejects them as
+invalid JSON. Images with an edge above 8,000 px are rejected with
+`image_too_large` before quota, because the API refuses them.
 
 Measured on 2026-10-08 with the real prompts (Sonnet 5.5, single requests, not
 a benchmark): greetings and classification about 1.5 s at any effort; Coach
 answers 5-6 s, or about 9 s at `high` when they reason over app data
-(about 6 s at `medium`); recipes about 5-10 s plus the picture; plans about
-25 s, bound by output length; `/log` 2-4 s; meal analysis 4-5 s at `medium`
-and 10-12 s at `high` with the same estimates; import about 4.5 s.
+(about 6 s at `medium`); recipes about 5-16 s plus the picture; plans 17-21 s
+at `medium` (at `high` a 5-7 session plan took 33 s or hit the token cap
+near the 45 s deadline); `/log` 2-4 s; meal analysis 4-5 s at `medium` and
+10-12 s at `high` with the same estimates; a three-recipe import about 10 s at
+`medium` and 20-32 s at `high` with the same candidates (`low` missed a
+variant). Plans use at most four distinct workouts, rotated across the week
+when the user trains more often, so they fit that deadline.
 
 The OpenRouter-era secrets `OPENROUTER_MODEL`, `COACH_MODEL_ANSWER`,
 `COACH_MODEL_CLASSIFIER`, `COACH_MODEL_LOG` and `RECIPE_IMPORT_MODEL` are no

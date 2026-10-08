@@ -90,9 +90,10 @@ understanding use the **Anthropic Messages API**; only recipe pictures use
 
 | Use | Model ID | Thinking effort | Server override |
 | --- | --- | --- | --- |
-| Coach replies, classifier, recipe text, training drafts, `/log` | `claude-sonnet-5-5` | `high` | `CLAUDE_MODEL`, `COACH_EFFORT` |
+| Coach replies, classifier, recipe text, `/log` | `claude-sonnet-5-5` | `high` | `CLAUDE_MODEL`, `COACH_EFFORT` |
+| Coach training plans | `claude-sonnet-5-5` | `medium` | `CLAUDE_MODEL`, `COACH_PLAN_EFFORT` |
 | Meal photo analysis | `claude-sonnet-5-5` | `medium` | `CLAUDE_MODEL`, `ANALYZE_MEAL_EFFORT` |
-| Recipe share extraction | `claude-sonnet-5-5` | `high` | `CLAUDE_MODEL`, `RECIPE_IMPORT_EFFORT` |
+| Recipe share extraction | `claude-sonnet-5-5` | `medium` | `CLAUDE_MODEL`, `RECIPE_IMPORT_EFFORT` |
 | Generated recipe pictures | `google/gemini-3.1-flash-image` (OpenRouter) | — | `COACH_IMAGE_MODEL` |
 
 Server overrides can change the effective model or effort independently of a

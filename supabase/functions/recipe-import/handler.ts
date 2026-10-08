@@ -16,10 +16,15 @@ import { extractionPrompt, parseExtraction } from './extraction.ts';
 import { loadSource } from './source.ts';
 import { extractionSchema } from './schema.ts';
 
-// Measured on 2026-10-08: "high" extracts a long caption in about 4.5 s, the
-// same as "medium", well inside the 25 s first attempt.
-const RECIPE_IMPORT_EFFORT = effortFromEnv('RECIPE_IMPORT_EFFORT', 'high');
+// Measured on 2026-10-08 with a three-recipe caption plus a vegan variant:
+// "medium" found all four candidates in ~9.5 s, "high" the same in 20-23 s
+// (more on longer captions), "low" missed the variant.
+const RECIPE_IMPORT_EFFORT = effortFromEnv('RECIPE_IMPORT_EFFORT', 'medium');
 const REQUEST_BUDGET_MS = 55_000;
+// Provider share of the request budget, after up to 10 s of source fetching.
+const PROVIDER_WINDOW_MS = 40_000;
+// A second attempt shorter than this would only time out after being paid for.
+const RETRY_MIN_MS = 15_000;
 const MAX_BODY_BYTES = 90_000;
 const MAX_TEXT_CHARS = 20_000;
 type Secrets = { supabaseUrl: string; anonKey: string; serviceKey: string; providerKey: string };
@@ -178,11 +183,18 @@ export async function handleRequest(request: Request): Promise<Response> {
       { scope: 'recipe-import:user-day', subject: userId, limit: 20, window_seconds: 86_400 },
     ], total);
     const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId, signal: total });
-    const providerDeadline = stepSignal(total, 35_000);
+    // One attempt gets the whole provider window: output grows with the
+    // source, and a three-recipe caption took ~10 s at "medium" and ~20-32 s at
+    // "high". A second paid attempt follows only a quick transient failure or
+    // a malformed complete answer, and only with time left to finish.
+    const providerStarted = Date.now();
+    const providerDeadline = stepSignal(total, PROVIDER_WINDOW_MS);
+    const retryPossible = () =>
+      !providerDeadline.aborted && PROVIDER_WINDOW_MS - (Date.now() - providerStarted) >= RETRY_MIN_MS;
     let lastError = new ImportError(502, 'provider_invalid_response');
     for (let attempt = 0; attempt < 2; attempt++) {
       await budget('coach_recipe');
-      const signal = stepSignal(providerDeadline, attempt === 0 ? 25_000 : 15_000);
+      const signal = providerDeadline;
       let provider: unknown;
       try {
         const response = await fetch(CLAUDE_MESSAGES_URL, {
@@ -196,7 +208,7 @@ export async function handleRequest(request: Request): Promise<Response> {
         });
         if (!response.ok) {
           void response.body?.cancel().catch(() => {});
-          if (attempt === 0 && (response.status === 429 || response.status >= 500) && !providerDeadline.aborted) {
+          if (attempt === 0 && (response.status === 429 || response.status >= 500) && retryPossible()) {
             lastError = new ImportError(502, 'provider_unavailable');
             continue;
           }
@@ -205,15 +217,19 @@ export async function handleRequest(request: Request): Promise<Response> {
         provider = await boundedJson(response, 192_000, signal);
       } catch (error) {
         if (error instanceof ImportError) throw error;
-        lastError = new ImportError(signal.aborted ? 504 : 502, signal.aborted ? 'request_timeout' : 'provider_invalid_response');
-        if (attempt === 0 && !providerDeadline.aborted) continue;
+        // A timeout leaves no time for a second attempt.
+        if (signal.aborted) throw new ImportError(504, 'request_timeout');
+        lastError = new ImportError(502, 'provider_invalid_response');
+        if (attempt === 0 && retryPossible()) continue;
         throw lastError;
       }
-      const result = record(provider) && finishReasonFromStop(provider.stop_reason) === 'stop'
-        ? await parseExtraction(claudeText(provider), source, input.version) : null;
+      const stop = record(provider) ? finishReasonFromStop(provider.stop_reason) : undefined;
+      const result = stop === 'stop' ? await parseExtraction(claudeText(provider), source, input.version) : null;
       if (result) return json(request, result);
       lastError = new ImportError(502, 'provider_invalid_response');
-      if (providerDeadline.aborted) break;
+      // A safety decline or a cut-off answer would repeat; only a malformed
+      // complete answer may come out differently.
+      if (stop !== 'stop' || !retryPossible()) break;
     }
     throw lastError;
   } catch (error) {

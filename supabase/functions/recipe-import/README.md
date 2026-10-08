@@ -115,15 +115,18 @@ is required. Existing provider-budget and rate-limit migrations must be deployed
 
 Existing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
 `ANTHROPIC_API_KEY` configuration is used. The model is `CLAUDE_MODEL` (default
-`claude-sonnet-5-5`) at `RECIPE_IMPORT_EFFORT` (default `high`). Deployment must
+`claude-sonnet-5-5`) at `RECIPE_IMPORT_EFFORT` (default `medium`). Deployment must
 retain the Supabase JWT gateway verification. Total handler budget is 55 seconds;
 source fetching has a 10-second ceiling (2.5 seconds per source request) and model
-calls share a 35-second ceiling. Structured outputs use `output_config.format`
+calls share a 40-second window; the first attempt may use all of it, because
+output grows with the source. Structured outputs use `output_config.format`
 with the JSON schema in [schema.ts](schema.ts). Array caps remain server-side
-because structured outputs support no array or numeric constraints. Incomplete
-JSON, a `stop_reason` other than `end_turn` and transient HTTP errors (429, 5xx,
-including 529 overload) permit one bounded retry with a fresh paid-call
-reservation. Permanent provider errors are not retried.
+because structured outputs support no array or numeric constraints. A malformed
+complete answer, a transport error and transient HTTP errors (429, 5xx,
+including 529 overload) permit one more attempt with a fresh paid-call
+reservation, but only while at least 15 seconds of the window remain. A
+timeout, a safety decline (`refusal`), a cut-off answer (`max_tokens`) and
+permanent provider errors are not retried.
 
 Errors are machine codes: `invalid_request` / `invalid_json` (400), `unauthorized`
 (401), `payload_too_large` (413), `unsupported_content_type` (415), `rate_limited`

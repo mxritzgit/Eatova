@@ -74,6 +74,30 @@ Deno.test("request body: adaptive thinking, explicit effort, no sampling paramet
   assert(!("format" in (claudeRequestBody({ system: [], messages: [], maxTokens: 1, effort: "low" }).output_config as object)), "no schema, no format");
 });
 
+Deno.test("a cut emoji never reaches the API as a lone surrogate", () => {
+  // Measured 2026-10-08: a lone surrogate makes the API answer 400 "not valid
+  // JSON"; the same text after toWellFormed() is accepted.
+  const cut = "Bowl \ud83c";
+  const body = claudeRequestBody({
+    system: cachedSystem(`Prompt ${cut}`),
+    messages: [
+      { role: "user", content: `Kontext ${cut}` },
+      { role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "AAAA" } },
+        { type: "text", text: `Frage ${cut}` },
+      ] },
+    ],
+    maxTokens: 10,
+    effort: "low",
+  });
+  const wire = JSON.stringify(body);
+  assert(!/\\ud8[0-9a-f]{2}(?!\\udc)/i.test(wire), "no lone high surrogate escape on the wire");
+  assert(wire.includes("Bowl �"), "replaced by U+FFFD");
+  assert(JSON.stringify("Bowl 🍔") === JSON.stringify("Bowl 🍔".toWellFormed()), "a whole emoji stays unchanged");
+  const messages = body.messages as { content: unknown }[];
+  assertEquals((messages[1].content as { source: { data: string } }[])[0].source.data, "AAAA", "image data untouched");
+});
+
 Deno.test("only the stable system prefix carries the cache breakpoint", () => {
   const blocks = cachedSystem("STABLE", "tail");
   assertEquals(blocks.length, 2, "two blocks");
@@ -87,6 +111,11 @@ Deno.test("an empty credit balance is our outage (402), other 400s stay input fa
   assertEquals(claudeFailureStatus(400, credit), 402, "credit balance");
   assertEquals(claudeFailureStatus(400, JSON.stringify({ error: { type: "billing_error", message: "x" } })), 402, "billing type");
   assertEquals(claudeFailureStatus(400, JSON.stringify({ error: { type: "invalid_request_error", message: "image too large" } })), 400, "input fault");
+  assertEquals(
+    claudeFailureStatus(400, JSON.stringify({ error: { type: "invalid_request_error", message: "messages.0: 'credit balance' is not a valid image" } })),
+    400,
+    "echoed text mentioning a credit balance stays an input fault",
+  );
   assertEquals(claudeFailureStatus(400, "not json"), 400, "unreadable body");
   assertEquals(claudeFailureStatus(400, null), 400, "oversized body");
   assertEquals(claudeFailureStatus(529, credit), 529, "only a 400 is reinterpreted");

@@ -90,12 +90,19 @@ import {
   workoutLogSystemPrompt,
 } from "./workout_log.ts";
 
-// Thinking depth of every Coach call (classifier, answer, recipe, plan, log).
+// Thinking depth of the Coach classifier, answers, recipes and logs.
 // Measured on 2026-10-08 with the real prompts: "high" costs nothing extra on
-// greetings, classification, plans and logs, and adds roughly 3-5 s to answers
-// that reason over app data. COACH_EFFORT=medium trades that back without a
+// greetings, classification and logs, and adds roughly 3-5 s to answers that
+// reason over app data. COACH_EFFORT=medium trades that back without a
 // deploy.
 const COACH_EFFORT = effortFromEnv("COACH_EFFORT", "high");
+// The safety classifier answers two enum fields under a 15 s deadline; above
+// "high" its thinking would only add latency and token-cap risk.
+const CLASSIFIER_EFFORT = COACH_EFFORT === "xhigh" || COACH_EFFORT === "max" ? "high" : COACH_EFFORT;
+// Plans are output-bound (~120 tokens/s). Measured 2026-10-08 for a 5-7
+// session brief: "medium" wrote valid 3-workout plans in 17-21 s; "high"
+// took 33 s or hit the token cap at 42 s, close to the 45 s deadline.
+const PLAN_EFFORT = effortFromEnv("COACH_PLAN_EFFORT", "medium");
 // Image GENERATION stays on OpenRouter: Claude produces no images.
 const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
 
@@ -106,8 +113,9 @@ const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
 const CLASSIFIER_MAX_TOKENS  = 1024;
 const ANSWER_MAX_TOKENS      = 4096;
 const RECIPE_MAX_TOKENS      = 4096;
-// A typical plan is 2,500-3,300 tokens; larger ones are bound by the deadline.
-const PLAN_MAX_TOKENS        = 5000;
+// A typical plan is 2,500-3,300 tokens (about 25 s). 4,500 tokens take about
+// 37 s, so the cap, not the 45 s answer deadline, ends an oversized plan.
+const PLAN_MAX_TOKENS        = 4500;
 // A full log (20 exercises x 10 sets) fits with headroom.
 const LOG_MAX_TOKENS         = 4096;
 const MAX_IMAGE_BASE64_CHARS = 6_000_000;
@@ -386,9 +394,21 @@ const CLASSIFIER_OUTPUT_SCHEMA = {
   additionalProperties: false,
 };
 
+/// Status that decides the refund. Only a photo can make the provider reject a
+/// request the user is to blame for; every text was validated here first, so
+/// on a text-only call an input-fault status means our request or account.
+function chargeableStatus(status: number, photoInRequest: boolean): number {
+  return photoInRequest || !CLIENT_FAULT_STATUSES.has(status) ? status : 502;
+}
+
 /// Non-ok provider response -> ProviderError with the status that decides the
 /// refund. The body is read once, bounded, and only digested for the log.
-async function providerFailure(resp: Response, signal: AbortSignal, label: string): Promise<ProviderError> {
+async function providerFailure(
+  resp: Response,
+  signal: AbortSignal,
+  label: string,
+  photoInRequest: boolean,
+): Promise<ProviderError> {
   let raw: string | null = null;
   let meta: string;
   try {
@@ -398,7 +418,10 @@ async function providerFailure(resp: Response, signal: AbortSignal, label: strin
     // Preserve a known paid 4xx status even when its diagnostic body fails.
     meta = "body_unavailable";
   }
-  return new ProviderError(claudeFailureStatus(resp.status, raw), `${label} failed: ${resp.status} (${meta})`);
+  return new ProviderError(
+    chargeableStatus(claudeFailureStatus(resp.status, raw), photoInRequest),
+    `${label} failed: ${resp.status} (${meta})`,
+  );
 }
 
 /// One buffered Messages API call. `signal` bounds the fetch AND the body read;
@@ -408,6 +431,7 @@ async function claudeMessage(
   request: ClaudeRequest,
   signal: AbortSignal,
   label: string,
+  photoInRequest = false,
 ): Promise<any> {
   const resp = await fetch(CLAUDE_MESSAGES_URL, {
     method: "POST",
@@ -415,9 +439,18 @@ async function claudeMessage(
     signal,
     body: JSON.stringify(claudeRequestBody(request)),
   });
-  if (!resp.ok) throw await providerFailure(resp, signal, label);
+  if (!resp.ok) throw await providerFailure(resp, signal, label, photoInRequest);
   return await readProviderJson(resp, signal);
 }
+
+/// The provider's safety system declined to classify: nothing is known about
+/// the message, so every mode answers with a signposting refusal.
+const PROVIDER_REFUSED_CLASSIFICATION: ClassifierResult = {
+  category: "off_topic",
+  confidence: "low",
+  parseFailed: true,
+  providerRefusal: true,
+};
 
 async function classify(
   apiKey: string,
@@ -435,15 +468,17 @@ async function classify(
     // as the text path (no vision tokens). Consequences in guardrails.ts.
     messages: [{ role: "user", content: message }],
     maxTokens: CLASSIFIER_MAX_TOKENS,
-    effort: COACH_EFFORT,
+    effort: CLASSIFIER_EFFORT,
     schema: CLASSIFIER_OUTPUT_SCHEMA,
   }, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.classify), "Classifier call");
   const raw = claudeText(data);
   const finishReason = loggableFinishReason(finishReasonFromStop(data?.stop_reason));
-  // Explicit provider safety rejections are paid input failures, not outages.
-  // Stop every mode without refunding or invoking the image fallback.
+  // An explicit provider safety decline is a paid answer, not an outage: the
+  // slot stays spent and every mode refuses (with signposting) without
+  // invoking the image fallback.
   if (finishReason === "content_filter") {
-    throw new ProviderError(400, "Classifier provider safety refusal");
+    console.error("classifier declined by provider safety system");
+    return PROVIDER_REFUSED_CLASSIFICATION;
   }
   try {
     if (typeof raw !== "string" || !raw.trim()) {
@@ -470,6 +505,9 @@ async function classify(
   } catch {
     // Fixed metadata only: never log the prompt, provider content or reasoning.
     console.error(`classifier output unusable (finish_reason=${finishReason ?? "missing"})`);
+    // Our own token cap cut the verdict off: an outage in every mode (refund),
+    // not an unusable answer the user would pay for.
+    if (finishReason === "length") throw new ProviderError(502, "Classifier output truncated");
     return UNUSABLE_CLASSIFICATION;
   }
 }
@@ -718,6 +756,7 @@ async function answer(
     answerRequest(history, userMessage, image, userContext, false, trainingContext, locale),
     AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
     "Answer call",
+    image !== undefined,
   );
   // P6-04c: the completion reason reaches logs only as an allowlisted value
   // or category, never as a provider-chosen string (CWE-532).
@@ -753,6 +792,8 @@ interface AnswerStreamState {
   released: number;
   finishReason: string;
   ended: boolean;
+  /// A photo rides along, so an input-fault error event can be the user's.
+  photoInRequest: boolean;
 }
 
 /// Status of a mid-stream error event. F2: this used to be a flat 502, which
@@ -760,8 +801,8 @@ interface AnswerStreamState {
 /// the slot for input the provider already billed — the buffered path keeps it
 /// spent. Only the allowlist is trusted; anything else stays an outage. The
 /// event is never read beyond its error type (CWE-532).
-function frameErrorStatus(error: unknown): number {
-  const status = claudeErrorStatus(error);
+function frameErrorStatus(error: unknown, photoInRequest: boolean): number {
+  const status = chargeableStatus(claudeErrorStatus(error), photoInRequest);
   return CLIENT_FAULT_STATUSES.has(status) ? status : 502;
 }
 
@@ -787,7 +828,7 @@ function consumeProviderFrames(state: AnswerStreamState): void {
     if (frame?.type === "error") {
       // Mid-stream provider failure. No body in the message — a provider may
       // mirror user input into its error objects (CWE-532).
-      throw new ProviderError(frameErrorStatus(frame.error), "Provider stream error event");
+      throw new ProviderError(frameErrorStatus(frame.error, state.photoInRequest), "Provider stream error event");
     }
     if (frame?.type === "message_stop") {
       state.ended = true;
@@ -843,7 +884,7 @@ async function openAnswerStream(
       answerRequest(history, userMessage, image, userContext, true, trainingContext, locale),
     )),
   });
-  if (!resp.ok) throw await providerFailure(resp, signal, "Answer stream");
+  if (!resp.ok) throw await providerFailure(resp, signal, "Answer stream", image !== undefined);
   if (!resp.body) throw new ProviderError(502, "Answer stream without body");
   return {
     reader: resp.body.getReader(),
@@ -855,6 +896,7 @@ async function openAnswerStream(
     released: 0,
     finishReason: "unknown",
     ended: false,
+    photoInRequest: image !== undefined,
   };
 }
 
@@ -1077,12 +1119,12 @@ function wantsStream(req: Request): boolean {
 /// output are the caller's decision.
 async function structuredDraft(
   apiKey: string,
-  request: Omit<ClaudeRequest, "effort" | "stream">,
+  request: Omit<ClaudeRequest, "stream">,
   label: string,
 ): Promise<{ content: string; finishReason: string | undefined }> {
   const data = await claudeMessage(
     apiKey,
-    { ...request, effort: COACH_EFFORT },
+    request,
     AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
     label,
   );
@@ -1103,6 +1145,7 @@ async function draftRecipe(
     system: cachedSystem(recipeSystemPrompt(locale)),
     messages: [{ role: "user", content: wish }],
     maxTokens: RECIPE_MAX_TOKENS,
+    effort: COACH_EFFORT,
     schema: RECIPE_OUTPUT_SCHEMA,
   }, "Recipe call");
 }
@@ -1381,6 +1424,7 @@ async function draftTrainingPlan(apiKey: string, budget: ProviderCallBudget, wis
       { role: "user", content: wish },
     ],
     maxTokens: PLAN_MAX_TOKENS,
+    effort: PLAN_EFFORT,
     schema: TRAINING_PLAN_OUTPUT_SCHEMA,
   }, "Training plan call");
 }
@@ -1504,6 +1548,7 @@ async function extractWorkoutLog(
     system: cachedSystem(workoutLogSystemPrompt(locale, localDate)),
     messages: [{ role: "user", content: wish }],
     maxTokens: LOG_MAX_TOKENS,
+    effort: COACH_EFFORT,
     schema: WORKOUT_LOG_OUTPUT_SCHEMA,
   }, "Workout log call");
 }
@@ -1652,6 +1697,12 @@ const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
     de: "Das konnte ich gerade nicht sicher einordnen - da ist bei mir etwas schiefgelaufen. Formulier es bitte nochmal, dann versuche ich es erneut.",
     en: "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.",
   },
+  // The provider's safety system declined to classify the message, so nothing
+  // is known about it. It may be a crisis: decline, and point to help gently.
+  provider_refusal: {
+    de: "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.",
+    en: "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists helplines for your country. I'm happy to help with training and nutrition.",
+  },
   injection: {
     de: "Schoener Versuch. Ich bleibe dein Fitness- und Ernaehrungs-Coach. Was willst du zu Training oder Ernaehrung wissen?",
     en: "Nice try. I'm staying your fitness and nutrition coach. What would you like to know about training or nutrition?",
@@ -1699,6 +1750,8 @@ function refusalForReason(reason: string, locale: CoachLocale): string {
     // on a pasta wish does its own damage. Just: no generation without a check.
     case "classifier_unusable":
       return REFUSAL_TEXTS.classifier_unusable[locale];
+    case "provider_refusal":
+      return REFUSAL_TEXTS.provider_refusal[locale];
     case "prompt_injection":
     case "injection":
       return REFUSAL_TEXTS.injection[locale];
@@ -2586,6 +2639,9 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   // Plans are text-only. Silently dropping a photo could bypass its safety
   // context, so an explicit plan request with an attachment is invalid.
   if (isPlanMode && hasImage) return json({ error: "plan_image_not_supported" }, 400);
+  // The recipe draft is text-only too: a photo would be dropped unread, and a
+  // photo without words would reach the provider as an empty wish.
+  if (isRecipeMode && hasImage) return json({ error: "recipe_image_not_supported" }, 400);
   const locale: CoachLocale = body?.locale === "en" ? "en" : "de";
   const requestedSessionId =
     typeof body?.session_id === "string" && SESSION_ID_RE.test(body.session_id)
@@ -2747,7 +2803,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       // Stop before answering/persisting and reuse the outage refund path.
       // Image captions share this outage handling. Structured proposals use
       // the safe refusal path below because they have no answer-stage fallback.
-      if (cls.parseFailed && !isStructuredMode) {
+      if (cls.parseFailed && !cls.providerRefusal && !isStructuredMode) {
         throw new ProviderError(502, "classifier output unusable");
       }
     } catch (e) {

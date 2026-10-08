@@ -76,57 +76,60 @@ const DAY_MS = 86_400_000;
 
 const nullableInteger = { type: ["integer", "null"] };
 
-/** Structured-output schema of the extraction envelope. Limits, the date
- *  window and the status/workout pairing are enforced by transformExtraction. */
-export const WORKOUT_LOG_OUTPUT_SCHEMA = {
+const extractedWorkoutSchema = {
   type: "object",
   additionalProperties: false,
-  required: ENVELOPE_KEYS,
+  required: WORKOUT_KEYS,
   properties: {
-    status: { type: "string", enum: ["ok", "refuse"] },
-    refuse_reason: { anyOf: [{ type: "string", enum: [...LOG_REFUSAL_REASONS] }, { type: "null" }] },
-    health_mention: { type: "boolean" },
-    workout: {
-      anyOf: [
-        {
-          type: "object",
-          additionalProperties: false,
-          required: WORKOUT_KEYS,
-          properties: {
-            title: { type: "string" },
-            performed_on: { anyOf: [{ type: "string", format: "date" }, { type: "null" }] },
-            duration_minutes: nullableInteger,
-            other_days_omitted: { type: "boolean" },
-            note: { type: "string" },
-            exercises: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                required: EXTRACTED_EXERCISE_KEYS,
-                properties: {
-                  name: { type: "string" },
-                  kind: { type: "string", enum: ["reps", "timed"] },
-                  duration_seconds: nullableInteger,
-                  weight_unit: { anyOf: [{ type: "string", enum: ["kg", "lb"] }, { type: "null" }] },
-                  sets: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      required: EXTRACTED_SET_KEYS,
-                      properties: { reps: nullableInteger, weight: { type: ["number", "null"] } },
-                    },
-                  },
-                },
-              },
+    title: { type: "string" },
+    performed_on: { anyOf: [{ type: "string", format: "date" }, { type: "null" }] },
+    duration_minutes: nullableInteger,
+    other_days_omitted: { type: "boolean" },
+    note: { type: "string" },
+    exercises: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: EXTRACTED_EXERCISE_KEYS,
+        properties: {
+          name: { type: "string" },
+          kind: { type: "string", enum: ["reps", "timed"] },
+          duration_seconds: nullableInteger,
+          // Always a unit, as the prompt asks: a weight without one cannot be read.
+          weight_unit: { type: "string", enum: ["kg", "lb"] },
+          sets: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: EXTRACTED_SET_KEYS,
+              properties: { reps: nullableInteger, weight: { type: ["number", "null"] } },
             },
           },
         },
-        { type: "null" },
-      ],
+      },
     },
   },
+};
+
+function logEnvelope(status: "ok" | "refuse", refuseReason: object, workout: object) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ENVELOPE_KEYS,
+    properties: { status: { type: "string", enum: [status] }, refuse_reason: refuseReason, health_mention: { type: "boolean" }, workout },
+  };
+}
+
+/** Structured-output schema of the extraction envelope: an ok log or a
+ *  refusal, never a mix. Limits and the date window are enforced by
+ *  transformExtraction. */
+export const WORKOUT_LOG_OUTPUT_SCHEMA = {
+  anyOf: [
+    logEnvelope("ok", { type: "null" }, extractedWorkoutSchema),
+    logEnvelope("refuse", { type: "string", enum: [...LOG_REFUSAL_REASONS] }, { type: "null" }),
+  ],
 };
 
 /** Exact command token, case insensitive; null means the text is no /log. */

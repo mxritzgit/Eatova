@@ -66,12 +66,22 @@ export interface ClaudeRequest {
   stream?: boolean;
 }
 
+/**
+ * A lone UTF-16 surrogate (an emoji cut by a length cap, in app context, a
+ * meal name or a history row) makes the whole body invalid JSON for the API:
+ * a 400 that would repeat on every request. It becomes U+FFFD instead.
+ */
+function wellFormedContent(content: ClaudeMessage['content']): ClaudeMessage['content'] {
+  if (typeof content === 'string') return content.toWellFormed();
+  return content.map((block) => block.type === 'text' ? { ...block, text: block.text.toWellFormed() } : block);
+}
+
 export function claudeRequestBody(request: ClaudeRequest): Record<string, unknown> {
   return {
     model: CLAUDE_MODEL,
     max_tokens: request.maxTokens,
-    system: request.system,
-    messages: request.messages,
+    system: request.system.map((block) => ({ ...block, text: block.text.toWellFormed() })),
+    messages: request.messages.map((message) => ({ ...message, content: wellFormedContent(message.content) })),
     // Explicit, so a pinned older model does not silently run without thinking.
     // Sampling parameters are not sent: Sonnet 5.5 rejects non-default values.
     thinking: { type: 'adaptive' },
@@ -153,7 +163,9 @@ export function claudeFailureStatus(status: number, rawBody: string | null): num
     const error = (JSON.parse(rawBody) as { error?: unknown }).error;
     if (!isRecord(error)) return status;
     if (error.type === 'billing_error') return 402;
-    return typeof error.message === 'string' && /credit balance|billing/i.test(error.message) ? 402 : status;
+    // The documented wording ("Your credit balance is too low ..."), anchored
+    // at the start so no echoed request text can turn a 400 into a refund.
+    return typeof error.message === 'string' && /^your credit balance is too low/i.test(error.message) ? 402 : status;
   } catch {
     return status;
   }
