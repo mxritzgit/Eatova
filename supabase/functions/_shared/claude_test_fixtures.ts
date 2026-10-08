@@ -128,3 +128,38 @@ export function messagesText(body: JsonRecord): string {
       : "";
   }).join("\n");
 }
+
+/** True for any paid provider call: Claude or the OpenRouter image API. */
+export function isProviderCall(url: string): boolean {
+  return isClaudeCall(url) || url.startsWith("https://openrouter.ai/");
+}
+
+const ERROR_TYPES: Record<number, string> = {
+  400: "invalid_request_error",
+  401: "authentication_error",
+  402: "billing_error",
+  403: "permission_error",
+  404: "not_found_error",
+  413: "request_too_large",
+  429: "rate_limit_error",
+  529: "overloaded_error",
+};
+
+/** Messages API error type the API sends with an HTTP status. */
+export function claudeErrorTypeFor(status: number): string {
+  return ERROR_TYPES[status] ?? "api_error";
+}
+
+/** The API's wording for an empty credit balance; it arrives as a 400. */
+export const CREDIT_BALANCE_MESSAGE =
+  "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.";
+
+/** Every image block in the messages, in order. */
+export function imageBlocks(body: JsonRecord): JsonRecord[] {
+  const messages = Array.isArray(body.messages) ? body.messages as JsonRecord[] : [];
+  return messages.flatMap((message) =>
+    Array.isArray(message.content)
+      ? (message.content as JsonRecord[]).filter((block) => block.type === "image")
+      : []
+  );
+}

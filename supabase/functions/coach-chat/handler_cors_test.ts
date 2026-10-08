@@ -3,6 +3,7 @@ Deno.env.set("EATOVA_ALLOWED_ORIGINS", "https://allowed.example,https://second.e
 Deno.env.set("SUPABASE_URL", "https://synthetic.invalid");
 Deno.env.set("SUPABASE_ANON_KEY", "synthetic-public");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-service");
+Deno.env.set("ANTHROPIC_API_KEY", "synthetic-anthropic");
 Deno.env.set("OPENROUTER_API_KEY", "synthetic-provider");
 const { handleRequest } = await import("./handler.ts");
 
