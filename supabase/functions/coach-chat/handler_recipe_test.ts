@@ -13,8 +13,28 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 //
 // The last test covers the chat path: the poisoned user_context is the same
 // change and shares the fetch stub.
+//
+// Text calls go to the Claude Messages API; only the recipe image still goes
+// to OpenRouter, and only with an OpenRouter key.
 
+import {
+  claudeErrorBody,
+  claudeResponse,
+  isClaudeCall,
+  isClassifierRequest,
+  outputSchema,
+  systemText,
+} from "../_shared/claude_test_fixtures.ts";
+import {
+  asksForSchema,
+  assertClaudeContract,
+  claudeErrorTypeFor,
+  CREDIT_BALANCE_MESSAGE,
+  isDraftRequest,
+  simulatedThinkingTokens,
+} from "./claude_mode_test_helpers.ts";
 import { handleRequest } from "./handler.ts";
+import { RECIPE_OUTPUT_SCHEMA } from "./recipe.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -48,6 +68,8 @@ const RECIPE_JSON = JSON.stringify({
 Deno.env.set("SUPABASE_URL", BASE_URL);
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
+Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
+// Recipe images only.
 Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 type JsonRecord = Record<string, unknown>;
@@ -55,6 +77,7 @@ type JsonRecord = Record<string, unknown>;
 interface RecordedCall {
   url: string;
   method: string;
+  headers: Headers;
   body: string;
 }
 
@@ -62,7 +85,7 @@ interface StubOptions {
   imageBudgetDenied?: boolean;
   /** "ok" (default), "exhausted" or "forbidden" (claim must never happen). */
   quota?: "ok" | "exhausted" | "forbidden";
-  /** Category returned by the classifier call (max_tokens 256). */
+  /** Category returned by the classifier call (category schema). */
   classifierCategory?: string;
   /**
    * RAW content of the classifier reply, overriding classifierCategory. For
@@ -77,6 +100,8 @@ interface StubOptions {
   draftRawEnvelope?: string;
   /** HTTP status of the draft call (infra error simulation). */
   draftStatus?: number;
+  /** Error body of a failed draft call (default: the status's error type). */
+  draftErrorBody?: string;
   /** HTTP status of the image call (/api/v1/images). */
   imageStatus?: number;
   /** b64_json the image call returns (default: a real JPEG). */
@@ -96,7 +121,7 @@ interface StubOptions {
   recipeStoreStatus?: number;
 }
 
-/** Reply text of the chat answer call (max_tokens 3072). */
+/** Reply text of the chat answer call (no output schema). */
 const ANSWER_TEXT = "Peil heute noch 30 g Protein an, dann passt die Bilanz.";
 
 // EN counterparts from the REFUSAL_TEXTS catalogue - byte copies, same
@@ -107,11 +132,11 @@ const CLASSIFIER_UNUSABLE_REPLY_EN =
   "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.";
 
 /**
- * Classifier calls use their small budget; recipe drafts use JSON response
- * format so changing an output cap cannot silently reroute the test stub.
+ * Calls are routed by their output schema (classifier, recipe draft, none for
+ * the answer), so changing an output cap cannot silently reroute the stub.
  */
-function maxTokensOf(body: string): number {
-  return Number((JSON.parse(body) as JsonRecord).max_tokens);
+function bodyOf(call: RecordedCall): JsonRecord {
+  return JSON.parse(call.body) as JsonRecord;
 }
 
 function assert(condition: boolean, message: string): void {
@@ -216,29 +241,24 @@ function installFetch(options: StubOptions = {}): FetchStub {
         }],
       });
     }
-    if (url.includes("openrouter.ai/api/v1/chat/completions")) {
-      const budget = maxTokensOf(body);
+    if (isClaudeCall(url)) {
+      const payload = JSON.parse(body) as JsonRecord;
       // Classifier BEFORE the draftStatus branch: a simulated draft failure
       // must not take the layer-2 call down with it.
-      if (budget === 256) {
-        return jsonRes({
-          choices: [{
-            finish_reason: "stop",
-            message: {
-              content: options.classifierContent ?? JSON.stringify({
-                category: options.classifierCategory ?? "nutrition",
-                confidence: "high",
-              }),
-            },
-          }],
-        });
+      if (isClassifierRequest(payload)) {
+        return jsonRes(claudeResponse(
+          options.classifierContent ?? JSON.stringify({
+            category: options.classifierCategory ?? "nutrition",
+            confidence: "high",
+          }),
+        ));
       }
-      const payload = JSON.parse(body) as JsonRecord;
-      if ((payload.response_format as JsonRecord | undefined)?.type !== "json_object") {
-        return jsonRes({ choices: [{ message: { content: ANSWER_TEXT }, finish_reason: "stop" }] });
-      }
+      if (!isDraftRequest(payload)) return jsonRes(claudeResponse(ANSWER_TEXT));
       if (options.draftStatus !== undefined) {
-        return new Response("upstream unavailable", { status: options.draftStatus });
+        return new Response(
+          options.draftErrorBody ?? claudeErrorBody(claudeErrorTypeFor(options.draftStatus)),
+          { status: options.draftStatus, headers: { "content-type": "application/json" } },
+        );
       }
       if (options.draftRawEnvelope !== undefined) {
         return new Response(options.draftRawEnvelope, {
@@ -248,16 +268,13 @@ function installFetch(options: StubOptions = {}): FetchStub {
       let content = options.draftContent ?? RECIPE_JSON;
       let finishReason = options.draftFinishReason ?? "stop";
       if (options.draftNeedsHeadroom) {
-        const reasoning = payload.reasoning as JsonRecord | undefined;
-        const thinkingTokens = reasoning?.effort === "low" ? 128 : 528;
-        if (budget < thinkingTokens + 1100) {
+        // Adaptive thinking counts against max_tokens like the visible JSON.
+        if (Number(payload.max_tokens) < simulatedThinkingTokens(payload) + 1100) {
           content = content.slice(0, Math.floor(content.length / 2));
           finishReason = "length";
         }
       }
-      return jsonRes({
-        choices: [{ message: { content }, finish_reason: finishReason }],
-      });
+      return jsonRes(claudeResponse(content, finishReason));
     }
     if (url.includes("/rest/v1/chat_messages")) {
       if (method === "POST") {
@@ -297,7 +314,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       : input.url;
     const method = (init?.method ?? "GET").toUpperCase();
     const body = typeof init?.body === "string" ? init.body : "";
-    calls.push({ url, method, body });
+    calls.push({ url, method, headers: new Headers(init?.headers), body });
     return Promise.resolve(route(url, method, body));
   }) as typeof globalThis.fetch;
 
@@ -341,18 +358,27 @@ function makeChatRequest(payload: JsonRecord = {}): Request {
   });
 }
 
-/** A stub's OpenRouter chat calls, filtered by token budget. */
-function completionsWithBudget(stub: FetchStub, budget: number): RecordedCall[] {
-  return stub.callsTo("chat/completions").filter((call) =>
-    maxTokensOf(call.body) === budget
-  );
+/** A stub's Claude Messages API calls (classifier, draft, answer). */
+function claudeCalls(stub: FetchStub): RecordedCall[] {
+  return stub.calls.filter((call) => isClaudeCall(call.url));
+}
+
+function classifierCalls(stub: FetchStub): RecordedCall[] {
+  return claudeCalls(stub).filter((call) => isClassifierRequest(bodyOf(call)));
+}
+
+/** Chat answers carry no output schema. */
+function answerCalls(stub: FetchStub): RecordedCall[] {
+  return claudeCalls(stub).filter((call) => outputSchema(bodyOf(call)) === undefined);
 }
 
 function recipeCompletions(stub: FetchStub): RecordedCall[] {
-  return stub.callsTo("chat/completions").filter((call) => {
-    const payload = JSON.parse(call.body) as JsonRecord;
-    return (payload.response_format as JsonRecord | undefined)?.type === "json_object";
-  });
+  return claudeCalls(stub).filter((call) => isDraftRequest(bodyOf(call)));
+}
+
+/** Every provider call, Claude and OpenRouter alike. */
+function providerCalls(stub: FetchStub): RecordedCall[] {
+  return stub.calls.filter((call) => isClaudeCall(call.url) || call.url.includes("openrouter.ai"));
 }
 
 Deno.test("Recipe draft preserves complete JSON after reasoning consumes output tokens", async () => {
@@ -464,23 +490,28 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
 
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "genau ein Claim");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
-    // Exactly TWO chat calls: classifier (layer 2) + draft, plus the image
-    // call.
-    assertEquals(stub.callsTo("chat/completions").length, 2, "Classifier + Draft");
+    // Exactly TWO Claude calls: classifier (layer 2) + draft, plus the image
+    // call on OpenRouter.
+    assertEquals(claudeCalls(stub).length, 2, "Classifier + Draft");
     assertEquals(
-      completionsWithBudget(stub, 256).length,
+      classifierCalls(stub).length,
       1,
       "Layer 2 laeuft auch im Rezept-Modus",
     );
     const draftCalls = recipeCompletions(stub);
     assertEquals(draftCalls.length, 1, "genau ein Draft-Call");
-    const draftBody = JSON.parse(draftCalls[0].body) as JsonRecord;
-    assertEquals(
-      (draftBody.response_format as JsonRecord)?.type,
-      "json_object",
-      "response_format erzwingt JSON",
+    assert(
+      asksForSchema(bodyOf(draftCalls[0]), RECIPE_OUTPUT_SCHEMA),
+      "das Output-Schema erzwingt genau ein Rezept- oder Refusal-JSON",
     );
-    assertEquals(stub.callsTo("api/v1/images").length, 1, "genau ein Bild-Call");
+    const imageCalls = stub.callsTo("api/v1/images");
+    assertEquals(imageCalls.length, 1, "genau ein Bild-Call");
+    assertEquals(
+      imageCalls[0].headers.get("authorization"),
+      "Bearer test-openrouter-key",
+      "das Bild laeuft mit dem OpenRouter-Key, nie mit dem Anthropic-Key",
+    );
+    assertEquals(stub.callsTo("openrouter.ai").length, 1, "OpenRouter nur fuer das Bild");
     // No history query in recipe mode.
     const historyReads = stub.calls.filter((c) =>
       c.url.includes("/rest/v1/chat_messages") && c.method === "GET"
@@ -530,21 +561,34 @@ Deno.test("Bild-Fehler != Rezept-Fehler: 200 ohne image_base64, kein Refund", as
 // Bestellung — ein praeparierter Wunsch, der den Anbieter 400 antworten
 // laesst, kostet dann nie einen Slot. Der Ledger, nicht die Anzahl der Calls,
 // ist die Zusicherung: `quotaUsed` zeigt, ob der Slot wirklich zurueck ist.
+// Claude meldet ein leeres Guthaben als 400; das ist unser Ausfall (402).
 Deno.test("Draft-Fehler: nur der OUTAGE erstattet, der Client-4xx behaelt den Slot", async () => {
-  const faelle: { draftStatus: number; refund: boolean; was: string }[] = [
+  const faelle: { draftStatus: number; draftErrorBody?: string; refund: boolean; was: string }[] = [
     { draftStatus: 500, refund: true, was: "Anbieter-Ausfall" },
     { draftStatus: 502, refund: true, was: "Gateway-Ausfall" },
-    // Unsere Ausfaelle, obwohl 4xx: Key, Kredit, Modellname, Drossel.
+    { draftStatus: 529, refund: true, was: "Anbieter ueberlastet" },
+    // Unsere Ausfaelle, obwohl 4xx: Key, Kredit, Key-Berechtigung,
+    // Modellname, Drossel.
     { draftStatus: 401, refund: true, was: "Key abgelaufen" },
     { draftStatus: 402, refund: true, was: "Kredit leer" },
+    {
+      draftStatus: 400,
+      draftErrorBody: claudeErrorBody("invalid_request_error", CREDIT_BALANCE_MESSAGE),
+      refund: true,
+      was: "Guthaben leer, als 400 gemeldet",
+    },
+    { draftStatus: 400, draftErrorBody: claudeErrorBody("billing_error"), refund: true, was: "billing_error als 400" },
+    { draftStatus: 403, refund: true, was: "Key ohne Berechtigung" },
+    { draftStatus: 404, refund: true, was: "Modellname unbekannt" },
     { draftStatus: 429, refund: true, was: "Anbieter-Drossel" },
     // Vom Wunsch des Nutzers verursacht: bezahlter Call, Slot bleibt weg.
     { draftStatus: 400, refund: false, was: "Eingabe abgelehnt" },
     { draftStatus: 413, refund: false, was: "zu grosse Eingabe" },
+    { draftStatus: 415, refund: false, was: "falscher Medientyp" },
     { draftStatus: 422, refund: false, was: "unverarbeitbare Eingabe" },
   ];
   for (const fall of faelle) {
-    const stub = installFetch({ draftStatus: fall.draftStatus });
+    const stub = installFetch({ draftStatus: fall.draftStatus, draftErrorBody: fall.draftErrorBody });
     try {
       const res = await handleRequest(makeRecipeRequest());
       assertEquals(res.status, 502, `${fall.was}: Status`);
@@ -651,7 +695,7 @@ Deno.test("Tageslimit erschoepft: 429 VOR jedem Provider-Call", async () => {
     assertEquals(res.status, 429, "Status");
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, "quota_exceeded", "error");
-    assertEquals(stub.callsTo("openrouter.ai").length, 0, "keine Provider-Calls");
+    assertEquals(providerCalls(stub).length, 0, "keine Provider-Calls");
   } finally {
     stub.restore();
   }
@@ -665,7 +709,7 @@ Deno.test("Prefilter (Layer 1) greift auch im Recipe-Mode — ohne Quota-Claim",
     const body = await res.json() as JsonRecord;
     assertEquals(body.refusal, true, "refusal");
     assertEquals(body.refusal_reason, "empty", "Layer-1-Grund");
-    assertEquals(stub.callsTo("openrouter.ai").length, 0, "keine Provider-Calls");
+    assertEquals(providerCalls(stub).length, 0, "keine Provider-Calls");
   } finally {
     stub.restore();
   }
@@ -695,7 +739,7 @@ Deno.test("Krise im Rezept-Modus: Krisen-Antwort, KEIN Draft-Call", async () => 
     assert(!("image_base64" in body), "kein Bild");
     // Proof that nothing was generated: only the classifier call.
     assertEquals(
-      stub.callsTo("chat/completions").length,
+      claudeCalls(stub).length,
       1,
       "nur der Classifier — kein Draft-Call",
     );
@@ -729,7 +773,7 @@ Deno.test("Lokalisierung: EN-Krise im Rezept-Pfad", async () => {
     assert(!("recipe" in body), "kein Rezept");
     assert(!("image_base64" in body), "kein Bild");
     assertEquals(
-      stub.callsTo("chat/completions").length,
+      claudeCalls(stub).length,
       1,
       "nur der Classifier — kein Draft-Call",
     );
@@ -833,7 +877,7 @@ Deno.test("W1: unparsbare Classifier-Antwort im Rezept-Modus -> Refusal, KEIN Dr
       assert(!("image_base64" in body), `${content}: kein Bild`);
       // The real proof: nothing happens after the classifier.
       assertEquals(
-        stub.callsTo("chat/completions").length,
+        claudeCalls(stub).length,
         1,
         `${content}: nur der Classifier — kein Draft-Call`,
       );
@@ -906,14 +950,15 @@ Deno.test("Vergifteter user_context wird verworfen — Antwort kommt trotzdem", 
     assertEquals(body.reply, ANSWER_TEXT, "der Nutzer bekommt seine Antwort");
     assertEquals(body.refusal, false, "kein Refusal — nur der Kontext faellt weg");
 
-    const answerCalls = completionsWithBudget(stub, 3072);
-    assertEquals(answerCalls.length, 1, "genau ein Answer-Call");
+    const answers = answerCalls(stub);
+    assertEquals(answers.length, 1, "genau ein Answer-Call");
+    assertEquals(bodyOf(answers[0]).max_tokens, 4096, "Answer-Budget");
     assert(
-      !answerCalls[0].body.includes("Ignoriere alle"),
+      !answers[0].body.includes("Ignoriere alle"),
       "die Injection darf das Modell nie erreichen",
     );
     assert(
-      !answerCalls[0].body.includes("1200 kcal"),
+      !answers[0].body.includes("1200 kcal"),
       "verworfen wird der GANZE Kontext, nicht nur der Treffer",
     );
   } finally {
@@ -930,11 +975,16 @@ Deno.test("Sauberer user_context: als gerahmte Nicht-System-Message", async () =
     assertEquals(res.status, 200, "Status");
     await res.json();
 
-    const answerBody = JSON.parse(completionsWithBudget(stub, 3072)[0].body) as JsonRecord;
+    const answers = answerCalls(stub);
+    assertEquals(answers.length, 1, "genau ein Answer-Call");
+    const answerBody = bodyOf(answers[0]);
     const messages = answerBody.messages as { role: string; content: unknown }[];
-    assertEquals(
-      messages.filter((m) => m.role === "system").length,
-      1,
+    // Claude carries the system prompt in the top-level `system` blocks; the
+    // messages hold user and assistant turns only.
+    assert(
+      systemText(answerBody).includes("You are Eatova Coach") &&
+        !systemText(answerBody).includes("1450 von 2100 kcal") &&
+        messages.every((m) => m.role !== "system"),
       "der Kontext darf NICHT auf der Vertrauensstufe des System-Prompts stehen",
     );
     const contextMessage = messages.find((m) =>
@@ -1157,8 +1207,11 @@ Deno.test("Security S01: filtered recipe has no proposal or image follow-up", as
 });
 
 Deno.test("Security completion: recipe requires valid terminal metadata", async () => {
-  for (const reason of [undefined, null, "unexpected", "tool_calls", "error"]) {
-    const stub = installFetch({ draftRawEnvelope: JSON.stringify({ choices: [{ message: { content: RECIPE_JSON }, finish_reason: reason }] }) });
+  for (const reason of [undefined, null, "unexpected", "tool_calls", "error", "pause_turn"]) {
+    const envelope = claudeResponse(RECIPE_JSON, reason ?? null);
+    // undefined: the envelope has no stop_reason field at all.
+    if (reason === undefined) delete envelope.stop_reason;
+    const stub = installFetch({ draftRawEnvelope: JSON.stringify(envelope) });
     try {
       const response = await handleRequest(makeRecipeRequest());
       assertEquals(response.status, 502, "no approved recipe without completion");
@@ -1182,4 +1235,78 @@ Deno.test("Provider budget: denied recipe image preserves valid draft without im
     assertEquals(JSON.stringify(stub.callsTo("reserve_ai_provider_call").map((call) => JSON.parse(call.body).p_operation)),
       JSON.stringify(["coach_classifier", "coach_recipe", "coach_image"]), "all three calls independently gated");
   } finally { stub.restore(); }
+});
+
+// ------------------------------------------------------------- Claude contract
+// The draft's shape is no longer forced by a provider flag but by the exported
+// output schema; the token cap covers adaptive thinking plus the JSON.
+
+Deno.test("Claude-Vertrag: der Rezept-Entwurf traegt RECIPE_OUTPUT_SCHEMA und 4096 Token", async () => {
+  for (const locale of ["de", "en"] as const) {
+    const stub = installFetch();
+    try {
+      const res = await handleRequest(makeRecipeRequest({ locale }));
+      assertEquals(res.status, 200, `${locale}: Status`);
+      await res.json();
+      const drafts = recipeCompletions(stub);
+      assertEquals(drafts.length, 1, `${locale}: genau ein Draft-Call`);
+      const draft = bodyOf(drafts[0]);
+      assertClaudeContract(
+        { url: drafts[0].url, headers: drafts[0].headers, body: draft },
+        {
+          maxTokens: 4096,
+          schema: RECIPE_OUTPUT_SCHEMA,
+          systemIncludes: ["recipe generator", `Write ALL text fields in ${locale === "en" ? "English" : "German"}`],
+        },
+        `${locale}: Rezept-Entwurf`,
+      );
+      assertEquals(
+        JSON.stringify(draft.messages),
+        JSON.stringify([{ role: "user", content: "Huehnchenauflauf mit Brokkoli" }]),
+        `${locale}: nur der Wunsch, als Nutzerdaten`,
+      );
+      assertEquals(draft.stream, undefined, `${locale}: gepuffert, nie gestreamt`);
+      const classifier = classifierCalls(stub);
+      assertEquals(classifier.length, 1, `${locale}: ein Classifier-Call`);
+      assertEquals(bodyOf(classifier[0]).max_tokens, 1024, `${locale}: Classifier-Budget`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+// The OpenRouter key is optional since only recipe images use it: without it
+// the image is skipped BEFORE its budget claim, and nothing reaches OpenRouter.
+Deno.test("Ohne OPENROUTER_API_KEY: Rezept ohne Bild, kein coach_image-Budget, kein OpenRouter-Call", async () => {
+  const original = Deno.env.get("OPENROUTER_API_KEY");
+  for (const ohneKey of ["leer", "fehlt"] as const) {
+    if (ohneKey === "leer") Deno.env.set("OPENROUTER_API_KEY", "");
+    else Deno.env.delete("OPENROUTER_API_KEY");
+    const stub = installFetch();
+    try {
+      const res = await handleRequest(makeRecipeRequest());
+      assertEquals(res.status, 200, `${ohneKey}: das Rezept braucht nur Claude`);
+      const body = await res.json() as JsonRecord;
+      assertEquals((body.recipe as JsonRecord).title, "Huehnchenauflauf", `${ohneKey}: Rezept da`);
+      assert(!("image_base64" in body), `${ohneKey}: kein Bild`);
+      assert(!("image_mime_type" in body), `${ohneKey}: kein Bildtyp`);
+      assertEquals(body.assistant_message_id, ASSISTANT_MSG_ID, `${ohneKey}: Rezept gespeichert`);
+      assertEquals(stub.callsTo("openrouter.ai").length, 0, `${ohneKey}: kein OpenRouter-Call`);
+      assertEquals(
+        JSON.stringify(stub.callsTo("reserve_ai_provider_call").map((call) => bodyOf(call).p_operation)),
+        JSON.stringify(["coach_classifier", "coach_recipe"]),
+        `${ohneKey}: kein coach_image-Budget`,
+      );
+      assert(
+        claudeCalls(stub).every((call) => call.headers.get("x-api-key") === "test-anthropic-key"),
+        `${ohneKey}: Claude-Calls mit dem Anthropic-Key`,
+      );
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${ohneKey}: kein Refund`);
+      assertEquals(stub.quotaUsed(), 1, `${ohneKey}: das Rezept kostet den Slot`);
+    } finally {
+      stub.restore();
+      if (original === undefined) Deno.env.delete("OPENROUTER_API_KEY");
+      else Deno.env.set("OPENROUTER_API_KEY", original);
+    }
+  }
 });
