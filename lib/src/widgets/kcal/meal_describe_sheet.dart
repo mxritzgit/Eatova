@@ -642,9 +642,11 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
     final removed = draft.removeItem(index);
     setState(() => _draft = removed);
     final l10n = context.l10n;
+    final line = draft.items[index];
     showAppSnack(
       context,
-      l10n.foodDescribeLineRemoved(draft.items[index].selected.title),
+      // The name as the line showed it, without the brand suffix.
+      l10n.foodDescribeLineRemoved(_candidateName(line.selected, line).$1),
       icon: Icons.delete_outline_rounded,
       tone: SnackTone.neutral,
       action: SnackBarAction(

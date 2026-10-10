@@ -348,6 +348,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(key('meal-describe-line-1'), findsNothing);
       expect(enabled(tester, key('meal-describe-add')), isTrue);
+      // The line's name, not the product title "Nutella · Ferrero".
+      expect(
+        find.text(l10nOf(tester).foodDescribeLineRemoved('Nutella')),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text(l10nOf(tester).commonUndo));
       await tester.pumpAndSettle();

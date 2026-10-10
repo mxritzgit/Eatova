@@ -749,6 +749,9 @@ const Set<String> _plainWords = {
   "plain",
 };
 
+/// What a short query word may carry and still be the same word ("Eier").
+const Set<String> _shortWordEndings = {"", "e", "n", "en", "er"};
+
 /// [token] and its forms without one ending ("bananen": "banane", "banan").
 List<String> _stems(String token) => [
   token,
@@ -766,7 +769,8 @@ List<String> _stems(String token) => [
 _Fit _wordFit(String query, String word) {
   if (query.length < 4) {
     // Short words ("ei") only whole: inside compounds they are everywhere.
-    return RegExp('^${RegExp.escape(query)}(e|n|en|er)?\$').hasMatch(word)
+    return word.startsWith(query) &&
+            _shortWordEndings.contains(word.substring(query.length))
         ? _Fit.close
         : _Fit.none;
   }
