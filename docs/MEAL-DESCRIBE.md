@@ -1,7 +1,8 @@
 # Describe a meal by text or voice
 
-Status: in implementation on `feat/describe-meal` (2026-10-10). This file is
-the contract the implementation follows; update it when a contract changes.
+Status: implemented on `feat/describe-meal` (2026-10-10); see the handoff
+for delivery state. This file is the contract the implementation follows;
+update it when a contract changes.
 
 ## Goal
 
@@ -125,7 +126,28 @@ The files below were created as stubs on the branch; their owners fill them.
   `RECORD_AUDIO`; the manifest keeps removing it. No partial results;
   `listen` completes with `{text, reason: "final"}`, a dismissed dialog with
   `{text: null, reason: "cancel"}`. No recognizer installed → `unavailable`.
+- Android `stop` and `cancel` leave the dialog alone: it sits in front of
+  Flutter, always returns a result, and the app pause it causes must not drop
+  speech. A pending `listen` ends with `cancel` only when the app is back in
+  front without a result, or the activity goes away. The describe sheet
+  therefore cancels on app pause only on iOS.
+- The describe sheet shows the DE/EN pill before listening, because the
+  Android dialog covers the app. An iOS stop without an answer within 3 s
+  ends the recording and keeps the text shown so far.
 - The Coach keeps its current behavior (mic on iOS only) in this change.
+
+## Matching rules
+
+- Candidates per line: a matching favorite or recent, products from
+  `searchProducts(searchQuery)` (one retry as `"$brand $searchQuery"` when no
+  top hit carries a named brand) and always the AI estimate. At most four.
+- Auto-selection only for a candidate with a loggable kcal/100 g within 2.5×
+  of the estimate; a named brand ranks first, then favorites, then title
+  closeness. Everything else stays a listed alternative.
+- A stated countable amount ("1 Scheibe") uses the candidate's serving size
+  from the product's serving text; a stated weight keeps the AI's grams.
+- The draft's source is Open Food Facts with confidence "database" only when
+  every line is product-backed; otherwise it is an AI estimate.
 
 ## Privacy
 

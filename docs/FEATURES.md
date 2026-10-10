@@ -3,7 +3,8 @@
 Base source review: **2026-09-14**, main through PR #88; authentication and
 onboarding updated **2026-09-16**; Today, Settings and visual contracts
 updated **2026-10-01** for the dark redesign (PR #118); Training, Coach `/log`
-and dictation updated **2026-10-03** ([design](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md)).
+and dictation updated **2026-10-03** ([design](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md));
+meal description by text or voice added **2026-10-10** ([contract](MEAL-DESCRIBE.md)).
 This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
@@ -15,6 +16,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, history trends | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode; product search; manual per-100-g values and a chosen portion; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
+| Meal description | "Describe" in the add sheet: a typed or dictated sentence becomes a draft with one line per food. The AI splits the sentence and estimates amounts; each line uses a matching favorite or database product when one fits and the AI estimate otherwise, marked as such. Lines can switch candidate, change grams or be removed; nothing is logged before Add. Counts as one meal scan | [Contract](MEAL-DESCRIBE.md), [sheet](../lib/src/widgets/kcal/meal_describe_sheet.dart) |
 | Recipes | Browse catalog; create, edit or delete own/adopted recipes; photo, preparation, structured ingredients, fractional servings; add to selected diary date | [Recipes](../lib/src/screens/recipes/recipes_screen.dart) |
 | Meal Plan | Weekly date/slot planning with recipe snapshots and servings; explicit consumption adds to diary without double-counting retries | [Plan screen](../lib/src/screens/recipes/meal_plan_screen.dart), [store](../lib/src/app/home_store_meal_plan.dart) |
 | Shopping List | Weekly ingredient aggregation and durable checked state; compatible structured quantities combine, free-text lines remain independent | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart) |
@@ -39,6 +41,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Health weight history / write-back | Not implemented | Read history; write a recorded weigh-in with permission |
 | Health availability | Explicit unsupported/update/permission/no-data states | Explicit permission and read-evidence states |
 | Coach dictation | Not exposed | Apple speech recognition: text appears while speaking and is added to the draft; German/English switch while listening; on-device where Apple offers it |
+| Meal description dictation | The phone's speech recognition app opens as a system dialog (German/English chosen first); Eatova holds no microphone permission; the text arrives when the dialog closes | Apple speech recognition with food vocabulary; text appears while speaking |
 | Rest alerts | Local notification; may arrive late (inexact scheduling) | Local notification; a Focus can silence it |
 | Google sign-in | Native Credential Manager path, web fallback | Native Google SDK path, web fallback |
 | Localization | German / English including auth | German / English including auth |
