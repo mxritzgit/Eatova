@@ -184,6 +184,69 @@ void main() {
     },
   );
 
+  testWidgets('Android: taps that land before the dialog never end it', (
+    tester,
+  ) async {
+    await onPlatform(TargetPlatform.android, () async {
+      final h = await openDescribe(tester);
+      h.speech.systemDialog = true;
+      await tester.enterText(describeInput, 'Kaffee');
+      await tester.pump();
+      await tester.ensureVisible(describeSubmit);
+      await tester.pumpAndSettle();
+
+      await _tapMic(tester);
+      // The dialog needs a moment to cover the sheet; taps meanwhile still
+      // reach it: the pill, the mic again, the field, Send.
+      await tester.tap(key('meal-describe-language'));
+      await tester.pump();
+      await _tapMic(tester);
+      await tester.tap(describeInput);
+      await tester.pump();
+      await tester.tap(describeSubmit);
+      await tester.pump(const Duration(seconds: 5));
+      expect(h.speech.listens, hasLength(1));
+      expect(h.speech.isListening, isTrue, reason: 'the dialog still runs');
+      expect(enabled(tester, describeSubmit), isFalse);
+
+      h.speech.finish('mit Milch');
+      await tester.pump();
+      await tester.pump();
+      expect(fieldText(tester), 'Kaffee mit Milch');
+      expect(h.describer.calls, isEmpty, reason: 'read before it is sent');
+      expect(key('meal-describe-voice-notice'), findsNothing);
+      expect(h.awake.held, isFalse);
+      expect(enabled(tester, describeSubmit), isTrue);
+    });
+  });
+
+  testWidgets('iOS: a close attempt ends the recording before it asks', (
+    tester,
+  ) async {
+    await onPlatform(TargetPlatform.iOS, () async {
+      final h = await openDescribe(tester);
+      final l10n = l10nOf(tester);
+      await _tapMic(tester);
+      h.speech.partial('Zwei Eier');
+      await tester.pump();
+
+      await tester.tap(key('meal-describe-close'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(key('describe-discard-dialog'), findsOneWidget);
+      expect(h.speech.cancels, 1, reason: 'no live mic behind the dialog');
+      expect(h.awake.held, isFalse);
+      h.speech.partial('Zwei Eier mit Speck');
+      await tester.pump();
+
+      await tester.tap(key('describe-discard-cancel'));
+      await tester.pumpAndSettle();
+      expect(h.closed, isFalse);
+      expect(fieldText(tester), 'Zwei Eier');
+      expect(find.text(l10n.foodDescribeMicTitle), findsOneWidget);
+    });
+  });
+
   testWidgets('iOS: going to the background ends the recording, text kept', (
     tester,
   ) async {

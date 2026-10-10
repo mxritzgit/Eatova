@@ -44,6 +44,10 @@ class FakeSpeech extends SpeechInput {
   /// False: [stop] does not answer (a hung recognizer).
   bool stopAnswers = true;
 
+  /// Android's system dialog (SpeechBridge): [stop] and [cancel] leave it
+  /// running, only [finish] answers, and a second listen meanwhile is busy.
+  bool systemDialog = false;
+
   Completer<String?>? _pending;
   ValueChanged<String>? _onPartial;
   ValueChanged<SpeechEnd>? _onEnd;
@@ -65,6 +69,11 @@ class FakeSpeech extends SpeechInput {
     if (failure != null) {
       failWith = null;
       return Future<String?>.error(failure);
+    }
+    if (systemDialog && _pending != null) {
+      return Future<String?>.error(
+        const SpeechInputException(SpeechFailure.busy),
+      );
     }
     _onPartial = onPartial;
     _onEnd = onEnd;
@@ -91,12 +100,14 @@ class FakeSpeech extends SpeechInput {
   @override
   Future<void> stop() async {
     stops++;
+    if (systemDialog) return;
     if (stopAnswers) finish(finalText ?? _lastPartial);
   }
 
   @override
   Future<void> cancel() async {
     cancels++;
+    if (systemDialog) return;
     finish(_lastPartial);
   }
 }
