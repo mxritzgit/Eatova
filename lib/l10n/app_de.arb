@@ -3237,7 +3237,7 @@
   "@foodDescribeLanguageSwitchHint": {"description": "Screen reader hint of the idle dictation language pill.", "placeholders": {"language": {"type": "String"}}},
   "foodDescribeLanguageRestartHint": "Wechselt zu {language} und beginnt das Diktat neu",
   "@foodDescribeLanguageRestartHint": {"description": "Screen reader hint of the language pill while listening.", "placeholders": {"language": {"type": "String"}}},
-  "foodDescribeSpeechPermissionDenied": "Eatova darf das Mikrofon nicht nutzen. Erlaube es in den Systemeinstellungen oder tippe deine Mahlzeit ein.",
+  "foodDescribeSpeechPermissionDenied": "Eatova darf Mikrofon oder Spracherkennung nicht nutzen. Erlaube beides in den Einstellungen oder tippe deine Mahlzeit ein.",
   "foodDescribeSpeechUnavailable": "Spracheingabe ist auf diesem Gerät gerade nicht verfügbar. Tippe deine Mahlzeit ein, die Diktierfunktion deiner Tastatur geht auch.",
   "foodDescribeSpeechBusy": "Die Spracheingabe ist gerade belegt. Warte kurz und versuch es nochmal.",
   "foodDescribeSpeechFailed": "Die Spracheingabe hat nicht geklappt. Versuch es nochmal oder tippe deine Mahlzeit ein.",
@@ -3267,11 +3267,16 @@
   "foodDescribeEmpty": "Keine Lebensmittel mehr übrig. Bearbeite den Text, um neu zu beginnen.",
   "foodDescribeLineRemoved": "{name} entfernt",
   "@foodDescribeLineRemoved": {"placeholders": {"name": {"type": "String"}}},
-  "foodDescribeLineSaid": "Gesagt: „{amount}“",
+  "foodDescribeLineSaid": "Laut Beschreibung: „{amount}“",
   "@foodDescribeLineSaid": {"placeholders": {"amount": {"type": "String"}}},
   "foodDescribeLineChoose": "Passendes Lebensmittel",
   "foodDescribeCandidateSemantics": "{name}, {kcal} kcal pro 100 g, {origin}",
   "@foodDescribeCandidateSemantics": {"description": "Screen reader label of a candidate in the line editor.", "placeholders": {"name": {"type": "String"}, "kcal": {"type": "int"}, "origin": {"type": "String"}}},
   "foodDescribeDiscardTitle": "Beschreibung verwerfen?",
-  "foodDescribeDiscardBody": "Die Mahlzeit ist noch nicht eingetragen."
+  "foodDescribeDiscardBody": "Die Mahlzeit ist noch nicht eingetragen.",
+  "foodDescribeReauthRequired": "Bitte melde dich erneut an, bevor du eine Mahlzeit beschreibst.",
+  "foodDescribeRateLimit": "Zu viele Mahlzeit-Analysen. Bitte versuch es später nochmal.",
+  "@foodDescribeRateLimit": {"description": "Describe path: the analysis quota (shared with the photo scan) is used up."},
+  "foodDescribeRateLimitUntil": "Zu viele Mahlzeit-Analysen. Ab {time} Uhr geht es weiter.",
+  "@foodDescribeRateLimitUntil": {"placeholders": {"time": {"type": "String"}}}
 }

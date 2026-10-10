@@ -5,12 +5,15 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/kcal/meal_describe_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 import '../../support/meal_slot_picker.dart';
@@ -151,14 +154,14 @@ void main() {
       expect(h.matcher.calls, isEmpty);
     });
 
-    testWidgets('rate limit and re-auth read like the photo scan, no retry', (
+    testWidgets('rate limit and re-auth speak of a meal, never retried', (
       tester,
     ) async {
       final h = await openDescribe(tester);
       final l10n = l10nOf(tester);
       h.describer.error = const MealAnalysisRateLimited();
       await describe(tester, 'Müsli mit Milch');
-      expect(find.text(l10n.foodAnalysisRateLimitError), findsOneWidget);
+      expect(find.text(l10n.foodDescribeRateLimit), findsOneWidget);
       expect(key('meal-describe-retry'), findsNothing);
 
       await tester.tap(key('meal-describe-edit-text'));
@@ -168,9 +171,54 @@ void main() {
       h.describer.error = const MealAnalysisReauthRequired();
       await tester.tap(describeSubmit);
       await tester.pumpAndSettle();
-      expect(find.text(l10n.foodReauthRequiredError), findsOneWidget);
+      expect(find.text(l10n.foodDescribeReauthRequired), findsOneWidget);
       expect(key('meal-describe-retry'), findsNothing);
     });
+
+    // The photo scan's texts speak of a photo; none of them may reach the
+    // description, in either language.
+    for (final (lang, l10n, photoWords) in [
+      ('de', deL10n, RegExp('Foto|Bild', caseSensitive: false)),
+      ('en', enL10n, RegExp('photo|image|picture', caseSensitive: false)),
+    ]) {
+      test('$lang: every describe error is about a meal, not a photo', () {
+        withClock(Clock.fixed(DateTime(2026, 10, 10, 12)), () {
+          final errors = <Object, String>{
+            const MealAnalysisReauthRequired(): l10n.foodDescribeReauthRequired,
+            const MealAnalysisRateLimited(): l10n.foodDescribeRateLimit,
+            MealAnalysisRateLimited(resetAt: DateTime(2026, 10, 10, 13, 30)):
+                l10n.foodDescribeRateLimitUntil('13:30'),
+            const MealImageTooLarge(): l10n.foodAnalysisFailedMessage,
+            for (final code in [
+              'invalid_body',
+              'missing_image',
+              'invalid_image_base64',
+              'image_too_small',
+            ])
+              MealAnalysisServerError(statusCode: 400, code: code):
+                  l10n.foodAnalysisServiceUnavailableMessage,
+            const MealAnalysisServerError(
+              statusCode: 400,
+              code: 'invalid_hint',
+            ): l10n.foodAnalysisFailedMessage,
+            const MealAnalysisServerError(
+              statusCode: 502,
+              code: 'provider_unusable_result',
+            ): l10n.foodAnalysisProviderErrorMessage,
+            const MealAnalysisServerError(
+              statusCode: 504,
+              code: 'provider_timeout',
+            ): l10n.foodAnalysisTimeoutMessage,
+            const SocketException('offline'): l10n.foodAnalysisOfflineMessage,
+          };
+          for (final MapEntry(key: error, value: expected) in errors.entries) {
+            final message = mealDescribeErrorMessage(error, l10n);
+            expect(message, expected, reason: '$error');
+            expect(message, isNot(contains(photoWords)), reason: '$error');
+          }
+        });
+      });
+    }
 
     testWidgets('offline offers a retry that describes again', (tester) async {
       final h = await openDescribe(tester);

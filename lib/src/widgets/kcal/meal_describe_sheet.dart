@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -46,6 +47,33 @@ const String _screenAwakeOwner = 'meal-describe';
 /// How long a graceful stop may take before the sheet ends the recording
 /// itself; the iOS plugin waits up to 1.5 s for its final result.
 const Duration _stopGrace = Duration(seconds: 3);
+
+/// [mealAnalysisErrorMessage] for a description: texts that speak of a photo
+/// get their own. The quota is the photo scan's, hence "meal analyses".
+String mealDescribeErrorMessage(Object error, AppLocalizations l10n) {
+  final fallback = l10n.foodAnalysisFailedMessage;
+  return switch (error) {
+    MealAnalysisReauthRequired() => l10n.foodDescribeReauthRequired,
+    MealAnalysisRateLimited(:final resetAt) =>
+      resetAt != null && resetAt.isAfter(clock.now())
+          ? l10n.foodDescribeRateLimitUntil(mealAnalysisClockLabel(resetAt))
+          : l10n.foodDescribeRateLimit,
+    // A few hundred characters are never too large; the photo text would
+    // send the user looking for a picture.
+    MealImageTooLarge() => fallback,
+    // A function without describe mode refuses `mealText` (invalid_body) or
+    // asks for a photo: the service, not the user's connection or text.
+    MealAnalysisServerError(
+      code: 'invalid_body' ||
+          'missing_image' ||
+          'invalid_image_base64' ||
+          'image_too_small',
+    ) =>
+      l10n.foodAnalysisServiceUnavailableMessage,
+    MealAnalysisServerError(code: 'invalid_hint') => fallback,
+    _ => mealAnalysisErrorMessage(error, fallback, l10n),
+  };
+}
 
 /// A described meal that was logged; null from [showMealDescribeSheet] means
 /// closed without logging.
@@ -928,11 +956,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
           _WorkingFooter(slow: _slow, onCancel: _cancelWork),
         ] else ...[
           _ErrorCard(
-            message: mealAnalysisErrorMessage(
-              error,
-              l10n.foodAnalysisFailedMessage,
-              l10n,
-            ),
+            message: mealDescribeErrorMessage(error, l10n),
             onRetry: _retryable(error) ? () => unawaited(_describe()) : null,
             onEditText: _backToText,
           ),

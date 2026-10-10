@@ -3169,7 +3169,7 @@
   "@foodDescribeLanguageSwitchHint": {"description": "Screen reader hint of the idle dictation language pill.", "placeholders": {"language": {"type": "String"}}},
   "foodDescribeLanguageRestartHint": "Switches to {language} and restarts the dictation",
   "@foodDescribeLanguageRestartHint": {"description": "Screen reader hint of the language pill while listening.", "placeholders": {"language": {"type": "String"}}},
-  "foodDescribeSpeechPermissionDenied": "Eatova can't use the microphone. Allow it in your system settings, or type your meal instead.",
+  "foodDescribeSpeechPermissionDenied": "Eatova can't use the microphone or speech recognition. Allow both in Settings, or type your meal instead.",
   "foodDescribeSpeechUnavailable": "Voice input isn't available on this device right now. Type your meal instead; your keyboard's dictation works too.",
   "foodDescribeSpeechBusy": "Voice input is busy right now. Wait a moment and try again.",
   "foodDescribeSpeechFailed": "Voice input didn't work. Try again or type your meal.",
@@ -3199,11 +3199,16 @@
   "foodDescribeEmpty": "No foods left. Edit the text to start over.",
   "foodDescribeLineRemoved": "{name} removed",
   "@foodDescribeLineRemoved": {"placeholders": {"name": {"type": "String"}}},
-  "foodDescribeLineSaid": "You said: “{amount}”",
+  "foodDescribeLineSaid": "As described: “{amount}”",
   "@foodDescribeLineSaid": {"placeholders": {"amount": {"type": "String"}}},
   "foodDescribeLineChoose": "Matching food",
   "foodDescribeCandidateSemantics": "{name}, {kcal} kcal per 100 g, {origin}",
   "@foodDescribeCandidateSemantics": {"description": "Screen reader label of a candidate in the line editor.", "placeholders": {"name": {"type": "String"}, "kcal": {"type": "int"}, "origin": {"type": "String"}}},
   "foodDescribeDiscardTitle": "Discard description?",
-  "foodDescribeDiscardBody": "This meal hasn't been added yet."
+  "foodDescribeDiscardBody": "This meal hasn't been added yet.",
+  "foodDescribeReauthRequired": "Please sign in again before describing a meal.",
+  "foodDescribeRateLimit": "Too many meal analyses. Please try again later.",
+  "@foodDescribeRateLimit": {"description": "Describe path: the analysis quota (shared with the photo scan) is used up."},
+  "foodDescribeRateLimitUntil": "Too many meal analyses. Available again from {time}.",
+  "@foodDescribeRateLimitUntil": {"placeholders": {"time": {"type": "String"}}}
 }
