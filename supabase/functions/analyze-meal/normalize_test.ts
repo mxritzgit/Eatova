@@ -6,11 +6,13 @@
 // that clamping to max must survive that fix.
 
 import {
+  DESCRIBE_OUTPUT_SCHEMA,
   hasEnergyStatement,
   kcalPer100GMismatch,
   loggableUsage,
   MEAL_OUTPUT_SCHEMA,
   missingContractFields,
+  normalizeDescribedMeal,
   normalizeMealResult,
   optionalInt,
   optionalNumber,
@@ -475,4 +477,186 @@ Deno.test("CWE-532: unparseableShape kategorisiert ohne Inhalt", () => {
   assertEquals(unparseableShape('{"a": 1', new SyntaxError("x")), "not_json", "abgeschnittenes JSON");
   // The isRecord guard in index.ts throws a plain Error -> not_object.
   assertEquals(unparseableShape("[1, 2]", new Error("not an object")), "not_object", "Array statt Objekt");
+});
+
+// ---------------------------------------------------------------------------
+// Describe mode (docs/MEAL-DESCRIBE.md): normalizeDescribedMeal.
+// ---------------------------------------------------------------------------
+
+const DESCRIBED_ITEM = {
+  name: "Toastbrot", grams: 25, caloriesKcal: 65, kcalPer100G: 260, proteinG: 2, carbsG: 12.3, fatG: 1,
+  searchQuery: "Toastbrot", brand: "Lidl", amountText: "1 Scheibe", gramsSource: "stated",
+};
+
+Deno.test("describe: mode is the server's, the photo fields stay those of normalizeMealResult", () => {
+  const raw = {
+    mealName: "Toast", caloriesKcal: 65, estimatedGrams: 25, kcalPer100G: 260, proteinG: 2, carbsG: 12, fatG: 1,
+    confidence: "HIGH", explanation: "Eine Scheibe.", slotHint: " Breakfast ", mode: "photo", items: [DESCRIBED_ITEM],
+  };
+  const result = normalizeDescribedMeal(raw);
+  const photo = normalizeMealResult(raw);
+  assertEquals(result.mode, "describe", "mode from the server");
+  assertEquals(result.slotHint, "breakfast", "slot read like confidence");
+  for (const key of Object.keys(photo).filter((key) => key !== "items")) {
+    assertEquals(
+      JSON.stringify((result as unknown as Record<string, unknown>)[key]),
+      JSON.stringify((photo as unknown as Record<string, unknown>)[key]),
+      `photo field ${key}`,
+    );
+  }
+  assertEquals(JSON.stringify(result.items[0]), JSON.stringify(DESCRIBED_ITEM), "a valid item passes unchanged");
+  // The photo normaliser itself knows nothing of describe mode.
+  assertEquals(Object.keys(photo).join(","), "mealName,caloriesKcal,estimatedGrams,kcalPer100G,proteinG,carbsG,fatG,confidence,explanation,items", "photo keys");
+  assertEquals(Object.keys(photo.items[0]).join(","), "name,grams,caloriesKcal,kcalPer100G", "photo item keys");
+});
+
+Deno.test("describe: slotHint outside the enum becomes null", () => {
+  for (const slotHint of ["brunch", "", null, undefined, 3, ["lunch"], "Frühstück"]) {
+    assertEquals(normalizeDescribedMeal({ slotHint, items: [DESCRIBED_ITEM] }).slotHint, null, `slotHint ${JSON.stringify(slotHint)}`);
+  }
+  for (const slotHint of ["breakfast", "lunch", "dinner", "snack"]) {
+    assertEquals(normalizeDescribedMeal({ slotHint }).slotHint, slotHint, `slotHint ${slotHint}`);
+  }
+});
+
+Deno.test("describe: items without a name or without grams are dropped, not filled in", () => {
+  const result = normalizeDescribedMeal({
+    items: [
+      { ...DESCRIBED_ITEM, name: "" },
+      { ...DESCRIBED_ITEM, name: " ‮\n " },
+      { ...DESCRIBED_ITEM, name: 42 },
+      { ...DESCRIBED_ITEM, grams: null },
+      { ...DESCRIBED_ITEM, grams: "eine Scheibe" },
+      { ...DESCRIBED_ITEM, grams: 0 },
+      { ...DESCRIBED_ITEM, grams: 0.4 },
+      { ...DESCRIBED_ITEM, grams: -20 },
+      "Toast",
+      null,
+      { ...DESCRIBED_ITEM, name: "Butter", grams: "7.6" },
+    ],
+  });
+  assertEquals(result.items.length, 1, "only the usable item");
+  assertEquals(result.items[0].name, "Butter", "the right one");
+  assertEquals(result.items[0].grams, 8, "grams are an int");
+});
+
+Deno.test("describe: strings are clamped to 80/80/60/40 code points, one line, no controls", () => {
+  const long = (n: number) => "a".repeat(n - 1) + "\u{1F957}" + "tail";
+  const item = normalizeDescribedMeal({
+    items: [{
+      ...DESCRIBED_ITEM,
+      name: long(80),
+      searchQuery: long(80),
+      brand: long(60),
+      amountText: long(40),
+    }],
+  }).items[0];
+  for (const [key, max] of [["name", 80], ["searchQuery", 80], ["brand", 60], ["amountText", 40]] as const) {
+    const value = String(item[key]);
+    assertEquals(Array.from(value).length, max, `${key} length`);
+    assert(value.endsWith("\u{1F957}"), `${key} keeps the whole emoji`);
+  }
+
+  const cleaned = normalizeDescribedMeal({
+    items: [{ ...DESCRIBED_ITEM, searchQuery: "Toast‮\nbrot", brand: "Li\u0007dl", amountText: "1\tScheibe" }],
+  }).items[0];
+  assertEquals(cleaned.searchQuery, "Toast brot", "searchQuery one line");
+  assertEquals(cleaned.brand, "Lidl", "brand without controls");
+  assertEquals(cleaned.amountText, "1 Scheibe", "amountText one line");
+});
+
+Deno.test("describe: empty or missing optional strings become null, searchQuery falls back to the name", () => {
+  for (const missing of [null, undefined, "", "   ", 42, {}]) {
+    const item = normalizeDescribedMeal({
+      items: [{ ...DESCRIBED_ITEM, searchQuery: missing, brand: missing, amountText: missing }],
+    }).items[0];
+    assertEquals(item.searchQuery, "Toastbrot", `searchQuery ${JSON.stringify(missing)}`);
+    assertEquals(item.brand, null, `brand ${JSON.stringify(missing)}`);
+    assertEquals(item.amountText, null, `amountText ${JSON.stringify(missing)}`);
+  }
+});
+
+Deno.test("describe: numbers are clamped, macros to one decimal, unparseable is null", () => {
+  const item = normalizeDescribedMeal({
+    items: [{
+      ...DESCRIBED_ITEM, grams: 99999, caloriesKcal: -5, kcalPer100G: 4200,
+      proteinG: 2.345, carbsG: "12.36", fatG: 5000,
+    }],
+  }).items[0];
+  assertEquals(item.grams, 10000, "grams max");
+  assertEquals(item.caloriesKcal, 0, "kcal min");
+  assertEquals(item.kcalPer100G, 1000, "kcal/100 g max");
+  assertEquals(item.proteinG, 2.3, "one decimal");
+  assertEquals(item.carbsG, 12.4, "numeric string, one decimal");
+  assertEquals(item.fatG, 1000, "macro max");
+
+  for (const [label, value] of UNPARSEABLE) {
+    const unparseable = normalizeDescribedMeal({
+      items: [{ ...DESCRIBED_ITEM, caloriesKcal: value, kcalPer100G: value, proteinG: value, carbsG: value, fatG: value }],
+    }).items[0];
+    for (const key of ["caloriesKcal", "kcalPer100G", "proteinG", "carbsG", "fatG"] as const) {
+      assertMissing(unparseable, key, `${label}: ${key}`);
+    }
+  }
+});
+
+Deno.test("describe: gramsSource is stated only when the model says so", () => {
+  for (const [value, expected] of [
+    ["stated", "stated"], [" Stated ", "stated"], ["estimated", "estimated"],
+    ["measured", "estimated"], [null, "estimated"], [true, "estimated"], [undefined, "estimated"],
+  ] as const) {
+    assertEquals(
+      normalizeDescribedMeal({ items: [{ ...DESCRIBED_ITEM, gramsSource: value }] }).items[0].gramsSource,
+      expected,
+      `gramsSource ${JSON.stringify(value)}`,
+    );
+  }
+});
+
+Deno.test("describe: at most 20 usable items, dropped ones do not take a place", () => {
+  const result = normalizeDescribedMeal({
+    items: [
+      ...Array.from({ length: 5 }, () => ({ ...DESCRIBED_ITEM, grams: 0 })),
+      ...Array.from({ length: 30 }, (_, i) => ({ ...DESCRIBED_ITEM, name: `Zutat ${i}` })),
+    ],
+  });
+  assertEquals(result.items.length, 20, "capped");
+  assertEquals(result.items[0].name, "Zutat 0", "first usable item");
+  assertEquals(result.items[19].name, "Zutat 19", "last kept item");
+  assertEquals(normalizeDescribedMeal({ items: "Toast" }).items.length, 0, "no array, no items");
+});
+
+Deno.test("DESCRIBE_OUTPUT_SCHEMA: strict, the photo fields plus slotHint, no mode", () => {
+  const objects: Record<string, unknown>[] = [];
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (record.type === "object") objects.push(record);
+    Object.values(record).forEach(walk);
+  };
+  walk(DESCRIBE_OUTPUT_SCHEMA);
+  assertEquals(objects.length, 2, "result and item");
+  for (const object of objects) {
+    assertEquals(object.additionalProperties, false, "closed object");
+    assertEquals(
+      JSON.stringify([...(object.required as string[])].sort()),
+      JSON.stringify(Object.keys(object.properties as Record<string, unknown>).sort()),
+      "every field required",
+    );
+  }
+  for (const field of MEAL_OUTPUT_SCHEMA.required) {
+    assert(DESCRIBE_OUTPUT_SCHEMA.required.includes(field), `photo field ${field} missing`);
+  }
+  assert(DESCRIBE_OUTPUT_SCHEMA.required.includes("slotHint"), "slotHint");
+  assert(!("mode" in DESCRIBE_OUTPUT_SCHEMA.properties), "mode is the server's");
+  assertEquals(
+    DESCRIBE_OUTPUT_SCHEMA.properties.items.items.required.join(","),
+    "name,grams,caloriesKcal,kcalPer100G,proteinG,carbsG,fatG,searchQuery,brand,amountText,gramsSource",
+    "item fields",
+  );
+  // The API takes no length or range constraints; the normaliser clamps.
+  assert(!/"(maxLength|minLength|minimum|maximum|maxItems)"/.test(JSON.stringify(DESCRIBE_OUTPUT_SCHEMA)), "no unsupported constraints");
+  // The photo schema is shared, not modified.
+  assertEquals(MEAL_OUTPUT_SCHEMA.required.length, 10, "photo schema untouched");
+  assert(!("slotHint" in MEAL_OUTPUT_SCHEMA.properties), "photo schema has no slotHint");
 });
