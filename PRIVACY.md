@@ -2,7 +2,7 @@
 
 _Repository data-flow update: 2026-09-14; Coach `/log`, workout logging and
 rest alerts: 2026-10-03; text and photo AI moved to Anthropic Claude:
-2026-10-08_
+2026-10-08; describing a meal by text or voice: 2026-10-10_
 
 > **Pending publication (2026-10-08):** the source now sends coach, meal-scan
 > and recipe-import requests to Anthropic instead of OpenRouter/Google. The
@@ -45,8 +45,8 @@ You enter and the app stores the following, tied to your account:
   device from your logged meals, weigh-ins and step counts. Water and sleep
   goals are no longer active profile controls.
 - **Nutrition log:** meals you log (name, calories, macros, portion, barcode/brand
-  where applicable, and whether the values came from the AI scan, a barcode, the
-  product search or your own manual entry), favorites, and your own recipes,
+  where applicable, and whether the values came from the AI scan, a meal
+  description, a barcode, the product search or your own manual entry), favorites, and your own recipes,
   including preparation, structured ingredients and serving calculations.
   If you add a **photo of your own recipe**, it is re-encoded on your device and
   its entire metadata container discarded first (see "Photos" below), and the
@@ -124,6 +124,14 @@ You enter and the app stores the following, tied to your account:
   (`chat_messages.workout_log`) so the card survives a restart. It becomes
   part of your training history only when you confirm it with Add in the
   review sheet; that entry is then stored like any completed workout.
+- **Meal description (optional):** a meal you describe in the food sheet,
+  typed or dictated ("Nutella on a slice of toast"), is sent to the AI
+  provider to split it into foods and amounts, without the profile/progress
+  snapshot, a photo or earlier messages. Our server neither stores nor logs
+  the text. The app then looks each food up in your own favorites on the
+  device and in the product search (see "Our own product-search index"),
+  which receives only the search term. Nothing is logged until you confirm
+  the draft with Add; the logged meal is then stored like any other.
 - **Apple Health (optional, iOS only):** if you grant permission, the app reads
   your step count and body-weight history from Apple Health.
   With the same permission it also writes back to Apple Health: a body-weight
@@ -131,13 +139,17 @@ You enter and the app stores the following, tied to your account:
   and accesses no other Apple Health data. The step count is used on the device
   for the day's display, the calories-burned estimate and the weekly check
   (the last three weeks); it is not stored on our servers.
-- **Voice input (optional, iOS only):** if you use the coach's microphone button,
-  audio is captured only while the microphone is active (tap to start, tap again
-  to stop) and is converted to text by Apple's speech recognition. Only the resulting text is sent to the coach — the
-  app neither stores the audio recording nor sends it to our servers. The
-  text appears in the field while you speak and is sent only when you send
-  it. The dictation language you pick (German or English) is remembered on
-  this device only.
+- **Voice input (optional):** the coach's microphone button (iOS) and the
+  meal description's microphone button (iOS and Android) turn speech into
+  text. On iOS, audio is captured only while the microphone is active (tap to
+  start, tap again to stop) and is converted to text by Apple's speech
+  recognition. On Android, the phone's speech recognition app (usually
+  Google's) opens, records and converts the audio itself; Eatova does not
+  access the microphone and receives only the text. Only the resulting text is
+  used — the app neither stores the audio recording nor sends it to our
+  servers. The text appears in the field and is sent only when you send it.
+  The dictation language you pick (German or English) is remembered on this
+  device only.
 - **Rest alerts (optional, training):** during a workout the app schedules
   one local notification for the end of each rest or timed interval. The
   operating system delivers it on the device; nothing about it is sent to
@@ -205,6 +217,8 @@ the device, before the photo is uploaded.
   - a workout you describe with `/log`, read from your wording alone (no
     profile snapshot, no photo);
   - meal photo analysis, with the optional food note you add;
+  - a meal you describe in words, read from your wording alone (no profile
+    snapshot, no photo);
   - recipe import, which reads the text of a recipe you paste or share.
 - **OpenRouter** (routing to **Google**'s image model
   `google/gemini-3.1-flash-image`) generates only the picture for a coach
@@ -228,8 +242,9 @@ the device, before the photo is uploaded.
   authentication service; the optional AI features are separate.
 - **Our own product-search index** (Meilisearch, `eatova.de/meili`, on a server
   we operate in Germany) answers product and barcode searches from a copy of the
-  public Open Food Facts database. It receives the search term or barcode and the
-  IP address of your device; **no account identifier and no profile data are
+  public Open Food Facts database. It receives the search term or barcode (for a
+  meal description: the food names read from it) and the IP address of your
+  device; **no account identifier and no profile data are
   sent.** If the index is unavailable or switched off, the same query goes
   straight to Open Food Facts instead.
 - **OpenFoodFacts** is queried for public product/nutrition data when you
@@ -249,12 +264,16 @@ the device, before the photo is uploaded.
   foreground changes or other usage signals are sent; only errors are reported.
   Every report and every diagnostic breadcrumb additionally passes the
   allow-list filter described above before it is sent.
-- **Apple Speech Recognition** converts your spoken coach questions to text if you
-  use voice input. The app requests on-device recognition, so on devices where Apple
+- **Apple Speech Recognition** converts your spoken coach questions and meal
+  descriptions to text if you use voice input on iOS. The app requests on-device recognition, so on devices where Apple
   provides an offline model for your language the audio never leaves your phone.
   Where no on-device model is available, Apple processes the audio on its servers
   instead; see Apple's privacy policy. In either case only the resulting transcript
   reaches our systems, never the audio.
+- **Your Android speech recognition app** (usually Google's) records and
+  converts your spoken meal description if you use voice input on Android,
+  under that provider's terms; it may process the audio on its servers. Only
+  the resulting text reaches Eatova, never the audio.
 
 Management, service-role and AI provider credentials remain server-side.
 The app contains public Supabase client configuration and a limited product
@@ -279,16 +298,19 @@ The configured AI path involves recipients in, or routing to, the United States:
   the EU by Google's European entity.
 
 These AI transfers happen when you use coach chat, a coach recipe/training
-proposal, a coach workout log, AI meal analysis or recipe import. The published policy
+proposal, a coach workout log, AI meal analysis, a meal description or
+recipe import. The published policy
 identifies the **Standard Contractual Clauses** adopted by the EU
 Commission (Art. 46(2)(c) GDPR). Despite these safeguards, a residual risk
 remains that US authorities can access data held by US providers, and that your
 rights may be harder to enforce there than in the EU. If you do not want this,
-simply do not use the coach, the AI meal scan and recipe import; every other
+simply do not use the coach, the AI meal scan, meal description and recipe
+import; every other
 feature of the app works without them.
 
 Apple's speech recognition may also process audio on Apple's servers where no
-on-device model is available for your language (see above).
+on-device model is available for your language, and your Android speech
+recognition app may process it on its provider's servers (see above).
 
 ## Why (legal basis)
 
