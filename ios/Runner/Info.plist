@@ -118,9 +118,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Eatova needs camera access so you can photograph meals, scan product barcodes and send your coach a picture. The photos are analysed for nutrition values.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Eatova needs microphone access so you can dictate a question to your coach instead of typing it. Audio is captured only while voice input in the coach chat is active.</string>
+	<string>Eatova needs microphone access so you can dictate a question to your coach or describe a meal instead of typing. Audio is captured only while voice input in the coach chat or the meal description is active.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Eatova turns your dictated coach question into text. If your iPhone has the speech model for your language on device, the audio stays on the device; otherwise Apple processes it on its servers.</string>
+	<string>Eatova turns your dictated coach question or meal description into text. If your iPhone has the speech model for your language on device, the audio stays on the device; otherwise Apple processes it on its servers.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis.</string>
 	<!-- Die Health-Zwecktexte muessen exakt die Scopes abdecken, die
