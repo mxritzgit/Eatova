@@ -578,4 +578,107 @@ void main() {
       expect(line.proteinG, closeTo(0.75, 1e-9));
     });
   });
+
+  // German compounds put the food last. A title that names the food (same
+  // word, a cut of it, words run together) may be chosen; a compound around
+  // the word is in doubt and only listed; another food is dropped. The
+  // product's density equals the estimate's, so only the title decides.
+  group('Titel und Komposita', () {
+    const rows = <(String, String, _Expect)>[
+      ('Toastbrot', 'Butter Toast', _Expect.chosen),
+      ('Toastbrot', 'Vollkorn Toastbrot', _Expect.chosen),
+      ('Toastbrot', 'Buttertoast', _Expect.listed),
+      ('Toastbrot', 'Butterkekse', _Expect.dropped),
+      ('Toast', 'Sandwich Toastbrot', _Expect.chosen),
+      ('Hähnchenbrust', 'Hähnchenbrustfilet', _Expect.chosen),
+      ('Hähnchenbrust', 'Hähnchen Brustfilet', _Expect.chosen),
+      ('Hähnchenbrust', 'Hähnchenbrust-Aufschnitt', _Expect.chosen),
+      ('Hähnchenbrust', 'Hähnchenschenkel', _Expect.dropped),
+      ('Nutella', 'Nutella Nuss-Nougat-Creme', _Expect.chosen),
+      ('Nuss-Nougat-Creme', 'Nussnougatcreme', _Expect.chosen),
+      ('Nuss-Nougat-Creme', 'Nutella', _Expect.dropped),
+      ('Haferflocken', 'Haferflocken zart', _Expect.chosen),
+      ('Haferflocken', 'Hafer Flocken', _Expect.chosen),
+      ('Haferflocken', 'Zarte Haferflocken', _Expect.chosen),
+      ('Skyr', 'Skyr Natur', _Expect.chosen),
+      ('Skyr Natur', 'Skyr', _Expect.listed),
+      ('Milch', 'Fettarme Milch 1,5 %', _Expect.chosen),
+      ('Milch', 'Vollmilch', _Expect.listed),
+      ('Milch', 'Hafermilch', _Expect.listed),
+      ('Milch', 'Milchreis', _Expect.listed),
+      ('Vollmilch', 'Frische Milch', _Expect.listed),
+      ('Apfel', 'Apfelsaft', _Expect.listed),
+      ('Reis', 'Basmati Reis', _Expect.chosen),
+      ('Reis', 'Reiswaffeln', _Expect.listed),
+      ('Butter', 'Erdnussbutter', _Expect.listed),
+      ('Käse', 'Käsekuchen', _Expect.listed),
+      ('Bananen', 'Banane', _Expect.chosen),
+      ('Ei', 'Eier Größe M', _Expect.chosen),
+      ('Ei', 'Eis Vanille', _Expect.dropped),
+    ];
+
+    for (final (query, title, expected) in rows) {
+      test('"$query" -> "$title": ${expected.name}', () async {
+        final products = _FakeProducts({
+          query: _hits([_product('1', title, kcal: 250)]),
+        });
+        final line = (await _matcher(
+          products,
+        ).match(_meal([_food(query, grams: 100, kcal: 250)]))).items.single;
+        final barcodes = line.candidates.map((c) => c.barcode);
+        switch (expected) {
+          case _Expect.chosen:
+            expect(line.selected.barcode, '1');
+          case _Expect.listed:
+            expect(line.isEstimate, isTrue);
+            expect(barcodes, [null, '1']);
+          case _Expect.dropped:
+            expect(barcodes, [null]);
+        }
+      });
+    }
+
+    test('a title that names the food ranks before a related one', () async {
+      final products = _FakeProducts({
+        'Milch': _hits([
+          _product('1', 'Milchreis', kcal: 64),
+          _product('2', 'Vollmilch', kcal: 64),
+          _product('3', 'Frische Milch', kcal: 64),
+          _product('4', 'Milch', kcal: 400),
+        ]),
+      });
+      final line = (await _matcher(
+        products,
+      ).match(_meal([_food('Milch', grams: 200, kcal: 128)]))).items.single;
+      expect(line.selected.barcode, '3');
+      expect(line.candidates.map((c) => c.barcode), [
+        '3',
+        null,
+        '4',
+        '1',
+      ], reason: 'implausible but named before compounds around the word');
+    });
+
+    test('a manual favorite is chosen only for the same food', () async {
+      final draft =
+          await _matcher(
+            _FakeProducts({}),
+            favorites: () => [
+              _favorite(_scan('Milchreis', grams: 200, kcal: 220), day: 9),
+              _favorite(_scan('Toast', grams: 50, kcal: 130), day: 8),
+            ],
+          ).match(
+            _meal([
+              _food('Milch', grams: 200, kcal: 128),
+              _food('Toastbrot', grams: 50, kcal: 130),
+            ]),
+          );
+      expect(draft.items[0].isEstimate, isTrue);
+      expect(draft.items[0].candidates, hasLength(1));
+      expect(draft.items[1].selected.origin, DraftItemOrigin.favorite);
+      expect(draft.items[1].selected.title, 'Toast');
+    });
+  });
 }
+
+enum _Expect { chosen, listed, dropped }

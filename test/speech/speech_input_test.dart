@@ -145,16 +145,25 @@ void main() {
     });
 
     test(
-      'Android dialog dismissed: null text, reason cancel -> null, stopped',
+      'Android dialog dismissed: null text, reason cancel -> null, dismissed',
       () async {
         final (text, ends) = await run(<String, Object?>{
           'text': null,
           'reason': 'cancel',
         });
         expect(text, isNull);
-        expect(ends, <SpeechEnd>[SpeechEnd.stopped]);
+        expect(ends, <SpeechEnd>[SpeechEnd.dismissed]);
       },
     );
+
+    test('Android heard nothing: null text, reason final -> stopped', () async {
+      final (text, ends) = await run(<String, Object?>{
+        'text': null,
+        'reason': 'final',
+      });
+      expect(text, isNull);
+      expect(ends, <SpeechEnd>[SpeechEnd.stopped]);
+    });
 
     test(
       'an empty or blank transcript is "nothing recognized" -> null',
@@ -170,14 +179,14 @@ void main() {
     );
 
     test(
-      'length and limit reach onEnd; every other reason is stopped',
+      'length, limit and cancel reach onEnd; every other reason is stopped',
       () async {
         const expected = <String?, SpeechEnd>{
           'length': SpeechEnd.length,
           'limit': SpeechEnd.limit,
           'final': SpeechEnd.stopped,
           'stop': SpeechEnd.stopped,
-          'cancel': SpeechEnd.stopped,
+          'cancel': SpeechEnd.dismissed,
           'something-new': SpeechEnd.stopped,
           null: SpeechEnd.stopped,
         };

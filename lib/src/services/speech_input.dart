@@ -11,9 +11,13 @@ import 'package:flutter/services.dart';
 
 /// Why a recording ended, as far as the user needs a hint.
 enum SpeechEnd {
-  /// Stopped or cancelled by Dart, finished by the recognizer, or the system
-  /// dialog returned.
+  /// Stopped by Dart, finished by the recognizer, or the system dialog
+  /// returned (with text, or having heard nothing).
   stopped,
+
+  /// Ended without an answer to give: the user dismissed Android's system
+  /// dialog, which spoke for itself, or Dart cancelled.
+  dismissed,
 
   /// Apple's server path ended the task after about a minute.
   limit,
@@ -85,6 +89,7 @@ class SpeechInput {
       onEnd?.call(switch (result?['reason']) {
         'limit' => SpeechEnd.limit,
         'length' => SpeechEnd.length,
+        'cancel' => SpeechEnd.dismissed,
         _ => SpeechEnd.stopped,
       });
       final text = result?['text'];

@@ -45,7 +45,9 @@ class CoachSpeechInput {
         onEnd: onEnd == null
             ? null
             : (end) => onEnd(switch (end) {
-                SpeechEnd.stopped => CoachSpeechEnd.stopped,
+                // The Coach drops a cancelled recording by its generation.
+                SpeechEnd.stopped ||
+                SpeechEnd.dismissed => CoachSpeechEnd.stopped,
                 SpeechEnd.limit => CoachSpeechEnd.limit,
                 SpeechEnd.length => CoachSpeechEnd.length,
               }),

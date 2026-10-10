@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -46,6 +47,46 @@ const String _screenAwakeOwner = 'meal-describe';
 /// How long a graceful stop may take before the sheet ends the recording
 /// itself; the iOS plugin waits up to 1.5 s for its final result.
 const Duration _stopGrace = Duration(seconds: 3);
+
+/// The hint under the field for an answer about the description itself (no
+/// food in it, outside the bounds), else null. Those send the user back to
+/// the text; every other error goes to the error card
+/// ([mealDescribeErrorMessage]).
+String? mealDescribeInputNotice(
+  Object error,
+  AppLocalizations l10n,
+) => switch (error) {
+  MealAnalysisServerError(code: 'no_food_in_text') => l10n.foodDescribeNoFood,
+  MealAnalysisServerError(code: 'invalid_meal_text') =>
+    l10n.foodDescribeInvalidText(kMealDescribeMinChars, kMealDescribeMaxChars),
+  _ => null,
+};
+
+/// [mealAnalysisErrorMessage] for a description: texts that speak of a photo
+/// get their own. The quota is the photo scan's, hence "meal analyses".
+String mealDescribeErrorMessage(Object error, AppLocalizations l10n) {
+  final fallback = l10n.foodAnalysisFailedMessage;
+  return switch (error) {
+    MealAnalysisReauthRequired() => l10n.foodDescribeReauthRequired,
+    MealAnalysisRateLimited(:final resetAt) =>
+      resetAt != null && resetAt.isAfter(clock.now())
+          ? l10n.foodDescribeRateLimitUntil(mealAnalysisClockLabel(resetAt))
+          : l10n.foodDescribeRateLimit,
+    // A function without describe mode refuses `mealText` (invalid_body) or
+    // asks for a photo, and a few hundred characters are never too large:
+    // the service, not the user's connection, text or picture.
+    MealImageTooLarge() ||
+    MealAnalysisServerError(
+      code: 'invalid_body' ||
+          'missing_image' ||
+          'invalid_image_base64' ||
+          'image_too_small',
+    ) => l10n.foodAnalysisServiceUnavailableMessage,
+    // A describe body carries no hint; the photo's text would mislead.
+    MealAnalysisServerError(code: 'invalid_hint') => fallback,
+    _ => mealAnalysisErrorMessage(error, fallback, l10n),
+  };
+}
 
 /// A described meal that was logged; null from [showMealDescribeSheet] means
 /// closed without logging.
@@ -269,7 +310,16 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
 
   /// What the server accepts, counted as it counts (normalized); the raw
   /// field is capped at the same length, so this only adds the minimum.
-  bool get _canSubmit => isValidMealText(_text.text) && !_adding;
+  bool get _canSubmit =>
+      isValidMealText(_text.text) && !_adding && !_dialogListening;
+
+  /// Android's system dialog owns the recording until it answers: a tap that
+  /// reaches the sheet before the dialog covers it must neither end nor
+  /// restart the recording, or the dialog's answer would be dropped.
+  bool get _dialogListening => _listening && !_inAppRecognizer;
+
+  /// No voice control acts while a stop drains (iOS) or the dialog runs.
+  bool get _voiceLocked => _speechStopping || _dialogListening;
 
   /// Typed or dictated content that a close would lose.
   bool get _dirty => _trimmed.isNotEmpty && !_added;
@@ -345,7 +395,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
   /// The pill: idle it picks the language of the next recording; while
   /// listening it restarts this recording in the other language.
   void _switchLanguage() {
-    if (_speechStopping) return;
+    if (_voiceLocked) return;
     HapticFeedback.selectionClick();
     final next = (_listening ? _listeningLanguage : _preferredLanguage).other;
     setState(() => _dictationLanguage = next);
@@ -359,8 +409,9 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
   }
 
   /// Graceful: the audio stops and the final text still lands in the field.
+  /// Android's dialog stops itself and always answers.
   void _stopSpeech() {
-    if (!_listening || _speechStopping) return;
+    if (!_listening || _voiceLocked) return;
     setState(() => _speechStopping = true);
     unawaited(widget.speechInput.stop());
     final token = _speechToken;
@@ -430,7 +481,11 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
       final dictated = text.isEmpty ? _speechShown : text;
       final _Notice? notice;
       if (dictated.isEmpty) {
-        notice = _Notice(l10n.foodDescribeSpeechEmpty);
+        // A dismissed system dialog was the user's choice and said its own
+        // "didn't catch that"; only a recording that heard nothing gets one.
+        notice = end == SpeechEnd.dismissed
+            ? null
+            : _Notice(l10n.foodDescribeSpeechEmpty);
       } else if (_speechCapReached || end == SpeechEnd.length) {
         notice = _Notice(l10n.foodDescribeSpeechLength);
       } else if (end == SpeechEnd.limit) {
@@ -477,7 +532,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
   // --- Describe and match --------------------------------------------------------
 
   void _submit() {
-    if (_step != _Step.input) return;
+    if (_step != _Step.input || _dialogListening) return;
     if (_listening) {
       // The recording ends first; its final text is what gets described.
       _submitAfterSpeech = true;
@@ -531,20 +586,11 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
       _cancellation = null;
       // Our own cancel already went back to the text.
       if (error is MealAnalysisCancelled) return;
-      final code = error is MealAnalysisServerError ? error.code : null;
-      final l10n = context.l10n;
-      if (code == 'no_food_in_text' || code == 'invalid_meal_text') {
+      final notice = mealDescribeInputNotice(error, context.l10n);
+      if (notice != null) {
         setState(() {
           _step = _Step.input;
-          _inputNotice = _Notice(
-            code == 'no_food_in_text'
-                ? l10n.foodDescribeNoFood
-                : l10n.foodDescribeInvalidText(
-                    kMealDescribeMinChars,
-                    kMealDescribeMaxChars,
-                  ),
-            error: true,
-          );
+          _inputNotice = _Notice(notice, error: true);
         });
         return;
       }
@@ -604,9 +650,11 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
     final removed = draft.removeItem(index);
     setState(() => _draft = removed);
     final l10n = context.l10n;
+    final line = draft.items[index];
     showAppSnack(
       context,
-      l10n.foodDescribeLineRemoved(draft.items[index].selected.title),
+      // The name as the line showed it, without the brand suffix.
+      l10n.foodDescribeLineRemoved(_candidateName(line.selected, line).$1),
       icon: Icons.delete_outline_rounded,
       tone: SnackTone.neutral,
       action: SnackBarAction(
@@ -674,6 +722,10 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
 
   Future<void> _askDiscard() async {
     if (_adding || _discardDialogOpen) return;
+    // No live mic behind the dialog, as under the Coach's sheets: the
+    // recording ends at once and keeps what it showed. Android's dialog
+    // answers on its own.
+    if (_listening && _inAppRecognizer) setState(_cancelSpeech);
     _discardDialogOpen = true;
     final l10n = context.l10n;
     final discard = await showEatovaDialog<bool>(
@@ -876,7 +928,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
           const SizedBox(height: 12),
           _VoiceCard(
             listening: _listening,
-            stopping: _speechStopping,
+            locked: _voiceLocked,
             language: _listening ? _listeningLanguage : _preferredLanguage,
             onMic: _toggleMic,
             onLanguage: _switchLanguage,
@@ -914,11 +966,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
           _WorkingFooter(slow: _slow, onCancel: _cancelWork),
         ] else ...[
           _ErrorCard(
-            message: mealAnalysisErrorMessage(
-              error,
-              l10n.foodAnalysisFailedMessage,
-              l10n,
-            ),
+            message: mealDescribeErrorMessage(error, l10n),
             onRetry: _retryable(error) ? () => unawaited(_describe()) : null,
             onEditText: _backToText,
           ),
@@ -1133,14 +1181,16 @@ class _DescribeField extends StatelessWidget {
 class _VoiceCard extends StatelessWidget {
   const _VoiceCard({
     required this.listening,
-    required this.stopping,
+    required this.locked,
     required this.language,
     required this.onMic,
     required this.onLanguage,
   });
 
   final bool listening;
-  final bool stopping;
+
+  /// Mic and pill do nothing: a stop drains, or the system dialog runs.
+  final bool locked;
   final DictationLanguage language;
   final VoidCallback onMic;
   final VoidCallback onLanguage;
@@ -1191,16 +1241,16 @@ class _VoiceCard extends StatelessWidget {
         mic: Semantics(
           key: const ValueKey('meal-describe-mic'),
           button: true,
-          enabled: !stopping,
+          enabled: !locked,
           label: listening
               ? l10n.foodDescribeMicStop
               : l10n.foodDescribeMicStart,
-          onTap: stopping ? null : onMic,
+          onTap: locked ? null : onMic,
           excludeSemantics: true,
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(
-              onTap: stopping ? null : onMic,
+              onTap: locked ? null : onMic,
               borderRadius: radius,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(minHeight: 76),
@@ -1233,7 +1283,7 @@ class _VoiceCard extends StatelessWidget {
         pill: _LanguagePill(
           language: language,
           restarts: listening,
-          enabled: !stopping,
+          enabled: !locked,
           onTap: onLanguage,
         ),
       ),

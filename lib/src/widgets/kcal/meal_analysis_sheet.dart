@@ -70,7 +70,9 @@ String _mealAnalysisExceptionMessage(
     MealAnalysisCancelled() => fallback,
     MealAnalysisRateLimited(:final resetAt) =>
       resetAt != null && resetAt.isAfter(clock.now())
-          ? l10n.foodAnalysisRateLimitUntilMessage(_clockLabel(resetAt))
+          ? l10n.foodAnalysisRateLimitUntilMessage(
+              mealAnalysisClockLabel(resetAt),
+            )
           : l10n.foodAnalysisRateLimitError,
     MealAnalysisServerError(:final code) => switch (code) {
       'invalid_hint' => l10n.foodScanContextInvalid,
@@ -114,8 +116,8 @@ String _mealAnalysisExceptionMessage(
 }
 
 /// `HH:mm` in local time, without intl: `DateFormat` needs locale data that a
-/// context-free caller cannot guarantee is loaded.
-String _clockLabel(DateTime at) {
+/// context-free caller cannot guarantee is loaded. Also the describe sheet's.
+String mealAnalysisClockLabel(DateTime at) {
   final local = at.toLocal();
   final hh = local.hour.toString().padLeft(2, '0');
   final mm = local.minute.toString().padLeft(2, '0');
