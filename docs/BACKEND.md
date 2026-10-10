@@ -10,7 +10,7 @@ and deployment are separate from editing this documentation.
 | --- | --- |
 | Supabase Auth | Email/password, Google token exchange, OTP/account flows |
 | Postgres + RLS | Profiles, diary, favorites, weight, recipes, plans, shopping checks, workout history, chat and quota |
-| `analyze-meal` | Authenticated photo/context input to a structured nutrition estimate |
+| `analyze-meal` | Authenticated photo/context input, or a typed or dictated meal description, to a structured nutrition estimate |
 | `coach-chat` | Authenticated chat/stream, recipe, training-plan and workout-log proposals; quotas, validation and guardrails |
 | `search-key` | Authenticated product-index URL and limited search credentials |
 | Meilisearch / Open Food Facts | Public product data lookup; OFF fallback |
@@ -41,10 +41,11 @@ only recipe pictures are generated through OpenRouter.
 
 | Setting | Source default | Used by |
 | --- | --- | --- |
-| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Coach (classifier, replies, recipe text, training drafts, `/log`), meal photo analysis, recipe import |
+| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Coach (classifier, replies, recipe text, training drafts, `/log`), meal photo and description analysis, recipe import |
 | `COACH_EFFORT` | `high` | Thinking depth of Coach classifier (capped at `high`), replies, recipes and `/log` |
 | `COACH_PLAN_EFFORT` | `medium` | Thinking depth of Coach training plans |
 | `ANALYZE_MEAL_EFFORT` | `medium` | Thinking depth of meal photo analysis |
+| `ANALYZE_MEAL_DESCRIBE_EFFORT` | `low` | Thinking depth of meal description analysis (voice flow, kept fast) |
 | `RECIPE_IMPORT_EFFORT` | `medium` | Thinking depth of recipe import |
 | `COACH_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | Recipe picture generation (OpenRouter) |
 | `COACH_DAILY_LIMIT` | `5` | Daily per-user Coach quota |
@@ -86,7 +87,8 @@ near the 45 s deadline); `/log` 2-4 s; meal analysis 4-5 s at `medium` and
 10-12 s at `high` with the same estimates; a three-recipe import about 10 s at
 `medium` and 20-32 s at `high` with the same candidates (`low` missed a
 variant). Plans use at most four distinct workouts, rotated across the week
-when the user trains more often, so they fit that deadline.
+when the user trains more often, so they fit that deadline. Meal description
+at `low` has not been measured live yet.
 
 The OpenRouter-era secrets `OPENROUTER_MODEL`, `COACH_MODEL_ANSWER`,
 `COACH_MODEL_CLASSIFIER`, `COACH_MODEL_LOG` and `RECIPE_IMPORT_MODEL` are no
@@ -187,6 +189,20 @@ request fields. Meal-photo checks bound container dimensions before quota work;
 the Flutter compressor additionally removes opaque metadata and checks PNG/ICC
 inflation before the relevant decoder stage. Structural checks do not establish
 complete pixel validity or provider-decoder safety.
+
+`analyze-meal` also takes a meal description instead of a photo
+(`{mealText, language}`, contract in [MEAL-DESCRIBE.md](MEAL-DESCRIBE.md)). It
+runs through the same gates, provider budget (`analyze_meal`) and deadlines.
+Before any day slot, `mealText` with `imageBase64`, `portionHint` or
+`freeTextHint` is `400 ambiguous_input`; a text with control or bidi
+characters, or outside 2-500 characters after whitespace collapse, is
+`400 invalid_meal_text`; neither field is still `missing_image`. The text
+reaches the model only as a JSON string value in the user turn, under its own
+prompt and schema, and is never logged (counts and lengths only). A text
+without food answers `422 no_food_in_text` after the paid call. The photo
+response is unchanged; only a describe result carries `mode: "describe"`,
+`slotHint` and the item fields `proteinG`, `carbsG`, `fatG`, `searchQuery`,
+`brand`, `amountText` and `gramsSource`.
 
 Per-account provider counters contain only user ID, UTC date and reserved-call
 count; own counters are exportable and cascade on account deletion. Records
