@@ -48,6 +48,20 @@ const String _screenAwakeOwner = 'meal-describe';
 /// itself; the iOS plugin waits up to 1.5 s for its final result.
 const Duration _stopGrace = Duration(seconds: 3);
 
+/// The hint under the field for an answer about the description itself (no
+/// food in it, outside the bounds), else null. Those send the user back to
+/// the text; every other error goes to the error card
+/// ([mealDescribeErrorMessage]).
+String? mealDescribeInputNotice(
+  Object error,
+  AppLocalizations l10n,
+) => switch (error) {
+  MealAnalysisServerError(code: 'no_food_in_text') => l10n.foodDescribeNoFood,
+  MealAnalysisServerError(code: 'invalid_meal_text') =>
+    l10n.foodDescribeInvalidText(kMealDescribeMinChars, kMealDescribeMaxChars),
+  _ => null,
+};
+
 /// [mealAnalysisErrorMessage] for a description: texts that speak of a photo
 /// get their own. The quota is the photo scan's, hence "meal analyses".
 String mealDescribeErrorMessage(Object error, AppLocalizations l10n) {
@@ -58,18 +72,17 @@ String mealDescribeErrorMessage(Object error, AppLocalizations l10n) {
       resetAt != null && resetAt.isAfter(clock.now())
           ? l10n.foodDescribeRateLimitUntil(mealAnalysisClockLabel(resetAt))
           : l10n.foodDescribeRateLimit,
-    // A few hundred characters are never too large; the photo text would
-    // send the user looking for a picture.
-    MealImageTooLarge() => fallback,
     // A function without describe mode refuses `mealText` (invalid_body) or
-    // asks for a photo: the service, not the user's connection or text.
+    // asks for a photo, and a few hundred characters are never too large:
+    // the service, not the user's connection, text or picture.
+    MealImageTooLarge() ||
     MealAnalysisServerError(
       code: 'invalid_body' ||
           'missing_image' ||
           'invalid_image_base64' ||
           'image_too_small',
-    ) =>
-      l10n.foodAnalysisServiceUnavailableMessage,
+    ) => l10n.foodAnalysisServiceUnavailableMessage,
+    // A describe body carries no hint; the photo's text would mislead.
     MealAnalysisServerError(code: 'invalid_hint') => fallback,
     _ => mealAnalysisErrorMessage(error, fallback, l10n),
   };
@@ -573,20 +586,11 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
       _cancellation = null;
       // Our own cancel already went back to the text.
       if (error is MealAnalysisCancelled) return;
-      final code = error is MealAnalysisServerError ? error.code : null;
-      final l10n = context.l10n;
-      if (code == 'no_food_in_text' || code == 'invalid_meal_text') {
+      final notice = mealDescribeInputNotice(error, context.l10n);
+      if (notice != null) {
         setState(() {
           _step = _Step.input;
-          _inputNotice = _Notice(
-            code == 'no_food_in_text'
-                ? l10n.foodDescribeNoFood
-                : l10n.foodDescribeInvalidText(
-                    kMealDescribeMinChars,
-                    kMealDescribeMaxChars,
-                  ),
-            error: true,
-          );
+          _inputNotice = _Notice(notice, error: true);
         });
         return;
       }

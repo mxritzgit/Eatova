@@ -188,7 +188,8 @@ void main() {
             const MealAnalysisRateLimited(): l10n.foodDescribeRateLimit,
             MealAnalysisRateLimited(resetAt: DateTime(2026, 10, 10, 13, 30)):
                 l10n.foodDescribeRateLimitUntil('13:30'),
-            const MealImageTooLarge(): l10n.foodAnalysisFailedMessage,
+            const MealImageTooLarge():
+                l10n.foodAnalysisServiceUnavailableMessage,
             for (final code in [
               'invalid_body',
               'missing_image',
