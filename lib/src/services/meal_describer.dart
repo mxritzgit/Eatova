@@ -28,7 +28,8 @@ abstract class MealDescriber {
   });
 }
 
-/// Controls and bidi overrides/isolates, which the server strips as well.
+/// Controls and bidi overrides/isolates. The server rejects them, so the
+/// client removes them before sending.
 final RegExp _unsafeTextCharacters = RegExp(
   r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\u{202A}-\u{202E}\u{2066}-\u{2069}]',
   unicode: true,
