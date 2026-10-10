@@ -116,7 +116,15 @@ String encodeAnalyzeMealBody(MealAnalysisRequest request) =>
 /// Turns a raw `analyze-meal` answer into a result or a typed error. Status
 /// codes are checked BEFORE the body is trusted: a 429/502 from the gateway
 /// carries HTML, which used to surface as a `FormatException`.
-MealAnalysisResult parseAnalyzeMealResponse(int statusCode, String body) {
+MealAnalysisResult parseAnalyzeMealResponse(int statusCode, String body) =>
+    MealAnalysisResult.fromEdgeFunction(
+      readAnalyzeMealResult(statusCode, body),
+    );
+
+/// The `result` object of a 2xx `analyze-meal` answer, or the typed error of
+/// [parseAnalyzeMealResponse]. Shared by the photo scan and the meal
+/// description, which parse the object differently.
+Map<String, dynamic> readAnalyzeMealResult(int statusCode, String body) {
   final decoded = _decodeLeniently(body);
   final code = decoded['error']?.toString();
   final message = decoded['message']?.toString();
@@ -150,7 +158,7 @@ MealAnalysisResult parseAnalyzeMealResponse(int statusCode, String body) {
       debugMessage: 'result missing or not an object',
     );
   }
-  return MealAnalysisResult.fromEdgeFunction(result);
+  return result;
 }
 
 Map<String, dynamic> _decodeLeniently(String body) {
@@ -202,7 +210,6 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   final HttpClient Function()? _clientFactory;
   final HttpTimeoutPolicy _policy;
 
-  static const String _functionPath = '/functions/v1/analyze-meal';
   static const int _maxImageBytes = 5 * 1000 * 1000;
 
   // Explicit timeouts on EVERY phase: HttpTimeoutPolicy.mealAnalysis
@@ -210,11 +217,13 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   // sum, calibrated against the function's own 55 s budget (P10-02b);
   // rationale lives with the policy in eatova_http.dart.
 
-  String? _accessToken() {
-    final provider = _tokenProvider;
-    if (provider != null) return provider();
-    return Supabase.instance.client.auth.currentSession?.accessToken;
-  }
+  AnalyzeMealTransport get _transport => AnalyzeMealTransport(
+    baseUrl: _baseUrl,
+    anonKey: _anonKey,
+    tokenProvider: _tokenProvider,
+    clientFactory: _clientFactory,
+    policy: _policy,
+  );
 
   @override
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {
@@ -231,7 +240,75 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
       throw const MealImageTooLarge();
     }
 
-    final cancellation = request.cancellation;
+    return _transport.post(
+      cancellation: request.cancellation,
+      validate: () {
+        if (!MealAnalysisRequest.isValidHint(request.freeTextHint)) {
+          throw const MealAnalysisServerError(
+            statusCode: 400,
+            code: 'invalid_hint',
+          );
+        }
+      },
+      // Body built in an isolate; a stripped copy travels because the
+      // cancellation hook's closures cannot cross the isolate boundary.
+      encodeBody: () => compute(
+        encodeAnalyzeMealBody,
+        MealAnalysisRequest(
+          imageId: request.imageId,
+          imageBytes: request.imageBytes,
+          freeTextHint: request.freeTextHint,
+          language: request.language,
+        ),
+      ),
+      parse: (response) =>
+          parseAnalyzeMealResponse(response.statusCode, response.body),
+    );
+  }
+}
+
+/// The `analyze-meal` round trip the photo scan and the meal description
+/// share: session token, one client per call with the [policy]'s phase
+/// timeouts, the cancellation hook, the auth headers and the cancel-aware
+/// error path. Each caller brings its own validation, body and parser.
+class AnalyzeMealTransport {
+  const AnalyzeMealTransport({
+    required this.baseUrl,
+    required this.anonKey,
+    required this.policy,
+    this.tokenProvider,
+    this.clientFactory,
+  });
+
+  final String baseUrl;
+  final String anonKey;
+  final HttpTimeoutPolicy policy;
+
+  /// Null = the current Supabase session.
+  final String? Function()? tokenProvider;
+
+  /// Null = [createHttpClient] with [policy].
+  final HttpClient Function()? clientFactory;
+
+  static const String functionPath = '/functions/v1/analyze-meal';
+
+  String? _accessToken() {
+    final provider = tokenProvider;
+    if (provider != null) return provider();
+    return Supabase.instance.client.auth.currentSession?.accessToken;
+  }
+
+  /// Checks cancellation and session, runs [validate], then POSTs the body of
+  /// [encodeBody] and hands the answer to [parse]. [encodeBody] already runs
+  /// with the client registered for cancellation. A cancelled call always
+  /// ends in [MealAnalysisCancelled], whatever failed underneath.
+  Future<T> post<T>({
+    required Future<String> Function() encodeBody,
+    required T Function(HttpTextResponse response) parse,
+    MealAnalysisCancellation? cancellation,
+    void Function()? validate,
+    String operation = 'analyze-meal',
+  }) async {
     if (cancellation?.isCancelled ?? false) {
       throw const MealAnalysisCancelled();
     }
@@ -241,41 +318,26 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
       throw const MealAnalysisReauthRequired();
     }
 
-    if (!MealAnalysisRequest.isValidHint(request.freeTextHint)) {
-      throw const MealAnalysisServerError(
-        statusCode: 400,
-        code: 'invalid_hint',
-      );
-    }
-    final client = _clientFactory?.call() ?? createHttpClient(_policy);
+    validate?.call();
+    final client = clientFactory?.call() ?? createHttpClient(policy);
     // A forced close aborts the socket; the pending request then fails with
     // a transport error, which the catch below renames to "cancelled".
     final unregister = cancellation?.register(() => client.close(force: true));
     try {
-      // Body built in an isolate; a stripped copy travels because the
-      // cancellation hook's closures cannot cross the isolate boundary.
-      final body = await compute(
-        encodeAnalyzeMealBody,
-        MealAnalysisRequest(
-          imageId: request.imageId,
-          imageBytes: request.imageBytes,
-          freeTextHint: request.freeTextHint,
-          language: request.language,
-        ),
-      );
+      final body = await encodeBody();
       if (cancellation?.isCancelled ?? false) {
         throw const MealAnalysisCancelled();
       }
-      final uri = Uri.parse('$_baseUrl$_functionPath');
+      final uri = Uri.parse('$baseUrl$functionPath');
       final response = await sendTextRequest(
         client,
         method: 'POST',
         uri: uri,
-        policy: _policy,
-        operation: 'analyze-meal',
+        policy: policy,
+        operation: operation,
         configure: (httpRequest) {
           httpRequest.headers.contentType = ContentType.json;
-          httpRequest.headers.set('apikey', _anonKey);
+          httpRequest.headers.set('apikey', anonKey);
           httpRequest.headers.set('Authorization', 'Bearer $accessToken');
         },
         body: body,
@@ -283,7 +345,7 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
       if (cancellation?.isCancelled ?? false) {
         throw const MealAnalysisCancelled();
       }
-      return parseAnalyzeMealResponse(response.statusCode, response.body);
+      return parse(response);
     } on Object {
       if (cancellation?.isCancelled ?? false) {
         throw const MealAnalysisCancelled();

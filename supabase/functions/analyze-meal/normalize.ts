@@ -67,6 +67,125 @@ export const MEAL_OUTPUT_SCHEMA = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Describe mode (docs/MEAL-DESCRIBE.md): a sentence instead of a photo. The
+// result carries every photo field plus the ones below; the photo path never
+// sees them, so its answer stays byte-for-byte what it was.
+// ---------------------------------------------------------------------------
+
+export const SLOT_HINTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+export type SlotHint = (typeof SLOT_HINTS)[number];
+export type GramsSource = 'stated' | 'estimated';
+
+export interface NormalizedDescribedItem extends NormalizedMealItem {
+  /** Never null: an item without grams is dropped, the draft cannot use it. */
+  grams: number;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
+  searchQuery: string;
+  brand: string | null;
+  amountText: string | null;
+  gramsSource: GramsSource;
+}
+
+export interface NormalizedDescribedMeal extends NormalizedMealResult {
+  /** Set by the server, never taken from the model. */
+  mode: 'describe';
+  slotHint: SlotHint | null;
+  items: NormalizedDescribedItem[];
+}
+
+const nullableNumber = { type: ['number', 'null'] };
+const nullableString = { type: ['string', 'null'] };
+
+/**
+ * Structured-output schema of the describe answer: the photo shape plus the
+ * slot hint and the richer items. Shape only, like MEAL_OUTPUT_SCHEMA; the
+ * API takes no length or range constraints, normalizeDescribedMeal clamps.
+ * `mode` is not in here on purpose.
+ */
+export const DESCRIBE_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [...MEAL_OUTPUT_SCHEMA.required, 'slotHint'],
+  properties: {
+    ...MEAL_OUTPUT_SCHEMA.properties,
+    slotHint: { anyOf: [{ type: 'string', enum: [...SLOT_HINTS] }, { type: 'null' }] },
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'name', 'grams', 'caloriesKcal', 'kcalPer100G', 'proteinG', 'carbsG', 'fatG',
+          'searchQuery', 'brand', 'amountText', 'gramsSource',
+        ],
+        properties: {
+          name: { type: 'string' },
+          grams: { type: 'integer' },
+          caloriesKcal: { type: 'integer' },
+          kcalPer100G: { type: 'number' },
+          proteinG: nullableNumber,
+          carbsG: nullableNumber,
+          fatG: nullableNumber,
+          searchQuery: { type: 'string' },
+          brand: nullableString,
+          amountText: nullableString,
+          gramsSource: { type: 'string', enum: ['stated', 'estimated'] },
+        },
+      },
+    },
+  },
+};
+
+/**
+ * The describe answer on the wire contract. The photo fields go through
+ * normalizeMealResult unchanged; only `items` is replaced, and `mode` is the
+ * server's. An item without a name or without grams is dropped rather than
+ * given a fallback: a draft line needs both, and a guessed weight would be
+ * the server's invention (B1).
+ */
+export function normalizeDescribedMeal(raw: Record<string, unknown>): NormalizedDescribedMeal {
+  const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
+  const items = itemsRaw
+    .filter(isRecord)
+    .map(normalizeDescribedItem)
+    .filter((item): item is NormalizedDescribedItem => item !== null)
+    .slice(0, 20);
+  const slot = typeof raw.slotHint === 'string' ? raw.slotHint.trim().toLowerCase() : '';
+  return {
+    ...normalizeMealResult(raw),
+    items,
+    mode: 'describe',
+    slotHint: (SLOT_HINTS as readonly string[]).includes(slot) ? slot as SlotHint : null,
+  };
+}
+
+function normalizeDescribedItem(item: Record<string, unknown>): NormalizedDescribedItem | null {
+  const name = clampString(item.name, '', 80);
+  const grams = optionalInt(item.grams, 0, 10000);
+  if (!name || !grams) return null;
+  const source = typeof item.gramsSource === 'string' ? item.gramsSource.trim().toLowerCase() : '';
+  return {
+    name,
+    grams,
+    caloriesKcal: optionalInt(item.caloriesKcal, 0, 10000),
+    kcalPer100G: optionalNumber(item.kcalPer100G, 0, 1000),
+    proteinG: optionalDecimal(item.proteinG, 0, 1000),
+    carbsG: optionalDecimal(item.carbsG, 0, 1000),
+    fatG: optionalDecimal(item.fatG, 0, 1000),
+    // The client searches with it, so it is never empty: the name is the
+    // closest honest stand-in.
+    searchQuery: clampString(item.searchQuery, '', 80) || name,
+    brand: clampString(item.brand, '', 60) || null,
+    amountText: clampString(item.amountText, '', 40) || null,
+    // "stated" makes the client scale the amount by a product's serving
+    // size, so anything unrecognised is the weaker claim.
+    gramsSource: source === 'stated' ? 'stated' : 'estimated',
+  };
+}
+
 export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMealResult {
   const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
   const items = itemsRaw
@@ -144,6 +263,12 @@ export function optionalNumber(value: unknown, min: number, max: number): number
 export function optionalInt(value: unknown, min: number, max: number): number | null {
   const number = optionalNumber(value, min, max);
   return number === null ? null : Math.round(number);
+}
+
+/** Like optionalNumber, rounded to one decimal (item macros in grams). */
+export function optionalDecimal(value: unknown, min: number, max: number): number | null {
+  const number = optionalNumber(value, min, max);
+  return number === null ? null : Math.round(number * 10) / 10;
 }
 
 // ---------------------------------------------------------------------------

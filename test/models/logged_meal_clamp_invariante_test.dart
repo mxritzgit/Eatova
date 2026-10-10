@@ -25,11 +25,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/models/described_meal.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/models/model_limits.dart';
+import 'package:eatova/src/services/meal_description_matcher.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 /// 👨‍👩‍👧‍👦 — 4 Personen + 3 ZWJ = 7 Codepunkte, 1 Graphem.
@@ -161,10 +163,52 @@ FitnessRecipe _boesesRezept() => FitnessRecipe(
       userCreated: true,
     );
 
+/// Eine Beschreibung mit 20 Zeilen, deren Werte niemand geklemmt hat: das
+/// Modell-Ergebnis, ein Index-Treffer mit Riesentitel, Riesenmarke und
+/// Riesencode, und eine direkt gebaute Zeile mit unmoeglicher Grammzahl.
+MealDescriptionDraft _boeserEntwurf() {
+  final beschrieben = DescribedFoodItem(
+    name: _titel210,
+    searchQuery: 'q',
+    grams: 999999,
+    gramsSource: DescribedGramsSource.stated,
+    caloriesKcal: 999999,
+  );
+  final kandidat = DraftCandidate(
+    origin: DraftItemOrigin.product,
+    title: _titel210,
+    brand: 'b' * 400,
+    kcalPer100G: 99999,
+    proteinPer100G: 5000,
+    carbsPer100G: 5000,
+    fatPer100G: 5000,
+    barcode: '9' * 400,
+  );
+  final zeile = DraftFoodItem(
+    described: beschrieben,
+    selected: kandidat,
+    candidates: <DraftCandidate>[kandidat],
+    grams: 999999,
+  );
+  return MealDescriptionDraft(
+    meal: DescribedMeal(
+      base: MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': _titel210,
+        'caloriesKcal': 999999,
+        'estimatedGrams': 999999,
+        'confidence': 'high',
+      }),
+      items: <DescribedFoodItem>[beschrieben],
+    ),
+    items: List<DraftFoodItem>.filled(DescribedMeal.maxItems, zeile),
+  );
+}
+
 Map<String, MealAnalysisResult> _alleErzeuger() {
   final ausRezept = _boesesRezept().toMealResult();
   return <String, MealAnalysisResult>{
     'FitnessRecipe.toMealResult': ausRezept,
+    'MealDescriptionDraft.toResult': _boeserEntwurf().toResult(),
     'MealAnalysisResult.fromEdgeFunction': MealAnalysisResult.fromEdgeFunction(
       <String, dynamic>{
         'mealName': _titel210,
@@ -252,6 +296,12 @@ const Map<String, String> _erzeugerDateien = <String, String>{
   'lib/src/widgets/kcal/manual_meal_sheet.dart':
       'baut aus MealAnalysisResult.manualEntry um und nimmt jeden Wert von '
           'dort; die Makros gehen durch macroForGrams, das selbst klemmt',
+  'lib/src/services/meal_description_matcher.dart':
+      'MealDescriptionDraft.toResult nimmt jeden Wert aus adjustedToItems '
+          'ueber geklemmte Zeilen-Komponenten — in _alleErzeuger',
+  'lib/src/widgets/kcal/meal_describe_draft.dart':
+      'nur die Vorschau im Zeileneditor (Makro-Zeile); sie wird nie '
+          'geloggt, geloggt wird toResult',
 };
 
 /// Spalten der `logged_meals`-Zeile, die `_mealRow` in
