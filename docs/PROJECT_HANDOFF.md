@@ -3224,3 +3224,39 @@ Branch `feat/claude-sonnet-provider`; the PR records CI and merge state.
   published; publishing it is the remaining step, after which the
   "Pending publication" note in `PRIVACY.md` can go.
 
+## Shopping receipt and TikTok photo posts, 2026-10-10
+
+- **Shopping list as a receipt:** [PR #144](https://github.com/mxritzgit/Eatova/pull/144)
+  was squash-merged as `2ddf1e0` after all checks passed, including iOS
+  (pubspec changed). Every free-text ingredient line now has its own check.
+  Before, a recipe was one check. Line ids are `<week>:<sha256>` of the
+  locale-neutral line plus its occurrence. A recipe checked as a whole by
+  the old version keeps its lines checked (`shoppingLineChecked`). DM Mono
+  (OFL) is bundled for the receipt. There is no schema or sync change: the
+  server cap of 2000 checks per account with 35-day retention is unchanged,
+  and free-text recipes now use it like weighed ingredients. Locally: full
+  suite 6,955/6,955, coverage excluding l10n 97.00%. A test catches each
+  reverted guarantee (one line per tap, legacy fallback).
+- **TikTok photo posts:** [PR #143](https://github.com/mxritzgit/Eatova/pull/143)
+  was squash-merged as `ec240a2`. Share links of slideshow posts redirect to
+  `/@user/photo/<id>`, which `supportedTikTokUrl` rejected, so imports ended
+  as `needs_text` ("TikTok is not making this caption available"). oEmbed
+  answers 400 for `/photo/` URLs, and the photo page carries no caption
+  data. The live `/video/<id>` form of the same id returns the full caption
+  through both paths. The fix accepts `/photo/` and looks it up through
+  `/video/`; video posts send the same requests as before. Deno suite
+  976/976. The new tests fail on the old code.
+- **recipe-import deploy:** before deploying, the live source of v13
+  (redeployed 2026-10-08 23:28, after the rollout entry above recorded v12)
+  was downloaded and is byte-identical to `a0d7bfd`. With the owner's
+  explicit approval, `recipe-import` was then deployed from main `2ddf1e0`
+  with Supabase CLI 2.120.0 (`--use-api`): v13 -> **v14**,
+  ACTIVE, `verify_jwt=true`. The downloaded live source equals main byte for
+  byte. Boot probe: preflight 204, no token 401 from the gateway, public
+  anon key 401 from the handler itself (configuration check passed). No
+  authenticated import was run; the owner's photo-post link still needs a
+  real import on the device. The receipt needs a new device build.
+- **Workflow:** the owner gave standing approval to commit, push, open PRs,
+  wait for CI and merge when green. The auto-mode classifier still requires
+  the local permission rule `Bash(infisical run:*)` for GitHub token use,
+  and an explicit chat line for each merge and each production deploy.
