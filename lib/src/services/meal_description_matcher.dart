@@ -6,6 +6,7 @@ import '../models/described_meal.dart';
 import '../models/logged_meal.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/meal_component.dart';
+import '../models/model_limits.dart';
 import 'open_food_facts_product_service.dart';
 
 /// Where a draft line's numbers come from.
@@ -64,20 +65,110 @@ class DraftFoodItem {
 
   bool get isEstimate => selected.origin == DraftItemOrigin.estimate;
 
-  int get caloriesKcal => throw UnimplementedError('DraftFoodItem.caloriesKcal');
+  int get caloriesKcal => (selected.kcalPer100G * grams / 100).round();
+
+  /// Macros in grams for [grams]; null means unknown, not 0 g.
+  double? get proteinG => _forGrams(selected.proteinPer100G);
+  double? get carbsG => _forGrams(selected.carbsPer100G);
+  double? get fatG => _forGrams(selected.fatPer100G);
+
+  double? _forGrams(double? per100G) =>
+      per100G == null ? null : per100G * grams / 100;
 
   /// The same line with another portion.
-  DraftFoodItem withGrams(int grams) =>
-      throw UnimplementedError('DraftFoodItem.withGrams');
+  DraftFoodItem withGrams(int grams) => DraftFoodItem(
+    described: described,
+    selected: selected,
+    candidates: candidates,
+    grams: clampPortionGrams(grams, fallback: this.grams),
+  );
 
   /// The same line with another candidate. A stated countable amount ("1
   /// Scheibe") follows the new candidate's serving size when it has one.
-  DraftFoodItem withCandidate(DraftCandidate candidate) =>
-      throw UnimplementedError('DraftFoodItem.withCandidate');
+  DraftFoodItem withCandidate(DraftCandidate candidate) => DraftFoodItem(
+    described: described,
+    selected: candidate,
+    candidates: candidates,
+    grams: portionGramsFor(described, candidate) ?? grams,
+  );
 
-  MealComponent toComponent() =>
-      throw UnimplementedError('DraftFoodItem.toComponent');
+  /// The diary component; the brand joins the name unless already in it.
+  MealComponent toComponent() {
+    final brand = selected.brand?.trim();
+    final title = selected.title.trim();
+    final named =
+        brand == null ||
+            brand.isEmpty ||
+            title.toLowerCase().contains(brand.toLowerCase())
+        ? title
+        : '$title ($brand)';
+    return MealComponent(
+      name: clampMealName(named, fallback: described.name),
+      grams: grams,
+      caloriesKcal: caloriesKcal,
+      kcalPer100G: selected.kcalPer100G,
+      proteinG: proteinG,
+      carbsG: carbsG,
+      fatG: fatG,
+    );
+  }
 }
+
+/// Grams for [item] when it uses [candidate]: a stated countable amount
+/// times the candidate's serving size, else null (keep the current grams).
+int? portionGramsFor(DescribedFoodItem item, DraftCandidate candidate) {
+  final serving = candidate.servingGrams;
+  if (serving == null || item.gramsSource != DescribedGramsSource.stated) {
+    return null;
+  }
+  final count = countableAmount(item.amountText);
+  if (count == null) return null;
+  return clampPortionGrams(serving * count);
+}
+
+/// The count of a countable amount ("1 Scheibe", "zwei Stück", "½ Portion"),
+/// or null for weights and volumes ("200 g", "300 ml").
+double? countableAmount(String? amountText) {
+  final text = amountText?.trim().toLowerCase();
+  if (text == null || text.isEmpty) return null;
+  final match = _countable.firstMatch(text);
+  if (match == null) return null;
+  final number = match.group(1)!.replaceAll(',', '.');
+  return _countWords[number] ?? double.tryParse(number);
+}
+
+final RegExp _countable = RegExp(
+  r'^(\d+(?:[.,]\d+)?|½|ein|eine|einen|einem|einer|zwei|drei|vier|fünf|'
+  r'halbe?|a|an|one|two|three|four|five|half)\s+'
+  r'(scheiben?|stücke?|stück|portionen?|gläser|glas|becher|riegel|tassen?|'
+  r'eier|ei|brötchen|äpfel|apfel|bananen?|dosen?|packungen?|'
+  r'slices?|pieces?|servings?|portions?|glass(?:es)?|cups?|bars?|eggs?|'
+  r'rolls?|apples?|bananas?|cans?|packs?)(?=[\s.,;]|$)',
+  unicode: true,
+);
+
+const Map<String, double> _countWords = {
+  '½': .5,
+  'halb': .5,
+  'halbe': .5,
+  'half': .5,
+  'ein': 1,
+  'eine': 1,
+  'einen': 1,
+  'einem': 1,
+  'einer': 1,
+  'a': 1,
+  'an': 1,
+  'one': 1,
+  'zwei': 2,
+  'two': 2,
+  'drei': 3,
+  'three': 3,
+  'vier': 4,
+  'four': 4,
+  'fünf': 5,
+  'five': 5,
+};
 
 /// The editable result of a match; immutable, every edit returns a copy.
 class MealDescriptionDraft {
@@ -89,17 +180,28 @@ class MealDescriptionDraft {
   MealSlot? get slotHint => meal.slotHint;
 
   int get caloriesKcal =>
-      throw UnimplementedError('MealDescriptionDraft.caloriesKcal');
+      items.fold<int>(0, (sum, item) => sum + item.caloriesKcal);
 
   MealDescriptionDraft replaceItem(int index, DraftFoodItem item) =>
-      throw UnimplementedError('MealDescriptionDraft.replaceItem');
+      MealDescriptionDraft(
+        meal: meal,
+        items: [
+          for (var i = 0; i < items.length; i++) i == index ? item : items[i],
+        ],
+      );
 
-  MealDescriptionDraft removeItem(int index) =>
-      throw UnimplementedError('MealDescriptionDraft.removeItem');
+  MealDescriptionDraft removeItem(int index) => MealDescriptionDraft(
+    meal: meal,
+    items: [
+      for (var i = 0; i < items.length; i++)
+        if (i != index) items[i],
+    ],
+  );
 
   /// The loggable result: one component per line, totals summed from them.
-  MealAnalysisResult toResult() =>
-      throw UnimplementedError('MealDescriptionDraft.toResult');
+  MealAnalysisResult toResult() => meal.base.adjustedToItems([
+    for (final item in items) item.toComponent(),
+  ]);
 }
 
 /// Builds the draft for a described meal.
