@@ -776,10 +776,11 @@ List<BoxShadow> floatingShadow(AppTokens t) => <BoxShadow>[
 ];
 
 // --- TYPE --------------------------------------------------------------------
-// Two bundled families (assets/fonts, NO google_fonts):
+// Bundled families (assets/fonts, NO google_fonts):
 //   * Bricolage Grotesque for numbers and headings — tight negative tracking,
 //     tabular figures so calorie values do not jump while counting.
 //   * Figtree for everything else (body, labels, buttons).
+//   * DM Mono only for the shopping receipt.
 // Bundled on purpose: no runtime request to Google (privacy policy), no
 // fallback flash, identical offline.
 class AppType {
@@ -787,6 +788,7 @@ class AppType {
 
   static const String displayFamily = 'BricolageGrotesque';
   static const String uiFamily = 'Figtree';
+  static const String receiptFamily = 'DMMono';
 
   /// Fallback of every Figtree style: Figtree lacks glyphs such as "≈"
   /// (U+2248), which the bundled display family has — no system font, so the
@@ -850,6 +852,26 @@ class AppType {
     return TextStyle(
       fontFamily: uiFamily,
       fontFamilyFallback: uiFallback,
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+      letterSpacing: letterSpacing,
+      height: height,
+    );
+  }
+
+  /// The shopping receipt's typewriter face. Figtree fills in glyphs DM Mono
+  /// lacks, such as "½".
+  static TextStyle receipt(
+    double size, {
+    FontWeight weight = FontWeight.w400,
+    Color? color,
+    double? letterSpacing,
+    double? height,
+  }) {
+    return TextStyle(
+      fontFamily: receiptFamily,
+      fontFamilyFallback: const <String>[uiFamily, displayFamily],
       fontSize: size,
       fontWeight: weight,
       color: color,

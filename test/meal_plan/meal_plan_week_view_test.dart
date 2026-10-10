@@ -2,6 +2,7 @@
 // empty day is one "Plan a meal" row, a meal row names its kcal and turns
 // its eaten toggle into the eaten state, free-text ingredients lose their
 // list markers, and the empty shopping list plans a meal for the shown week.
+// Since the receipt (2026-10-10) every free-text line is checked on its own.
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart';
@@ -249,7 +250,7 @@ void main() {
   });
 
   testWidgets('free-text ingredients are listed without list markers and '
-      'keep the recipe-level check', (tester) async {
+      'each line is checked on its own', (tester) async {
     await withClock(Clock.fixed(_today), () async {
       final store = _store();
       final recipe = recipeCatalogEn.first.copyWith(
@@ -261,23 +262,45 @@ void main() {
         PlannedMeal.create(recipe: recipe, day: _today, slot: MealSlot.dinner),
       );
       final item = buildShoppingList(store.plannedMeals, _today).single;
+      final [beef, onion, salt] = item.lines;
       await _pump(tester, store);
       await _tap(tester, _key('meal-plan-tab-shopping'));
 
-      for (final line in ['200 g beef', '1 onion', 'Salt']) {
-        expect(find.text(line), findsOneWidget, reason: line);
+      for (final text in ['Beef', '200 g', 'Onion', '1', 'Salt']) {
+        expect(find.text(text), findsOneWidget, reason: text);
       }
       expect(find.textContaining('- 200'), findsNothing);
-      expect(find.textContaining('• 1'), findsNothing);
+      expect(find.textContaining('•'), findsNothing);
 
-      final card = _key('shopping-item-${item.id}');
-      await _tap(tester, find.descendant(of: card, matching: find.text('Salt')));
-      expect(store.shoppingChecks[item.id], isTrue);
+      // One tap checks one ingredient, nothing else.
+      final saltRow = _key('shopping-item-${salt.id}');
+      await _tap(tester, saltRow);
+      expect(store.shoppingChecks, {salt.id: true});
       expect(
-        tester.getSemantics(card),
-        isSemantics(hasCheckedState: true, isChecked: true),
+        tester.getSemantics(saltRow),
+        isSemantics(hasCheckedState: true, isChecked: true, label: 'Salt'),
       );
+      expect(
+        tester.getSemantics(_key('shopping-item-${beef.id}')),
+        isSemantics(
+          hasCheckedState: true,
+          isChecked: false,
+          label: 'Beef\n200 g',
+        ),
+      );
+      expect(find.text('1 of 3 checked off'), findsOneWidget);
+      expect(_key('shopping-receipt-stamp'), findsNothing);
+
+      await _tap(tester, _key('shopping-item-${beef.id}'));
+      await _tap(tester, _key('shopping-item-${onion.id}'));
       expect(find.text('All shopping done'), findsOneWidget);
+      expect(_key('shopping-receipt-stamp'), findsOneWidget);
+
+      // Unchecking one line reopens the list.
+      await _tap(tester, _key('shopping-item-${onion.id}'));
+      expect(store.shoppingChecks[onion.id], isFalse);
+      expect(store.shoppingChecks[beef.id], isTrue);
+      expect(find.text('2 of 3 checked off'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
@@ -298,7 +321,9 @@ void main() {
       expect(store.plannedMeals.single.day, '2026-09-07');
       expect(_key('shopping-empty-plan'), findsNothing);
       final items = buildShoppingList(store.plannedMeals, _today);
-      expect(find.text('0 of ${items.length} checked off'), findsOneWidget);
+      final (:done, :total) = shoppingProgress(items, store.shoppingChecks);
+      expect(find.text('$done of $total checked off'), findsOneWidget);
+      expect(total, greaterThan(1));
 
       // Next week: its Monday.
       await _tap(tester, _key('meal-plan-next-week'));

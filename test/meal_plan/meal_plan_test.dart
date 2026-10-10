@@ -516,12 +516,17 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         await tester.scrollUntilVisible(find.text('Milk to taste'), 150);
-        expect(find.text('Oats'), findsOneWidget);
+        // The receipt prints the title in capitals, the servings in its
+        // meta line, and each ingredient's amount on its own.
+        expect(find.text('OATS'), findsOneWidget);
         expect(
-          find.text(locale == 'de' ? '1 Portion' : '1 serving'),
+          find.textContaining(
+            locale == 'de' ? '1\u00A0Portion' : '1\u00A0serving',
+          ),
           findsOneWidget,
         );
-        expect(find.text('100 g oats'), findsOneWidget);
+        expect(find.text('Oats'), findsOneWidget);
+        expect(find.text('100 g'), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     });

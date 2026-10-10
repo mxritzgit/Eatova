@@ -3,7 +3,8 @@
 // recipe, then its day, slot and servings), the calendar it opens, the week
 // card with its day strip, planned, eaten and empty days, a jump from the
 // strip, the meal menu, the shopping list (filled and empty), and the recipe
-// history with its restore dialog.
+// history with its restore dialog. The receipt (2026-10-10) also renders a
+// German import with section labels and its done stamp.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/meal-plan-*.png; without it the suite still checks that
@@ -18,6 +19,7 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
+import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/screens/recipes/recipe_history_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
@@ -71,6 +73,19 @@ FitnessRecipe get _bowl => recipeCatalogEn.first.copyWith(
       ),
     ),
   ],
+);
+
+/// A free-text recipe as an import brings it: section labels, fractions and
+/// lines without an amount.
+FitnessRecipe get _pizza => recipeCatalogDe.first.copyWith(
+  title: 'High-Protein Körniger-Frischkäse-Pizza',
+  ingredients:
+      'Für den Pizzaboden:\n• 200 g körniger Frischkäse\n• 2 Eier\n'
+      '• 3 EL Weizenmehl\n• 1½ EL Backpulver\n• Etwas Salz\nBelag:\n'
+      '• 3 EL Tomatensoße\n• ½ weiße Zwiebel\n'
+      '• 1 Dose Thunfisch im eigenen Saft\n• 20 g Mais\n'
+      '• 25 g geriebener Light-Käse',
+  structuredIngredients: const [],
 );
 
 /// Pins the reference phone, or a 320 px wide one for the narrow checks.
@@ -276,6 +291,61 @@ void main() {
       await _tapVisible(tester, first.first);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-plan-shopping');
+    });
+  });
+
+  testWidgets('German receipt with sections, ticked off to its stamp', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      _viewport(tester);
+      final store = _store();
+      await store.savePlannedMeal(
+        PlannedMeal.create(recipe: _pizza, day: _now, slot: MealSlot.dinner),
+      );
+      await store.savePlannedMeal(
+        PlannedMeal.create(
+          recipe: _bowl,
+          day: _now.add(const Duration(days: 2)),
+          slot: MealSlot.lunch,
+        ),
+      );
+      await tester.pumpWidget(
+        designCaptureBoundary(
+          localizedApp(
+            MealPlanScreen(store: store),
+            locale: const Locale('de'),
+            safeArea: false,
+            scaffold: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _tapVisible(tester, _key('meal-plan-tab-shopping'));
+      expect(find.text('FÜR DEN PIZZABODEN:'), findsOneWidget);
+      expect(find.text('1 1/2 EL'), findsOneWidget);
+      expect(find.text('Thunfisch im eigenen Saft'), findsOneWidget);
+      await scrollDesignTabBy(tester, 420);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-de');
+
+      final items = buildShoppingList(store.plannedMeals, _now);
+      for (final item in items) {
+        if (item.grams != null) {
+          await store.setShoppingChecked(
+            ShoppingCheck(id: item.id, checked: true),
+          );
+        }
+        for (final line in item.lines.where((l) => !l.heading)) {
+          await store.setShoppingChecked(
+            ShoppingCheck(id: line.id, checked: true),
+          );
+        }
+      }
+      await tester.pumpAndSettle();
+      expect(_key('shopping-receipt-stamp'), findsOneWidget);
+      await scrollDesignTabBy(tester, 3000);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-done');
     });
   });
 

@@ -155,8 +155,9 @@ flutter:
     - assets/recipes/
     - assets/training/
 
-  # Two bundled families: Bricolage Grotesque for numbers/headings, Figtree for
-  # everything else. Bundled on purpose instead of via google_fonts:
+  # Bundled families: Bricolage Grotesque for numbers/headings, DM Mono for
+  # the shopping receipt, Figtree for everything else. Bundled on purpose
+  # instead of via google_fonts:
   #   * no runtime request to fonts.gstatic.com (the privacy policy names no
   #     Google font fetch, and it must stay true),
   #   * no fallback-font flash on cold start,
@@ -183,6 +184,14 @@ flutter:
           weight: 700
         - asset: assets/fonts/BricolageGrotesque-ExtraBold.ttf
           weight: 800
+    # The shopping receipt's typewriter face. DM Mono static cuts from
+    # github.com/google/fonts (ofl/dmmono), SIL OFL 1.1: DMMono-OFL.txt.
+    - family: DMMono
+      fonts:
+        - asset: assets/fonts/DMMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/DMMono-Medium.ttf
+          weight: 500
 
   # Resolution-specific variants: https://flutter.dev/to/resolution-aware-images
   # Assets from package dependencies: https://flutter.dev/to/asset-from-package
