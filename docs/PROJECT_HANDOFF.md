@@ -3224,6 +3224,57 @@ Branch `feat/claude-sonnet-provider`; the PR records CI and merge state.
   published; publishing it is the remaining step, after which the
   "Pending publication" note in `PRIVACY.md` can go.
 
+## Shopping receipt and TikTok photo posts, 2026-10-10
+
+- **Shopping list as a receipt:** [PR #144](https://github.com/mxritzgit/Eatova/pull/144)
+  was squash-merged as `2ddf1e0` after all checks passed, including iOS
+  (pubspec changed). Every free-text ingredient line now has its own check.
+  Before, a recipe was one check. Line ids are `<week>:<sha256>` of the
+  locale-neutral line plus its occurrence. A recipe checked as a whole by
+  the old version keeps its lines checked (`shoppingLineChecked`). DM Mono
+  (OFL) is bundled for the receipt. There is no schema or sync change: the
+  server cap of 2000 checks per account with 35-day retention is unchanged,
+  and free-text recipes now use it like weighed ingredients. Locally: full
+  suite 6,955/6,955, coverage excluding l10n 97.00%. A test catches each
+  reverted guarantee (one line per tap, legacy fallback).
+- **TikTok photo posts:** [PR #143](https://github.com/mxritzgit/Eatova/pull/143)
+  was squash-merged as `ec240a2`. Share links of slideshow posts redirect to
+  `/@user/photo/<id>`, which `supportedTikTokUrl` rejected, so imports ended
+  as `needs_text` ("TikTok is not making this caption available"). oEmbed
+  answers 400 for `/photo/` URLs, and the photo page carries no caption
+  data. The live `/video/<id>` form of the same id returns the full caption
+  through both paths. The fix accepts `/photo/` and looks it up through
+  `/video/`; video posts send the same requests as before. Deno suite
+  976/976. The new tests fail on the old code.
+- **recipe-import deploy:** before deploying, the live source of v13
+  (redeployed 2026-10-08 23:28, after the rollout entry above recorded v12)
+  was downloaded and is byte-identical to `a0d7bfd`. With the owner's
+  explicit approval, `recipe-import` was then deployed from main `2ddf1e0`
+  with Supabase CLI 2.120.0 (`--use-api`): v13 -> **v14**,
+  ACTIVE, `verify_jwt=true`. The downloaded live source equals main byte for
+  byte. Boot probe: preflight 204, no token 401 from the gateway, public
+  anon key 401 from the handler itself (configuration check passed). No
+  authenticated import was run; the owner's photo-post link still needs a
+  real import on the device. The receipt needs a new device build.
+- **Workflow:** the owner gave standing approval to commit, push, open PRs,
+  wait for CI and merge when green. The auto-mode classifier still requires
+  the local permission rule `Bash(infisical run:*)` for GitHub token use,
+  and an explicit chat line for each merge and each production deploy.
+
+## Feature-gap review with five agents, 2026-10-10
+
+The owner asked for a five-agent review of missing features. See
+[FEATURE-REVIEW-2026-10-10.md](FEATURE-REVIEW-2026-10-10.md), based on
+`e59f812`. Five read-only agents covered food logging, recipes and planning,
+training and health, Coach and insights, and growth and release readiness;
+the main session spot-checked the load-bearing claims in code. Strongest
+candidates: Sign in with Apple and AI-data consent before a store release;
+copying meals, text logging and history search; a weekly check-in, a wider
+Coach context and food preferences; exercise records and Health weight with
+measurement times. Still open from 2026-09-10: F6, F8 and F9. A short list
+of small gaps reads like bugs to users (export file button never shown,
+unknown barcode not kept, Health weight stored with import time). This is a
+recommendation, not an approved roadmap; only documentation changed.
 
 ## Describe a meal by text or voice, 2026-10-10
 
@@ -3279,3 +3330,19 @@ data, UI, review) with an orchestrator; contract in
   it (`FlutterFragmentActivity` builds the engine later), so a TikTok share
   that cold-starts the app may be dropped. Fix idea: keep the launch intent
   and pass it once the bridge exists.
+
+### Rollout, 2026-10-10 (owner: "Freigabe zum Mergen von #146 und #145 und zum Deployen von analyze-meal")
+
+- [PR #146](https://github.com/mxritzgit/Eatova/pull/146) squash-merged as
+  `909b343` after 16 green checks and one skipped live drift job; the
+  merged tree equals the reviewed head `f369df2`. The iOS build passed, the
+  first compile of the Swift changes.
+- `analyze-meal` deployed from `909b343` with Supabase CLI 2.120.0
+  (`--use-api`) as **v39**, ACTIVE, `verify_jwt=true`. Before the deploy the
+  live source equalled `main` at `2ddf1e0`; afterwards all 14 downloaded
+  files equal `909b343`. Probe: no token → gateway 401; service bearer → the
+  handler's own `invalid_user_token`, so it boots. No user request with a
+  real meal description was made against production.
+- This closes gap E2 of the [feature-gap review](FEATURE-REVIEW-2026-10-10.md)
+  in code and backend. Still open: a device build with the sheet, a first
+  real description on iOS and Android, and the eatova.de privacy page.
