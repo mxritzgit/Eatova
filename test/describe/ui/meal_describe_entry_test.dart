@@ -19,6 +19,7 @@ import 'package:eatova/src/widgets/kcal/meal_entry_methods.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 import '../../support/harness.dart';
+import 'describe_fakes.dart';
 import 'describe_harness.dart';
 
 class _NoPhotos implements MealPhotoInput {
@@ -45,6 +46,7 @@ class _NoProducts implements ProductLookupService {
 Future<DescribeHost> _openAddSheet(
   WidgetTester tester, {
   MealSlot slot = MealSlot.lunch,
+  DateTime? foodDate,
 }) async {
   final h = DescribeHost();
   phoneViewport(tester);
@@ -62,6 +64,7 @@ Future<DescribeHost> _openAddSheet(
           onAdd: h.onAdd,
           onUpdateMeal: (_, _) {},
           onRemoveFavorite: (_) {},
+          foodDate: foodDate,
           describer: h.describer,
           describeMatcher: h.matcher,
           speechInput: h.speech,
@@ -149,5 +152,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Nutella-Toast'), findsWidgets);
     expect(h.logged, hasLength(1));
+  });
+
+  testWidgets('a past day is named; the slot from the sentence is logged', (
+    tester,
+  ) async {
+    final day = DateTime(2026, 10, 8);
+    final h = await _openAddSheet(tester, foodDate: day);
+    h.matcher.draft = nutellaToastDraft(slotHint: MealSlot.dinner);
+    await _openDescribeEntry(tester);
+    final sheet = key('meal-describe-sheet');
+    final dayLabel = MaterialLocalizations.of(
+      tester.element(sheet),
+    ).formatMediumDate(day);
+    expect(
+      find.descendant(of: sheet, matching: find.text(dayLabel)),
+      findsOneWidget,
+    );
+
+    await describe(tester, 'Nutella-Toast zum Abendessen');
+    final l10n = l10nOf(tester);
+    await tester.ensureVisible(key('meal-describe-add'));
+    await tester.pumpAndSettle();
+    await tester.tap(key('meal-describe-add'));
+    await tester.pumpAndSettle();
+
+    expect(h.logged, hasLength(1));
+    expect(h.logged.single.slot, MealSlot.dinner);
+    expect(
+      find.text(l10n.commonKcalAddedToSlot(146, MealSlot.dinner.label(l10n))),
+      findsOneWidget,
+    );
+    // The add sheet follows to the slot the meal went to.
+    expect(
+      tester
+          .widget<MealSlotPicker>(
+            find.descendant(
+              of: key('add-meal-sheet'),
+              matching: find.byType(MealSlotPicker),
+            ),
+          )
+          .selected,
+      MealSlot.dinner,
+    );
   });
 }
