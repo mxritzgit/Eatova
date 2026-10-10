@@ -8,6 +8,8 @@ import { extractionSchema } from './schema.ts';
 const USER = '11111111-1111-4111-8111-111111111111';
 const TEXT = 'Pasta\n200 g Pasta\nPasta kochen.';
 const VIDEO = 'https://www.tiktok.com/@cook/video/1234567890123456789';
+const PHOTO = 'https://www.tiktok.com/@cook/photo/1234567890123456789';
+const SHORT = 'https://vm.tiktok.com/ZGabcdefg/';
 const ENV = {
   SUPABASE_URL: 'https://supabase.test.invalid', SUPABASE_ANON_KEY: 'test-anon-key',
   SUPABASE_SERVICE_ROLE_KEY: 'test-service-key', ANTHROPIC_API_KEY: 'test-provider-key',
@@ -65,6 +67,12 @@ async function stub(options: Options, run: (calls: Call[]) => Promise<void>): Pr
       return Promise.resolve(Response.json(options.gate ?? body.p_gates.map(() => ({ allowed: true }))));
     }
     if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budgetSequence?.[calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length - 1] ?? options.budget ?? { allowed: true, reason: 'allowed' }));
+    // Like TikTok: a photo-post share link redirects with tracking, and oEmbed
+    // rejects the /photo/ URL itself.
+    if (target === SHORT) return Promise.resolve(new Response(null, { status: 301, headers: { location: `${PHOTO}?_r=1&_t=tracking` } }));
+    if (target.startsWith('https://www.tiktok.com/oembed?') && new URL(target).searchParams.get('url')?.includes('/photo/')) {
+      return Promise.resolve(Response.json({ message: 'Something went wrong', code: 400 }, { status: 400 }));
+    }
     if (target.startsWith('https://www.tiktok.com/oembed?')) return Promise.resolve(Response.json(options.metadata ?? { title: TEXT, author_name: 'Cook' }, { status: options.metadataStatus ?? 200 }));
     if (isClaudeCall(target)) {
       if (options.providerHang) {
@@ -113,6 +121,18 @@ Deno.test('recipe-import canonical video fetches public metadata without auth he
     check(response.status === 200 && body.source.url === VIDEO && body.source.author === 'Cook', 'Caption import');
     const metadata = calls.find((call) => call.url.includes('/oembed?'))!;
     check(!metadata.headers.has('authorization') && !metadata.headers.has('apikey'), 'No app credentials to TikTok');
+  });
+});
+
+Deno.test('recipe-import TikTok photo-post share link imports the caption via the video lookup', async () => {
+  await stub({}, async (calls) => {
+    const response = await handleRequest(request({ text: SHORT, locale: 'en' }));
+    const body = await response.json();
+    check(response.status === 200 && body.status === 'ready' && body.candidates.length === 1, 'Caption import');
+    check(body.source.url === PHOTO && body.source.unavailable === false && body.source.author === 'Cook', 'Photo attribution');
+    const metadata = calls.filter((call) => call.url.includes('/oembed?'));
+    check(metadata.length === 1 && new URL(metadata[0].url).searchParams.get('url') === VIDEO, 'oEmbed asked for the video form');
+    check(!calls.some((call) => call.url.includes('tracking')), 'Tracking not forwarded');
   });
 });
 

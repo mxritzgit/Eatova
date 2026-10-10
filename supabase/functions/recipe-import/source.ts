@@ -29,7 +29,8 @@ export function supportedTikTokUrl(raw: string): URL | null {
     return null;
   }
   if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
-  const video = VIDEO_HOSTS.has(url.hostname) && /^\/@[\w.-]{1,64}\/video\/\d{10,25}\/?$/.test(url.pathname);
+  // Photo posts (slideshows) share the video ID space and caption source.
+  const video = VIDEO_HOSTS.has(url.hostname) && /^\/@[\w.-]{1,64}\/(?:video|photo)\/\d{10,25}\/?$/.test(url.pathname);
   const short = (SHORT_HOSTS.has(url.hostname) && /^\/[A-Za-z0-9]{5,40}\/?$/.test(url.pathname)) ||
     (VIDEO_HOSTS.has(url.hostname) && /^\/t\/[A-Za-z0-9]{5,40}\/?$/.test(url.pathname));
   if (!video && !short) return null;
@@ -92,8 +93,12 @@ export async function loadSource(text: string, signal: AbortSignal): Promise<Sou
     const video = await resolveVideo(unique[0], signal);
     if (!video) return result;
     result.source.url = video.href;
+    // oEmbed rejects photo-post URLs and the photo page carries no caption data;
+    // the same post's /video/ form serves both. Video posts look up themselves.
+    const lookup = new URL(video);
+    lookup.pathname = lookup.pathname.replace(/\/photo\/(\d+)$/, '/video/$1');
     const endpoint = new URL('https://www.tiktok.com/oembed');
-    endpoint.searchParams.set('url', video.href);
+    endpoint.searchParams.set('url', lookup.href);
     let caption = '';
     let author = '';
     for (let attempt = 0; attempt < 2 && !signal.aborted; attempt++) {
@@ -118,13 +123,13 @@ export async function loadSource(text: string, signal: AbortSignal): Promise<Sou
     if (!caption || /(?:\u2026|\.\.\.)$/.test(caption)) {
       try {
         const requestSignal = childSignal(signal);
-        const response = await fetch(video, {
+        const response = await fetch(lookup, {
           method: 'GET', redirect: 'manual', signal: requestSignal,
           headers: { accept: 'text/html' },
         });
         if (response.ok) {
           const html = await readProviderBody(response, 2_000_000, requestSignal);
-          const page = html === null ? null : pageCaption(html, video.pathname.split('/').at(-1)!);
+          const page = html === null ? null : pageCaption(html, lookup.pathname.split('/').at(-1)!);
           if (page && page.title.length > caption.length) {
             caption = page.title.trim();
             author = page.author ?? author;
