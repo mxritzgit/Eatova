@@ -308,10 +308,11 @@ abstract class MealDescriptionMatcher {
 /// its estimate; the match itself never fails because of a search.
 ///
 /// Per line, at most [maxCandidates] candidates, best first: candidates that
-/// may be auto-selected (a loggable kcal/100 g within [maxDensityRatio] of
-/// the estimate), then the estimate, then the rest as alternatives. Among
-/// the selectable ones a named brand ranks first, then favorites, then the
-/// title closest to the query, then the source's own order.
+/// may be auto-selected (a title that names the food, see [_fit], and a
+/// loggable kcal/100 g within [maxDensityRatio] of the estimate), then the
+/// estimate, then the rest as alternatives. Among the selectable ones a
+/// named brand ranks first, then favorites, then the title closest to the
+/// query, then the source's own order.
 class ProductMealDescriptionMatcher implements MealDescriptionMatcher {
   const ProductMealDescriptionMatcher({
     required this.products,
@@ -434,16 +435,25 @@ class ProductMealDescriptionMatcher implements MealDescriptionMatcher {
     for (var i = 0; i < recentFirst.length; i++) {
       final favorite = recentFirst[i];
       final result = favorite.result;
-      if (!_favoriteMatches(result, query) &&
-          !_favoriteMatches(result, named)) {
-        continue;
-      }
+      final fit = _maxFit(
+        _favoriteFit(result, query),
+        _favoriteFit(result, named),
+      );
+      if (fit == _Fit.none) continue;
       final candidate = _favoriteCandidate(result);
       if (candidate == null) continue;
       final barcode = candidate.barcode;
       if (barcode != null) barcodes.add(barcode);
       ranked.add(
-        _rank(item, candidate, estimate, query, order: i, usual: result),
+        _rank(
+          item,
+          candidate,
+          estimate,
+          query,
+          fit: fit,
+          order: i,
+          usual: result,
+        ),
       );
     }
 
@@ -452,10 +462,11 @@ class ProductMealDescriptionMatcher implements MealDescriptionMatcher {
       final hit = hits[i];
       final key = hit.code.isNotEmpty ? hit.code : '#${_fold(hit.title)}';
       if (barcodes.contains(hit.code) || !seen.add(key)) continue;
-      if (!_covers(query, _haystack(_tokens(hit.title)))) continue;
+      final fit = _fit(query, _tokens(hit.title));
+      if (fit == _Fit.none) continue;
       final candidate = _productCandidate(hit);
       if (candidate == null) continue;
-      ranked.add(_rank(item, candidate, estimate, query, order: i));
+      ranked.add(_rank(item, candidate, estimate, query, fit: fit, order: i));
     }
 
     ranked.sort(_Ranked.compare);
@@ -483,6 +494,7 @@ class ProductMealDescriptionMatcher implements MealDescriptionMatcher {
     DraftCandidate candidate,
     DraftCandidate estimate,
     Set<String> query, {
+    required _Fit fit,
     required int order,
     MealAnalysisResult? usual,
   }) {
@@ -490,9 +502,13 @@ class ProductMealDescriptionMatcher implements MealDescriptionMatcher {
     final usualGrams = usual?.estimatedGrams;
     return _Ranked(
       candidate: candidate,
+      // When in doubt, an alternative: only a title that names the food may
+      // be chosen without the user, and only with a plausible density.
       selectable:
+          fit == _Fit.close &&
           isLoggableKcalPer100G(candidate.kcalPer100G) &&
           _closeDensity(candidate.kcalPer100G, estimate.kcalPer100G),
+      close: fit == _Fit.close,
       brandMatch:
           brand != null &&
           _brandMatches(brand, candidate.brand, candidate.title),
@@ -534,6 +550,7 @@ class _Ranked {
   const _Ranked({
     required this.candidate,
     required this.selectable,
+    required this.close,
     required this.brandMatch,
     required this.favorite,
     required this.extras,
@@ -543,6 +560,9 @@ class _Ranked {
 
   final DraftCandidate candidate;
   final bool selectable;
+
+  /// The title names the food; among alternatives before related titles.
+  final bool close;
   final bool brandMatch;
   final bool favorite;
 
@@ -557,6 +577,7 @@ class _Ranked {
 
   static int compare(_Ranked a, _Ranked b) {
     if (a.selectable != b.selectable) return a.selectable ? -1 : 1;
+    if (a.close != b.close) return a.close ? -1 : 1;
     if (a.brandMatch != b.brandMatch) return a.brandMatch ? -1 : 1;
     if (a.favorite != b.favorite) return a.favorite ? -1 : 1;
     final extras = a.extras.compareTo(b.extras);
@@ -678,13 +699,155 @@ Set<String> _mainTokens(String text, {String? brand}) {
   };
 }
 
+/// How well a title names the food a query asks for.
+enum _Fit {
+  /// Another food.
+  none,
+
+  /// Related, maybe the food: listed as an alternative, never chosen alone.
+  loose,
+
+  /// The food: may be chosen when its energy is plausible too.
+  close,
+}
+
+_Fit _maxFit(_Fit a, _Fit b) => a.index >= b.index ? a : b;
+
+_Fit _minFit(_Fit a, _Fit b) => a.index <= b.index ? a : b;
+
+/// Endings that only cut or shape a food: "Hähnchenbrustfilet" is
+/// "Hähnchenbrust", "Putenbrustaufschnitt" is "Putenbrust".
+const Set<String> _formEndings = {
+  "filet",
+  "filets",
+  "fillet",
+  "fillets",
+  "aufschnitt",
+  "scheiben",
+  "streifen",
+  "wuerfel",
+  "stuecke",
+};
+
+/// Names stores use for the same food either way ("Toast" and "Toastbrot").
+const Map<String, List<String>> _sameFood = {
+  "toast": ["toastbrot"],
+  "toastbrot": ["toast"],
+  "knaecke": ["knaeckebrot"],
+  "knaeckebrot": ["knaecke"],
+};
+
+/// Query words a plain product often leaves out of its title ("Skyr" for
+/// "Skyr Natur"). Without them a title is listed, never chosen.
+const Set<String> _plainWords = {
+  "natur",
+  "naturell",
+  "pur",
+  "classic",
+  "klassisch",
+  "original",
+  "plain",
+};
+
+/// [token] and its forms without one ending ("bananen": "banane", "banan").
+List<String> _stems(String token) => [
+  token,
+  for (final ending in _inflections)
+    if (token.length - ending.length >= 4 && token.endsWith(ending))
+      token.substring(0, token.length - ending.length),
+];
+
+/// How a title [word] names the query word [query]. Close only as the same
+/// word or the same food cut ("Hähnchenbrustfilet"). Inside a compound the
+/// food is in doubt, as German puts its head last: "Buttertoast" is a toast
+/// but "Hafermilch" no cow's milk, and "Milchreis" or "Apfelsaft" are
+/// neither milk nor apple; such words are loose, like a title word that is
+/// only the head of the query ("Milch" for "Vollmilch").
+_Fit _wordFit(String query, String word) {
+  if (query.length < 4) {
+    // Short words ("ei") only whole: inside compounds they are everywhere.
+    return RegExp('^${RegExp.escape(query)}(e|n|en|er)?\$').hasMatch(word)
+        ? _Fit.close
+        : _Fit.none;
+  }
+  final queryStems = _stems(query);
+  final wordStems = _stems(word);
+  for (final q in queryStems) {
+    for (final w in wordStems) {
+      if (w == q) return _Fit.close;
+      if (w.startsWith(q) && _formEndings.contains(w.substring(q.length))) {
+        return _Fit.close;
+      }
+    }
+  }
+  if (queryStems.any(word.contains)) return _Fit.loose;
+  if (wordStems.any((w) => w.length >= 4 && query.endsWith(w))) {
+    return _Fit.loose;
+  }
+  return _Fit.none;
+}
+
+/// [title] tokens as words, plus runs of up to four as one word, so "Butter
+/// Toast" also reads "buttertoast" and "Nuss-Nougat-Creme"
+/// "nussnougatcreme".
+List<String> _words(List<String> title) => [
+  ...title,
+  for (var start = 0; start < title.length; start++)
+    for (var end = start + 2; end <= title.length && end - start <= 4; end++)
+      title.sublist(start, end).join(),
+];
+
+/// How well [title] (tokens) names the food of [query]: every query word
+/// must be named, the weakest decides. A missing [_plainWords] word only
+/// loosens; the query run together counts too ("Nussnougatcreme").
+_Fit _fit(Set<String> query, List<String> title) {
+  if (query.isEmpty || title.isEmpty) return _Fit.none;
+  final words = _words(title);
+  _Fit best(String token) {
+    var fit = _Fit.none;
+    for (final form in [token, ...?_sameFood[token]]) {
+      for (final word in words) {
+        fit = _maxFit(fit, _wordFit(form, word));
+        if (fit == _Fit.close) return fit;
+      }
+    }
+    return fit;
+  }
+
+  final plain = query.where(_plainWords.contains).toSet();
+  final required = plain.length == query.length
+      ? query
+      : query.difference(plain);
+  var fit = _Fit.close;
+  for (final token in required) {
+    fit = _minFit(fit, best(token));
+  }
+  for (final token in query.difference(required)) {
+    if (best(token) != _Fit.close) fit = _minFit(fit, _Fit.loose);
+  }
+  return query.length > 1 ? _maxFit(fit, best(query.join())) : fit;
+}
+
+/// Products and product favorites as a search hit; a scan, recipe or manual
+/// favorite must name the same food both ways ("Toast Hawaii" is not
+/// "Toast").
+_Fit _favoriteFit(MealAnalysisResult favorite, Set<String> query) {
+  final own = _mainTokens(favorite.mealName, brand: favorite.brand);
+  final forward = _fit(query, own.toList());
+  if (forward == _Fit.none || _nonEmpty(favorite.barcode) != null) {
+    return forward;
+  }
+  return _minFit(forward, _fit(own, query.toList()));
+}
+
 /// [tokens] as words for whole-word matches, then as one run so "Hafer
 /// Drink" also holds "haferdrink".
 String _haystack(Iterable<String> tokens) =>
     '${tokens.join(' ')} ${tokens.join()}';
 
-/// Whether every token of [query] appears in [haystack]. Short tokens ("ei")
-/// must match a whole word, else they sit inside half the catalog.
+/// Whether every token of [query] appears in [haystack]. Short tokens must
+/// match a whole word. Brands only: a brand inside a longer name is that
+/// brand.
 bool _covers(Set<String> query, String haystack) =>
     query.isNotEmpty && query.every((token) => _coveredBy(token, haystack));
 
@@ -694,26 +857,7 @@ bool _coveredBy(String token, String haystack) {
       '(^| )${RegExp.escape(token)}(e|n|en|er)?( |\$)',
     ).hasMatch(haystack);
   }
-  if (haystack.contains(token)) return true;
-  for (final ending in _inflections) {
-    if (token.length - ending.length >= 4 &&
-        token.endsWith(ending) &&
-        haystack.contains(token.substring(0, token.length - ending.length))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/// Products and product favorites cover the query; a scan, recipe or manual
-/// favorite must name the same food both ways ("Toast Hawaii" is not
-/// "Toast").
-bool _favoriteMatches(MealAnalysisResult favorite, Set<String> query) {
-  if (query.isEmpty) return false;
-  final own = _mainTokens(favorite.mealName, brand: favorite.brand);
-  if (!_covers(query, _haystack(own))) return false;
-  final isProduct = _nonEmpty(favorite.barcode) != null;
-  return isProduct || _covers(own, _haystack(query));
+  return _stems(token).any(haystack.contains);
 }
 
 bool _brandMatches(String brand, String? candidateBrand, String title) =>
@@ -722,10 +866,16 @@ bool _brandMatches(String brand, String? candidateBrand, String title) =>
       _haystack(_tokens('${candidateBrand ?? ''} $title')),
     );
 
-/// Title words outside the query, the candidate's brand and stop words.
+/// Title words that name no query word closely, outside the candidate's
+/// brand and stop words: fewer is closer ("Reis" before "Milchreis").
 int _extraTokens(Set<String> query, String title, String? brand) =>
     _mainTokens(title, brand: brand)
         .where(
-          (token) => !query.any((q) => q.contains(token) || token.contains(q)),
+          (word) => !query.any(
+            (token) => [
+              token,
+              ...?_sameFood[token],
+            ].any((form) => _wordFit(form, word) == _Fit.close),
+          ),
         )
         .length;
