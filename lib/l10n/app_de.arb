@@ -3207,5 +3207,11 @@
   "recipesYourRecipesBody": "Importiere eins von einer Website oder leg dein eigenes an.",
   "recipesCreateButton": "Erstellen",
   "recipesHeroRecommendedEyebrow": "Empfehlung",
-  "recipesChipUnder600": "Unter 600 kcal"
+  "recipesChipUnder600": "Unter 600 kcal",
+  "mealPlanReceiptMeta": "KW {week} · {count, plural, =1{1 Gericht} other{{count} Gerichte}}",
+  "@mealPlanReceiptMeta": {"placeholders": {"week": {"type": "int"}, "count": {"type": "int"}}},
+  "mealPlanReceiptItems": "Artikel",
+  "mealPlanReceiptOpen": "Noch offen",
+  "mealPlanReceiptThanks": "Guten Appetit!",
+  "mealPlanReceiptStamp": "Erledigt"
 }

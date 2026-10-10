@@ -3139,5 +3139,11 @@
   "recipesYourRecipesBody": "Import one from a website or add your own.",
   "recipesCreateButton": "Create",
   "recipesHeroRecommendedEyebrow": "Recommended",
-  "recipesChipUnder600": "Under 600 kcal"
+  "recipesChipUnder600": "Under 600 kcal",
+  "mealPlanReceiptMeta": "Week {week} · {count, plural, =1{1 meal} other{{count} meals}}",
+  "@mealPlanReceiptMeta": {"placeholders": {"week": {"type": "int"}, "count": {"type": "int"}}},
+  "mealPlanReceiptItems": "Items",
+  "mealPlanReceiptOpen": "Still to buy",
+  "mealPlanReceiptThanks": "Enjoy your meals!",
+  "mealPlanReceiptStamp": "Done"
 }

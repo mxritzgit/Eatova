@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/home_store.dart';
@@ -45,14 +48,6 @@ bool _largeText(BuildContext context) =>
 /// [text] that only breaks between words of different parts: "1,340 kcal"
 /// or "Sep 28" stay on one line.
 String _keepTogether(String text) => text.replaceAll(' ', '\u00A0');
-
-/// Free-text ingredient lines without their list markers ("- ", "• ").
-List<String> _ingredientLines(String text) => [
-  for (final line in text.split('\n'))
-    if (line.trim().replaceFirst(RegExp(r'^[-–—•*·]+\s*'), '')
-        case final clean when clean.isNotEmpty)
-      clean,
-];
 
 class MealPlanScreen extends StatefulWidget {
   const MealPlanScreen({super.key, required this.store});
@@ -269,9 +264,9 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final formatter = _week.year == today.year && end.year == _week.year
         ? DateFormat.MMMd(l.localeName)
         : DateFormat.yMMMd(l.localeName);
-    final done = items.where((i) => store.shoppingChecks[i.id] ?? false).length;
-    final complete = items.isNotEmpty && done == items.length;
-    final showProgress = _shopping && ready && items.isNotEmpty;
+    final (:done, :total) = shoppingProgress(items, store.shoppingChecks);
+    final complete = total > 0 && done == total;
+    final showProgress = _shopping && ready && total > 0;
 
     Widget? summary;
     if (!_shopping && ready) {
@@ -304,7 +299,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             child: Text(
               complete
                   ? l.mealPlanShoppingDone
-                  : l.mealPlanShoppingProgress(done, items.length),
+                  : l.mealPlanShoppingProgress(done, total),
               key: const ValueKey('shopping-progress-label'),
               style: AppType.ui(
                 13.5,
@@ -424,7 +419,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
           if (showProgress) ...[
             const SizedBox(height: 12),
             TweenAnimationBuilder<double>(
-              tween: Tween(end: done / items.length),
+              tween: Tween(end: done / total),
               duration: motionDuration(context, kMotionValue),
               curve: kMotionCurve,
               builder: (context, value, _) => ClipRRect(
@@ -434,10 +429,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                   value: value,
                   color: complete ? t.success : t.progressAccent,
                   backgroundColor: t.tile,
-                  semanticsLabel: l.mealPlanShoppingProgress(
-                    done,
-                    items.length,
-                  ),
+                  semanticsLabel: l.mealPlanShoppingProgress(done, total),
                 ),
               ),
             ),
@@ -586,8 +578,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     required bool ready,
   }) {
     final l = context.l10n;
-    final weighed = items.where((i) => i.grams != null).toList();
-    final freeText = items.where((i) => i.grams == null).toList();
+    final freeText = items.any((i) => i.grams == null);
     return [
       if (items.isEmpty && ready)
         Padding(
@@ -597,116 +588,88 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             onPlan: () => _edit(_defaultPlanDay),
           ),
         ),
-      if (weighed.isNotEmpty) ...[
-        const SizedBox(height: 26),
-        SectionHeading(title: l.mealPlanWeighed),
-        const SizedBox(height: 10),
-        _GroupCard(
-          dividerIndent: 54,
-          children: [for (final item in weighed) _shoppingRow(context, item)],
-        ),
-        const SizedBox(height: 10),
+      if (items.isNotEmpty) ...[
+        const SizedBox(height: 18),
+        _receipt(context, items),
+        const SizedBox(height: 14),
         _Footnote(l.mealPlanShoppingIntro),
-      ],
-      if (freeText.isNotEmpty) ...[
-        const SizedBox(height: 26),
-        SectionHeading(title: l.mealPlanUnquantified),
-        const SizedBox(height: 10),
-        for (final item in freeText) ...[
-          _recipeCard(context, item),
-          const SizedBox(height: 10),
-        ],
-        _Footnote(l.mealPlanUnquantifiedHint),
-        if (weighed.isEmpty) ...[
+        if (freeText) ...[
           const SizedBox(height: 6),
-          _Footnote(l.mealPlanShoppingIntro),
+          _Footnote(l.mealPlanUnquantifiedHint),
         ],
       ],
     ];
   }
 
-  VoidCallback? _toggleCheck(ShoppingItem item, bool checked) =>
-      _busy.contains(item.id)
+  /// Toggles the check [id]; a light tick confirms it under the finger.
+  VoidCallback? _toggleCheck(String id, bool checked) => _busy.contains(id)
       ? null
-      : () => _run(
-          item.id,
-          () => store.setShoppingChecked(
-            ShoppingCheck(id: item.id, checked: !checked),
-          ),
-          feedback: false,
-        );
-
-  /// A weighed ingredient: check, name and amount; a checked row dims in
-  /// place, so nothing moves under the finger.
-  Widget _shoppingRow(BuildContext context, ShoppingItem item) {
-    final l = context.l10n;
-    final t = context.t;
-    final checked = store.shoppingChecks[item.id] ?? false;
-    final name = Text(
-      item.name,
-      style: AppType.ui(
-        15,
-        weight: FontWeight.w600,
-        color: checked ? t.ink3 : t.ink,
-        height: 1.3,
-      ).copyWith(
-        decoration: checked ? TextDecoration.lineThrough : null,
-        decorationColor: t.ink3,
-      ),
-    );
-    final amount = _AmountCapsule(
-      value: NumberFormat('0.##', l.localeName).format(item.grams),
-      unit: 'g',
-      dimmed: checked,
-    );
-    final large = _largeText(context);
-    // One merged node like a checkbox list tile: checked state, name and
-    // amount, and the row's tap.
-    return MergeSemantics(
-      child: Semantics(
-        checked: checked,
-        enabled: !_busy.contains(item.id),
-        child: InkWell(
-          key: ValueKey('shopping-item-${item.id}'),
-          onTap: _toggleCheck(item, checked),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 56),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 14, 10),
-              child: Row(
-                crossAxisAlignment: large
-                    ? CrossAxisAlignment.start
-                    : CrossAxisAlignment.center,
-                children: [
-                  _ShoppingCheck(checked: checked),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: large
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [name, const SizedBox(height: 6), amount],
-                          )
-                        : name,
-                  ),
-                  if (!large) ...[const SizedBox(width: 12), amount],
-                ],
-              ),
+      : () {
+          HapticFeedback.selectionClick();
+          _run(
+            id,
+            () => store.setShoppingChecked(
+              ShoppingCheck(id: id, checked: !checked),
             ),
-          ),
+            feedback: false,
+          );
+        };
+
+  /// The week's list as one receipt: the weighed ingredients summed across
+  /// meals, then every recipe with free-text ingredients line by line.
+  Widget _receipt(BuildContext context, List<ShoppingItem> items) {
+    final l = context.l10n;
+    final checks = store.shoppingChecks;
+    final weighed = items.where((i) => i.grams != null).toList();
+    final freeText = items.where((i) => i.grams == null).toList();
+    final (:done, :total) = shoppingProgress(items, checks);
+    final sections = <Widget>[
+      if (weighed.isNotEmpty)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _ReceiptHeading(title: l.mealPlanWeighed),
+            for (final item in weighed)
+              _ReceiptRow(
+                key: ValueKey('shopping-item-${item.id}'),
+                label: item.name,
+                amount:
+                    '${NumberFormat('0.##', l.localeName).format(item.grams)} g',
+                checked: checks[item.id] ?? false,
+                onTap: _toggleCheck(item.id, checks[item.id] ?? false),
+              ),
+          ],
         ),
+      for (final item in freeText) _receiptRecipe(context, item),
+    ];
+    return _ReceiptPaper(
+      key: const ValueKey('shopping-receipt'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ReceiptHeader(
+            week: _isoWeek(_week),
+            meals: shoppingPlans(store.plannedMeals, _week).length,
+          ),
+          for (final section in sections) ...[
+            const _ReceiptRule(),
+            section,
+          ],
+          const _ReceiptRule(doubled: true),
+          _ReceiptTotals(done: done, total: total),
+          _ReceiptFooter(seed: localDayKey(_week)),
+        ],
       ),
     );
   }
 
-  /// A recipe with free-text ingredients: one check for the whole recipe,
-  /// its photo, the planned servings and the ingredient lines.
-  Widget _recipeCard(BuildContext context, ShoppingItem item) {
+  /// A recipe with free-text ingredients: its title, day, slot and servings,
+  /// then each ingredient line with its own check.
+  Widget _receiptRecipe(BuildContext context, ShoppingItem item) {
     final l = context.l10n;
-    final t = context.t;
-    final checked = store.shoppingChecks[item.id] ?? false;
+    final checks = store.shoppingChecks;
     final plan = store.plannedMeals.where((p) => p.id == item.planId).firstOrNull;
-    final lines = _ingredientLines(item.name);
-    final basis = item.originalQuantities
+    final note = item.originalQuantities
         ? (item.originalBatchServings == null
               ? l.recipeIngredientsOriginalUnknown
               : l.recipeIngredientsOriginalBatch(
@@ -714,101 +677,42 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       .format(item.originalBatchServings),
                 ))
         : null;
-    final lineStyle = AppType.ui(
-      14,
-      color: checked ? t.ink3 : t.ink2,
-      height: 1.4,
-    );
-    final radius = BorderRadius.circular(rCard);
-    final title = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          item.recipeTitle!,
-          style: AppType.ui(
-            15,
-            weight: FontWeight.w700,
-            color: checked ? t.ink3 : t.ink,
-            height: 1.3,
-          ).copyWith(
-            decoration: checked ? TextDecoration.lineThrough : null,
-            decorationColor: t.ink3,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          l.mealPlanPortionCount(item.servings!),
-          style: AppType.ui(13, color: t.ink2, height: 1.3),
-        ),
+    final meta = [
+      if (plan != null) ...[
+        todayWeekdayShort(DateTime.parse(plan.day), l),
+        plan.slot.label(l),
       ],
-    );
-    final large = _largeText(context);
-    return MergeSemantics(
-      child: Semantics(
-        checked: checked,
-        enabled: !_busy.contains(item.id),
-        child: Material(
-          color: t.surf,
-          shape: RoundedRectangleBorder(
-            borderRadius: radius,
-            side: BorderSide(color: t.cardBorder),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: ValueKey('shopping-item-${item.id}'),
-            onTap: _toggleCheck(item, checked),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      _ShoppingCheck(checked: checked),
-                      const SizedBox(width: 14),
-                      if (plan != null) ...[
-                        Opacity(
-                          opacity: checked ? 0.5 : 1,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(rControl),
-                            child: SizedBox.square(
-                              dimension: 48,
-                              child: ExcludeSemantics(
-                                child: RecipePhoto(recipe: plan.recipe),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                      ],
-                      if (!large) Expanded(child: title),
-                    ],
-                  ),
-                  if (large) ...[const SizedBox(height: 10), title],
-                  const SizedBox(height: 12),
-                  Container(height: 1, color: t.line),
-                  const SizedBox(height: 10),
-                  if (basis != null) ...[
-                    Text(
-                      basis,
-                      style: AppType.ui(12.5, color: t.ink3, height: 1.4),
-                    ),
-                    const SizedBox(height: 6),
-                  ],
-                  if (lines.isEmpty)
-                    Text(l.mealPlanNoIngredients, style: lineStyle)
-                  else
-                    for (var i = 0; i < lines.length; i++)
-                      Padding(
-                        padding: EdgeInsets.only(top: i == 0 ? 0 : 5),
-                        child: Text(lines[i], style: lineStyle),
-                      ),
-                ],
-              ),
+      l.mealPlanPortionCount(item.servings!),
+    ].map(_keepTogether).join(' · ');
+    return Column(
+      key: ValueKey('shopping-recipe-${item.id}'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ReceiptHeading(title: item.recipeTitle!, meta: meta, note: note),
+        if (item.lines.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            child: Text(
+              l.mealPlanNoIngredients,
+              style: AppType.ui(13.5, color: context.t.ink2, height: 1.4),
             ),
-          ),
-        ),
-      ),
+          )
+        else
+          for (final line in item.lines)
+            if (line.heading)
+              _ReceiptSubheading(line.label)
+            else
+              _ReceiptRow(
+                key: ValueKey('shopping-item-${line.id}'),
+                label: line.label,
+                amount: line.amount,
+                checked: shoppingLineChecked(checks, item, line),
+                onTap: _toggleCheck(
+                  line.id,
+                  shoppingLineChecked(checks, item, line),
+                ),
+              ),
+      ],
     );
   }
 }
