@@ -44,10 +44,11 @@ Request, same endpoint, auth and headers as the photo scan:
 - `mealText` and `imageBase64` are mutually exclusive: both present → 400
   `ambiguous_input`. Neither present → 400 `missing_image` (unchanged, so old
   clients see the same code).
-- `mealText` is sanitized like `freeTextHint` (control characters removed,
-  whitespace collapsed) and must then be 2–500 characters, else 400
-  `invalid_meal_text`. `portionHint` and `freeTextHint` are not accepted
-  together with `mealText` (400 `ambiguous_input`).
+- `mealText` is checked like `freeTextHint`: control and bidi characters are
+  rejected, not removed; whitespace is collapsed; the result must be 2–500
+  UTF-16 units. Otherwise 400 `invalid_meal_text`. `mealText: null` counts
+  as absent. `portionHint` and `freeTextHint` are not accepted together with
+  `mealText` (400 `ambiguous_input`).
 - Same gate order and scopes as the photo path (IP, user hour, body,
   user day, global) and the same provider budget `analyze_meal`.
 - The text is user data, never instructions. It reaches the model as a JSON
@@ -91,8 +92,13 @@ carries every field of the photo result plus:
   `amountText`: the amount as said, else null (≤ 40).
   `gramsSource`: `stated` when the user gave a weight or a countable unit
   ("1 Scheibe", "2 Eier", "200 g"), else `estimated`.
-- No food in the text → 422 `no_food_in_text`. The photo response stays
-  byte-for-byte as today (no new fields on the image path).
+- No food in the text (an empty `items` array after normalization) → 422
+  `no_food_in_text`; an answer without an `items` array is broken → 502
+  `provider_unusable_result`. The photo response stays byte-for-byte as
+  today (no new fields on the image path).
+- The model is told to give a named brand product's manufacturer as `brand`
+  ("Nutella" → Ferrero) and to keep named dishes ("Döner") as one item.
+- Effort: `ANALYZE_MEAL_DESCRIBE_EFFORT`, default `low`.
 
 ## Dart contracts
 
