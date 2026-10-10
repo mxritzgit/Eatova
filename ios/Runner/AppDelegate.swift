@@ -129,15 +129,17 @@ public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
 }
 
 // ---------------------------------------------------------------------------
-// EatovaSpeechPlugin: native voice-input bridge for the coach chat.
+// EatovaSpeechPlugin: native voice-input bridge for the coach chat and the
+// meal description.
 //
 // Requests mic + speech permission, runs AVAudioEngine + SFSpeechRecognizer
-// and reports the transcript to Flutter (coach_speech.dart):
-// - listen {localeId, token} completes with {text, reason}. reason is stop
-//   (Dart asked), final (the task ended on its own), limit (it ended on its
-//   own after >= 55 s, Apple's server cap), length (the text reached the coach
-//   input cap) or cancel. Errors: permission_denied, unavailable, busy,
-//   recognition_failed.
+// and reports the transcript to Flutter (lib/src/services/speech_input.dart):
+// - listen {localeId, token, vocabulary?, maxUnits?} completes with
+//   {text, reason}. vocabulary is gym (default) or food; maxUnits defaults to
+//   1000, so calls without them behave as before. reason is stop (Dart
+//   asked), final (the task ended on its own), limit (it ended on its own
+//   after >= 55 s, Apple's server cap), length (the text reached maxUnits) or
+//   cancel. Errors: permission_denied, unavailable, busy, recognition_failed.
 // - Native -> Dart partial {token, text}: the whole transcript so far, sent
 //   only when it changed.
 // - stop is graceful: the audio ends and the final result gets up to 1.5 s.
@@ -145,8 +147,9 @@ public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
 // The transcript is never logged.
 // ---------------------------------------------------------------------------
 public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
-  /// Mirrors kCoachMaxInputChars (UTF-16 units) in coach_composer.dart.
-  private static let maxTranscriptUnits = 1000
+  /// Default for listen's maxUnits; mirrors kCoachMaxInputChars (UTF-16
+  /// units) in coach_composer.dart.
+  private static let defaultMaxTranscriptUnits = 1000
   private static let finalResultGrace: TimeInterval = 1.5
   /// Apple's server path stops a task after about one minute.
   private static let serverLimit: TimeInterval = 55
@@ -158,6 +161,23 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     "bench press", "squats", "deadlift", "overhead press", "pull-ups",
     "push-ups", "rows", "lat pulldown", "leg press", "lunges",
     "reps", "sets", "barbell", "dumbbell", "kg", "plank",
+  ]
+  /// Food, units and German store and brand words recognizers mishear, for
+  /// the meal description; it only biases recognition.
+  private static let foodVocabulary: [String] = [
+    "Nutella", "Skyr", "Magerquark", "Haferflocken", "Hähnchenbrust",
+    "Putenbrust", "Toastbrot", "Vollkornbrot", "Brötchen", "Müsli",
+    "Joghurt", "Frischkäse", "Hüttenkäse", "Erdnussbutter", "Proteinpulver",
+    "Proteinriegel", "Reiswaffeln", "Rührei", "Banane", "Heidelbeeren",
+    "Basmatireis", "Vollkornnudeln", "Süßkartoffel", "Brokkoli", "Döner",
+    "Schnitzel", "Leberkäse", "Brezel",
+    "Gramm", "Milliliter", "Scheibe", "Esslöffel", "Teelöffel",
+    "Portion", "Handvoll", "Becher", "Stück",
+    "Lidl", "Aldi", "Rewe", "Edeka", "Kaufland", "Netto", "Penny",
+    "Milbona", "Ehrmann", "Alpro",
+    "grams", "slice", "tablespoon", "teaspoon", "cup", "handful",
+    "oatmeal", "chicken breast", "Greek yogurt", "cottage cheese",
+    "peanut butter", "protein shake", "whey", "rice cakes", "scrambled eggs",
   ]
 
   private let audioEngine = AVAudioEngine()
@@ -171,6 +191,9 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private var transcript = SpeechTranscriptAccumulator()
   private var lastSentText = ""
   private var dartToken = 0
+  /// Per listen call; read while recognizing.
+  private var contextualStrings = EatovaSpeechPlugin.gymVocabulary
+  private var maxTranscriptUnits = EatovaSpeechPlugin.defaultMaxTranscriptUnits
   /// Set while a graceful stop waits for the final result.
   private var stopReason: String?
   /// Wall clock when the audio engine started. Not the boot-time clock: that
@@ -197,7 +220,19 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       let args = call.arguments as? [String: Any]
       let localeId = args?["localeId"] as? String ?? "de_DE"
       let token = args?["token"] as? Int ?? 0
-      listen(localeId: localeId, token: token, result: result)
+      // Both optional: a call without them gets the coach's settings.
+      let vocabulary = (args?["vocabulary"] as? String) == "food"
+        ? Self.foodVocabulary
+        : Self.gymVocabulary
+      let requestedUnits = args?["maxUnits"] as? Int ?? Self.defaultMaxTranscriptUnits
+      let maxUnits = requestedUnits > 0 ? requestedUnits : Self.defaultMaxTranscriptUnits
+      listen(
+        localeId: localeId,
+        token: token,
+        vocabulary: vocabulary,
+        maxUnits: maxUnits,
+        result: result
+      )
     case "stop":
       DispatchQueue.main.async {
         self.beginGracefulStop(reason: "stop")
@@ -219,7 +254,13 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  private func listen(localeId: String, token: Int, result: @escaping FlutterResult) {
+  private func listen(
+    localeId: String,
+    token: Int,
+    vocabulary: [String],
+    maxUnits: Int,
+    result: @escaping FlutterResult
+  ) {
     DispatchQueue.main.async {
       if self.pendingResult != nil {
         // Only a dictation that is draining its final result gives way; Dart
@@ -238,6 +279,8 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       self.transcript = SpeechTranscriptAccumulator()
       self.lastSentText = ""
       self.dartToken = token
+      self.contextualStrings = vocabulary
+      self.maxTranscriptUnits = maxUnits
       self.recordingStartedAt = nil
       let sessionID = UUID()
       self.activeSessionID = sessionID
@@ -323,7 +366,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       let request = SFSpeechAudioBufferRecognitionRequest()
       request.shouldReportPartialResults = true
       request.taskHint = .dictation
-      request.contextualStrings = Self.gymVocabulary
+      request.contextualStrings = contextualStrings
       if #available(iOS 16.0, *) {
         request.addsPunctuation = true
       }
@@ -357,9 +400,9 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       // Bluetooth/CarPlay switch, simulator); the session is already active, so
       // 0 Hz means "no route", not "not ready yet".
       //
-      // `unavailable` is deliberate: coach_speech.dart:20 matches that code and
-      // shows a friendly message, while `recognition_failed` would fall into
-      // the generic branch and leak a technical one. Cleanup runs via
+      // `unavailable` is deliberate: speech_input.dart matches that code and
+      // the UI shows a friendly message, while `recognition_failed` would
+      // fall into the generic branch and leak a technical one. Cleanup runs via
       // finish -> cleanupAudio, which deactivates the session for a fresh route.
       guard format.sampleRate > 0, format.channelCount > 0 else {
         finish(
@@ -397,7 +440,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
           }
           if isFinal || errorMessage != nil {
             self.recognitionEnded(errorMessage: errorMessage)
-          } else if self.transcript.text.utf16.count >= Self.maxTranscriptUnits {
+          } else if self.transcript.text.utf16.count >= self.maxTranscriptUnits {
             self.beginGracefulStop(reason: "length")
           }
         }
