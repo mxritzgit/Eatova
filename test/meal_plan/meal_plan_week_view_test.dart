@@ -271,6 +271,8 @@ void main() {
       }
       expect(find.textContaining('- 200'), findsNothing);
       expect(find.textContaining('•'), findsNothing);
+      // The receipt's header: ISO week of Monday Sep 7, 2026.
+      expect(find.text('Week 37 · 1 meal'), findsOneWidget);
 
       // One tap checks one ingredient, nothing else.
       final saltRow = _key('shopping-item-${salt.id}');
