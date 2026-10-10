@@ -92,8 +92,10 @@ present does not emit `nutrition_missing`; use `nutrition_basis` for that state.
 
 Public TikTok captions are obtained from the official
 [oEmbed endpoint](https://developers.tiktok.com/docs/en/embed-videos).
-Canonical video links and `vm.tiktok.com`, `vt.tiktok.com`, and `/t/` short links
-are supported with exact host/path checks and at most four manual redirects.
+Canonical video and photo-post (`/@user/photo/<id>`) links and `vm.tiktok.com`,
+`vt.tiktok.com`, and `/t/` short links are supported with exact host/path checks
+and at most four manual redirects. oEmbed rejects photo-post URLs, so metadata and
+page lookups use the same post ID's `/video/` URL; attribution keeps the photo URL.
 More than one distinct shared URL prevents automatic source selection. Tracking
 parameters, thumbnails, video, comments, audio and other linked pages are not
 loaded. Transient metadata failures get one retry. Missing/truncated oEmbed captions
