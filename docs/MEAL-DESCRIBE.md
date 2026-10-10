@@ -103,7 +103,7 @@ carries every field of the photo result plus:
 
 ## Dart contracts
 
-The files below were created as stubs on the branch; their owners fill them.
+The feature's Dart entry points:
 
 - `lib/src/models/described_meal.dart`: `DescribedMeal`, `DescribedFoodItem`,
   `DescribedGramsSource`, `DescribedMeal.fromJson` (the `result` object).
@@ -124,13 +124,18 @@ The files below were created as stubs on the branch; their owners fill them.
 - Android: `eatova/speech` via `RecognizerIntent.ACTION_RECOGNIZE_SPEECH`
   (the system recognizer UI). The recognizer app records, so Eatova needs no
   `RECORD_AUDIO`; the manifest keeps removing it. No partial results;
-  `listen` completes with `{text, reason: "final"}`, a dismissed dialog with
-  `{text: null, reason: "cancel"}`. No recognizer installed → `unavailable`.
+  `listen` completes with `{text, reason: "final"}` (`text: null` when the
+  recognizer heard nothing, which the sheet answers with a hint), or a
+  dismissed dialog with `{text: null, reason: "cancel"}`, which Dart reads
+  as `SpeechEnd.dismissed` and answers with nothing: the user closed it.
+  No recognizer installed → `unavailable`.
 - Android `stop` and `cancel` leave the dialog alone: it sits in front of
   Flutter, always returns a result, and the app pause it causes must not drop
   speech. A pending `listen` ends with `cancel` only when the app is back in
   front without a result, or the activity goes away. The describe sheet
-  therefore cancels on app pause only on iOS.
+  therefore cancels on app pause only on iOS. While the Android dialog runs,
+  the sheet ignores mic, pill and field taps and disables Send, since the
+  dialog's answer is still to come.
 - The describe sheet shows the DE/EN pill before listening, because the
   Android dialog covers the app. An iOS stop without an answer within 3 s
   ends the recording and keeps the text shown so far.
@@ -141,13 +146,43 @@ The files below were created as stubs on the branch; their owners fill them.
 - Candidates per line: a matching favorite or recent, products from
   `searchProducts(searchQuery)` (one retry as `"$brand $searchQuery"` when no
   top hit carries a named brand) and always the AI estimate. At most four.
-- Auto-selection only for a candidate with a loggable kcal/100 g within 2.5×
-  of the estimate; a named brand ranks first, then favorites, then title
-  closeness. Everything else stays a listed alternative.
+- A product title fits a line in one of three ways, word by word over the
+  search term:
+  - **close:** the title names the food: the same word (inflections
+    allowed), a cut of it ("Hähnchenbrustfilet" for "Hähnchenbrust"), words
+    run together ("Butter Toast" reads as "Buttertoast", "Nuss-Nougat-Creme"
+    as "Nussnougatcreme"), or a store's other name for the same food
+    ("Toast"/"Toastbrot").
+  - **loose:** the food is in doubt: a compound around the word
+    ("Buttertoast", "Vollmilch", "Hafermilch", "Milchreis" for "Milch"), or
+    a plain word such as "Natur" missing from the title. Listed as an
+    alternative, never chosen alone.
+  - **none:** another food; dropped. Words under four letters ("Ei") only
+    match whole.
+- Auto-selection only for a close candidate with a loggable kcal/100 g
+  within 2.5× of the estimate; a named brand ranks first, then favorites,
+  then title closeness. Everything else stays a listed alternative, close
+  titles before loose ones.
+- A scan, recipe or manual favorite must name the same food both ways
+  ("Toast Hawaii" is not "Toast"); product favorites fit like search hits.
 - A stated countable amount ("1 Scheibe") uses the candidate's serving size
   from the product's serving text; a stated weight keeps the AI's grams.
 - The draft's source is Open Food Facts with confidence "database" only when
   every line is product-backed; otherwise it is an AI estimate.
+
+## Errors in the app
+
+- `no_food_in_text` and `invalid_meal_text` are a hint under the text field;
+  the user edits the sentence.
+- Re-auth and quota have describe texts ("meal analyses", no photo).
+- A function without describe mode answers `invalid_body` (or
+  `missing_image`); the sheet shows "service unavailable", like a 413 or an
+  image code, never a photo or connection text. `invalid_hint` falls back
+  to the generic failure.
+- Everything else reuses the photo scan's mapping
+  (`mealAnalysisErrorMessage`).
+- Delivery order: deploy `analyze-meal` with describe mode before a client
+  with this sheet ships.
 
 ## Privacy
 
