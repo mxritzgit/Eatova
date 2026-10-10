@@ -856,6 +856,56 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
   }
 });
 
+// Describe mode (describe_test.ts) shares this endpoint, and the photo answer
+// must stay byte-for-byte what it was. Pinned as literal bytes, so a describe
+// field leaking into the photo path (mode, slotHint, item macros, brand) or a
+// reordered key fails here, not in the client parser.
+const PHOTO_RESULT_BYTES = '{"mealName":"Steak mit Kartoffeln","caloriesKcal":780,"estimatedGrams":300,' +
+  '"kcalPer100G":260,"proteinG":45,"carbsG":30,"fatG":40,"confidence":"high",' +
+  '"explanation":"Teller als Referenz.","items":[' +
+  '{"name":"Steak","grams":180,"caloriesKcal":450,"kcalPer100G":250},' +
+  '{"name":"Kartoffeln","grams":120,"caloriesKcal":330,"kcalPer100G":275}]}';
+
+Deno.test('Photo answer and photo request stay byte-for-byte without describe fields', async () => {
+  const stub = installFetch();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64, freeTextHint: 'mit Sauce' }));
+    const text = await res.text();
+    assertEquals(res.status, 200, 'Status');
+    assert(text.startsWith(`{"result":${PHOTO_RESULT_BYTES},"requestId":"`), `photo result bytes changed: ${text}`);
+    assertEquals(Object.keys(JSON.parse(text)).join(','), 'result,requestId,rateLimit', 'envelope');
+
+    const body = stub.providerBodies[0];
+    assertEquals(
+      JSON.stringify(body.messages),
+      JSON.stringify([{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: IMAGE_BASE64 } },
+        { type: 'text', text: '{"foodObservations":"mit Sauce"}' },
+      ] }]),
+      'photo messages',
+    );
+    assertEquals(
+      JSON.stringify(body.output_config),
+      JSON.stringify({ effort: 'medium', format: { type: 'json_schema', schema: MEAL_OUTPUT_SCHEMA } }),
+      'photo effort and schema',
+    );
+    assertEquals(
+      MEAL_OUTPUT_SCHEMA.required.join(','),
+      'mealName,caloriesKcal,estimatedGrams,kcalPer100G,proteinG,carbsG,fatG,confidence,explanation,items',
+      'photo schema fields',
+    );
+    assertEquals(
+      MEAL_OUTPUT_SCHEMA.properties.items.items.required.join(','),
+      'name,grams,caloriesKcal,kcalPer100G',
+      'photo item schema fields',
+    );
+    assert(systemText(body).startsWith('Eatova Foto-Kalorienanalyse.'), 'photo prompt');
+    assert(!systemText(body).includes('mealText'), 'no describe rule in the photo prompt');
+  } finally {
+    stub.restore();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Claude Messages API contract of the scan (2026-10-08 provider switch).
 // ---------------------------------------------------------------------------

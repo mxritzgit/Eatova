@@ -1,8 +1,9 @@
 /// Coach tab — a library assembled from the `part` files below.
 ///
 /// Mechanical split only; library-private `_` classes keep their visibility
-/// and [CoachChatScreen] stays the entry point. The iOS MethodChannel
-/// `eatova/speech` lives in coach_speech.dart.
+/// and [CoachChatScreen] stays the entry point. The Coach's adapter over the
+/// shared `eatova/speech` channel (services/speech_input.dart) lives in
+/// coach_speech.dart.
 library;
 
 import 'dart:async';
@@ -39,6 +40,7 @@ import '../../services/meal_photo_compressor.dart';
 import '../../services/meal_photo_temp_file.dart';
 import '../../services/recipe_image_store.dart';
 import '../../services/screen_awake.dart';
+import '../../services/speech_input.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';

@@ -12,7 +12,8 @@ enum CoachSpeechEnd {
   length,
 }
 
-/// Dart side of `eatova/speech` (EatovaSpeechPlugin, ios/Runner/AppDelegate.swift).
+/// The Coach's view of [SpeechInput] (`eatova/speech`): gym vocabulary, the
+/// composer cap and localized [CoachSpeechException] messages.
 ///
 /// `listen {localeId, token}` completes with `{text, reason}`; meanwhile the
 /// plugin calls `partial {token, text}` with the whole transcript so far.
@@ -20,10 +21,7 @@ enum CoachSpeechEnd {
 class CoachSpeechInput {
   const CoachSpeechInput();
 
-  static const MethodChannel _channel = MethodChannel('eatova/speech');
-
-  /// Receiver of `partial` calls: only the newest [listen] has one.
-  static _PartialBinding? _binding;
+  static const SpeechInput _speech = SpeechInput();
 
   /// [l10n] is passed in because [CoachSpeechInput] has no `BuildContext`.
   ///
@@ -37,81 +35,40 @@ class CoachSpeechInput {
     ValueChanged<String>? onPartial,
     ValueChanged<CoachSpeechEnd>? onEnd,
   }) async {
-    final binding = _PartialBinding(token, onPartial);
-    _binding = binding;
-    _channel.setMethodCallHandler(_onNativeCall);
     try {
-      final result = await _channel.invokeMapMethod<String, Object?>(
-        'listen',
-        <String, Object?>{'localeId': localeId, 'token': token},
+      return await _speech.listen(
+        localeId: localeId,
+        token: token,
+        vocabulary: SpeechVocabulary.gym,
+        maxChars: kCoachMaxInputChars,
+        onPartial: onPartial,
+        onEnd: onEnd == null
+            ? null
+            : (end) => onEnd(switch (end) {
+                // The Coach drops a cancelled recording by its generation.
+                SpeechEnd.stopped ||
+                SpeechEnd.dismissed => CoachSpeechEnd.stopped,
+                SpeechEnd.limit => CoachSpeechEnd.limit,
+                SpeechEnd.length => CoachSpeechEnd.length,
+              }),
       );
-      onEnd?.call(switch (result?['reason']) {
-        'limit' => CoachSpeechEnd.limit,
-        'length' => CoachSpeechEnd.length,
-        _ => CoachSpeechEnd.stopped,
+    } on SpeechInputException catch (e) {
+      throw CoachSpeechException(switch (e.failure) {
+        SpeechFailure.permissionDenied => l10n.coachSpeechPermissionDenied,
+        SpeechFailure.unavailable => l10n.coachSpeechUnavailable,
+        SpeechFailure.busy => l10n.coachSpeechBusy,
+        SpeechFailure.failed => l10n.coachSpeechFailed,
       });
-      final text = result?['text'];
-      return text is String ? text : null;
-    } on PlatformException catch (e) {
-      final code = e.code.toLowerCase();
-      if (code.contains('permission') || code.contains('denied')) {
-        throw CoachSpeechException(l10n.coachSpeechPermissionDenied);
-      }
-      if (code.contains('unavailable')) {
-        throw CoachSpeechException(l10n.coachSpeechUnavailable);
-      }
-      if (code == 'busy') {
-        throw CoachSpeechException(l10n.coachSpeechBusy);
-      }
-      // Never the platform's `message`: iOS sends hard-coded German or the
-      // system language, not the app language.
-      throw CoachSpeechException(l10n.coachSpeechFailed);
-    } on MissingPluginException {
-      throw CoachSpeechException(l10n.coachSpeechUnavailable);
-    } finally {
-      if (identical(_binding, binding)) _binding = null;
     }
-  }
-
-  static Future<Object?> _onNativeCall(MethodCall call) async {
-    if (call.method != 'partial') throw MissingPluginException();
-    final args = call.arguments;
-    final binding = _binding;
-    if (args is! Map || binding == null || args['token'] != binding.token) {
-      return null;
-    }
-    final text = args['text'];
-    if (text is String) binding.onPartial?.call(text);
-    return null;
   }
 
   /// Graceful: the audio ends and the running [listen] completes with the
   /// final result (the plugin waits up to 1.5 s for it).
-  Future<void> stop() async {
-    try {
-      await _channel.invokeMethod<void>('stop');
-    } catch (_) {
-      // Best effort: the running listen() future still yields the last
-      // recognised text or fails on its own.
-    }
-  }
+  Future<void> stop() => _speech.stop();
 
   /// Immediate (lifecycle, dispose, language switch): the running [listen]
   /// completes at once with what was recognised so far.
-  Future<void> cancel() async {
-    try {
-      await _channel.invokeMethod<void>('cancel');
-    } catch (_) {
-      // Best effort, like [stop].
-    }
-  }
-}
-
-/// One per [CoachSpeechInput.listen] call; its identity marks the call.
-class _PartialBinding {
-  _PartialBinding(this.token, this.onPartial);
-  final int token;
-  final ValueChanged<String>? onPartial;
+  Future<void> cancel() => _speech.cancel();
 }
 
 class CoachSpeechException implements Exception {

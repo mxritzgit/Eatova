@@ -3275,3 +3275,74 @@ measurement times. Still open from 2026-09-10: F6, F8 and F9. A short list
 of small gaps reads like bugs to users (export file button never shown,
 unknown barcode not kept, Health weight stored with import time). This is a
 recommendation, not an approved roadmap; only documentation changed.
+
+## Describe a meal by text or voice, 2026-10-10
+
+Owner request: say or type "Nutella mit einer Scheibe Toast von Lidl", look
+the foods up in the product database, and let the user check, edit and add
+the result. Built on `feat/describe-meal` by five agents (backend, speech,
+data, UI, review) with an orchestrator; contract in
+[MEAL-DESCRIBE.md](MEAL-DESCRIBE.md), inventory rows in
+[FEATURES.md](FEATURES.md).
+
+- **Backend:** `analyze-meal` gains describe mode (`mealText`, no image):
+  same gates, quota and provider budget as a photo scan; new codes
+  `ambiguous_input`, `invalid_meal_text`, `no_food_in_text`; effort secret
+  `ANALYZE_MEAL_DESCRIBE_EFFORT` (default `low`). A test pins the photo path
+  to its bytes before the change.
+- **Speech:** the `eatova/speech` channel is shared by Coach and the meal
+  description (`SpeechInput`). iOS adds a food vocabulary and a length cap
+  to `EatovaSpeechPlugin`. Android is new: the system recognizer dialog
+  (`RecognizerIntent`), so the manifest still removes `RECORD_AUDIO`. The
+  Coach stays iOS-only.
+- **Data:** `DescribedMeal` parses the answer; `ProductMealDescriptionMatcher`
+  looks each food up in favorites/recents and `searchProducts`, always
+  keeps the AI estimate, and auto-picks a product only when its title names
+  the food and its energy is plausible. `MealDescriptionDraft.toResult()`
+  logs through the add sheet's existing path, only on Add.
+- **UI:** "Describe" in the add sheet's entry methods; one sheet for text,
+  dictation, the draft (candidates, grams, remove) and Edit/Add.
+- **Review (agent 5), all fixed with regression tests:** the merged branch
+  had two red existing tests (clamp invariant, analyze-meal error contract);
+  Android dictation could lose the dialog's text on a second tap; matching
+  auto-picked "Milchreis" for "Milch" and missed "Buttertoast"; describe
+  errors reused photo texts ("Foto", re-auth, quota); the iOS mic stayed live
+  behind the discard dialog; a dismissed Android dialog said "nothing
+  heard". Open (minor): a 0 kcal draft disables Add without a reason; the
+  photo path's quota text still says "Foto-Analysen" although descriptions
+  share that quota.
+- **Verification (review branch, CI method):** strict analyzer clean; full
+  suite 7,154 tests in 685 files green; coverage 97.08%; Deno lint, check
+  and 1,035 tests green (also per file); eval harness 19/19; debug APK
+  builds, so the Kotlin bridge compiles. Swift was reviewed by eye; the iOS
+  CI build is its first compile.
+- **Not verified:** real devices (iOS keyboard dictation handover,
+  on-device vs server recognition; Android recognizers of other makers that
+  open in a new task), the live function (latency and quality at `low`), and
+  how well the model's `searchQuery` finds real titles in the search index.
+- **Delivery order:** deploy `analyze-meal` before a client with this sheet
+  ships; an older function answers `invalid_body`, which the sheet shows as
+  "service unavailable". `PRIVACY.md` names the meal description and the
+  Android recognizer; the live privacy page at eatova.de needs the same
+  update with the release.
+- **Found on the way, not changed:** `MainActivity.onCreate` hands a share
+  intent to `recipeShareBridge` before `configureFlutterEngine` has created
+  it (`FlutterFragmentActivity` builds the engine later), so a TikTok share
+  that cold-starts the app may be dropped. Fix idea: keep the launch intent
+  and pass it once the bridge exists.
+
+### Rollout, 2026-10-10 (owner: "Freigabe zum Mergen von #146 und #145 und zum Deployen von analyze-meal")
+
+- [PR #146](https://github.com/mxritzgit/Eatova/pull/146) squash-merged as
+  `909b343` after 16 green checks and one skipped live drift job; the
+  merged tree equals the reviewed head `f369df2`. The iOS build passed, the
+  first compile of the Swift changes.
+- `analyze-meal` deployed from `909b343` with Supabase CLI 2.120.0
+  (`--use-api`) as **v39**, ACTIVE, `verify_jwt=true`. Before the deploy the
+  live source equalled `main` at `2ddf1e0`; afterwards all 14 downloaded
+  files equal `909b343`. Probe: no token → gateway 401; service bearer → the
+  handler's own `invalid_user_token`, so it boots. No user request with a
+  real meal description was made against production.
+- This closes gap E2 of the [feature-gap review](FEATURE-REVIEW-2026-10-10.md)
+  in code and backend. Still open: a device build with the sheet, a first
+  real description on iOS and Android, and the eatova.de privacy page.

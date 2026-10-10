@@ -54,9 +54,15 @@ for (const [label, extra, error] of [
   });
 }
 
-for (const [name, handler] of [["coach-chat", coach], ["analyze-meal", analyze]] as const) {
+// analyze-meal runs twice: its describe mode (`mealText`) takes the same
+// closed field set as the photo path.
+for (const [name, handler, variant, base] of [
+  ["coach-chat", coach, "", { message: "How can I begin training?" }],
+  ["analyze-meal", analyze, "", { imageBase64: PNG_BASE64 }],
+  ["analyze-meal", analyze, " in describe mode", { mealText: "zwei Eier" }],
+] as const) {
   for (const field of unexpectedFields) {
-    Deno.test(`${name}: rejects request field ${field} before protected effects`, async () => {
+    Deno.test(`${name}: rejects request field ${field}${variant} before protected effects`, async () => {
       const original = globalThis.fetch;
       let sideEffects = 0;
       let attempts = 0;
@@ -78,8 +84,7 @@ for (const [name, handler] of [["coach-chat", coach], ["analyze-meal", analyze]]
         return Promise.resolve(json({ error: "synthetic operation must not be reached" }, 500));
       }) as typeof globalThis.fetch;
       try {
-        const body = name === "coach-chat" ? { message: "How can I begin training?", [field]: "synthetic" }
-          : { imageBase64: PNG_BASE64, [field]: "synthetic" };
+        const body = { ...base, [field]: "synthetic" };
         const response = await handler(new Request(`${BASE}/functions/v1/${name}`, {
           method: "POST", headers: { authorization: `Bearer ${userToken(USER)}`, "content-type": "application/json" },
           body: JSON.stringify(body),

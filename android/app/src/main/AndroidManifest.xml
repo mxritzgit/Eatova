@@ -18,9 +18,11 @@
          READ_EXTERNAL_STORAGE without maxSdkVersion from the latter, a real
          runtime permission on API 29-32. Eatova only takes stills and picks
          gallery images via image_picker (system photo picker, no storage
-         permission needed). Coach speech runs over the `eatova/speech`
-         MethodChannel, registered on iOS only, so there is no Android audio
-         path. All three are removed. -->
+         permission needed). Voice input on Android (`eatova/speech`,
+         SpeechBridge.kt) opens the system recognizer dialog
+         (RecognizerIntent); the recognizer app records under its own
+         permission, so Eatova has no audio path of its own. All three are
+         removed. -->
     <uses-permission
         android:name="android.permission.RECORD_AUDIO"
         tools:node="remove" />
@@ -173,6 +175,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- SpeechBridge: without this, Android 11+ hides the recognizer app
+             and voice input reports `unavailable`. -->
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
     </queries>
 </manifest>

@@ -7,18 +7,24 @@ import 'food_glyphs.dart';
 
 /// The add sheet's capture choices: the AI photo scan as the hero, with the
 /// violet camera button of the Food tab's dock, and the other ways in as rows
-/// of one quiet card beneath it (gallery, barcode and, when [onManual] is
-/// given, manual entry).
+/// of one quiet card beneath it (gallery, a typed or spoken description when
+/// [onDescribe] is given, barcode and, when [onManual] is given, manual
+/// entry).
 class MealEntryMethods extends StatelessWidget {
   const MealEntryMethods({
     super.key,
     required this.onCamera,
     required this.onGallery,
     required this.onBarcode,
+    this.onDescribe,
     this.onManual,
   });
 
   final VoidCallback onCamera, onGallery, onBarcode;
+
+  /// Adds the describe row (key `describe-entry-button`) after the gallery,
+  /// next to the other AI path.
+  final VoidCallback? onDescribe;
 
   /// Adds the manual-entry row (key `manual-entry-button`) to the card. Null
   /// while the host still renders its own manual row.
@@ -36,6 +42,14 @@ class MealEntryMethods extends StatelessWidget {
         hint: l10n.foodGalleryEntryHint,
         onTap: onGallery,
       ),
+      if (onDescribe != null)
+        _MethodRow(
+          actionKey: const ValueKey('describe-entry-button'),
+          glyph: const Icon(Icons.mic_none_rounded),
+          label: l10n.foodDescribeEntryTitle,
+          hint: l10n.foodDescribeEntryHint,
+          onTap: onDescribe!,
+        ),
       _MethodRow(
         actionKey: const ValueKey('analyse-barcode-button'),
         glyph: const FoodGlyphIcon(FoodGlyph.barcode),

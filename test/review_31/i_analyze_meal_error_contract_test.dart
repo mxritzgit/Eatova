@@ -32,7 +32,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
+import 'package:eatova/src/services/meal_describer.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
+import 'package:eatova/src/widgets/kcal/meal_describe_sheet.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 final AppLocalizations _en = lookupAppLocalizations(const Locale('en'));
@@ -68,6 +70,25 @@ const Map<String, String> _nichtFuerDenClient = <String, String>{
       'the body comes from buildAnalyzeMealBody via jsonEncode, never from the user',
   'invalid_body':
       'same origin: the request shape is code, not input',
+  'ambiguous_input':
+      'only a body with mealText AND a photo field gets it: the photo body '
+          'never carries mealText, the describe body never a photo field',
+};
+
+/// Codes only a describe request (`mealText`) can receive. The photo flow
+/// never sends one, so it needs no text for them; the describe flow answers
+/// them under its field, which the describe contract below checks.
+const Map<String, String> _nurBeschreibung = <String, String>{
+  'no_food_in_text': 'the text names no food: foodDescribeNoFood',
+  'invalid_meal_text': 'the text is outside 2..500: foodDescribeInvalidText',
+};
+
+/// Codes a describe request cannot receive, each with its reason. They keep
+/// the describe flow's fallback.
+const Map<String, String> _nichtFuerDieBeschreibung = <String, String>{
+  'invalid_hint':
+      'a describe body has no freeTextHint, and mealText with a hint is '
+          'ambiguous_input first',
 };
 
 // ---------------------------------------------------------------------------
@@ -258,6 +279,23 @@ String _clientText(_ServerCode eintrag, AppLocalizations l10n) {
   fail('$eintrag: parseAnalyzeMealResponse hat nicht geworfen');
 }
 
+/// The same server answer on the describe flow: `parseDescribeMealResponse`,
+/// then the hint under the field or the error card's text.
+String _beschreibungsText(_ServerCode eintrag, AppLocalizations l10n) {
+  final koerper = jsonEncode(<String, dynamic>{
+    'error': eintrag.code,
+    'message': _serverDetail,
+    'requestId': 'req-vertrag',
+  });
+  try {
+    parseDescribeMealResponse(eintrag.status!, koerper);
+  } on Object catch (fehler) {
+    return mealDescribeInputNotice(fehler, l10n) ??
+        mealDescribeErrorMessage(fehler, l10n);
+  }
+  fail('$eintrag: parseDescribeMealResponse hat nicht geworfen');
+}
+
 // ---------------------------------------------------------------------------
 
 void main() {
@@ -312,7 +350,10 @@ void main() {
       // counts as a decision.
       final funde = <String>[];
       for (final eintrag in codes.values) {
-        if (_nichtFuerDenClient.containsKey(eintrag.code)) continue;
+        if (_nichtFuerDenClient.containsKey(eintrag.code) ||
+            _nurBeschreibung.containsKey(eintrag.code)) {
+          continue;
+        }
         for (final l10n in <AppLocalizations>[_de, _en]) {
           if (_clientText(eintrag, l10n) == _ausweichtext) {
             funde.add('$eintrag -> ${l10n.localeName}');
@@ -341,12 +382,59 @@ void main() {
       }
     });
 
+    test('jeder Servercode hat auch beim Beschreiben eine bewusste Antwort', () {
+      // The describe flow (docs/MEAL-DESCRIBE.md) shows the same server
+      // answers through its own texts: a hint under the field for answers
+      // about the text, the error card otherwise. Its fallback blames the
+      // connection, so it is a finding there too.
+      final funde = <String>[];
+      for (final eintrag in codes.values) {
+        if (_nichtFuerDenClient.containsKey(eintrag.code) ||
+            _nichtFuerDieBeschreibung.containsKey(eintrag.code)) {
+          continue;
+        }
+        for (final l10n in <AppLocalizations>[_de, _en]) {
+          final text = _beschreibungsText(eintrag, l10n);
+          if (text == l10n.foodAnalysisFailedMessage) {
+            funde.add('$eintrag -> ${l10n.localeName}');
+          }
+          expect(text, isNot(contains(_serverDetail)), reason: '$eintrag');
+        }
+      }
+      expect(
+        funde,
+        isEmpty,
+        reason: 'Diese Codes landen beim Beschreiben im Ausweichtext. '
+            'Entweder in mealDescribeInputNotice/mealDescribeErrorMessage '
+            '(meal_describe_sheet.dart) oder mit Begruendung in '
+            '_nichtFuerDieBeschreibung:\n${funde.join('\n')}',
+      );
+    });
+
+    test('die Codes der Beschreibung landen unter dem Textfeld', () {
+      for (final code in _nurBeschreibung.keys) {
+        final eintrag = codes[code];
+        expect(eintrag, isNotNull, reason: '$code fehlt in $_funktionsOrdner');
+        expect(
+          mealDescribeInputNotice(
+            MealAnalysisServerError(statusCode: eintrag!.status!, code: code),
+            _de,
+          ),
+          isNotNull,
+          reason: code,
+        );
+      }
+    });
+
     test('die Ausnahmeliste beschreibt nur Codes, die es noch gibt', () {
       // Otherwise the list outlives the server and quietly excuses a code
       // nobody sends any more, while the next one with that name is waved
       // through.
-      final verwaist =
-          _nichtFuerDenClient.keys.where((c) => !codes.containsKey(c)).toList();
+      final verwaist = <String>[
+        ..._nichtFuerDenClient.keys,
+        ..._nurBeschreibung.keys,
+        ..._nichtFuerDieBeschreibung.keys,
+      ].where((c) => !codes.containsKey(c)).toList();
       expect(verwaist, isEmpty,
           reason: 'analyze-meal sendet diese Codes nicht mehr — Eintrag in '
               '_nichtFuerDenClient entfernen:\n${verwaist.join('\n')}');
