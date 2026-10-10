@@ -87,6 +87,7 @@ provider name here is not a current roadmap or configuration declaration.
 - [Design-Refactor 2026-08-09 — Briefing für alle Screen-Pakete](DESIGN_REFACTOR.md)
 - [i18n-Screen-Pakete — Briefing (2026-08-10)](I18N_PAKETE.md)
 - [Eatova – Review wichtiger Feature-Lücken](FEATURE-REVIEW-2026-09-10.md)
+- [Eatova – Feature-Lücken, zweite Runde (2026-10-10)](FEATURE-REVIEW-2026-10-10.md)
 - [App design review, 2026-09-07](DESIGN-REVIEW-2026-09-07.md)
 - [Eatova — Vollständiger Code-Review](REVIEW-2026-08-08.md)
 - [Projektreview Eatova — 2026-09-07](REVIEW-2026-09-07.md)

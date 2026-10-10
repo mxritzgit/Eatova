@@ -3260,3 +3260,18 @@ Branch `feat/claude-sonnet-provider`; the PR records CI and merge state.
   wait for CI and merge when green. The auto-mode classifier still requires
   the local permission rule `Bash(infisical run:*)` for GitHub token use,
   and an explicit chat line for each merge and each production deploy.
+
+## Feature-gap review with five agents, 2026-10-10
+
+The owner asked for a five-agent review of missing features. See
+[FEATURE-REVIEW-2026-10-10.md](FEATURE-REVIEW-2026-10-10.md), based on
+`e59f812`. Five read-only agents covered food logging, recipes and planning,
+training and health, Coach and insights, and growth and release readiness;
+the main session spot-checked the load-bearing claims in code. Strongest
+candidates: Sign in with Apple and AI-data consent before a store release;
+copying meals, text logging and history search; a weekly check-in, a wider
+Coach context and food preferences; exercise records and Health weight with
+measurement times. Still open from 2026-09-10: F6, F8 and F9. A short list
+of small gaps reads like bugs to users (export file button never shown,
+unknown barcode not kept, Health weight stored with import time). This is a
+recommendation, not an approved roadmap; only documentation changed.
