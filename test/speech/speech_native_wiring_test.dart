@@ -88,6 +88,30 @@ void main() {
       expect(bridge, contains('RecognizerIntent.ACTION_RECOGNIZE_SPEECH'));
     });
 
+    test('a dismissed dialog is cancel, a recognizer that heard nothing is '
+        'a final without text', () {
+      expect(
+        bridge,
+        contains('Activity.RESULT_CANCELED -> reply.success(CANCELLED)'),
+      );
+      expect(
+        bridge,
+        contains(
+          'RecognizerIntent.RESULT_NO_MATCH -> reply.success(NOTHING_HEARD)',
+        ),
+      );
+      expect(
+        bridge,
+        contains('"text" to null, "reason" to "cancel"'),
+        reason: 'SpeechEnd.dismissed: the sheet stays quiet',
+      );
+      expect(
+        bridge,
+        contains('"text" to null, "reason" to "final"'),
+        reason: 'SpeechEnd.stopped without text: "didn\'t catch that"',
+      );
+    });
+
     test('SpeechBridge serves the shared channel and never logs', () {
       expect(bridge, contains('"eatova/speech"'));
       for (final method in <String>['listen', 'stop', 'cancel', 'available']) {

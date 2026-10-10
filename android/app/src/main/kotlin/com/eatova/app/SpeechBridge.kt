@@ -17,9 +17,10 @@ import io.flutter.plugin.common.MethodChannel
  * lib/src/services/speech_input.dart; contract: docs/MEAL-DESCRIBE.md.
  *
  * - listen {localeId, token, vocabulary, maxUnits} completes once with
- *   {text, reason}: final, length (text cut to maxUnits) or cancel (dialog
- *   dismissed or nothing recognized; text null). No partial calls; token and
- *   vocabulary are ignored. Errors: busy, unavailable, recognition_failed.
+ *   {text, reason}: final (text null when nothing was recognized), length
+ *   (text cut to maxUnits) or cancel (dialog dismissed; text null). No
+ *   partial calls; token and vocabulary are ignored. Errors: busy,
+ *   unavailable, recognition_failed.
  * - stop and cancel leave a running dialog alone: it sits in front of Flutter
  *   and always returns a result, and the lifecycle pause the dialog itself
  *   causes must not drop what the user is about to say. The pending listen
@@ -88,7 +89,7 @@ internal class SpeechBridge(
                     return
                 }
                 if (text == null) {
-                    reply.success(CANCELLED)
+                    reply.success(NOTHING_HEARD)
                     return
                 }
                 val clipped = clip(text, pendingMaxUnits)
@@ -96,7 +97,8 @@ internal class SpeechBridge(
                     mapOf("text" to clipped, "reason" to if (clipped == text) "final" else "length")
                 )
             }
-            Activity.RESULT_CANCELED, RecognizerIntent.RESULT_NO_MATCH -> reply.success(CANCELLED)
+            Activity.RESULT_CANCELED -> reply.success(CANCELLED)
+            RecognizerIntent.RESULT_NO_MATCH -> reply.success(NOTHING_HEARD)
             else -> reply.error("recognition_failed", "Speech recognition failed.", null)
         }
     }
@@ -156,7 +158,10 @@ internal class SpeechBridge(
         /** How far a cut may move back to end on a word instead of inside one. */
         private const val WORD_BACKTRACK = 40
         private val LOCALE_PATTERN = Regex("^[A-Za-z]{2,3}([_-][A-Za-z0-9]{2,8})*$")
+        /** Dismissed, or gone without an answer: the user's choice, no hint. */
         private val CANCELLED = mapOf<String, Any?>("text" to null, "reason" to "cancel")
+        /** The recognizer finished without a word: Dart says it heard nothing. */
+        private val NOTHING_HEARD = mapOf<String, Any?>("text" to null, "reason" to "final")
 
         /** `de_DE` (Dart's locale id) -> `de-DE` (BCP 47 for EXTRA_LANGUAGE). */
         internal fun languageTag(localeId: Any?): String {

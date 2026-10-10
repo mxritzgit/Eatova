@@ -220,6 +220,29 @@ void main() {
     });
   });
 
+  testWidgets('Android: a dismissed dialog is quiet, one that heard nothing '
+      'says so', (tester) async {
+    await onPlatform(TargetPlatform.android, () async {
+      final h = await openDescribe(tester);
+      h.speech.systemDialog = true;
+      final notice = key('meal-describe-voice-notice');
+
+      await _tapMic(tester);
+      h.speech.finish(null, end: SpeechEnd.dismissed);
+      await tester.pump();
+      await tester.pump();
+      expect(notice, findsNothing);
+      expect(h.awake.held, isFalse);
+
+      await _tapMic(tester);
+      h.speech.finish(null);
+      await tester.pump();
+      await tester.pump();
+      expect(notice, findsOneWidget);
+      expect(find.text(l10nOf(tester).foodDescribeSpeechEmpty), findsOneWidget);
+    });
+  });
+
   testWidgets('iOS: a close attempt ends the recording before it asks', (
     tester,
   ) async {

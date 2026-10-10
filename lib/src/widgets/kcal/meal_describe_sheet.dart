@@ -468,7 +468,11 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
       final dictated = text.isEmpty ? _speechShown : text;
       final _Notice? notice;
       if (dictated.isEmpty) {
-        notice = _Notice(l10n.foodDescribeSpeechEmpty);
+        // A dismissed system dialog was the user's choice and said its own
+        // "didn't catch that"; only a recording that heard nothing gets one.
+        notice = end == SpeechEnd.dismissed
+            ? null
+            : _Notice(l10n.foodDescribeSpeechEmpty);
       } else if (_speechCapReached || end == SpeechEnd.length) {
         notice = _Notice(l10n.foodDescribeSpeechLength);
       } else if (end == SpeechEnd.limit) {
