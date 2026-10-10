@@ -12,14 +12,19 @@ import '../../models/favorite_meal.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
+import '../../services/dictation_language.dart';
 import '../../services/favorites_view.dart';
 import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
+import '../../services/meal_describer.dart';
+import '../../services/meal_description_matcher.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/meal_scan_identity.dart';
 import '../../services/meals_sync.dart';
 import '../../services/open_food_facts_product_service.dart';
+import '../../services/screen_awake.dart';
+import '../../services/speech_input.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
@@ -32,6 +37,7 @@ import 'food_glyphs.dart';
 import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
+import 'meal_describe_sheet.dart';
 import 'meal_entry_methods.dart';
 import 'meal_scan_preview_sheet.dart';
 import 'meal_slot_picker.dart';
@@ -119,6 +125,12 @@ Future<void> showAddMealSheet(
   DateTime? foodDate,
   PersistValueChanged<String>? onRemoveMeal,
   UpdateMealDetails? onUpdateMealDetails,
+  MealDescriber describer = const EdgeFunctionMealDescriber(),
+  MealDescriptionMatcher? describeMatcher,
+  SpeechInput speechInput = const SpeechInput(),
+  ScreenAwake screenAwake = const MethodChannelScreenAwake(),
+  DictationLanguageStore dictationLanguageStore =
+      const PrefsDictationLanguageStore(),
 }) {
   // Resolve the edit callback from the scope BEFORE the route change: the
   // sheet's builder context hangs off the navigator and no longer sees the
@@ -154,6 +166,11 @@ Future<void> showAddMealSheet(
           onRemoveMeal: onRemoveMeal,
           onUpdateMealDetails: resolvedUpdateDetails,
           favoriteUseCounts: live?.favoriteUseCounts,
+          describer: describer,
+          describeMatcher: describeMatcher,
+          speechInput: speechInput,
+          screenAwake: screenAwake,
+          dictationLanguageStore: dictationLanguageStore,
         );
       }
 
@@ -250,6 +267,11 @@ class AddMealSheet extends StatefulWidget {
     this.onRemoveMeal,
     this.onUpdateMealDetails,
     this.favoriteUseCounts,
+    this.describer = const EdgeFunctionMealDescriber(),
+    this.describeMatcher,
+    this.speechInput = const SpeechInput(),
+    this.screenAwake = const MethodChannelScreenAwake(),
+    this.dictationLanguageStore = const PrefsDictationLanguageStore(),
   });
 
   final MealSlot slot;
@@ -288,6 +310,15 @@ class AddMealSheet extends StatefulWidget {
   /// Logs per favorite id for the favorites sheet's "Frequent" order; null
   /// (previews, standalone tests) orders "Frequent" by recency.
   final Map<String, int> Function()? favoriteUseCounts;
+
+  /// Describe-a-meal path (docs/MEAL-DESCRIBE.md): `analyze-meal` in
+  /// describe mode, then the match against favorites and [productService]
+  /// unless [describeMatcher] replaces it.
+  final MealDescriber describer;
+  final MealDescriptionMatcher? describeMatcher;
+  final SpeechInput speechInput;
+  final ScreenAwake screenAwake;
+  final DictationLanguageStore dictationLanguageStore;
 
   @override
   State<AddMealSheet> createState() => _AddMealSheetState();
@@ -985,6 +1016,49 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
+  // ─── Describe ─────────────────────────────────────────────────────────
+
+  /// Typed or spoken description -> draft -> one log through [_logAndMirror]
+  /// (docs/MEAL-DESCRIBE.md). Like manual entry, the sheet closes on Add and
+  /// the confirmation lands here.
+  Future<void> _openDescribe() async {
+    final outcome = await showMealDescribeSheet(
+      context,
+      initialSlot: _selectedSlot,
+      describer: widget.describer,
+      matcher:
+          widget.describeMatcher ??
+          ProductMealDescriptionMatcher(
+            products: widget.productService,
+            // The sheet's live list: the store re-feeds it while open.
+            favorites: () => _favorites,
+          ),
+      onAdd: _logAndMirror,
+      onUpdateMeal: _updateAndMirror,
+      isFavorite: widget.isFavorite,
+      onToggleFavorite: widget.onToggleFavorite,
+      speechInput: widget.speechInput,
+      screenAwake: widget.screenAwake,
+      dictationLanguageStore: widget.dictationLanguageStore,
+      contextLabel: widget.foodDate == null
+          ? null
+          : MaterialLocalizations.of(
+              context,
+            ).formatMediumDate(widget.foodDate!),
+    );
+    if (outcome == null || !mounted) return;
+    _selectSlot(outcome.slot);
+    final result = outcome.result;
+    // Logged from the review sheet: it confirmed there already.
+    if (result == null) return;
+    final l10n = context.l10n;
+    showAppSnack(
+      context,
+      l10n.commonKcalAddedToSlot(result.caloriesKcal, outcome.slot.label(l10n)),
+      icon: Icons.check_circle_rounded,
+    );
+  }
+
   // ─── Adding ───────────────────────────────────────────────────────────
 
   final Set<String> _savingItems = {};
@@ -1128,6 +1202,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
                       onCamera: () => _pickAndAnalyze(ImageSource.camera),
                       onGallery: () => _pickAndAnalyze(ImageSource.gallery),
                       onBarcode: _scanBarcode,
+                      onDescribe: _openDescribe,
                       onManual: () => _openManualEntry(),
                     ),
                   const SizedBox(height: _kSectionGap),
