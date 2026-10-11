@@ -138,9 +138,17 @@ ChatMessage _logAnswer() => ChatMessage(
 );
 
 class _HistoryCoach extends CoachChatService {
-  _HistoryCoach(super.client, super.userId, this.history);
+  _HistoryCoach(
+    super.client,
+    super.userId,
+    this.history, {
+    this.quotaKnown = true,
+  });
 
-  static _HistoryCoach create(List<ChatMessage> history) => _HistoryCoach(
+  static _HistoryCoach create(
+    List<ChatMessage> history, {
+    bool quotaKnown = true,
+  }) => _HistoryCoach(
     SupabaseClient(
       'https://example.supabase.co',
       'test-anon-key',
@@ -148,9 +156,13 @@ class _HistoryCoach extends CoachChatService {
     )..auth.stopAutoRefresh(),
     'user-capture',
     history,
+    quotaKnown: quotaKnown,
   );
 
   final List<ChatMessage> history;
+
+  /// False fails the quota RPC, so the (i) sheet shows its number-free twin.
+  final bool quotaKnown;
 
   @override
   Future<List<ChatSession>> loadSessions() async => <ChatSession>[
@@ -180,21 +192,24 @@ class _HistoryCoach extends CoachChatService {
   }) async => history;
 
   @override
-  Future<ChatQuotaSnapshot> loadQuotaToday() async =>
-      const ChatQuotaSnapshot(used: 1, remaining: 4, dailyLimit: 5);
+  Future<ChatQuotaSnapshot> loadQuotaToday() async {
+    if (!quotaKnown) throw const CoachDataUnavailable('capture: offline');
+    return const ChatQuotaSnapshot(used: 1, remaining: 4, dailyLimit: 5);
+  }
 }
 
 Future<void> _pumpCoach(
   WidgetTester tester,
   List<ChatMessage> history, {
   Locale locale = const Locale('en'),
+  bool quotaKnown = true,
 }) async {
   pinDesignViewport(tester);
   await tester.pumpWidget(
     designCaptureBoundary(
       localizedApp(
         CoachChatScreen(
-          service: _HistoryCoach.create(history),
+          service: _HistoryCoach.create(history, quotaKnown: quotaKnown),
           onCreateRecipe: (_) async => SyncDelivery.delivered,
           onCreateTrainingPlan: (_) async => SyncDelivery.delivered,
           onLogWorkout: (_) async => TrainingLogSaveOutcome.saved,
@@ -356,6 +371,23 @@ void main() {
     await settleFrames(tester);
     expect(find.byKey(const ValueKey('coach-info-sheet')), findsOneWidget);
     await captureDesignShot(tester, 'coach-cards-info');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // The number-free twin after a failed quota RPC: same title and shell.
+  testWidgets('info sheet without a quota', (tester) async {
+    await _pumpCoach(tester, [
+      _user('u1', '/log bench 3 sets, plank twice'),
+      _logAnswer(),
+    ], quotaKnown: false);
+    await tester.tap(find.byKey(const ValueKey('coach-info')));
+    await settleFrames(tester);
+    expect(
+      find.byKey(const ValueKey('coach-info-limit-unbekannt')),
+      findsOneWidget,
+    );
+    await captureDesignShot(tester, 'coach-cards-info-unknown');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
