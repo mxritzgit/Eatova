@@ -10,7 +10,7 @@ import '../common/lively.dart';
 import '../common/motion.dart';
 import 'app_icon.dart';
 import 'readable_width.dart';
-import 'states.dart' show AppSpinner;
+import 'spinner.dart';
 
 // ---------------------------------------------------------------------------
 // CONTROLS — icon buttons, icon tile, toggle, segmented pill, filter chip,

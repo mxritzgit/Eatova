@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart';
 
 import '../../theme/app_tokens.dart';
 import 'controls.dart' show IconTile;
+import 'spinner.dart';
 import 'surfaces.dart' show AppCard, HeadingSemantics;
 
 // ---------------------------------------------------------------------------
@@ -15,7 +16,7 @@ import 'surfaces.dart' show AppCard, HeadingSemantics;
 //                optional tinted box and one way forward.
 //   CalmState    empty / error state: glyph tile, title, guidance, soft pill
 //                actions. Inline in a sheet, or as a card on a page.
-//   AppSpinner   the app's spinner: 22 px, round caps, accent.
+//   AppSpinner   the app's spinner: 22 px, round caps, accent (spinner.dart).
 //   LoadingCard  a card holding the spinner and what is loading.
 //   Skeleton*    static placeholders in the geometry of the rows they stand
 //                in for. No shimmer, so reduced motion has nothing to stop.
@@ -438,43 +439,6 @@ class _RenderPillBar extends RenderBox
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
       defaultHitTestChildren(result, position: position);
-}
-
-/// The app's spinner: small, round-capped, in the accent. Replaces the
-/// 36-40 px Material default wherever something loads.
-class AppSpinner extends StatelessWidget {
-  const AppSpinner({
-    super.key,
-    this.size = 22,
-    this.strokeWidth = 2.4,
-    this.color,
-    this.trackColor,
-    this.semanticsLabel,
-  });
-
-  final double size;
-  final double strokeWidth;
-
-  /// Defaults to [AppTokens.accent].
-  final Color? color;
-
-  /// The ring under the arc; defaults to the theme's `tile` track. On a
-  /// filled surface (a busy button) pass a tint of the foreground instead.
-  final Color? trackColor;
-
-  final String? semanticsLabel;
-
-  @override
-  Widget build(BuildContext context) => SizedBox.square(
-    dimension: size,
-    child: CircularProgressIndicator(
-      strokeWidth: strokeWidth,
-      strokeCap: StrokeCap.round,
-      color: color ?? context.t.accent,
-      backgroundColor: trackColor,
-      semanticsLabel: semanticsLabel,
-    ),
-  );
 }
 
 /// Something loads that has no row shape to sketch: the spinner and what is

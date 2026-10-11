@@ -19,6 +19,7 @@ export 'rows.dart';
 export 'sheets.dart';
 export 'slot_icon_tile.dart';
 export 'soft_actions.dart';
+export 'spinner.dart';
 export 'states.dart';
 export 'steps_icon.dart';
 export 'surfaces.dart';
