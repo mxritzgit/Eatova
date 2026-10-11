@@ -116,25 +116,46 @@ TextStyle _proposalTitleStyle(AppTokens t) =>
     AppType.display(20, color: t.ink, height: 1.15);
 
 /// A proposal card's eyebrow: the command's glyph and the tracked uppercase
-/// label in `accentText`; screen readers hear the label as written.
+/// label in `accentText`; screen readers hear the label as written. The glyph
+/// stays on the first line when large text wraps the label.
 class _ProposalEyebrow extends StatelessWidget {
   const _ProposalEyebrow({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
 
+  static const double _glyph = 16;
+  static const double _lineHeight = 1.25;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final style = AppType.sectionEyebrow(
+      t.accentText,
+    ).copyWith(height: _lineHeight);
+    // Glyph and first line share one centre at any text scale.
+    final line =
+        MediaQuery.textScalerOf(context).scale(style.fontSize!) * _lineHeight;
+    final glyphTop = line > _glyph ? (line - _glyph) / 2 : 0.0;
+    final textTop = line < _glyph ? (_glyph - line) / 2 : 0.0;
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        ExcludeSemantics(child: Icon(icon, size: 16, color: t.accentText)),
+        Padding(
+          padding: EdgeInsets.only(top: glyphTop),
+          child: ExcludeSemantics(
+            child: Icon(icon, size: _glyph, color: t.accentText),
+          ),
+        ),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            label.toUpperCase(),
-            semanticsLabel: label,
-            style: AppType.sectionEyebrow(t.accentText),
+          child: Padding(
+            padding: EdgeInsets.only(top: textTop),
+            child: Text(
+              label.toUpperCase(),
+              semanticsLabel: label,
+              style: style,
+            ),
           ),
         ),
       ],
@@ -142,8 +163,9 @@ class _ProposalEyebrow extends StatelessWidget {
   }
 }
 
-/// The done state of a proposal without a way onward: the soft pill's
-/// capsule with a check, as a status rather than a button.
+/// The done state of a proposal without a way onward: a check and the label
+/// in `accentText` on the card itself. No fill and no capsule, so it reads as
+/// a status next to the cards' tappable pills, not as a button.
 class _ProposalDone extends StatelessWidget {
   const _ProposalDone({required this.label});
 
@@ -152,21 +174,12 @@ class _ProposalDone extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Container(
+    return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 40),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: ShapeDecoration(
-        color: t.accentTint,
-        shape: const StadiumBorder(),
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(
-            Icons.check_circle_outline_rounded,
-            size: 18,
-            color: t.accentText,
-          ),
+          Icon(Icons.check_circle_rounded, size: 20, color: t.accentText),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
