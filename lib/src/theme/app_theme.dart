@@ -132,13 +132,15 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     ),
     // Overflow menus: rows come from `MenuRow`; the label style is the net
     // for a plain item, so none falls back to Material's labelLarge. Menus
-    // open under their anchor and the trigger glyph is a quiet `ink2`.
+    // open under their anchor and the trigger glyph is a quiet `ink2`. The
+    // edge is the decision card's `lineStrong`; `line` lost the dark menu
+    // against `bg`.
     popupMenuTheme: PopupMenuThemeData(
       color: t.surf,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rCard),
-        side: BorderSide(color: t.line),
+        side: BorderSide(color: t.lineStrong),
       ),
       textStyle: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
       labelTextStyle: WidgetStatePropertyAll(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
@@ -43,6 +44,15 @@ void main() {
         tester.widget<Icon>(find.byIcon(Icons.edit_outlined)).color,
         t.ink2,
       );
+    });
+
+    test('Menue-Kante ist lineStrong wie die Entscheidungskarte '
+        '(${brightness.name})', () {
+      final shape =
+          buildEatovaTheme(brightness).popupMenuTheme.shape!
+              as RoundedRectangleBorder;
+      expect(shape.side.color, t.lineStrong);
+      expect(shape.borderRadius, BorderRadius.circular(rCard));
     });
   }
 
