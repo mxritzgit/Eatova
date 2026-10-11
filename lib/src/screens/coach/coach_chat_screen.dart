@@ -1242,7 +1242,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           dailyLimit: e.dailyLimit,
         );
       });
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: displayText,
+        );
+        return;
+      }
       // Marked here too: the slot was gone, the question did not go out. The
       // retry button hangs on [_canInteract] and stays off, but the marker
       // remains — otherwise the bubble would look sent.
@@ -1252,7 +1262,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
     } on CoachChatException catch (e) {
       _quotaNachfragen(svc);
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: displayText,
+        );
+        return;
+      }
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -1272,6 +1292,49 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   bool _wiederholtFehlschlag(String text) {
     final alt = _fehlgeschlagen;
     return alt != null && alt.text.trim() == text.trim();
+  }
+
+  /// A request failed after its session was left and opened again. The visit
+  /// that sent it is gone, but the conversation is on screen: dropping the
+  /// outcome made the thinking row vanish without a word, and a question the
+  /// server never stored was lost with the cleared composer. [stored] is the
+  /// text the server keeps for it (the wish, without the command).
+  void _fehlschlagNachRueckkehr({
+    required CoachChatService svc,
+    required String sessionId,
+    required String message,
+    required _FehlgeschlageneSendung auftrag,
+    required ChatMessage frage,
+    required String stored,
+  }) {
+    if (!mounted ||
+        !identical(widget.service, svc) ||
+        _activeSessionId != sessionId) {
+      return;
+    }
+    final letzte = _messages.isEmpty ? null : _messages.last;
+    final gespeichert = letzte != null &&
+        letzte.role == ChatRole.user &&
+        letzte.content.trim() == stored.trim();
+    setState(() {
+      _error = message;
+      if (gespeichert) {
+        // The reload shows the stored question: the marker belongs to it.
+        _fehlgeschlagen = _FehlgeschlageneSendung(
+          messageId: letzte.id,
+          text: auftrag.text,
+          imageBytes: auftrag.imageBytes,
+          imageMimeType: auftrag.imageMimeType,
+          trainingContext: auftrag.trainingContext,
+        );
+        return;
+      }
+      _fehlgeschlagen = auftrag;
+      // A reload still in flight replaces the list anyway.
+      if (!_loading && !_messages.any((m) => m.id == frage.id)) {
+        _messages = [..._messages, frage];
+      }
+    });
   }
 
   /// History without the previous failure's bubble when the new attempt
@@ -1808,14 +1871,34 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           dailyLimit: e.dailyLimit,
         );
       });
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: wish,
+        );
+        return;
+      }
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
       });
     } on CoachChatException catch (e) {
       _quotaNachfragen(svc);
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: wish,
+        );
+        return;
+      }
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -1837,6 +1920,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     svc: svc,
     sessionId: sessionId,
     displayText: displayText,
+    stored: wish,
     l10n: l10n,
     trainingContext: trainingContext,
     request: () async {
@@ -1874,6 +1958,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     svc: svc,
     sessionId: sessionId,
     displayText: displayText,
+    stored: wish,
     l10n: l10n,
     request: () async {
       final reply = await svc.requestWorkoutLog(
@@ -1914,6 +1999,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     required CoachChatService svc,
     required String sessionId,
     required String displayText,
+    required String stored,
     required AppLocalizations l10n,
     required Future<_ProposalAnswer> Function() request,
     CoachTrainingContext? trainingContext,
@@ -1997,7 +2083,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     } on CoachQuotaExceeded catch (error) {
       if (!isCurrentAccount()) return;
       _quotaUebernehmen(remaining: 0, dailyLimit: error.dailyLimit);
-      if (!isCurrentConversation()) return;
+      if (!isCurrentConversation()) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: error.message,
+          auftrag: retry,
+          frage: userMsg,
+          stored: stored,
+        );
+        return;
+      }
       setState(() {
         _error = error.message;
         _fehlgeschlagen = retry;
@@ -2015,7 +2111,19 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _entwurfZurueck(displayText);
     } on CoachChatException catch (error) {
       if (isCurrentAccount()) _quotaNachfragen(svc);
-      if (!isCurrentConversation()) return;
+      if (!isCurrentConversation()) {
+        if (isCurrentAccount()) {
+          _fehlschlagNachRueckkehr(
+            svc: svc,
+            sessionId: sessionId,
+            message: error.message,
+            auftrag: retry,
+            frage: userMsg,
+            stored: stored,
+          );
+        }
+        return;
+      }
       setState(() {
         _error = error.message;
         _fehlgeschlagen = retry;
