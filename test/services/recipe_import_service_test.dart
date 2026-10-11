@@ -139,6 +139,33 @@ void main() {
     );
   });
 
+  test('shared provider budget is not reported as the import limit', () {
+    // 429 ai_budget_exhausted: the daily AI capacity is spent, while this
+    // user's import quota (rate_limited) may be untouched.
+    expect(
+      () => parseRecipeImportResponse(429, '{"error":"ai_budget_exhausted"}'),
+      throwsA(failure(RecipeImportFailure.unavailable)),
+    );
+    for (final body in ['{"error":"rate_limited"}', '', '<html>429</html>']) {
+      expect(
+        () => parseRecipeImportResponse(429, body),
+        throwsA(failure(RecipeImportFailure.rateLimited)),
+        reason: body,
+      );
+    }
+    expect(
+      () => parseRecipeImportResponse(
+        502,
+        '{"error":"provider_invalid_response"}',
+      ),
+      throwsA(failure(RecipeImportFailure.invalidResponse)),
+    );
+    expect(
+      () => parseRecipeImportResponse(502, '{"error":"provider_error"}'),
+      throwsA(failure(RecipeImportFailure.unavailable)),
+    );
+  });
+
   test('enforces response byte cap and whole request deadline', () async {
     await expectLater(
       service(

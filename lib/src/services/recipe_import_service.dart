@@ -153,8 +153,14 @@ RecipeImportResult parseRecipeImportResponse(int status, String body) {
   if (status == 401 || status == 403) {
     throw const RecipeImportException(RecipeImportFailure.reauthRequired);
   }
+  final code = status == 200 ? null : _errorCode(body);
   if (status == 429) {
-    throw const RecipeImportException(RecipeImportFailure.rateLimited);
+    // Shared provider capacity is not the user's import quota.
+    throw RecipeImportException(
+      code == 'ai_budget_exhausted'
+          ? RecipeImportFailure.unavailable
+          : RecipeImportFailure.rateLimited,
+    );
   }
   if (status == 400 || status == 413 || status == 415) {
     throw const RecipeImportException(RecipeImportFailure.invalidInput);
@@ -162,15 +168,8 @@ RecipeImportResult parseRecipeImportResponse(int status, String body) {
   if (status == 504) {
     throw const RecipeImportException(RecipeImportFailure.timeout);
   }
-  if (status == 502) {
-    try {
-      final error = jsonDecode(body);
-      if (error is Map && error['error'] == 'provider_invalid_response') {
-        throw const RecipeImportException(RecipeImportFailure.invalidResponse);
-      }
-    } on FormatException {
-      // The status still represents an unavailable upstream.
-    }
+  if (status == 502 && code == 'provider_invalid_response') {
+    throw const RecipeImportException(RecipeImportFailure.invalidResponse);
   }
   if (status != 200) {
     throw const RecipeImportException(RecipeImportFailure.unavailable);
@@ -181,5 +180,17 @@ RecipeImportResult parseRecipeImportResponse(int status, String body) {
     return RecipeImportResult.fromJson(json);
   } on FormatException {
     throw const RecipeImportException(RecipeImportFailure.invalidResponse);
+  }
+}
+
+/// The `error` code of a JSON error body; null for a gateway's HTML or text,
+/// where the status alone has to speak.
+String? _errorCode(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    final code = decoded is Map ? decoded['error'] : null;
+    return code is String ? code : null;
+  } on FormatException {
+    return null;
   }
 }
