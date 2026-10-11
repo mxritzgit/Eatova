@@ -417,6 +417,7 @@ void main() {
       ('sun-dried tomatoes in oil', _g),
       ('Sardinen in Olivenöl', _g),
       ('tuna in extra virgin olive oil', _g),
+      ('tuna in sunflower oil', _g),
       ('Chili, for garnish', null),
     ];
     final water = <_Line>[

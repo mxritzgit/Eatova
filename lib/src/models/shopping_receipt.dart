@@ -355,8 +355,10 @@ ShoppingReceipt buildShoppingReceipt(
     // not at all if it carries more amounts ("1 Zwiebel, 1 Zehe, Xyz"). A
     // name holding an amount the receipt could not read merges with
     // nothing: its amount would go missing from the total.
+    // (A weighed part has an amount; eaten whole, it has no uses at all.)
     if ((key.startsWith('~') && RegExp(r'\d').hasMatch(part.label)) ||
-        (part.uses.every((u) => u.amount == null && u.text == null) &&
+        (part.uses.isNotEmpty &&
+            part.uses.every((u) => u.amount == null && u.text == null) &&
             _hasUnreadAmount(part.label))) {
       key = '$key#${part.id}';
     }

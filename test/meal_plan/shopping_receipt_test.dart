@@ -294,6 +294,20 @@ void main() {
       expect(openOnly, isNot(weighed.id));
       expect(eatenWeek.isChecked({openOnly: true}), isTrue);
       expect(eatenWeek.isChecked(const {}), isFalse);
+      // Also when the weighed part, eaten whole, names a pack size.
+      final pack = _plan(
+        _own('').copyWith(
+          structuredIngredients: [_weighed('Haferflocken (500 g)', 80)],
+        ),
+        8,
+      );
+      final later = _plan(_own('50 g Haferflocken'), 9, day: 2);
+      final both = _row(_receipt([pack, later]), 'oats');
+      expect(both.merged, isTrue);
+      expect(
+        _row(_receipt([eat(pack), later]), 'oats').isChecked({both.id: true}),
+        isTrue,
+      );
 
       // A meal eaten whole leaves no row and no note.
       expect(_all(_receipt([eat(a)])), isEmpty);

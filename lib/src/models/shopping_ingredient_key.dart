@@ -364,7 +364,7 @@ _Analysis _analyze(String label, {bool modifierCheck = false}) {
   // "Thunfisch in Öl", "tuna in olive oil": a product of its own, not oil.
   text = text.replaceAll(
     RegExp(
-      r'(?:^|\s)in\s+(?:extra\s+virgin\s+)?(?:olive\s+)?[a-z]*(?:oel|oil)\b',
+      r'(?:^|\s)in\s+(?:extra\s+virgin\s+)?(?:[a-z]*oel|(?:[a-z]+\s+)?oil)\b',
     ),
     ' inoil ',
   );
