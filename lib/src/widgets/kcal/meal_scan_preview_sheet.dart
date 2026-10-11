@@ -155,7 +155,7 @@ class _ScanHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Align(alignment: Alignment.centerRight, child: close),
-              Padding(padding: const EdgeInsets.only(right: 12), child: title),
+              title,
             ],
           )
         : Row(

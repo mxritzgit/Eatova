@@ -553,7 +553,7 @@ class _HeaderRow extends StatelessWidget {
       onClose: onClose,
       closeKey: const ValueKey('meal-camera-close'),
       closeTooltip: l10n.commonClose,
-      padding: const EdgeInsets.fromLTRB(20, 2, 18, 6),
+      padding: const EdgeInsets.fromLTRB(20, 2, 18, 2),
     );
   }
 }
