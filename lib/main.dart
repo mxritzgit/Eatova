@@ -18,6 +18,8 @@ import 'src/services/sync_connectivity.dart';
 import 'src/theme/app_theme.dart';
 import 'src/theme/app_tokens.dart';
 import 'src/theme/theme_mode_controller.dart';
+import 'src/widgets/design/design.dart';
+import 'src/widgets/shared/eatova_wordmark.dart';
 
 export 'src/app/eatova_app.dart';
 
@@ -193,43 +195,82 @@ class _BootErrorApp extends StatelessWidget {
         builder: (context) {
           final t = context.t;
           final l10n = context.l10n;
+          // The composition of the boot screen without a server answer:
+          // the wordmark on top, then a centred quiet glyph tile, title and
+          // body.
+          final message = Column(
+            children: [
+              IconTile(
+                icon: Icons.cloud_off_rounded,
+                color: t.danger,
+                size: 44,
+                glyphSize: 22,
+                radius: rControl,
+              ),
+              const SizedBox(height: 18),
+              HeadingSemantics(
+                level: 1,
+                child: Text(
+                  l10n.bootErrorTitle,
+                  textAlign: TextAlign.center,
+                  style: AppType.display(22, color: t.ink),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (showDetails) ...[
+                SelectableText(
+                  '$error',
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(14, color: t.ink2, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Build braucht SUPABASE_URL + SUPABASE_ANON_KEY via\n'
+                  '--dart-define-from-file=dart_defines.json.\n'
+                  'Vorlage: dart_defines.example.json, Details: '
+                  'README.md.',
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(13, color: t.ink2, height: 1.4),
+                ),
+              ] else
+                Text(
+                  l10n.bootErrorBody,
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(14, color: t.ink2, height: 1.4),
+                ),
+            ],
+          );
           return Scaffold(
+            backgroundColor: t.bg,
             body: SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.error_outline, color: t.danger, size: 56),
-                    const SizedBox(height: 16),
-                    Text(
-                      l10n.bootErrorTitle,
-                      style: AppType.display(
-                        22,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
+              child: LayoutBuilder(
+                // At least one screen tall, so the message sits in the
+                // middle; large text scrolls.
+                builder: (context, constraints) => SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(32, 24, 32, 24),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight > 48
+                          ? constraints.maxHeight - 48
+                          : 0,
                     ),
-                    const SizedBox(height: 12),
-                    if (showDetails) ...[
-                      SelectableText(
-                        '$error',
-                        style: AppType.ui(14, color: t.ink2),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Build braucht SUPABASE_URL + SUPABASE_ANON_KEY via\n'
-                        '--dart-define-from-file=dart_defines.json.\n'
-                        'Vorlage: dart_defines.example.json, Details: '
-                        'README.md.',
-                        style: AppType.ui(13, color: t.ink2),
-                      ),
-                    ] else
-                      Text(
-                        l10n.bootErrorBody,
-                        style: AppType.ui(14, color: t.ink2),
-                      ),
-                  ],
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        EatovaWordmark(
+                          fontSize: 26,
+                          textColor: t.ink,
+                          ringColor: t.accent,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 32),
+                          child: message,
+                        ),
+                        // Balances the wordmark, so the message is centred.
+                        const SizedBox(height: 26),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
