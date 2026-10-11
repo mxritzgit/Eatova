@@ -35,8 +35,13 @@ class _Loopback {
     final loopback = _Loopback(server);
     server.listen((request) async {
       loopback.seen.add(request);
-      loopback.bodies.add(await utf8.decoder.bind(request).join());
-      await loopback.handler(request);
+      try {
+        loopback.bodies.add(await utf8.decoder.bind(request).join());
+        await loopback.handler(request);
+      } on HttpException {
+        // A cancelled client may close the connection before the body was
+        // read; under load that raced into an uncaught test error.
+      }
     });
     return loopback;
   }
