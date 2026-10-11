@@ -144,6 +144,12 @@ function signaturDelta(index: number, signatur: string): string {
 /** Ein error-Event mitten im Stream (F2); `type` ist ein API-Fehlertyp. */
 const fehlerEvent = claudeErrorEvent;
 
+/** Holds the provider before block `before` until `gate` resolves (COACH-4). */
+interface AnswerHalt {
+  before: number;
+  gate: Promise<void>;
+}
+
 /** Wie der Attrappen-Stream endet, nachdem seine Bloecke raus sind. */
 type StreamEnde =
   /** Sauber geschlossen. */
@@ -169,11 +175,25 @@ function providerBody(
   signal: AbortSignal | null | undefined,
   beiCancel: () => void,
   tor?: Promise<void>,
+  halt?: AnswerHalt,
 ): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   let i = 0;
+  let gehalten = false;
   return new ReadableStream<Uint8Array>({
     pull(controller) {
+      if (halt && i === halt.before && !gehalten) {
+        gehalten = true;
+        // Like a real fetch body: an aborted signal fails the pending read.
+        return new Promise<void>((resolve, reject) => {
+          if (signal?.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          halt.gate.then(resolve);
+        }).then(() => this.pull!(controller));
+      }
       if (i < bloecke.length) {
         controller.enqueue(enc.encode(bloecke[i++]));
         return;
@@ -248,6 +268,8 @@ interface StubOptions {
   answerEnde?: StreamEnde;
   /** Tor fuer answerEnde: "tor" — der Anbieter haelt an, bis das aufloest. */
   answerTor?: Promise<void>;
+  /** Holds the provider mid-answer, honouring its abort signal. */
+  answerHalt?: AnswerHalt;
   /** HTTP-Status des Antwort-Calls (Ausfall vor jedem Byte). */
   answerStatus?: number;
   /** Inhalt des GEPUFFERTEN Antwort-Calls (Pfad ohne Opt-in). */
@@ -296,7 +318,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     return new Response(
       providerBody(bloecke, streamEnde, signal, () => {
         providerCancelled = true;
-      }, options.answerTor),
+      }, options.answerTor, options.answerHalt),
       { status: 200, headers: { "content-type": "text/event-stream" } },
     );
   }
@@ -473,6 +495,59 @@ async function mitKurzerFrist(ms: number, run: () => Promise<void>): Promise<voi
     await run();
   } finally {
     PROVIDER_TIMEOUTS_MS.answer = original;
+  }
+}
+
+interface EdgeRuntimeStub {
+  /** Work registered via waitUntil, in order. */
+  registered: Promise<unknown>[];
+  /** Resolves once everything registered so far (and anything it adds) settled. */
+  settled(): Promise<void>;
+  restore(): void;
+}
+
+/** Stands in for Supabase's EdgeRuntime: collects what the handler asks the
+ *  worker to wait for, so a test can await exactly that work (COACH-4). */
+function installEdgeRuntime(): EdgeRuntimeStub {
+  const g = globalThis as { EdgeRuntime?: unknown };
+  const before = g.EdgeRuntime;
+  const registered: Promise<unknown>[] = [];
+  g.EdgeRuntime = { waitUntil: (work: Promise<unknown>) => { registered.push(work); } };
+  return {
+    registered,
+    settled: async () => {
+      for (let seen = -1; seen !== registered.length;) {
+        seen = registered.length;
+        await Promise.all(registered);
+      }
+    },
+    restore: () => {
+      if (before === undefined) delete g.EdgeRuntime;
+      else g.EdgeRuntime = before;
+    },
+  };
+}
+
+/** Reads until `marker` arrived; returns what was read. */
+async function liesBis(reader: ReadableStreamDefaultReader<Uint8Array>, marker: string): Promise<string> {
+  const decoder = new TextDecoder();
+  let gelesen = "";
+  while (!gelesen.includes(marker)) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    gelesen += decoder.decode(value, { stream: true });
+  }
+  return gelesen;
+}
+
+/** Everything left in the body. */
+async function liesRest(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let rest = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return rest;
+    rest += decoder.decode(value, { stream: true });
   }
 }
 
@@ -1586,54 +1661,100 @@ Deno.test("A3/§5: der ERFOLGREICHE Stream erstattet nie und gibt den Anbieter f
   }
 });
 
-Deno.test("A3/§5: ein Abbruch VOR dem ersten delta ist auch keine Gratisfrage", async () => {
-  // Die Erstattungsgrenze ist das erste delta UND der Abbruch: ohne die
-  // clientGone-Haelfte bekaeme genau dieser Ablauf den Slot zurueck, und ein
-  // Abbruch nach dem meta-Event waere die billigste Frage der App.
+// COACH-4: a client that hangs up before approval no longer aborts the
+// provider. The answer is read to its end, judged, stored once and never
+// refunded; nothing reaches the dead wire. These replace the #90 tests that
+// pinned the old abort.
+
+/** Opens a gate that holds the provider mid-answer. */
+function tor(): { gate: Promise<void>; open: () => void } {
+  let open: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { open = resolve; });
+  return { gate, open };
+}
+
+Deno.test("COACH-4: a cancel after meta, before approval, reads the provider to the end and stores the answer once", async () => {
+  const halt = tor();
+  const edge = installEdgeRuntime();
   const stub = installFetch({
-    answerChunks: [...KOPF, textDelta("Klar, gerne.")],
-    answerEnde: "stall",
+    answerChunks: antwort([LANGER_TEXT_A, LANGER_TEXT_B]),
+    answerHalt: { before: KOPF.length + 1, gate: halt.gate },
   });
   try {
     const res = await handleRequest(makeRequest({ message: FRAGE }, true));
     const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let gelesen = "";
-    while (!gelesen.includes("event: meta")) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      gelesen += decoder.decode(value, { stream: true });
-    }
-    assertEquals(deltaTexte(parseSse(gelesen)).length, 0, "noch kein delta raus");
-    const touchesVorher = stub.callsTo("touch_chat_session").length;
+    assertEquals(deltaTexte(parseSse(await liesBis(reader, "event: meta"))).length, 0, "no delta before approval");
     await reader.cancel();
-    await warteBis(() => stub.callsTo("touch_chat_session").length > touchesVorher);
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund nach einem Abbruch");
-    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
-    assertEquals(stub.assistantRows().length, 0, "nichts Geliefertes, nichts zu speichern");
-  } finally {
-    stub.restore();
-  }
+    assert(!stub.providerAborted(), "the disconnect must not abort the provider");
+    assert(!stub.providerCancelled(), "the provider reader stays open");
+    assertEquals(stub.assistantRows().length, 0, "nothing stored before the provider finished");
+    // [handler, pump]: the pump is what outlives the response.
+    assertEquals(edge.registered.length, 2, "handler and pump are both kept alive");
+    let rowsWhenPumpSettled = -1;
+    void edge.registered[1].then(() => { rowsWhenPumpSettled = stub.assistantRows().length; });
+    halt.open();
+    await edge.settled();
+    assertEquals(rowsWhenPumpSettled, 1, "the kept-alive pump covers the store");
+    const rows = stub.assistantRows();
+    assertEquals(rows.length, 1, "stored exactly once");
+    assertEquals(rows[0].content, LANGER_TEXT_A + LANGER_TEXT_B, "the whole approved answer");
+    assertEquals(stub.callsTo("touch_chat_session").length, 1, "one session touch");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "no refund: the slot bought a stored answer");
+    assertEquals(stub.quotaUsed(), 1, "slot spent");
+    // Same row shape as the buffered path writes for the same answer.
+    const gepuffert = installFetch({ answerContent: LANGER_TEXT_A + LANGER_TEXT_B });
+    try {
+      await (await handleRequest(makeRequest({ message: FRAGE }, false))).json();
+      assertEquals(JSON.stringify(rows[0]), JSON.stringify(gepuffert.assistantRows()[0]), "identical to the buffered row");
+    } finally { gepuffert.restore(); }
+  } finally { halt.open(); stub.restore(); edge.restore(); }
 });
 
-Deno.test("Security: cancellation during validation never persists generated text", async () => {
-  let openGate: () => void = () => {};
-  const gate = new Promise<void>(resolve => { openGate = resolve; });
-  const stub = installFetch({ answerDeltas: [LANGER_TEXT_A + LANGER_TEXT_B], answerEnde: "tor", answerTor: gate });
-  try {
-    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
-    const reader = response.body!.getReader();
-    const first = await reader.read();
-    const events = parseSse(new TextDecoder().decode(first.value));
-    assertEquals(events[0].event, "meta", "metadata remains available before validation");
-    assertEquals(deltaTexte(events).length, 0, "no unapproved text");
-    await reader.cancel();
-    openGate();
-    await warteBis(() => stub.callsTo("touch_chat_session").length > 0);
-    assertEquals(stub.assistantRows().length, 0, "no generated prefix in history");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "client cancellation keeps its slot");
-  } finally { openGate(); stub.restore(); }
-});
+for (const phase of ["before the SSE head", "during approval"] as const) {
+  Deno.test(`COACH-4: request abort ${phase} keeps the provider going, sends no byte and stores the answer once`, async () => {
+    const halt = tor();
+    const edge = installEdgeRuntime();
+    const stub = installFetch({
+      answerChunks: antwort([LANGER_TEXT_A, LANGER_TEXT_B]),
+      answerHalt: { before: phase === "before the SSE head" ? 0 : KOPF.length + 1, gate: halt.gate },
+    });
+    const abort = new AbortController();
+    let pending: Promise<Response> | undefined;
+    try {
+      pending = handleRequest(makeRequest({ message: FRAGE }, true, abort.signal));
+      assertEquals(edge.registered.length, 1, "the handler is kept alive from the start");
+      let rest: string;
+      if (phase === "before the SSE head") {
+        await warteBis(() => stub.answerBodies().length > 0);
+        abort.abort();
+        assert(!stub.providerAborted(), "the disconnect must not abort the provider");
+        halt.open();
+        rest = await (await pending).text();
+      } else {
+        const reader = (await pending).body!.getReader();
+        await liesBis(reader, "event: meta");
+        abort.abort();
+        assert(!stub.providerAborted(), "the disconnect must not abort the provider");
+        halt.open();
+        rest = await liesRest(reader);
+      }
+      assertEquals(rest, "", "not one byte after the disconnect");
+      await edge.settled();
+      const rows = stub.assistantRows();
+      assertEquals(rows.length, 1, "stored exactly once");
+      assertEquals(rows[0].content, LANGER_TEXT_A + LANGER_TEXT_B, "the whole approved answer");
+      assertEquals(rows[0].refusal, false, "an ordinary answer");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "no refund");
+      assertEquals(stub.quotaUsed(), 1, "slot spent");
+    } finally {
+      halt.open();
+      // Let the handler finish against the stub, whatever the verdict.
+      await pending?.catch(() => {});
+      stub.restore();
+      edge.restore();
+    }
+  });
+}
 
 Deno.test("A3: message_stop beendet den Stream, statt am Anbieter haengen zu bleiben", async () => {
   // Ohne die message_stop-Behandlung liefe die Pumpe weiter, bis der Anbieter
@@ -1850,28 +1971,85 @@ Deno.test("Security completion: JSON requires valid terminal metadata", async ()
   }
 });
 
-Deno.test("Security cancellation: request abort stops provider before and during approval without refund", async () => {
-  for (const prefix of ["", LANGER_TEXT_A + LANGER_TEXT_B]) {
-    await mitKurzerFrist(100, async () => {
+// COACH-4: what happens after a disconnect when the provider fails or the
+// verdict blocks is what a connected request gets, minus the refund (a client
+// abort never refunds, unchanged) and minus every byte on the wire.
+const NACH_ABBRUCH_FEHLER: Array<{ name: string; chunks: string[]; ende: StreamEnde }> = [
+  { name: "provider error", chunks: [...KOPF, textDelta(LANGER_TEXT_A)], ende: "fail" },
+  { name: "provider timeout", chunks: [...KOPF, textDelta(LANGER_TEXT_A)], ende: "stall" },
+  { name: "invalid completion", chunks: antwort([LANGER_TEXT_A, LANGER_TEXT_B], "tool_calls"), ende: "close" },
+];
+
+for (const fall of NACH_ABBRUCH_FEHLER) {
+  Deno.test(`COACH-4: ${fall.name} after a disconnect stores nothing and refunds nothing, as before`, async () => {
+    await mitKurzerFrist(150, async () => {
+      const halt = tor();
+      const edge = installEdgeRuntime();
+      const stub = installFetch({
+        answerChunks: fall.chunks,
+        answerEnde: fall.ende,
+        answerHalt: { before: KOPF.length + 1, gate: halt.gate },
+      });
+      const logs: string[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => { logs.push(args.map(String).join(" ")); };
       const abort = new AbortController();
-      const stub = installFetch({ answerChunks: prefix ? [...KOPF, textDelta(prefix)] : [], answerEnde: "stall" });
-      const pending = handleRequest(makeRequest({ message: FRAGE }, true, abort.signal));
       try {
-        await warteBis(() => stub.answerBodies().length > 0);
+        const reader = (await handleRequest(makeRequest({ message: FRAGE }, true, abort.signal))).body!.getReader();
+        await liesBis(reader, "event: meta");
         abort.abort();
-        assert(stub.providerAborted(), "HTTP request abort propagates immediately to provider");
-        const response = await pending;
-        const body = await response.text();
-        assertEquals(deltaTexte(parseSse(body)).length, 0, "no unapproved text");
+        halt.open();
+        assertEquals(await liesRest(reader), "", "not one byte after the disconnect");
+        await edge.settled();
         assertEquals(stub.assistantRows().length, 0, "no unapproved history");
-        assertEquals(stub.callsTo("refund_chat_quota").length, 0, "abandoned request cannot reset paid quota");
-      } finally {
-        await (await pending).text().catch(() => {});
-        stub.restore();
-      }
+        assertEquals(stub.callsTo("refund_chat_quota").length, 0, "a client abort never refunds");
+        assertEquals(stub.quotaUsed(), 1, "slot spent");
+        const log = logs.filter((line) => line.startsWith("answer stream failed"));
+        assertEquals(log.length, 1, "a real provider failure is logged once");
+        assert(!log[0].includes(LANGER_TEXT_A.slice(0, 20)), "the log carries no answer text");
+      } finally { console.error = originalError; halt.open(); stub.restore(); edge.restore(); }
     });
-  }
-});
+  });
+}
+
+const NACH_ABBRUCH_URTEIL: Array<{ name: string; chunks: string[]; reply: string }> = [
+  {
+    name: "provider safety filter",
+    chunks: [...KOPF, textDelta(LANGER_TEXT_A), ...abschluss("content_filter")],
+    reply: PROVIDER_REFUSAL_REPLY,
+  },
+  {
+    name: "prompt leak",
+    chunks: antwort([LANGER_TEXT_A, " " + [...PROMPT_LEAK_GUARD.shingles][0]]),
+    reply: PROMPT_LEAK_REPLY,
+  },
+];
+
+for (const fall of NACH_ABBRUCH_URTEIL) {
+  Deno.test(`COACH-4: a ${fall.name} verdict after a disconnect stores the refusal, never the text`, async () => {
+    const halt = tor();
+    const edge = installEdgeRuntime();
+    const stub = installFetch({
+      answerChunks: fall.chunks,
+      answerHalt: { before: KOPF.length + 1, gate: halt.gate },
+    });
+    const abort = new AbortController();
+    try {
+      const reader = (await handleRequest(makeRequest({ message: FRAGE }, true, abort.signal))).body!.getReader();
+      await liesBis(reader, "event: meta");
+      abort.abort();
+      halt.open();
+      assertEquals(await liesRest(reader), "", "not one byte after the disconnect");
+      await edge.settled();
+      const rows = stub.assistantRows();
+      assertEquals(rows.length, 1, "one refusal row, as for a connected client");
+      assertEquals(rows[0].refusal, true, "a refusal");
+      assertEquals(rows[0].refusal_reason, "model_refusal", "same reason as connected");
+      assertEquals(rows[0].content, fall.reply, "the catalogue text, never the blocked answer");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "a paid refusal is not refunded");
+    } finally { halt.open(); stub.restore(); edge.restore(); }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // 11) Messages-API-Eigenheiten: Denkbloecke, stop_reason refusal und ein

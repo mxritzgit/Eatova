@@ -121,6 +121,19 @@ Ordinary Coach replies support SSE and JSON. SSE text is held server-side until
 the full provider completion and output checks pass. The wire format remains
 meta/delta/done/error; the app shows its thinking state while approval is pending.
 This also prevents already transmitted text from escaping a later refusal.
+A client disconnect (COACH-4) does not abort the reserved answer call: the
+server reads it to the end within the 45 s answer deadline and 512 KiB cap,
+runs the same final check, and stores the approved answer or the refusal once,
+like the buffered path, without sending further bytes and without a refund.
+A provider failure after the disconnect stores nothing and refunds nothing (a
+client abort never refunds). The handler and the stream pump are registered
+with `EdgeRuntime.waitUntil` so the worker outlives the request for that work.
+/recipe, /plan and /log are buffered and already finish and persist after a
+disconnect. After a lost connection the app checks the transcript; if the
+question is stored without an answer, it keeps its thinking state and checks
+again every 3 s (none while backgrounded) until the request's own deadline
+from the send (chat 95 s, /recipe 165 s, /plan and /log 105 s), then shows the
+answer or the usual error with retry. No second request is sent meanwhile.
 
 The classifier requests structured categories; benign approvals require an
 explicit `stop` completion. Malformed ordinary-chat or image-plus-text

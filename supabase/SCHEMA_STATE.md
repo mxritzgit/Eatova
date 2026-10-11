@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (53)
+## Migrationen (55)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -87,6 +87,8 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 51. `20261001100000_training_history_rpc_least_privilege.sql`
 52. `20261003100000_profiles_energy_check.sql`
 53. `20261004090000_chat_message_workout_log.sql`
+54. `20261011100000_recipe_recreate_after_delete.sql`
+55. `20261011101000_profile_display_name_clamp.sql`
 
 ## Tabellen in `public` (24)
 
@@ -201,7 +203,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
-| `apply_recipe_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100000_offline_sync_versions.sql` |
+| `apply_recipe_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20261011100000_recipe_recreate_after_delete.sql` |
 | `apply_sync_operation` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20261003100000_profiles_energy_check.sql` |
 | `apply_training_plan_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `claim_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
@@ -217,7 +219,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `ensure_default_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260609120000_chat_rpc_least_privilege.sql` |
 | `get_chat_quota_today` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260808210000_chat_quota_honesty.sql` |
 | `guard_training_plan_incarnation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
-| `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20260516150000_create_profiles.sql` |
+| `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20261011101000_profile_display_name_clamp.sql` |
 | `handle_new_user_stats` | **Eigentuemers** | `public` | `service_role` | `20260516160000_app_data_schema.sql` |
 | `increment_lifetime_stats` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260814120000_audit_rls_guard.sql` |
 | `is_valid_coach_workout_log` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20261004090000_chat_message_workout_log.sql` |

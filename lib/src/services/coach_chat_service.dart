@@ -182,11 +182,70 @@ class CoachChatService {
   /// A connection that dies mid-request is the same case: functions_client
   /// wraps every transport error up to the response HEADERS, and coach-chat
   /// sends those only once its work is done (buffered modes) or under way
-  /// (stream). A network switch or iOS reclaiming a backgrounded app's socket
-  /// leaves the slot spent and the answer stored, so [verbindungWeg] callers
-  /// ask too — with one attempt, because offline the lookup fails as well and
+  /// (stream). Either way the server finishes without the client: it reads
+  /// the provider to the end, stores an approved answer and keeps the slot
+  /// spent (for the stream since COACH-4). A network switch or iOS reclaiming
+  /// a backgrounded app's socket therefore leaves an answer that reaches the
+  /// transcript once the provider is done. [verbindungWeg] callers ask too —
+  /// with one attempt per check, because offline the lookup fails as well and
   /// PostgREST's GET backoff would hold the error back for seconds.
+  ///
+  /// A check that finds the question stored but no answer yet does not end
+  /// the request: with an [answerWaiter] installed it checks again every
+  /// [_nachfrageAbstand] until [frist] after [begonnen] — the request's own
+  /// deadline, the ledger of everything the server may still spend on it
+  /// (provider caps, the persist deadline, its hops). The caller keeps its
+  /// waiting state meanwhile; an answer that never comes ends in the usual
+  /// error. Only a question the transcript PROVES stored opens that wait; a
+  /// failing first lookup (offline, never sent) reports at once as before.
+  /// [pruefen] runs after every await (the account fence of plan and log).
   Future<ChatMessage?> _nachzuegler({
+    required String sessionId,
+    required String gesendet,
+    required DateTime begonnen,
+    Duration? frist,
+    Future<List<ChatMessage>> Function()? historyLoader,
+    void Function()? pruefen,
+  }) async {
+    final bis = frist == null ? null : begonnen.add(frist);
+    var frageGespeichert = false;
+    for (;;) {
+      final befund = await _transkriptBefund(
+        sessionId: sessionId,
+        gesendet: gesendet,
+        begonnen: begonnen,
+        historyLoader: historyLoader,
+      );
+      pruefen?.call();
+      if (befund.antwort != null) return befund.antwort;
+      if (befund.frageOffen) {
+        frageGespeichert = true;
+      } else if (!befund.unbekannt || !frageGespeichert) {
+        // A failed lookup only keeps a wait going that a stored question
+        // already opened; on its own it proves nothing.
+        return null;
+      }
+      final waiter = answerWaiter;
+      final rest = bis?.difference(clock.now());
+      if (waiter == null || rest == null || rest <= Duration.zero) return null;
+      final pause = rest < _nachfrageAbstand ? rest : _nachfrageAbstand;
+      if (!await waiter.pause(sessionId, pause)) return null;
+      pruefen?.call();
+    }
+  }
+
+  /// Pause between two transcript checks while a stored question waits for
+  /// its answer ([_nachzuegler]).
+  static const Duration _nachfrageAbstand = Duration(seconds: 3);
+
+  /// Holds a lost request open while its stored answer may still arrive; see
+  /// [_nachzuegler]. The coach screen installs one (it pauses in the
+  /// background and stops on session or account change). Null keeps the
+  /// single lookup.
+  CoachAnswerWaiter? answerWaiter;
+
+  /// One transcript check for [_nachzuegler].
+  Future<_Transkriptbefund> _transkriptBefund({
     required String sessionId,
     required String gesendet,
     required DateTime begonnen,
@@ -198,20 +257,30 @@ class CoachChatService {
     } catch (_) {
       // Already logged and reported by loadHistory; here it only means the
       // straggler cannot be proven.
-      return null;
+      return const _Transkriptbefund.unbekannt();
     }
-    if (verlauf.length < 2) return null;
-    final antwort = verlauf[verlauf.length - 1];
+    final grenze = begonnen.subtract(_uhrenversatz);
+    bool istFrage(ChatMessage m) =>
+        m.role == ChatRole.user &&
+        m.content.trim() == gesendet.trim() &&
+        !m.createdAt.isBefore(grenze);
+    if (verlauf.isEmpty) return const _Transkriptbefund.keiner();
+    final letzte = verlauf.last;
+    // Stored, not answered yet: the server may still be writing.
+    if (istFrage(letzte)) return const _Transkriptbefund.offen();
+    if (verlauf.length < 2) return const _Transkriptbefund.keiner();
     final frage = verlauf[verlauf.length - 2];
-    if (antwort.role != ChatRole.assistant || frage.role != ChatRole.user) {
-      return null;
+    if (letzte.role != ChatRole.assistant || frage.role != ChatRole.user) {
+      return const _Transkriptbefund.keiner();
     }
-    if (frage.content.trim() != gesendet.trim()) return null;
-    if (antwort.content.trim().isEmpty) return null;
-    if (antwort.createdAt.isBefore(begonnen.subtract(_uhrenversatz))) {
-      return null;
+    if (frage.content.trim() != gesendet.trim()) {
+      return const _Transkriptbefund.keiner();
     }
-    return antwort;
+    if (letzte.content.trim().isEmpty) return const _Transkriptbefund.keiner();
+    if (letzte.createdAt.isBefore(grenze)) {
+      return const _Transkriptbefund.keiner();
+    }
+    return _Transkriptbefund.beantwortet(letzte);
   }
 
   /// The deadline's verdict for [send]: the straggler if the server finished
@@ -231,6 +300,7 @@ class CoachChatService {
       sessionId: sessionId,
       gesendet: gesendet,
       begonnen: begonnen,
+      frist: _chatFrist,
       historyLoader: _stragglerLoader(sessionId, verbindungWeg),
     );
     if (antwort == null) throw CoachChatException(_unbewiesen(verbindungWeg));
@@ -258,6 +328,7 @@ class CoachChatService {
       sessionId: sessionId,
       gesendet: wunsch,
       begonnen: begonnen,
+      frist: _rezeptFrist,
       historyLoader: _stragglerLoader(sessionId, verbindungWeg),
     );
     final vorschlag = antwort?.recipeProposal;
@@ -585,7 +656,7 @@ class CoachChatService {
   }) async {
     // Reference point for [_nachzuegler]: everything it may accept as this
     // request's answer has to be younger than the request itself.
-    final begonnen = DateTime.now();
+    final begonnen = clock.now();
     try {
       return await _mitFrist(_chatFrist, (abbruch) async {
         final res = await _client.functions.invoke(
@@ -794,7 +865,7 @@ class CoachChatService {
     required String locale,
   }) async {
     // As in [send]: reference point for [_nachzuegler].
-    final begonnen = DateTime.now();
+    final begonnen = clock.now();
     try {
       final res = await _mitFrist(
         _rezeptFrist,
@@ -1295,12 +1366,15 @@ class CoachChatService {
     String authorization,
     void Function() verifyIdentity,
     bool connectionLost,
+    Duration deadline,
   ) async {
     verifyIdentity();
     final message = await _nachzuegler(
       sessionId: sessionId,
       gesendet: wish,
       begonnen: startedAt,
+      frist: deadline,
+      pruefen: verifyIdentity,
       historyLoader: () => _readHistory(
         sessionId,
         limit: 2,
@@ -1323,7 +1397,7 @@ class CoachChatService {
   }) async {
     final message = await _answerAfterDeadline(
       sessionId, wish, startedAt, authorization, verifyIdentity,
-      connectionLost,
+      connectionLost, _planFrist,
     );
     final proposal = message?.trainingPlanProposal;
     if (message == null ||
@@ -1352,7 +1426,7 @@ class CoachChatService {
   ) async {
     final message = await _answerAfterDeadline(
       sessionId, wish, startedAt, authorization, verifyIdentity,
-      connectionLost,
+      connectionLost, _logFrist,
     );
     final proposal = message?.workoutLogProposal;
     if (message == null || (proposal == null && !message.refusal)) {
@@ -1738,6 +1812,42 @@ class CoachWorkoutLogReply {
   final int? remaining;
   final int? dailyLimit;
   final String? assistantMessageId;
+}
+
+/// Holds a Coach request open after a lost connection while the server may
+/// still store its answer (COACH-4). Installed by the screen as
+/// [CoachChatService.answerWaiter].
+abstract interface class CoachAnswerWaiter {
+  /// Waits about [interval] before the next transcript check of a request in
+  /// [sessionId]; false stops waiting and lets the error stand.
+  Future<bool> pause(String sessionId, Duration interval);
+}
+
+/// One transcript check of [CoachChatService._nachzuegler].
+class _Transkriptbefund {
+  const _Transkriptbefund.beantwortet(ChatMessage this.antwort)
+      : frageOffen = false,
+        unbekannt = false;
+  const _Transkriptbefund.offen()
+      : antwort = null,
+        frageOffen = true,
+        unbekannt = false;
+  const _Transkriptbefund.unbekannt()
+      : antwort = null,
+        frageOffen = false,
+        unbekannt = true;
+  const _Transkriptbefund.keiner()
+      : antwort = null,
+        frageOffen = false,
+        unbekannt = false;
+
+  final ChatMessage? antwort;
+
+  /// The question is the last row, without an answer yet.
+  final bool frageOffen;
+
+  /// The lookup failed.
+  final bool unbekannt;
 }
 
 class CoachChatException implements Exception {

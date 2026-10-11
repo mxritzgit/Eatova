@@ -112,6 +112,65 @@ begin
 end;
 $$;
 
+-- REC-3 (2026-10-11): fixed slugs (user_import_<sha>, user_coach_<msgId>) make a
+-- re-import after a delete common. A create (expected 0) against a tombstone is
+-- applied under the same slug; stale edits and creates over a live head still conflict.
+do $$
+declare created jsonb; erased jsonb; recreated jsonb; again jsonb; stale jsonb; live jsonb; gone jsonb;
+  v1 bigint; tomb bigint; v3 bigint; s text:='user_import_recreate';
+begin
+  created:=public.apply_sync_operation('72000000-0000-4000-8000-000000000101','recipeUpsert',s,
+    jsonb_build_object('expected_revision',0,'recipe',pg_temp.recipe(s,'Imported')));
+  v1:=(created#>>'{result,recipe_mutation,current_revision}')::bigint;
+  erased:=public.apply_sync_operation('72000000-0000-4000-8000-000000000102','recipeDelete',s,
+    jsonb_build_object('expected_revision',v1));
+  tomb:=(erased#>>'{result,recipe_mutation,current_revision}')::bigint;
+  perform pg_temp.require(tomb>v1 and (erased#>>'{result,recipe_mutation,current_deleted}')::boolean,'import deleted');
+  gone:=public.apply_sync_operation('72000000-0000-4000-8000-000000000103','recipeDelete',s,
+    jsonb_build_object('expected_revision',0));
+  perform pg_temp.require(gone#>>'{result,recipe_mutation,outcome}'='deleteConflict','delete semantics unchanged');
+  recreated:=public.apply_sync_operation('72000000-0000-4000-8000-000000000104','recipeUpsert',s,
+    jsonb_build_object('expected_revision',0,'recipe',pg_temp.recipe(s,'Imported again')));
+  perform pg_temp.require(recreated#>>'{result,recipe_mutation,outcome}'='applied','re-import after delete is applied');
+  perform pg_temp.require(recreated#>>'{result,recipe_mutation,saved_recipe,slug}'=s,'re-import keeps its stable slug');
+  v3:=(recreated#>>'{result,recipe_mutation,current_revision}')::bigint;
+  perform pg_temp.require(v3>tomb and not (recreated#>>'{result,recipe_mutation,current_deleted}')::boolean,'revision advances past tombstone');
+  perform pg_temp.require((select count(*)=1 and min(title)='Imported again' and min(server_revision)=v3
+    from public.user_recipes where slug=s),'exactly one live row under the stable slug');
+  perform pg_temp.require(not exists(select 1 from public.user_recipes where conflict_of=s),'no conflict copy');
+  perform pg_temp.require((select array_agg((v->>'deleted')::boolean order by (v->>'revision')::bigint)=array[false,true,false]
+    from jsonb_array_elements(public.load_recipe_history(s)->'versions') v),'history keeps original, tombstone and new version');
+  perform pg_temp.require(exists(select 1 from jsonb_array_elements(public.load_recipe_history(s)->'versions') v
+    where (v->>'revision')::bigint=v3 and v->>'source'='cas'),'recreation is a CAS revision');
+  perform pg_temp.require(not (public.load_recipe_history(s)->>'current_deleted')::boolean and
+    (public.load_recipe_history(s)->>'current_revision')::bigint=v3,'history names the live identity');
+  perform pg_temp.require(exists(select 1 from jsonb_array_elements(public.load_recipe_page()->'rows') r
+    where r->>'slug'=s and r->>'title'='Imported again'),'snapshot lists the recreated recipe');
+  again:=public.apply_sync_operation('72000000-0000-4000-8000-000000000104','recipeUpsert',s,
+    jsonb_build_object('expected_revision',0,'recipe',pg_temp.recipe(s,'Imported again')));
+  perform pg_temp.require(again-'current_state'=recreated-'current_state','retry returns the exact receipt');
+  perform pg_temp.require(jsonb_array_length(public.load_recipe_history(s)->'versions')=3,'retry adds no revision');
+
+  -- A stale edit (basis v3, read before the delete) cannot resurrect the identity.
+  erased:=public.apply_sync_operation('72000000-0000-4000-8000-000000000105','recipeDelete',s,
+    jsonb_build_object('expected_revision',v3));
+  stale:=public.apply_sync_operation('72000000-0000-4000-8000-000000000106','recipeUpsert',s,
+    jsonb_build_object('expected_revision',v3,'recipe',pg_temp.recipe(s,'Stale edit')));
+  perform pg_temp.require(stale#>>'{result,recipe_mutation,outcome}'='conflictSaved','stale edit against tombstone conflicts');
+  perform pg_temp.require(stale#>>'{result,recipe_mutation,saved_recipe,slug}'='user_conflict_72000000-0000-4000-8000-000000000106','stale edit kept as copy');
+  perform pg_temp.require(not exists(select 1 from public.user_recipes where slug=s),'stale edit does not resurrect');
+  perform pg_temp.require((stale#>>'{result,recipe_mutation,current_deleted}')::boolean,'tombstone stays current');
+
+  -- A create over a live head is still a conflict, never an overwrite.
+  created:=public.apply_sync_operation('72000000-0000-4000-8000-000000000107','recipeUpsert','user_coach_live',
+    jsonb_build_object('expected_revision',0,'recipe',pg_temp.recipe('user_coach_live','Adopted')));
+  live:=public.apply_sync_operation('72000000-0000-4000-8000-000000000108','recipeUpsert','user_coach_live',
+    jsonb_build_object('expected_revision',0,'recipe',pg_temp.recipe('user_coach_live','Adopted twice')));
+  perform pg_temp.require(live#>>'{result,recipe_mutation,outcome}'='conflictSaved','create over live head conflicts');
+  perform pg_temp.require((select title='Adopted' from public.user_recipes where slug='user_coach_live'),'live head unchanged');
+end;
+$$;
+
 -- A different owner may reuse UUIDs but can read neither history nor receipts.
 select set_config('request.jwt.claims','{"sub":"71000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
 select pg_temp.require(jsonb_array_length(public.load_recipe_page()->'rows')=0,'cross-user snapshot isolated');
@@ -130,6 +189,9 @@ do $$ begin
   exception when insufficient_privilege then null; end;
 end $$;
 reset role;
+select pg_temp.require((select h.history_bytes=(select sum(octet_length(r.recipe::text)) from public.recipe_revisions r
+  where r.user_id=h.user_id) from public.recipe_sync_heads h where h.user_id='71000000-0000-4000-8000-000000000001'),
+  'history bytes match the journal, including recreated identities');
 delete from auth.users where id='71000000-0000-4000-8000-000000000001';
 select pg_temp.require(not exists(select 1 from public.recipe_revisions where user_id='71000000-0000-4000-8000-000000000001'),'account deletion erases history');
 select pg_temp.require(not exists(select 1 from public.sync_operation_receipts where user_id='71000000-0000-4000-8000-000000000001'),'account deletion erases receipts');

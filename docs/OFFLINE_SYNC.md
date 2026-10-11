@@ -148,7 +148,7 @@ exact conflict copy, including a copy deleted after acknowledgement.
 
 | Data | Different new operations | Repeated operation |
 |---|---|---|
-| Own recipes | Server revision CAS; a stale edit creates a deterministic conflict copy; a stale delete preserves the current recipe. | Exact original receipt; no second copy or rewrite. |
+| Own recipes | Server revision CAS; a stale edit creates a deterministic conflict copy; a stale delete preserves the current recipe; a create against a deleted slug recreates it. | Exact original receipt; no second copy or rewrite. |
 | Diary edits, training plan edits, profile settings | Last server arrival wins. These are **not** protected by document CAS. | Never re-applies an older write over a newer operation. |
 | Favorites, shopping checks | Explicit last-arrival register. A new favorite upsert can deliberately re-add a deleted favorite. | An old upsert/delete cannot rewind the register. |
 | Weight samples, training completions | Immutable identity-based inserts. Training completion deletion has a permanent receipt. | Original outcome; no duplicate sample or completion. |
@@ -189,9 +189,14 @@ monotone per account and may contain gaps. Device clocks are never compared.
 Random UUID slugs separate simultaneous new recipes; existing slugs remain valid.
 
 The recipe mutation carries `expected_revision`. An exact match updates/deletes
-the identity. A missing identity accepts a new draft. A mismatched upsert retains
-the original and stores the candidate as `user_conflict_<operation UUID>` with
-`conflict_of`; retrying yields the same copy. A mismatched delete changes no
+the identity. A missing identity accepts a new draft. Since 2026-10-11
+(`20261011100000`), so does a deleted one: an upsert with expected revision 0
+against a tombstone is `applied` under the same slug, because the fixed import
+and Coach slugs (`user_import_<sha>`, `user_coach_<message>`) are re-saved after
+a delete with 0. Any other mismatched upsert, including a stale edit against a
+tombstone or a create against a live recipe, retains the original and stores the
+candidate as `user_conflict_<operation UUID>` with `conflict_of`; retrying yields
+the same copy. A mismatched delete changes no
 recipe. Restoring a historical version is an explicit new mutation against the
 currently observed revision, including a deletion revision. Concurrent restoration
 therefore preserves both candidates.
@@ -311,7 +316,8 @@ cannot return; deleting old receipts or tombstones on a timer is unsafe. Account
 erasure remains available even at capacity.
 
 Real PostgreSQL assertions live in `test/migrations/offline_sync_versions.sql`,
-`offline_sync_receipts.sql` and `training_incarnations.sql`; CI runs all three.
+`offline_sync_receipts.sql` and `training_incarnations.sql`; CI runs all three
+through `rls_cross_user.sql`.
 The accompanying
 Python concurrency and migration-upgrade probes test real parallel transactions
 and an existing collection larger than the default history allowance.

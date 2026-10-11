@@ -834,7 +834,23 @@ async function answer(
 // Provider status can arrive last, so no prefix is released speculatively.
 // Client cancellation remains non-refundable; provider outages refund only
 // before approved text is published. Successful provider bodies are byte-bounded.
+// COACH-4: a client that hangs up does not stop the provider. The answer is
+// read to its end within the answer deadline, judged by finalizeAnswer and,
+// if approved, stored like a buffered answer for the app's straggler lookup.
 // ---------------------------------------------------------------------------
+
+/// Keeps the Supabase edge worker alive until `work` settles, so work that
+/// must outlive a client disconnect is not torn down with the request. Plain
+/// Deno (tests, local serve) has no EdgeRuntime; the work simply runs there.
+function keepWorkerAlive(work: Promise<unknown>): void {
+  const runtime = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime;
+  if (typeof runtime?.waitUntil !== "function") return;
+  try {
+    runtime.waitUntil(work.catch(() => {}));
+  } catch {
+    // Best effort: the work runs either way.
+  }
+}
 
 export const PROMPT_LEAK_GUARD = {
   words: SHINGLE_WORDS,
@@ -845,9 +861,6 @@ export const PROMPT_LEAK_GUARD = {
 interface AnswerStreamState {
   reader: ReadableStreamDefaultReader<Uint8Array>;
   decoder: TextDecoder;
-  /// Second abort leg: a client that hangs up cancels the provider call
-  /// instead of paying for tokens nobody reads.
-  abort: AbortController;
   /// Provider bytes not yet split into whole SSE lines.
   raw: string;
   receivedBytes: number;
@@ -931,12 +944,12 @@ async function openAnswerStream(
   image?: { base64: string; mimeType: string },
   userContext?: string,
   trainingContext?: TrainingContext,
-  requestSignal?: AbortSignal,
   locale: CoachLocale = "de",
 ): Promise<AnswerStreamState> {
-  const abort = new AbortController();
   await budget("coach_answer");
-  const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer), ...(requestSignal ? [requestSignal] : [])]);
+  // Deliberately NOT tied to the request signal (COACH-4): a reserved call
+  // runs to its end so a disconnected client's answer can still be stored.
+  const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer);
   const resp = await fetch(CLAUDE_MESSAGES_URL, {
     method: "POST",
     headers: claudeHeaders(apiKey),
@@ -954,7 +967,6 @@ async function openAnswerStream(
   return {
     reader: resp.body.getReader(),
     decoder: new TextDecoder(),
-    abort,
     raw: "",
     receivedBytes: 0,
     text: "",
@@ -1061,9 +1073,10 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
   const { state, locale, meta, doneBase, persist, refund, requestSignal } = options;
   const encoder = new TextEncoder();
   // Set by cancel(): the client hung up. Never a refund — an aborted stream
-  // must not become a cheaper way to spend nothing (contract §5).
+  // must not become a cheaper way to spend nothing (contract §5). It only
+  // silences the wire: the provider keeps going (COACH-4).
   let clientGone = requestSignal.aborted;
-  const abandon = () => { clientGone = true; state.abort.abort(); };
+  const abandon = () => { clientGone = true; };
   requestSignal.addEventListener("abort", abandon, { once: true });
 
   const body = new ReadableStream<Uint8Array>({
@@ -1099,30 +1112,34 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
       // The two Supabase writes are best-effort here in every branch: this
       // runs AFTER the response headers, so nothing it could report would
       // reach the client anyway, and a throwing write would strand the stream.
+      // At most once per request, whichever branch gets there first.
+      let persisted = false;
       const persistBestEffort = async (content: string, refusal: boolean): Promise<void> => {
+        if (persisted) return;
+        persisted = true;
         try {
           await persist(content, refusal);
         } catch {
           console.error("stream persist unavailable");
         }
       };
-      void (async () => {
+      const pump = (async () => {
         try {
           send("meta", meta);
-          while (!state.ended && !clientGone) await pullAnswerChunk(state);
-          if (clientGone) {
-            // §6: persist what was actually DELIVERED, and mark nothing new.
-            await persistBestEffort(state.text.slice(0, state.released), false);
-            return;
-          }
+          // Read to the end even after a disconnect (COACH-4): the slot paid
+          // for this answer, and the app's straggler lookup finds it stored.
+          // Bounded by the answer deadline and the response byte cap.
+          while (!state.ended) await pullAnswerChunk(state);
           const final = finalizeAnswer(state.text, state.finishReason, locale);
-          // Publish only after the final safety verdict. Refusals have no deltas.
+          // Publish only after the final safety verdict. Refusals have no
+          // deltas, and nothing goes out once the client is gone.
           if (!final.refusal) flush();
           // Before the done event on purpose: today the client sees the reply
           // only once the row exists, and streaming changes delivery, not the
           // record. Best-effort like the buffered path: the answer exists and
           // the slot is spent, so a persistence hiccup must not turn a finished
-          // answer into an error event.
+          // answer into an error event. Stored the same way when the client
+          // left before approval, with no refund.
           await persistBestEffort(final.reply, final.refusal);
           send("done", {
             reply: final.reply,
@@ -1131,10 +1148,9 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
             ...doneBase,
           });
         } catch (e) {
-          // A client that hangs up is expected traffic, not an incident.
-          if (!clientGone) {
-            console.error(`answer stream failed: ${providerFailureDetail(e)}`);
-          }
+          // The provider is no longer cancelled on a disconnect, so every
+          // failure here is a real one, with or without a client.
+          console.error(`answer stream failed: ${providerFailureDetail(e)}`);
           // The refund line is the first delta, NOT the status: nothing
           // delivered refunds exactly like the buffered path, one delta out
           // keeps the slot spent. A client abort never refunds.
@@ -1146,8 +1162,8 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
             error: isProviderTimeout(e) ? "provider_timeout" : "provider_error",
           });
         } finally {
-          // Frees the provider connection whether we stopped at [DONE], at a
-          // failure or because the client left.
+          // Frees the provider connection whether we stopped at message_stop
+          // or at a failure.
           requestSignal.removeEventListener("abort", abandon);
           await state.reader.cancel().catch(() => {});
           try {
@@ -1157,6 +1173,8 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
           }
         }
       })();
+      // The pump may outlive the response once the client hangs up.
+      keepWorkerAlive(pump);
     },
     cancel() {
       abandon();
@@ -2508,7 +2526,12 @@ const LOG_FORBIDDEN_FIELDS = ["image_base64", "image_mime_type", "training_conte
 // Keep CORS request-local for every JSON/SSE outcome, including early errors.
 // Reusing the body preserves streaming and cancellation semantics.
 export async function handleRequest(req: Request): Promise<Response> {
-  const response = await handleCoachRequest(req);
+  const pending = handleCoachRequest(req);
+  // A client that hangs up before the response does not stop the handler:
+  // in-flight provider work still finishes and persists for the straggler
+  // lookup. Settles with the response, so a connected request is unaffected.
+  keepWorkerAlive(pending);
+  const response = await pending;
   const headers = new Headers(response.headers);
   const origin = req.headers.get("origin");
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
@@ -2843,8 +2866,9 @@ async function handleCoachRequest(req: Request): Promise<Response> {
 
   const quotaDay = claim.quotaDay;
   // A disconnect never restores a claimed daily slot, including when a later
-  // budget gate stops work after an already-paid classifier. Buffered drafts
-  // already in flight may still finish and persist for later recovery.
+  // budget gate stops work after an already-paid classifier. Provider calls
+  // already in flight (buffered drafts and, since COACH-4, the streamed
+  // answer) still finish and persist for later recovery.
   const budget = providerCallBudget({ supabaseUrl, serviceKey, userId, signal: req.signal });
 
   // ---------------------------------------------------------------- LAYER 2
@@ -3058,7 +3082,6 @@ async function handleCoachRequest(req: Request): Promise<Response> {
         hasImage ? { base64: imageBase64, mimeType: imageMimeType } : undefined,
         userContext,
         trainingContext,
-        req.signal,
         locale,
       );
     } catch (e) {

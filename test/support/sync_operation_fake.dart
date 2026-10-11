@@ -329,9 +329,12 @@ class SyncOperationFake {
         final current = recipes[entity];
         final revision = recipeHeads[entity] ?? 0;
         final expected = body['expected_revision'] as int?;
+        // 20261011100000: a create against a tombstone recreates the slug.
+        final recreate =
+            kind == 'recipeUpsert' && current == null && (expected ?? 0) == 0;
         final conflict = revision == 0
             ? (expected ?? 0) != 0
-            : expected != revision;
+            : expected != revision && !recreate;
         final outcome = conflict
             ? (kind == 'recipeDelete' ? 'deleteConflict' : 'conflictSaved')
             : 'applied';

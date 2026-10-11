@@ -311,6 +311,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   bool get _sendingInActiveSession =>
       _sending && _sendendeSessionId == _activeSessionId;
 
+  /// Keeps a request whose connection died in its thinking state while the
+  /// server may still store the answer (COACH-4).
+  late final _AntwortWarten _antwortWarten = _AntwortWarten(this);
+
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
   /// Only a *known* empty quota blocks. An unknown state (cold start without
@@ -348,6 +352,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _antwortWarten.binden(widget.service);
     // ValueNotifier dedupes identical assignments, so no equality check here.
     _input.addListener(() => _draft.value = _input.text);
     _loadDictationLanguage();
@@ -369,6 +374,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void didUpdateWidget(covariant CoachChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(widget.service, oldWidget.service)) {
+      // The old account's wait ends here; its result is fenced out anyway.
+      _antwortWarten.loesen(oldWidget.service);
+      _antwortWarten.binden(widget.service);
       _trainingAccountRevision++;
       _briefIsActive?.value = false;
       _queuedBrief = null;
@@ -499,10 +507,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
+      _antwortWarten.hintergrund();
       if (_listening) setState(_cancelSpeechInput);
       return;
     }
     if (state != AppLifecycleState.resumed) return;
+    _antwortWarten.vordergrund();
     final svc = widget.service;
     if (!_sichtbar || svc == null || _loading) return;
     unawaited(_beiRueckkehr(svc));
@@ -511,6 +521,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _antwortWarten.loesen(widget.service);
     _briefIsActive?.value = false;
     _answerCueTimer?.cancel();
     _cancelSpeechInput();
@@ -2926,6 +2937,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // Every state change that can end a wait rebuilds, so this one place
     // covers the reply, the bootstrap and a session load alike.
     _openQueuedBriefWhenFree();
+    // Same rule: leaving the conversation ends a pending answer wait.
+    _antwortWarten.sitzungPruefen(_activeSessionId);
     return LayoutBuilder(
       builder: (context, constraints) {
         // The floating tab bar's band (from the shell). The composer's own
@@ -3223,6 +3236,77 @@ class _FehlgeschlageneSendung {
   final Uint8List? imageBytes;
   final String? imageMimeType;
   final CoachTrainingContext? trainingContext;
+}
+
+/// [CoachChatService.answerWaiter] of this screen (COACH-4): after a lost
+/// connection the service re-checks the transcript while the question is
+/// stored without an answer, and the screen keeps its thinking state. No
+/// timer runs while the app is in the background (the resume checks at once),
+/// and the wait ends when the screen leaves the request's session or account
+/// or goes away; the error then stands, fenced as for any late failure.
+class _AntwortWarten implements CoachAnswerWaiter {
+  _AntwortWarten(this._state);
+
+  final _CoachChatScreenState _state;
+  Timer? _wecker;
+  Completer<bool>? _pause;
+  String? _sitzung;
+
+  void binden(CoachChatService? svc) {
+    if (svc != null) svc.answerWaiter = this;
+  }
+
+  void loesen(CoachChatService? svc) {
+    if (svc != null && identical(svc.answerWaiter, this)) {
+      svc.answerWaiter = null;
+    }
+    _wecken(false);
+  }
+
+  static bool get _imHintergrund => switch (
+      WidgetsBinding.instance.lifecycleState) {
+    AppLifecycleState.paused ||
+    AppLifecycleState.hidden ||
+    AppLifecycleState.detached =>
+      true,
+    _ => false,
+  };
+
+  bool _gilt(String sessionId) =>
+      _state.mounted && _state._activeSessionId == sessionId;
+
+  @override
+  Future<bool> pause(String sessionId, Duration interval) async {
+    if (!_gilt(sessionId)) return false;
+    _wecken(false);
+    final pause = _pause = Completer<bool>();
+    _sitzung = sessionId;
+    if (!_imHintergrund) _wecker = Timer(interval, () => _wecken(true));
+    final weiter = await pause.future;
+    return weiter && _gilt(sessionId);
+  }
+
+  /// Background: no timer; the pending pause waits for [vordergrund].
+  void hintergrund() {
+    _wecker?.cancel();
+    _wecker = null;
+  }
+
+  /// Back in front: check at once, the answer may have landed meanwhile.
+  void vordergrund() => _wecken(true);
+
+  void sitzungPruefen(String? aktiv) {
+    if (_pause != null && aktiv != _sitzung) _wecken(false);
+  }
+
+  void _wecken(bool weiter) {
+    _wecker?.cancel();
+    _wecker = null;
+    final pause = _pause;
+    _pause = null;
+    _sitzung = null;
+    if (pause != null && !pause.isCompleted) pause.complete(weiter);
+  }
 }
 
 /// "Not sent" under the history, with the retry button next to it.
