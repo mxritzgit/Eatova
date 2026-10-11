@@ -90,6 +90,13 @@ variant). Plans use at most four distinct workouts, rotated across the week
 when the user trains more often, so they fit that deadline. Meal description
 at `low` has not been measured live yet.
 
+Recipe import caps its output, thinking included, at 4,500 tokens (about 37 s
+at ~120 tokens/s) and answers a reached cap with `source_too_long`. The cap is
+fixed, not derived from measured throughput or effort: at `high`, thinking
+uses more of it, so content that fits at `medium` can end as
+`source_too_long`. Measure a 4-6 recipe paste before raising
+`RECIPE_IMPORT_EFFORT` or changing the cap.
+
 The OpenRouter-era secrets `OPENROUTER_MODEL`, `COACH_MODEL_ANSWER`,
 `COACH_MODEL_CLASSIFIER`, `COACH_MODEL_LOG` and `RECIPE_IMPORT_MODEL` are no
 longer read and can be removed after the rollout.
