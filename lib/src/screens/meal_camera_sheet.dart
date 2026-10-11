@@ -18,6 +18,7 @@ import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/design/sheets.dart';
 import '../widgets/design/soft_actions.dart';
+import '../widgets/design/states.dart';
 import '../widgets/kcal/meal_slot_picker.dart';
 
 /// In-app camera as an animated bottom panel. Pops a [MealCameraCapture], or
@@ -467,41 +468,31 @@ class _CameraFailedLayer extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final denied = failure == _CameraFailure.permissionDenied;
-    // NO spinner here: the error state explains, it does not wait.
+    // NO spinner here: the error state explains, it does not wait. The
+    // app's calm state (glyph tile, guidance, soft pill), as in the barcode
+    // scanner; the viewfinder's dark theme gives it the dark tokens, so it
+    // sits on the same ground as the capture bar below it.
     return ColoredBox(
       key: const ValueKey('meal-camera-failed'),
       color: t.bg,
       child: Center(
+        // Scrolls instead of overflowing on a short preview or at 2x text.
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
-              const SizedBox(height: 12),
-              Text(
-                denied
-                    ? l10n.foodCameraPermissionDeniedMessage
-                    : l10n.foodCameraUnavailableGalleryMessage,
-                textAlign: TextAlign.center,
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w500,
-                  color: t.ink,
-                  height: 1.4,
-                ),
-              ),
-              if (denied) ...[
-                const SizedBox(height: 14),
-                // Design-system pill on the sheet's `bg` (F8-10: no colour
-                // copies here).
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: CalmState(
+            icon: Icons.no_photography_outlined,
+            text: denied
+                ? l10n.foodCameraPermissionDeniedMessage
+                : l10n.foodCameraUnavailableGalleryMessage,
+            actions: [
+              if (denied)
+                // Design-system pill (F8-10: no colour copies here).
                 SoftPillButton(
                   key: const ValueKey('meal-camera-open-settings'),
                   onTap: onOpenSettings,
                   icon: Icons.settings_outlined,
                   label: l10n.foodOpenSettingsButton,
                 ),
-              ],
             ],
           ),
         ),

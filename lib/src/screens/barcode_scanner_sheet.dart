@@ -356,11 +356,13 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                                           ),
                                           child: Text(
                                             context.l10n.foodBarcodeHintText,
-                                            style: const TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.w700,
+                                            // The type scale; white because
+                                            // it sits on the camera image.
+                                            style: AppType.ui(
+                                              11.5,
+                                              weight: FontWeight.w700,
+                                              color: context.t.onImage,
                                               letterSpacing: -0.1,
-                                              color: Colors.white,
                                             ),
                                           ),
                                         ),
@@ -631,12 +633,12 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
               ),
             ),
             const SizedBox(height: 14),
+            // The standard foot action of a sheet form.
             PrimaryActionButton(
               key: const ValueKey('barcode-manual-submit'),
               label: l10n.foodBarcodeManualSubmit,
               icon: Icons.search_rounded,
               onTap: _submit,
-              height: 48,
             ),
             const SizedBox(height: 10),
             SoftPillButton(
@@ -717,6 +719,7 @@ class _AnalyzerStalledLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final l10n = context.l10n;
     return Container(
       key: const ValueKey('barcode-analyzer-stalled'),
@@ -725,32 +728,31 @@ class _AnalyzerStalledLayer extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.refresh_rounded, size: 30, color: Colors.white),
+          Icon(Icons.refresh_rounded, size: 30, color: t.onImage),
           const SizedBox(height: 10),
           Text(
             l10n.foodDetectionStalledTitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 14.5,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
+            style: AppType.ui(14.5, weight: FontWeight.w800, color: t.onImage),
           ),
           const SizedBox(height: 6),
           Text(
             l10n.foodDetectionStalledBody,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontSize: 12, height: 1.35, color: Colors.white70),
+            style: AppType.ui(
+              12,
+              color: t.onImage.withValues(alpha: 0.72),
+              height: 1.35,
+            ),
           ),
           const SizedBox(height: 14),
           // The accent pair the themed FilledButton carried, so the contrast
-          // on the dimmed preview is unchanged.
+          // on the dimmed preview is unchanged; the in-card touch floor.
           PrimaryActionButton(
             key: const ValueKey('barcode-analyzer-restart'),
             onTap: onRetry,
             label: l10n.foodRestartScannerButton,
-            height: 48,
+            height: kButtonMinHeight,
           ),
         ],
       ),
