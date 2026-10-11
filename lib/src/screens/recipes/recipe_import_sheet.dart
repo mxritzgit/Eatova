@@ -468,54 +468,64 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       },
       child: SafeArea(
         top: false,
-        child: SingleChildScrollView(
-          key: const ValueKey('recipe-import-sheet'),
-          controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // The sheet opens without Material's handle (enableDrag is off
-              // for the discard guard), so it draws the grip itself; its
-              // dismiss action takes the same guarded path as the close.
-              SheetHandle(
-                padding: const EdgeInsets.only(top: 10, bottom: 6),
-                onDismiss: _close,
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: HeadingSemantics(
-                      level: 1,
-                      child: Text(
-                        l10n.recipeImportTitle,
-                        // Capped like a tab title: at 2x on 320 px the
-                        // uncapped "importieren" broke mid-word.
-                        textScaler: AppType.pageTitleScaler(context),
-                        style: sheetTitleStyle(t, compact: compactTitle),
-                      ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // The sheet opens without Material's handle (enableDrag is off
+            // for the discard guard), so it draws the grip itself; its
+            // dismiss action takes the same guarded path as the close. Above
+            // the scroll view, like the create sheet's, so it stays put.
+            SheetHandle(
+              padding: const EdgeInsets.only(top: 10, bottom: 6),
+              onDismiss: _close,
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                key: const ValueKey('recipe-import-sheet'),
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: HeadingSemantics(
+                            level: 1,
+                            child: Text(
+                              l10n.recipeImportTitle,
+                              // Capped like a tab title: at 2x on 320 px the
+                              // uncapped "importieren" broke mid-word.
+                              textScaler: AppType.pageTitleScaler(context),
+                              style: sheetTitleStyle(t, compact: compactTitle),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SheetCloseButton(
+                          buttonKey: const ValueKey('recipe-import-close'),
+                          tooltip: l10n.commonClose,
+                          onTap: _saving ? null : _close,
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  SheetCloseButton(
-                    buttonKey: const ValueKey('recipe-import-close'),
-                    tooltip: l10n.commonClose,
-                    onTap: _saving ? null : _close,
-                  ),
-                ],
+                    const SizedBox(height: 18),
+                    // Each state arrives with the shared soft entrance; a
+                    // state that only changes inside (an error, a
+                    // correction) does not replay.
+                    LivelyEntrance(
+                      key: ValueKey('recipe-import-view-$view'),
+                      offsetY: 8,
+                      duration: const Duration(milliseconds: 260),
+                      child: body,
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 18),
-              // Each state arrives with the shared soft entrance; a state that
-              // only changes inside (an error, a correction) does not replay.
-              LivelyEntrance(
-                key: ValueKey('recipe-import-view-$view'),
-                offsetY: 8,
-                duration: const Duration(milliseconds: 260),
-                child: body,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
