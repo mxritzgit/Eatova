@@ -313,6 +313,47 @@ void main() {
       });
     });
 
+    testWidgets('while Add saves, a name suggestion stays a disabled button', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        final semantics = tester.ensureSemantics();
+        final pending = Completer<TrainingLogSaveOutcome>();
+        await _open(
+          tester,
+          history: [_benchLog()],
+          onSave: (_) => pending.future,
+        );
+        await _type(tester, 'training-log-exercise-0-name', 'ben');
+        await _type(tester, 'training-log-exercise-0-set-0-reps', '8');
+        final suggestion = _key('training-log-exercise-0-suggestion-0');
+        expect(
+          tester.getSemantics(suggestion),
+          isSemantics(label: 'Bench press', isButton: true, hasTapAction: true),
+        );
+        await tester.ensureVisible(_key('training-log-save'));
+        await tester.pumpAndSettle();
+        await tester.tap(_key('training-log-save'));
+        await tester.pump();
+        await tester.ensureVisible(suggestion);
+        await tester.pump();
+        // Not plain text "Bench press": a button that is off for now.
+        expect(
+          tester.getSemantics(suggestion),
+          isSemantics(
+            label: 'Bench press',
+            isButton: true,
+            hasEnabledState: true,
+            isEnabled: false,
+            hasTapAction: false,
+          ),
+        );
+        pending.complete(TrainingLogSaveOutcome.saved);
+        await tester.pumpAndSettle();
+        semantics.dispose();
+      });
+    });
+
     testWidgets('timed exercise: duration instead of reps', (tester) async {
       await withClock(Clock.fixed(_now), () async {
         final recorder = await _open(tester);
