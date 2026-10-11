@@ -15,6 +15,10 @@ class MainActivity : FlutterFragmentActivity() {
     private var recipeShareBridge: RecipeShareBridge? = null
     private var speechBridge: SpeechBridge? = null
 
+    // A share that arrived before configureFlutterEngine created the bridge.
+    // On a new activity that is always the launch intent (see below).
+    private var heldShare: Intent? = null
+
     // The Activity Result API needs registration before STARTED. Field
     // initialization is the documented safe point. configureFlutterEngine is
     // not: FlutterFragmentActivity adds its FlutterFragment with commit(), so
@@ -27,13 +31,23 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) recipeShareBridge?.receive(intent)
+        // A restored activity and a relaunch from Recents carry the original
+        // intent, EXTRA_TEXT included; neither may replay the share.
+        val fromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (savedInstanceState == null && !fromHistory) offerShare(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        recipeShareBridge?.receive(intent)
+        offerShare(intent)
+    }
+
+    // The bridge only exists once the engine is configured, which on a fresh
+    // launch happens in onStart, after onCreate has returned.
+    private fun offerShare(intent: Intent) {
+        val bridge = recipeShareBridge
+        if (bridge != null) bridge.receive(intent) else heldShare = intent
     }
 
     override fun onResume() {
@@ -46,7 +60,9 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         healthConnectBridge = HealthConnectBridge(this, flutterEngine)
-        recipeShareBridge = RecipeShareBridge(this, flutterEngine)
+        // Delivers the share held since onCreate, once; receive(null) is a no-op.
+        recipeShareBridge = RecipeShareBridge(this, flutterEngine).also { it.receive(heldShare) }
+        heldShare = null
         speechBridge = SpeechBridge(this, flutterEngine, speechLauncher)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
