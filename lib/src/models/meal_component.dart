@@ -89,6 +89,19 @@ class MealComponent {
     );
   }
 
+  /// Scales calories and macros by [factor] at unchanged grams: an item
+  /// without a mass (0 g) still follows its meal's portion, where
+  /// [adjustedToGrams] would turn it into 1 g with 0 kcal.
+  MealComponent scaledBy(double factor) => MealComponent(
+    name: name,
+    grams: grams,
+    caloriesKcal: clampMealCaloriesKcal(caloriesKcal * factor),
+    kcalPer100G: kcalPer100G,
+    proteinG: _skaliert(proteinG, factor),
+    carbsG: _skaliert(carbsG, factor),
+    fatG: _skaliert(fatG, factor),
+  );
+
   factory MealComponent.fromJson(Map<String, dynamic> json) {
     final name =
         _firstNonEmptyString(json, const ['name', 'item', 'food', 'label']) ??

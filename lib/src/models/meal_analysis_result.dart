@@ -792,7 +792,9 @@ class MealAnalysisResult {
     final adjustedItems = hasItemizedBreakdown
         ? items
               .map(
-                (item) => item.adjustedToGrams((item.grams * factor).round()),
+                (item) => item.grams <= 0
+                    ? item.scaledBy(factor)
+                    : item.adjustedToGrams((item.grams * factor).round()),
               )
               .toList(growable: false)
         : items;
