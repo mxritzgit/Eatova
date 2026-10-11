@@ -1,10 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/config/supabase_config.dart';
+import 'package:eatova/src/services/eatova_sync.dart';
+import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
+import 'package:flutter/material.dart' show Icons, IconData, SnackBarAction;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -91,6 +97,23 @@ class _JournalStore extends InMemoryKeyValueStore {
     await super.setString(key, value);
   }
 }
+
+/// Account cache whose commits fail: a full disk during the logout purge.
+class _BrokenCacheStore extends InMemoryKeyValueStore {
+  @override
+  Future<KeyValueCommit> writeBatch(
+    Map<String, String?> changes, {
+    Map<String, int> expectedVersions = const {},
+  }) async => throw StateError('synthetic cache-purge failure');
+}
+
+void _noSnack(
+  String message, {
+  IconData icon = Icons.info_outline_rounded,
+  SnackTone tone = SnackTone.positive,
+  Duration? duration,
+  SnackBarAction? action,
+}) {}
 
 class _FailingPkceStore extends GotrueAsyncStorage {
   Completer<void>? started;
@@ -653,6 +676,59 @@ void main() {
     expect(cleanups, 1);
     expect(logoutCalls, 0);
     expect(client.auth.currentUser?.id, 'b');
+  });
+
+  // AUTH-2: the journal denies A before cleanup. A purge failure that aborted
+  // the logout left A in memory, unable to save or persist a refresh, with
+  // the server session never revoked.
+  test('a failed cache purge after the journal still signs A out', () async {
+    var logoutCalls = 0;
+    final client = SupabaseClient(
+      'https://ci.invalid',
+      'ci-dummy-key',
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+      httpClient: MockClient((request) async {
+        logoutCalls++;
+        return http.Response('{}', 200);
+      }),
+    );
+    addTearDown(client.dispose);
+    final a = _session('a', 'session-a');
+    await client.auth.setInitialSession(a);
+    final storage = SecureSessionLocalStorage(
+      persistSessionKey: _key,
+      secureStore: _SecureStore(),
+      legacyStore: _JournalStore(),
+    );
+    await storage.persistSession(a);
+    final events = <AuthState>[];
+    final sub = client.auth.onAuthStateChange.listen(events.add);
+    addTearDown(sub.cancel);
+    final store = HomeStore(
+      sync: EatovaSync.forUser(client, 'a'),
+      health: const NoopHealthService(),
+      notificationService: const NoopNotificationService(),
+      initialUserName: 'A',
+      emitSnack: _noSnack,
+      debugCache: LocalCache(_BrokenCacheStore(), 'a'),
+    );
+    addTearDown(store.dispose);
+
+    await expectLater(
+      SupabaseAuthRepository(
+        client,
+        sessionStorage: storage,
+      ).signOutWithCleanup(store.signOutCleanup),
+      completes,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(client.auth.currentUser, isNull);
+    expect(
+      events.where((event) => event.event == AuthChangeEvent.signedOut),
+      hasLength(1),
+    );
+    expect(logoutCalls, 1);
+    expect(await storage.accessToken(), isNull);
   });
 
   test(

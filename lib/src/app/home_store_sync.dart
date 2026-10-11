@@ -186,8 +186,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           context: 'sign-out-notification-cancel'));
     }
     _resetHealthConnection();
-    // Confirmed pending changes are retained in their encrypted namespace.
-    await _clearCache(preserveOutbox: true);
+    try {
+      // Confirmed pending changes are retained in their encrypted namespace.
+      await _clearCache(preserveOutbox: true);
+    } catch (error, stack) {
+      // AUTH-2: the logout journal already denies this session, so a storage
+      // error must not abort the sign-out. The gate retries the purge on the
+      // identity change (purgePersonalCacheFor).
+      unawaited(CrashReporter.capture(error, stack,
+          context: 'sign-out-cache-purge'));
+    }
     IntentionalSignOut.refresh();
   });
 
