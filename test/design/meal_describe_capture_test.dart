@@ -234,6 +234,19 @@ void main() {
         await tester.pumpAndSettle();
         await _shot(tester, 'describe-line-$tone');
       });
+
+      testWidgets('line editor, implausible grams', (tester) async {
+        await _open(tester, brightness: brightness);
+        await _toDraft(tester);
+        await tester.tap(_key('meal-describe-line-1'));
+        await tester.pumpAndSettle();
+        await tester.enterText(_key('describe-grams-input'), '0');
+        await tester.pump();
+        FocusManager.instance.primaryFocus?.unfocus();
+        await tester.pumpAndSettle();
+        expect(_key('describe-grams-hint'), findsOneWidget);
+        await _shot(tester, 'describe-line-invalid-$tone');
+      });
     });
   }
 

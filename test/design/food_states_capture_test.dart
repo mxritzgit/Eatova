@@ -6,7 +6,9 @@
 // the reference phone and at 320 px with 2x text.
 //
 // The suite only drives what the screens had before the polish too (texts,
-// tooltips and existing keys), so it also renders the before shots.
+// tooltips and existing keys), so it also renders the before shots. The
+// calendar's keyboard state uses the month grid's day keys, which arrived
+// with the polish; its before shot comes from the first polish round.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/food-states-*.png (light: DESIGN_CAPTURE_BRIGHTNESS=
@@ -16,6 +18,7 @@ import 'dart:io';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/logged_meal.dart';
@@ -198,6 +201,45 @@ void main() {
         expect(find.text('August 2026'), findsWidgets);
         expect(tester.takeException(), isNull);
         await captureDesignShot(tester, 'food-states-date-sheet-august$suffix');
+      });
+    });
+
+    // Added with round 2 (keyboard paging): an arrow key past the month's
+    // first day pages back and the focus ring lands on the 31st.
+    testWidgets('Choose day: the keyboard pages past the 1st$suffix', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        await _host(
+          tester,
+          (context) => showFoodDatePicker(
+            context,
+            initialDate: DateTime(2026, 9, 15),
+            firstDate: DateTime(2024, 9, 28),
+            today: DateTime(2026, 9, 28),
+          ),
+          width: width,
+          textScale: scale,
+        );
+        final first = find.byKey(const ValueKey('food-date-day-2026-9-1'));
+        Focus.of(
+          tester.element(
+            find.descendant(of: first, matching: find.byType(Text)),
+          ),
+        ).requestFocus();
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+        await tester.pumpAndSettle();
+        final landed = find.byKey(const ValueKey('food-date-day-2026-8-31'));
+        if (landed.evaluate().isNotEmpty) {
+          await tester.ensureVisible(landed);
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(
+          tester,
+          'food-states-date-sheet-keyboard$suffix',
+        );
       });
     });
 
