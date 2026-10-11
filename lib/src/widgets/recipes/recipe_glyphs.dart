@@ -1,4 +1,6 @@
-part of 'recipes_screen.dart';
+import 'package:flutter/material.dart';
+
+import '../../theme/app_tokens.dart';
 
 // ---------------------------------------------------------------------------
 // Open-stroke glyphs of the Recipes tab redesign (2026-09-28), drawn from the
@@ -6,7 +8,8 @@ part of 'recipes_screen.dart';
 // Decorative: the controls around them carry the semantics.
 // ---------------------------------------------------------------------------
 
-enum _RecipeGlyph {
+/// The glyphs of the Recipes redesign; [RecipeGlyphIcon] draws them.
+enum RecipeGlyph {
   calendar,
   plus,
   search,
@@ -20,16 +23,18 @@ enum _RecipeGlyph {
   leaf,
 }
 
-class _GlyphIcon extends StatelessWidget {
-  const _GlyphIcon(
+/// One [RecipeGlyph] as an open-stroke icon, excluded from semantics.
+class RecipeGlyphIcon extends StatelessWidget {
+  const RecipeGlyphIcon(
     this.glyph, {
+    super.key,
     this.size = 20,
     this.strokeWidth = 2,
     this.color,
     this.filled = false,
   });
 
-  final _RecipeGlyph glyph;
+  final RecipeGlyph glyph;
   final double size;
 
   /// Stroke width in the 24-unit design space (the SVG `stroke-width`).
@@ -56,7 +61,7 @@ class _GlyphIcon extends StatelessWidget {
 class _GlyphPainter extends CustomPainter {
   const _GlyphPainter(this.glyph, this.ink, this.strokeWidth, this.filled);
 
-  final _RecipeGlyph glyph;
+  final RecipeGlyph glyph;
   final Color ink;
   final double strokeWidth;
   final bool filled;
@@ -76,7 +81,7 @@ class _GlyphPainter extends CustomPainter {
     void line(double x1, double y1, double x2, double y2) =>
         canvas.drawLine(Offset(x1, y1), Offset(x2, y2), stroke);
     switch (glyph) {
-      case _RecipeGlyph.calendar:
+      case RecipeGlyph.calendar:
         canvas.drawRRect(
           RRect.fromLTRBR(4, 5.5, 20, 20, const Radius.circular(3)),
           stroke,
@@ -87,13 +92,13 @@ class _GlyphPainter extends CustomPainter {
         line(8, 14, 10, 14);
         line(14, 14, 16, 14);
         line(8, 17, 10, 17);
-      case _RecipeGlyph.plus:
+      case RecipeGlyph.plus:
         line(12, 5, 12, 19);
         line(5, 12, 19, 12);
-      case _RecipeGlyph.search:
+      case RecipeGlyph.search:
         canvas.drawCircle(const Offset(11, 11), 6.5, stroke);
         line(20, 20, 15.8, 15.8);
-      case _RecipeGlyph.sliders:
+      case RecipeGlyph.sliders:
         line(4, 7, 13, 7);
         line(17, 7, 20, 7);
         line(4, 17, 7, 17);
@@ -101,7 +106,7 @@ class _GlyphPainter extends CustomPainter {
         canvas
           ..drawCircle(const Offset(15, 7), 2, stroke)
           ..drawCircle(const Offset(9, 17), 2, stroke);
-      case _RecipeGlyph.bookmark:
+      case RecipeGlyph.bookmark:
         final path = Path()
           ..moveTo(7, 4.5)
           ..lineTo(17, 4.5)
@@ -111,7 +116,7 @@ class _GlyphPainter extends CustomPainter {
           ..close();
         if (filled) canvas.drawPath(path, Paint()..color = ink);
         canvas.drawPath(path, stroke);
-      case _RecipeGlyph.check:
+      case RecipeGlyph.check:
         canvas.drawPath(
           Path()
             ..moveTo(5.5, 12.5)
@@ -119,7 +124,7 @@ class _GlyphPainter extends CustomPainter {
             ..lineTo(18.5, 7.5),
           stroke,
         );
-      case _RecipeGlyph.download:
+      case RecipeGlyph.download:
         line(12, 4, 12, 15);
         canvas.drawPath(
           Path()
@@ -129,7 +134,7 @@ class _GlyphPainter extends CustomPainter {
           stroke,
         );
         line(5, 19.5, 19, 19.5);
-      case _RecipeGlyph.pencil:
+      case RecipeGlyph.pencil:
         canvas.drawPath(
           Path()
             ..moveTo(4, 20)
@@ -143,7 +148,7 @@ class _GlyphPainter extends CustomPainter {
             ..close(),
           stroke,
         );
-      case _RecipeGlyph.bowl:
+      case RecipeGlyph.bowl:
         canvas
           ..drawPath(
             Path()
@@ -164,7 +169,7 @@ class _GlyphPainter extends CustomPainter {
               ..cubicTo(12.5, 6.7, 13.5, 6.3, 13.5, 4.8),
             stroke,
           );
-      case _RecipeGlyph.fish:
+      case RecipeGlyph.fish:
         canvas
           ..drawPath(
             Path()
@@ -185,7 +190,7 @@ class _GlyphPainter extends CustomPainter {
             stroke,
           )
           ..drawCircle(const Offset(16, 11.2), 0.6, stroke);
-      case _RecipeGlyph.leaf:
+      case RecipeGlyph.leaf:
         canvas.drawPath(
           Path()
             ..moveTo(5, 19)

@@ -676,6 +676,33 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final t = context.t;
     final l10n = context.l10n;
     final compact = sheetMaxHeightOf(context) < 400;
+    // Large text on a phone: the pinned bands keep only what must stay in
+    // reach (close and save); the title and the hint scroll with the form,
+    // which otherwise got about 40 % of the sheet at 2x on 320 px.
+    final largeText =
+        !compact && MediaQuery.textScalerOf(context).scale(14) > 21;
+    final title = widget.nutritionOnly
+        ? l10n.recipeNutritionCorrect
+        : widget.initialRecipe != null
+        ? l10n.recipeEditTitle
+        : compact
+        ? l10n.navRecipes
+        : l10n.recipesOwnTitle;
+    final hint = _structured
+        ? l10n.recipeEditCalculatedHint
+        : l10n.recipesNameAndCaloriesSuffice;
+    final close = SheetCloseButton(
+      buttonKey: const ValueKey('recipe-create-close'),
+      onTap: _saving
+          ? null
+          : () {
+              if (_dirty) {
+                _askDiscard();
+              } else {
+                Navigator.pop(context);
+              }
+            },
+    );
     return Container(
       key: const ValueKey('recipe-create-sheet'),
       // Safe-area and keyboard aware instead of a fixed 92 % (sheetMaxHeight):
@@ -697,64 +724,58 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SheetHandle(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 18, 12),
-            child: Row(
-              children: [
-                if (!compact &&
-                    MediaQuery.textScalerOf(context).scale(14) <= 18) ...[
-                  ExcludeSemantics(
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: t.accentTint,
-                        borderRadius: BorderRadius.circular(rChip),
+          if (largeText)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 18, 4),
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: close,
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 18, 12),
+              child: Row(
+                children: [
+                  if (!compact &&
+                      MediaQuery.textScalerOf(context).scale(14) <= 18) ...[
+                    ExcludeSemantics(
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: t.accentTint,
+                          borderRadius: BorderRadius.circular(rChip),
+                        ),
+                        child: Icon(
+                          Icons.menu_book_rounded,
+                          color: t.accentText,
+                          size: 21,
+                        ),
                       ),
-                      child: Icon(
-                        Icons.menu_book_rounded,
-                        color: t.accentText,
-                        size: 21,
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: HeadingSemantics(
+                      level: 1,
+                      child: Text(
+                        title,
+                        style: compact
+                            ? AppType.ui(
+                                15,
+                                color: t.ink,
+                                weight: FontWeight.w600,
+                              )
+                            : sheetTitleStyle(t),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
+                  close,
                 ],
-                Expanded(
-                  child: HeadingSemantics(
-                    level: 1,
-                    child: Text(
-                      widget.nutritionOnly ? l10n.recipeNutritionCorrect : widget.initialRecipe != null
-                          ? l10n.recipeEditTitle
-                          : compact
-                          ? l10n.navRecipes
-                          : l10n.recipesOwnTitle,
-                      style: compact
-                          ? AppType.ui(
-                              15,
-                              color: t.ink,
-                              weight: FontWeight.w600,
-                            )
-                          : sheetTitleStyle(t),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SheetCloseButton(
-                  buttonKey: const ValueKey('recipe-create-close'),
-                  onTap: _saving
-                      ? null
-                      : () {
-                          if (_dirty) {
-                            _askDiscard();
-                          } else {
-                            Navigator.pop(context);
-                          }
-                        },
-                ),
-              ],
+              ),
             ),
-          ),
           Flexible(
             child: SingleChildScrollView(
               key: const ValueKey('recipe-create-scroll'),
@@ -762,6 +783,10 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (largeText) ...[
+                    SheetTitle(title),
+                    const SizedBox(height: 10),
+                  ],
                   Text(
                     widget.nutritionOnly ? l10n.recipeNutritionDraftIntro : widget.initialRecipe != null
                         ? l10n.recipeEditIntro
@@ -770,10 +795,10 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   ),
                   if (widget.nutritionOnly) const SizedBox(height: 16),
                   if (!widget.nutritionOnly) ...[
-                  if (compact) ...[
+                  if (compact || largeText) ...[
                     const SizedBox(height: 8),
                     Text(
-                      l10n.recipesNameAndCaloriesSuffice,
+                      hint,
                       style: AppType.ui(12, color: t.ink2, height: 1.4),
                     ),
                   ],
@@ -1008,11 +1033,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                     const SizedBox(height: 10),
                   ],
-                  if (!compact && !widget.nutritionOnly) ...[
+                  if (!compact && !largeText && !widget.nutritionOnly) ...[
                     Text(
-                      _structured
-                          ? l10n.recipeEditCalculatedHint
-                          : l10n.recipesNameAndCaloriesSuffice,
+                      hint,
                       style: AppType.ui(12, color: t.ink2),
                       textAlign: TextAlign.center,
                     ),
@@ -1174,22 +1197,33 @@ class _RecipePreviewCard extends StatelessWidget {
         return Wrap(spacing: 12, children: macros);
       },
     );
+    // Large text gets two lines for the name ("Falafel bow…" at 2x), always
+    // reserved, so the card's height still does not follow the typing.
+    final nameLines = stacked ? 2 : 1;
+    final nameText = Text(
+      name.isEmpty ? l10n.recipesPreviewNamePlaceholder : name,
+      key: const ValueKey('recipe-create-preview-name'),
+      maxLines: nameLines,
+      softWrap: stacked,
+      overflow: TextOverflow.ellipsis,
+      style: nameStyle,
+      strutStyle: StrutStyle.fromTextStyle(nameStyle, forceStrutHeight: true),
+    );
     final copy = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          name.isEmpty ? l10n.recipesPreviewNamePlaceholder : name,
-          key: const ValueKey('recipe-create-preview-name'),
-          maxLines: 1,
-          softWrap: false,
-          overflow: TextOverflow.ellipsis,
-          style: nameStyle,
-          strutStyle: StrutStyle.fromTextStyle(
-            nameStyle,
-            forceStrutHeight: true,
-          ),
-        ),
+        if (stacked)
+          SizedBox(
+            height:
+                (MediaQuery.textScalerOf(context).scale(nameStyle.fontSize!) *
+                        nameStyle.height! *
+                        nameLines)
+                    .ceilToDouble(),
+            child: nameText,
+          )
+        else
+          nameText,
         const SizedBox(height: 4),
         Text.rich(
           TextSpan(
@@ -1249,7 +1283,6 @@ class _RecipePreviewCard extends StatelessWidget {
   }
 
   Widget _photo(BuildContext context) {
-    final t = context.t;
     final recipe = existingRecipe;
     final Widget content;
     if (bytes != null) {
@@ -1260,12 +1293,10 @@ class _RecipePreviewCard extends StatelessWidget {
             .round(),
       );
     } else if (recipe != null && recipe.imageAsset.isNotEmpty) {
-      content = RecipePhoto(recipe: recipe, placeholderRadius: rTile);
+      content = RecipePhoto(recipe: recipe);
     } else {
-      content = ColoredBox(
-        color: t.surf2,
-        child: Icon(Icons.restaurant_rounded, size: 28, color: t.ink3),
-      );
+      // What the list will show for a recipe without a photo.
+      content = recipe == null ? const RecipeArt() : RecipeArt.of(recipe);
     }
     return SizedBox.square(
       dimension: _tileSide,
@@ -1404,7 +1435,9 @@ class _SheetToggleRow extends StatelessWidget {
   }
 }
 
-/// Photo group: preview and explanation side by side, actions below.
+/// Photo group: preview and explanation side by side, Camera and Gallery as
+/// the app's soft pills below. A chosen photo carries its own round remove
+/// badge in the corner, so no lone red action trails the pair.
 ///
 /// The "stays on this device" note is prominent on purpose — the bytes never
 /// reach the cloud, so a second device sees the recipe with a placeholder.
@@ -1441,33 +1474,47 @@ class _RecipePhotoPicker extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                width: 60,
-                height: 60,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(rControl),
-                  child: bytes != null
-                      ? Image.memory(
-                          bytes!,
-                          key: const ValueKey('recipe-create-photo-preview'),
-                          fit: BoxFit.cover,
-                          width: 60,
-                          height: 60,
-                          // Fixed 60-px slot: decode there instead of the
-                          // full 1600-px scrub (worst decode/display ratio in
-                          // the app before the perf round 2026-08-31).
-                          cacheWidth:
-                              (60 * MediaQuery.devicePixelRatioOf(context))
-                                  .round(),
-                        )
-                      : vorhanden
-                      ? RecipePhoto(
-                          recipe: existingRecipe!,
-                          placeholderRadius: rControl,
-                        )
-                      : ImagePlaceholder(
-                          radius: rControl,
-                          label: l10n.recipesPhotoPlaceholderLabel,
+                width: _photoSide,
+                height: _photoSide,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(rControl),
+                        child: bytes != null
+                            ? Image.memory(
+                                bytes!,
+                                key: const ValueKey(
+                                  'recipe-create-photo-preview',
+                                ),
+                                fit: BoxFit.cover,
+                                width: _photoSide,
+                                height: _photoSide,
+                                // Fixed 60-px slot: decode there instead of
+                                // the full 1600-px scrub (worst decode/display
+                                // ratio in the app before the perf round
+                                // 2026-08-31).
+                                cacheWidth:
+                                    (_photoSide *
+                                            MediaQuery.devicePixelRatioOf(
+                                              context,
+                                            ))
+                                        .round(),
+                              )
+                            : vorhanden
+                            ? RecipePhoto(recipe: existingRecipe!)
+                            : const _AddPhotoTile(),
+                      ),
+                    ),
+                    if (vorhanden)
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: _PhotoRemoveBadge(
+                          onTap: busy ? null : onRemove,
                         ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 12),
@@ -1504,31 +1551,27 @@ class _RecipePhotoPicker extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          // Keep the full action labels and touch targets at larger text sizes.
+          const SizedBox(height: 12),
+          // Side by side while both labels fit, stacked at large text; the
+          // pills wrap their own labels, so nothing overflows at 2x.
           CreationFieldGrid(
             children: [
-              _PhotoAction(
-                actionKey: const ValueKey('recipe-create-photo-camera'),
+              SoftPillButton(
+                key: const ValueKey('recipe-create-photo-camera'),
                 icon: Icons.photo_camera_outlined,
                 label: l10n.recipesCameraAction,
+                tone: SoftPillTone.neutral,
+                expand: true,
                 onTap: busy ? null : onCamera,
               ),
-              _PhotoAction(
-                actionKey: const ValueKey('recipe-create-photo-gallery'),
+              SoftPillButton(
+                key: const ValueKey('recipe-create-photo-gallery'),
                 icon: Icons.photo_library_outlined,
                 label: l10n.recipesGalleryAction,
+                tone: SoftPillTone.neutral,
+                expand: true,
                 onTap: busy ? null : onGallery,
               ),
-              if (vorhanden) ...[
-                _PhotoAction(
-                  actionKey: const ValueKey('recipe-create-photo-remove'),
-                  icon: Icons.close_rounded,
-                  label: l10n.foodRemoveTooltip,
-                  onTap: busy ? null : onRemove,
-                  destructive: true,
-                ),
-              ],
             ],
           ),
         ],
@@ -1537,61 +1580,88 @@ class _RecipePhotoPicker extends StatelessWidget {
   }
 }
 
-/// Small chip action of the photo group.
-class _PhotoAction extends StatelessWidget {
-  const _PhotoAction({
-    required this.actionKey,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.destructive = false,
-  });
+/// Side of the photo slot in the photo group.
+const double _photoSide = 60;
 
-  final Key actionKey;
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-  final bool destructive;
+/// The empty photo slot: the quiet well with an accent "add photo" tile.
+/// Decorative; Camera and Gallery below are the ways to add one.
+class _AddPhotoTile extends StatelessWidget {
+  const _AddPhotoTile();
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final ton = destructive ? t.danger : t.ink;
+    return ExcludeSemantics(
+      child: ColoredBox(
+        key: const ValueKey('recipe-create-photo-empty'),
+        color: t.surfWell,
+        child: Center(
+          child: IconTile(
+            icon: Icons.add_a_photo_outlined,
+            color: t.accent,
+            size: 36,
+            glyphSize: 18,
+            radius: rChip,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Round remove badge in the photo's top-right corner: a 28 px [surf] disc
+/// with a [lineStrong] ring and an [ink2] cross, inside a 44 px target.
+class _PhotoRemoveBadge extends StatelessWidget {
+  const _PhotoRemoveBadge({required this.onTap});
+
+  static const double _target = 44;
+  static const double _disc = 28;
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final enabled = onTap != null;
+    final label = context.l10n.foodRemoveTooltip;
     return Semantics(
+      container: true,
       button: true,
-      enabled: onTap != null,
-      child: Opacity(
-        opacity: onTap == null ? 0.45 : 1,
+      enabled: enabled,
+      label: label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        excludeFromSemantics: true,
         child: Material(
-          color: t.surf2,
-          borderRadius: BorderRadius.circular(rChip),
-          child: InkWell(
-            key: actionKey,
+          type: MaterialType.transparency,
+          child: InkResponse(
+            key: const ValueKey('recipe-create-photo-remove'),
             onTap: onTap,
-            borderRadius: BorderRadius.circular(rChip),
-            child: Container(
-              constraints: const BoxConstraints(minHeight: kButtonMinHeight),
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(icon, size: 18, color: ton),
-                  const SizedBox(width: 6),
-                  // `Flexible` is load-bearing: at 2x text scale the label is
-                  // wider than its column, and a `Wrap` cannot break a single
-                  // child — it overflowed by ~27 px.
-                  Flexible(
-                    child: Text(
-                      label,
-                      style: AppType.ui(
-                        14,
-                        weight: FontWeight.w600,
-                        color: ton,
-                      ),
+            radius: _target / 2,
+            child: SizedBox.square(
+              dimension: _target,
+              child: Align(
+                alignment: AlignmentDirectional.topEnd,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Container(
+                    width: _disc,
+                    height: _disc,
+                    decoration: BoxDecoration(
+                      color: t.surf,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: t.lineStrong),
+                      boxShadow: softShadow(t),
+                    ),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 16,
+                      color: enabled ? t.ink2 : t.inkDisabled,
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),

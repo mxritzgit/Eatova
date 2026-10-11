@@ -7,7 +7,6 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
-import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:clock/clock.dart';
@@ -37,6 +36,7 @@ import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/recipes/recipe_glyphs.dart';
 import '../../widgets/recipes/recipe_ingredient_editor.dart';
 import '../../widgets/recipes/recipe_portion_selector.dart';
 import '../../widgets/recipes/recipe_photo.dart';
@@ -47,7 +47,6 @@ import 'recipe_history_screen.dart';
 part 'recipes_header.dart';
 part 'recipes_hero.dart';
 part 'recipes_shelves.dart';
-part 'recipe_glyphs.dart';
 part 'recipe_cards.dart';
 part 'recipe_detail.dart';
 part 'recipe_slot_picker.dart';

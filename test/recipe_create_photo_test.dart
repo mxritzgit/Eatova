@@ -17,7 +17,7 @@ import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/recipes/recipe_photo.dart' show RecipeArt;
 
 import 'support/harness.dart';
 
@@ -563,7 +563,7 @@ void main() {
         reason: 'Die Listenzeile muss die lokale Datei zeigen.',
       );
       expect(
-        find.descendant(of: kachel, matching: find.byType(ImagePlaceholder)),
+        find.descendant(of: kachel, matching: find.byType(RecipeArt)),
         findsNothing,
       );
     });
@@ -592,7 +592,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(
-        find.descendant(of: kachel, matching: find.byType(ImagePlaceholder)),
+        find.descendant(of: kachel, matching: find.byType(RecipeArt)),
         findsOneWidget,
         reason: 'Kein graues Kaputt-Icon, kein toter Pfad — der Platzhalter.',
       );
@@ -622,7 +622,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.byType(Image), findsWidgets);
-      expect(find.byType(ImagePlaceholder), findsNothing);
+      expect(find.byType(RecipeArt), findsNothing);
     });
   });
 

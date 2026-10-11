@@ -212,7 +212,7 @@ class _ShelfCard extends StatelessWidget {
                       height: 112,
                       child: RecipePhoto(
                         recipe: recipe,
-                        placeholder: (_) => _RecipeArt(recipe: recipe),
+                        placeholder: (_) => RecipeArt.of(recipe, iconSize: 44),
                       ),
                     ),
                     Padding(
@@ -274,7 +274,7 @@ class _YourRecipesCard extends StatelessWidget {
     final create = _Pill(
       key: const ValueKey('recipe-create-button'),
       label: l10n.recipesCreateButton,
-      glyph: _RecipeGlyph.pencil,
+      glyph: RecipeGlyph.pencil,
       height: 46,
       fontSize: 14,
       horizontalPadding: 16,
@@ -287,7 +287,7 @@ class _YourRecipesCard extends StatelessWidget {
       first: _Pill(
         key: const ValueKey('recipe-import-button'),
         label: l10n.recipeImportAction,
-        glyph: _RecipeGlyph.download,
+        glyph: RecipeGlyph.download,
         height: 46,
         fontSize: 14,
         horizontalPadding: 16,

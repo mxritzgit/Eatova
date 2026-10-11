@@ -1,12 +1,12 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../l10n/l10n.dart';
 import '../../models/fitness_recipe.dart';
 import '../../services/recipe_image_store.dart';
 import '../../theme/app_tokens.dart';
-import '../design/design.dart';
+import 'recipe_glyphs.dart';
 
 /// Gives large text the full width instead of squeezing it beside a photo.
 class RecipePhotoRow extends StatelessWidget {
@@ -53,7 +53,7 @@ class RecipePhotoRow extends StatelessWidget {
 ///     device, cleared cache) falls back to the placeholder, never a broken
 ///     icon.
 ///  2. Catalog recipes show their bundle asset.
-///  3. Everything else gets the striped [ImagePlaceholder].
+///  3. Everything else gets the glowing [RecipeArt].
 class RecipePhoto extends StatelessWidget {
   const RecipePhoto({
     super.key,
@@ -84,23 +84,28 @@ class RecipePhoto extends StatelessWidget {
   /// be replaced in the editor — so it is never claimed as AI.
   static bool isAiGenerated(FitnessRecipe recipe) => showsCatalogPhoto(recipe);
 
-  /// The placeholder draws its own corner; real assets are clipped by the
-  /// calling card.
+  /// Corner of the placeholder art when the caller does not clip; real
+  /// assets are clipped by the calling card.
   final double placeholderRadius;
 
   /// Crop anchor of the cover-fitted photo.
   final Alignment alignment;
 
-  /// Replaces the striped [ImagePlaceholder] (no photo, or a local file that
-  /// is missing on this device).
+  /// Replaces the default [RecipeArt] (no photo, or a local file that is
+  /// missing on this device).
   final WidgetBuilder? placeholder;
 
-  Widget _placeholder(BuildContext context) =>
-      placeholder?.call(context) ??
-      ImagePlaceholder(
-        radius: placeholderRadius,
-        label: context.l10n.recipesImagePlaceholderLabel,
-      );
+  Widget _placeholder(BuildContext context) {
+    final custom = placeholder?.call(context);
+    if (custom != null) return custom;
+    final art = RecipeArt.of(recipe);
+    return placeholderRadius <= 0
+        ? art
+        : ClipRRect(
+            borderRadius: BorderRadius.circular(placeholderRadius),
+            child: art,
+          );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -202,6 +207,99 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
           errorBuilder: (context, error, stack) => widget.placeholder(context),
         );
       },
+    );
+  }
+}
+
+/// The motif of a [RecipeArt], from the recipe's categories: fish dishes get
+/// the fish, vegetarian and vegan ones the leaf, the rest the bowl.
+enum RecipeArtKind {
+  bowl,
+  fish,
+  leaf;
+
+  static RecipeArtKind of(FitnessRecipe recipe) {
+    // Double-quoted: category identities are matching data, not UI text.
+    if (recipe.categories.contains("Fisch")) return RecipeArtKind.fish;
+    if (recipe.categories.contains("Vegetarisch") ||
+        recipe.categories.contains("Vegan")) {
+      return RecipeArtKind.leaf;
+    }
+    return RecipeArtKind.bowl;
+  }
+}
+
+/// The design's glowing icon for a recipe without a photo: a radial glow on
+/// the quiet well, the glyph in the matching ink. Fills its slot, from a
+/// 56 px thumbnail to the detail hero.
+///
+/// The design's three hues are the macro fills and inks (blue, orange, green);
+/// they are reused here as decoration because the art carries no data and has
+/// no tokens of its own. Decorative: the row or card around it names the
+/// recipe.
+class RecipeArt extends StatelessWidget {
+  const RecipeArt({super.key, this.kind = RecipeArtKind.bowl, this.iconSize});
+
+  /// The art for [recipe]'s categories.
+  RecipeArt.of(FitnessRecipe recipe, {super.key, this.iconSize})
+    : kind = RecipeArtKind.of(recipe);
+
+  final RecipeArtKind kind;
+
+  /// Glyph size; null derives it from the slot (40 % of its shorter side,
+  /// 18 to 56 px).
+  final double? iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final (glow, alpha, ink, glyph) = switch (kind) {
+      RecipeArtKind.bowl => (t.carbs, 0.32, t.carbsInk, RecipeGlyph.bowl),
+      RecipeArtKind.fish => (t.fat, 0.34, t.fatInk, RecipeGlyph.fish),
+      RecipeArtKind.leaf => (t.protein, 0.32, t.proteinInk, RecipeGlyph.leaf),
+    };
+    return ColoredBox(
+      key: ValueKey('recipe-art-${kind.name}'),
+      color: t.surfWell,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth, h = constraints.maxHeight;
+          // CSS `radial-gradient(circle at 50% 55%, c 0%, transparent 65%)`
+          // runs to the farthest corner; Flutter's radius is a fraction of
+          // the shortest side.
+          final dx = w / 2, dy = h * 0.55 > h * 0.45 ? h * 0.55 : h * 0.45;
+          final shortest = w < h ? w : h;
+          final radius = shortest <= 0 || !shortest.isFinite
+              ? 1.0
+              : math.sqrt(dx * dx + dy * dy) / shortest;
+          final size =
+              iconSize ??
+              (shortest.isFinite ? (shortest * 0.4).clamp(18.0, 56.0) : 44.0);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, 0.1),
+                radius: radius,
+                colors: [
+                  glow.withValues(alpha: alpha),
+                  glow.withValues(alpha: 0),
+                ],
+                stops: const [0, 0.65],
+              ),
+            ),
+            child: Center(
+              child: RecipeGlyphIcon(
+                glyph,
+                size: size,
+                // Thumbnails get a firmer line; at 1.4 a 22 px glyph drew
+                // hairlines.
+                strokeWidth: size < 36 ? 1.8 : 1.4,
+                color: ink,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

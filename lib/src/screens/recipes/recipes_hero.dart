@@ -1,9 +1,9 @@
 part of 'recipes_screen.dart';
 
 // ---------------------------------------------------------------------------
-// "Picked for tonight" hero of the Recipes tab (dark redesign 2026-09-28),
-// the design's pill buttons and the glowing placeholder art for recipes
-// without a photo.
+// "Picked for tonight" hero of the Recipes tab (dark redesign 2026-09-28)
+// and the design's pill buttons. The glowing placeholder art for recipes
+// without a photo is the shared [RecipeArt] (widgets/recipes).
 // ---------------------------------------------------------------------------
 
 /// What the hero shows: the shared recipe pick ([RecipePick]) or, without
@@ -94,7 +94,7 @@ class _RecipeHeroCard extends StatelessWidget {
                   key: ValueKey('recipe-hero-photo-${recipe.slug}'),
                   recipe: recipe,
                   alignment: _kHeroPhotoAlignment,
-                  placeholder: (_) => _RecipeArt(recipe: recipe, iconSize: 56),
+                  placeholder: (_) => RecipeArt.of(recipe, iconSize: 56),
                 ),
                 if (RecipePhoto.isAiGenerated(recipe))
                   Positioned(
@@ -206,8 +206,8 @@ class _RecipeHeroCard extends StatelessWidget {
                       ),
                       label: model.addLabel!,
                       glyph: model.opensPlan
-                          ? _RecipeGlyph.calendar
-                          : _RecipeGlyph.plus,
+                          ? RecipeGlyph.calendar
+                          : RecipeGlyph.plus,
                       glyphStroke: model.opensPlan ? 1.9 : 2.6,
                       primary: true,
                       grow: true,
@@ -247,8 +247,8 @@ class _FitsBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _GlyphIcon(
-            _RecipeGlyph.check,
+          RecipeGlyphIcon(
+            RecipeGlyph.check,
             size: 14,
             strokeWidth: 2.8,
             color: t.success,
@@ -388,8 +388,8 @@ class _BookmarkButton extends StatelessWidget {
                     // Ink pairs with the glass in the page tone, like the AI
                     // label; the always-white `onImage` vanished on the
                     // near-white light glass.
-                    child: _GlyphIcon(
-                      _RecipeGlyph.bookmark,
+                    child: RecipeGlyphIcon(
+                      RecipeGlyph.bookmark,
                       color: t.ink,
                       filled: saved,
                     ),
@@ -422,7 +422,7 @@ class _Pill extends StatelessWidget {
 
   final String label;
   final VoidCallback? onTap;
-  final _RecipeGlyph? glyph;
+  final RecipeGlyph? glyph;
   final double glyphStroke;
   final bool primary;
 
@@ -481,7 +481,7 @@ class _Pill extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     if (glyph != null) ...[
-                      _GlyphIcon(
+                      RecipeGlyphIcon(
                         glyph!,
                         size: _glyphSize,
                         strokeWidth: glyphStroke,
@@ -563,82 +563,6 @@ class _PillPair extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-/// Icon and glow of the placeholder art, from the recipe's categories: fish
-/// dishes get the fish, vegetarian and vegan ones the leaf, the rest the bowl.
-enum _ArtKind { bowl, fish, leaf }
-
-_ArtKind _artKindFor(FitnessRecipe recipe) {
-  // Double-quoted: category identities are matching data, not UI text.
-  if (recipe.categories.contains("Fisch")) return _ArtKind.fish;
-  if (recipe.categories.contains("Vegetarisch") ||
-      recipe.categories.contains("Vegan")) {
-    return _ArtKind.leaf;
-  }
-  return _ArtKind.bowl;
-}
-
-/// The design's glowing icon for a recipe without a photo: a radial glow on
-/// the quiet well, the icon in the matching ink.
-///
-/// The design's three hues are the macro fills and inks (blue, orange, green);
-/// they are reused here as decoration because the art carries no data and has
-/// no tokens of its own.
-class _RecipeArt extends StatelessWidget {
-  const _RecipeArt({required this.recipe, this.iconSize = 44});
-
-  final FitnessRecipe recipe;
-  final double iconSize;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final kind = _artKindFor(recipe);
-    final (glow, alpha, ink, glyph) = switch (kind) {
-      _ArtKind.bowl => (t.carbs, 0.32, t.carbsInk, _RecipeGlyph.bowl),
-      _ArtKind.fish => (t.fat, 0.34, t.fatInk, _RecipeGlyph.fish),
-      _ArtKind.leaf => (t.protein, 0.32, t.proteinInk, _RecipeGlyph.leaf),
-    };
-    return ColoredBox(
-      key: ValueKey('recipe-art-${kind.name}'),
-      color: t.surfWell,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth, h = constraints.maxHeight;
-          // CSS `radial-gradient(circle at 50% 55%, c 0%, transparent 65%)`
-          // runs to the farthest corner; Flutter's radius is a fraction of
-          // the shortest side.
-          final dx = w / 2, dy = h * 0.55 > h * 0.45 ? h * 0.55 : h * 0.45;
-          final shortest = w < h ? w : h;
-          final radius = shortest <= 0
-              ? 1.0
-              : math.sqrt(dx * dx + dy * dy) / shortest;
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(0, 0.1),
-                radius: radius,
-                colors: [
-                  glow.withValues(alpha: alpha),
-                  glow.withValues(alpha: 0),
-                ],
-                stops: const [0, 0.65],
-              ),
-            ),
-            child: Center(
-              child: _GlyphIcon(
-                glyph,
-                size: iconSize,
-                strokeWidth: 1.4,
-                color: ink,
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 }

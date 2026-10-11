@@ -25,7 +25,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/recipes/recipe_photo.dart' show RecipeArt;
 
 import 'support/harness.dart';
 
@@ -358,7 +358,7 @@ void main() {
       reason: 'Das wieder eingeblendete Rezept muss sein Bild wieder zeigen.',
     );
     expect(
-      find.descendant(of: zurueck, matching: find.byType(ImagePlaceholder)),
+      find.descendant(of: zurueck, matching: find.byType(RecipeArt)),
       findsNothing,
       reason: 'Ein Platzhalter hiesse: die Referenz zeigt ins Leere.',
     );
