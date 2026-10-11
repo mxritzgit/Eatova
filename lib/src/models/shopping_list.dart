@@ -18,9 +18,20 @@ class ShoppingItem {
     this.originalBatchServings,
     this.planId,
     this.lines = const [],
+    this.planGrams = const {},
+    this.shoppingKey,
+    this.storedName,
   });
   final String id, name;
   final double? grams;
+
+  /// A weighed item's [grams] per planned meal id; display only.
+  final Map<String, double> planGrams;
+
+  /// A weighed item's locale-neutral identity: its ingredients'
+  /// [RecipeIngredient.shoppingKey] and the name as stored, before [name]
+  /// localised it ("Produkt <code>" for a product without a name).
+  final String? shoppingKey, storedName;
   final String? recipeTitle;
 
   /// The planned meal behind a free-text item (its day and slot); display
@@ -87,11 +98,13 @@ bool shoppingLineChecked(
   return (done: done, total: total);
 }
 
-/// The meals a week's shopping list covers: planned, not yet eaten.
+/// The meals a week's shopping list covers: planned, not yet eaten. With
+/// [includeEaten] also the eaten ones, which still identify what was bought.
 Iterable<PlannedMeal> shoppingPlans(
   List<PlannedMeal> plans,
-  DateTime weekStart,
-) {
+  DateTime weekStart, {
+  bool includeEaten = false,
+}) {
   final start = localDayKey(weekStart);
   final end = localDayKey(
     DateTime(weekStart.year, weekStart.month, weekStart.day + 7),
@@ -99,7 +112,7 @@ Iterable<PlannedMeal> shoppingPlans(
   return plans.where(
     (p) =>
         !p.removed &&
-        !p.isEaten &&
+        (includeEaten || !p.isEaten) &&
         p.day.compareTo(start) >= 0 &&
         p.day.compareTo(end) < 0,
   );
@@ -109,21 +122,26 @@ Iterable<PlannedMeal> shoppingPlans(
 /// recipe and serving context without inferring units or parsing quantities;
 /// its lines are split for display and their own checks only.
 /// [decimalSeparator] and [l10n] only affect displayed names; ids stay
-/// locale-neutral.
+/// locale-neutral. [includeEaten] lists eaten meals too (see [shoppingPlans]).
 List<ShoppingItem> buildShoppingList(
   List<PlannedMeal> plans,
   DateTime weekStart, {
   String decimalSeparator = '.',
   AppLocalizations? l10n,
+  bool includeEaten = false,
 }) {
   final start = localDayKey(weekStart);
-  final groups = <String, ({String name, double grams})>{};
+  final groups = <String, ({String name, String stored, double grams})>{};
   final sources = <String, Set<String>>{};
+  final perPlan = <String, Map<String, double>>{};
   final unquantified = <ShoppingItem>[];
   String identity(Object value) =>
       '$start:${sha256.convert(utf8.encode(jsonEncode(value)))}';
-  final sorted = shoppingPlans(plans, weekStart).toList()
-    ..sort((a, b) => a.id.compareTo(b.id));
+  final sorted = shoppingPlans(
+    plans,
+    weekStart,
+    includeEaten: includeEaten,
+  ).toList()..sort((a, b) => a.id.compareTo(b.id));
   for (final plan in sorted) {
     final recipe = plan.recipe;
     final projection = recipe.ingredientProjectionForServings(plan.servings);
@@ -155,14 +173,16 @@ List<ShoppingItem> buildShoppingList(
     for (final ingredient in recipe.structuredIngredients) {
       final key = ingredient.shoppingKey;
       (sources[key] ??= {}).add(plan.id);
+      final share = ingredient.grams * plan.servings / recipe.batchServings;
+      final shares = perPlan[key] ??= {};
+      shares[plan.id] = (shares[plan.id] ?? 0) + share;
       final previous = groups[key];
       groups[key] = (
         name:
             previous?.name ??
             (l10n == null ? ingredient.name : ingredient.displayName(l10n)),
-        grams:
-            (previous?.grams ?? 0) +
-            ingredient.grams * plan.servings / recipe.batchServings,
+        stored: previous?.stored ?? ingredient.name,
+        grams: (previous?.grams ?? 0) + share,
       );
     }
   }
@@ -178,6 +198,9 @@ List<ShoppingItem> buildShoppingList(
               ]),
               name: e.value.name,
               grams: e.value.grams,
+              planGrams: perPlan[e.key]!,
+              shoppingKey: e.key,
+              storedName: e.value.stored,
             ),
           )
           .toList()

@@ -616,15 +616,15 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         await tester.scrollUntilVisible(find.text('Milk to taste'), 150);
-        // The receipt prints the title in capitals, the servings in its
-        // meta line, and each ingredient's amount on its own.
-        expect(find.text('OATS'), findsOneWidget);
+        // The weekly receipt names the meals in its header and lists each
+        // ingredient with its amount, without recipe headings.
         expect(
-          find.textContaining(
-            locale == 'de' ? '1\u00A0Portion' : '1\u00A0serving',
+          find.text(
+            locale == 'de' ? 'KW 37 \u00B7 1 Gericht' : 'Week 37 \u00B7 1 meal',
           ),
           findsOneWidget,
         );
+        expect(find.text('OATS'), findsNothing);
         expect(find.text('Oats'), findsOneWidget);
         expect(find.text('100 g'), findsOneWidget);
         expect(tester.takeException(), isNull);

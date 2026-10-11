@@ -62,6 +62,34 @@ void main() {
       expect(l.recipePortionPresetLabel(0.5), '0,5 Portionen');
       expect(l.recipePortionPresetLabel(2), '2 Portionen');
     });
+
+    test('Einheiten auf dem Einkaufszettel, auch mit Bruch', () {
+      expect(l.mealPlanUnitCan(1, '1'), '1 Dose');
+      expect(l.mealPlanUnitCan(1.5, '1 1/2'), '1 1/2 Dosen');
+      expect(l.mealPlanUnitJar(2, '2'), '2 Gläser');
+      expect(l.mealPlanUnitClove(1, '1'), '1 Zehe');
+      expect(l.mealPlanUnitPinch(3, '2–3'), '2–3 Prisen');
+      expect(l.mealPlanUnitTub(2, '2'), '2 Becher');
+      expect(l.mealPlanUnitTbsp(2, '2'), '2 EL');
+      expect(l.mealPlanUnitCentimetre(1, '1'), '1 cm');
+      expect(l.mealPlanUnitCentimetre(2.5, '2 1/2'), '2 1/2 cm');
+      expect(l.mealPlanReceiptBatchNoteSpoken(1), '(Rezept für 1 Portion)');
+      expect(l.mealPlanReceiptBatchNoteSpoken(4), '(Rezept für 4 Portionen)');
+      expect(
+        l.mealPlanReceiptBatchNoteSpoken(2.5),
+        '(Rezept für 2,5 Portionen)',
+      );
+      expect(l.mealPlanPantryCheckedName('Salz'), 'Salz (abgehakt)');
+      expect(
+        l.mealPlanNoIngredientsNote(1, 'Pizza (Mo)'),
+        'Ohne Zutatenliste: Pizza (Mo). Rezept vor dem Einkauf prüfen.',
+      );
+      expect(
+        l.mealPlanNoIngredientsNote(2, 'Pizza (Mo), Suppe (Do)'),
+        'Ohne Zutatenliste: Pizza (Mo), Suppe (Do). Rezepte vor dem Einkauf '
+        'prüfen.',
+      );
+    });
   });
 
   group('English', () {
@@ -93,6 +121,24 @@ void main() {
       expect(l.recipePortionPresetLabel(1), '1 serving');
       expect(l.recipePortionPresetLabel(0.5), '0.5 servings');
       expect(l.recipePortionPresetLabel(2), '2 servings');
+    });
+
+    test('shopping receipt units, also with a fraction', () {
+      expect(l.mealPlanUnitCan(1, '1'), '1 can');
+      expect(l.mealPlanUnitCan(1.5, '1 1/2'), '1 1/2 cans');
+      expect(l.mealPlanUnitBunch(2, '2'), '2 bunches');
+      expect(l.mealPlanUnitClove(1, '1'), '1 clove');
+      expect(l.mealPlanUnitPinch(3, '2–3'), '2–3 pinches');
+      expect(l.mealPlanUnitTbsp(2, '2'), '2 tbsp');
+      expect(l.mealPlanUnitCentimetre(1, '1'), '1 cm');
+      expect(l.mealPlanReceiptBatchNoteSpoken(1), '(recipe serves 1)');
+      expect(l.mealPlanReceiptBatchNoteSpoken(4), '(recipe serves 4)');
+      expect(l.mealPlanPantryCheckedName('Salt'), 'Salt (checked off)');
+      expect(
+        l.mealPlanNoIngredientsNote(2, 'Pizza (Mo), Soup (Th)'),
+        'No ingredient list: Pizza (Mo), Soup (Th). Check the recipes before '
+        'shopping.',
+      );
     });
   });
 }

@@ -1,8 +1,9 @@
 part of 'meal_plan_screen.dart';
 
 // The shopping list as a receipt: a paper slip with torn edges, dashed
-// rules, one row per ingredient with its own check, totals, a stamp once
-// everything is bought, and the empty state.
+// rules, one row per ingredient for the whole week with its own check and
+// the days behind it, spices and staples in a collapsed section, totals, a
+// stamp once everything is bought, and the empty state.
 
 /// The shopping list before anything is planned for the week.
 class _ShoppingEmpty extends StatelessWidget {
@@ -320,9 +321,10 @@ class _ReceiptCheck extends StatelessWidget {
   }
 }
 
-/// One checkable receipt row: check, name, leader and amount. A bought row
-/// is struck through in place, so nothing moves under the finger; one merged
-/// node like a checkbox list tile.
+/// One checkable receipt row: check, name, leader and amount, and an
+/// optional [detail] line with the meals behind it. A bought row is struck
+/// through in place, so nothing moves under the finger; one merged node like
+/// a checkbox list tile.
 class _ReceiptRow extends StatelessWidget {
   const _ReceiptRow({
     super.key,
@@ -330,12 +332,16 @@ class _ReceiptRow extends StatelessWidget {
     required this.amount,
     required this.checked,
     required this.onTap,
+    this.detail,
   });
 
   final String label;
   final String? amount;
   final bool checked;
   final VoidCallback? onTap;
+
+  /// The meals behind the row: "Mo 300 g · Do 250 g".
+  final List<_DetailEntry>? detail;
 
   @override
   Widget build(BuildContext context) {
@@ -371,23 +377,38 @@ class _ReceiptRow extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: _LeaderLine(
-                        label: label,
-                        amount: amount,
-                        labelStyle: AppType.receipt(
-                          14,
-                          color: ink,
-                          letterSpacing: -.2,
-                          height: 1.4,
-                        ).copyWith(decoration: strike, decorationColor: t.ink3),
-                        amountStyle: AppType.receipt(
-                          14,
-                          weight: FontWeight.w500,
-                          color: ink,
-                          letterSpacing: -.2,
-                          height: 1.4,
-                        ).copyWith(decoration: strike, decorationColor: t.ink3),
-                        leaderColor: t.inkFaint,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _LeaderLine(
+                            label: label,
+                            amount: amount,
+                            labelStyle:
+                                AppType.receipt(
+                                  14,
+                                  color: ink,
+                                  letterSpacing: -.2,
+                                  height: 1.4,
+                                ).copyWith(
+                                  decoration: strike,
+                                  decorationColor: t.ink3,
+                                ),
+                            amountStyle:
+                                AppType.receipt(
+                                  14,
+                                  weight: FontWeight.w500,
+                                  color: ink,
+                                  letterSpacing: -.2,
+                                  height: 1.4,
+                                ).copyWith(
+                                  decoration: strike,
+                                  decorationColor: t.ink3,
+                                ),
+                            leaderColor: t.inkFaint,
+                          ),
+                          if (detail case final detail?)
+                            _ReceiptDetail(entries: detail, checked: checked),
+                        ],
                       ),
                     ),
                   ],
@@ -401,8 +422,328 @@ class _ReceiptRow extends StatelessWidget {
   }
 }
 
-/// The heading of a receipt section: a recipe's title or the weighed
-/// ingredients, in capitals, with an optional meta line and note.
+/// A row's detail line, like a till's line under an article: the meals
+/// behind it, small and quiet, struck through with the row. A meal stays on
+/// one line ("Do Abend 180 g") where it fits; with large text, or when one
+/// does not fit, each meal gets a line of its own and what wraps hangs under
+/// its text, never broken inside a word. Days alone stay one line ("Mo · Di
+/// · Do"). A screen reader hears full weekdays.
+class _ReceiptDetail extends StatelessWidget {
+  const _ReceiptDetail({required this.entries, required this.checked});
+
+  final List<_DetailEntry> entries;
+  final bool checked;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final style = AppType.receipt(12, color: t.ink3, height: 1.45).copyWith(
+      decoration: checked ? TextDecoration.lineThrough : null,
+      decorationColor: t.ink3,
+    );
+    final label = entries.map((e) => e.spoken).join(', ');
+    final large = _largeText(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          double width(String text) => _lineWidth(context, text, style);
+          final heads = [for (final e in entries) _keepTogether(e.head)];
+          final stacked =
+              entries.any((e) => e.amounts.isNotEmpty) &&
+              (large || heads.any((h) => width(h) > constraints.maxWidth));
+          if (!stacked) {
+            // The dot stays at the end of a line, never starts one.
+            return Text(
+              [
+                for (var i = 0; i < entries.length; i++)
+                  [heads[i], ?entries[i].note].join(' '),
+              ].join('\u00A0· '),
+              semanticsLabel: label,
+              style: style,
+            );
+          }
+          const gap = 6.0;
+          final marker = Text(
+            '·',
+            style: style.copyWith(decoration: TextDecoration.none),
+          );
+          final room = constraints.maxWidth - width('·') - gap;
+          // Whole where it fits the line, else at its spaces.
+          String keep(String text) =>
+              width(_keepTogether(text)) <= room ? _keepTogether(text) : text;
+          return Semantics(
+            label: label,
+            child: ExcludeSemantics(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final entry in entries)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        marker,
+                        const SizedBox(width: gap),
+                        Expanded(
+                          child: Text(
+                            [
+                              keep(entry.day),
+                              if (entry.amounts.isNotEmpty)
+                                entry.amounts.map(keep).join('\u00A0+ '),
+                              ?entry.note,
+                            ].join(' '),
+                            style: style,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The width of [text] on one line in [style] as [context] scales it.
+double _lineWidth(BuildContext context, String text, TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: DefaultTextStyle.of(context).style.merge(style),
+    ),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+    maxLines: 1,
+  )..layout();
+  try {
+    return painter.width;
+  } finally {
+    painter.dispose();
+  }
+}
+
+/// "Gewürze & Vorrat" after the main rows: spices and staples most kitchens
+/// already have, with their own count outside the totals. Collapsed, their
+/// names run as one line; expanded, each is a row with its own check.
+class _ReceiptPantry extends StatelessWidget {
+  const _ReceiptPantry({
+    super.key,
+    required this.progress,
+    required this.names,
+    required this.expanded,
+    required this.onToggle,
+    required this.rows,
+  });
+
+  final ({int done, int total}) progress;
+  final List<({String label, bool checked})> names;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final List<Widget> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final t = context.t;
+    final bought = TextStyle(
+      color: t.ink3,
+      decoration: TextDecoration.lineThrough,
+      decorationColor: t.ink3,
+    );
+    final style = AppType.receipt(13, color: t.ink2, height: 1.55);
+    final summary = Padding(
+      padding: const EdgeInsets.fromLTRB(_kReceiptInset, 2, _kReceiptInset, 0),
+      // A node of its own: read after the heading and its count, not with
+      // the receipt's header.
+      child: Semantics(
+        container: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Text.rich(
+            key: const ValueKey('shopping-pantry-summary'),
+            TextSpan(
+              children: [
+                for (var i = 0; i < names.length; i++) ...[
+                  // The dot stays at the end of a line, never starts one.
+                  if (i > 0) const TextSpan(text: '\u00A0· '),
+                  TextSpan(
+                    // A name stays whole where it fits a line ("Öl zum
+                    // Braten"); a longer one wraps at its spaces.
+                    text:
+                        _lineWidth(
+                              context,
+                              '${_keepTogether(names[i].label)}\u00A0·',
+                              style,
+                            ) <=
+                            constraints.maxWidth
+                        ? _keepTogether(names[i].label)
+                        : names[i].label,
+                    style: names[i].checked ? bought : null,
+                  ),
+                ],
+              ],
+            ),
+            // One name per line, so a comma in a name is not a new item.
+            semanticsLabel: names
+                .map(
+                  (n) => n.checked
+                      ? l.mealPlanPantryCheckedName(n.label)
+                      : n.label,
+                )
+                .join('\n'),
+            style: style,
+          ),
+        ),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ReceiptHeading(
+          title: l.mealPlanPantryTitle,
+          meta: l.mealPlanShoppingProgress(progress.done, progress.total),
+          note: l.mealPlanPantryNote,
+        ),
+        maybeAnimatedSize(
+          context,
+          duration: kMotionEnter,
+          curve: kMotionCurve,
+          alignment: Alignment.topCenter,
+          child: expanded
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: rows,
+                )
+              : summary,
+        ),
+        _PantryToggle(expanded: expanded, onTap: onToggle),
+      ],
+    );
+  }
+}
+
+/// Opens or closes the pantry's rows: a full-width 48 px target that
+/// announces its expanded state.
+class _PantryToggle extends StatelessWidget {
+  const _PantryToggle({required this.expanded, required this.onTap});
+
+  final bool expanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final t = context.t;
+    final label = expanded ? l.mealPlanPantryCollapse : l.mealPlanPantryExpand;
+    return Semantics(
+      key: const ValueKey('shopping-pantry-toggle'),
+      container: true,
+      button: true,
+      expanded: expanded,
+      label: label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: _kReceiptInset,
+              vertical: 8,
+            ),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: 1,
+              // The chevron follows the last word, also when it wraps.
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(text: '$label\u00A0'),
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: AnimatedRotation(
+                        turns: expanded ? .5 : 0,
+                        duration: motionDuration(context, kMotionEnter),
+                        curve: kMotionCurve,
+                        child: Icon(
+                          Icons.expand_more_rounded,
+                          size: math.min(
+                            MediaQuery.textScalerOf(context).scale(20),
+                            30,
+                          ),
+                          color: t.ink2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                style: AppType.receipt(
+                  13,
+                  weight: FontWeight.w500,
+                  color: t.ink,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Planned recipes without an ingredient list, named once under the rows
+/// with their weekday; a screen reader hears the full weekday.
+class _EmptyRecipesNote extends StatelessWidget {
+  const _EmptyRecipesNote({
+    super.key,
+    required this.recipes,
+    required this.spaced,
+  });
+
+  final List<ShoppingEmptyRecipe> recipes;
+
+  /// Under rows: keeps its distance from the last one.
+  final bool spaced;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    String names(String Function(DateTime day) weekday) => recipes
+        .map((r) => '${r.title} (${weekday(DateTime.parse(r.day))})')
+        .join(', ');
+    final full = DateFormat.EEEE(l.localeName);
+    // A node of its own, so a screen reader stops on the note.
+    return Semantics(
+      container: true,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          _kReceiptInset,
+          spaced ? 10 : 0,
+          _kReceiptInset,
+          0,
+        ),
+        child: Text(
+          l.mealPlanNoIngredientsNote(
+            recipes.length,
+            names((day) => todayWeekdayShort(day, l)),
+          ),
+          semanticsLabel: l.mealPlanNoIngredientsNote(
+            recipes.length,
+            names(full.format),
+          ),
+          style: AppType.ui(13.5, color: context.t.ink2, height: 1.4),
+        ),
+      ),
+    );
+  }
+}
+
+/// The heading of a receipt section, in capitals, with an optional meta
+/// line and note.
 class _ReceiptHeading extends StatelessWidget {
   const _ReceiptHeading({required this.title, this.meta, this.note});
 
@@ -431,40 +772,34 @@ class _ReceiptHeading extends StatelessWidget {
               ),
             ),
           ),
-          if (meta != null) ...[
-            const SizedBox(height: 3),
-            Text(meta!, style: AppType.receipt(12, color: t.ink2, height: 1.4)),
-          ],
-          if (note != null) ...[
-            const SizedBox(height: 4),
-            Text(note!, style: AppType.ui(12.5, color: t.ink3, height: 1.4)),
-          ],
+          // A node of its own, read right after the heading.
+          if (meta != null || note != null)
+            Semantics(
+              container: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (meta != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      meta!,
+                      style: AppType.receipt(12, color: t.ink2, height: 1.4),
+                    ),
+                  ],
+                  if (note != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      note!,
+                      style: AppType.ui(12.5, color: t.ink3, height: 1.4),
+                    ),
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
   }
-}
-
-/// A section label inside a recipe's ingredients ("Topping:").
-class _ReceiptSubheading extends StatelessWidget {
-  const _ReceiptSubheading(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(_kReceiptInset, 10, _kReceiptInset, 2),
-    child: Text(
-      text.toUpperCase(),
-      semanticsLabel: text,
-      style: AppType.receipt(
-        11.5,
-        weight: FontWeight.w500,
-        color: context.t.ink2,
-        letterSpacing: 1.2,
-      ),
-    ),
-  );
 }
 
 /// The store line on top: brand, title, and the week with its meal count.
@@ -696,6 +1031,199 @@ class _BarcodePainter extends CustomPainter {
   @override
   bool shouldRepaint(_BarcodePainter old) =>
       old.color != color || old.seed != seed;
+}
+
+/// A row's amounts and its unparsed ones as the receipt prints them: "550 g",
+/// "2 EL + 1 TL", "300 g + 1 Handvoll"; null when it has none.
+String? _receiptAmount(ShoppingRow row, AppLocalizations l) {
+  final cloves = _namesCloves(row.label);
+  final pieces = [
+    for (final amount in row.total) _amountText(amount, l, cloves: cloves),
+    ...row.texts,
+  ];
+  return pieces.isEmpty ? null : pieces.join(' + ');
+}
+
+/// "Knoblauchzehen", "garlic cloves": the name already says what is counted.
+bool _namesCloves(String label) =>
+    RegExp('zehe|clove', caseSensitive: false).hasMatch(label);
+
+/// One amount: "550 g", "1,2 kg", "3", "2 Dosen", "1 1/2 EL", "ca. 4–5".
+/// Grams and millilitres switch to kilos and litres at 1,000. With [cloves]
+/// a clove count is a bare number.
+String _amountText(
+  ShoppingAmount amount,
+  AppLocalizations l, {
+  bool cloves = false,
+}) {
+  final locale = l.localeName;
+  final metric =
+      amount.unit == ShoppingUnit.mass || amount.unit == ShoppingUnit.volume;
+  final large = metric && amount.high >= 999.5;
+  String number(double value) {
+    if (!metric) return _countNumber(value, locale);
+    if (large) return NumberFormat('0.##', locale).format(value / 1000);
+    return NumberFormat(value >= 10 ? '0' : '0.#', locale).format(value);
+  }
+
+  final value = amount.isRange
+      ? '${number(amount.low)}–${number(amount.high)}'
+      : number(amount.low);
+  // "1/2 Dose", "2 Dosen": up to one, the singular reads naturally.
+  final count = amount.high <= 1 ? 1 : amount.high;
+  final text = switch (amount.unit) {
+    ShoppingUnit.mass => '$value ${large ? 'kg' : 'g'}',
+    ShoppingUnit.volume => '$value ${large ? 'l' : 'ml'}',
+    ShoppingUnit.piece => value,
+    ShoppingUnit.clove when cloves => value,
+    ShoppingUnit.clove => l.mealPlanUnitClove(count, value),
+    ShoppingUnit.slice => l.mealPlanUnitSlice(count, value),
+    ShoppingUnit.can => l.mealPlanUnitCan(count, value),
+    ShoppingUnit.jar => l.mealPlanUnitJar(count, value),
+    ShoppingUnit.tub => l.mealPlanUnitTub(count, value),
+    ShoppingUnit.pack => l.mealPlanUnitPack(count, value),
+    ShoppingUnit.bunch => l.mealPlanUnitBunch(count, value),
+    ShoppingUnit.sprig => l.mealPlanUnitSprig(count, value),
+    ShoppingUnit.handful => l.mealPlanUnitHandful(count, value),
+    ShoppingUnit.cup => l.mealPlanUnitCup(count, value),
+    ShoppingUnit.tbsp => l.mealPlanUnitTbsp(count, value),
+    ShoppingUnit.tsp => l.mealPlanUnitTsp(count, value),
+    ShoppingUnit.pinch => l.mealPlanUnitPinch(count, value),
+    ShoppingUnit.centimetre => l.mealPlanUnitCentimetre(count, value),
+  };
+  return amount.approx ? l.mealPlanAmountApprox(text) : text;
+}
+
+/// A count the way recipes write it: whole or with a common fraction ("1
+/// 1/2", "1/4", "5/8"), else with up to two decimals.
+String _countNumber(double value, String locale) {
+  final whole = value.floor();
+  final rest = value - whole;
+  if (rest < .01) return '$whole';
+  if (rest > .99) return '${whole + 1}';
+  for (final (fraction, text) in _kCountFractions) {
+    if ((rest - fraction).abs() < .01) {
+      return whole == 0 ? text : '$whole $text';
+    }
+  }
+  return NumberFormat('0.##', locale).format(value);
+}
+
+const _kCountFractions = [
+  (1 / 8, '1/8'),
+  (1 / 4, '1/4'),
+  (1 / 3, '1/3'),
+  (3 / 8, '3/8'),
+  (1 / 2, '1/2'),
+  (5 / 8, '5/8'),
+  (2 / 3, '2/3'),
+  (3 / 4, '3/4'),
+  (7 / 8, '7/8'),
+];
+
+/// One planned meal behind a row: its day and amounts, as shown and as a
+/// screen reader hears them.
+class _DetailEntry {
+  const _DetailEntry({
+    required this.day,
+    required this.spokenDay,
+    required this.amounts,
+    this.note,
+    this.spokenNote,
+  });
+
+  /// "Do Abend"; [spokenDay] "Donnerstag Abend".
+  final String day, spokenDay;
+  final List<String> amounts;
+
+  /// "(Rezept für 4 Port.)"; [spokenNote] without the abbreviation.
+  final String? note, spokenNote;
+
+  /// "Do Abend 180 g".
+  String get head =>
+      [day, if (amounts.isNotEmpty) amounts.join(' + ')].join(' ');
+
+  String get spoken => [
+    spokenDay,
+    if (amounts.isNotEmpty) amounts.join(' + '),
+    ?spokenNote,
+  ].join(' ');
+}
+
+/// The meals behind [row], one entry per planned meal by day: "Mo 300 g",
+/// "Do 250 g", with the slot when a day has two of them, and an amount the
+/// recipe gives unconverted marked as such. Null when the row is one meal's
+/// planned amount.
+List<_DetailEntry>? _receiptDetail(ShoppingRow row, AppLocalizations l) {
+  if (!row.showsDetail) return null;
+  final meals = <String, List<ShoppingUse>>{};
+  for (final use in row.uses) {
+    (meals[use.planId] ??= []).add(use);
+  }
+  // Two lines of one recipe: the amount already says it all.
+  if (meals.length < 2 && !row.hasUnscaled) return null;
+  final perDay = <String, int>{};
+  for (final uses in meals.values) {
+    perDay.update(uses.first.day, (n) => n + 1, ifAbsent: () => 1);
+  }
+  final fullDay = DateFormat.EEEE(l.localeName);
+  final cloves = _namesCloves(row.label);
+  return [
+    for (final uses in meals.values)
+      _detailEntry(
+        uses,
+        l,
+        fullDay: fullDay,
+        cloves: cloves,
+        slot: perDay[uses.first.day]! > 1,
+      ),
+  ];
+}
+
+_DetailEntry _detailEntry(
+  List<ShoppingUse> uses,
+  AppLocalizations l, {
+  required DateFormat fullDay,
+  required bool cloves,
+  required bool slot,
+}) {
+  final first = uses.first;
+  final date = DateTime.parse(first.day);
+  final slotLabel = slot ? ' ${first.slot.shortLabel(l)}' : '';
+  final planned = [
+    for (final amount in sumShoppingAmounts([
+      for (final use in uses)
+        if (use.amount case final amount?) amount,
+    ]))
+      _amountText(amount, l, cloves: cloves),
+    for (final use in uses)
+      if (use.amount == null && use.text != null && !use.unscaled) use.text!,
+  ];
+  final original = [
+    for (final use in uses)
+      if (use.unscaled && use.text != null) use.text!,
+  ];
+  // One recipe has one serving basis: one note for its amounts, also for
+  // one left in the name ("Reis (300 g gekocht)").
+  final (note, spokenNote) = switch (uses
+      .where((u) => u.unscaled)
+      .firstOrNull) {
+    null => (null, null),
+    ShoppingUse(scale: ShoppingScale.batch, :final batchServings?) => (
+      l.mealPlanReceiptBatchNote(
+        NumberFormat('0.##', l.localeName).format(batchServings),
+      ),
+      l.mealPlanReceiptBatchNoteSpoken(batchServings),
+    ),
+    _ => (l.mealPlanReceiptOriginalNote, l.mealPlanReceiptOriginalNote),
+  };
+  return _DetailEntry(
+    day: todayWeekdayShort(date, l) + slotLabel,
+    spokenDay: fullDay.format(date) + slotLabel,
+    amounts: [...planned, ...original],
+    note: note,
+    spokenNote: spokenNote,
+  );
 }
 
 /// ISO 8601 week number of the week starting on [monday].

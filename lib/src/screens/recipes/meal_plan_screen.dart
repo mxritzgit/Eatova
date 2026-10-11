@@ -12,6 +12,7 @@ import '../../models/logged_meal.dart';
 import '../../models/number_input.dart';
 import '../../models/planned_meal.dart';
 import '../../models/shopping_list.dart';
+import '../../models/shopping_receipt.dart';
 import '../../services/local_day.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
@@ -68,6 +69,17 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     clock.now().day - clock.now().weekday + 1,
   );
   bool _shopping = false;
+
+  /// The receipt's "Gewürze & Vorrat" shows each row instead of one line.
+  bool _pantryOpen = false;
+
+  /// The last receipt and what it was built from. A tick or the pantry
+  /// toggle rebuilds the screen but changes none of these, and building a
+  /// receipt reads every ingredient line of the week.
+  ShoppingReceipt? _receiptCache;
+  List<PlannedMeal> _receiptPlans = const [];
+  DateTime? _receiptWeek;
+  String? _receiptLocale;
   final Set<String> _busy = {};
 
   /// The shown days' sections, so a tap in the week strip can scroll to one.
@@ -180,6 +192,32 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       ..sort((a, b) => a.slot.index.compareTo(b.slot.index));
   }
 
+  /// The week's receipt, rebuilt only when a plan, the week or the language
+  /// changed: a plan change swaps in new plan objects, a tick does not.
+  ShoppingReceipt _shoppingReceipt(AppLocalizations l) {
+    final plans = store.plannedMeals;
+    final cached = _receiptCache;
+    if (cached != null &&
+        _receiptWeek == _week &&
+        _receiptLocale == l.localeName &&
+        plans.length == _receiptPlans.length) {
+      var same = true;
+      for (var i = 0; same && i < plans.length; i++) {
+        same = identical(plans[i], _receiptPlans[i]);
+      }
+      if (same) return cached;
+    }
+    _receiptPlans = plans;
+    _receiptWeek = _week;
+    _receiptLocale = l.localeName;
+    return _receiptCache = buildShoppingReceipt(
+      plans,
+      _week,
+      decimalSeparator: l.localeName == 'de' ? ',' : '.',
+      l10n: l,
+    );
+  }
+
   void _scrollToDay(DateTime day) {
     final target = _dayKeys[localDayKey(day)]?.currentContext;
     if (target == null) return;
@@ -198,14 +236,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       animation: store,
       builder: (context, _) {
         final ready = !store.mealPlansLoading && !store.mealPlansLoadFailed;
-        final items = _shopping
-            ? buildShoppingList(
-                store.plannedMeals,
-                _week,
-                decimalSeparator: l.localeName == 'de' ? ',' : '.',
-                l10n: l,
-              )
-            : const <ShoppingItem>[];
+        final receipt = _shopping
+            ? _shoppingReceipt(l)
+            : const ShoppingReceipt(rows: [], pantry: [], emptyRecipes: []);
+        // One copy of the checks per build, not one per row.
+        final checks = store.shoppingChecks;
         return Scaffold(
           backgroundColor: t.bg,
           body: SafeArea(
@@ -231,7 +266,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                         setState(() => _shopping = index == 1),
                   ),
                   const SizedBox(height: 14),
-                  _weekCard(context, ready: ready, items: items),
+                  _weekCard(
+                    context,
+                    ready: ready,
+                    receipt: receipt,
+                    checks: checks,
+                  ),
                   if (store.mealPlansLoading)
                     Padding(
                       padding: const EdgeInsets.only(top: 16),
@@ -271,7 +311,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       ),
                     ),
                   if (_shopping)
-                    ..._shoppingList(context, items, ready: ready)
+                    ..._shoppingList(
+                      context,
+                      receipt,
+                      ready: ready,
+                      checks: checks,
+                    )
                   else ...[
                     // One child, so every day is built and the strip can
                     // scroll to any of them.
@@ -292,11 +337,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   }
 
   /// The week's range with its arrows, then the day strip (week) or the
-  /// shopping progress (list).
+  /// shopping progress of the receipt's main rows (list).
   Widget _weekCard(
     BuildContext context, {
     required bool ready,
-    required List<ShoppingItem> items,
+    required ShoppingReceipt receipt,
+    required Map<String, bool> checks,
   }) {
     final l = context.l10n;
     final t = context.t;
@@ -306,7 +352,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final formatter = _week.year == today.year && end.year == _week.year
         ? DateFormat.MMMd(l.localeName)
         : DateFormat.yMMMd(l.localeName);
-    final (:done, :total) = shoppingProgress(items, store.shoppingChecks);
+    final (:done, :total) = receipt.progress(checks);
     final complete = total > 0 && done == total;
     final showProgress = _shopping && ready && total > 0;
 
@@ -618,13 +664,18 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   List<Widget> _shoppingList(
     BuildContext context,
-    List<ShoppingItem> items, {
+    ShoppingReceipt receipt, {
     required bool ready,
+    required Map<String, bool> checks,
   }) {
     final l = context.l10n;
-    final freeText = items.any((i) => i.grams == null);
+    // Merged rows or amounts read from recipe text: worth saying how.
+    final combined = [
+      ...receipt.rows,
+      ...receipt.pantry,
+    ].any((row) => row.merged || row.parts.any((p) => p.legacyIds.isNotEmpty));
     return [
-      if (items.isEmpty && ready)
+      if (receipt.isEmpty && ready)
         Padding(
           padding: const EdgeInsets.only(top: 16),
           child: _ShoppingEmpty(
@@ -632,12 +683,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             onPlan: () => _edit(_defaultPlanDay),
           ),
         ),
-      if (items.isNotEmpty) ...[
+      if (!receipt.isEmpty) ...[
         const SizedBox(height: 18),
-        _receipt(context, items),
+        _receipt(context, receipt, checks),
         const SizedBox(height: 14),
         _Footnote(l.mealPlanShoppingIntro),
-        if (freeText) ...[
+        if (combined) ...[
           const SizedBox(height: 6),
           _Footnote(l.mealPlanUnquantifiedHint),
         ],
@@ -645,46 +696,52 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     ];
   }
 
-  /// Toggles the check [id]; a light tick confirms it under the finger.
-  VoidCallback? _toggleCheck(String id, bool checked) => _busy.contains(id)
+  /// Writes the one check a tap on [row] makes; a light tick confirms it
+  /// under the finger.
+  VoidCallback? _toggleRow(ShoppingRow row) => _busy.contains(row.id)
       ? null
       : () {
           HapticFeedback.selectionClick();
-          _run(
-            id,
-            () => store.setShoppingChecked(
-              ShoppingCheck(id: id, checked: !checked),
-            ),
-            feedback: false,
-          );
+          final check = row.toggle(store.shoppingChecks);
+          _run(row.id, () => store.setShoppingChecked(check), feedback: false);
         };
 
-  /// The week's list as one receipt: the weighed ingredients summed across
-  /// meals, then every recipe with free-text ingredients line by line.
-  Widget _receipt(BuildContext context, List<ShoppingItem> items) {
-    final l = context.l10n;
-    final checks = store.shoppingChecks;
-    final weighed = items.where((i) => i.grams != null).toList();
-    final freeText = items.where((i) => i.grams == null).toList();
-    final (:done, :total) = shoppingProgress(items, checks);
+  /// The week's list as one receipt: every ingredient once with the week's
+  /// amount, then spices and staples in their own, collapsed section.
+  Widget _receipt(
+    BuildContext context,
+    ShoppingReceipt receipt,
+    Map<String, bool> checks,
+  ) {
+    final (:done, :total) = receipt.progress(checks);
     final sections = <Widget>[
-      if (weighed.isNotEmpty)
+      if (receipt.rows.isNotEmpty || receipt.emptyRecipes.isNotEmpty)
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _ReceiptHeading(title: l.mealPlanWeighed),
-            for (final item in weighed)
-              _ReceiptRow(
-                key: ValueKey('shopping-item-${item.id}'),
-                label: item.name,
-                amount:
-                    '${NumberFormat('0.##', l.localeName).format(item.grams)} g',
-                checked: checks[item.id] ?? false,
-                onTap: _toggleCheck(item.id, checks[item.id] ?? false),
+            for (final row in receipt.rows) _receiptRow(context, row, checks),
+            if (receipt.emptyRecipes.isNotEmpty)
+              _EmptyRecipesNote(
+                key: const ValueKey('shopping-empty-recipes'),
+                recipes: receipt.emptyRecipes,
+                spaced: receipt.rows.isNotEmpty,
               ),
           ],
         ),
-      for (final item in freeText) _receiptRecipe(context, item),
+      if (receipt.pantry.isNotEmpty)
+        _ReceiptPantry(
+          key: const ValueKey('shopping-pantry'),
+          progress: receipt.pantryProgress(checks),
+          names: [
+            for (final row in receipt.pantry)
+              (label: row.label, checked: row.isChecked(checks)),
+          ],
+          expanded: _pantryOpen,
+          onToggle: () => setState(() => _pantryOpen = !_pantryOpen),
+          rows: [
+            for (final row in receipt.pantry) _receiptRow(context, row, checks),
+          ],
+        ),
     ];
     return _ReceiptPaper(
       key: const ValueKey('shopping-receipt'),
@@ -695,10 +752,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             week: _isoWeek(_week),
             meals: shoppingPlans(store.plannedMeals, _week).length,
           ),
-          for (final section in sections) ...[
-            const _ReceiptRule(),
-            section,
-          ],
+          for (final section in sections) ...[const _ReceiptRule(), section],
           const _ReceiptRule(doubled: true),
           _ReceiptTotals(done: done, total: total),
           _ReceiptFooter(seed: localDayKey(_week)),
@@ -707,56 +761,21 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     );
   }
 
-  /// A recipe with free-text ingredients: its title, day, slot and servings,
-  /// then each ingredient line with its own check.
-  Widget _receiptRecipe(BuildContext context, ShoppingItem item) {
+  /// One ingredient for the week: its total, and under it the meals behind
+  /// it when there are several or an amount is the recipe's own.
+  Widget _receiptRow(
+    BuildContext context,
+    ShoppingRow row,
+    Map<String, bool> checks,
+  ) {
     final l = context.l10n;
-    final checks = store.shoppingChecks;
-    final plan = store.plannedMeals.where((p) => p.id == item.planId).firstOrNull;
-    final note = item.originalQuantities
-        ? (item.originalBatchServings == null
-              ? l.recipeIngredientsOriginalUnknown
-              : l.recipeIngredientsOriginalBatch(
-                  NumberFormat('0.##', l.localeName)
-                      .format(item.originalBatchServings),
-                ))
-        : null;
-    final meta = [
-      if (plan != null) ...[
-        todayWeekdayShort(DateTime.parse(plan.day), l),
-        plan.slot.label(l),
-      ],
-      l.mealPlanPortionCount(item.servings!),
-    ].map(_keepTogether).join(' · ');
-    return Column(
-      key: ValueKey('shopping-recipe-${item.id}'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _ReceiptHeading(title: item.recipeTitle!, meta: meta, note: note),
-        if (item.lines.isEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-            child: Text(
-              l.mealPlanNoIngredients,
-              style: AppType.ui(13.5, color: context.t.ink2, height: 1.4),
-            ),
-          )
-        else
-          for (final line in item.lines)
-            if (line.heading)
-              _ReceiptSubheading(line.label)
-            else
-              _ReceiptRow(
-                key: ValueKey('shopping-item-${line.id}'),
-                label: line.label,
-                amount: line.amount,
-                checked: shoppingLineChecked(checks, item, line),
-                onTap: _toggleCheck(
-                  line.id,
-                  shoppingLineChecked(checks, item, line),
-                ),
-              ),
-      ],
+    return _ReceiptRow(
+      key: ValueKey('shopping-item-${row.id}'),
+      label: row.label,
+      amount: _receiptAmount(row, l),
+      detail: _receiptDetail(row, l),
+      checked: row.isChecked(checks),
+      onTap: _toggleRow(row),
     );
   }
 }
