@@ -557,7 +557,9 @@ class SheetField extends StatefulWidget {
   /// External focus node; without one the field owns (and disposes) its own.
   final FocusNode? focusNode;
 
-  /// Spoken name of the field for screen readers.
+  /// Spoken name of the field for screen readers. Where it already says
+  /// what [label] says, the eyebrow is not read on its own, so the field is
+  /// one stop; otherwise the eyebrow stays readable before the field.
   final String? semanticLabel;
 
   final List<TextInputFormatter>? inputFormatters;
@@ -636,19 +638,30 @@ class _SheetFieldState extends State<SheetField> {
         hintStyle: AppType.ui(14, color: t.ink2),
       ),
     );
-    if (widget.semanticLabel != null) {
-      field = Semantics(label: widget.semanticLabel, child: field);
+    final label = widget.label;
+    final spoken = widget.semanticLabel;
+    if (spoken != null) {
+      field = Semantics(label: spoken, child: field);
     }
+    // Where the field's own name says it, a screen reader skips the all-caps
+    // eyebrow instead of stopping on the same word twice.
+    final eyebrowSaid =
+        label != null &&
+        spoken != null &&
+        spoken.toLowerCase().contains(label.toLowerCase());
 
     return Padding(
       padding: EdgeInsets.only(bottom: widget.bottomGap),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          if (widget.label != null) ...<Widget>[
-            Text(
-              widget.label!.toUpperCase(),
-              style: AppType.eyebrow(t.ink2, size: 9.5),
+          if (label != null) ...<Widget>[
+            ExcludeSemantics(
+              excluding: eyebrowSaid,
+              child: Text(
+                label.toUpperCase(),
+                style: AppType.eyebrow(t.ink2, size: 9.5),
+              ),
             ),
             const SizedBox(height: 7),
           ],

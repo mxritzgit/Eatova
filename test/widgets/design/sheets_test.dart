@@ -271,6 +271,53 @@ void main() {
 
       expect(find.byIcon(Icons.visibility_outlined), findsOneWidget);
     });
+
+    testWidgets('the eyebrow is not read again where the field says it', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        designHarness(
+          const SheetField(
+            fieldKey: ValueKey('weight'),
+            label: 'Weight',
+            semanticLabel: 'Weight in grams',
+            hint: '',
+          ),
+        ),
+      );
+
+      // One stop: the field with its name, no separate "WEIGHT" before it.
+      expect(find.text('WEIGHT'), findsOneWidget);
+      expect(find.bySemanticsLabel('WEIGHT'), findsNothing);
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('weight'))),
+        isSemantics(label: 'Weight in grams', isTextField: true),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('the eyebrow stays readable where the field does not say it', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        designHarness(
+          const Column(
+            children: [
+              // No spoken name: the eyebrow is the only label.
+              SheetField(label: 'E-Mail', hint: 'hint'),
+              // A spoken name that does not repeat the eyebrow.
+              SheetField(label: 'Code', semanticLabel: 'Six digits', hint: ''),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.bySemanticsLabel('E-MAIL'), findsOneWidget);
+      expect(find.bySemanticsLabel('CODE'), findsOneWidget);
+      semantics.dispose();
+    });
   });
 
   group('showEatovaSheet', () {

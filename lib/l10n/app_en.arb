@@ -434,6 +434,20 @@
   "foodAddItemNameHint": "e.g. Tomato",
   "foodAddItemWeightLabel": "Weight",
   "foodAddItemCaloriesLabel": "Calories",
+  "foodAddItemFieldInGrams": "{label} in grams",
+  "@foodAddItemFieldInGrams": {
+    "description": "Spoken name of an add-item field whose unit, g, is shown beside the input.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "foodAddItemFieldInKcal": "{label} in kilocalories",
+  "@foodAddItemFieldInKcal": {
+    "description": "Spoken name of an add-item field whose unit, kcal, is shown beside the input.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
   "foodAddItemCaloriesRangeHint": "Calories between {min} and {max}.",
   "@foodAddItemCaloriesRangeHint": {
     "placeholders": {

@@ -856,17 +856,20 @@ class _RemovedItemCard extends StatelessWidget {
 const double _makroMaxG = LoggedMealLimits.macroGMax;
 
 /// The unit inside an add-item capsule, visible before the first keystroke.
+/// Not a stop of its own: the field's spoken name carries the unit.
 class _FieldUnit extends StatelessWidget {
   const _FieldUnit(this.unit);
 
   final String unit;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(left: 6),
-    child: Text(
-      unit,
-      style: AppType.ui(13, weight: FontWeight.w600, color: context.t.ink2),
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Text(
+        unit,
+        style: AppType.ui(13, weight: FontWeight.w600, color: context.t.ink2),
+      ),
     ),
   );
 }
@@ -898,7 +901,7 @@ class _MacroField extends StatelessWidget {
       fieldKey: fieldKey,
       controller: controller,
       label: label,
-      semanticLabel: label,
+      semanticLabel: context.l10n.foodAddItemFieldInGrams(label),
       hint: '',
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       prefix: ExcludeSemantics(
@@ -1141,7 +1144,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                     fieldKey: const ValueKey('analyse-add-item-grams'),
                     controller: _grams,
                     label: l10n.foodAddItemWeightLabel,
-                    semanticLabel: l10n.foodAddItemWeightLabel,
+                    semanticLabel: l10n.foodAddItemFieldInGrams(
+                      l10n.foodAddItemWeightLabel,
+                    ),
                     hint: '',
                     keyboardType: TextInputType.number,
                     inputFormatters: const [
@@ -1160,7 +1165,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                     fieldKey: const ValueKey('analyse-add-item-kcal'),
                     controller: _kcal,
                     label: l10n.foodAddItemCaloriesLabel,
-                    semanticLabel: l10n.foodAddItemCaloriesLabel,
+                    semanticLabel: l10n.foodAddItemFieldInKcal(
+                      l10n.foodAddItemCaloriesLabel,
+                    ),
                     hint: '',
                     keyboardType: TextInputType.number,
                     inputFormatters: const [
