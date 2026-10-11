@@ -12,6 +12,7 @@ import '../models/training_history.dart';
 import '../models/training_log.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
+import '../services/crash_reporter.dart';
 import '../services/data_export.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
@@ -500,15 +501,29 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// Prepare durable logout before clearing local data; cleanup still needs
   /// the signed-in user. The intent distinguishes logout from session loss.
   Future<void> _signOut() async {
+    // Captured first: AuthGate may already have switched when a failure lands.
+    final auth = widget.authRepository;
+    final signedIn = auth?.currentUser;
     IntentionalSignOut.mark();
     try {
-      if (widget.authRepository case final CoordinatedSignOut repository) {
+      if (auth case final CoordinatedSignOut repository) {
         await repository.signOutWithCleanup(_store.signOutCleanup);
       } else {
         await _store.signOutCleanup();
         await widget.onSignOut?.call();
       }
-    } catch (_) {
+    } catch (error, stack) {
+      final now = auth?.currentUser;
+      if (signedIn != null &&
+          (now == null ||
+              now.id != signedIn.id ||
+              now.sessionId != signedIn.sessionId)) {
+        // AUTH-3: the session already ended locally; only the server
+        // revocation failed (offline). Keep the intent for AuthGate.
+        unawaited(CrashReporter.captureSyncFailure(error, stack,
+            context: 'sign-out-server-revoke'));
+        return;
+      }
       // Sign-out failed, so no intent may explain a later auth event.
       IntentionalSignOut.clear();
       if (!mounted) return;
