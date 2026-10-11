@@ -137,6 +137,16 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       // iOS retains its last measured value when read access is unverified.
     });
     if (_disposed || generation != _healthGeneration) return;
+    // Health Connect reads only after this account's own opt-in, so a grant
+    // first seen here (allowed in the Health Connect settings after a denied
+    // prompt) is that opt-in: keep it for the next cold start.
+    if (health is HealthConnectAccess &&
+        healthAuthState == HealthAuthState.granted &&
+        !_healthConnectedByUser) {
+      _healthConnectedByUser = true;
+      await (_cache ?? debugCache)?.writeHealthConnectEnabled(true);
+      if (_disposed || generation != _healthGeneration) return;
+    }
     // Offer the snapshot weight for import (deduped) instead of discarding it.
     if (snapshot != null) {
       _maybeOfferHealthWeight(
