@@ -1220,4 +1220,29 @@ void main() {
       expectTextStaysVisible(tester, minRatio: 4.5);
     }
   });
+
+  testWidgets('a fractional yield reads with the locale decimal separator', (
+    tester,
+  ) async {
+    const candidate = RecipeImportCandidate(
+      id: 'half',
+      title: 'Ofenpfannkuchen',
+      ingredients: '3 Eier\n150 ml Milch',
+      preparation: '',
+      servings: 2.5,
+    );
+    await _open(
+      tester,
+      service: _Service(
+        (_) async => const RecipeImportResult(
+          status: RecipeImportStatus.ready,
+          candidates: [candidate],
+        ),
+      ),
+      save: (_) async => SyncDelivery.delivered,
+      locale: const Locale('de'),
+    );
+    expect(find.text('Kochportionen insgesamt: 2,5'), findsOneWidget);
+    expect(find.textContaining('2.5'), findsNothing);
+  });
 }

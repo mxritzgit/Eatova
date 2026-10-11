@@ -8,6 +8,7 @@ import '../../services/recipe_import_service.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
@@ -866,7 +867,8 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     final portion = candidate.portion.isNotEmpty
         ? candidate.portion
         : candidate.servings != null
-        ? '${l10n.recipeEditBatchServings}: ${candidate.servings == candidate.servings!.roundToDouble() ? candidate.servings!.round() : candidate.servings}'
+        ? '${l10n.recipeEditBatchServings}: '
+              '${formatDecimal(candidate.servings!, l10n, maxFractionDigits: 3)}'
         : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
