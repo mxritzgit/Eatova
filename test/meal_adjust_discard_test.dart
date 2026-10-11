@@ -145,12 +145,62 @@ Future<void> _ziehAmGriff(WidgetTester tester) async {
 /// Both carry `MaterialLocalizations.modalBarrierDismissLabel`, and this
 /// MaterialApp runs under `de`, hence the German label.
 ///
+/// Since 2026-10-11 the node is the shared header's close ring, which takes
+/// the same `maybePop` path; the handle is decoration again.
+///
 /// The barrier itself does NOT appear here: `ModalBarrier` only sets label and
 /// dismiss action when `platformSupportsDismissingBarrier` holds, which is
 /// false on Android (the default test platform).
-final _griffKnoten = find.semantics.byLabel('Schließen');
+final _griffKnoten = find.semantics.byPredicate(
+  (node) => node.label == 'Schließen' || node.tooltip == 'Schließen',
+  describeMatch: (_) => 'dismiss node "Schließen"',
+);
 
 void main() {
+  // ── The shared sheet header (review 2026-10-11) ────────────────────────
+
+  group('Kopf mit Schliessen-Knopf', () {
+    testWidgetsRobust('Titel ist eine Ueberschrift, der Knopf fragt nach', (
+      tester,
+    ) async {
+      final semantik = tester.ensureSemantics();
+      final fang = _Fang();
+      await _oeffne(tester, fang);
+      expect(
+        tester.getSemantics(find.text('Bestandteile anpassen')),
+        matchesSemantics(label: 'Bestandteile anpassen', isHeader: true),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey('analyse-item-weight-input-0')),
+        '250',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('analyse-adjust-close')));
+      await tester.pumpAndSettle();
+      expect(_sheetOffen(tester), isTrue);
+      expect(_dialogOffen(tester), isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
+      await tester.pumpAndSettle();
+      expect(_sheetOffen(tester), isFalse);
+      expect(fang.wert, isNull);
+      semantik.dispose();
+    });
+
+    testWidgetsRobust('ein unveraendertes Sheet schliesst der Knopf sofort', (
+      tester,
+    ) async {
+      final fang = _Fang();
+      await _oeffne(tester, fang);
+      await tester.tap(find.byKey(const ValueKey('analyse-adjust-close')));
+      await tester.pumpAndSettle();
+      expect(_dialogOffen(tester), isFalse);
+      expect(_sheetOffen(tester), isFalse);
+      expect(fang.aufrufe, 1);
+    });
+  });
+
   // ── Path 1: barrier tap ────────────────────────────────────────────────
 
   group('D5 Weg 1 — Barriere-Tap', () {
@@ -316,7 +366,8 @@ void main() {
         findsOne,
         reason:
             'Ohne Dismiss-Knoten kaeme ein TalkBack-Nutzer aus dem Sheet gar '
-            'nicht mehr heraus — das Sheet hat keinen Schliessen-Knopf',
+            'nicht mehr heraus — seit 2026-10-11 ist es der Schliessen-Knopf '
+            'des Kopfs, genau einer',
       );
       tester.semantics.performAction(_griffKnoten, SemanticsAction.tap);
       await tester.pumpAndSettle();
@@ -675,17 +726,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final vorher = tester.getTopLeft(find.text('Bestandteile anpassen')).dy;
+      // The title is pinned in the header; the first row scrolls.
+      final erste = find.byKey(const ValueKey('analyse-item-weight-input-0'));
+      final vorher = tester.getTopLeft(erste).dy;
       await tester.drag(
         find.byType(SingleChildScrollView),
         const Offset(0, -200),
       );
       await tester.pumpAndSettle();
 
-      expect(
-        tester.getTopLeft(find.text('Bestandteile anpassen')).dy,
-        lessThan(vorher),
-      );
+      expect(tester.getTopLeft(erste).dy, lessThan(vorher));
       expect(_sheetOffen(tester), isTrue);
       expect(_dialogOffen(tester), isFalse);
     });

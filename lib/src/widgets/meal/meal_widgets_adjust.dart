@@ -385,11 +385,19 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // OUTSIDE the scroll area: a drag on a scrollable belongs to it.
-              // Drawn inside [_DiscardDragGuard] rather than on the route;
-              // its dismiss action goes through `maybePop` and the guard.
-              SheetHandle(
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                onDismiss: () => Navigator.of(context).maybePop(),
+              // Drawn inside [_DiscardDragGuard] rather than on the route.
+              const SheetHandle(
+                padding: EdgeInsets.symmetric(vertical: 11),
+              ),
+              // The shared header like every food sheet: a level-1 title and
+              // the close ring. The ring is also the screen reader's way out
+              // (the handle no longer needs a dismiss node of its own); it
+              // goes through `maybePop`, so the discard guard asks.
+              SheetHeader(
+                title: l10n.foodAdjustItemsTitle,
+                subtitle: _statusLine(addedCount, l10n),
+                closeKey: const ValueKey('analyse-adjust-close'),
+                onClose: () => Navigator.of(context).maybePop(),
               ),
               Flexible(
                 child: SingleChildScrollView(
@@ -398,21 +406,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        l10n.foodAdjustItemsTitle,
-                        style: AppType.display(20, color: t.ink),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _statusLine(addedCount, l10n),
-                        style: AppType.ui(
-                          13,
-                          weight: FontWeight.w500,
-                          color: t.ink2,
-                          height: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 4),
                       for (var index = 0; index < _posten.length; index++) ...[
                         if (_removed.contains(index))
                           _RemovedItemCard(
