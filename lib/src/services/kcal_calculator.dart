@@ -203,8 +203,11 @@ class KcalTargets {
             );
     }
     if (deficitCapApplied) {
+      // The deficit the plan really runs, as the breakdown's "Goal" row
+      // shows it: the goal is rounded to 50 kcal after the cap, so the cap
+      // itself (825) and the plan (−814) differ by that rounding.
       return t.commonPaceWarningDeficitCap(
-        maxDeficitKcal,
+        -effectiveKcalDelta,
         effectivePace,
         promisedPace,
       );

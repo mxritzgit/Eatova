@@ -396,14 +396,19 @@ void main() {
     expect(textOfKey(tester, 'onboarding-summary-maintenance'), '2164 kcal');
 
     // Warning from KcalTargets.paceWarning: the deficit cap speaks here, not
-    // the floor (floorApplied needs a real undercut). Since the cap is rounded
-    // to the 0.05 kg/week grid, the sentence names 825 and −0.75.
+    // the floor (floorApplied needs a real undercut). It names the deficit
+    // the plan runs, the Goal row's 814, not the 825 cap the rounding to
+    // 50 kcal moved it from; the pace is the 0.05 kg/week grid's −0.75.
+    final warning = textOfKey(tester, 'onboarding-summary-pace-warning');
     expect(
-      textOfKey(tester, 'onboarding-summary-pace-warning'),
+      warning,
       'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir nicht: '
-      'Dein Defizit ist auf 825 kcal/Tag begrenzt. Dein tatsächliches Tempo '
+      'Dein Defizit ist auf 814 kcal/Tag begrenzt. Dein tatsächliches Tempo '
       'ist damit −0,75 kg/Woche statt −1 kg/Woche.',
     );
+    // One number on one screen: the sentence quotes the breakdown's row.
+    final goalRow = goalRowTexts(tester).last.replaceAll(RegExp(r'\D'), '');
+    expect(warning, contains('$goalRow kcal/Tag'));
 
     // Forecast from the real rate, as a range: linear 10 / 0.74 = 13.5 → 14
     // weeks, dynamic (falling requirement) 16 weeks.
