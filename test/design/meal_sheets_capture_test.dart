@@ -1,20 +1,23 @@
 // Visual evidence for the 2026-10-03 meal-sheet slice of the redesign: the
 // recipe detail's add card and soft edit/history pills, the adjust sheet with
 // a removed item, its add dialog and the discard decision card (2026-10-11),
-// the info card of a portion without cooked weight, the scan result's actions and the manual sheet — at the reference phone, at
-// 320 px and at 2x text.
+// the info card of a portion without cooked weight, the scan result's
+// actions, its details sheet, the scan preview and the manual sheet — at the
+// reference phone, at 320 px and at 2x text.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/meal-sheets-*.png; without it the suite still checks that
 // every surface renders without an exception or overflow.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
@@ -22,6 +25,7 @@ import 'package:eatova/src/services/recipe_save_result.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
+import 'package:eatova/src/widgets/kcal/meal_scan_preview_sheet.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import '../support/design_capture.dart';
@@ -386,6 +390,67 @@ void main() {
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-sheets-analysis-320-x2');
     });
+
+    // The (i) details sheet: the shared sheet shell and header.
+    for (final (suffix, width, scale) in [
+      ('', 390.0, 1.0),
+      ('-320-x2', 320.0, 2.0),
+    ]) {
+      testWidgets('details sheet$suffix', (tester) async {
+        await open(tester, width: width, textScale: scale);
+        final info = find.byKey(const ValueKey('analyse-info-button'));
+        await tester.ensureVisible(info);
+        await tester.pumpAndSettle();
+        await tester.tap(info);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('analyse-portion-notes')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(tester, 'meal-sheets-analysis-info$suffix');
+      });
+    }
+  });
+
+  // The photo check before an analysis: it had no capture.
+  group('scan preview', () {
+    for (final (suffix, width, scale) in [
+      ('', 390.0, 1.0),
+      ('-320-x2', 320.0, 2.0),
+    ]) {
+      testWidgets('preview$suffix', (tester) async {
+        final photo = File(
+          'assets/recipes/lachs_poke_bowl.jpg',
+        ).readAsBytesSync();
+        await _host(
+          tester,
+          (context) => showMealScanPreviewSheet(
+            context,
+            request: MealAnalysisRequest(
+              imageId: 'fixture-photo',
+              imageBytes: photo,
+            ),
+            previewBytes: photo,
+          ),
+          width: width,
+          textScale: scale,
+        );
+        final image = find.descendant(
+          of: find.byType(MealScanPreviewSheet),
+          matching: find.byType(Image),
+        );
+        await tester.runAsync(
+          () => precacheImage(
+            tester.widget<Image>(image).image,
+            tester.element(image),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(tester, 'meal-sheets-scan-preview$suffix');
+      });
+    }
   });
 
   group('manual sheet', () {

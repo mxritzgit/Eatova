@@ -277,18 +277,15 @@ class WeightCard extends StatelessWidget {
   /// A prompt would cost an extra tap on every close and protect almost
   /// nothing. Sheets with multi-part forms do keep their prompt.
   ///
-  /// No `showDragHandle: true` either: the theme sets it false globally, and
-  /// the route's handle is a stack sibling NEXT TO the builder child, where no
-  /// sheet can reach it. Drawn inside the sheet instead: a [SheetHandle] with
-  /// the dismiss action.
+  /// No Material drag handle either: the route's handle is a stack sibling
+  /// NEXT TO the builder child, where no sheet can reach it. Drawn inside the
+  /// sheet instead: a [SheetHandle] with the dismiss action. The shell
+  /// (scrim, edge, keyboard inset, height cap) is [showEatovaSheet]'s.
   Future<void> _promptWeight(BuildContext context) async {
-    await showModalBottomSheet<double>(
-      showDragHandle: false,
-      context: context,
-      backgroundColor: context.t.bg,
-      isScrollControlled: true,
-      builder: (_) =>
-          _ProfileWeightInputSheet(initial: _current, onSave: onLogWeight),
+    await showEatovaSheet<double>(
+      context,
+      _ProfileWeightInputSheet(initial: _current, onSave: onLogWeight),
+      dragHandle: false,
     );
   }
 
@@ -458,16 +455,12 @@ class BmiCard extends StatelessWidget {
     );
   }
 
-  /// `isScrollControlled` because at 2x system font the four zone rows plus
-  /// the explanation exceed the 9/16 screen height an uncontrolled sheet gets
-  /// (measured 1087 px overflow). The content scrolls too, see [_BmiInfoSheet].
+  /// Scroll-controlled ([showEatovaSheet]) because at 2x system font the four
+  /// zone rows plus the explanation exceed the 9/16 screen height an
+  /// uncontrolled sheet gets (measured 1087 px overflow). The content scrolls
+  /// too, see [_BmiInfoSheet], which draws its own [SheetHandle].
   static void _showBmiInfoSheet(BuildContext context, double bmi) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.t.bg,
-      isScrollControlled: true,
-      builder: (_) => _BmiInfoSheet(bmi: bmi),
-    );
+    showEatovaSheet<void>(context, _BmiInfoSheet(bmi: bmi), dragHandle: false);
   }
 }
 
@@ -698,8 +691,10 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
     final l10n = context.l10n;
     final fehler = _errorText(l10n);
     final gesperrt = !_valid || _saving;
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    // showEatovaSheet lifts the sheet above the keyboard; this only keeps
+    // the action clear of the home indicator.
+    return SafeArea(
+      top: false,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
         child: Column(

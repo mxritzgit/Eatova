@@ -615,11 +615,14 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
         child: Container(
           key: const ValueKey('analyse-sheet'),
           constraints: BoxConstraints(maxHeight: maxHeight),
+          // The page ground plus the 1 px edge of every Eatova sheet
+          // (`showEatovaSheet`), so the top does not dissolve into the scrim.
           decoration: BoxDecoration(
             color: t.bg,
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(rSheet),
             ),
+            border: Border.all(color: t.lineStrong),
           ),
           child: SnackHost(measureToast: true, child: body),
         ),
@@ -740,36 +743,17 @@ class _Header extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
-      child: Row(
-        children: [
-          SlotIconTile(slot: slot),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  slot.label(l10n),
-                  style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  l10n.foodReviewAnalysisSubtitle,
-                  style: AppType.display(22, color: t.ink),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('analyse-sheet-close'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            icon: Icon(Icons.close_rounded, color: t.ink2),
-          ),
-        ],
+    return SheetHeader(
+      leading: SlotIconTile(slot: slot),
+      eyebrow: Text(
+        slot.label(l10n),
+        style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
       ),
+      title: l10n.foodReviewAnalysisSubtitle,
+      onClose: onClose,
+      closeKey: const ValueKey('analyse-sheet-close'),
+      closeTooltip: l10n.commonClose,
+      padding: const EdgeInsets.fromLTRB(20, 4, 18, 12),
     );
   }
 }

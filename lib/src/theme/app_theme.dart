@@ -109,6 +109,9 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: t.bg,
       modalBackgroundColor: t.bg,
+      // Safety net for direct `showModalBottomSheet` calls: the app scrim,
+      // not Material's grey black54. `showEatovaSheet` passes it anyway.
+      modalBarrierColor: t.scrim,
       surfaceTintColor: Colors.transparent,
       showDragHandle: false,
       // One handle geometry app-wide (same as [SheetHandle]).

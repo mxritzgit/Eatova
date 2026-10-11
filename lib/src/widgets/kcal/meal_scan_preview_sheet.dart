@@ -7,7 +7,6 @@ import '../../models/meal_analysis_request.dart';
 import '../../theme/app_tokens.dart';
 import '../design/controls.dart';
 import '../design/sheets.dart';
-import '../design/surfaces.dart';
 
 /// A local preview. Nothing is uploaded until the user starts analysis.
 Future<MealAnalysisRequest?> showMealScanPreviewSheet(
@@ -70,11 +69,13 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
       child: Container(
         key: const ValueKey('meal-scan-preview'),
         constraints: BoxConstraints(maxHeight: maxHeight),
+        // The page ground plus the 1 px edge of every Eatova sheet.
         decoration: BoxDecoration(
           color: t.bg,
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(rSheet),
           ),
+          border: Border.all(color: t.lineStrong),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -92,7 +93,7 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
                   children: [
                     const SheetHandle(),
                     const Padding(
-                      padding: EdgeInsets.fromLTRB(20, 4, 8, 16),
+                      padding: EdgeInsets.fromLTRB(20, 4, 18, 16),
                       child: _ScanHeader(),
                     ),
                     Padding(
@@ -143,18 +144,11 @@ class _ScanHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
-    final title = HeadingSemantics(
-      level: 1,
-      child: Text(
-        context.l10n.foodScanPreviewTitle,
-        style: AppType.display(largeText ? 24 : 26, color: context.t.ink),
-      ),
-    );
-    final close = IconButton(
-      key: const ValueKey('meal-scan-cancel'),
+    final title = SheetTitle(context.l10n.foodScanPreviewTitle);
+    final close = SheetCloseButton(
+      buttonKey: const ValueKey('meal-scan-cancel'),
       tooltip: context.l10n.commonClose,
-      onPressed: () => Navigator.of(context).pop(),
-      icon: const Icon(Icons.close_rounded),
+      onTap: () => Navigator.of(context).pop(),
     );
     return largeText
         ? Column(

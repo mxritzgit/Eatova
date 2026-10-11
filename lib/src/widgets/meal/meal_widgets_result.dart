@@ -63,10 +63,11 @@ class _MealResultCardState extends State<MealResultCard> {
             Expanded(
               child: Text(
                 result.resolvedSourceLabel(l10n),
+                // accentText, not the accent fill: small type.
                 style: AppType.ui(
                   12,
                   weight: FontWeight.w700,
-                  color: isBarcode ? t.ink2 : t.accent,
+                  color: isBarcode ? t.ink2 : t.accentText,
                 ),
               ),
             ),
@@ -190,29 +191,34 @@ class _MealResultCardState extends State<MealResultCard> {
     );
   }
 
+  /// The (i) details: the shared sheet shell (scrim, edge, keyboard inset,
+  /// height cap) and the shared header with its close button.
   void _showInfo(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final result = widget.result;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: t.bg,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
-      ),
-      builder: (sheetContext) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+    showEatovaSheet<void>(
+      context,
+      Builder(
+        builder: (sheetContext) => SingleChildScrollView(
+          key: const ValueKey('analyse-info-sheet'),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            28 + MediaQuery.viewPaddingOf(sheetContext).bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                result.resolvedMealName(l10n),
-                style: AppType.display(18, color: t.ink),
+              SheetHeader(
+                title: result.resolvedMealName(l10n),
+                onClose: () => Navigator.of(sheetContext).maybePop(),
+                closeKey: const ValueKey('analyse-info-close'),
+                closeTooltip: l10n.commonClose,
+                padding: const EdgeInsets.only(bottom: 8),
               ),
-              const SizedBox(height: 12),
               if (result.brand != null && result.brand!.isNotEmpty)
                 _InfoLine(label: l10n.foodInfoBrandLabel, value: result.brand!),
               if (result.barcode != null && result.barcode!.isNotEmpty)
@@ -258,8 +264,8 @@ class _MealResultCardState extends State<MealResultCard> {
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
