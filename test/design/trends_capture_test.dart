@@ -1,11 +1,13 @@
 // Visual evidence for the trends page (opened from the Food tab): 30 days of
-// bars with the goal line and corridor, the metrics below, the empty state
-// and the error state.
+// bars with the goal line and corridor, the metrics below, the first-load
+// skeleton, the empty state and the error state.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/trends-*.png (light: DESIGN_CAPTURE_BRIGHTNESS=light);
 // without it the suite still checks that every state renders without an
 // exception or overflow.
+
+import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -69,6 +71,19 @@ void main() {
       await _pump(tester, () async => const <TrendDayTotals>[]);
       expect(find.byKey(const ValueKey('trends-empty')), findsOneWidget);
       await captureDesignShot(tester, 'trends-empty');
+    });
+  });
+
+  testWidgets('trends: first load', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final pending = Completer<List<TrendDayTotals>>();
+      await _pump(tester, () => pending.future);
+      // The outline of the chart and stat cards, no default spinner.
+      expect(find.byKey(const ValueKey('trends-loading')), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await captureDesignShot(tester, 'trends-loading');
+      pending.complete(const <TrendDayTotals>[]);
+      await tester.pumpAndSettle();
     });
   });
 

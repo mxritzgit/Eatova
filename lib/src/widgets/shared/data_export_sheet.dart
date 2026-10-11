@@ -305,10 +305,12 @@ class _DataExportSheetState extends State<DataExportSheet> {
                   style: AppType.ui(12, color: t.ink2, height: 1.4),
                 ),
                 const SizedBox(height: 22),
+                // The card above already says what is loading; the app's
+                // spinner holds the sections' place.
                 if (loading)
                   const SizedBox(
                     height: 160,
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(child: AppSpinner()),
                   )
                 else if (document != null) ...[
                   for (final section in document.sections)

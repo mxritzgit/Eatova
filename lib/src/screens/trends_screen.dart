@@ -128,13 +128,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
   List<Widget> _buildContent(BuildContext context) {
     final l10n = context.l10n;
     if (_loading) {
-      return const [
-        SizedBox(
-          key: ValueKey('trends-loading'),
-          height: 260,
-          child: Center(child: CircularProgressIndicator(strokeWidth: 3)),
-        ),
-      ];
+      return const [_TrendsSkeleton(key: ValueKey('trends-loading'))];
     }
     if (_error != null) {
       return [_ErrorCard(onRetry: _load)];
@@ -613,37 +607,102 @@ class _MacroAvg extends StatelessWidget {
   }
 }
 
+/// The first load: the silhouette of the chart card and the two stat cards,
+/// so the numbers replace it without a jump. Static; one spoken label.
+class _TrendsSkeleton extends StatelessWidget {
+  const _TrendsSkeleton({super.key});
+
+  /// Bar heights as fractions of the plot.
+  static const List<double> _bars = <double>[
+    0.62, 0.74, 0.55, 0.81, 0.68, 0.47, 0.72, 0.6, 0.78, 0.52, 0.7, 0.64,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    Widget stat() => const AppCard(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SkeletonBar(widthFactor: 0.62, height: 10),
+          SizedBox(height: 12),
+          SkeletonBar(widthFactor: 0.74, height: 20),
+          SizedBox(height: 10),
+          SkeletonBar(widthFactor: 0.5, height: 10),
+        ],
+      ),
+    );
+    return Semantics(
+      container: true,
+      label: context.l10n.trendsLoading,
+      child: ExcludeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppCard(
+              // The chart card's insets and plot height.
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SkeletonBar(widthFactor: 0.46, height: 16),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    height: 200,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        for (var i = 0; i < _bars.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: FractionallySizedBox(
+                              heightFactor: _bars[i],
+                              alignment: Alignment.bottomCenter,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: t.tile,
+                                  borderRadius: BorderRadius.circular(rPill),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const SkeletonBar(widthFactor: 0.22, height: 10),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(child: stat()),
+                const SizedBox(width: 12),
+                Expanded(child: stat()),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _EmptyCard extends StatelessWidget {
   const _EmptyCard();
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return AppCard(
+    return CalmState(
       key: const ValueKey('trends-empty'),
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 28),
-      child: Column(
-        children: [
-          Icon(Icons.query_stats_rounded, color: t.ink2, size: 32),
-          const SizedBox(height: 12),
-          Text(
-            l10n.trendsEmptyTitle,
-            style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            l10n.trendsEmptyBody,
-            textAlign: TextAlign.center,
-            style: AppType.ui(
-              12,
-              weight: FontWeight.w500,
-              color: t.ink2,
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
+      card: true,
+      icon: Icons.query_stats_rounded,
+      title: l10n.trendsEmptyTitle,
+      text: l10n.trendsEmptyBody,
     );
   }
 }
@@ -655,40 +714,21 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return AppCard(
+    return CalmState(
       key: const ValueKey('trends-error'),
-      padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
-      child: Column(
-        children: [
-          Icon(Icons.cloud_off_rounded, color: t.ink2, size: 32),
-          const SizedBox(height: 12),
-          Text(
-            l10n.trendsErrorTitle,
-            textAlign: TextAlign.center,
-            style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            l10n.trendsErrorBody,
-            textAlign: TextAlign.center,
-            style: AppType.ui(
-              12,
-              weight: FontWeight.w500,
-              color: t.ink2,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 16),
-          PrimaryActionButton(
-            key: const ValueKey('trends-retry'),
-            label: l10n.trendsRetryCta,
-            height: 46,
-            onTap: onRetry,
-          ),
-        ],
-      ),
+      card: true,
+      icon: Icons.cloud_off_rounded,
+      title: l10n.trendsErrorTitle,
+      text: l10n.trendsErrorBody,
+      actions: [
+        SoftPillButton(
+          key: const ValueKey('trends-retry'),
+          label: l10n.trendsRetryCta,
+          icon: Icons.refresh_rounded,
+          onTap: onRetry,
+        ),
+      ],
     );
   }
 }

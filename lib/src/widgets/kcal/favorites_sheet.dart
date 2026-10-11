@@ -27,8 +27,9 @@ import 'saved_meal_presentation.dart';
 // The heart is the only way to remove a row (no X), and removal is mirrored
 // locally while the parent store does the real toggle.
 
-/// Opens the favorites sheet above the add-meal sheet.
-Future<void> showFavoritesSheet(
+/// Opens the favorites sheet above the add-meal sheet. Completes with true
+/// when the user left the empty sheet to search for food instead.
+Future<bool?> showFavoritesSheet(
   BuildContext context, {
   required List<FavoriteMeal> favorites,
   required MealSlot slot,
@@ -37,7 +38,7 @@ Future<void> showFavoritesSheet(
   required PersistValueChanged<MealAnalysisResult> onUnpin,
   Map<String, int> useCounts = const <String, int>{},
 }) {
-  return showEatovaSheet<void>(
+  return showEatovaSheet<bool>(
     context,
     FavoritesSheet(
       favorites: favorites,
@@ -337,21 +338,37 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
   Widget _buildList(List<FavoriteMeal> pinned, List<FavoriteMeal> visible) {
     final l10n = context.l10n;
     if (pinned.isEmpty) {
-      return _Hint(
+      // Not "Close" (the X already says that): the way forward is to find
+      // a meal worth a heart, so this hands back to the add sheet's search.
+      return CalmState(
         key: const ValueKey('favorites-sheet-empty'),
-        text: l10n.foodFavoritesEmptyHint,
+        card: true,
         icon: Icons.favorite_outline_rounded,
-        actionLabel: l10n.commonClose,
-        onAction: () => Navigator.of(context).maybePop(),
+        text: l10n.foodFavoritesEmptyHint,
+        actions: [
+          SoftPillButton(
+            key: const ValueKey('favorites-sheet-empty-search'),
+            label: l10n.foodFavoritesEmptySearchAction,
+            icon: Icons.search_rounded,
+            onTap: () => Navigator.of(context).maybePop(true),
+          ),
+        ],
       );
     }
     if (visible.isEmpty) {
-      return _Hint(
+      return CalmState(
         key: const ValueKey('favorites-sheet-no-match'),
+        card: true,
+        icon: Icons.search_off_rounded,
         text: l10n.foodFavoritesNoMatchHint,
-        icon: Icons.search_rounded,
-        actionLabel: l10n.recipesSearchClearTooltip,
-        onAction: _clearQuery,
+        actions: [
+          SoftPillButton(
+            key: const ValueKey('favorites-sheet-no-match-clear'),
+            label: l10n.recipesSearchClearTooltip,
+            icon: Icons.close_rounded,
+            onTap: _clearQuery,
+          ),
+        ],
       );
     }
     return SavedMealCollection(
@@ -470,69 +487,6 @@ class _SearchFieldState extends State<_SearchField> {
             )
           else
             const SizedBox(width: 14),
-        ],
-      ),
-    );
-  }
-}
-
-/// Empty and filtered collections retain an obvious way back: a calm card
-/// with the icon in an accent tint, the message, and a soft accent pill.
-class _Hint extends StatelessWidget {
-  const _Hint({
-    super.key,
-    required this.text,
-    required this.icon,
-    required this.actionLabel,
-    required this.onAction,
-  });
-
-  final String text, actionLabel;
-  final IconData icon;
-  final VoidCallback onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
-      decoration: BoxDecoration(
-        color: t.surf,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: t.cardBorder),
-      ),
-      child: Column(
-        children: [
-          ExcludeSemantics(
-            child: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: t.accentTint,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 24, color: t.accentText),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            text,
-            textAlign: TextAlign.center,
-            style: AppType.ui(14, color: t.ink2, height: 1.4),
-          ),
-          const SizedBox(height: 14),
-          TextButton(
-            onPressed: onAction,
-            style: TextButton.styleFrom(
-              foregroundColor: t.accentText,
-              backgroundColor: t.accentTint,
-              minimumSize: const Size(64, 48),
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              shape: const StadiumBorder(),
-              textStyle: AppType.ui(14, weight: FontWeight.w700),
-            ),
-            child: Text(actionLabel),
-          ),
         ],
       ),
     );

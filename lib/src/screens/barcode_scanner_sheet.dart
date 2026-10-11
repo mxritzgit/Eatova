@@ -524,50 +524,33 @@ class _ScannerFailedLayer extends StatelessWidget {
       child: Center(
         // Scrolls instead of overflowing on a short preview or at 2x text.
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
-              const SizedBox(height: 12),
-              Text(
-                permissionDenied
-                    ? l10n.foodBarcodePermissionDeniedMessage
-                    : l10n.foodCameraUnavailableMessage,
-                textAlign: TextAlign.center,
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w500,
-                  color: t.ink,
-                  height: 1.4,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          // The app's calm state (glyph tile, guidance, soft pills), as in
+          // the add sheet's search.
+          child: CalmState(
+            icon: Icons.no_photography_outlined,
+            text: permissionDenied
+                ? l10n.foodBarcodePermissionDeniedMessage
+                : l10n.foodCameraUnavailableMessage,
+            // Design-system pills on the sheet's `bg` (F8-10: no colour
+            // copies). Typing is the only way out when the camera is dead,
+            // so it takes the accent unless Settings is the real fix.
+            actions: [
+              if (permissionDenied)
+                SoftPillButton(
+                  key: const ValueKey('barcode-open-settings'),
+                  onTap: onOpenSettings,
+                  icon: Icons.settings_outlined,
+                  label: l10n.foodOpenSettingsButton,
                 ),
-              ),
-              const SizedBox(height: 14),
-              // Design-system pills on the sheet's `bg` (F8-10: no colour
-              // copies). Typing is the only way out when the camera is dead,
-              // so it takes the accent unless Settings is the real fix.
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (permissionDenied)
-                    SoftPillButton(
-                      key: const ValueKey('barcode-open-settings'),
-                      onTap: onOpenSettings,
-                      icon: Icons.settings_outlined,
-                      label: l10n.foodOpenSettingsButton,
-                    ),
-                  SoftPillButton(
-                    key: const ValueKey('barcode-type-in'),
-                    onTap: onTypeBarcode,
-                    icon: Icons.keyboard_alt_outlined,
-                    label: l10n.foodBarcodeTypeInButton,
-                    tone: permissionDenied
-                        ? SoftPillTone.neutral
-                        : SoftPillTone.accent,
-                  ),
-                ],
+              SoftPillButton(
+                key: const ValueKey('barcode-type-in'),
+                onTap: onTypeBarcode,
+                icon: Icons.keyboard_alt_outlined,
+                label: l10n.foodBarcodeTypeInButton,
+                tone: permissionDenied
+                    ? SoftPillTone.neutral
+                    : SoftPillTone.accent,
               ),
             ],
           ),

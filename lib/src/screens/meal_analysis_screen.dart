@@ -734,29 +734,9 @@ class _DayLoadingCard extends StatelessWidget {
   const _DayLoadingCard();
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return AppCard(
-      key: const ValueKey('food-day-loading'),
-      radius: rCard,
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.4, color: t.accent),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            // Shares `todayDayLoading`: both tabs show the same interim state.
-            context.l10n.todayDayLoading,
-            style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => LoadingCard(
+    key: const ValueKey('food-day-loading'),
+    // Shares `todayDayLoading`: both tabs show the same interim state.
+    label: context.l10n.todayDayLoading,
+  );
 }

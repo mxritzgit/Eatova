@@ -879,31 +879,8 @@ class TodayDayLoadingCard extends StatelessWidget {
   const TodayDayLoadingCard({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return AppCard(
-      key: const ValueKey('today-day-loading'),
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.4, color: t.accent),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            context.l10n.todayDayLoading,
-            style: AppType.ui(
-              12.5,
-              weight: FontWeight.w600,
-              color: t.ink2,
-              height: todayLineHeight,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => LoadingCard(
+    key: const ValueKey('today-day-loading'),
+    label: context.l10n.todayDayLoading,
+  );
 }
