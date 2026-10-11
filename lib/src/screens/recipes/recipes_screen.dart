@@ -1296,7 +1296,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
           gutter(
             _RecipeNoResultState(
               hasQuery: query.trim().isNotEmpty,
-              onReset: _resetNoResult,
+              // "All" with nothing typed has no wider list to go to.
+              onReset:
+                  query.trim().isEmpty && selectedFilter == recipeFilters.first
+                  ? null
+                  : _resetNoResult,
             ),
           ),
       ];

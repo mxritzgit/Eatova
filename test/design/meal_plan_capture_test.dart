@@ -246,13 +246,15 @@ Future<void> _openRestoreDialog(WidgetTester tester, String prefix) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
   expect(_key('recipe-history-confirm'), findsOneWidget);
-  // The restore shows on the tapped pill, not as a spinner at the end of
-  // the list behind the dialog.
+  // No spinner at the end of the list behind the dialog, and nothing
+  // claims a restore the user has not confirmed yet (the confirmed one:
+  // feedback-recipe-history-restoring in feedback_surfaces_capture_test).
   expect(find.byType(CircularProgressIndicator), findsNothing);
   expect(
-    find.descendant(of: restore, matching: find.text('Restoring…')),
+    find.descendant(of: restore, matching: find.text('Restore version')),
     findsOneWidget,
   );
+  expect(find.text('Restoring…'), findsNothing);
   expect(tester.takeException(), isNull);
   await captureDesignShot(tester, '$prefix-dialog');
 }

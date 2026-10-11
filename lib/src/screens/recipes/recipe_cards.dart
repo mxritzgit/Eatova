@@ -78,12 +78,13 @@ class _RecipeOwnEmptyState extends StatelessWidget {
 }
 
 /// A search or category with no match, and the way out of it: clear the
-/// search, or (with nothing typed) show all recipes.
+/// search, or (with nothing typed) show all recipes. Without [onReset]
+/// (already "All", nothing typed) there is no way wider and no pill.
 class _RecipeNoResultState extends StatelessWidget {
   const _RecipeNoResultState({required this.hasQuery, required this.onReset});
 
   final bool hasQuery;
-  final VoidCallback onReset;
+  final VoidCallback? onReset;
 
   @override
   Widget build(BuildContext context) {
@@ -95,16 +96,17 @@ class _RecipeNoResultState extends StatelessWidget {
       title: l.recipesNoResultTitle,
       text: l.recipesNoResultBody,
       actions: [
-        SoftPillButton(
-          key: const ValueKey('recipes-no-result-reset'),
-          label: hasQuery
-              ? l.recipesSearchClearTooltip
-              : l.recipesNoResultShowAll,
-          icon: hasQuery
-              ? Icons.close_rounded
-              : Icons.restaurant_menu_rounded,
-          onTap: onReset,
-        ),
+        if (onReset case final reset?)
+          SoftPillButton(
+            key: const ValueKey('recipes-no-result-reset'),
+            label: hasQuery
+                ? l.recipesSearchClearTooltip
+                : l.recipesNoResultShowAll,
+            icon: hasQuery
+                ? Icons.close_rounded
+                : Icons.restaurant_menu_rounded,
+            onTap: reset,
+          ),
       ],
     );
   }

@@ -44,6 +44,10 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
   int? _next;
   int? _restoring;
 
+  /// Set once the dialog is confirmed: only then does the pill say
+  /// "Restoring…"; before, the user has approved nothing.
+  bool _restoreConfirmed = false;
+
   @override
   void initState() {
     super.initState();
@@ -103,6 +107,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
         ),
       );
       if (confirm != true || !mounted || !widget.isSessionCurrent()) return;
+      setState(() => _restoreConfirmed = true);
       final delivery = await widget.restoreVersion(
         version.recipe,
         expectedRevision: expected,
@@ -118,7 +123,12 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _restoring = null);
+      if (mounted) {
+        setState(() {
+          _restoring = null;
+          _restoreConfirmed = false;
+        });
+      }
     }
   }
 
@@ -148,7 +158,8 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 key: ValueKey('recipe-history-version-${version.revision}'),
                 version: version,
                 restoreEnabled: _restoring == null,
-                restoring: _restoring == version.revision,
+                restoring:
+                    _restoreConfirmed && _restoring == version.revision,
                 onRestore: () => _restore(version),
               ),
               const SizedBox(height: 12),
@@ -238,7 +249,8 @@ class _VersionCard extends StatefulWidget {
   /// False while any restore is in flight.
   final bool restoreEnabled;
 
-  /// True while THIS version is being restored: its pill says so.
+  /// True while THIS version is being restored (after the confirm): its
+  /// pill says so.
   final bool restoring;
   final VoidCallback onRestore;
 
