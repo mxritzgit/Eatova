@@ -11,6 +11,7 @@ import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
+import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 
 import 'support/harness.dart';
 import 'support/meal_slot_picker.dart';
@@ -198,14 +199,17 @@ void main() {
     // Page to the previous month and pick the 15th: it exists in every month
     // and always lies in the past.
     await tester.tap(
-      find.descendant(of: blatt, matching: find.byIcon(Icons.chevron_left)),
+      find.descendant(
+        of: blatt,
+        matching: find.byKey(const ValueKey('food-date-month-previous')),
+      ),
     );
     await tester.pumpAndSettle();
     // Inside the calendar grid: the sheet's header also shows the chosen
     // day's number, which is 15 on the 15th of a month.
     await tester.tap(
       find.descendant(
-        of: find.byType(CalendarDatePicker),
+        of: find.byType(FoodMonthCalendar),
         matching: find.text('15'),
       ),
     );

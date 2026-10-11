@@ -305,7 +305,7 @@ void main() {
             await tester.tap(find.text('Open'));
             await tester.pumpAndSettle();
             final day = find.descendant(
-              of: find.byType(CalendarDatePicker),
+              of: find.byType(FoodMonthCalendar),
               matching: find.text('10'),
             );
             await tester.ensureVisible(day);
@@ -326,8 +326,8 @@ void main() {
             expect(selected, isNull);
             expect(
               tester
-                  .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
-                  .initialDate,
+                  .widget<FoodMonthCalendar>(find.byType(FoodMonthCalendar))
+                  .selected,
               _today,
             );
             await tester.tap(_key('food-date-confirm'));
@@ -434,10 +434,12 @@ void main() {
       expect(_key('food-date-input-toggle'), findsNothing);
       expect(find.byType(InputDatePickerFormField), findsNothing);
       expect(find.byType(TextField), findsNothing);
-      expect(find.byType(CalendarDatePicker), findsOneWidget);
+      // The app's own month grid, not Material's calendar.
+      expect(find.byType(CalendarDatePicker), findsNothing);
+      expect(find.byType(FoodMonthCalendar), findsOneWidget);
 
       Finder day(String label) => find.descendant(
-        of: find.byType(CalendarDatePicker),
+        of: find.byType(FoodMonthCalendar),
         matching: find.text(label),
       );
       String preview() =>

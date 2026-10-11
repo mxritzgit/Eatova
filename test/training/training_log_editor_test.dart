@@ -254,7 +254,7 @@ void main() {
         expect(picker.confirmLabel, 'Use this day');
         await tester.tap(
           find.descendant(
-            of: find.byType(CalendarDatePicker),
+            of: find.byType(FoodMonthCalendar),
             matching: find.text('1'),
           ),
         );

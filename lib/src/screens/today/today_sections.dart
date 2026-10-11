@@ -873,14 +873,17 @@ class _WorkoutRow extends StatelessWidget {
   }
 }
 
-/// The day is still loading: one spinner instead of a falsely empty meals
-/// card. Same text as the Food tab's.
+/// The day is still loading: the meals card's four slot rows as silhouettes
+/// instead of a falsely empty card. Same spoken label as the Food tab's.
 class TodayDayLoadingCard extends StatelessWidget {
   const TodayDayLoadingCard({super.key});
 
   @override
-  Widget build(BuildContext context) => LoadingCard(
+  Widget build(BuildContext context) => SkeletonCard(
     key: const ValueKey('today-day-loading'),
-    label: context.l10n.todayDayLoading,
+    rows: 4,
+    tileSize: 44,
+    tileRadius: rControl,
+    semanticLabel: context.l10n.todayDayLoading,
   );
 }

@@ -108,8 +108,11 @@ void main() {
       });
 
       expect(_key('today-day-loading'), findsOneWidget);
-      expect(find.text('Tag wird geladen…', skipOffstage: false),
-          findsOneWidget);
+      // A silhouette of the meals card, spoken as one label.
+      expect(
+        find.bySemanticsLabel('Tag wird geladen…', skipOffstage: false),
+        findsOneWidget,
+      );
       // The heading stays, without the "today" prefix on an archive day.
       expect(find.text('Mahlzeiten', skipOffstage: false), findsOneWidget);
       expect(tester.takeException(), isNull);
