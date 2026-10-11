@@ -239,10 +239,42 @@ void main() {
       expect(store.plannedMeals.single.id, plan.id);
       expect(store.plannedMeals.single.servings, 2);
       expect(store.plannedMeals.single.recipe.title, plan.recipe.title);
+      // Let the edit's "Saved." toast run out first.
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+      expect(find.text('Saved.'), findsNothing);
+
+      // X-08: removing asks on the decision card first. Cancel and the
+      // barrier keep the plan.
       await _tap(tester, menu);
-      await _tap(tester, find.text('Delete'));
+      await _tap(tester, find.text('Remove from plan'));
+      expect(
+        find.byKey(const ValueKey('meal-plan-remove-dialog')),
+        findsOneWidget,
+      );
+      expect(store.plannedMeals.single.id, plan.id);
+      await _tap(
+        tester,
+        find.byKey(const ValueKey('meal-plan-remove-cancel')),
+      );
+      expect(store.plannedMeals.single.id, plan.id);
+      await _tap(tester, menu);
+      await _tap(tester, find.text('Remove from plan'));
+      await tester.tapAt(const Offset(4, 100));
+      await tester.pumpAndSettle();
+      expect(store.plannedMeals.single.id, plan.id);
+
+      await _tap(tester, menu);
+      await _tap(tester, find.text('Remove from plan'));
+      await _tap(
+        tester,
+        find.byKey(const ValueKey('meal-plan-remove-confirm')),
+      );
       expect(store.plannedMeals, isEmpty);
       expect(store.loggedMeals, isEmpty);
+      // A removal never confirms with "Saved.".
+      expect(find.textContaining('Removed'), findsOneWidget);
+      expect(find.text('Saved.'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });

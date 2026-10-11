@@ -74,28 +74,40 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   final Map<String, GlobalKey> _dayKeys = {};
   HomeStore get store => widget.store;
 
+  /// Runs one plan mutation with its toast. [removal] words the feedback as
+  /// a removal: a delete never confirms with "Saved.".
   Future<void> _run(
     String id,
     Future<SyncDelivery> Function() action, {
     bool feedback = true,
+    bool removal = false,
   }) async {
     if (_busy.contains(id)) return;
     setState(() => _busy.add(id));
     try {
       final result = await action();
       if (!mounted || !feedback) return;
+      final l = context.l10n;
+      final delivered = result == SyncDelivery.delivered;
       showAppSnack(
         context,
-        result == SyncDelivery.delivered
-            ? context.l10n.mealPlanSaved
-            : context.l10n.mealPlanSavedOffline,
-        icon: Icons.check_circle_outline_rounded,
+        removal
+            ? (delivered ? l.mealPlanRemoved : l.mealPlanRemovedOffline)
+            : (delivered ? l.mealPlanSaved : l.mealPlanSavedOffline),
+        icon: removal
+            ? Icons.delete_outline_rounded
+            : Icons.check_circle_outline_rounded,
+        tone: removal ? SnackTone.neutral : SnackTone.positive,
       );
     } catch (error) {
       if (mounted) {
         showAppSnack(
           context,
-          _mealPlanErrorText(error, context.l10n),
+          // A planner refusal keeps its own text; a removal that failed
+          // otherwise says "Not removed.", never "Not saved.".
+          removal && error is! MealPlanAlreadyEaten
+              ? context.l10n.mealPlanRemoveError
+              : _mealPlanErrorText(error, context.l10n),
           icon: Icons.error_outline_rounded,
           tone: SnackTone.error,
         );
@@ -103,6 +115,32 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     } finally {
       if (mounted) setState(() => _busy.remove(id));
     }
+  }
+
+  /// Removing a planned meal is final: the server keeps the removal as a
+  /// tombstone, so saving the same plan again cannot bring it back and an
+  /// Undo would promise too much. The decision card asks first.
+  Future<void> _remove(PlannedMeal plan, {required String title}) async {
+    if (_busy.contains(plan.id)) return;
+    final l = context.l10n;
+    final confirmed = await showEatovaDialog<bool>(
+      context: context,
+      builder: (dialogContext) => EatovaConfirmDialog(
+        key: const ValueKey('meal-plan-remove-dialog'),
+        title: l.mealPlanRemoveTitle,
+        body: l.mealPlanRemoveBody(title),
+        icon: Icons.delete_outline_rounded,
+        destructive: true,
+        confirmKey: const ValueKey('meal-plan-remove-confirm'),
+        confirmLabel: l.mealPlanRemoveConfirm,
+        cancelKey: const ValueKey('meal-plan-remove-cancel'),
+        cancelLabel: l.commonCancel,
+        onConfirm: () => Navigator.of(dialogContext).pop(true),
+        onCancel: () => Navigator.of(dialogContext).pop(false),
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    await _run(plan.id, () => store.removePlannedMeal(plan), removal: true);
   }
 
   // No route handle: a pull on it would bypass the editor's save guard. The
@@ -551,25 +589,20 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 if (value == 'edit') {
                   _edit(day, plan: plan);
                 } else if (value == 'delete') {
-                  _run(plan.id, () => store.removePlannedMeal(plan));
+                  _remove(plan, title: recipe.displayTitle(l));
                 }
               },
               itemBuilder: (_) => [
-                PopupMenuItem(
+                eatovaMenuItem(
                   value: 'edit',
-                  child: _MenuRow(
-                    icon: Icons.edit_outlined,
-                    label: l.mealPlanEdit,
-                    color: t.ink,
-                  ),
+                  icon: Icons.edit_outlined,
+                  label: l.mealPlanEdit,
                 ),
-                PopupMenuItem(
+                eatovaMenuItem(
                   value: 'delete',
-                  child: _MenuRow(
-                    icon: Icons.delete_outline_rounded,
-                    label: l.commonDelete,
-                    color: t.danger,
-                  ),
+                  icon: Icons.delete_outline_rounded,
+                  label: l.mealPlanRemoveAction,
+                  destructive: true,
                 ),
               ],
             ),
@@ -771,32 +804,6 @@ class _Footnote extends StatelessWidget {
       text,
       style: AppType.ui(12.5, color: context.t.ink3, height: 1.45),
     ),
-  );
-}
-
-/// One popup menu entry: icon and label in the entry's tone.
-class _MenuRow extends StatelessWidget {
-  const _MenuRow({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Icon(icon, size: 20, color: color),
-      const SizedBox(width: 12),
-      Flexible(
-        child: Text(
-          label,
-          style: AppType.ui(15, weight: FontWeight.w600, color: color),
-        ),
-      ),
-    ],
   );
 }
 

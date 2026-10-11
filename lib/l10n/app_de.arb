@@ -2411,6 +2411,20 @@
     }
   },
   "mealPlanAlreadyEaten": "Diese Mahlzeit steht schon in deinem Tagebuch.",
+  "mealPlanRemoveAction": "Aus dem Plan entfernen",
+  "mealPlanRemoveTitle": "Aus dem Plan entfernen?",
+  "mealPlanRemoveBody": "„{title}“ verschwindet aus dem Plan für diesen Tag. Das Rezept selbst bleibt erhalten.",
+  "@mealPlanRemoveBody": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanRemoveConfirm": "Entfernen",
+  "mealPlanRemoved": "Aus dem Plan entfernt.",
+  "mealPlanRemovedOffline": "Auf diesem Gerät entfernt. Wird später synchronisiert.",
+  "mealPlanRemoveError": "Nicht entfernt. Prüfe deine Verbindung oder den Gerätespeicher und versuche es erneut.",
   "mealPlanLoadError": "Der aktuelle Serverstand konnte nicht geladen werden. Gespeicherte Planungen bleiben sichtbar.",
   "mealPlanShoppingIntro": "Zutaten für noch nicht gegessene Mahlzeiten dieser Woche. Geänderte Mengen werden wieder abgewählt.",
   "mealPlanShoppingEmpty": "Die Liste sammelt die Zutaten der geplanten Mahlzeiten dieser Woche, die du noch nicht gegessen hast.",

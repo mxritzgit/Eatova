@@ -2358,6 +2358,20 @@
     }
   },
   "mealPlanAlreadyEaten": "This meal is already in your diary.",
+  "mealPlanRemoveAction": "Remove from plan",
+  "mealPlanRemoveTitle": "Remove from plan?",
+  "mealPlanRemoveBody": "“{title}” leaves this day's plan. The recipe itself stays.",
+  "@mealPlanRemoveBody": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanRemoveConfirm": "Remove",
+  "mealPlanRemoved": "Removed from plan.",
+  "mealPlanRemovedOffline": "Removed on this device. Will sync later.",
+  "mealPlanRemoveError": "Not removed. Check your connection or device storage and try again.",
   "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
   "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
   "mealPlanShoppingEmpty": "The list collects the ingredients of this week's planned meals that you have not eaten yet.",

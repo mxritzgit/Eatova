@@ -2,7 +2,8 @@
 // (2026-10-03, planner redesign 2026-10-04): the plan editor (choosing a
 // recipe, then its day, slot and servings), the calendar it opens, the week
 // card with its day strip, planned, eaten and empty days, a jump from the
-// strip, the meal menu, the shopping list (filled and empty), and the recipe
+// strip, the meal menu and its remove decision card (2026-10-11), the
+// shopping list (filled and empty), and the recipe
 // history with its restore dialog. The receipt (2026-10-10) also renders a
 // German import with section labels and its done stamp.
 //
@@ -275,8 +276,16 @@ void main() {
       await _tapVisible(tester, _key('meal-plan-menu-${lunch.id}'));
       expect(find.text('Edit planned meal'), findsOneWidget);
       await captureDesignShot(tester, 'meal-plan-week-menu');
-      await tester.tapAt(const Offset(20, 20));
+
+      // Removing asks on the decision card first; Cancel keeps the plan.
+      await tester.tap(find.text('Remove from plan'));
       await tester.pumpAndSettle();
+      expect(_key('meal-plan-remove-dialog'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-remove-dialog');
+      await tester.tap(_key('meal-plan-remove-cancel'));
+      await tester.pumpAndSettle();
+      expect(store.plannedMeals.any((p) => p.id == lunch.id), isTrue);
       await scrollDesignTabBy(tester, -3000);
 
       await _tapVisible(tester, _key('meal-plan-tab-shopping'));
