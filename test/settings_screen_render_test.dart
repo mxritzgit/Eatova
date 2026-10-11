@@ -238,7 +238,7 @@ void main() {
         ? 'Apple Health'
         : 'Health Connect';
     expect(
-      find.text('OpenFoodFacts · Eigener Suchindex · $quelle'),
+      find.text('OpenFoodFacts · Open Prices · Eigener Suchindex · $quelle'),
       findsOneWidget,
     );
   },
