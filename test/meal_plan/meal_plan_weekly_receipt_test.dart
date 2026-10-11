@@ -186,6 +186,24 @@ void main() {
 
       await _tap(tester, row);
       expect(store.shoppingChecks, {chicken.id: false});
+
+      // The receipt is kept between ticks, never between weeks or plans.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 6000));
+      await tester.pumpAndSettle();
+      await _tap(tester, _key('meal-plan-next-week'));
+      expect(_key('shopping-receipt'), findsNothing);
+      expect(_key('shopping-empty-plan'), findsOneWidget);
+      await _tap(tester, _key('meal-plan-previous-week'));
+      expect(row, findsOneWidget);
+      await _plan(
+        store,
+        _own('Wrap', '100 g Hähnchenbrust'),
+        4,
+        MealSlot.lunch,
+      );
+      await tester.pumpAndSettle();
+      expect(row, findsNothing);
+      expect(find.text('530 g'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

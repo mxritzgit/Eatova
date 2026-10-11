@@ -69,6 +69,17 @@ ShoppingIngredientKey shoppingIngredientKey(
   ShoppingUnit? unit,
   bool seasoning = false,
 }) {
+  // A pure function of its arguments, asked several times per line and
+  // again on every rebuild: remembered, within a bound.
+  final remembered = (label, unit, seasoning);
+  if (_keys[remembered] case final key?) return key;
+  if (_keys.length >= 4096) _keys.clear();
+  return _keys[remembered] = _key(label, unit, seasoning);
+}
+
+final _keys = <(String, ShoppingUnit?, bool), ShoppingIngredientKey>{};
+
+ShoppingIngredientKey _key(String label, ShoppingUnit? unit, bool seasoning) {
   final analysis = _analyze(label);
   if (analysis.complex) {
     return ShoppingIngredientKey(
@@ -210,9 +221,11 @@ const _cannedAnyway = {
   "lentils",
 };
 
-/// Subsets of [products], largest first; the empty set last.
+/// Subsets of [products], largest first; the empty set last. Only the first
+/// eight words take part: a label with many more would cost seconds, and a
+/// synonym is never that long.
 List<Set<String>> _subsets(Set<String> products) {
-  final list = products.toList()..sort();
+  final list = (products.toList()..sort()).take(8).toList();
   final subsets = [
     for (var mask = (1 << list.length) - 1; mask >= 0; mask--)
       {

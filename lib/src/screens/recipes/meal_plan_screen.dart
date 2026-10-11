@@ -72,6 +72,14 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   /// The receipt's "Gewürze & Vorrat" shows each row instead of one line.
   bool _pantryOpen = false;
+
+  /// The last receipt and what it was built from. A tick or the pantry
+  /// toggle rebuilds the screen but changes none of these, and building a
+  /// receipt reads every ingredient line of the week.
+  ShoppingReceipt? _receiptCache;
+  List<PlannedMeal> _receiptPlans = const [];
+  DateTime? _receiptWeek;
+  String? _receiptLocale;
   final Set<String> _busy = {};
 
   /// The shown days' sections, so a tap in the week strip can scroll to one.
@@ -184,6 +192,32 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       ..sort((a, b) => a.slot.index.compareTo(b.slot.index));
   }
 
+  /// The week's receipt, rebuilt only when a plan, the week or the language
+  /// changed: a plan change swaps in new plan objects, a tick does not.
+  ShoppingReceipt _shoppingReceipt(AppLocalizations l) {
+    final plans = store.plannedMeals;
+    final cached = _receiptCache;
+    if (cached != null &&
+        _receiptWeek == _week &&
+        _receiptLocale == l.localeName &&
+        plans.length == _receiptPlans.length) {
+      var same = true;
+      for (var i = 0; same && i < plans.length; i++) {
+        same = identical(plans[i], _receiptPlans[i]);
+      }
+      if (same) return cached;
+    }
+    _receiptPlans = plans;
+    _receiptWeek = _week;
+    _receiptLocale = l.localeName;
+    return _receiptCache = buildShoppingReceipt(
+      plans,
+      _week,
+      decimalSeparator: l.localeName == 'de' ? ',' : '.',
+      l10n: l,
+    );
+  }
+
   void _scrollToDay(DateTime day) {
     final target = _dayKeys[localDayKey(day)]?.currentContext;
     if (target == null) return;
@@ -203,13 +237,10 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       builder: (context, _) {
         final ready = !store.mealPlansLoading && !store.mealPlansLoadFailed;
         final receipt = _shopping
-            ? buildShoppingReceipt(
-                store.plannedMeals,
-                _week,
-                decimalSeparator: l.localeName == 'de' ? ',' : '.',
-                l10n: l,
-              )
+            ? _shoppingReceipt(l)
             : const ShoppingReceipt(rows: [], pantry: [], emptyRecipes: []);
+        // One copy of the checks per build, not one per row.
+        final checks = store.shoppingChecks;
         return Scaffold(
           backgroundColor: t.bg,
           body: SafeArea(
@@ -235,7 +266,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                         setState(() => _shopping = index == 1),
                   ),
                   const SizedBox(height: 14),
-                  _weekCard(context, ready: ready, receipt: receipt),
+                  _weekCard(
+                    context,
+                    ready: ready,
+                    receipt: receipt,
+                    checks: checks,
+                  ),
                   if (store.mealPlansLoading)
                     Padding(
                       padding: const EdgeInsets.only(top: 16),
@@ -275,7 +311,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       ),
                     ),
                   if (_shopping)
-                    ..._shoppingList(context, receipt, ready: ready)
+                    ..._shoppingList(
+                      context,
+                      receipt,
+                      ready: ready,
+                      checks: checks,
+                    )
                   else ...[
                     // One child, so every day is built and the strip can
                     // scroll to any of them.
@@ -301,6 +342,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     BuildContext context, {
     required bool ready,
     required ShoppingReceipt receipt,
+    required Map<String, bool> checks,
   }) {
     final l = context.l10n;
     final t = context.t;
@@ -310,7 +352,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final formatter = _week.year == today.year && end.year == _week.year
         ? DateFormat.MMMd(l.localeName)
         : DateFormat.yMMMd(l.localeName);
-    final (:done, :total) = receipt.progress(store.shoppingChecks);
+    final (:done, :total) = receipt.progress(checks);
     final complete = total > 0 && done == total;
     final showProgress = _shopping && ready && total > 0;
 
@@ -624,6 +666,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     BuildContext context,
     ShoppingReceipt receipt, {
     required bool ready,
+    required Map<String, bool> checks,
   }) {
     final l = context.l10n;
     // Merged rows or amounts read from recipe text: worth saying how.
@@ -642,7 +685,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         ),
       if (!receipt.isEmpty) ...[
         const SizedBox(height: 18),
-        _receipt(context, receipt),
+        _receipt(context, receipt, checks),
         const SizedBox(height: 14),
         _Footnote(l.mealPlanShoppingIntro),
         if (combined) ...[
@@ -665,15 +708,18 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   /// The week's list as one receipt: every ingredient once with the week's
   /// amount, then spices and staples in their own, collapsed section.
-  Widget _receipt(BuildContext context, ShoppingReceipt receipt) {
-    final checks = store.shoppingChecks;
+  Widget _receipt(
+    BuildContext context,
+    ShoppingReceipt receipt,
+    Map<String, bool> checks,
+  ) {
     final (:done, :total) = receipt.progress(checks);
     final sections = <Widget>[
       if (receipt.rows.isNotEmpty || receipt.emptyRecipes.isNotEmpty)
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final row in receipt.rows) _receiptRow(context, row),
+            for (final row in receipt.rows) _receiptRow(context, row, checks),
             if (receipt.emptyRecipes.isNotEmpty)
               _EmptyRecipesNote(
                 key: const ValueKey('shopping-empty-recipes'),
@@ -692,7 +738,9 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
           ],
           expanded: _pantryOpen,
           onToggle: () => setState(() => _pantryOpen = !_pantryOpen),
-          rows: [for (final row in receipt.pantry) _receiptRow(context, row)],
+          rows: [
+            for (final row in receipt.pantry) _receiptRow(context, row, checks),
+          ],
         ),
     ];
     return _ReceiptPaper(
@@ -715,7 +763,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   /// One ingredient for the week: its total, and under it the meals behind
   /// it when there are several or an amount is the recipe's own.
-  Widget _receiptRow(BuildContext context, ShoppingRow row) {
+  Widget _receiptRow(
+    BuildContext context,
+    ShoppingRow row,
+    Map<String, bool> checks,
+  ) {
     final l = context.l10n;
     final detail = _receiptDetail(row, l, stacked: _largeText(context));
     return _ReceiptRow(
@@ -724,7 +776,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       amount: _receiptAmount(row, l),
       detail: detail?.text,
       detailLabel: detail?.label,
-      checked: row.isChecked(store.shoppingChecks),
+      checked: row.isChecked(checks),
       onTap: _toggleRow(row),
     );
   }
