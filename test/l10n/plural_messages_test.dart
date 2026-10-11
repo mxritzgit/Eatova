@@ -62,6 +62,25 @@ void main() {
       expect(l.recipePortionPresetLabel(0.5), '0,5 Portionen');
       expect(l.recipePortionPresetLabel(2), '2 Portionen');
     });
+
+    test('Einheiten auf dem Einkaufszettel, auch mit Bruch', () {
+      expect(l.mealPlanUnitCan(1, '1'), '1 Dose');
+      expect(l.mealPlanUnitCan(1.5, '1 1/2'), '1 1/2 Dosen');
+      expect(l.mealPlanUnitJar(2, '2'), '2 Gläser');
+      expect(l.mealPlanUnitClove(1, '1'), '1 Zehe');
+      expect(l.mealPlanUnitPinch(3, '2–3'), '2–3 Prisen');
+      expect(l.mealPlanUnitTub(2, '2'), '2 Becher');
+      expect(l.mealPlanUnitTbsp(2, '2'), '2 EL');
+      expect(
+        l.mealPlanNoIngredientsNote(1, 'Pizza (Mo)'),
+        'Ohne Zutatenliste: Pizza (Mo). Rezept vor dem Einkauf prüfen.',
+      );
+      expect(
+        l.mealPlanNoIngredientsNote(2, 'Pizza (Mo), Suppe (Do)'),
+        'Ohne Zutatenliste: Pizza (Mo), Suppe (Do). Rezepte vor dem Einkauf '
+        'prüfen.',
+      );
+    });
   });
 
   group('English', () {
@@ -93,6 +112,20 @@ void main() {
       expect(l.recipePortionPresetLabel(1), '1 serving');
       expect(l.recipePortionPresetLabel(0.5), '0.5 servings');
       expect(l.recipePortionPresetLabel(2), '2 servings');
+    });
+
+    test('shopping receipt units, also with a fraction', () {
+      expect(l.mealPlanUnitCan(1, '1'), '1 can');
+      expect(l.mealPlanUnitCan(1.5, '1 1/2'), '1 1/2 cans');
+      expect(l.mealPlanUnitBunch(2, '2'), '2 bunches');
+      expect(l.mealPlanUnitClove(1, '1'), '1 clove');
+      expect(l.mealPlanUnitPinch(3, '2–3'), '2–3 pinches');
+      expect(l.mealPlanUnitTbsp(2, '2'), '2 tbsp');
+      expect(
+        l.mealPlanNoIngredientsNote(2, 'Pizza (Mo), Soup (Th)'),
+        'No ingredient list: Pizza (Mo), Soup (Th). Check the recipes before '
+        'shopping.',
+      );
     });
   });
 }
