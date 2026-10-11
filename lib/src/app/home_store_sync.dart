@@ -959,7 +959,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         recipes: _userRecipes,
         trainingPlans: _trainingPlansKnown ? trainingPlans : null,
         trainingHistory:
-            _trainingHistoryKnown && !_trainingHistoryDeletionReadFailed
+            _trainingHistoryKnown &&
+                !_trainingHistoryDeletionReadFailed &&
+                !_trainingHistorySlotCurrent(cache, expectedVersions)
             ? trainingHistory
             : null,
       );
@@ -979,6 +981,26 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       );
     }
     return false;
+  }
+
+  /// Whether the history slot, unchanged since hydration, already holds
+  /// exactly the in-memory entries: then the snapshot skips the multi-MB
+  /// re-encode. Entry identity is the proof: the incremental load reuses the
+  /// cached instances for every row it already knows.
+  bool _trainingHistorySlotCurrent(
+    LocalCache cache,
+    Map<String, int> expectedVersions,
+  ) {
+    final cached = _trainingHistoryCached;
+    if (cached == null || cached.version == null) return false;
+    final key = 'eatova.v1.training_history.${cache.userId}';
+    if (expectedVersions[key] != cached.version) return false;
+    final current = _trainingHistoryState;
+    if (current.length != cached.entries.length) return false;
+    for (var i = 0; i < current.length; i++) {
+      if (!identical(current[i], cached.entries[i])) return false;
+    }
+    return true;
   }
 
   Future<bool> _cacheMealPlans(Map<String, int> expectedVersions) async {

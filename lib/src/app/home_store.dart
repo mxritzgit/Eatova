@@ -226,6 +226,11 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   bool _trainingHistoryDeletionsHydrated = false;
   bool _trainingHistoryDeletionReadFailed = false;
   bool _trainingHistoryKnown = false;
+
+  /// The history slot's entries and version as the last hydration read them.
+  /// History rows never change after insert, so the same entry instances at
+  /// the same slot version mean the slot needs no rewrite.
+  ({List<TrainingHistoryEntry> entries, int? version})? _trainingHistoryCached;
   List<TrainingHistoryEntry> get trainingHistory =>
       _trainingHistoryDeletionReadFailed ? const [] : _trainingHistoryState;
   set _trainingHistory(List<TrainingHistoryEntry> value) {
@@ -1035,6 +1040,7 @@ class HomeStore extends _HomeStoreBase
       return;
     }
     _cacheObservedVersions = Map.of(durable.snapshot.versions);
+    _trainingHistoryCached = null;
     _adoptTrainingHeads(durable);
     _trainingHistoryDeletedIds.addAll(cachedTrainingDeletions ?? <String>{});
     _trainingHistoryDeletionReadFailed = trainingDeletionReadFailed;
@@ -1124,6 +1130,11 @@ class HomeStore extends _HomeStoreBase
       if (cachedTrainingHistory != null &&
           historyVersion == _trainingHistoryVersion) {
         _trainingHistory = cachedTrainingHistory;
+        _trainingHistoryCached = (
+          entries: cachedTrainingHistory,
+          version: durable.snapshot.versions[
+              'eatova.v1.training_history.${persistedCache.userId}'],
+        );
       }
       if (cachedTrainingPlans != null &&
           trainingVersion == _trainingPlansVersion) {

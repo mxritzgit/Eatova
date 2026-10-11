@@ -335,6 +335,42 @@ void main() {
       },
     );
 
+    test(
+      'unveränderte Historie wird beim Kaltstart nicht neu kodiert',
+      () async {
+        // Same rows on the server and in the cache, newest first like the
+        // store keeps them. The slot is stored indented: equal content, but
+        // any decode-and-re-encode of the slot would normalise it and bump
+        // its version. At 300 workouts that round trip cost the UI isolate
+        // ~35 ms per boot commit, at 2000 ~200 ms.
+        final server = _HistoryServer();
+        for (var n = 1; n <= 5; n++) {
+          server.put('A', _row(n));
+        }
+        final kv = InMemoryKeyValueStore();
+        final cache = await _cacheWithHistory(kv, 'A', [
+          for (var n = 5; n >= 1; n--) _entry(n),
+        ]);
+        const key = 'eatova.v1.training_history.A';
+        final indented = const JsonEncoder.withIndent(
+          ' ',
+        ).convert(jsonDecode((await kv.getString(key))!));
+        await kv.setString(key, indented);
+        final before = (await kv.readSnapshot([key])).versions[key];
+
+        final store = _store(server, cache, 'A');
+        await h.bootUntilIdle(store);
+
+        expect(server.fullRowReads, isEmpty);
+        expect(store.trainingHistory.map((e) => e.id), [
+          for (var n = 5; n >= 1; n--) _id(n),
+        ]);
+        final after = await kv.readSnapshot([key]);
+        expect(after.values[key], indented);
+        expect(after.versions[key], before);
+      },
+    );
+
     test('ausstehender Abschluss im Outbox überlebt den Kaltstart', () async {
       final server = _HistoryServer()..put('A', _row(1));
       final kv = InMemoryKeyValueStore();

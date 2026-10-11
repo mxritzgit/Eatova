@@ -932,6 +932,12 @@ extension LocalCacheMutations on LocalCache {
       }
     },
     guards: expectedVersions,
+    // Guarded slots this commit neither writes nor projects into are only
+    // version-checked. Decoding and re-encoding them cost the UI isolate
+    // ~35 ms per boot commit at 300 workouts in the history, ~200 ms at 2000.
+    fenceOnly: (queue) => expectedVersions.keys.toSet().difference({
+      for (final op in queue) ..._keysForOperation(op),
+    }),
     keys: {
       if (profile != null) _profileKey,
       if (stats != null) _statsKey,
@@ -955,6 +961,7 @@ extension LocalCacheMutations on LocalCache {
     Set<String> tolerateUnreadable = const {},
     bool retryConflicts = true,
     Set<String> readOnlyKeys = const {},
+    Set<String> Function(List<SyncOp> queue)? fenceOnly,
     bool strictWrites = false,
   }) {
     assert(
@@ -993,11 +1000,22 @@ extension LocalCacheMutations on LocalCache {
             throw const KeyValueConflict();
           }
         }
+        final queue = _operations(snapshot.values);
+        // Fenced by version only; [change] never sees them, so nothing is
+        // written to them. The stats slot stays decoded for the bundle below.
+        final unread = {...?fenceOnly?.call(queue)}
+          ..removeAll({
+            _outboxKey,
+            _pendingStatsKey,
+            _statsKey,
+            ...keys,
+            ...?keysForQueue?.call(initialQueue),
+          });
         final state = <String, Map<String, dynamic>?>{
           for (final key in selectedKeys.where(snapshot.values.containsKey))
-            if (_mutationKeys.contains(key)) key: _decodeMutationSlot(key, snapshot.values[key]),
+            if (_mutationKeys.contains(key) && !unread.contains(key))
+              key: _decodeMutationSlot(key, snapshot.values[key]),
         };
-        final queue = _operations(snapshot.values);
         final pending = state[_pendingStatsKey];
         final meals = pending?['meals'] as int? ?? 0;
         final weights = pending?['weight_logs'] as int? ?? 0;
@@ -1026,11 +1044,17 @@ extension LocalCacheMutations on LocalCache {
           'Mutation changed unselected slots: '
           '${state.keys.where((key) => !selectedKeys.contains(key)).toList()}',
         );
+        assert(
+          !state.keys.any(unread.contains),
+          'Mutation changed fence-only slots: '
+          '${state.keys.where(unread.contains).toList()}',
+        );
         state[_outboxKey] = {'items': queue.map((op) => op.toJson()).toList()};
         final changes = <String, String?>{};
         for (final entry in state.entries) {
           if (!selectedKeys.contains(entry.key) ||
-              !snapshot.values.containsKey(entry.key)) {
+              !snapshot.values.containsKey(entry.key) ||
+              unread.contains(entry.key)) {
             continue;
           }
           // Still read and version-guarded, but [change] promised not to
