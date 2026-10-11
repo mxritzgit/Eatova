@@ -118,7 +118,14 @@ abstract class NotificationScopedCancel {
   /// left behind, but keeps the rest alert this process scheduled since the
   /// current account's session opened, which belongs to the session now
   /// running.
-  Future<void> cancelStaleSchedules();
+  ///
+  /// [restore] are the alerts of the workout checkpoint the current account
+  /// restored: the earlier process planned them, so they are planned again
+  /// (with the OS permission) unless this process already scheduled or
+  /// cancelled their ids, whose state is then newer than the checkpoint.
+  Future<void> cancelStaleSchedules({
+    List<PlannedRestAlert> restore = const [],
+  });
 }
 
 /// No-op implementation for platforms without local notifications (web/test)
@@ -645,10 +652,25 @@ class LocalNotificationService
   }
 
   @override
-  Future<void> cancelStaleSchedules() =>
-      _enqueueMutation(_cancelStaleSchedules);
+  Future<void> cancelStaleSchedules({
+    List<PlannedRestAlert> restore = const [],
+  }) {
+    // Only the open session restores, never an id an ended one saw.
+    final epoch = _restAlertEpoch;
+    final restorable = [
+      if (_restAlertsOpen)
+        for (final alert in restore)
+          if (isRestAlertId(alert.id) &&
+              !_endedRestAlertOwners.containsKey(alert.id))
+            alert,
+    ];
+    return _enqueueMutation(() => _cancelStaleSchedules(restorable, epoch));
+  }
 
-  Future<void> _cancelStaleSchedules() async {
+  Future<void> _cancelStaleSchedules(
+    List<PlannedRestAlert> restore,
+    int epoch,
+  ) async {
     if (!_supported) return;
     await init();
     if (!_initialized) return;
@@ -667,8 +689,35 @@ class LocalNotificationService
         await _scheduleRestAlertNow(
             id, alert.when, alert.title, alert.body, alert.epoch);
       }
+      await _restoreRestAlerts(restore, epoch);
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'notification-cancel');
+    }
+  }
+
+  /// Plans the restored checkpoint's alerts again (spec A5: a rest survives
+  /// a process death). Skips an id this process's player already took over,
+  /// and everything without the OS permission: iOS rejects such a request,
+  /// each time as a reported error.
+  Future<void> _restoreRestAlerts(
+    List<PlannedRestAlert> restore,
+    int epoch,
+  ) async {
+    bool open(PlannedRestAlert alert) =>
+        epoch == _restAlertEpoch &&
+        !_sessionRestAlertIds.contains(alert.id) &&
+        alert.at.isAfter(clock.now());
+    if (!restore.any(open) || !await hasPermission()) return;
+    for (final alert in restore) {
+      if (!open(alert)) continue;
+      _sessionRestAlertIds.add(alert.id);
+      await _scheduleRestAlertNow(
+        alert.id,
+        tz.TZDateTime.from(alert.at, tz.local),
+        alert.title,
+        alert.body,
+        epoch,
+      );
     }
   }
 

@@ -12,6 +12,7 @@ import '../../models/training_insights.dart';
 import '../../models/training_plan.dart';
 import '../../models/training_session.dart';
 import '../../services/rest_alert_guard.dart';
+import '../../services/rest_alert_plan.dart';
 import '../../services/rest_alerts.dart';
 import '../../services/screen_awake.dart';
 import '../../services/training_session_controller.dart';
@@ -391,59 +392,54 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       _askedAlerts = true;
       unawaited(_explainAlerts());
     }
-    final at = running && _alertsAllowed ? ends : null;
-    final rest = _session.phase == TrainingSessionPhase.rest;
-    final exercise = _session.exercise;
-    final restFollows =
-        !rest &&
-        exercise.restSeconds > 0 &&
-        !(_session.exerciseIndex == _session.workout.exercises.length - 1 &&
-            _session.setIndex == exercise.sets - 1);
-    final want = at == null ? null : (at: at, rest: rest);
-    // The rest after a timed set starts only once the app sees the interval
-    // end: plan its end now, so a lock during the interval still alerts.
-    final followUp = at != null && restFollows
-        ? at.add(Duration(seconds: exercise.restSeconds))
-        : null;
-    final l = context.l10n;
+    // The store re-plans a restored checkpoint by the same rules.
+    final planned = ends == null || !running || !_alertsAllowed
+        ? null
+        : planRestAlerts(
+            sessionId: _session.sessionId,
+            phaseEndsAt: ends,
+            phase: _session.phase,
+            workout: _session.workout,
+            exerciseIndex: _session.exerciseIndex,
+            setIndex: _session.setIndex,
+            l10n: context.l10n,
+          );
+    final want = planned == null
+        ? null
+        : (
+            at: planned.phase.at,
+            rest: _session.phase == TrainingSessionPhase.rest,
+          );
+    final followUp = planned?.followUp;
     if (want != _scheduledAlert) {
       _scheduledAlert = want;
-      // D5: generic texts, no exercise names or weights on the lock screen.
       unawaited(
         _quiet(
-          want == null
+          planned == null
               ? widget.restAlerts.cancelRestAlert(_alertId)
-              : widget.restAlerts.scheduleRestAlert(
-                  id: _alertId,
-                  at: want.at,
-                  title: want.rest
-                      ? l.trainingRestAlertTitle
-                      : l.trainingIntervalAlertTitle,
-                  body: want.rest
-                      ? l.trainingRestAlertBody
-                      : restFollows
-                      ? l.trainingIntervalAlertBody
-                      : l.trainingTimerAlertSetDoneBody,
-                ),
+              : _scheduleAlert(planned.phase),
         ),
       );
     }
-    if (followUp != _scheduledFollowUp) {
-      _scheduledFollowUp = followUp;
+    if (followUp?.at != _scheduledFollowUp) {
+      _scheduledFollowUp = followUp?.at;
       unawaited(
         _quiet(
           followUp == null
               ? widget.restAlerts.cancelRestAlert(_followUpId)
-              : widget.restAlerts.scheduleRestAlert(
-                  id: _followUpId,
-                  at: followUp,
-                  title: l.trainingRestAlertTitle,
-                  body: l.trainingRestAlertBody,
-                ),
+              : _scheduleAlert(followUp),
         ),
       );
     }
   }
+
+  Future<void> _scheduleAlert(PlannedRestAlert alert) =>
+      widget.restAlerts.scheduleRestAlert(
+        id: alert.id,
+        at: alert.at,
+        title: alert.title,
+        body: alert.body,
+      );
 
   /// A phase end seen in the foreground: a haptic, plus the cue where the
   /// scheduler offers one (Android, whose inexact alert would come late

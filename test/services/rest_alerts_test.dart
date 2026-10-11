@@ -7,14 +7,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shared_preferences_platform_interface/types.dart';
+import 'package:supabase/supabase.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/training_plan.dart';
+import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
+import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -24,6 +29,9 @@ import 'package:eatova/src/services/rest_alerts.dart';
 import 'package:eatova/src/services/streak_reminder_planner.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
+
+import '../outbox/outbox_test_helpers.dart'
+    show FakeServer, bootUntilIdle, testProfile;
 
 // Spec A5: rest/interval alerts live next to the reminder nudges in the same
 // plugin. Before this change every reminder path (re-plan, opt-out) called
@@ -774,6 +782,185 @@ void main() {
 
         expect(gateway.pending, isEmpty);
       },
+    );
+  });
+
+  // Spec A4/A5: a running rest continues after a process death and still
+  // alerts. Reopened from the icon, nothing opens the player, and with
+  // reminders off the cold-start backstop clears everything the killed
+  // process planned, so the restored checkpoint is planned again.
+  group('Kaltstart nach Prozess-Tod', () {
+    const sessionId = '0b7c9f0e-4d2a-4f53-9a51-3c1e2d4b5a69';
+    final followUpId = restAlertFollowUpIdForSession(sessionId);
+
+    TrainingPlan plan({int? durationSeconds}) => TrainingPlan(
+      id: 'rest_restore',
+      proposal: CoachTrainingProposal(
+        title: 'Strength',
+        workouts: [
+          TrainingWorkout(
+            title: 'Day A',
+            exercises: [
+              TrainingExercise(
+                name: 'Squat',
+                sets: 3,
+                reps: durationSeconds == null ? 5 : null,
+                durationSeconds: durationSeconds,
+                restSeconds: 90,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    TrainingSessionSnapshot resting({DateTime? endsAt}) =>
+        TrainingSessionSnapshot(
+          plan: plan(),
+          sessionId: sessionId,
+          startedAt: _now.subtract(const Duration(minutes: 5)),
+          workoutIndex: 0,
+          exerciseIndex: 0,
+          setIndex: 0,
+          phase: TrainingSessionPhase.rest,
+          remainingMilliseconds: 90000,
+          completedSets: const [
+            TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+          ],
+          phaseEndsAt: endsAt,
+        );
+
+    /// Process 1 planned the rest alert at [at], then the OS killed it.
+    Future<void> killedDuringRest(_FakeGateway gateway, DateTime at) async {
+      final earlier = _service(gateway)..openRestAlerts('user-a');
+      await earlier.scheduleRestAlert(
+        id: _restId,
+        at: at,
+        title: 'Rest over',
+        body: 'Time for your next set.',
+      );
+    }
+
+    /// Process 2: the gate opens the restored account, then its store boots
+    /// with the cached checkpoint (reminders off) up to the backstop.
+    Future<void> reopen(
+      LocalNotificationService service,
+      TrainingSessionSnapshot checkpoint,
+    ) async {
+      service.openRestAlerts('user-a');
+      final server = FakeServer();
+      server.trainingPlanRows[checkpoint.plan.id] = checkpoint.plan.toRow();
+      final client = SupabaseClient(
+        'https://example.supabase.co',
+        'test-anon-key',
+        httpClient: server.client(),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      addTearDown(client.dispose);
+      final cache = LocalCache(InMemoryKeyValueStore(), 'user-a');
+      await cache.writeProfile(testProfile());
+      await cache.writeTrainingSession(checkpoint);
+      final store = HomeStore(
+        sync: EatovaSync.forUser(client, 'user-a'),
+        health: const NoopHealthService(),
+        notificationService: service,
+        initialUserName: 'Test',
+        emitSnack: _ignoreSnack,
+        debugCache: cache,
+      );
+      addTearDown(store.dispose);
+      store.setLocalizations(enL10n);
+      await bootUntilIdle(store);
+      expect(store.trainingSession?.sessionId, sessionId, reason: 'restored');
+    }
+
+    test(
+      'eine laufende Pause wird nach dem Backstop neu geplant (R/G)',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        await killedDuringRest(gateway, _now.add(const Duration(seconds: 120)));
+        // Left behind by an earlier account.
+        gateway.pending[_otherRestId] = gateway.pending[_restId]!;
+        final endsAt = _now.add(const Duration(seconds: 100));
+
+        await reopen(_service(gateway), resting(endsAt: endsAt));
+
+        expect(gateway.calls, contains('cancelAll'));
+        expect(gateway.pending.keys, [_restId]);
+        final alert = gateway.pending[_restId]!;
+        expect(
+          alert.when.millisecondsSinceEpoch,
+          endsAt.millisecondsSinceEpoch,
+        );
+        expect(alert.payload, trainingRestNotificationPayload);
+        expect(alert.details.android!.channelId, 'eatova_training');
+      }),
+    );
+
+    test(
+      'ein laufendes Intervall plant auch die folgende Pause',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        await killedDuringRest(gateway, _now.add(const Duration(seconds: 30)));
+        final endsAt = _now.add(const Duration(seconds: 30));
+        final interval = TrainingSessionSnapshot(
+          plan: plan(durationSeconds: 45),
+          sessionId: sessionId,
+          startedAt: _now.subtract(const Duration(minutes: 1)),
+          workoutIndex: 0,
+          exerciseIndex: 0,
+          setIndex: 0,
+          phase: TrainingSessionPhase.exercise,
+          remainingMilliseconds: 30000,
+          phaseEndsAt: endsAt,
+        );
+
+        await reopen(_service(gateway), interval);
+
+        expect(gateway.pending.keys, unorderedEquals([_restId, followUpId]));
+        expect(
+          gateway.pending[followUpId]!.when.millisecondsSinceEpoch,
+          endsAt.add(const Duration(seconds: 90)).millisecondsSinceEpoch,
+        );
+      }),
+    );
+
+    test(
+      'pausiert, abgelaufen oder ohne OS-Erlaubnis: nichts wird geplant',
+      () => _frozen(() async {
+        for (final (checkpoint, allows) in [
+          (resting(), true),
+          (resting(endsAt: _now.subtract(const Duration(seconds: 1))), true),
+          (resting(endsAt: _now.add(const Duration(seconds: 100))), false),
+        ]) {
+          final gateway = _FakeGateway();
+          await killedDuringRest(gateway, _now.add(_rest));
+          gateway.osAllows = allows;
+
+          await reopen(_service(gateway), checkpoint);
+
+          expect(gateway.pending, isEmpty);
+        }
+      }),
+    );
+
+    test(
+      'hat der Player die Id schon uebernommen, gilt sein neuerer Stand',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        await killedDuringRest(gateway, _now.add(_rest));
+        final service = _service(gateway)..openRestAlerts('user-a');
+        // Resumed before the backstop, the rest skipped: the checkpoint
+        // with the old deadline is not stored yet.
+        await service.cancelRestAlert(_restId);
+
+        await reopen(
+          service,
+          resting(endsAt: _now.add(const Duration(seconds: 100))),
+        );
+
+        expect(gateway.pending, isEmpty);
+      }),
     );
   });
 

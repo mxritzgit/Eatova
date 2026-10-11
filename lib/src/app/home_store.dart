@@ -41,6 +41,8 @@ import '../services/meals_sync.dart' show MealsSync;
 import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/recipe_save_result.dart';
+import '../services/rest_alert_plan.dart';
+import '../services/rest_alerts.dart' show PlannedRestAlert;
 import '../services/search_credentials.dart';
 import '../services/secure_cache_store.dart';
 import '../services/stale_auth_retry.dart';
