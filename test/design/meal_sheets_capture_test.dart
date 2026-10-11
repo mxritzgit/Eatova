@@ -1,7 +1,8 @@
 // Visual evidence for the 2026-10-03 meal-sheet slice of the redesign: the
 // recipe detail's add card and soft edit/history pills, the adjust sheet with
-// a removed item and its add dialog, the scan result's actions and the manual
-// sheet — at the reference phone, at 320 px and at 2x text.
+// a removed item, its add dialog and the discard decision card (2026-10-11),
+// the scan result's actions and the manual sheet — at the reference phone, at
+// 320 px and at 2x text.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/meal-sheets-*.png; without it the suite still checks that
@@ -194,6 +195,20 @@ void main() {
       expect(find.text('Undo'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-sheets-adjust-removed');
+
+      // Back with a change asks on the shared decision card; keeping goes
+      // back to the sheet with the change intact.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('discard-changes-dialog')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-sheets-discard-dialog');
+      await tester.tap(find.byKey(const ValueKey('discard-changes-cancel')));
+      await tester.pumpAndSettle();
+      expect(find.text('Undo'), findsOneWidget);
     });
 
     testWidgets('add dialog with the macros toggle', (tester) async {
@@ -211,6 +226,49 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-sheets-add-item-macros');
+
+      // Filled in: the primary arms in its own accent, no change of hue.
+      await tester.enterText(
+        find.byKey(const ValueKey('analyse-add-item-name')),
+        'Avocado',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('analyse-add-item-grams')),
+        '60',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('analyse-add-item-kcal')),
+        '96',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('analyse-add-item-fat')),
+        '9',
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-sheets-add-item-filled');
+    });
+
+    testWidgets('320 px and 2x text: the discard decision card', (
+      tester,
+    ) async {
+      await _host(
+        tester,
+        (context) => showWeightAdjustmentSheet(context, _bowl),
+        width: 320,
+        textScale: 2,
+      );
+      await _reveal(tester, 'analyse-item-remove-1');
+      await tester.tap(find.byKey(const ValueKey('analyse-item-remove-1')));
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('discard-changes-dialog')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-sheets-discard-dialog-320-x2');
     });
 
     testWidgets('320 px and 2x text', (tester) async {
