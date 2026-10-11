@@ -3471,3 +3471,47 @@ The work ran as Claude Code workflows:
 - Deno: 1,052 tests, also run per file. The eval harness passed 19/19.
 - The capture suites were rendered in dark and light and reviewed.
 - Numbers after the final restack are in the PR bodies.
+
+### Rollout, 2026-10-11
+
+The owner's lines were "Ich gebe dir Freigabe zum Mergen von #147, #148 und
+#149" and "Deploye alle Functions".
+
+- **Merges:**
+  - [PR #147](https://github.com/mxritzgit/Eatova/pull/147) was squash-merged
+    as `77575f2` after 17/17 green checks. The merged tree equals the reviewed
+    head `5d4da41`.
+  - [PR #148](https://github.com/mxritzgit/Eatova/pull/148) was rebased onto
+    `main`. Its tree is unchanged from the green head `35313f6`. It was
+    squash-merged as `a2efa7c` after its checks passed again.
+  - [PR #149](https://github.com/mxritzgit/Eatova/pull/149), which carries
+    this record, was rebased the same way and merged after green CI.
+- **Functions:**
+  - All four were deployed from `77575f2` with Supabase CLI 2.120.0
+    (`--use-api`). #148 and #149 do not touch `supabase/`, so this is also
+    the backend of the final `main`.
+  - `coach-chat` v55 -> **v56** and `recipe-import` v14 -> **v15** carry the
+    #147 changes.
+  - `analyze-meal` v39 -> **v40** and `search-key` v15 -> **v16** have
+    unchanged source. They were redeployed because the owner asked for all
+    functions.
+  - All four are ACTIVE with `verify_jwt=true`. No migration.
+- **Live source check:**
+  - Before the deploy, the live sources were downloaded. `coach-chat` v55
+    equals `a4501d4`; it is a redeploy of 2026-10-08 that the 2026-10-08
+    rollout above does not record (it ends at v54). `recipe-import` v14
+    equals `a4501d4`. `analyze-meal` v39 and `search-key` v15 equal `main`.
+  - After the deploy, the downloaded live source of all four equals
+    `77575f2`.
+  - The comparison ignores CRLF, because a deploy from the Windows checkout
+    uploads CRLF files.
+- **Boot probe:**
+  - The preflight returns 204.
+  - Without a token, the gateway answers 401.
+  - With the public anon key, each handler answers itself: 401, or 405 for
+    `search-key`, which only accepts GET. So every function booted and passed
+    its configuration check.
+  - No authenticated request was made against production.
+- **Still open:**
+  - an app build with the client fixes, the design and the prices;
+  - the device checks and owner decisions listed above.
