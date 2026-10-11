@@ -645,11 +645,35 @@ void main() {
       save: (_) async => SyncDelivery.delivered,
     );
     expect(find.textContaining('one at a time'), findsOneWidget);
-    expect(find.textContaining('try again'), findsNothing);
+    expect(
+      find.textContaining(RegExp('try again', caseSensitive: false)),
+      findsNothing,
+    );
     final field = tester.widget<TextField>(
       find.byKey(const ValueKey('recipe-import-input')),
     );
     expect(field.controller!.text, _source);
+
+    // The unchanged text would fail the same paid way: no retry offer.
+    final analyze = find.byKey(const ValueKey('recipe-import-analyze'));
+    expect(
+      find.descendant(of: analyze, matching: find.text('Find recipe')),
+      findsOneWidget,
+    );
+    expect(tester.widget<PrimaryActionButton>(analyze).onTap, isNull);
+    await _tap(tester, 'recipe-import-analyze');
+    expect(service.inputs, [_source]);
+
+    // A changed text can be sent again; the same text is blocked once more.
+    await _enter(tester, 'recipe-import-input', 'Bowl\n100 g rice');
+    expect(tester.widget<PrimaryActionButton>(analyze).onTap, isNotNull);
+    expect(
+      find.descendant(of: analyze, matching: find.text('Find recipe')),
+      findsOneWidget,
+    );
+    await _tap(tester, 'recipe-import-analyze');
+    expect(service.inputs, [_source, 'Bowl\n100 g rice']);
+    expect(tester.widget<PrimaryActionButton>(analyze).onTap, isNull);
   });
 
   testWidgets(
