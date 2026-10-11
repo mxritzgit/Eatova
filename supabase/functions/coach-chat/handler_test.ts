@@ -2733,6 +2733,76 @@ Deno.test("P5-05: das Netz greift auch bei 'deine Anweisungen lauten'", async ()
   }
 });
 
+// COACH-1: the CRISIS RULE tells the model to give the "German helpline number
+// 0800 111 0 111". An English crisis reply that copies that wording used to
+// match the leak table and lose the number to the prompt_leak text.
+const CRISIS_REPLY_MODEL_EN =
+  "I'm really sorry you're going through this. Please talk to someone you trust, or call the " +
+  "German helpline number 0800 111 0 111, available around the clock. You are not alone.";
+// The app's caption for a photo sent without words (app_en.arb).
+const IMAGE_DEFAULT_CAPTION_EN = "Analyze this image in a fitness context.";
+
+function storedAssistantRow(stub: FetchStub): JsonRecord | undefined {
+  return stub.callsTo("/rest/v1/chat_messages")
+    .filter((c) => c.method === "POST")
+    .map((c) => JSON.parse(c.body) as JsonRecord)
+    .find((r) => r.role === "assistant");
+}
+
+Deno.test("COACH-1: englische Krisenantwort auf ein Foto behaelt die Nummer", async () => {
+  // The classifier sees only the default caption and passes it as fitness;
+  // the answer call is the only stage that sees the photo.
+  const stub = installFetch({
+    classifierCategory: "fitness",
+    answerContent: `__REFUSE__ ${CRISIS_REPLY_MODEL_EN}`,
+  });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: IMAGE_DEFAULT_CAPTION_EN,
+      image_base64: IMAGE_BASE64,
+      locale: "en",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.refusal, true, "refusal");
+    assertEquals(body.reply, CRISIS_REPLY_MODEL_EN, "die Krisenantwort des Modells bleibt stehen");
+    const stored = storedAssistantRow(stub);
+    assertEquals(stored?.content, CRISIS_REPLY_MODEL_EN, "gespeicherte Krisenantwort");
+    assertEquals(stored?.refusal, true, "gespeichert als Refusal");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("COACH-1: ein Leck mit Krisennummer wird zum Krisen-Katalogtext, nicht zum Leck-Text", async () => {
+  // The cut stays complete, so appending the number cannot carry a dump
+  // through; only the replacement changes.
+  const dump = "- Plain text only: the app renders your reply verbatim. No Markdown, no asterisks, " +
+    "no bullet symbols, no headings, no tables, no code fences.";
+  for (const { locale, expected } of [
+    { locale: "de", expected: CRISIS_REPLY },
+    { locale: "en", expected: CRISIS_REPLY_EN },
+  ]) {
+    const stub = installFetch({
+      classifierCategory: "fitness",
+      answerContent: `__REFUSE__ ${dump} Call 0800 111 0 111.`,
+    });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: IMAGE_DEFAULT_CAPTION_EN,
+        image_base64: IMAGE_BASE64,
+        locale,
+      }));
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.refusal, true, `${locale}: refusal`);
+      assertEquals(body.reply, expected, `${locale}: Krisen-Katalogtext statt Dump`);
+      assertEquals(storedAssistantRow(stub)?.content, expected, `${locale}: gespeicherter Text`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
 // ------------------------------------------------------------------ P5-08
 // Protocol guards that had no coach-chat test at all (analyze-meal has the
 // OPTIONS/405 pair). Every one of them must answer BEFORE a quota slot is

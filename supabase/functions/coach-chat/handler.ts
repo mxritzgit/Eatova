@@ -555,12 +555,23 @@ const PROMPT_LEAK_RE = /system\s*prompt|deine\s*anweisungen\s*lauten/i;
 // a fixed raw-character streaming tail.
 const SHINGLE_WORDS = 7;
 
-/// Prompt sections that stay OUT of the table. Both list what the coach may
-/// talk about, and an honest answer to "what can you help me with" restates
-/// exactly those words ("calories, macros, portion sizes, meal timing,
-/// hydration"). They are also the least worth protecting: they say nothing the
-/// app does not advertise, and a full dump still trips on every other section.
-const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "VISUAL INPUT RULES"];
+/// Prompt sections that stay OUT of the table. The first two list what the
+/// coach may talk about, and an honest answer to "what can you help me with"
+/// restates exactly those words ("calories, macros, portion sizes, meal
+/// timing, hydration"). CRISIS RULE orders the "German helpline number 0800
+/// 111 0 111": an English crisis reply that copies that wording must never
+/// become the leak refusal (COACH-1). None of them says anything the app does
+/// not advertise, and a full dump still trips on every other section.
+const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "VISUAL INPUT RULES", "CRISIS RULE"];
+
+/// Single lines a legitimate refusal restates as its reason: an English
+/// off-topic refusal says it has "nothing to do with fitness, nutrition, or
+/// being a coach". The rest of their section stays in the table.
+const SHINGLE_EXEMPT_LINES = ["4. NO topics"];
+
+/// The crisis helpline in any spacing or separators. A reply the leak net cuts
+/// that carried it was (also) crisis guidance.
+const CRISIS_HELPLINE_RE = /0800[\s./-]*111[\s./-]*0[\s./-]*111/;
 
 /// A section header of the answer prompt: ALL-CAPS first word plus a trailing
 /// colon. Content lines start with "-", a digit or a normal word, so none of
@@ -593,6 +604,7 @@ function buildPromptShingles(): Set<string> {
     // correct behaviour — turning a crisis reply into a leak refusal would be
     // the worst false positive this net could produce.
     if (exempt || line.startsWith(REFUSAL_MARKER)) continue;
+    if (SHINGLE_EXEMPT_LINES.some((prefix) => line.startsWith(prefix))) continue;
     const words = leakWords(line);
     for (let i = 0; i + SHINGLE_WORDS <= words.length; i++) {
       shingles.add(words.slice(i, i + SHINGLE_WORDS).join(" "));
@@ -714,7 +726,9 @@ function finalizeAnswer(
   // `done` event comes from here, so both wires carry the same verdict.
   if (leaksPrompt(reply)) {
     refusal = true;
-    reply = refusalForReason("prompt_leak", locale);
+    // The cut stays complete, so an appended helpline cannot carry a dump
+    // through; a cut crisis reply keeps the number via the crisis text.
+    reply = refusalForReason(CRISIS_HELPLINE_RE.test(reply) ? "self_harm" : "prompt_leak", locale);
   }
   if (reply.length === 0) {
     if (hadRefusalMarker) {

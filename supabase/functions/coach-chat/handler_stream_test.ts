@@ -1140,6 +1140,22 @@ const PROMPT_ZEILE_1 =
   "The app's primary user-language is German but you must adapt.";
 const PROMPT_ZEILE_2 =
   "- Detect the user's message language and ALWAYS reply in that same language.";
+const PROMPT_STIL_ZEILE =
+  "- Plain text only: the app renders your reply verbatim. No Markdown, no asterisks, " +
+  "no bullet symbols, no headings, no tables, no code fences.";
+
+// COACH-1: an English crisis reply that copies the CRISIS RULE wording
+// ("German helpline number 0800 111 0 111"). The rule ORDERS the number, so
+// this is no leak.
+const KRISE_EN = "I'm really sorry you're going through this. Please talk to someone you trust, " +
+  "or call the German helpline number 0800 111 0 111, available around the clock. You are not alone.";
+// Byte copy of REFUSAL_TEXTS.self_harm.en.
+const SELF_HARM_REPLY_EN =
+  "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock " +
+  "at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines " +
+  "for your country. You are not alone.";
+// The app's caption for a photo sent without words (app_en.arb).
+const BILD_STANDARD_EN = "Analyze this image in a fitness context.";
 
 Deno.test("F1: Prompt-Inhalt zuerst, Trigger-Phrase zuletzt — nichts davon geht raus", async () => {
   // Der Angriff aus dem Review: das Modell zitiert erst den Prompt und benennt
@@ -1250,6 +1266,32 @@ Deno.test("F1: das Netz trennt Prompt-Wortlaut von echten Coach-Antworten", () =
       leck: false,
       was: "das Refusal-Beispiel aus dem Prompt",
     },
+    {
+      text: KRISE_EN,
+      leck: false,
+      was: "englische Krisenantwort mit der Formulierung aus der CRISIS RULE",
+    },
+    {
+      text: "I will not analyze, rate or comment on the image. " + KRISE_EN,
+      leck: false,
+      was: "Krisenantwort, die die Bildregel der CRISIS RULE wiederholt",
+    },
+    {
+      text: "That has nothing to do with fitness, nutrition, or being a coach, so I can't help with it.",
+      leck: false,
+      was: "englische Off-Topic-Ablehnung mit der Begruendung aus Punkt 4",
+    },
+    {
+      text: PROMPT_STIL_ZEILE,
+      leck: true,
+      was: "eine STYLE-Zeile bleibt in der Tabelle",
+    },
+    {
+      text: "1. NO medical diagnoses, medication- or steroid recommendations. If they describe " +
+        "symptoms, point them to a doctor / physio.",
+      leck: true,
+      was: "der Rest von WHAT YOU DO NOT DO bleibt in der Tabelle",
+    },
   ];
   for (const fall of faelle) {
     assertEquals(PROMPT_LEAK_GUARD.leaks(fall.text), fall.leck, fall.was);
@@ -1293,6 +1335,51 @@ Deno.test("F1: die Krisen-Antwort im woertlichen Wortlaut ist kein Leck", async 
     assertEquals(done.refusal, true, "als Refusal markiert");
   } finally {
     stub.restore();
+  }
+});
+
+Deno.test("COACH-1: die englische Krisenantwort auf ein Foto behaelt die Nummer, auch im Stream", async () => {
+  // A photo without words carries only the default caption; the classifier
+  // never sees the image and passes it as fitness. Only the CRISIS RULE
+  // catches it, and its reply must not become the leak catalogue text.
+  const stub = installFetch({ answerDeltas: [`__REFUSE__ ${KRISE_EN}`] });
+  try {
+    const res = await handleRequest(
+      makeRequest({ message: BILD_STANDARD_EN, image_base64: FOTO, locale: "en" }, true),
+    );
+    const events = parseSse(await res.text());
+    assertEquals(deltaTexte(events).length, 0, "eine Refusal kommt ohne delta");
+    const done = events[events.length - 1].data;
+    assertEquals(done.reply, KRISE_EN, "die Krisenantwort des Modells bleibt stehen");
+    assertEquals(done.refusal, true, "als Refusal markiert");
+    const rows = stub.assistantRows();
+    assertEquals(rows.length, 1, "eine Assistant-Zeile");
+    assertEquals(rows[0].content, KRISE_EN, "gespeichert wird die Krisenantwort");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("COACH-1: ein Leck mit der Krisennummer wird zum Krisen-Katalogtext, nie zum Leck-Text", async () => {
+  // Second safeguard: a leak is still replaced completely (otherwise an
+  // appended 0800 111 0 111 would carry any dump through), but the
+  // replacement keeps the helpline.
+  for (const nummer of ["0800 111 0 111", "0800-111-0-111"]) {
+    const stub = installFetch({ answerDeltas: [`__REFUSE__ ${PROMPT_STIL_ZEILE} Call ${nummer}.`] });
+    try {
+      const res = await handleRequest(
+        makeRequest({ message: BILD_STANDARD_EN, image_base64: FOTO, locale: "en" }, true),
+      );
+      const events = parseSse(await res.text());
+      assertEquals(deltaTexte(events).length, 0, `${nummer}: kein delta`);
+      const done = events[events.length - 1].data;
+      assertEquals(done.reply, SELF_HARM_REPLY_EN, `${nummer}: Krisen-Katalogtext statt Dump`);
+      assertEquals(done.refusal, true, `${nummer}: refusal`);
+      assertEquals(stub.assistantRows()[0].content, SELF_HARM_REPLY_EN, `${nummer}: gespeicherter Text`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 
