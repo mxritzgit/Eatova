@@ -9,7 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
-import 'package:eatova/src/widgets/common/code_point_limit.dart';
+import 'package:eatova/src/widgets/common/text_length_limit.dart';
 
 import 'support/harness.dart';
 
@@ -90,8 +90,8 @@ void main() {
     expect(sent, '${'a' * 79}😀');
   });
 
-  group('CodePointLimitFormatter', () {
-    const formatter = CodePointLimitFormatter(3);
+  group('TextLengthLimit in code points', () {
+    const formatter = TextLengthLimit(3, unit: TextLengthUnit.codePoints);
     TextEditingValue edit(String old, String neu) => formatter.formatEditUpdate(
           TextEditingValue(text: old),
           TextEditingValue(

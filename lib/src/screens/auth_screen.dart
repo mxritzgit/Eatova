@@ -15,7 +15,7 @@ import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/auth/auth_entry_header.dart';
 import '../widgets/common/app_snack.dart';
-import '../widgets/common/code_point_limit.dart';
+import '../widgets/common/text_length_limit.dart';
 import '../widgets/common/motion.dart';
 import 'auth_code_screen.dart';
 import 'settings/account_change_messages.dart'
@@ -613,7 +613,10 @@ class _EmailForm extends StatelessWidget {
                     // `profiles_display_name_length_check`: a longer name
                     // fails the signup with a GoTrue 500.
                     inputFormatters: const [
-                      CodePointLimitFormatter(ProfileLimits.displayNameMaxChars),
+                      TextLengthLimit(
+                        ProfileLimits.displayNameMaxChars,
+                        unit: TextLengthUnit.codePoints,
+                      ),
                     ],
                   ),
                 )
