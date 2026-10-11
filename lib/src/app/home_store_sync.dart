@@ -17,6 +17,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   final Map<String, SyncOp> _inFlightOps = {};
   Future<void> _localMutationTail = Future<void>.value();
   Future<void>? _outboxReplayFuture;
+  Future<void>? _outboxReplayFollowUp;
+  Set<String> _lastReplayFailedEntities = const {};
   Future<void>? _cacheSnapshotInFlight;
   Object? _lastSyncError;
   bool _syncHintShown = false;
@@ -150,17 +152,45 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   Future<void> syncPendingWrites({bool retryBlocked = false}) async {
     if (_outboxHydrationFailed) await _repairOutboxHydration();
     if (retryBlocked) {
-      await _outboxReplayFuture;
+      // An explicit retry starts a fresh pass, not a follow-up that skips the
+      // entities that just failed.
+      for (
+        var running = _outboxReplayFollowUp ?? _outboxReplayFuture;
+        running != null;
+        running = _outboxReplayFollowUp ?? _outboxReplayFuture
+      ) {
+        await running;
+      }
       await _cache?.retryBlockedSyncOperations();
     }
     await _replayOutbox();
   }
 
-  Future<void> _replayOutbox({bool vomTimer = false}) {
+  Future<void> _replayOutbox({
+    bool vomTimer = false,
+    Set<String> skipEntities = const {},
+  }) {
     final running = _outboxReplayFuture;
-    if (running != null) return running;
+    if (running != null) {
+      // The running pass may already have read the queue for the last time,
+      // so a commit made since then would wait for the retry timer. Requests
+      // during a pass share one follow-up pass.
+      // It skips the entities that just failed: they wait for the backoff.
+      return _outboxReplayFollowUp ??= running
+          .then<void>((_) {}, onError: (Object _, StackTrace __) {})
+          .then((_) {
+            _outboxReplayFollowUp = null;
+            return _replayOutbox(
+              vomTimer: vomTimer,
+              skipEntities: _lastReplayFailedEntities,
+            );
+          });
+    }
     late final Future<void> future;
-    future = _runDurableReplay(vomTimer: vomTimer).whenComplete(() {
+    future = _runDurableReplay(
+      vomTimer: vomTimer,
+      skipEntities: skipEntities,
+    ).whenComplete(() {
       if (identical(_outboxReplayFuture, future)) _outboxReplayFuture = null;
     });
     _outboxReplayFuture = future;
@@ -407,7 +437,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (_outboxRetryAttempt < 3) _outboxRetryAttempt++;
   }
 
-  Future<void> _runDurableReplay({required bool vomTimer}) async {
+  Future<void> _runDurableReplay({
+    required bool vomTimer,
+    Set<String> skipEntities = const {},
+  }) async {
     final s = sync, cache = _cache;
     if (_disposed ||
         _trainingSessionEnded ||
@@ -416,7 +449,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         !_outboxInitialHydrationComplete) {
       return;
     }
-    final blocked = <String>{};
+    final blocked = <String>{...skipEntities};
+    _lastReplayFailedEntities = blocked;
     var succeeded = false;
     final attempted = <String>{};
     SyncExecutionClaim? claim;
