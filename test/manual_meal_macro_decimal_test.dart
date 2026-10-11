@@ -100,6 +100,28 @@ void main() {
     );
   });
 
+  // A small portion saved and later reused (recent, favorite): the typed
+  // values per 100 g carry the new portion, not its rounded "0,2 g".
+  testWidgets('eine kleine Portion wiederverwendet rechnet mit dem Etikett', (
+    tester,
+  ) async {
+    final halter = await _open(tester);
+    await _tippe(tester, 'manual-meal-name', 'Joghurt');
+    await _tippe(tester, 'manual-meal-kcal100', '60');
+    await _tippe(tester, 'manual-meal-grams', '5');
+    await _tippe(tester, 'manual-meal-protein', '3,5');
+    await _tippe(tester, 'manual-meal-fat', '3,8');
+    await tester.pump();
+    await _speichern(tester);
+
+    final saved = halter.result!;
+    expect(saved.protein, '0,2 g');
+    expect(saved.fat, '0,2 g');
+    final reused = saved.adjustedToGrams(200);
+    expect(reused.protein, '7 g', reason: 'nicht 0,2 g mal 40 = 8 g');
+    expect(reused.fat, '7,6 g', reason: 'nicht 8 g');
+  });
+
   testWidgets('Punkt: „3.5" ergibt denselben Wert wie „3,5"', (tester) async {
     final halter = await _open(tester);
     await _pflichtfelder(tester);

@@ -8,6 +8,7 @@ import 'package:eatova/src/models/described_meal.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_description_matcher.dart';
+import 'package:eatova/src/services/meals_sync.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 typedef _Answer = Future<List<ProductSearchResult>> Function();
@@ -230,6 +231,41 @@ void main() {
       ).match(_meal([stated]));
       expect(draft.items.single.selected.origin, DraftItemOrigin.favorite);
       expect(draft.items.single.grams, 30);
+    });
+
+    // A splash of milk as the recent: its rounded "0,3 g" protein per 10 g
+    // read back as 3 g per 100 g, not the label's 3,4.
+    test('ein Favorit aus kleiner Portion nimmt die Etikettwerte', () async {
+      final splash = mealResultFromJson(
+        mealResultToJson(
+          MealAnalysisResult.fromOpenFoodFacts(
+            _off(
+              '4000000000017',
+              'Milch',
+              kcal: 47,
+              protein: 3.4,
+              servingQuantity: 100,
+            ),
+            '4000000000017',
+          ).adjustedToGrams(10),
+        ),
+      );
+      expect(splash.protein, '0,3 g');
+      final milk = _food(
+        'Milch',
+        grams: 250,
+        kcal: 118,
+        amount: '250 ml',
+        stated: true,
+      );
+      final draft = await _matcher(
+        _FakeProducts({}),
+        favorites: () => [_favorite(splash, day: 9)],
+      ).match(_meal([milk]));
+      final line = draft.items.single;
+      expect(line.selected.origin, DraftItemOrigin.favorite);
+      expect(line.selected.proteinPer100G, closeTo(3.4, 1e-9));
+      expect(line.proteinG, closeTo(8.5, 1e-9));
     });
 
     test('Favoriten werfen -> Abgleich laeuft ohne sie weiter', () async {

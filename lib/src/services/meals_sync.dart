@@ -250,6 +250,11 @@ Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
     // Written only when there is a photo, so rows without one stay
     // byte-identical; older builds ignore the key.
     if (r.imageUrl != null) 'imageUrl': r.imageUrl,
+    // The label's macros per 100 g, so a reused portion rescales from them.
+    // Same rule: only when known, ignored by older builds.
+    if (r.proteinPer100G != null) 'proteinPer100G': r.proteinPer100G,
+    if (r.carbsPer100G != null) 'carbsPer100G': r.carbsPer100G,
+    if (r.fatPer100G != null) 'fatPer100G': r.fatPer100G,
   };
 }
 
@@ -286,14 +291,18 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
     throw FormatException(
         'meal payload ohne lesbares caloriesKcal (${caloriesRoh.runtimeType})');
   }
+  final estimatedGrams = (j['estimatedGrams'] as num?)?.toInt() ?? 0;
+  final protein = j['protein']?.toString() ?? '-';
+  final carbs = j['carbs']?.toString() ?? '-';
+  final fat = j['fat']?.toString() ?? '-';
   return MealAnalysisResult(
     mealName: j['mealName']?.toString() ?? 'Mahlzeit',
     caloriesKcal: caloriesRoh.toInt(),
-    estimatedGrams: (j['estimatedGrams'] as num?)?.toInt() ?? 0,
+    estimatedGrams: estimatedGrams,
     kcalPer100G: (j['kcalPer100G'] as num?)?.toDouble() ?? 0.0,
-    protein: j['protein']?.toString() ?? '-',
-    carbs: j['carbs']?.toString() ?? '-',
-    fat: j['fat']?.toString() ?? '-',
+    protein: protein,
+    carbs: carbs,
+    fat: fat,
     confidence: j['confidence']?.toString() ?? MealResultConfidence.medium.code,
     portionNotes: j['portionNotes']?.toString() ?? '',
     items: items,
@@ -305,5 +314,20 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
     explicitZeroKcal: (j['explicitZeroKcal'] as bool?) ?? false,
     // Synced from other devices: checked again, never trusted.
     imageUrl: sanitizeProductImageUrl(j['imageUrl']),
+    proteinPer100G: MealAnalysisResult.checkedMacroPer100G(
+      protein,
+      estimatedGrams,
+      j['proteinPer100G'],
+    ),
+    carbsPer100G: MealAnalysisResult.checkedMacroPer100G(
+      carbs,
+      estimatedGrams,
+      j['carbsPer100G'],
+    ),
+    fatPer100G: MealAnalysisResult.checkedMacroPer100G(
+      fat,
+      estimatedGrams,
+      j['fatPer100G'],
+    ),
   );
 }

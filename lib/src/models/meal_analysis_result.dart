@@ -516,6 +516,9 @@ class MealAnalysisResult {
     this.brand,
     this.explicitZeroKcal = false,
     this.imageUrl,
+    this.proteinPer100G,
+    this.carbsPer100G,
+    this.fatPer100G,
   });
 
   final String mealName;
@@ -557,6 +560,15 @@ class MealAnalysisResult {
   /// [sanitizeProductImageUrl]; null for scans, recipes and manual entries.
   final String? imageUrl;
 
+  /// Macros per 100 g where a label states them (a product, the manual
+  /// form), else null. [adjustedToGrams] scales from these instead of from
+  /// the rounded macro text: a stored 10 g splash of milk ("0,3 g" protein)
+  /// otherwise gave 7,5 g at 250 g instead of the label's 8,5 g. Each counts
+  /// only while it reproduces its text, see [checkedMacroPer100G].
+  final double? proteinPer100G;
+  final double? carbsPer100G;
+  final double? fatPer100G;
+
   /// This result with another photo (null removes it).
   MealAnalysisResult withImageUrl(String? url) => MealAnalysisResult(
     mealName: mealName,
@@ -575,6 +587,9 @@ class MealAnalysisResult {
     brand: brand,
     explicitZeroKcal: explicitZeroKcal,
     imageUrl: sanitizeProductImageUrl(url),
+    proteinPer100G: proteinPer100G,
+    carbsPer100G: carbsPer100G,
+    fatPer100G: fatPer100G,
   );
 
   /// Origin value in the language of [l10n]. Known raw values resolve via
@@ -762,6 +777,18 @@ class MealAnalysisResult {
         ? clampKcalPer100G(neueKcal * 100 / zielGramm)
         : (dichte ?? 0);
     final factor = estimatedGrams <= 0 ? 1.0 : zielGramm / estimatedGrams;
+    // The label's macros, like its density, are not re-derived from rounded
+    // text; without them the text scales as before.
+    final protein100 = checkedMacroPer100G(
+      protein,
+      estimatedGrams,
+      proteinPer100G,
+    );
+    final carbs100 = checkedMacroPer100G(carbs, estimatedGrams, carbsPer100G);
+    final fat100 = checkedMacroPer100G(fat, estimatedGrams, fatPer100G);
+    String macro(String text, double? per100G) => per100G == null
+        ? _scaleMacroText(text, factor)
+        : macroForGrams(per100G, zielGramm);
     final adjustedItems = hasItemizedBreakdown
         ? items
               .map(
@@ -775,9 +802,9 @@ class MealAnalysisResult {
       caloriesKcal: neueKcal,
       estimatedGrams: zielGramm,
       kcalPer100G: neueDichte,
-      protein: _scaleMacroText(protein, factor),
-      carbs: _scaleMacroText(carbs, factor),
-      fat: _scaleMacroText(fat, factor),
+      protein: macro(protein, protein100),
+      carbs: macro(carbs, carbs100),
+      fat: macro(fat, fat100),
       confidence: confidence,
       portionNotes: MealResultAdjustmentNote.grams(
         zielGramm,
@@ -790,6 +817,9 @@ class MealAnalysisResult {
       brand: brand,
       explicitZeroKcal: explicitZeroKcal,
       imageUrl: imageUrl,
+      proteinPer100G: protein100,
+      carbsPer100G: carbs100,
+      fatPer100G: fat100,
     );
   }
 
@@ -1046,6 +1076,9 @@ class MealAnalysisResult {
           calories == 0 &&
           (kcalPer100G > 0 || offMeldetExplizitNullKcal(product)),
       imageUrl: _offImageUrl(product),
+      proteinPer100G: protein100,
+      carbsPer100G: carbs100,
+      fatPer100G: fat100,
     );
   }
 
@@ -1077,6 +1110,9 @@ class MealAnalysisResult {
       // An EXPLICITLY entered 0 (water, zero drink) is a measurement, not the
       // unknown sentinel — only it may pass the log guard.
       explicitZeroKcal: kcalPer100G == 0,
+      proteinPer100G: proteinPer100G?.toDouble(),
+      carbsPer100G: carbsPer100G?.toDouble(),
+      fatPer100G: fatPer100G?.toDouble(),
     );
   }
 
@@ -1395,6 +1431,22 @@ class MealAnalysisResult {
       return _makroUnbekannt;
     }
     return _formatMacroG(per100G * grams / 100);
+  }
+
+  /// [per100G] as a macro per 100 g that still reproduces [text] at [grams],
+  /// else null. Raw on purpose: payloads from other devices are read through
+  /// it, so a non-number, an impossible amount or a value the text has moved
+  /// away from (a hand edit, an older build that rescaled the text alone)
+  /// leaves the text in charge.
+  static double? checkedMacroPer100G(String text, int grams, Object? per100G) {
+    if (per100G is! num) return null;
+    final value = per100G.toDouble();
+    if (!value.isFinite ||
+        value < 0 ||
+        value > PlausibilityLimits.macroPer100GMax) {
+      return null;
+    }
+    return macroForGrams(value, grams) == text ? value : null;
   }
 
   /// Formats a macro value in grams, clamped to the DB limit (0..1000 g).

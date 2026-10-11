@@ -371,6 +371,24 @@ class MealDescriptionDraft {
     ]);
     final productBacked =
         items.isNotEmpty && items.every((item) => _isProductBacked(item));
+    // Per 100 g of the whole meal where every line knows the macro, so a
+    // reuse of it rescales from the lines' values, not the rounded text.
+    double? per100(String text, double? Function(DraftFoodItem) macro) {
+      final grams = summed.estimatedGrams;
+      if (items.isEmpty || grams <= 0) return null;
+      var total = 0.0;
+      for (final item in items) {
+        final value = macro(item);
+        if (value == null) return null;
+        total += value;
+      }
+      return MealAnalysisResult.checkedMacroPer100G(
+        text,
+        grams,
+        total * 100 / grams,
+      );
+    }
+
     return MealAnalysisResult(
       mealName: _mealName(summed.mealName),
       caloriesKcal: summed.caloriesKcal,
@@ -388,6 +406,9 @@ class MealDescriptionDraft {
           ? MealResultSource.openFoodFacts.code
           : MealResultSource.aiEstimate.code,
       explicitZeroKcal: isMeasuredZero,
+      proteinPer100G: per100(summed.protein, (item) => item.proteinG),
+      carbsPer100G: per100(summed.carbs, (item) => item.carbsG),
+      fatPer100G: per100(summed.fat, (item) => item.fatG),
     );
   }
 
@@ -715,9 +736,12 @@ DraftCandidate? _favoriteCandidate(MealAnalysisResult result) {
     title: result.mealName,
     brand: result.brand,
     kcalPer100G: density,
-    proteinPer100G: _per100FromText(result.protein, grams),
-    carbsPer100G: _per100FromText(result.carbs, grams),
-    fatPer100G: _per100FromText(result.fat, grams),
+    // The label's values where the favorite kept them: its rounded text
+    // drifts once divided back from a small portion.
+    proteinPer100G:
+        result.proteinPer100G ?? _per100FromText(result.protein, grams),
+    carbsPer100G: result.carbsPer100G ?? _per100FromText(result.carbs, grams),
+    fatPer100G: result.fatPer100G ?? _per100FromText(result.fat, grams),
     servingGrams: serving?.grams,
     servingUnit: serving?.unit,
     barcode: _nonEmpty(result.barcode),
@@ -743,9 +767,16 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
     title: hit.title,
     brand: result.brand,
     kcalPer100G: density,
-    proteinPer100G: per100?.proteinG ?? _per100FromText(result.protein, grams),
-    carbsPer100G: per100?.carbsG ?? _per100FromText(result.carbs, grams),
-    fatPer100G: per100?.fatG ?? _per100FromText(result.fat, grams),
+    proteinPer100G:
+        per100?.proteinG ??
+        result.proteinPer100G ??
+        _per100FromText(result.protein, grams),
+    carbsPer100G:
+        per100?.carbsG ??
+        result.carbsPer100G ??
+        _per100FromText(result.carbs, grams),
+    fatPer100G:
+        per100?.fatG ?? result.fatPer100G ?? _per100FromText(result.fat, grams),
     servingGrams: serving?.grams,
     servingUnit: serving?.unit,
     barcode: _nonEmpty(hit.code),
