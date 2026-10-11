@@ -141,6 +141,10 @@ class _Backend {
   /// No network at all: the history read fails too.
   bool offline = false;
 
+  /// How many history reads still show the question alone: the server stored
+  /// it and is still writing the answer (COACH-4).
+  int pendingReads = 0;
+
   List<Map<String, Object?>> _history = const [];
   int functionCalls = 0;
   int historyReads = 0;
@@ -174,6 +178,9 @@ class _Backend {
     if (path.endsWith('/rest/v1/chat_messages')) {
       historyReads++;
       if (offline) throw http.ClientException('Failed host lookup', req.url);
+      if (historyReads <= pendingReads && _history.length == 2) {
+        return _json(req, [_history.last]);
+      }
       return _json(req, _history);
     }
     if (path.endsWith('/rpc/ensure_default_chat_session')) {
@@ -443,4 +450,187 @@ void main() {
             'server already stored');
     expect(backend.functionCalls, 1);
   });
+
+  group('the question is stored, the answer still coming (COACH-4)', () {
+    for (final loss in _Loss.values) {
+      test('chat ($loss): waits for the stored answer, no second request',
+          () async {
+        final backend = _Backend(
+          loss: loss,
+          sse: true,
+          persisted: _exchange(
+            question: 'How much protein?',
+            answer: 'About 1.6 g per kilo.',
+          ),
+        )..pendingReads = 2;
+        final svc = _service(backend);
+        final waiter = _FakeWaiter()..attach(svc);
+
+        final res = await waiter.run(
+          () => svc.send('How much protein?', sessionId: _sessionId),
+        );
+
+        expect(res.reply, 'About 1.6 g per kilo.');
+        expect(backend.functionCalls, 1, reason: 'no second paid request');
+        expect(backend.historyReads, 3);
+        expect(waiter.pauses, [
+          const Duration(seconds: 3),
+          const Duration(seconds: 3),
+        ]);
+      });
+    }
+
+    final buffered = <String, Future<Object?> Function(CoachChatService)>{
+      'recipe': (svc) => svc.requestRecipe(
+            'Chickpea bowl',
+            sessionId: _sessionId,
+            locale: 'en',
+          ),
+      'plan': (svc) => svc.requestPlan(
+            'Strength for beginners',
+            sessionId: _sessionId,
+            locale: 'en',
+          ),
+      'log': (svc) => svc.requestWorkoutLog(
+            'today squats 1x8 100 kg',
+            sessionId: _sessionId,
+            locale: 'en',
+          ),
+    };
+    final stored = <String, List<Map<String, Object?>>>{
+      'recipe': _exchange(
+        question: 'Chickpea bowl',
+        answer: 'Bowl, 480 kcal',
+        recipe: _recipe,
+      ),
+      'plan': _exchange(
+        question: 'Strength for beginners',
+        answer: 'Training proposal: Strength basics.',
+        plan: _plan(),
+      ),
+      'log': _exchange(
+        question: 'today squats 1x8 100 kg',
+        answer: 'Workout to log: Leg day.',
+        log: _log(),
+      ),
+    };
+    for (final MapEntry(key: name, value: request) in buffered.entries) {
+      test('$name: the same gap, the same wait', () async {
+        final backend = _Backend(
+          loss: _Loss.beforeHeaders,
+          persisted: stored[name]!,
+        )..pendingReads = 1;
+        final svc = _service(backend);
+        final waiter = _FakeWaiter()..attach(svc);
+
+        final res = await waiter.run(() => request(svc));
+
+        expect(res, isNotNull);
+        expect(backend.functionCalls, 1);
+        expect(waiter.pauses, [const Duration(seconds: 3)]);
+      });
+    }
+
+    final deadlines = <String, Duration>{
+      'chat': CoachChatService.chatDeadline,
+      'recipe': CoachChatService.recipeDeadline,
+      'plan': CoachChatService.planDeadline,
+      'log': CoachChatService.workoutLogDeadline,
+    };
+    final requests = <String, Future<Object?> Function(CoachChatService)>{
+      'chat': (svc) => svc.send('How much protein?', sessionId: _sessionId),
+      ...buffered,
+    };
+    final questions = <String, String>{
+      'chat': 'How much protein?',
+      'recipe': 'Chickpea bowl',
+      'plan': 'Strength for beginners',
+      'log': 'today squats 1x8 100 kg',
+    };
+    for (final MapEntry(key: name, value: request) in requests.entries) {
+      test('$name: no answer by the request deadline, the error stands',
+          () async {
+        final backend = _Backend(
+          loss: _Loss.inBody,
+          sse: name == 'chat',
+          persisted: _exchange(question: questions[name]!, answer: 'never'),
+        )..pendingReads = 1 << 30;
+        final svc = _service(backend);
+        final waiter = _FakeWaiter()..attach(svc);
+
+        await expectLater(
+          waiter.run(() => request(svc)),
+          throwsA(isA<CoachChatException>().having(
+            (e) => e.message,
+            'message',
+            deL10n.coachErrorNoConnection,
+          )),
+        );
+        expect(
+          waiter.pauses.fold(Duration.zero, (a, b) => a + b),
+          deadlines[name],
+          reason: 'waits exactly up to the deadline, measured from the send',
+        );
+        expect(backend.historyReads, waiter.pauses.length + 1,
+            reason: 'one last check at the deadline');
+        expect(backend.functionCalls, 1);
+      });
+    }
+
+    test('a waiter that stops ends the wait with the error', () async {
+      final backend = _Backend(
+        loss: _Loss.inBody,
+        sse: true,
+        persisted: _exchange(
+          question: 'How much protein?',
+          answer: 'About 1.6 g per kilo.',
+        ),
+      )..pendingReads = 1 << 30;
+      final svc = _service(backend);
+      final waiter = _FakeWaiter(weiter: false)..attach(svc);
+
+      await expectLater(
+        waiter.run(() => svc.send('How much protein?', sessionId: _sessionId)),
+        throwsA(isA<CoachChatException>()),
+      );
+      expect(waiter.pauses, hasLength(1));
+      expect(backend.historyReads, 1);
+    });
+
+    test('offline: an unproven question opens no wait', () async {
+      final backend = _Backend(loss: _Loss.beforeHeaders, sse: true)
+        ..offline = true;
+      final svc = _service(backend);
+      final waiter = _FakeWaiter()..attach(svc);
+
+      await expectLater(
+        waiter.run(() => svc.send('How much protein?', sessionId: _sessionId)),
+        throwsA(isA<CoachChatException>()),
+      );
+      expect(waiter.pauses, isEmpty);
+      expect(backend.historyReads, 1);
+    });
+  });
+}
+
+/// Stands in for the screen's waiter: records each pause and moves a fake
+/// clock by it, so the deadline passes without real waiting.
+class _FakeWaiter implements CoachAnswerWaiter {
+  _FakeWaiter({this.weiter = true});
+
+  final bool weiter;
+  final List<Duration> pauses = <Duration>[];
+  DateTime _now = DateTime.now();
+
+  void attach(CoachChatService svc) => svc.answerWaiter = this;
+
+  Future<T> run<T>(Future<T> Function() request) =>
+      withClock(Clock(() => _now), request);
+
+  @override
+  Future<bool> pause(String sessionId, Duration interval) async {
+    pauses.add(interval);
+    _now = _now.add(interval);
+    return weiter;
+  }
 }
