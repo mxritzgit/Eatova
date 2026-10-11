@@ -3267,6 +3267,8 @@
   "foodDescribeTotal": "Gesamt",
   "foodDescribeEdit": "Bearbeiten",
   "foodDescribeEmpty": "Keine Lebensmittel mehr übrig. Bearbeite den Text, um neu zu beginnen.",
+  "foodDescribeZeroKcalHint": "Ohne Kalorienangabe lässt sich nichts eintragen. Tippe auf ein Lebensmittel und wähle ein Produkt aus der Datenbank oder ändere die Portion.",
+  "@foodDescribeZeroKcalHint": {"description": "Under the draft totals and as the disabled Add button's screen reader hint: the lines add up to 0 kcal that is not a measured zero, so nothing can be logged."},
   "foodDescribeLineRemoved": "{name} entfernt",
   "@foodDescribeLineRemoved": {"placeholders": {"name": {"type": "String"}}},
   "foodDescribeLineSaid": "Laut Beschreibung: „{amount}“",

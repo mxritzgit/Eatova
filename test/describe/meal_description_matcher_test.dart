@@ -318,6 +318,32 @@ void main() {
       expect(line.candidates.map((c) => c.barcode), [null, '1', '2']);
     });
 
+    test(
+      'ein gemessenes 0 bleibt Alternative und behaelt die Markierung',
+      () async {
+        final products = _FakeProducts({
+          'Wasser': _hits([_product('1', 'Wasser', brand: 'Volvic', kcal: 0)]),
+        });
+        final saved = MealAnalysisResult.fromOpenFoodFacts(
+          _off('2', 'Wasser', brand: 'Gerolsteiner', kcal: 0),
+          '2',
+        );
+        expect(saved.explicitZeroKcal, isTrue);
+        final line = (await _matcher(
+          products,
+          favorites: () => [_favorite(saved, day: 9)],
+        ).match(_meal([_food('Wasser', grams: 250, kcal: 0)]))).items.single;
+
+        expect(line.isEstimate, isTrue, reason: 'nie automatisch gewaehlt');
+        expect(line.candidates.map((c) => c.barcode), [null, '2', '1']);
+        expect(line.candidates.map((c) => c.explicitZeroKcal), [
+          false,
+          true,
+          true,
+        ], reason: 'das 0 der Schaetzung ist unbekannt');
+      },
+    );
+
     test('der Titel muss die Hauptwoerter der Suche tragen', () async {
       final products = _FakeProducts({
         'Toastbrot': _hits([_product('1', 'Butterkekse', kcal: 450)]),

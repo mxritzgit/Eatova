@@ -3199,6 +3199,8 @@
   "foodDescribeTotal": "Total",
   "foodDescribeEdit": "Edit",
   "foodDescribeEmpty": "No foods left. Edit the text to start over.",
+  "foodDescribeZeroKcalHint": "Nothing can be logged without a calorie value. Tap a food and pick a database product, or change the portion.",
+  "@foodDescribeZeroKcalHint": {"description": "Under the draft totals and as the disabled Add button's screen reader hint: the lines add up to 0 kcal that is not a measured zero, so nothing can be logged."},
   "foodDescribeLineRemoved": "{name} removed",
   "@foodDescribeLineRemoved": {"placeholders": {"name": {"type": "String"}}},
   "foodDescribeLineSaid": "As described: “{amount}”",

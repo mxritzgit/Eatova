@@ -31,6 +31,7 @@ class DraftCandidate {
     this.servingGrams,
     this.servingUnit,
     this.barcode,
+    this.explicitZeroKcal = false,
   });
 
   final DraftItemOrigin origin;
@@ -55,6 +56,11 @@ class DraftCandidate {
 
   /// Product barcode, for products and product favorites only.
   final String? barcode;
+
+  /// A 0 in [kcalPer100G] that is measured (water), as in
+  /// [MealAnalysisResult.explicitZeroKcal]. Never on the estimate: the
+  /// model's 0 means unknown.
+  final bool explicitZeroKcal;
 }
 
 /// One line of the draft: the described food, the chosen candidate and the
@@ -311,9 +317,19 @@ class MealDescriptionDraft {
   int get caloriesKcal =>
       items.fold<int>(0, (sum, item) => sum + item.caloriesKcal);
 
-  /// Whether [toResult] passes the log guards (`caloriesKcal > 0`). A draft
-  /// of only zero-energy lines (water) is not loggable, like a scan of it.
-  bool get isLoggable => items.isNotEmpty && caloriesKcal > 0;
+  /// Every line a measured 0 (a water product or favorite): logs as 0 kcal,
+  /// like the same product from search or barcode. One estimate's 0 is
+  /// unknown and keeps the draft out.
+  bool get isMeasuredZero =>
+      items.isNotEmpty &&
+      caloriesKcal == 0 &&
+      items.every((item) => item.selected.explicitZeroKcal);
+
+  /// Whether [toResult] passes the log guards (`caloriesKcal > 0`, or a
+  /// measured 0). A draft whose 0 kcal is the model's (water it read) is not
+  /// loggable, like a scan of it.
+  bool get isLoggable =>
+      items.isNotEmpty && (caloriesKcal > 0 || isMeasuredZero);
 
   MealDescriptionDraft replaceItem(int index, DraftFoodItem item) =>
       MealDescriptionDraft(
@@ -345,6 +361,7 @@ class MealDescriptionDraft {
   ///   estimate, not the chosen products.
   /// * Not marked adjusted: a fresh description is not a change to an
   ///   earlier result, so the portion line reads "N items · X g".
+  /// * A 0 kcal total is marked measured only when [isMeasuredZero].
   MealAnalysisResult toResult() {
     final summed = meal.base.adjustedToItems([
       for (final item in items) item.toComponent(),
@@ -367,6 +384,7 @@ class MealDescriptionDraft {
       sourceLabel: productBacked
           ? MealResultSource.openFoodFacts.code
           : MealResultSource.aiEstimate.code,
+      explicitZeroKcal: isMeasuredZero,
     );
   }
 
@@ -691,6 +709,8 @@ DraftCandidate? _favoriteCandidate(MealAnalysisResult result) {
     servingGrams: serving?.grams,
     servingUnit: serving?.unit,
     barcode: _nonEmpty(result.barcode),
+    // Only the measured-zero branch above yields a 0.
+    explicitZeroKcal: density == 0,
   );
 }
 
@@ -717,6 +737,7 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
     servingGrams: serving?.grams,
     servingUnit: serving?.unit,
     barcode: _nonEmpty(hit.code),
+    explicitZeroKcal: density == 0 && result.explicitZeroKcal,
   );
 }
 

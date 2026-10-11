@@ -351,5 +351,67 @@ void main() {
       expect(back.items.map((c) => c.name), result.items.map((c) => c.name));
       expect(back.sourceLabel, result.sourceLabel);
     });
+
+    // The model's 0 means unknown (B7) and stays out of the diary; a 0 the
+    // database measured (water) logs, as from search or barcode.
+    test('ein gemessenes 0 ist loggbar, ein geschaetztes nicht', () {
+      const water = DescribedFoodItem(
+        name: 'Wasser',
+        searchQuery: 'Wasser',
+        grams: 250,
+        gramsSource: DescribedGramsSource.estimated,
+        caloriesKcal: 0,
+        kcalPer100G: 0,
+      );
+      const tea = DescribedFoodItem(
+        name: 'Tee',
+        searchQuery: 'Tee',
+        grams: 200,
+        gramsSource: DescribedGramsSource.estimated,
+        caloriesKcal: 0,
+      );
+      const volvic = DraftCandidate(
+        origin: DraftItemOrigin.product,
+        title: 'Mineralwasser · Volvic',
+        brand: 'Volvic',
+        kcalPer100G: 0,
+        proteinPer100G: 0,
+        carbsPer100G: 0,
+        fatPer100G: 0,
+        barcode: '3057640117008',
+        explicitZeroKcal: true,
+      );
+      MealDescriptionDraft draftOf(List<DraftFoodItem> lines) =>
+          MealDescriptionDraft(
+            meal: _meal([for (final line in lines) line.described]),
+            items: lines,
+          );
+
+      final measured = draftOf([_line(water, volvic)]);
+      expect(measured.caloriesKcal, 0);
+      expect(measured.isLoggable, isTrue);
+      final result = measured.toResult();
+      expect(result.caloriesKcal, 0);
+      expect(result.explicitZeroKcal, isTrue);
+      // The add sheet's and the review sheet's guard.
+      expect(result.caloriesKcal > 0 || result.explicitZeroKcal, isTrue);
+      expect(
+        mealResultFromJson(mealResultToJson(result)).explicitZeroKcal,
+        isTrue,
+      );
+
+      final estimated = draftOf([_line(water)]);
+      expect(estimated.isLoggable, isFalse);
+      expect(estimated.toResult().explicitZeroKcal, isFalse);
+
+      final unknownTea = draftOf([_line(water, volvic), _line(tea)]);
+      expect(unknownTea.isLoggable, isFalse, reason: 'ein unbekanntes 0');
+      expect(unknownTea.toResult().explicitZeroKcal, isFalse);
+
+      final withToast = draftOf([_line(water, volvic), _line(_toast)]);
+      expect(withToast.isLoggable, isTrue);
+      expect(withToast.toResult().caloriesKcal, 130);
+      expect(withToast.toResult().explicitZeroKcal, isFalse);
+    });
   });
 }

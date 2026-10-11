@@ -10,8 +10,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/described_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
+import 'package:eatova/src/services/meal_description_matcher.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/meal_describe_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
@@ -39,6 +42,61 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
   await tester.tap(finder);
 }
+
+const _water = DescribedFoodItem(
+  name: 'Wasser',
+  searchQuery: 'Wasser',
+  grams: 250,
+  gramsSource: DescribedGramsSource.estimated,
+  caloriesKcal: 0,
+  kcalPer100G: 0,
+);
+
+/// The model's 0: unknown, never logged.
+const _waterEstimate = DraftCandidate(
+  origin: DraftItemOrigin.estimate,
+  title: 'Wasser',
+  kcalPer100G: 0,
+);
+
+/// The database's 0: measured.
+const _waterProduct = DraftCandidate(
+  origin: DraftItemOrigin.product,
+  title: 'Mineralwasser · Volvic',
+  brand: 'Volvic',
+  kcalPer100G: 0,
+  proteinPer100G: 0,
+  carbsPer100G: 0,
+  fatPer100G: 0,
+  barcode: '3057640117008',
+  explicitZeroKcal: true,
+);
+
+/// "Ein Glas Wasser": one line on the model's 0 kcal.
+MealDescriptionDraft _waterDraft() => const MealDescriptionDraft(
+  meal: DescribedMeal(
+    base: MealAnalysisResult(
+      mealName: 'Wasser',
+      caloriesKcal: 0,
+      estimatedGrams: 250,
+      kcalPer100G: 0,
+      protein: '0 g',
+      carbs: '0 g',
+      fat: '0 g',
+      confidence: 'high',
+      portionNotes: '',
+    ),
+    items: [_water],
+  ),
+  items: [
+    DraftFoodItem(
+      described: _water,
+      selected: _waterEstimate,
+      candidates: [_waterEstimate, _waterProduct],
+      grams: 250,
+    ),
+  ],
+);
 
 void main() {
   group('input', () {
@@ -371,6 +429,52 @@ void main() {
         tester.widget<SoftPillButton>(key('meal-describe-edit')).onTap,
         isNull,
       );
+    });
+
+    testWidgets('a 0 kcal draft says why Add is off; a measured 0 logs', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final h = DescribeHost();
+      h.matcher.draft = _waterDraft();
+      await openDescribe(tester, host: h);
+      await describe(tester, 'Ein Glas Wasser');
+      final l10n = l10nOf(tester);
+
+      expect(_plain(tester, key('meal-describe-total-kcal')), '0 kcal');
+      expect(enabled(tester, key('meal-describe-add')), isFalse);
+      expect(
+        tester.widget<Text>(key('meal-describe-zero-hint')).data,
+        l10n.foodDescribeZeroKcalHint,
+      );
+      expect(
+        tester.getSemantics(key('meal-describe-add')),
+        isSemantics(
+          isButton: true,
+          isEnabled: false,
+          hint: l10n.foodDescribeZeroKcalHint,
+        ),
+      );
+
+      // The database's measured 0 is a value: Add logs it.
+      await _openLine(tester, 0);
+      await tester.tap(key('describe-candidate-1'));
+      await tester.pump();
+      await _tapVisible(tester, key('describe-line-apply'));
+      await tester.pumpAndSettle();
+      expect(key('meal-describe-zero-hint'), findsNothing);
+      expect(enabled(tester, key('meal-describe-add')), isTrue);
+      expect(
+        tester.getSemantics(key('meal-describe-add')),
+        isNot(isSemantics(hint: l10n.foodDescribeZeroKcalHint)),
+      );
+
+      await _tapVisible(tester, key('meal-describe-add'));
+      await tester.pumpAndSettle();
+      expect(h.logged, hasLength(1));
+      expect(h.logged.single.result.caloriesKcal, 0);
+      expect(h.logged.single.result.explicitZeroKcal, isTrue);
+      semantics.dispose();
     });
 
     testWidgets('Add logs once with the chosen slot, also on a double tap', (
