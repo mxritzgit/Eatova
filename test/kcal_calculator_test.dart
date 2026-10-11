@@ -307,7 +307,7 @@ void main() {
       expect(t.floor, 1500);
       expect(t.floorApplied, isTrue);
       expect(t.effectivePaceLabel(), '−0,9 kg/Woche');
-      expect(t.paceWarning(), contains('1500 kcal statt 1400 kcal'));
+      expect(t.paceWarning(), contains('1.500 kcal statt 1.400 kcal'));
     });
 
     test('activity level scales maintenance via its PAL factor', () {

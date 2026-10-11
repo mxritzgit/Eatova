@@ -93,8 +93,10 @@ void main() {
     await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
 
     // Maintenance 2164, target 1350 (deficit capped at 825) → −0.75 kg/week.
-    expect(find.text('Erhaltung 2164 · −0,75 kg/Woche'), findsOneWidget);
-    expect(find.text('Erhaltung 2164 · −1 kg/Woche'), findsNothing);
+    expect(find.text('Erhaltung 2.164 · −0,75 kg/Woche'), findsOneWidget);
+    expect(find.text('Erhaltung 2.164 · −1 kg/Woche'), findsNothing);
+    // The hero number carries the thousands separator like Today and Food.
+    expect(find.text('1.350'), findsOneWidget);
   });
 
   testWidgets('Plan-Karte erklaert die Sicherheitsklemme in einem Satz',
@@ -106,11 +108,11 @@ void main() {
 
     // Maintenance 1578, target 1200 (raised from 950) → −0.35 kg/week. The
     // floor binds harder than the cap, so the sentence names the floor.
-    expect(find.text('Erhaltung 1578 · −0,35 kg/Woche'), findsOneWidget);
+    expect(find.text('Erhaltung 1.578 · −0,35 kg/Woche'), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-pace-warning')), findsOneWidget);
     expect(
       find.text(
-        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1.200 kcal statt '
         '950 kcal. Dein tatsächliches Tempo ist damit −0,35 kg/Woche statt '
         '−1 kg/Woche.',
       ),
@@ -142,7 +144,7 @@ void main() {
 
     // 2163.85 → 2150 kcal; −14 kcal/day is inside the 0.05 noise band.
     expect(find.byKey(const ValueKey('settings-pace-warning')), findsNothing);
-    expect(find.text('Erhaltung 2164 · Gewicht stabil'), findsOneWidget);
+    expect(find.text('Erhaltung 2.164 · Gewicht stabil'), findsOneWidget);
   });
 
   testWidgets('manuelles Tagesziel bestimmt das angezeigte Tempo',
@@ -156,7 +158,7 @@ void main() {
           .copyWith(dailyKcalGoal: 2500, manualEnergy: true),
     );
 
-    expect(find.text('Erhaltung 2164 · +0,3 kg/Woche'), findsOneWidget);
+    expect(find.text('Erhaltung 2.164 · +0,3 kg/Woche'), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-pace-warning')), findsNothing);
   });
 }

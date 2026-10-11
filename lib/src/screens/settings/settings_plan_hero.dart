@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import 'settings_controls.dart';
 
@@ -155,7 +156,7 @@ class SettingsPlanHero extends StatelessWidget {
                       spacing: 8,
                       children: <Widget>[
                         Text(
-                          '$kcal',
+                          formatThousands(kcal, l10n.localeName),
                           textScaler: numberScaler,
                           style: AppType.display(60, color: t.ink, height: 1),
                         ),

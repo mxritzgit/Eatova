@@ -995,7 +995,7 @@
   "commonKcalOutcomeLabel": "Results in {kcal} kcal/day · {paceLabel}",
   "@commonKcalOutcomeLabel": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },
@@ -1009,8 +1009,8 @@
   "commonPaceWarningFloor": "For safety, your daily goal is {floor} kcal instead of {uncapped} kcal. Your actual pace is {effectivePace} instead of {promisedPace}.",
   "@commonPaceWarningFloor": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1018,8 +1018,8 @@
   "commonPaceWarningCeiling": "Your daily goal is capped at {ceiling} kcal (the calculation would give {uncapped} kcal). Your actual pace is {effectivePace} instead of {promisedPace}.",
   "@commonPaceWarningCeiling": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1027,7 +1027,7 @@
   "commonPaceWarningDeficitCap": "We do not recommend losing more than 1% of your body weight per week: your deficit is limited to {cap} kcal/day. Your actual pace is {effectivePace} instead of {promisedPace}.",
   "@commonPaceWarningDeficitCap": {
     "placeholders": {
-      "cap": { "type": "int" },
+      "cap": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1035,16 +1035,16 @@
   "commonPaceWarningFloorStable": "For safety, your daily goal is {floor} kcal instead of {uncapped} kcal. That keeps your weight roughly stable instead of reaching {promisedPace}.",
   "@commonPaceWarningFloorStable": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
   "commonPaceWarningCeilingStable": "Your daily goal is capped at {ceiling} kcal (the calculation would give {uncapped} kcal). That keeps your weight roughly stable instead of reaching {promisedPace}.",
   "@commonPaceWarningCeilingStable": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
@@ -1232,7 +1232,7 @@
   "settingsPlanHeroMaintenance": "Maintenance {kcal} · {paceLabel}",
   "@settingsPlanHeroMaintenance": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },

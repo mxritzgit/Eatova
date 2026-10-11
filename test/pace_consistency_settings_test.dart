@@ -116,7 +116,7 @@ void main() {
     // Plan card in the same scroll: the 1 % cap allows only -825 instead of
     // -1100 kcal/day -> 1350 kcal (exactly on the floor); 2164 - 1350 = 814
     // ≙ -0.74 -> -0.75 kg/week on the grid.
-    expect(find.text('Erhaltung 2164 · −0,75 kg/Woche'), findsOneWidget);
+    expect(find.text('Erhaltung 2.164 · −0,75 kg/Woche'), findsOneWidget);
 
     // The control still shows the selection, or the user would see something
     // other than what they tapped.
@@ -133,7 +133,7 @@ void main() {
             find.byKey(const ValueKey('settings-weight-goal-effective')),
           )
           .data,
-      'Ergibt 1350 kcal/Tag · −0,75 kg/Woche',
+      'Ergibt 1.350 kcal/Tag · −0,75 kg/Woche',
     );
   });
 
@@ -145,7 +145,7 @@ void main() {
     // explaining line would be noise.
     await openSettings(tester, profile: autoProfil(WeightGoal.lose075kg));
 
-    expect(find.text('Erhaltung 2164 · −0,75 kg/Woche'), findsOneWidget);
+    expect(find.text('Erhaltung 2.164 · −0,75 kg/Woche'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('settings-weight-goal-effective')),
       findsNothing,
@@ -161,7 +161,7 @@ void main() {
     // line (which compares strings, not numbers) stays away.
     await openSettings(tester, profile: autoProfil(WeightGoal.lose05kg));
 
-    expect(find.text('Erhaltung 2164 · −0,5 kg/Woche'), findsOneWidget);
+    expect(find.text('Erhaltung 2.164 · −0,5 kg/Woche'), findsOneWidget);
     expect(find.text('−0,5 kg/Woche'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('settings-weight-goal-effective')),
@@ -179,27 +179,27 @@ void main() {
     // the same plan as the next one down (both 1350 kcal); the subtitle says
     // so BEFORE the selection.
     expect(
-      optionText('lose1kg', 'Ergibt 1350 kcal/Tag · −0,75 kg/Woche'),
+      optionText('lose1kg', 'Ergibt 1.350 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
     expect(
-      optionText('lose075kg', 'Ergibt 1350 kcal/Tag · −0,75 kg/Woche'),
+      optionText('lose075kg', 'Ergibt 1.350 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
 
     // Where neither cap nor clamp bites, the same line carries a different
     // number; the 50-kcal rounding vanishes in the label's 0.05 grid.
     expect(
-      optionText('lose05kg', 'Ergibt 1600 kcal/Tag · −0,5 kg/Woche'),
+      optionText('lose05kg', 'Ergibt 1.600 kcal/Tag · −0,5 kg/Woche'),
       findsOneWidget,
     );
     expect(
-      optionText('maintain', 'Ergibt 2150 kcal/Tag · Gewicht stabil'),
+      optionText('maintain', 'Ergibt 2.150 kcal/Tag · Gewicht stabil'),
       findsOneWidget,
     );
 
     // The uncapped kcal promise (WeightGoal.deltaLabel) is gone.
-    expect(find.text('−1100 kcal'), findsNothing);
+    expect(find.text('−1.100 kcal'), findsNothing);
     expect(find.text('−825 kcal'), findsNothing);
   });
 
@@ -216,15 +216,15 @@ void main() {
     // floor 1200; 1578 - 1200 = 378 ≙ -0.35 kg/week) — the subtitles say so
     // verbatim before the selection.
     expect(
-      optionText('lose1kg', 'Ergibt 1200 kcal/Tag · −0,35 kg/Woche'),
+      optionText('lose1kg', 'Ergibt 1.200 kcal/Tag · −0,35 kg/Woche'),
       findsOneWidget,
     );
     expect(
-      optionText('lose075kg', 'Ergibt 1200 kcal/Tag · −0,35 kg/Woche'),
+      optionText('lose075kg', 'Ergibt 1.200 kcal/Tag · −0,35 kg/Woche'),
       findsOneWidget,
     );
     expect(
-      optionText('lose05kg', 'Ergibt 1200 kcal/Tag · −0,35 kg/Woche'),
+      optionText('lose05kg', 'Ergibt 1.200 kcal/Tag · −0,35 kg/Woche'),
       findsOneWidget,
     );
   });
@@ -252,7 +252,7 @@ void main() {
             find.byKey(const ValueKey('settings-weight-goal-effective')),
           )
           .data,
-      'Ergibt 2500 kcal/Tag · +0,3 kg/Woche',
+      'Ergibt 2.500 kcal/Tag · +0,3 kg/Woche',
     );
 
     await openGoalPicker(tester);

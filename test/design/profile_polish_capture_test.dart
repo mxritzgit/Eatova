@@ -178,7 +178,7 @@ void main() {
           reason: 'the streak is the hero figure',
         );
         expect(find.text('412'), findsOneWidget);
-        expect(find.text('1221/2050'), findsOneWidget);
+        expect(find.text('1,221/2,050'), findsOneWidget);
         expect(find.text('6430/8000'), findsOneWidget);
         expect(find.text('Goal 76 kg'), findsOneWidget);
         // The plan's left pole says what it shows: the trend, with the last
@@ -204,6 +204,7 @@ void main() {
       final overflows = await collectOverflows(() async {
         await _pump(tester, _screen(), locale: const Locale('de'));
         expect(find.text('Ziel 76 kg'), findsOneWidget);
+        expect(find.text('1.221/2.050'), findsOneWidget);
         await captureDesignShot(tester, 'profile-de-00');
         await _scrollTo(tester, 640);
         await captureDesignShot(tester, 'profile-de-01');

@@ -460,7 +460,9 @@ class GoalPlanCard extends StatelessWidget {
                   dailyGoal: _PlanFigure(
                     icon: Icons.local_fire_department_rounded,
                     label: l10n.profilePlanChipDailyGoal,
-                    value: '${plan.dailyKcalGoal} kcal',
+                    value:
+                        '${formatThousands(plan.dailyKcalGoal, l10n.localeName)}'
+                        ' kcal',
                     valueColor: t.ink,
                   ),
                 ),

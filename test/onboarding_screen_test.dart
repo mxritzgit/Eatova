@@ -385,15 +385,15 @@ void main() {
       const UserProfile(weightGoal: WeightGoal.lose1kg, targetWeightKg: 68)
     );
 
-    expect(textOfKey(tester, 'onboarding-summary-kcal'), '1350');
+    expect(textOfKey(tester, 'onboarding-summary-kcal'), '1.350');
     expect(goalRowTexts(tester), ['Ziel · −0,75 kg/Woche', '−814 kcal']);
 
     // The promise must not appear as a commitment anywhere.
     expect(find.text('Ziel · −1 kg/Woche'), findsNothing);
-    expect(find.text('−1100 kcal'), findsNothing);
+    expect(find.text('−1.100 kcal'), findsNothing);
 
     // 2164 − 1350 = 814: the card adds up internally.
-    expect(textOfKey(tester, 'onboarding-summary-maintenance'), '2164 kcal');
+    expect(textOfKey(tester, 'onboarding-summary-maintenance'), '2.164 kcal');
 
     // Warning from KcalTargets.paceWarning: the deficit cap speaks here, not
     // the floor (floorApplied needs a real undercut). It names the deficit
@@ -459,7 +459,7 @@ void main() {
             'identischer Zahl.');
     // Forecast 55 → 48 kg: linear 7 / 0.3436 = 20.4 → 21 weeks, dynamic 26.
     expect(ambitioniert, [
-      '1200',
+      '1.200',
       'Ziel · −0,35 kg/Woche',
       '−378 kcal',
       '48 kg in ca. 21–26 Wochen erreichbar – anfangs schneller, später '
@@ -501,7 +501,7 @@ void main() {
     // commonPaceWarningFloorStable instead of the awkward pace phrasing.
     expect(
       textOfKey(tester, 'onboarding-summary-pace-warning'),
-      'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+      'Aus Sicherheitsgründen liegt dein Tagesziel bei 1.200 kcal statt '
       '950 kcal. Damit bleibt dein Gewicht praktisch stabil, statt '
       '−0,25 kg/Woche zu erreichen.',
     );
@@ -518,7 +518,7 @@ void main() {
       const UserProfile(weightGoal: WeightGoal.lose075kg, targetWeightKg: 68)
     );
 
-    expect(textOfKey(tester, 'onboarding-summary-kcal'), '1350');
+    expect(textOfKey(tester, 'onboarding-summary-kcal'), '1.350');
     expect(goalRowTexts(tester), ['Ziel · −0,75 kg/Woche', '−814 kcal']);
     expect(
       find.byKey(const ValueKey('onboarding-summary-pace-warning')),
@@ -561,25 +561,25 @@ void main() {
     // ambitious pace wants −1100 but the cap allows −825 → 1350 kcal ≙
     // −0.75 kg/week, stated before the choice, not only in the summary.
     expect(
-      paceOptionText('lose1kg', 'Ergibt 1350 kcal/Tag · −0,75 kg/Woche'),
+      paceOptionText('lose1kg', 'Ergibt 1.350 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
 
     // The brisk pace wants −825 and sits exactly on the cap: the same plan as
     // the ambitious one, and the subtitle says so.
     expect(
-      paceOptionText('lose075kg', 'Ergibt 1350 kcal/Tag · −0,75 kg/Woche'),
+      paceOptionText('lose075kg', 'Ergibt 1.350 kcal/Tag · −0,75 kg/Woche'),
       findsOneWidget,
     );
 
     // Where neither cap nor floor bites, the same line carries the numbers the
     // chosen pace really delivers, on the 0.05 grid.
     expect(
-      paceOptionText('lose05kg', 'Ergibt 1600 kcal/Tag · −0,5 kg/Woche'),
+      paceOptionText('lose05kg', 'Ergibt 1.600 kcal/Tag · −0,5 kg/Woche'),
       findsOneWidget,
     );
     expect(
-      paceOptionText('lose025kg', 'Ergibt 1900 kcal/Tag · −0,25 kg/Woche'),
+      paceOptionText('lose025kg', 'Ergibt 1.900 kcal/Tag · −0,25 kg/Woche'),
       findsOneWidget,
     );
 

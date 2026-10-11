@@ -1032,7 +1032,7 @@
   "commonKcalOutcomeLabel": "Ergibt {kcal} kcal/Tag · {paceLabel}",
   "@commonKcalOutcomeLabel": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },
@@ -1046,8 +1046,8 @@
   "commonPaceWarningFloor": "Aus Sicherheitsgründen liegt dein Tagesziel bei {floor} kcal statt {uncapped} kcal. Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
   "@commonPaceWarningFloor": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1055,8 +1055,8 @@
   "commonPaceWarningCeiling": "Dein Tagesziel ist bei {ceiling} kcal gedeckelt (rechnerisch wären es {uncapped} kcal). Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
   "@commonPaceWarningCeiling": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1064,7 +1064,7 @@
   "commonPaceWarningDeficitCap": "Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir nicht: Dein Defizit ist auf {cap} kcal/Tag begrenzt. Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
   "@commonPaceWarningDeficitCap": {
     "placeholders": {
-      "cap": { "type": "int" },
+      "cap": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1072,16 +1072,16 @@
   "commonPaceWarningFloorStable": "Aus Sicherheitsgründen liegt dein Tagesziel bei {floor} kcal statt {uncapped} kcal. Damit bleibt dein Gewicht praktisch stabil, statt {promisedPace} zu erreichen.",
   "@commonPaceWarningFloorStable": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
   "commonPaceWarningCeilingStable": "Dein Tagesziel ist bei {ceiling} kcal gedeckelt (rechnerisch wären es {uncapped} kcal). Damit bleibt dein Gewicht praktisch stabil, statt {promisedPace} zu erreichen.",
   "@commonPaceWarningCeilingStable": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
@@ -1283,7 +1283,7 @@
   "settingsPlanHeroMaintenance": "Erhaltung {kcal} · {paceLabel}",
   "@settingsPlanHeroMaintenance": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },

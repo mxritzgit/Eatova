@@ -116,7 +116,7 @@ void main() {
       final hinweis = t.paceWarning();
 
       expect(hinweis, isNotNull);
-      expect(hinweis, contains('1200'));
+      expect(hinweis, contains('1.200'));
       expect(hinweis, contains('950'));
       expect(hinweis, contains('0,35'));
       // The floor binds harder than the cap, so only the floor is named.
@@ -140,7 +140,7 @@ void main() {
       // so the warning names the floor, not the 1 % rule.
       expect(t.kcal, 1500);
       expect(t.floorApplied, isTrue);
-      expect(t.paceWarning(), contains('1500'));
+      expect(t.paceWarning(), contains('1.500'));
       expect(t.paceWarning(), isNot(contains('1 %')));
     });
 
@@ -189,7 +189,7 @@ void main() {
       expect(t.effectiveKcalDelta, -235);
       expect(t.effectiveWeeklyRateKg, lessThan(0));
       expect(t.matchesPromisedPace, isFalse);
-      expect(t.paceWarning(), contains('5000'));
+      expect(t.paceWarning(), contains('5.000'));
     });
 
     test('weeksToGoal liefert null, wenn die Richtung kippt', () {
@@ -250,7 +250,7 @@ void main() {
       // Its own sentence instead of the awkward pace phrasing.
       expect(
         t.paceWarning(),
-        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1.200 kcal statt '
         '950 kcal. Damit bleibt dein Gewicht praktisch stabil, statt '
         '−0,25 kg/Woche zu erreichen.',
       );
@@ -281,8 +281,8 @@ void main() {
       expect(aelter.effectivePaceLabel(), '+0,15 kg/Woche');
       expect(
         aelter.paceWarning(),
-        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
-        '1050 kcal. Dein tatsächliches Tempo ist damit +0,15 kg/Woche statt '
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1.200 kcal statt '
+        '1.050 kcal. Dein tatsächliches Tempo ist damit +0,15 kg/Woche statt '
         'Gewicht stabil.',
       );
     });
