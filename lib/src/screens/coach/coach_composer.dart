@@ -780,7 +780,8 @@ class _CoachInfoSheet extends StatelessWidget {
   }
 }
 
-/// Section heading in the info sheet.
+/// Section heading in the info sheet, announced as a level-2 heading under
+/// the sheet's title.
 class _InfoLabel extends StatelessWidget {
   const _InfoLabel(this.text);
 
@@ -789,9 +790,12 @@ class _InfoLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Text(
-      text,
-      style: AppType.ui(13.5, weight: FontWeight.w700, color: t.ink),
+    return HeadingSemantics(
+      level: 2,
+      child: Text(
+        text,
+        style: AppType.ui(13.5, weight: FontWeight.w700, color: t.ink),
+      ),
     );
   }
 }

@@ -192,6 +192,14 @@ void main() {
 
     expect(find.byKey(const ValueKey('coach-info-sheet')), findsOneWidget);
 
+    // The two section labels are headings for screen readers.
+    for (final label in ['Das schickt jede Frage mit', 'Coach-Limit']) {
+      final node = tester.getSemantics(find.text(label));
+      expect(node.label, label);
+      expect(node.flagsCollection.isHeader, isTrue, reason: label);
+      expect(node.headingLevel, 2, reason: label);
+    }
+
     // WHAT is sent: the four parts of home_store.coachContext.
     expect(find.textContaining('Gewicht'), findsAtLeastNWidgets(1));
     expect(find.textContaining('Kalorien'), findsAtLeastNWidgets(1));
