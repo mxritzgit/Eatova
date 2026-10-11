@@ -29,9 +29,11 @@ import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
 import '../support/design_capture.dart';
 import '../support/harness.dart';
+import '../support/text_layout.dart';
 
 final DateTime _now = DateTime(2026, 10, 2, 9, 30);
 
@@ -313,6 +315,27 @@ void main() {
             findsOneWidget);
       });
       expect(overflows, isEmpty, reason: describeOverflows(overflows));
+    });
+  });
+
+  // On a 320 px phone at 200 % text the half-width weight poles broke their
+  // eyebrows to "TARGE|T".
+  testWidgets('profile: the plan poles keep their labels whole at 320 px', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pump(tester, _screen(), textScale: 2.0);
+      tester.view.physicalSize =
+          Size(320, kDesignViewport.height) * kDesignPixelRatio;
+      await tester.pumpAndSettle();
+      final plan = find.byType(GoalPlanCard);
+      await tester.ensureVisible(plan);
+      await tester.pumpAndSettle();
+      for (final label in ['TREND', 'TARGET']) {
+        expectWholeWordsIn(tester, plan, label);
+      }
+      await captureDesignShot(tester, 'profile-plan-320-x2');
+      expect(tester.takeException(), isNull);
     });
   });
 }
