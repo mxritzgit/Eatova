@@ -118,16 +118,21 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
     ),
+    // The decision card's surface (EatovaDialog sets the same values itself):
+    // the sheets' `lineStrong` edge, no tint.
     dialogTheme: DialogThemeData(
       backgroundColor: t.surf,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rSheet),
-        side: BorderSide(color: t.line),
+        side: BorderSide(color: t.lineStrong),
       ),
       titleTextStyle: AppType.display(20, weight: FontWeight.w700, color: t.ink),
       contentTextStyle: AppType.ui(13.5, color: t.ink2, height: 1.45),
     ),
+    // Overflow menus: rows come from `MenuRow`; the label style is the net
+    // for a plain item, so none falls back to Material's labelLarge. Menus
+    // open under their anchor and the trigger glyph is a quiet `ink2`.
     popupMenuTheme: PopupMenuThemeData(
       color: t.surf,
       surfaceTintColor: Colors.transparent,
@@ -135,6 +140,26 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(rCard),
         side: BorderSide(color: t.line),
       ),
+      textStyle: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+      labelTextStyle: WidgetStatePropertyAll(
+        AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+      ),
+      menuPadding: const EdgeInsets.symmetric(vertical: 6),
+      position: PopupMenuPosition.under,
+      iconColor: t.ink2,
+    ),
+    // Long-press labels: the selection language's inverse pair (`ink` chip,
+    // `bg` text) on the radius scale, instead of Material's 4 px bubble in
+    // an unvetted `inverseSurface`.
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: t.ink,
+        borderRadius: BorderRadius.circular(rChip),
+      ),
+      textStyle: AppType.ui(12.5, weight: FontWeight.w600, color: t.bg),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      waitDuration: const Duration(milliseconds: 400),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: t.accent,

@@ -366,21 +366,21 @@ class _TrainingScreenState extends State<TrainingScreen> {
     }
   }
 
-  /// A popup menu anchored at [anchor] (the tapped control).
+  /// A popup menu that opens under [anchor] (the tapped control), like every
+  /// [PopupMenuButton] (`PopupMenuPosition.under`); Material shifts it up to
+  /// stay on screen when the space below is too short.
   Future<T?> _menu<T>(BuildContext anchor, List<PopupMenuEntry<T>> items) {
     final box = anchor.findRenderObject()! as RenderBox;
     final overlay =
         Navigator.of(anchor).overlay!.context.findRenderObject()! as RenderBox;
+    final bottomLeft = box.localToGlobal(
+      box.size.bottomLeft(Offset.zero),
+      ancestor: overlay,
+    );
     return showMenu<T>(
       context: anchor,
       position: RelativeRect.fromRect(
-        Rect.fromPoints(
-          box.localToGlobal(Offset.zero, ancestor: overlay),
-          box.localToGlobal(
-            box.size.bottomRight(Offset.zero),
-            ancestor: overlay,
-          ),
-        ),
+        Rect.fromLTWH(bottomLeft.dx, bottomLeft.dy, box.size.width, 0),
         Offset.zero & overlay.size,
       ),
       items: items,
@@ -407,27 +407,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 '${l10n.trainingPageWorkoutNumber(i + 1)}: '
                 '${plan.workouts[i].title}',
             excludeSemantics: true,
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 24,
-                  child: i == shown
-                      ? Icon(Icons.check_rounded, size: 20, color: t.accentText)
-                      : null,
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    plan.workouts[i].title,
-                    style: AppType.ui(
-                      15,
-                      weight: FontWeight.w600,
-                      color: t.ink,
-                      height: kTrainingLine,
-                    ),
-                  ),
-                ),
-              ],
+            child: MenuRow(
+              icon: i == shown ? Icons.check_rounded : null,
+              iconColor: t.accentText,
+              label: plan.workouts[i].title,
             ),
           ),
         ),
@@ -460,14 +443,18 @@ class _TrainingScreenState extends State<TrainingScreen> {
       (entry) => entry.id == plan.id,
     );
     final action = await _menu<String>(anchor, [
-      PopupMenuItem(value: 'edit', child: Text(l10n.trainingPageEdit)),
-      PopupMenuItem(
+      eatovaMenuItem(
+        value: 'edit',
+        icon: Icons.edit_outlined,
+        label: l10n.trainingPageEdit,
+      ),
+      eatovaMenuItem(
         value: 'delete',
-        child: Text(
-          conflict
-              ? l10n.trainingAdoptionDiscardAction
-              : l10n.trainingPageDelete,
-        ),
+        icon: Icons.delete_outline_rounded,
+        label: conflict
+            ? l10n.trainingAdoptionDiscardAction
+            : l10n.trainingPageDelete,
+        destructive: true,
       ),
     ]);
     if (!mounted) return;

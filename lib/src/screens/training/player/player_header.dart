@@ -59,11 +59,14 @@ class PlayerHeader extends StatelessWidget {
         style: AppType.ui(14, weight: FontWeight.w800),
       ),
     );
+    // The app's overflow menu: MenuRow entries that open under the trigger.
+    // Discard only tints its glyph; the decision card that follows carries
+    // the red action.
     final menu = PopupMenuButton<String>(
       key: const ValueKey('training-timer-menu'),
       tooltip: l.trainingTimerMenu,
       enabled: enabled,
-      icon: const Icon(Icons.more_vert_rounded),
+      icon: const Icon(Icons.more_horiz_rounded),
       onSelected: (value) => switch (value) {
         'pause' => onPause?.call(),
         'resume' => onResume?.call(),
@@ -71,24 +74,25 @@ class PlayerHeader extends StatelessWidget {
       },
       itemBuilder: (context) => [
         if (onPause != null)
-          PopupMenuItem(
+          eatovaMenuItem(
             key: const ValueKey('training-timer-pause'),
             value: 'pause',
-            child: Text(l.trainingTimerPause),
+            icon: Icons.pause_rounded,
+            label: l.trainingTimerPause,
           ),
         if (onResume != null)
-          PopupMenuItem(
+          eatovaMenuItem(
             key: const ValueKey('training-timer-resume'),
             value: 'resume',
-            child: Text(l.trainingTimerResume),
+            icon: Icons.play_arrow_rounded,
+            label: l.trainingTimerResume,
           ),
-        PopupMenuItem(
+        eatovaMenuItem(
           key: const ValueKey('training-timer-discard'),
           value: 'discard',
-          child: Text(
-            l.trainingTimerDiscard,
-            style: TextStyle(color: t.danger),
-          ),
+          icon: Icons.delete_outline_rounded,
+          label: l.trainingTimerDiscard,
+          destructive: true,
         ),
       ],
     );

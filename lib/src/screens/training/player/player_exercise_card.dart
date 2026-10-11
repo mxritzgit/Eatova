@@ -134,20 +134,23 @@ class PlayerExerciseCard extends StatelessWidget {
               _ => actions.skipExercise(),
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
+              eatovaMenuItem(
                 key: const ValueKey('training-timer-skip-set'),
                 value: 'skip-set',
-                child: Text(l.trainingTimerNextSet),
+                icon: Icons.skip_next_rounded,
+                label: l.trainingTimerNextSet,
               ),
-              PopupMenuItem(
+              eatovaMenuItem(
                 key: const ValueKey('training-timer-complete-remaining'),
                 value: 'complete-remaining',
-                child: Text(l.trainingTimerCompleteRemaining(remaining)),
+                icon: Icons.done_all_rounded,
+                label: l.trainingTimerCompleteRemaining(remaining),
               ),
-              PopupMenuItem(
+              eatovaMenuItem(
                 key: const ValueKey('training-timer-skip-exercise'),
                 value: 'skip-exercise',
-                child: Text(l.trainingTimerSkipExercise),
+                icon: Icons.redo_rounded,
+                label: l.trainingTimerSkipExercise,
               ),
             ],
           )
