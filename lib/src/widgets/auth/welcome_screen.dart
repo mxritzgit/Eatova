@@ -23,9 +23,8 @@ import '../shared/eatova_wordmark.dart';
 ///  * fresh login: the ring is revealed first (it follows the auth screen,
 ///    not the native splash), and after the lock-in a short greeting holds.
 ///
-/// Colours are mode tokens (`bg`, `ink`, `inkMuted`, `accent`): in the dark
-/// palette `bg` is the native launch colour #09090C, and the light palette's
-/// pairs keep the mark and greeting readable should light mode return.
+/// Colours are mode tokens (`bg`, `ink`, `inkMuted`, `accent`); the native
+/// launch screens on both platforms use the same `bg` and `accent` per OS mode.
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
     super.key,

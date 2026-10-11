@@ -4,11 +4,13 @@
 // nothing else would notice it, because native resources are invisible to
 // widget tests. These checks read the resources straight from the project.
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/auth/welcome_screen.dart';
@@ -26,12 +28,42 @@ Color _androidColor(String name, {required String dir}) {
   return Color(int.parse('FF${match!.group(1)}', radix: 16));
 }
 
+/// The asset-catalog entries of [set], keyed by appearance: `any` for the
+/// entry without one, otherwise the luminosity value (`dark`).
+Map<String, List<Map<String, Object?>>> _byAppearance(
+  String set,
+  String list,
+) {
+  final json = jsonDecode(_read('$_ios/Assets.xcassets/$set/Contents.json'))
+      as Map<String, Object?>;
+  final result = <String, List<Map<String, Object?>>>{};
+  final entries = (json[list] as List<Object?>).cast<Map<String, Object?>>();
+  for (final entry in entries) {
+    final appearances = (entry['appearances'] as List<Object?>?) ?? const [];
+    final key = appearances.isEmpty
+        ? 'any'
+        : (appearances.single as Map<String, Object?>)['value'] as String;
+    result.putIfAbsent(key, () => []).add(entry);
+  }
+  return result;
+}
+
+Color _catalogColor(Map<String, Object?> entry) {
+  final color = entry['color'] as Map<String, Object?>;
+  expect(color['color-space'], 'srgb');
+  final c = color['components'] as Map<String, Object?>;
+  int channel(String name) => int.parse(
+        (c[name] as String).replaceFirst('0x', ''),
+        radix: 16,
+      );
+  expect(c['alpha'], '1.000');
+  return Color.fromARGB(255, channel('red'), channel('green'), channel('blue'));
+}
+
 void main() {
   const size = WelcomeScreen.launchMarkSize;
-  // iOS keeps one dark launch screen (a light variant needs a named colour
-  // and a second LaunchImage in the Xcode project); Android resolves per OS
-  // mode, like the app's default `ThemeMode.system`.
-  final page = AppTokens.dark.bg;
+  // Both platforms resolve per OS mode, like the app's default
+  // `ThemeMode.system`.
 
   test('Android: Startfarbe und Ringfarbe sind die Flutter-Tokens je Modus',
       () {
@@ -109,32 +141,76 @@ void main() {
     expect(icon, contains('V${144 + size ~/ 2}H'));
   });
 
-  test('iOS: Storyboard-Grund ist der Seitengrund, LaunchImage 80 pt', () {
+  test('iOS: Seitengrund je Modus als benannte Farbe', () {
+    final colors = _byAppearance('LaunchBackground.colorset', 'colors');
+    expect(colors.keys, unorderedEquals(['any', 'dark']));
+    expect(_catalogColor(colors['any']!.single), AppTokens.light.bg);
+    expect(_catalogColor(colors['dark']!.single), AppTokens.dark.bg);
+  });
+
+  // Main.storyboard: the ground behind the FlutterViewController, visible
+  // during the UIScene relayout on resume.
+  for (final name in ['LaunchScreen', 'Main']) {
+    test('iOS: $name.storyboard nutzt den benannten Seitengrund', () {
+      final storyboard = _read('$_ios/Base.lproj/$name.storyboard');
+      expect(
+        storyboard,
+        contains('<color key="backgroundColor" name="LaunchBackground"/>'),
+      );
+      expect(
+        storyboard,
+        isNot(contains('<color key="backgroundColor" red=')),
+        reason: 'a fixed colour cannot follow the OS mode',
+      );
+      expect(
+        storyboard,
+        contains('<capability name="Named colors" minToolsVersion="9.0"/>'),
+      );
+      expect(storyboard, contains('<namedColor name="LaunchBackground">'));
+    });
+  }
+
+  test('iOS: LaunchImage 80 pt, Ring je Modus in der Akzentfarbe', () {
     final storyboard = _read('$_ios/Base.lproj/LaunchScreen.storyboard');
-    final bg = RegExp(
-      r'<color key="backgroundColor" red="([0-9.]+)" green="([0-9.]+)" '
-      r'blue="([0-9.]+)" alpha="1" colorSpace="custom" '
-      r'customColorSpace="sRGB"/>',
-    ).firstMatch(storyboard);
-    expect(bg, isNotNull);
-    int channel(int i) => (double.parse(bg!.group(i)!) * 255).round();
-    expect(Color.fromARGB(255, channel(1), channel(2), channel(3)), page);
     expect(
       storyboard,
       contains('<image name="LaunchImage" width="80" height="80"/>'),
     );
-    for (final (name, scale) in [
-      ('LaunchImage.png', 1),
-      ('LaunchImage@2x.png', 2),
-      ('LaunchImage@3x.png', 3),
+    final images = _byAppearance('LaunchImage.imageset', 'images');
+    expect(images.keys, unorderedEquals(['any', 'dark']));
+    for (final (mode, t) in <(String, AppTokens)>[
+      ('any', AppTokens.light),
+      ('dark', AppTokens.dark),
     ]) {
-      final bytes = File(
-        '$_ios/Assets.xcassets/LaunchImage.imageset/$name',
-      ).readAsBytesSync();
-      // PNG IHDR: width and height as big-endian ints at bytes 16 and 20.
-      final header = ByteData.sublistView(bytes, 16, 24);
-      expect(header.getUint32(0), size * scale, reason: name);
-      expect(header.getUint32(4), size * scale, reason: name);
+      expect(
+        images[mode]!.map((e) => e['scale']),
+        unorderedEquals(['1x', '2x', '3x']),
+        reason: mode,
+      );
+      for (final entry in images[mode]!) {
+        final name = entry['filename']! as String;
+        final scale = int.parse((entry['scale']! as String)[0]);
+        final bytes = File(
+          '$_ios/Assets.xcassets/LaunchImage.imageset/$name',
+        ).readAsBytesSync();
+        // PNG IHDR: width and height as big-endian ints at bytes 16 and 20.
+        final header = ByteData.sublistView(bytes, 16, 24);
+        expect(header.getUint32(0), size * scale, reason: name);
+        expect(header.getUint32(4), size * scale, reason: name);
+        // The centre dot is fully covered, so its pixel is the ring colour.
+        final png = img.decodePng(bytes)!;
+        final centre = png.getPixel(png.width ~/ 2, png.height ~/ 2);
+        expect(
+          Color.fromARGB(
+            centre.a.toInt(),
+            centre.r.toInt(),
+            centre.g.toInt(),
+            centre.b.toInt(),
+          ),
+          t.accent,
+          reason: name,
+        );
+      }
     }
   });
 }
