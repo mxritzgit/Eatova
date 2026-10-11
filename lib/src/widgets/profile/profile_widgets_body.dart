@@ -770,19 +770,16 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
             ],
             const SizedBox(height: 16),
             Semantics(
-              // Same pattern as the goals page: PrimaryActionButton cannot
-              // express "disabled" itself.
+              // Same pattern as the goals page. The button dims itself when
+              // locked; an Opacity on top would dim it twice.
               button: true,
               enabled: !gesperrt,
-              child: Opacity(
-                opacity: gesperrt ? 0.4 : 1,
-                child: PrimaryActionButton(
-                  key: const ValueKey('profile-weight-save'),
-                  label: l10n.commonSave,
-                  icon: Icons.check_rounded,
-                  height: 50,
-                  onTap: gesperrt ? null : _save,
-                ),
+              child: PrimaryActionButton(
+                key: const ValueKey('profile-weight-save'),
+                label: l10n.commonSave,
+                icon: Icons.check_rounded,
+                height: 50,
+                onTap: gesperrt ? null : _save,
               ),
             ),
           ],
