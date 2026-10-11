@@ -380,6 +380,8 @@ enum SheetFieldShape {
 /// 1.09:1 dark) and focus even moved the fill closer to the panel. It rests
 /// on `bg` (1.16:1 light, 1.43:1 dark against the panel) and focuses to
 /// `surf`, one step lighter in both palettes like the field/fieldFocus step.
+/// An error tints `surf` with `danger` (20 %), a clear step from rest and
+/// focus in both palettes with the hint still above 4.5:1.
 class FieldCapsule extends StatefulWidget {
   const FieldCapsule({
     super.key,
@@ -467,8 +469,10 @@ class _FieldCapsuleState extends State<FieldCapsule> {
     final fill = widget.onBrand
         ? widget.error
               // fieldError is ~1.0:1 on the panel; the danger line under the
-              // field carries the message, the tint marks the field.
-              ? Color.alphaBlend(t.danger.withValues(alpha: 0.12), t.bg)
+              // field carries the message, the tint marks the field. Over
+              // surf, not bg: 12 % on the near-black dark bg stayed a dark
+              // well (1.16:1 to rest); 20 % on surf reads red in both modes.
+              ? Color.alphaBlend(t.danger.withValues(alpha: 0.2), t.surf)
               : focused
               ? t.surf
               : t.bg

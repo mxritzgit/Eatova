@@ -160,9 +160,15 @@ void main() {
       expect(capsule.border, isNull);
       expect(
         capsule.color,
-        Color.alphaBlend(t.danger.withValues(alpha: 0.12), t.bg),
+        Color.alphaBlend(t.danger.withValues(alpha: 0.2), t.surf),
         reason: 'Fehler schlägt Fokus',
       );
+      // 12 % danger on the dark bg stayed a near-black well, 1.16:1 to the
+      // resting field and 1.08:1 to the focused one (review 2026-10-11):
+      // only the line below marked the error.
+      expect(_kontrast(capsule.color!, t.bg), greaterThan(1.2));
+      expect(_kontrast(capsule.color!, t.surf), greaterThan(1.2));
+      expect(_kontrast(t.ink2, capsule.color!), greaterThanOrEqualTo(4.5));
       expect(find.textContaining('1'), findsWidgets);
       final errorText = find.text(
         AppLocalizations.of(tester.element(grams))
