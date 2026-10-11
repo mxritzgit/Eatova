@@ -2590,6 +2590,14 @@
       }
     }
   },
+  "trainingHistorySetSecondsLabel": "{seconds, plural, one{1 Sekunde} other{{seconds} Sekunden}}",
+  "@trainingHistorySetSecondsLabel": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "trainingHistoryStarted": "Aufzeichnung ab: {date}",
   "@trainingHistoryStarted": {
     "placeholders": {

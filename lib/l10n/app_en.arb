@@ -2540,6 +2540,15 @@
       }
     }
   },
+  "trainingHistorySetSecondsLabel": "{seconds, plural, one{1 second} other{{seconds} seconds}}",
+  "@trainingHistorySetSecondsLabel": {
+    "description": "Spoken value of a completed timed set in the workout detail.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "trainingHistoryStarted": "Recorded from: {date}",
   "@trainingHistoryStarted": {
     "placeholders": {

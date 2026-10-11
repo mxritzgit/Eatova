@@ -582,23 +582,26 @@ class _ExerciseCard extends StatelessWidget {
     } else {
       final reps = actual.reps;
       final seconds = exercise.durationSeconds;
+      // A timed set shows and speaks its interval; a weight stays beside it.
+      final (timed, timedSpoken) = seconds == null
+          ? (l.trainingHistoryTimed, l.trainingHistoryTimed)
+          : (
+              l.trainingHistorySetSeconds(seconds),
+              l.trainingHistorySetSecondsLabel(seconds),
+            );
       value = switch ((reps, weight)) {
         (final reps?, final weight?) => l.trainingHistorySetRepsWeight(
           reps,
           weight,
         ),
         (final reps?, null) => l.trainingHistoryRepsValue(reps),
-        (null, final weight?) when seconds != null =>
-          '${l.trainingHistorySetSeconds(seconds)} · '
-              '${l.trainingHistoryWeightValue(weight)}',
-        (null, _) when seconds != null => l.trainingHistorySetSeconds(seconds),
-        (null, _) => l.trainingHistoryTimed,
+        (null, final weight?) =>
+          '$timed · ${l.trainingHistoryWeightValue(weight)}',
+        (null, null) => timed,
       };
       spoken = l.trainingHistorySetValue(
         set + 1,
-        reps == null
-            ? l.trainingHistoryTimed
-            : l.trainingHistoryRepsValue(reps),
+        reps == null ? timedSpoken : l.trainingHistoryRepsValue(reps),
         weight == null
             ? l.trainingActualNoWeight
             : l.trainingHistoryWeightValue(weight),

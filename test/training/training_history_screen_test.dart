@@ -703,6 +703,59 @@ void main() {
       expect(find.textContaining('training plan stays saved'), findsOneWidget);
     });
 
+    testWidgets('a timed set shows and speaks its interval and its weight', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      // Full body: Hold (2 × 30 s), then Squats (2 × 12).
+      final entry = buildPlanAttachedLog(
+        historyId: id,
+        plan: timerPlan(),
+        workoutIndex: 0,
+        sets: const [
+          [
+            PlanAttachedSet(done: true, weightKg: 10),
+            PlanAttachedSet(done: true),
+          ],
+          [
+            PlanAttachedSet(done: true, reps: 12, weightKg: 40),
+            PlanAttachedSet(done: false),
+          ],
+        ],
+        performedOn: DateTime(2026, 10, 1),
+        now: now,
+      );
+      await withClock(
+        Clock.fixed(now),
+        () => _host(
+          tester,
+          TrainingHistoryDetail(
+            entry: entry,
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+        ),
+      );
+      final rows = {
+        'training-history-set-0-0': ('30 s · 10 kg', 'Set 1: 30 seconds · 10 kg'),
+        'training-history-set-0-1': (
+          '30 s',
+          'Set 2: 30 seconds · Weight not recorded',
+        ),
+        'training-history-set-1-0': ('12 × 40 kg', 'Set 1: 12 reps · 40 kg'),
+        'training-history-set-1-1': ('–', 'Set 2: skipped'),
+      };
+      for (final MapEntry(key: key, value: (shown, spoken)) in rows.entries) {
+        final row = find.byKey(ValueKey(key));
+        expect(
+          find.descendant(of: row, matching: find.text(shown)),
+          findsOneWidget,
+          reason: key,
+        );
+        expect(tester.getSemantics(row).label, spoken, reason: key);
+      }
+      semantics.dispose();
+    });
+
     testWidgets('a played workout without a duration is not tagged Logged', (
       tester,
     ) async {
