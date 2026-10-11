@@ -234,10 +234,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
   }
 
+  /// Without [awaitDelivery] the call returns after the local commit; replay
+  /// still starts, and the result reports the queue right after the commit.
   Future<SyncDelivery> _commitSyncIntents(
     List<SyncOp> intents, {
     VoidCallback? publish,
     bool notifyQueued = true,
+    bool awaitDelivery = true,
     String? retireTrainingSessionId,
     String? replacingTrainingAdoption,
     String? expectedTrainingDraftOperationId,
@@ -275,7 +278,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     await commit;
     if (sync == null) return SyncDelivery.delivered;
     // Publication follows COMMIT. Delivery is independent of UI durability.
-    await _replayOutbox().timeout(kSyncDeliveryWindow, onTimeout: () {});
+    if (awaitDelivery) {
+      await _replayOutbox().timeout(kSyncDeliveryWindow, onTimeout: () {});
+    } else {
+      unawaited(_replayOutbox());
+    }
     _ensureMutationActive();
     final pending = _outbox.map((op) => op.operationId).toSet();
     final delivery = intents.any((op) => pending.contains(op.operationId))

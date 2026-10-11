@@ -53,22 +53,22 @@ mixin _HomeStoreMealPlanPart
   Future<SyncDelivery> removePlannedMeal(PlannedMeal plan) =>
       savePlannedMeal(plan.copyWith(removed: true));
 
-  Future<SyncDelivery> setShoppingChecked(ShoppingCheck check) =>
-      _serializeMealPlan(() async {
-        _ensureMealPlanActive();
-        final validated = ShoppingCheck.fromJson(check.toJson());
-        return _commitSyncIntents(
-          [SyncOp.shoppingCheck(validated)],
-          notifyQueued: false,
-          publish: () {
-            _shoppingChecks = {
-              ..._shoppingChecks,
-              validated.id: validated.checked,
-            };
-            _mealPlansVersion++;
-          },
-        );
-      });
+  /// A tick reads no plan state, so it skips the plan queue, and it returns
+  /// once committed: the receipt shows no delivery feedback, and waiting for
+  /// one tick's delivery would hold back the next one.
+  Future<SyncDelivery> setShoppingChecked(ShoppingCheck check) async {
+    _ensureMealPlanActive();
+    final validated = ShoppingCheck.fromJson(check.toJson());
+    return _commitSyncIntents(
+      [SyncOp.shoppingCheck(validated)],
+      notifyQueued: false,
+      awaitDelivery: false,
+      publish: () {
+        _shoppingChecks = {..._shoppingChecks, validated.id: validated.checked};
+        _mealPlansVersion++;
+      },
+    );
+  }
 
   /// One outbox intent owns the recipe snapshot, conversion receipt, diary row
   /// and server counters. Subsequent diary changes follow this UUID in FIFO.
