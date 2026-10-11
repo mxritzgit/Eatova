@@ -1,3 +1,4 @@
+import { clipUtf16 } from '../_shared/text_clip.ts';
 import type { RecipeSource, SourceContent } from './source.ts';
 import { type NutritionField, sourcedNutrition } from './nutrition.ts';
 import { completeNutritionEvidence } from './nutrition_source.ts';
@@ -54,7 +55,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 function label(value: unknown, max: number): string {
-  return typeof value === 'string' ? value.trim().replace(/\p{Cc}/gu, ' ').slice(0, max) : '';
+  return typeof value === 'string' ? clipUtf16(value.trim().replace(/\p{Cc}/gu, ' '), max) : '';
 }
 
 function quote(value: unknown, source: string, max: number): string {

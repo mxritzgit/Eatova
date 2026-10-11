@@ -1,4 +1,5 @@
 import { readProviderBody } from '../_shared/provider_body.ts';
+import { clipUtf16 } from '../_shared/text_clip.ts';
 import { pageCaption } from './tiktok_page.ts';
 
 export interface RecipeSource {
@@ -139,17 +140,18 @@ export async function loadSource(text: string, signal: AbortSignal): Promise<Sou
     }
     if (!caption) return result;
     // The app rejects the whole response for a C0 control in any text field.
-    const inert = (value: string) => [...value].filter((char) => {
+    // Upstream may cut an emoji itself; a lone surrogate becomes U+FFFD.
+    const inert = (value: string) => [...value.toWellFormed()].filter((char) => {
       const code = char.charCodeAt(0);
       return code !== 127 && (code >= 32 || code === 9 || code === 10 || code === 13);
     }).join('');
     caption = inert(caption);
     author = inert(author).trim();
-    result.source.title = caption.slice(0, 160);
-    if (author) result.source.author = author.slice(0, 160);
+    result.source.title = clipUtf16(caption, 160);
+    if (author) result.source.author = clipUtf16(author, 160);
     result.source.unavailable = false;
     const combined = sharedText ? `${sharedText}\n\n${caption}` : caption;
-    result.text = combined.slice(0, MAX_SOURCE_CHARS);
+    result.text = clipUtf16(combined, MAX_SOURCE_CHARS);
     result.truncated = combined.length > MAX_SOURCE_CHARS || /(?:\u2026|\.\.\.)$/.test(caption);
     result.incomplete = false;
   } catch {

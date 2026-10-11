@@ -39,6 +39,7 @@ import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
 import { loggableFinishReason } from "../_shared/provider_log.ts";
 import { pruneRateLimits } from "../_shared/rate_limit_prune.ts";
+import { clipUtf16 } from "../_shared/text_clip.ts";
 import {
   cachedSystem,
   CLAUDE_MAX_IMAGE_EDGE_PX,
@@ -2254,7 +2255,8 @@ async function maybeAutoTitle(
 ): Promise<void> {
   const trimmed = firstUserMessage.trim().replace(/\s+/g, " ");
   if (trimmed.length === 0) return;
-  const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
+  // Never half an emoji: PostgREST rejects a lone surrogate in the body.
+  const title = trimmed.length > 40 ? `${clipUtf16(trimmed, 40)}…` : trimmed;
   // ONE conditional PATCH instead of the old GET+PATCH: the title=in. filter
   // makes the write a DB-side no-op while the session carries a custom title,
   // which saves a round-trip per message (the GET was pure overhead from the

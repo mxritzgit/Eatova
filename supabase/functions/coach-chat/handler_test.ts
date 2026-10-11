@@ -1989,6 +1989,24 @@ Deno.test("Auto-Titel: ein konditionaler PATCH mit user_id-Filter, kein Lese-GET
   }
 });
 
+Deno.test("SEC-1: Auto-Titel zerschneidet kein Emoji", async () => {
+  // PostgREST rejects a PATCH body with a lone surrogate, so the session kept
+  // its default title whenever unit 40 was the first half of an emoji.
+  const stub = installFetch({});
+  try {
+    const res = await handleRequest(makeRequest({ message: "x".repeat(39) + "💪 Wie viel Protein?" }));
+    assertEquals(res.status, 200, "Status");
+    const patches = stub.callsTo("/rest/v1/chat_sessions").filter((call) => call.method === "PATCH");
+    assertEquals(patches.length, 1, "Auto-Titel-PATCH");
+    assert(!/\\ud[89ab]/i.test(patches[0].body), `halbes Emoji im PATCH-Body: ${patches[0].body}`);
+    const title = String((JSON.parse(patches[0].body) as JsonRecord).title);
+    assert(title.isWellFormed(), "Titel ist wohlgeformt");
+    assertEquals(title, `${"x".repeat(39)}…`, "vor dem Emoji gekappt");
+  } finally {
+    stub.restore();
+  }
+});
+
 Deno.test("PERF: loadHistory projiziert nur role,content,refusal", async () => {
   // Without the projection PostgREST ships every column — including up to
   // 16 KB of recipe jsonb per row that the mapper throws away.
