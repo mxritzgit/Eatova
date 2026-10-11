@@ -1205,6 +1205,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                       }
                     },
                     onDelete: delete,
+                    // Same as the Training tab: no account, nothing to log.
+                    onLogWorkout: widget.sync == null
+                        ? null
+                        : () => unawaited(
+                            _openTrainingLog(
+                              FreeLogRequest(historyId: uuidV4()),
+                            ),
+                          ),
                   ),
                 ),
         ),

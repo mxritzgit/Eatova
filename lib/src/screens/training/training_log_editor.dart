@@ -664,7 +664,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
   }) {
     final t = context.t;
     final l10n = context.l10n;
-    final message = _error ?? (_busy ? null : hint);
+    final hintText = _busy ? null : hint;
     return SafeArea(
       top: false,
       child: Padding(
@@ -672,29 +672,32 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (message != null)
+            if (_error case final error?)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: SignalNote(
+                  error,
+                  tone: t.danger,
+                  icon: Icons.error_outline_rounded,
+                  boxed: true,
+                  liveRegion: true,
+                ),
+              )
+            else if (hintText != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Semantics(
                   liveRegion: true,
                   child: Text(
-                    message,
-                    style: AppType.ui(
-                      14,
-                      color: _error != null ? t.danger : t.ink2,
-                      height: 1.4,
-                    ),
+                    hintText,
+                    style: AppType.ui(14, color: t.ink2, height: 1.4),
                   ),
                 ),
-              ),
-            if (_busy)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: LinearProgressIndicator(color: t.accent),
               ),
             PrimaryActionButton(
               key: const ValueKey('training-log-save'),
               label: _busy ? l10n.trainingPageSaving : l10n.trainingLogSave,
+              busy: _busy,
               onTap: ready ? _save : null,
             ),
           ],

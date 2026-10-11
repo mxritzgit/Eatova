@@ -204,7 +204,8 @@ void main() {
       _screen(loading: true),
       locale: const Locale('en'),
     );
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    // The next-workout card in outline, never the empty state.
+    expect(find.byKey(const ValueKey('training-loading')), findsOneWidget);
     expect(find.byKey(const ValueKey('training-empty-coach')), findsNothing);
     var retries = 0;
     await pumpLocalized(

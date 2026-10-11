@@ -259,28 +259,20 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
                         if (_error != null)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
-                            child: Semantics(
+                            child: SignalNote(
+                              _error!,
+                              tone: t.danger,
+                              icon: Icons.error_outline_rounded,
+                              boxed: true,
                               liveRegion: true,
-                              child: Text(
-                                _error!,
-                                style: AppType.ui(
-                                  14,
-                                  color: t.danger,
-                                  height: 1.4,
-                                ),
-                              ),
                             ),
-                          ),
-                        if (_busy)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: LinearProgressIndicator(color: t.accent),
                           ),
                         PrimaryActionButton(
                           key: const ValueKey('training-editor-save'),
                           label: _busy
                               ? l10n.trainingPageSaving
                               : widget.submitLabel ?? l10n.trainingPageSave,
+                          busy: _busy,
                           onTap: _busy ? null : _save,
                         ),
                       ],

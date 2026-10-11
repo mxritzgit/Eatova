@@ -19,11 +19,16 @@ class TrainingHistoryScreen extends StatelessWidget {
     this.loading = false,
     this.loadFailed = false,
     this.onRetry,
+    this.onLogWorkout,
   });
   final List<TrainingHistoryEntry> entries;
   final Future<SyncDelivery> Function(String) onDelete;
   final bool loading, loadFailed;
   final VoidCallback? onRetry;
+
+  /// Logs a finished workout; the empty history's way forward. Null (no
+  /// account, so nothing to write) leaves the empty state without it.
+  final VoidCallback? onLogWorkout;
 
   @override
   Widget build(BuildContext context) {
@@ -46,30 +51,69 @@ class TrainingHistoryScreen extends StatelessWidget {
                 style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
               ),
               const SizedBox(height: 24),
-              if (loading) ...[
-                LinearProgressIndicator(color: t.accent),
+              // A refresh over cached entries: the theme's rounded bar.
+              if (loading && entries.isNotEmpty) ...[
+                LinearProgressIndicator(
+                  semanticsLabel: l.trainingPageLoading,
+                ),
                 const SizedBox(height: 16),
               ],
-              if (loadFailed) ...[
-                Text(
-                  l.trainingHistoryLoadError,
-                  style: AppType.ui(14, color: t.ink2),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: SoftPillButton(
-                    onTap: onRetry,
-                    icon: Icons.refresh_rounded,
-                    label: l.trainingPageRetry,
+              // Nothing cached yet: three workout cards in outline.
+              if (loading && entries.isEmpty) ...[
+                Semantics(
+                  key: const ValueKey('training-history-loading'),
+                  container: true,
+                  label: l.trainingPageLoading,
+                  child: ExcludeSemantics(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < 3; i++) ...const [
+                          SkeletonCard(
+                            rows: 1,
+                            tileSize: 44,
+                            tileRadius: rControl,
+                          ),
+                          SizedBox(height: 10),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
+              ],
+              if (loadFailed) ...[
+                CalmState(
+                  key: const ValueKey('training-history-error'),
+                  card: true,
+                  icon: Icons.cloud_off_rounded,
+                  text: l.trainingHistoryLoadError,
+                  actions: [
+                    SoftPillButton(
+                      onTap: onRetry,
+                      icon: Icons.refresh_rounded,
+                      label: l.trainingPageRetry,
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 16),
               ],
-              if (entries.isEmpty && !loading)
-                Text(
-                  l.trainingHistoryEmpty,
-                  style: AppType.ui(15, color: t.ink2, height: 1.5),
+              if (entries.isEmpty && !loading && !loadFailed)
+                CalmState(
+                  key: const ValueKey('training-history-empty'),
+                  card: true,
+                  // The app's own training glyph, as on the history rows.
+                  glyph: const AppIcon(AppSymbol.training),
+                  title: l.trainingHistoryEmptyTitle,
+                  text: l.trainingHistoryEmpty,
+                  actions: [
+                    if (onLogWorkout case final log?)
+                      SoftPillButton(
+                        key: const ValueKey('training-history-empty-log'),
+                        onTap: log,
+                        icon: Icons.edit_note_rounded,
+                        label: l.trainingLogTitle,
+                      ),
+                  ],
                 ),
               // One card per workout, each its own list child: the history
               // holds up to 500 entries and stays lazily built.
@@ -254,6 +298,8 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
       showAppSnack(
         context,
         deliveryHint(l.trainingHistoryDeleted, delivery, l),
+        icon: Icons.delete_outline_rounded,
+        tone: SnackTone.error,
       );
       Navigator.pop(context);
     } catch (_) {
@@ -339,7 +385,12 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
                 const SizedBox(height: 24),
               ],
               if (_error != null) ...[
-                Text(_error!, style: AppType.ui(14, color: t.danger)),
+                SignalNote(
+                  _error!,
+                  tone: t.danger,
+                  icon: Icons.error_outline_rounded,
+                  boxed: true,
+                ),
                 const SizedBox(height: 12),
               ],
               SoftPillButton(

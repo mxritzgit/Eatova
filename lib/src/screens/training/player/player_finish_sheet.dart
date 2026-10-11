@@ -139,9 +139,11 @@ class _FinishSheet extends StatelessWidget {
                 onChanged: (_) => onNoteChanged(),
               ),
               if (!valuesValid) ...[
-                Text(
+                SignalNote(
                   l.trainingActualMissing,
-                  style: AppType.ui(14, color: t.danger),
+                  tone: t.warning,
+                  icon: Icons.warning_amber_rounded,
+                  boxed: true,
                 ),
                 const SizedBox(height: 12),
               ],

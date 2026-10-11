@@ -613,7 +613,15 @@ void main() {
           )
           .onTap!();
       await tester.pump();
-      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      // The save button itself shows the work in flight.
+      expect(
+        tester
+            .widget<PrimaryActionButton>(
+              find.byKey(const ValueKey('training-editor-save')),
+            )
+            .busy,
+        isTrue,
+      );
       await touch.moveBy(const Offset(0, 400));
       await touch.up();
       await _frames(tester);
@@ -631,7 +639,14 @@ void main() {
         find.byKey(const ValueKey('training-editor-save')),
         findsOneWidget,
       );
-      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(
+        tester
+            .widget<PrimaryActionButton>(
+              find.byKey(const ValueKey('training-editor-save')),
+            )
+            .busy,
+        isFalse,
+      );
     },
   );
 }

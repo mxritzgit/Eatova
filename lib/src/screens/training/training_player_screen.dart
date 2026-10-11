@@ -681,11 +681,19 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
         _close();
       } on TrainingCompletionDeleted {
         if (!mounted) return;
-        showAppSnack(context, context.l10n.trainingHistoryAlreadyDeleted);
+        showAppSnack(
+          context,
+          context.l10n.trainingHistoryAlreadyDeleted,
+          tone: SnackTone.warning,
+        );
         _close();
       } on TrainingCompletionSourceRetired {
         if (!mounted) return;
-        showAppSnack(context, context.l10n.trainingHistorySourceChanged);
+        showAppSnack(
+          context,
+          context.l10n.trainingHistorySourceChanged,
+          tone: SnackTone.warning,
+        );
         _close();
       } catch (_) {
         if (!mounted) return;
@@ -1076,11 +1084,13 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             const SizedBox(height: 12),
           ],
           if (!_completionValuesValid) ...[
-            Text(
+            SignalNote(
               l.trainingActualMissing,
-              style: AppType.ui(14, color: t.danger),
+              tone: t.warning,
+              icon: Icons.warning_amber_rounded,
+              boxed: true,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
           ],
           // Spoken only when the place is not kept: "saving / saved" after
           // every ✓ and edit would talk over the set and rest announcements
@@ -1147,33 +1157,21 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                     if (_saveFailed)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Semantics(
-                                liveRegion: true,
-                                child: Text(
-                                  l.trainingTimerSaveFailed,
-                                  key: const ValueKey(
-                                    'training-timer-save-error',
-                                  ),
-                                  style: AppType.ui(14, color: t.danger),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            TextButton.icon(
-                              key: const ValueKey('training-timer-retry'),
-                              onPressed: _pendingWrites > 0
-                                  ? null
-                                  : () => unawaited(_persist(_retryIntent)),
-                              style: TextButton.styleFrom(
-                                minimumSize: const Size(0, 48),
-                              ),
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: Text(l.trainingTimerRetry),
-                            ),
-                          ],
+                        child: SignalNote(
+                          l.trainingTimerSaveFailed,
+                          key: const ValueKey('training-timer-save-error'),
+                          tone: t.danger,
+                          icon: Icons.error_outline_rounded,
+                          boxed: true,
+                          liveRegion: true,
+                          action: SoftPillButton(
+                            key: const ValueKey('training-timer-retry'),
+                            onTap: _pendingWrites > 0
+                                ? null
+                                : () => unawaited(_persist(_retryIntent)),
+                            icon: Icons.refresh_rounded,
+                            label: l.trainingTimerRetry,
+                          ),
                         ),
                       ),
                     Expanded(
