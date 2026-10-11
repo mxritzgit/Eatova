@@ -127,7 +127,7 @@ void main() {
     'FOOD-9: a 0 g item scales its kcal and macros with the portion and '
     'keeps 0 g',
     () {
-      final scan = MealAnalysisResult(
+      const scan = MealAnalysisResult(
         mealName: 'Salat mit Dressing',
         caloriesKcal: 200,
         estimatedGrams: 200,
@@ -138,7 +138,7 @@ void main() {
         confidence: 'Hoch',
         portionNotes: '',
         sourceLabel: 'Foto-KI',
-        items: const <MealComponent>[
+        items: <MealComponent>[
           MealComponent(
             name: 'Salat',
             grams: 200,
