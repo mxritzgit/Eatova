@@ -1240,8 +1240,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
                   if (!searchActive) ...[
                     // Manual entry joins the entry-method card; the search
                     // mode has no method card, so it keeps its own row.
+                    // A button to a screen reader, like the method rows it
+                    // stands in for: the InkWell carries the tap, not the role.
                     if (widget.searchMode)
-                      _ManualEntryRow(onTap: () => _openManualEntry())
+                      Semantics(
+                        button: true,
+                        child: _ManualEntryRow(onTap: () => _openManualEntry()),
+                      )
                     else
                       MealEntryMethods(
                         onCamera: () => _pickAndAnalyze(ImageSource.camera),
