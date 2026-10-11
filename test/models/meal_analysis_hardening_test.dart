@@ -391,6 +391,20 @@ void main() {
       expect(r.caloriesKcal, 250);
     });
 
+    test('kJ 0 neben positivem energy_100g ist ebenfalls keine 0', () {
+      final product = <String, dynamic>{
+        'product_name': 'Haferkeks',
+        'nutriments': <String, dynamic>{
+          'energy-kj_100g': 0,
+          'energy_100g': 1046,
+        },
+      };
+      final r = MealAnalysisResult.fromOpenFoodFacts(product, '121');
+      expect(MealAnalysisResult.offMeldetExplizitNullKcal(product), isFalse);
+      expect(r.explicitZeroKcal, isFalse);
+      expect(r.kcalPer100G, closeTo(250.0, 0.5));
+    });
+
     test('kcal 0 und kJ 0 bleiben die gemessene 0 (Wasser)', () {
       final product = <String, dynamic>{
         'product_name': 'Mineralwasser',

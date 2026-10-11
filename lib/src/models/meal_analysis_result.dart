@@ -1183,7 +1183,7 @@ class MealAnalysisResult {
     }
 
     final kj = _readDouble(nutriments, const ['energy-kj_100g']);
-    if (kj != null) {
+    if (kj != null && !(kj == 0 && energiePositiv)) {
       final umgerechnet = kj / PlausibilityLimits.kjPerKcal;
       if (isPlausibleKcalPer100G(umgerechnet)) {
         return umgerechnet;
@@ -1234,7 +1234,7 @@ class MealAnalysisResult {
       }
     }
     final kj = _readDouble(nutriments, const ['energy-kj_100g', 'energy_100g']);
-    return kj != null && kj == 0;
+    return kj != null && kj == 0 && !energiePositiv;
   }
 
   /// Whether a kJ or unit-less energy field per 100 g holds more than 0.
