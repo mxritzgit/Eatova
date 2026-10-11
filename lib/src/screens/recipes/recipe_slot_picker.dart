@@ -64,23 +64,12 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: HeadingSemantics(
-                        level: 1,
-                        child: Text(
-                          l10n.recipesWhenToLogTitle,
-                          style: sheetTitleStyle(t),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SheetCloseButton(
-                      onTap: _saving ? null : () => Navigator.of(context).pop(),
-                    ),
-                  ],
+                // A one-line title centres on the close ring.
+                SheetHeader(
+                  title: l10n.recipesWhenToLogTitle,
+                  onClose: () => Navigator.of(context).pop(),
+                  closeEnabled: !_saving,
+                  padding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 8),
                 Text(

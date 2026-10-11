@@ -424,31 +424,28 @@ class _ExportHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
-    final title = SheetTitle(
-      largeText
-          ? context.l10n.settingsExportDataTitle
-          : context.l10n.exportSheetTitleFull,
-      compact: largeText,
+    void close() => Navigator.of(context).pop();
+    if (!largeText) {
+      // The shared header row: a one-line title centres on the close ring.
+      return SheetHeader(
+        title: context.l10n.exportSheetTitleFull,
+        onClose: close,
+        closeTooltip: context.l10n.commonClose,
+        padding: EdgeInsets.zero,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: SheetCloseButton(
+            tooltip: context.l10n.commonClose,
+            onTap: close,
+          ),
+        ),
+        SheetTitle(context.l10n.settingsExportDataTitle, compact: true),
+      ],
     );
-    final close = SheetCloseButton(
-      tooltip: context.l10n.commonClose,
-      onTap: () => Navigator.of(context).pop(),
-    );
-    return largeText
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(alignment: Alignment.centerRight, child: close),
-              title,
-            ],
-          )
-        : Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: title),
-              const SizedBox(width: 8),
-              close,
-            ],
-          );
   }
 }
