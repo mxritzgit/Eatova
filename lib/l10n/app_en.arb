@@ -1853,6 +1853,15 @@
   "trainingPageRemoveExercise": "Remove exercise",
   "trainingPageMoveUp": "Move up",
   "trainingPageMoveDown": "Move down",
+  "trainingPageItemOptions": "Options for {name}",
+  "@trainingPageItemOptions": {
+    "description": "Tooltip of the ⋯ menu of a workout or exercise in the plan editor.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "trainingPageInvalid": "Check the highlighted fields.",
   "trainingPageRequired": "Please fill this in.",
   "trainingPageTooLong": "Please shorten this.",

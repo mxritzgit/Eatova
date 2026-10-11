@@ -1905,6 +1905,14 @@
   "trainingPageRemoveExercise": "Übung entfernen",
   "trainingPageMoveUp": "Nach oben",
   "trainingPageMoveDown": "Nach unten",
+  "trainingPageItemOptions": "Optionen für {name}",
+  "@trainingPageItemOptions": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "trainingPageInvalid": "Prüfe die markierten Felder.",
   "trainingPageRequired": "Bitte ausfüllen.",
   "trainingPageTooLong": "Bitte kürzen.",

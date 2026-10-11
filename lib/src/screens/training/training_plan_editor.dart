@@ -693,7 +693,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
     final l10n = context.l10n;
     return PopupMenuButton<String>(
       key: ValueKey('$keyPrefix-menu'),
-      tooltip: l10n.trainingTimerExerciseOptions(title),
+      tooltip: l10n.trainingPageItemOptions(title),
       enabled: !_busy,
       icon: const Icon(Icons.more_horiz_rounded),
       iconColor: context.t.ink2,
