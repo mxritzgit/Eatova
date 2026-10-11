@@ -94,4 +94,44 @@ void main() {
       });
     },
   );
+
+  test(
+    'a full queue still folds a tick into the unsent tick of its line',
+    () async {
+      await withClock(Clock.fixed(_now), () async {
+        final cache = LocalCache(InMemoryKeyValueStore(), _owner);
+        final oldest = _oldestIntents();
+        await cache.commitSyncOperations(oldest);
+        await cache.commitSyncOperations([
+          for (var i = oldest.length; i < kOutboxMaxOps; i++)
+            SyncOp.favoriteDelete('favorite-$i'),
+        ]);
+        final line = '2026-09-28:${'b' * 64}';
+        List<bool> lineValues(List<SyncOp> queue) => [
+          for (final op in queue)
+            if (op.entityId == line) op.shoppingCheckValue!.checked,
+        ];
+
+        // Reversing the unsent tick cancels it instead of growing the queue.
+        await cache.commitSyncOperations([
+          SyncOp.shoppingCheck(ShoppingCheck(id: line, checked: false)),
+        ]);
+        var queue = await cache.readSyncOperations();
+        expect(queue, hasLength(kOutboxMaxOps - 1));
+        expect(lineValues(queue), isEmpty);
+        expect((await cache.readMealPlans())!.checks[line], isFalse);
+
+        await cache.commitSyncOperations([
+          SyncOp.shoppingCheck(ShoppingCheck(id: line, checked: true)),
+        ]);
+        await cache.commitSyncOperations([
+          SyncOp.shoppingCheck(ShoppingCheck(id: line, checked: true)),
+        ]);
+        queue = await cache.readSyncOperations();
+        expect(queue, hasLength(kOutboxMaxOps));
+        expect(lineValues(queue), [true]);
+        expect(queue.last.entityId, line, reason: 'the newest tick wins');
+      });
+    },
+  );
 }

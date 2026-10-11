@@ -255,6 +255,10 @@ new persistence behavior; editing this repository does not publish that page.
 The local queue accepts at most 500 pending operations per account. A single
 save may create several operations. Exceeding that limit rejects the entire new
 transaction while preserving all previously confirmed entities and intents.
+Shopping checks are the one exception to appending: a new tick replaces its
+line's tick that has not started delivery, and a tick that reverses it cancels
+both, so toggles behind a busy queue send at most one operation per line. A
+tick whose delivery has started is never folded.
 
 History and operation receipts are permanent. There is no age-based pruning:
 removing a receipt would let an old offline request run again. Each account has
