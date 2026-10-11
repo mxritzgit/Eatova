@@ -234,6 +234,75 @@ void main() {
     expect(chicken.toggle(checks).checked, isFalse);
   });
 
+  test(
+    'eine gegessene Mahlzeit öffnet nicht wieder, was schon gekauft ist',
+    () {
+      PlannedMeal eat(PlannedMeal plan) =>
+          plan.copyWith(eatenAt: DateTime(2026, 10, 5, 19));
+      Map<String, bool> tickAll(ShoppingReceipt receipt) => {
+        for (final row in _all(receipt)) row.id: true,
+      };
+
+      // Monday and Thursday share chicken; everything bought on Monday.
+      final a = _plan(_own('180 g Hähnchenbrust\n1 Zitrone'), 1);
+      final b = _plan(_own('250 g Hähnchenbrust\n1 Zwiebel'), 2, day: 3);
+      final checks = tickAll(_receipt([a, b]));
+      expect(_receipt([a, b]).progress(checks), (done: 3, total: 3));
+      // Monday eaten: one chicken part is left and the row stays ticked.
+      var receipt = _receipt([eat(a), b]);
+      expect(receipt.progress(checks), (done: 2, total: 2));
+      final chicken = _row(receipt, 'chicken_breast');
+      expect(chicken.merged, isFalse);
+      expect(chicken.total, [_a(ShoppingUnit.mass, 250)]);
+      expect(chicken.isChecked(checks), isTrue);
+
+      // Three meals: Monday eaten, then bought, then Thursday eaten.
+      final c = _plan(_own('200 g Hähnchenbrust'), 3, day: 4);
+      final bought = tickAll(_receipt([eat(a), b, c]));
+      receipt = _receipt([eat(a), eat(b), c]);
+      expect(_row(receipt, 'chicken_breast').isChecked(bought), isTrue);
+      expect(receipt.progress(bought), (done: 1, total: 1));
+
+      // A meal added later still needs chicken again.
+      final d = _plan(_own('150 g Hähnchenbrust'), 4, day: 5);
+      expect(
+        _row(_receipt([eat(a), b, c, d]), 'chicken_breast').isChecked(bought),
+        isFalse,
+      );
+      // Removing a meal is an edit of the plan: its merged rows reopen.
+      expect(
+        _row(
+          _receipt([b, c]),
+          'chicken_breast',
+        ).isChecked(tickAll(_receipt([a, b, c]))),
+        isFalse,
+      );
+
+      // Weighed items the same; a tick from the receipt without the eaten
+      // meal also counts.
+      final oats = _own(
+        '',
+      ).copyWith(structuredIngredients: [_weighed('Oats', 80)]);
+      final mon = _plan(oats, 5);
+      final wed = _plan(oats, 6, day: 2);
+      final weighed = _receipt([mon, wed]).rows.single;
+      final eatenWeek = _receipt([eat(mon), wed]).rows.single;
+      expect(eatenWeek.total, [_a(ShoppingUnit.mass, 80)]);
+      expect(eatenWeek.isChecked({weighed.id: true}), isTrue);
+      final openOnly = buildShoppingList([eat(mon), wed], _week).single.id;
+      expect(openOnly, isNot(weighed.id));
+      expect(eatenWeek.isChecked({openOnly: true}), isTrue);
+      expect(eatenWeek.isChecked(const {}), isFalse);
+
+      // A meal eaten whole leaves no row and no note.
+      expect(_all(_receipt([eat(a)])), isEmpty);
+      expect(
+        _receipt([eat(_plan(_own('', title: 'Pizza'), 7))]).isEmpty,
+        isTrue,
+      );
+    },
+  );
+
   test('jede Zeile hat genau eine eigene ID; ein Tipp ändert genau sie', () {
     final receipt = _receipt([
       _plan(_own('Salz, Pfeffer\n1/2 Zwiebel, 1 Knoblauchzehe\n2 Eier'), 1),

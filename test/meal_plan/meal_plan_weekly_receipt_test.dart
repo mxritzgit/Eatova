@@ -215,6 +215,36 @@ void main() {
     });
   });
 
+  testWidgets('eine gegessene Mahlzeit lässt Gekauftes abgehakt und den '
+      'Stempel stehen', (tester) async {
+    await withClock(Clock.fixed(_today), () async {
+      final store = _store();
+      await _chickenWeek(store);
+      await _pump(tester, store);
+      for (final row in _receipt(store).rows) {
+        await _tap(tester, _key('shopping-item-${row.id}'));
+      }
+      expect(_key('shopping-receipt-stamp'), findsOneWidget);
+
+      // Monday's meal is eaten: Thursday's share of the bought rows is left.
+      final monday = store.plannedMeals.singleWhere(
+        (p) => p.day == '2026-09-07',
+      );
+      await store.eatPlannedMeal(monday.id);
+      await tester.pumpAndSettle();
+      final chicken = _row(_receipt(store).rows, 'Hähnchenbrust');
+      final row = _key('shopping-item-${chicken.id}');
+      expect(find.descendant(of: row, matching: find.text('250 g')), findsOne);
+      expect(
+        tester.getSemantics(row),
+        isSemantics(hasCheckedState: true, isChecked: true),
+      );
+      expect(_key('shopping-receipt-stamp'), findsOneWidget);
+      expect(await _progress(tester), 'Alles eingekauft');
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets('Gewürze & Vorrat: eingeklappt eine Zeile, aufgeklappt einzeln '
       'abhaken, zählt nicht zu den Summen', (tester) async {
     await withClock(Clock.fixed(_today), () async {

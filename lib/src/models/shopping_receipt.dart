@@ -90,7 +90,8 @@ class ShoppingPart {
   final String id;
 
   /// Checks of earlier receipts this part honours when it has none of its
-  /// own, in order: the line before it was split, then the whole recipe.
+  /// own, in order: the line before it was split, then the whole recipe; a
+  /// weighed item's id without the meals eaten since.
   final List<String> legacyIds;
 
   /// The label as the recipe writes it, without its amount.
@@ -136,7 +137,8 @@ class ShoppingRow {
 
   /// The check id. A row of one part keeps that part's id; a merged row's id
   /// follows its ingredient and every part, so a new meal needing it again
-  /// is a fresh, unchecked requirement.
+  /// is a fresh, unchecked requirement. Parts of meals eaten since count
+  /// too: eating a meal keeps what was bought ticked off.
   final String id;
 
   /// The name to show: one part's label as written, or for a merged row the
@@ -238,38 +240,58 @@ ShoppingReceipt buildShoppingReceipt(
   final week = localDayKey(weekStart);
   String identity(Object value) =>
       '$week:${sha256.convert(utf8.encode(jsonEncode(value)))}';
+  // Ids follow the week's meals including the eaten ones: eating a meal
+  // lowers what is needed and must not reopen what was already bought. Only
+  // meals not yet eaten add amounts and rows.
   final items = buildShoppingList(
     plans,
     weekStart,
     decimalSeparator: decimalSeparator,
     l10n: l10n,
+    includeEaten: true,
   );
-  final planned = {for (final p in shoppingPlans(plans, weekStart)) p.id: p};
+  final planned = {
+    for (final p in shoppingPlans(plans, weekStart, includeEaten: true))
+      p.id: p,
+  };
+  // A weighed item's id without the eaten meals, as an earlier receipt
+  // ticked it off.
+  final openWeighed = planned.values.any((p) => p.isEaten)
+      ? {
+          for (final item in buildShoppingList(plans, weekStart))
+            if (item.shoppingKey case final key?) key: item.id,
+        }
+      : const <String, String>{};
   final parts = <ShoppingPart>[];
+  // Parts only of eaten meals: they keep their rows' ids, nothing else.
+  final eaten = <ShoppingPart>{};
   final empty = <ShoppingEmptyRecipe>[];
 
   for (final item in items) {
     if (item.grams != null) {
-      parts.add(
-        ShoppingPart(
-          id: item.id,
-          label: item.name,
-          key: shoppingIngredientKey(item.name, unit: ShoppingUnit.mass),
-          unit: ShoppingUnit.mass,
-          uses: [
-            for (final MapEntry(key: planId, value: grams)
-                in item.planGrams.entries)
-              if (planned[planId] case final plan?)
-                _use(plan, amount: ShoppingAmount(ShoppingUnit.mass, grams)),
-          ],
-        ),
+      final open = openWeighed[item.shoppingKey];
+      final part = ShoppingPart(
+        id: item.id,
+        legacyIds: [if (open != null && open != item.id) open],
+        label: item.name,
+        key: shoppingIngredientKey(item.name, unit: ShoppingUnit.mass),
+        unit: ShoppingUnit.mass,
+        uses: [
+          for (final MapEntry(key: planId, value: grams)
+              in item.planGrams.entries)
+            if (planned[planId] case final plan? when !plan.isEaten)
+              _use(plan, amount: ShoppingAmount(ShoppingUnit.mass, grams)),
+        ],
       );
+      parts.add(part);
+      if (part.uses.isEmpty) eaten.add(part);
       continue;
     }
     final plan = planned[item.planId];
     if (plan == null) continue;
     final lines = item.lines.where((line) => !line.heading).toList();
     if (lines.isEmpty) {
+      if (plan.isEaten) continue;
       empty.add(
         ShoppingEmptyRecipe(
           title: item.recipeTitle ?? plan.recipe.title,
@@ -281,6 +303,7 @@ ShoppingReceipt buildShoppingReceipt(
       continue;
     }
     final scaling = _Scaling.of(plan, item, decimalSeparator);
+    final first = parts.length;
     for (final line in lines) {
       final text = line.amount == null
           ? line.label
@@ -319,6 +342,7 @@ ShoppingReceipt buildShoppingReceipt(
         );
       }
     }
+    if (plan.isEaten) eaten.addAll(parts.skip(first));
   }
 
   final groups = <String, List<ShoppingPart>>{};
@@ -333,17 +357,22 @@ ShoppingReceipt buildShoppingReceipt(
   }
   final language = l10n?.localeName;
   final rows = <ShoppingRow>[];
-  for (final MapEntry(:key, value: members) in groups.entries) {
+  for (final MapEntry(:key, value: all) in groups.entries) {
+    final members = [
+      for (final part in all)
+        if (!eaten.contains(part)) part,
+    ];
+    if (members.isEmpty) continue;
     final staple = members.first.key.staple;
     if (staple == ShoppingStaple.water) continue;
     rows.add(
       ShoppingRow._(
-        id: members.length == 1
-            ? members.single.id
+        id: all.length == 1
+            ? all.single.id
             : identity([
                 'merged',
                 key,
-                [for (final part in members) part.id]..sort(),
+                [for (final part in all) part.id]..sort(),
               ]),
         label: members.length == 1
             ? members.single.label
