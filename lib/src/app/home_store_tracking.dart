@@ -106,8 +106,14 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     }
   }
 
-  Future<void> refreshHealthSteps() =>
-      _refreshHealthSteps(allowDayCatchUp: true);
+  Future<void> refreshHealthSteps() async {
+    await _refreshHealthSteps(allowDayCatchUp: true);
+    _retryDeferredDailyActivity();
+  }
+
+  /// Reads window days again whose backfill ran outside the foreground; the
+  /// energy-check part implements it.
+  void _retryDeferredDailyActivity();
 
   Future<void> _refreshHealthSteps({required bool allowDayCatchUp}) async {
     if (_disposed || _healthSessionEnded || healthSyncing) return;
@@ -258,21 +264,33 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// per day and session. An EXISTING entry is refreshed too: it may stem
   /// from a refresh before day end, while the history knows the full sum. If
   /// the service returns nothing, the stored value stays untouched.
-  Future<void> _maybeBackfillDailyActivity(DateTime day) async {
+  ///
+  /// Returns false when the read was deferred: outside the foreground Health
+  /// Connect fails and HealthKit skips the read, so an empty answer proves
+  /// nothing and the day stays open for a later foreground read.
+  Future<bool> _maybeBackfillDailyActivity(DateTime day) async {
     if (_disposed || _healthSessionEnded || _isSameFoodDate(day, clock.now())) {
-      return;
+      return true;
     }
     final generation = _healthGeneration;
     final key = localDayKey(day);
-    if (!_dailyActivityBackfillAttempted.add(key)) return;
+    if (!_dailyActivityBackfillAttempted.add(key)) return true;
+    final background = _appInBackground;
     final steps = await health.readStepsOnDay(day);
-    if (_disposed ||
-        generation != _healthGeneration ||
-        steps == null ||
-        steps < 0) {
-      return;
+    if (_disposed || generation != _healthGeneration) return true;
+    if (steps == null && (background || _appInBackground)) {
+      _dailyActivityBackfillAttempted.remove(key);
+      return false;
     }
+    if (steps == null || steps < 0) return true;
     _mutate(() => _recordDailyActivity(day, steps));
+    return true;
+  }
+
+  /// A known non-resumed state; an unknown one (tests) counts as foreground.
+  static bool get _appInBackground {
+    final state = WidgetsBinding.instance.lifecycleState;
+    return state != null && state != AppLifecycleState.resumed;
   }
 
   /// Offers an Apple Health weight for import via snack. Requires a value in

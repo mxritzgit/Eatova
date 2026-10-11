@@ -79,18 +79,47 @@ mixin _HomeStoreEnergyCheckPart
   /// return nothing and change nothing.
   Future<void> _backfillEnergyCheckWindow() async {
     _energyCheckWindowRequested = true;
-    final today = startOfDay(clock.now());
-    for (var n = 1; n <= EnergyCheck.windowDays; n++) {
-      if (_disposed) return;
-      await _maybeBackfillDailyActivity(addDays(today, -n));
+    _energyCheckWindowRuns++;
+    try {
+      final today = startOfDay(clock.now());
+      var complete = true;
+      for (var n = 1; n <= EnergyCheck.windowDays; n++) {
+        if (_disposed) return;
+        if (!await _maybeBackfillDailyActivity(addDays(today, -n))) {
+          complete = false;
+        }
+      }
+      // A deferred day still holds its in-day snapshot: the next foreground
+      // refresh reads it ([_retryDeferredDailyActivity]). After a rollover
+      // meanwhile, the new day's own refresh marks its window.
+      if (_disposed ||
+          !complete ||
+          daysBetween(clock.now(), today) != 0 ||
+          energyCheckStepsReady) {
+        return;
+      }
+      _mutate(() => _energyCheckStepsDay = today);
+    } finally {
+      _energyCheckWindowRuns--;
     }
-    // After a rollover meanwhile, the new day's own refresh marks its window.
+  }
+
+  /// Window runs in flight; a retry waits for them instead of racing them.
+  int _energyCheckWindowRuns = 0;
+
+  /// After a health refresh (resume, new day, pull): repeats the window run
+  /// if the last one deferred a day. Only already-read days are skipped, so
+  /// this costs nothing once the window is ready, and it never loops by
+  /// itself.
+  @override
+  void _retryDeferredDailyActivity() {
     if (_disposed ||
-        daysBetween(clock.now(), today) != 0 ||
+        !_energyCheckWindowRequested ||
+        _energyCheckWindowRuns > 0 ||
         energyCheckStepsReady) {
       return;
     }
-    _mutate(() => _energyCheckStepsDay = today);
+    unawaited(_backfillEnergyCheckWindow());
   }
 
   /// Day rollover: refreshes the new window once the boot has asked, so the
