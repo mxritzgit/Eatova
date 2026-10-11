@@ -3532,3 +3532,101 @@ The owner's lines were "Ich gebe dir Freigabe zum Mergen von #147, #148 und
   void.
 - The implementation is still in the history (squash commit `1848263`) if
   the data ever gets dense enough.
+
+## Review with ten agents, 2026-10-11
+
+Owner request: ten Opus 5.5 subagents (effort high) review Eatova for bugs,
+auth problems, design problems and long load times, then fix what they find.
+Another Claude session was rewriting the shopping list at the same time, so
+`lib/src/models/shopping_*.dart`, `meal_plan_shopping.dart` and
+`meal_plan_screen.dart` were off-limits, and all work ran in worktrees from
+`origin/main` (`011feb8`).
+
+**Setup:**
+- Wave 1: ten reviewers, one area each: client auth, backend security,
+  sync/outbox, performance, Food, Coach, recipes, training/health/Today,
+  design A (Today, Food, Coach, design system) and design B (the other
+  screens, i18n, platform strings). Each verified its findings, fixed them
+  with a regression test seen failing first, and committed in its worktree.
+- Wave 2: four fix agents took the report-only findings that needed no owner
+  decision.
+- The orchestrator read every diff, cherry-picked onto
+  `review/ten-agents-2026-10-11`, merged the two `commitStoreSnapshot` changes
+  (perf fence-only slots, sync preference guards) into one
+  `_storeSnapshotGuards`, folded two duplicate code-point formatters into
+  `TextLengthLimit`, and hardened two tests that failed under load.
+
+**Fixed (58 findings):**
+- **Performance:** every cold start decoded and re-encoded the whole training
+  history twice on the UI isolate (31–47 ms at 300 workouts, 180–340 ms at
+  2,000 on desktop JIT); guarded slots a snapshot neither writes nor projects
+  into are now version-checked only. Preference writes (steps, Health and
+  reminder opt-in) and the store's own replay commits no longer make the boot
+  snapshot conflict and run the server load twice. A commit during a replay
+  pass gets one follow-up pass instead of waiting for the 30 s timer. An
+  identical reminder plan skips its 28 cancels and 10 schedules, and a logged
+  meal no longer rebuilds the Training tab.
+- **Auth:** a deletion that failed after its code was verified revoked
+  nothing (the recovery session stayed valid for an hour) and left the sheet
+  on a spent code; both fixed. The signup name is capped at 80 code points.
+- **Backend:** `coach-chat` rejects NUL and lone surrogates before the quota
+  claim; before, such a message bought a paid classifier call plus a refund.
+- **Coach:** failures after an A→B→A session switch were dropped silently, a
+  failed history banner vanished on a tab return and could not be retried,
+  errors followed the user into another chat, and the brief fields counted
+  graphemes.
+- **Food:** unpin without undo, one corrupt favorite row dropping all
+  favorites, OFF 0 kcal next to a positive kJ value, an archive day that
+  failed to load looking empty (duplicates once online), 0 g items losing
+  their calories on re-portioning, and smaller toast/a11y items.
+- **Training and Health:** the streak reminder after 20:00, Eatova's own
+  Health weight offered after a fresh sign-in, a Health Connect grant from
+  its settings lost on cold start, background backfill reads never retried,
+  log-editor weight carry against spec A2, Copy last time on an invalid
+  field, Complete remaining with an invalid row, and a session-end
+  notification cancel lost when the plugin was down.
+- **Recipes:** a repeated share ran a second paid import, the yield preview
+  used a dot in German, "1 Portionen", and the import field counted unlike
+  the server.
+- **Design:** large-text fixes on Today (ring, macros), Food, the edit and
+  adjust sheets, Trends, Training, Recipes and Profile; the adjust sheet got
+  the shared header; the last raw spinners use `AppSpinner`; kcal on
+  Profile, Goals and Onboarding use the thousands separator; the iOS camera
+  and photo purpose strings name recipe photos.
+
+**Owner decisions (report-only):**
+- **REC-3 (medium):** importing a deleted TikTok recipe again, or adopting a
+  deleted Coach recipe again, saves a "conflict copy" because the fixed slug
+  meets the server tombstone with expected revision 0. Server fix: in
+  `apply_recipe_mutation`, an upsert with expected revision 0 against a
+  deleted head is `applied` (needs a migration). Client alternative: read the
+  head first and restore through `restoreUserRecipe` when online.
+- **COACH-4 (medium):** in the streamed chat path, a client disconnect before
+  approval aborts the provider, so no answer is stored and the slot stays
+  spent; a retry costs a second slot. Option: keep pulling after a client
+  abort and persist the approved answer (extra provider cost), then deploy.
+- **BE-2 server half:** the signup trigger copies `display_name` /
+  `full_name` unclamped; a Google name over 80 characters can never sign in.
+  A migration with `left(btrim(...), 80)` fixes it.
+- **BE-3:** a structured answer cut by `max_tokens` refunds the slot.
+- **AUTH-3:** onboarding has no way to sign out of a wrong Google account.
+- **FOOD-6:** UPC-A barcodes get a 12-digit id on Android and a 13-digit id
+  on iOS; normalizing needs a decision on stored `favorite_key`s.
+- **PERF-4/5:** the Coach stream releases text only after the final safety
+  verdict, so time to first token equals the full answer; the session check
+  and history load could run in parallel (one round trip).
+- **SYNC-5:** a captive portal's 200 HTML counts against the eight-attempt
+  budget; part of the open 5xx-counting decision.
+- **DSB-10/12:** "Carbs" in the German UI; 24 h times in the English
+  training history.
+- **iOS release:** Google sign-in without Sign in with Apple may fall under
+  App Store guideline 4.8.
+- Smaller open items: re-portioning right after Add does not update the
+  recent (FOOD-7); Trends misses a meal still in the outbox for up to 2 min
+  (TRN-9); some ARB kcal placeholders still lack separators.
+
+**Rollout:** `coach-chat` needs a redeploy for BE-1; no migration. Device
+checks: iOS camera/photo prompts, Health weight offer after sign-in, Health
+Connect grant via its settings plus cold start, background midnight with
+Health Connect, the training player's locked actions, and large text on a
+small phone.

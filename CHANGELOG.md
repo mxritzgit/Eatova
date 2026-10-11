@@ -17,6 +17,40 @@ the complete current product.
 
 ### October 2026
 
+- **Ten-area review fixes** (2026-10-11):
+  - Speed: a cold start no longer decodes and re-encodes the whole training
+    history on the UI thread (180–340 ms at 2,000 workouts on desktop). Health
+    and reminder writes, and the store's own outbox commits, no longer make
+    the boot load run twice. A commit made during a delivery pass gets a
+    follow-up pass instead of waiting 30 s. An identical reminder plan is not
+    re-planned on every resume, and a logged meal no longer rebuilds the
+    Training tab.
+  - Coach: a failure that arrives after the chat was left and opened again is
+    shown with its retry marker, a failed history load keeps its banner and
+    can be retried by picking the chat again, and the sessions sheet tells a
+    screen reader which chat is open. `coach-chat` rejects NUL and lone
+    surrogates before the quota claim (it needs a redeploy).
+  - Food: unpinning a favorite can be undone, one unreadable favorite row no
+    longer drops all favorites, Open Food Facts records with 0 kcal next to a
+    positive kJ value read as kJ, a day that failed to load says so with a
+    retry instead of looking empty, and a 0 g item keeps its calories when a
+    meal is re-portioned.
+  - Account: an account deletion that failed after the code was used revokes
+    the minted recovery session and asks for a new code; the signup name is
+    capped at the 80 characters the profile allows.
+  - Training and Health: the streak reminder names the streak as it will
+    stand, a Health weight is offered only against a loaded weight log, a
+    Health Connect grant from its settings survives a cold start, a step day
+    read in the background is read again on resume, log-editor weights carry
+    like the player's, Copy last time fills an invalid field, and Complete
+    remaining waits for a valid row. A sign-out that found the notification
+    plugin down cancels the old schedules on the next start.
+  - Layout and text: Today, Food, Trends, Training, Recipes and Profile keep
+    words whole at large text, kcal on Profile, Goals and Onboarding use the
+    thousands separator, a recipe logged at one serving says "1 serving", the
+    recipe import and Coach brief fields count like the server, and the iOS
+    camera and photo prompts mention recipe photos.
+  - Rollout: `coach-chat` needs a redeploy; there is no migration.
 - **Audit fixes** (2026-10-11, #147):
   - Privacy: the SQLite cache stays out of Android backup and device-to-device
     transfer. Picker photos a dead process left in the cache (full gallery
