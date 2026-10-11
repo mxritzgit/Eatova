@@ -26,6 +26,7 @@ class PlayerExerciseCard extends StatelessWidget {
     required this.rowKey,
     required this.activeValid,
     required this.enabled,
+    this.copyRevision = 0,
   });
 
   final TrainingSessionController session;
@@ -47,6 +48,10 @@ class PlayerExerciseCard extends StatelessWidget {
   /// False while a field of the active row holds an invalid value.
   final bool activeValid;
   final bool enabled;
+
+  /// Counts Copy last time taps; only the active row receives it, so a row
+  /// that stops being active is never force-replaced.
+  final int copyRevision;
 
   TrainingExercise get _exercise => session.workout.exercises[exerciseIndex];
 
@@ -257,6 +262,7 @@ class PlayerExerciseCard extends StatelessWidget {
         compact: compact,
         lastTime: _lastTimeFor(ref.setIndex),
         enabled: enabled,
+        replaceRevision: isActive ? copyRevision : null,
         buttonEnabled:
             !gettingReady &&
             (kind != PlayerSetButtonKind.complete || activeValid),

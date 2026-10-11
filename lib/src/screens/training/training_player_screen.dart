@@ -96,6 +96,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   final Set<int> _notesOpen = {};
   // Every (set, 'reps' | 'weight') field holding an invalid value.
   final Set<(TrainingSetReference, String)> _invalid = {};
+  // Copy last time taps: forces the active row's fields to adopt the copy.
+  int _copyRevision = 0;
   Future<void> _writes = Future<void>.value();
   Timer? _debounce;
   Animation<double>? _coverAnimation;
@@ -965,7 +967,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
         reps: timed ? null : last.reps ?? _session.actualReps,
         weightKg: last.weightKg,
       );
-      setState(() {});
+      setState(() => _copyRevision++);
       _persistSoon();
     },
   );
@@ -1080,6 +1082,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
               rowKey: _rowKey,
               activeValid: _activeValid,
               enabled: _enabled,
+              copyRevision: _copyRevision,
             ),
             const SizedBox(height: 12),
           ],

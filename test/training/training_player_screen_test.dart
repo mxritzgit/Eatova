@@ -419,6 +419,37 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('copying Last time fills a field the user left invalid', (
+      tester,
+    ) async {
+      final plan = _strength();
+      final host = await _open(
+        tester,
+        plan: plan,
+        history: [_squatHistory(plan)],
+      );
+      String reps() => tester
+          .widget<TextField>(_key('training-set-reps-0-0'))
+          .controller!
+          .text;
+      await tester.showKeyboard(_key('training-set-reps-0-0'));
+      await tester.enterText(_key('training-set-reps-0-0'), '');
+      await tester.pump();
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      expect(reps(), '', reason: 'the invalid text stays');
+      expect(
+        tester.widget<PlayerSetButton>(_key('training-set-check-0-0')).onPressed,
+        isNull,
+        reason: 'precondition: ✓ waits for valid reps',
+      );
+      await _tap(tester, 'training-set-last-0-0');
+      expect(reps(), '8', reason: 'the copy replaces the invalid text');
+      await _tap(tester, 'training-set-check-0-0');
+      expect(host.writes.last!.actualSets.single.reps, 8);
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('a weight corrected during its rest carries to the next set', (
       tester,
     ) async {

@@ -21,6 +21,7 @@ class TrainingSetValueField extends StatefulWidget {
     this.fieldKey,
     this.enabled = true,
     this.muted = false,
+    this.replaceRevision,
   });
 
   final num? value;
@@ -37,6 +38,10 @@ class TrainingSetValueField extends StatefulWidget {
 
   /// Prefilled, not yet confirmed by the set's ✓.
   final bool muted;
+
+  /// An explicit replace (Copy last time): a new non-null revision adopts
+  /// [value] even over invalid text, which is otherwise kept until fixed.
+  final int? replaceRevision;
 
   @override
   State<TrainingSetValueField> createState() => _TrainingSetValueFieldState();
@@ -80,8 +85,17 @@ class _TrainingSetValueFieldState extends State<TrainingSetValueField> {
     super.didUpdateWidget(old);
     // A carried prefill, an undo or a copied Last time replaces the text,
     // but never under the user's fingers.
-    if (!_focus.hasFocus && _valid && widget.value != _parsed) {
+    final replace =
+        old.replaceRevision != null &&
+        widget.replaceRevision != null &&
+        widget.replaceRevision != old.replaceRevision;
+    if (_focus.hasFocus) return;
+    if (replace || (_valid && widget.value != _parsed)) {
       _text.text = _format(widget.value);
+    }
+    if (replace && !_valid) {
+      _valid = true;
+      widget.onValidityChanged(true);
     }
   }
 
