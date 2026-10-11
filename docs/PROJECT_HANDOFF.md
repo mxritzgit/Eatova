@@ -3630,3 +3630,45 @@ checks: iOS camera/photo prompts, Health weight offer after sign-in, Health
 Connect grant via its settings plus cold start, background midnight with
 Health Connect, the training player's locked actions, and large text on a
 small phone.
+
+### Rollout of PR #151 and the owner decisions, 2026-10-11
+
+- **#151:** the owner's line was "Freigabe zum Mergen von #151 und deploye
+  coach-chat". [PR #151](https://github.com/mxritzgit/Eatova/pull/151) was
+  squash-merged as `7a40523` after 17/17 green checks; the merged tree equals
+  the reviewed head `70bde37`. `coach-chat` v56 -> **v57** from `7a40523`
+  (Supabase CLI 2.120.0, `--use-api`), ACTIVE, `verify_jwt=true`. Boot probe:
+  preflight 204, 401 from the gateway without a token, the handler's own 401
+  with the public anon key. The downloaded live source (19 files) equals
+  `7a40523`, ignoring CRLF.
+- **Owner decisions, "mache das alles sauber":** REC-3, COACH-4 and the server
+  half of BE-2 are implemented in the PR that carries this record.
+  - **REC-3:** migration `20261011100000_recipe_recreate_after_delete.sql`
+    redefines only `apply_recipe_mutation`. A `recipeUpsert` with expected
+    revision 0 against a tombstone head recreates the slug (a new CAS
+    revision) instead of saving `user_conflict_<opid>`. A stale edit
+    (expected N > 0) and a create against a live head still conflict.
+    Conflict copies made before stay. No client change was needed; the
+    client tests and the sync fake follow the new rule
+    ([offline sync](OFFLINE_SYNC.md)).
+  - **BE-2:** migration `20261011101000_profile_display_name_clamp.sql`
+    redefines only `handle_new_user_profile`: the auth metadata name is
+    `btrim`med and cut to 80 characters, so a long Google `full_name` no
+    longer fails the signup, and an email change no longer fails for such
+    metadata.
+  - **COACH-4:** `coach-chat` no longer aborts the provider when a streamed
+    chat client hangs up. It reads the answer to its end within the 45 s
+    answer deadline, runs the final safety verdict and stores the reply once,
+    without a refund. `EdgeRuntime.waitUntil` keeps the worker alive. The app
+    waits for that stored answer: when "No connection" follows a question
+    the transcript proves stored, it re-checks every 3 s until the request's
+    own deadline (chat 95 s, /recipe 165 s, /plan and /log 105 s), with no
+    timers in the background and a stop on session or account change.
+  - Local proof: the full CI replay of all 55 migrations on postgres 17.6
+    passes, and the new SQL cases fail on the old functions.
+- **Rollout of this PR:** apply both migrations live right before the merge
+  (dry run with rollback, then commit together with the
+  `schema_migrations` registration), merge, then deploy `coach-chat` from
+  the merged `main`. After the deploy, check on a test account that a
+  streamed answer whose connection was dropped appears in the transcript
+  within the deadline and spends one slot.

@@ -17,6 +17,17 @@ the complete current product.
 
 ### October 2026
 
+- **Owner decisions from the review** (2026-10-11):
+  - Recipes: importing a deleted recipe again, or adopting a deleted Coach
+    recipe again, brings it back under its own name instead of saving a
+    conflict copy (migration `20261011100000`).
+  - Sign-in: a name longer than 80 characters from Google or the signup
+    metadata is shortened instead of failing the account creation (migration
+    `20261011101000`).
+  - Coach: a streamed answer whose connection drops is finished and stored on
+    the server, and the app waits for it instead of showing "No connection"
+    and offering a retry that costs a second slot. `coach-chat` needs a
+    redeploy.
 - **Ten-area review fixes** (2026-10-11):
   - Speed: a cold start no longer decodes and re-encodes the whole training
     history on the UI thread (180–340 ms at 2,000 workouts on desktop). Health
