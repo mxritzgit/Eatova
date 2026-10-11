@@ -192,11 +192,16 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           // Status and navigation bar icons readable on the page ground.
           child: AnnotatedRegion<SystemUiOverlayStyle>(
             value: eatovaSystemUiOverlayStyle(Theme.of(context)),
-            // Cover the Navigator, including pushed routes and auth
-            // transitions. Login credentials need the same protection as the
-            // private tabs.
-            child: SecureScreenGuard(
-              child: AppInteractions(child: child ?? const SizedBox.shrink()),
+            // The iOS snapshot cover paints this theme's page tone; reported
+            // before the guard below first enables the cover.
+            child: SecureScreenCoverColor(
+              color: eatovaNativePageColor(Theme.of(context)),
+              // Cover the Navigator, including pushed routes and auth
+              // transitions. Login credentials need the same protection as
+              // the private tabs.
+              child: SecureScreenGuard(
+                child: AppInteractions(child: child ?? const SizedBox.shrink()),
+              ),
             ),
           ),
         );
