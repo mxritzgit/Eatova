@@ -68,13 +68,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   List<SyncOp> get pendingTrainingAdoptions {
     if (!identical(_trainingAdoptionsSource, _outbox)) {
       _trainingAdoptionsSource = _outbox;
-      _trainingAdoptionsView = List.unmodifiable(
-        _outbox.where(
-          (op) =>
-              op.trainingAdoption &&
-              op.blockedReason == SyncBlockedReason.trainingHeadConflict,
-        ),
-      );
+      final next = _outbox
+          .where(
+            (op) =>
+                op.trainingAdoption &&
+                op.blockedReason == SyncBlockedReason.trainingHeadConflict,
+          )
+          .toList(growable: false);
+      // Keep the instance while its content is the same: the Training tab
+      // selects it by identity, and every outbox commit (a logged meal)
+      // replaced the usually empty list and rebuilt that tab.
+      final previous = _trainingAdoptionsView;
+      final unchanged =
+          next.length == previous.length &&
+          Iterable<int>.generate(
+            next.length,
+          ).every((i) => identical(next[i], previous[i]));
+      if (!unchanged) _trainingAdoptionsView = List.unmodifiable(next);
     }
     return _trainingAdoptionsView;
   }
