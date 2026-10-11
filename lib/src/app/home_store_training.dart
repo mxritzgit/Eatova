@@ -433,11 +433,12 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       throw StateError('Local storage is not ready');
     }
     if (cache != null) {
-      await cache.commitTrainingSelection(
-        id,
-        guards: sync == null ? const {} : await _localSessionGuards(cache),
+      _observeLocalCommit(
+        await cache.commitTrainingSelection(
+          id,
+          guards: sync == null ? const {} : await _localSessionGuards(cache),
+        ),
       );
-      _localCommitGeneration++;
     }
     _ensureTrainingSessionActive();
     _mutate(() {

@@ -482,6 +482,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         final op = await cache.startSyncOperation(
           candidate.operationId,
           guards: claim?.guards ?? const {},
+          onCommitted: _observeLocalCommit,
         );
         if (op == null) continue;
         if (_disposed ||
@@ -531,6 +532,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
               ),
               guards: claim?.guards ?? const {},
             );
+            // The store's own write: the boot snapshot must not take it for
+            // a foreign commit and run the whole server load again.
+            _observeLocalCommit(receipt);
             _mutate(() => _outbox = receipt.operations);
           }
           // A write whose window passed while it was still on its way.
