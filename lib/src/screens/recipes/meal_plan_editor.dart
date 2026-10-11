@@ -123,8 +123,22 @@ class _PlanEditorState extends State<_PlanEditor> {
     }
   }
 
+  /// A save waits behind other plan writes and for its delivery window; a
+  /// close in that time hid its outcome, refusals and errors included.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CommitDismissGuard(
+    pending: _saving,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Outside the scroll area, so a pull on it moves the sheet.
+        const SheetHandle(padding: EdgeInsets.only(top: 10, bottom: 12)),
+        Flexible(child: _buildForm(context)),
+      ],
+    ),
+  );
+
+  Widget _buildForm(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
     final recipes =
@@ -138,8 +152,8 @@ class _PlanEditorState extends State<_PlanEditor> {
               ).contains(foldRecipeSearchText(_query)),
             )
             .toList();
-    // showEatovaSheet supplies the handle, the keyboard inset and the height
-    // cap; the editor only keeps clear of the home indicator.
+    // showEatovaSheet supplies the keyboard inset and the height cap; the
+    // form only keeps clear of the home indicator.
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
