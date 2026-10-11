@@ -374,6 +374,12 @@ enum SheetFieldShape {
 /// wrap their field in this instead of picking surf/surf2/tile themselves.
 /// Pass the same [focusNode] the inner TextField uses, or drive [focused]
 /// yourself when the caller already tracks focus.
+///
+/// [onBrand] is the variant for a field inside an [AppTokens.brandSurface]
+/// panel, where `field` and `fieldFocus` all but vanish (1.00:1 light,
+/// 1.09:1 dark) and focus even moved the fill closer to the panel. It rests
+/// on `bg` (1.16:1 light, 1.43:1 dark against the panel) and focuses to
+/// `surf`, one step lighter in both palettes like the field/fieldFocus step.
 class FieldCapsule extends StatefulWidget {
   const FieldCapsule({
     super.key,
@@ -387,6 +393,7 @@ class FieldCapsule extends StatefulWidget {
     this.constraints,
     this.shadow = true,
     this.alignment,
+    this.onBrand = false,
   });
 
   final Widget child;
@@ -411,6 +418,9 @@ class FieldCapsule extends StatefulWidget {
   final bool shadow;
 
   final AlignmentGeometry? alignment;
+
+  /// The ground of a field on a `brandSurface` panel (see the class doc).
+  final bool onBrand;
 
   @override
   State<FieldCapsule> createState() => _FieldCapsuleState();
@@ -454,11 +464,19 @@ class _FieldCapsuleState extends State<FieldCapsule> {
   Widget build(BuildContext context) {
     final t = context.t;
     final focused = widget.focused ?? _hasFocus;
-    final fill = widget.error
+    final fill = widget.onBrand
+        ? widget.error
+              // fieldError is ~1.0:1 on the panel; the danger line under the
+              // field carries the message, the tint marks the field.
+              ? Color.alphaBlend(t.danger.withValues(alpha: 0.12), t.bg)
+              : focused
+              ? t.surf
+              : t.bg
+        : widget.error
         ? t.fieldError
         : focused
-            ? t.fieldFocus
-            : t.field;
+        ? t.fieldFocus
+        : t.field;
     final radius = widget.shape == SheetFieldShape.pill ? rPill : rControl;
     return Opacity(
       opacity: widget.enabled ? 1 : 0.55,

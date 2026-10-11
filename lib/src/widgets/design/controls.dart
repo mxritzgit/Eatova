@@ -361,11 +361,16 @@ class FilterChipPill extends StatelessWidget {
     this.tone = FilterChipTone.neutral,
     this.dotColor,
     this.semanticLabel,
+    this.expand = false,
   });
 
   final String label;
   final bool selected;
   final VoidCallback? onTap;
+
+  /// Centres the label in a pill that is wider than its content, e.g. one of
+  /// several equal-width pills in an [Expanded]. Off: the pill hugs it.
+  final bool expand;
 
   /// Leading glyph, drawn in the label color.
   final IconData? icon;
@@ -423,8 +428,11 @@ class FilterChipPill extends StatelessWidget {
               ),
             ),
             padding: padding,
+            // Not a Container alignment: that would also stretch the height
+            // in a parent with room to spare.
             child: Row(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 if (tone == FilterChipTone.slot) ...<Widget>[
                   Container(
@@ -447,6 +455,7 @@ class FilterChipPill extends StatelessWidget {
                 Flexible(
                   child: Text(
                     label,
+                    textAlign: expand ? TextAlign.center : null,
                     style: AppType.ui(
                       fontSize,
                       weight: FontWeight.w700,
