@@ -914,6 +914,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.burnedKcalForFoodDate(_store.selectedFoodDate),
       _store.userName,
       _store.isLoadingFoodDay(_store.selectedFoodDate),
+      _store.foodDayLoadFailed(_store.selectedFoodDate),
       _store.selectedFoodDateIsToday,
       // The recipe pick's other inputs (Task 7 selector rule).
       _store.userRecipes,
@@ -944,6 +945,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             selectedDate: _store.selectedFoodDate,
             onDateSelected: (date) => _store.setFoodDate(date),
             dayLoading: _store.isLoadingFoodDay(_store.selectedFoodDate),
+            dayLoadFailed: _store.foodDayLoadFailed(_store.selectedFoodDate),
+            onRetryDayLoad: () => unawaited(
+              ownerStore.retryFoodDayLoad(ownerStore.selectedFoodDate),
+            ),
             dailyConsumedKcal: _store.consumedKcalForFoodDate(
               _store.selectedFoodDate,
             ),

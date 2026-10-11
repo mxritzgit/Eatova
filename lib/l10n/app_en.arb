@@ -120,6 +120,10 @@
     }
   },
   "todayDayLoading": "Loading day…",
+  "foodDayLoadFailedTitle": "This day couldn't be loaded",
+  "foodDayLoadFailedBody": "Meals already logged on this day may be missing here. Try again once you're online, so nothing gets logged twice.",
+  "foodDayLoadRetry": "Try again",
+  "foodSlotNotLoaded": "Not loaded",
   "todaySemanticsDatePrev": "Previous day",
   "todaySemanticsDateNext": "Next day",
   "foodAnalysisFailedMessage": "The analysis didn't work. Check your internet connection and try again.",

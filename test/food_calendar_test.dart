@@ -6,6 +6,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
+import 'package:eatova/src/widgets/kcal/food_page_chrome.dart';
 
 import 'support/harness.dart';
 
@@ -23,13 +24,19 @@ Future<void> _pumpFoodTab(
   WidgetTester tester, {
   ValueChanged<DateTime>? onDateSelected,
   bool dayLoading = false,
+  bool dayLoadFailed = false,
+  VoidCallback? onRetryDayLoad,
+  DateTime? selectedDate,
 }) async {
   await pumpLocalized(
     tester,
     MealAnalysisScreen(
       dailyConsumedKcal: 0,
+      selectedDate: selectedDate,
       onDateSelected: onDateSelected,
       dayLoading: dayLoading,
+      dayLoadFailed: dayLoadFailed,
+      onRetryDayLoad: onRetryDayLoad,
     ),
     padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
@@ -108,6 +115,58 @@ void main() {
       semantics.dispose();
     },
   );
+
+  testWidgetsRobust(
+    'FOOD-8: a failed archive day says it is not loaded instead of empty, '
+    'offers a retry and keeps the dock usable',
+    (WidgetTester tester) async {
+      await withClock(Clock.fixed(DateTime(2026, 9, 14, 12)), () async {
+        var retries = 0;
+        await _pumpFoodTab(
+          tester,
+          selectedDate: DateTime(2026, 7, 1),
+          dayLoadFailed: true,
+          onRetryDayLoad: () => retries++,
+        );
+
+        final card = find.byKey(const ValueKey('food-day-load-failed'));
+        expect(card, findsOneWidget);
+        expect(find.text('Dieser Tag konnte nicht geladen werden'),
+            findsOneWidget);
+        // No slot claims the day is empty; each says it is not loaded.
+        expect(find.text('Noch nichts geloggt'), findsNothing);
+        expect(find.text('Nicht geladen'),
+            findsNWidgets(MealSlot.values.length));
+        // The dock stays enabled: the card is the signal, not a lock.
+        expect(
+          tester.widget<FoodEntryDock>(find.byType(FoodEntryDock)).enabled,
+          isTrue,
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('food-day-load-retry')),
+        );
+        await tester.tap(find.byKey(const ValueKey('food-day-load-retry')));
+        await tester.pump();
+        expect(retries, 1);
+      });
+    },
+  );
+
+  testWidgetsRobust('FOOD-8: a retry in flight shows the loading state', (
+    WidgetTester tester,
+  ) async {
+    await withClock(Clock.fixed(DateTime(2026, 9, 14, 12)), () async {
+      await _pumpFoodTab(
+        tester,
+        selectedDate: DateTime(2026, 7, 1),
+        dayLoading: true,
+        dayLoadFailed: true,
+      );
+      expect(find.byKey(const ValueKey('food-day-loading')), findsOneWidget);
+      expect(find.byKey(const ValueKey('food-day-load-failed')), findsNothing);
+    });
+  });
 
   testWidgetsRobust('Ohne dayLoading rendert der Verlauf wie bisher', (
     WidgetTester tester,

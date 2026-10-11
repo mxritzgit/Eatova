@@ -33,6 +33,11 @@ mixin _HomeStoreMealsPart
   /// state and dedups parallel triggers.
   final Set<String> _loadingArchiveDays = <String>{};
 
+  /// Archive days whose last load failed (localDayKey): the diary must not
+  /// present them as empty. Cleared by a successful load of the day or of
+  /// the window; the store itself is per session.
+  final Set<String> _failedArchiveDays = <String>{};
+
   /// The boot hit its row cap, so any in-window day may still be incomplete.
   bool _bootMealsAtCapacity = false;
 
@@ -40,6 +45,14 @@ mixin _HomeStoreMealsPart
   /// instead of a wrongly empty day.
   bool isLoadingFoodDay(DateTime day) =>
       _loadingArchiveDays.contains(localDayKey(DateUtils.dateOnly(day)));
+
+  /// True when the last on-demand load of [day] failed, so what the diary
+  /// holds for it is not the server state (offline, server error).
+  bool foodDayLoadFailed(DateTime day) =>
+      _failedArchiveDays.contains(localDayKey(DateUtils.dateOnly(day)));
+
+  /// The diary's retry for a day whose load failed.
+  Future<void> retryFoodDayLoad(DateTime day) => _ensureArchiveDayLoaded(day);
 
   /// Is [day] outside the boot window of [MealsSync.loadLoggedMeals]?
   ///
@@ -57,8 +70,8 @@ mixin _HomeStoreMealsPart
       _bootMealsAtCapacity || _isOutsideBootWindow(day);
 
   /// Loads a selected day on demand and merges it into [loggedMeals]. Once per
-  /// day per session (_loadedArchiveDays); errors show the classified message
-  /// and leave the day retryable on the next tap.
+  /// day per session (_loadedArchiveDays); errors show the classified message,
+  /// mark the day failed (_failedArchiveDays) and leave it retryable.
   Future<void> _ensureArchiveDayLoaded(DateTime day) async {
     final s = sync;
     if (s == null) return;
@@ -73,12 +86,14 @@ mixin _HomeStoreMealsPart
       final rows = await s.meals.loadLoggedMealsForDay(target);
       if (_disposed) return;
       _loadedArchiveDays.add(key);
+      _failedArchiveDays.remove(key);
       _mutate(() => _mergeArchiveMeals(rows));
       // No _cacheLoggedMeals(): archive days stay in memory (see
       // durable writes happen only for confirmed local changes or hydration.
     } catch (e, st) {
       // Read error with no outbox safety net (nothing to replay): classified
       // message via the existing pattern, raw error to dev.log/reporter.
+      if (!_disposed) _failedArchiveDays.add(key);
       _reportSyncError('Tag-Nachladen', e, st);
     } finally {
       _loadingArchiveDays.remove(key);

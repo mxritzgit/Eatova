@@ -120,6 +120,10 @@
     }
   },
   "todayDayLoading": "Tag wird geladen…",
+  "foodDayLoadFailedTitle": "Dieser Tag konnte nicht geladen werden",
+  "foodDayLoadFailedBody": "Bereits geloggte Mahlzeiten dieses Tages fehlen hier vielleicht. Versuch es erneut, sobald du online bist, damit nichts doppelt landet.",
+  "foodDayLoadRetry": "Erneut versuchen",
+  "foodSlotNotLoaded": "Nicht geladen",
   "todaySemanticsDatePrev": "Tag zurück",
   "todaySemanticsDateNext": "Tag vor",
   "foodAnalysisFailedMessage": "Die Analyse hat nicht geklappt. Prüfe deine Internetverbindung und versuch es nochmal.",

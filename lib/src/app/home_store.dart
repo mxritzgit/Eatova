@@ -1298,8 +1298,11 @@ class HomeStore extends _HomeStoreBase
         // The fresh window load REPLACES the list, so previously fetched
         // archive days are gone and must be reloaded on re-selection. Without
         // this reset the session cache would call the day "loaded" and show it
-        // empty. Ghost duplicates cannot happen (merge dedups by id).
+        // empty. Ghost duplicates cannot happen (merge dedups by id). Failed
+        // marks go too: a day the window now covers is complete, an older
+        // one is reloaded (and re-marked on failure) when selected.
         _loadedArchiveDays.clear();
+        _failedArchiveDays.clear();
       }
 
       final loadedFavorites = results[2] as List<FavoriteMeal>?;
