@@ -547,8 +547,9 @@ class MealAnalysisResult {
   final String? brand;
 
   /// `true` when the 0 in [caloriesKcal]/[kcalPer100G] is a MEASUREMENT (water,
-  /// zero drink — see [offMeldetExplizitNullKcal]) and not the "unknown"
-  /// sentinel. Only with this marker do the UI log guards let a 0 through.
+  /// zero drink — see [offMeldetExplizitNullKcal], or a product serving too
+  /// small to reach 1 kcal) and not the "unknown" sentinel. Only with this
+  /// marker do the UI log guards let a 0 through.
   /// Persisted in the payload; legacy rows read `false` and stay blocked.
   final bool explicitZeroKcal;
 
@@ -729,24 +730,35 @@ class MealAnalysisResult {
   /// `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal`.
   ///
   /// The density becomes the reference only when calories and grams yield
-  /// nothing (source portion 0 g or 0 kcal).
+  /// nothing (source portion 0 g or 0 kcal), or when it reproduces the
+  /// calories and so only adds the precision rounding took away (a product's
+  /// 1 g serving); see [densityScalesPortion].
   MealAnalysisResult adjustedToGrams(int grams) {
     // Without a cooked mass/density there is no conversion factor. Retain the
     // snapshot instead of replacing its measured calories with the 0 sentinel.
     if (isRecipeWithoutCookedWeight) return this;
     final zielGramm = clampPortionGrams(grams);
     final dichte = effectiveKcalPer100G;
+    final ausDichte = densityScalesPortion(
+      dichte,
+      estimatedGrams,
+      caloriesKcal,
+    );
     final int neueKcal;
-    if (estimatedGrams > 0 && caloriesKcal > 0) {
+    if (ausDichte) {
+      neueKcal = clampMealCaloriesKcal(dichte! * zielGramm / 100);
+    } else if (estimatedGrams > 0 && caloriesKcal > 0) {
       neueKcal = clampMealCaloriesKcal(
         caloriesKcal * zielGramm / estimatedGrams,
       );
-    } else if (dichte != null) {
-      neueKcal = clampMealCaloriesKcal(dichte * zielGramm / 100);
     } else {
       neueKcal = 0;
     }
-    final neueDichte = neueKcal > 0
+    // A density that carried the scaling stays as it is: re-deriving it from
+    // the rounded calories would drift with every further adjustment.
+    final neueDichte = ausDichte
+        ? dichte!
+        : neueKcal > 0
         ? clampKcalPer100G(neueKcal * 100 / zielGramm)
         : (dichte ?? 0);
     final factor = estimatedGrams <= 0 ? 1.0 : zielGramm / estimatedGrams;
@@ -1028,8 +1040,11 @@ class MealAnalysisResult {
       brand: brand,
       // Only an EXPLICITLY reported 0 (water, zero drink) is a measurement; the
       // `?? 0` parser fallback above never satisfies this, because the detector
-      // reads the raw fields.
-      explicitZeroKcal: kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
+      // reads the raw fields. So is a known density whose serving rounds to
+      // 0 kcal (a 2 g tea bag): the label has numbers, the portion is tiny.
+      explicitZeroKcal:
+          calories == 0 &&
+          (kcalPer100G > 0 || offMeldetExplizitNullKcal(product)),
       imageUrl: _offImageUrl(product),
     );
   }

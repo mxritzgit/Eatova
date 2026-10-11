@@ -30,8 +30,8 @@ class ProductSearchHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (title, brand) = mealTitleAndBrand(result, context.l10n);
-    // The same authority as the expanded preview: the density that follows
-    // from caloriesKcal and estimatedGrams, not the raw kcalPer100G field.
+    // The same authority as the expanded preview: the raw kcalPer100G field
+    // counts only where it reproduces caloriesKcal at estimatedGrams.
     final density = result.isRecipeWithoutCookedWeight
         ? 0
         : result.adjustedToGrams(100).caloriesKcal;

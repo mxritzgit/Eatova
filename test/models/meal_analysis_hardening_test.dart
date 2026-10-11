@@ -427,6 +427,46 @@ void main() {
       expect(portion('1 glass (250 ml)').estimatedGrams, 100);
     });
 
+    test('kleine Portion: die Dichte des Etiketts traegt die Skalierung', () {
+      // Chewing gum: 1.4 g -> 1 g, 1.53 kcal -> 2. Scaling that 2 showed
+      // 200 kcal / 100 g and logged 28 kcal for 14 g instead of 21.
+      final kaugummi = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+        'product_name': 'Kaugummi',
+        'serving_quantity': 1.4,
+        'nutriments': <String, dynamic>{'energy-kcal_100g': 153},
+      }, '4000000000000');
+      expect(kaugummi.estimatedGrams, 1);
+      expect(kaugummi.caloriesKcal, 2);
+      expect(kaugummi.adjustedToGrams(1).caloriesKcal, 2, reason: 'Invariante');
+      expect(kaugummi.adjustedToGrams(100).caloriesKcal, 153);
+      expect(kaugummi.adjustedToGrams(14).caloriesKcal, 21);
+      final zweimal = kaugummi.adjustedToGrams(50).adjustedToGrams(100);
+      expect(zweimal.caloriesKcal, 153, reason: 'keine Drift');
+      expect(zweimal.kcalPer100G, 153);
+      // The weight sheet previews the synthesized component; saving applies
+      // adjustedToGrams. Both must name the same number.
+      final vorschau = kaugummi.asSingleComponent.adjustedToGrams(14);
+      expect(vorschau.caloriesKcal, 21);
+      expect(vorschau.kcalPer100G, 153);
+    });
+
+    test('Portion unter 1 kcal mit bekannter Dichte ist eine Messung', () {
+      final teebeutel = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+        'product_name': 'Kräutertee',
+        'serving_quantity': 2,
+        'nutriments': <String, dynamic>{'energy-kcal_100g': 1},
+      }, '122');
+      expect(teebeutel.caloriesKcal, 0);
+      expect(teebeutel.explicitZeroKcal, isTrue, reason: 'loggbar');
+      expect(teebeutel.adjustedToGrams(300).caloriesKcal, 3);
+      final ohne = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+        'product_name': 'Kräutertee',
+        'serving_quantity': 2,
+        'nutriments': <String, dynamic>{},
+      }, '123');
+      expect(ohne.explicitZeroKcal, isFalse, reason: 'unbekannt');
+    });
+
     test('unmoegliche Makros pro 100 g werden "-" statt hochgerechnet', () {
       // 100 g of food cannot hold more than 100 g of one macro, and none can
       // be negative: a unit slip in the crowd-sourced record is not a
