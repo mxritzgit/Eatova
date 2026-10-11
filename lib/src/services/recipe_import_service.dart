@@ -11,6 +11,10 @@ import 'meal_scan_identity.dart';
 
 enum RecipeImportFailure {
   invalidInput,
+
+  /// More recipe content than one extraction can answer; a retry would fail
+  /// the same way.
+  sourceTooLong,
   reauthRequired,
   rateLimited,
   unavailable,
@@ -167,6 +171,9 @@ RecipeImportResult parseRecipeImportResponse(int status, String body) {
   }
   if (status == 504) {
     throw const RecipeImportException(RecipeImportFailure.timeout);
+  }
+  if (status == 422 && code == 'source_too_long') {
+    throw const RecipeImportException(RecipeImportFailure.sourceTooLong);
   }
   if (status == 502 && code == 'provider_invalid_response') {
     throw const RecipeImportException(RecipeImportFailure.invalidResponse);

@@ -110,7 +110,7 @@ Deno.test('recipe-import authenticated text succeeds only after independent prov
     check(calls.filter((call) => /auth\/v1\/user|consume_edge_rate_limits/.test(call.url)).every((call) => call.redirect === 'error'), 'Credential-bearing fetches cannot redirect');
     const provider = calls.at(-1)!;
     check(!JSON.stringify(provider.body).includes(ENV.SUPABASE_SERVICE_ROLE_KEY), 'No secret in prompt');
-    check(provider.body.max_tokens === 12_000, 'Room for multiple complete recipes');
+    check(provider.body.max_tokens === 4500, 'Room for several complete recipes within the window');
   });
 });
 
@@ -305,7 +305,7 @@ Deno.test('recipe-import upstream errors and truncated model answers expose no s
   for (const options of [
     { providerStatus: 500, providerRaw: 'PRIVATE-RECIPE-CONTENT secret' },
     { providerRaw: 'PRIVATE-RECIPE-CONTENT secret' },
-    { finishReason: 'length' }, { model: { status: 'ready', candidates: {} } },
+    { model: { status: 'ready', candidates: {} } },
   ]) await stub(options, async () => {
     const response = await handleRequest(request());
     const body = await response.text();
@@ -387,11 +387,11 @@ Deno.test('recipe-import v2 explicitly supports ingredient-only and unqualified 
   });
 });
 
-Deno.test('recipe-import accepts only end_turn: a valid recipe cut at max_tokens, refused or unfinished is no result and no retry', async () => {
+Deno.test('recipe-import accepts only end_turn: a refused or unfinished valid recipe is no result and no retry', async () => {
   // The model text below is a complete, source-proven recipe; only the
-  // stop_reason says it is not final. A decline or a cut-off answer would
-  // repeat, so a second paid attempt is never made for it.
-  for (const finishReason of ['length', 'content_filter', 'model_context_window_exceeded', 'pause_turn', 'tool_calls', null]) {
+  // stop_reason says it is not final. A decline would repeat, so a second
+  // paid attempt is never made for it.
+  for (const finishReason of ['content_filter', 'pause_turn', 'tool_calls', null]) {
     await stub({ finishReason }, async (calls) => {
       const response = await handleRequest(request());
       const body = await response.text();
@@ -401,12 +401,28 @@ Deno.test('recipe-import accepts only end_turn: a valid recipe cut at max_tokens
       check(calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 1, `${finishReason}: one reservation`);
     });
   }
-  // Even when a second answer would be complete, a cut-off one is not retried.
-  await stub({ providerSequence: [{ raw: JSON.stringify(claudeResponse(JSON.stringify(MODEL), 'length')) }, {}] }, async (calls) => {
-    const response = await handleRequest(request());
-    check(response.status === 502, 'max_tokens is final');
-    check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'no retry after max_tokens');
-  });
+});
+
+Deno.test('recipe-import ends too much recipe content at the token cap with a final answer, not a timeout', async () => {
+  // A pasted compilation of several long recipes: the quoted output outgrows
+  // one answer. ~120 tokens/s must reach the cap before the provider window
+  // aborts, and the same text is not sent again.
+  const long = Array.from({ length: 6 }, (_, i) =>
+    `Rezept ${i + 1}\nFür 4 Portionen\n${'800 g Hackfleisch\n2 Zwiebeln\n400 g Tomaten\n'.repeat(24)}${'Alles anbraten und köcheln lassen.\n'.repeat(24)}`).join('\n');
+  check(long.length > 10_000 && long.length <= 20_000, `accepted long source: ${long.length}`);
+  for (const finishReason of ['length', 'model_context_window_exceeded']) {
+    await stub({ providerSequence: [{ raw: JSON.stringify(claudeResponse(JSON.stringify(MODEL), finishReason)) }, {}] }, async (calls) => {
+      const response = await handleRequest(request({ text: long, locale: 'de', version: 2 }));
+      const body = await response.text();
+      check(response.status === 422 && JSON.parse(body).error === 'source_too_long', `${finishReason}: ${response.status} ${body}`);
+      check(!body.includes('Pasta kochen'), `${finishReason}: no partial recipe leaks`);
+      const providers = calls.filter((c) => isClaudeCall(c.url));
+      check(providers.length === 1, `${finishReason}: no second attempt`);
+      check(calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 1, `${finishReason}: one reservation`);
+      const maxTokens = providers[0].body.max_tokens as number;
+      check(maxTokens * 1000 / 120 <= PROVIDER_TIMINGS_MS.window, `cap ${maxTokens} ends before the ${PROVIDER_TIMINGS_MS.window} ms window`);
+    });
+  }
 });
 
 Deno.test('recipe-import never pays for a second attempt that cannot finish in time', async () => {
@@ -461,7 +477,7 @@ Deno.test('recipe-import request carries extractionSchema, the cached extraction
       check(!provider.headers.has('authorization'), 'No bearer credential');
       const body = provider.body;
       check(Object.keys(body).sort().join(',') === 'max_tokens,messages,model,output_config,system,thinking', `request fields: ${Object.keys(body)}`);
-      check(body.model === 'claude-sonnet-5-5' && body.max_tokens === 12_000, 'model and output cap');
+      check(body.model === 'claude-sonnet-5-5' && body.max_tokens === 4500, 'model and output cap');
       check(JSON.stringify(body.thinking) === '{"type":"adaptive"}', 'adaptive thinking');
       check(JSON.stringify(body.output_config) === JSON.stringify({ effort: 'medium', format: { type: 'json_schema', schema: extractionSchema } }),
         'effort medium and extractionSchema');

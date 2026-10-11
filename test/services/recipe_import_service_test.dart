@@ -166,6 +166,30 @@ void main() {
     );
   });
 
+  test('too much recipe content is final, not a retryable failure', () {
+    expect(
+      () => parseRecipeImportResponse(422, '{"error":"source_too_long"}'),
+      throwsA(failure(RecipeImportFailure.sourceTooLong)),
+    );
+    for (final body in ['{"error":"other"}', '<html>422</html>']) {
+      expect(
+        () => parseRecipeImportResponse(422, body),
+        throwsA(failure(RecipeImportFailure.unavailable)),
+      );
+    }
+    expect(
+      () => parseRecipeImportResponse(
+        502,
+        '{"error":"provider_invalid_response"}',
+      ),
+      throwsA(failure(RecipeImportFailure.invalidResponse)),
+    );
+    expect(
+      () => parseRecipeImportResponse(502, '<html>bad gateway</html>'),
+      throwsA(failure(RecipeImportFailure.unavailable)),
+    );
+  });
+
   test('enforces response byte cap and whole request deadline', () async {
     await expectLater(
       service(

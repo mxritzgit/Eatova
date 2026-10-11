@@ -121,7 +121,10 @@ Existing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
 retain the Supabase JWT gateway verification. Total handler budget is 55 seconds;
 source fetching has a 10-second ceiling (2.5 seconds per source request) and model
 calls share a 40-second window; the first attempt may use all of it, because
-output grows with the source. Structured outputs use `output_config.format`
+output grows with the source. The output cap of 4,500 tokens (thinking
+included) takes about 37 seconds at ~120 tokens/s, so too much recipe content,
+such as a pasted compilation of several long recipes, ends at the cap with
+`source_too_long` before the window aborts the call. Structured outputs use `output_config.format`
 with the JSON schema in [schema.ts](schema.ts). Array caps remain server-side
 because structured outputs support no array or numeric constraints. A malformed
 complete answer, a transport error and transient HTTP errors (429, 5xx,
@@ -131,8 +134,10 @@ timeout, a safety decline (`refusal`), a cut-off answer (`max_tokens`) and
 permanent provider errors are not retried.
 
 Errors are machine codes: `invalid_request` / `invalid_json` (400), `unauthorized`
-(401), `payload_too_large` (413), `unsupported_content_type` (415), `rate_limited`
-or `ai_budget_exhausted` (429), `provider_unavailable` /
+(401), `payload_too_large` (413), `unsupported_content_type` (415),
+`source_too_long` (422: the answer reached the output cap; the app asks for
+fewer recipes at once instead of a retry), `rate_limited` or
+`ai_budget_exhausted` (429), `provider_unavailable` /
 `provider_invalid_response` (502), `auth_unavailable`, `rate_limit_unavailable`,
 `ai_budget_unavailable`, `ai_disabled`, `not_configured` (503), and
 `request_timeout` (504). Response bodies and logs never include upstream bodies,

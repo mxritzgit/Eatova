@@ -632,6 +632,26 @@ void main() {
     },
   );
 
+  testWidgets('too much recipe content asks for single recipes, not a retry', (
+    tester,
+  ) async {
+    final service = _Service(
+      (_) async =>
+          throw const RecipeImportException(RecipeImportFailure.sourceTooLong),
+    );
+    await _open(
+      tester,
+      service: service,
+      save: (_) async => SyncDelivery.delivered,
+    );
+    expect(find.textContaining('one at a time'), findsOneWidget);
+    expect(find.textContaining('try again'), findsNothing);
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('recipe-import-input')),
+    );
+    expect(field.controller!.text, _source);
+  });
+
   testWidgets(
     'session change during extraction cannot expose or save its result',
     (tester) async {

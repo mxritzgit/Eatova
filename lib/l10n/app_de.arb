@@ -53,6 +53,7 @@
   "recipeImportRateLimited": "Du hast das Importlimit erreicht. Bitte versuche es später erneut.",
   "recipeImportUnavailable": "Der Rezeptimport ist gerade nicht verfügbar. Dein Text bleibt erhalten. Versuche es später erneut.",
   "recipeImportTimeout": "Die Erkennung hat zu lange gedauert. Dein Text bleibt erhalten. Versuche es erneut.",
+  "recipeImportSourceTooLong": "Der Text enthält zu viel Rezeptinhalt für einen Import. Dein Text bleibt erhalten. Importiere die Rezepte einzeln.",
   "recipeHistoryDeletionOnlyTitle": "Löschung ohne frühere Version",
   "recipeHistoryDeletionOnlyDetail": "Für diesen Löschvermerk wurde auf dem Server kein Rezeptinhalt gespeichert. Es gibt keine Version zum Wiederherstellen.",
   "recipeEditConflictSaved": "Deine Änderungen wurden als eigene Konfliktkopie gespeichert. Die andere Version bleibt erhalten.",

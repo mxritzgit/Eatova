@@ -225,6 +225,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     }
     return switch (error.failure) {
       RecipeImportFailure.invalidInput => l10n.recipeImportInvalidInput,
+      RecipeImportFailure.sourceTooLong => l10n.recipeImportSourceTooLong,
       RecipeImportFailure.reauthRequired => l10n.recipeImportReauth,
       RecipeImportFailure.rateLimited => l10n.recipeImportRateLimited,
       RecipeImportFailure.unavailable => l10n.recipeImportUnavailable,

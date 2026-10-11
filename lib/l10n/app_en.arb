@@ -53,6 +53,7 @@
   "recipeImportRateLimited": "You have reached the import limit. Please try again later.",
   "recipeImportUnavailable": "Recipe import is currently unavailable. Your text is still here. Please try again later.",
   "recipeImportTimeout": "Recognition took too long. Your text is still here. Please try again.",
+  "recipeImportSourceTooLong": "This text holds too much recipe content for one import. Your text is still here. Import the recipes one at a time.",
   "recipeHistoryDeletionOnlyTitle": "Deletion without an earlier version",
   "recipeHistoryDeletionOnlyDetail": "No recipe content was saved on the server for this deletion. There is no version to restore.",
   "recipeEditConflictSaved": "Your changes were saved as a separate conflict copy. The other version is preserved.",
