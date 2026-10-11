@@ -1,5 +1,6 @@
 // Visual evidence for the 2026-10-03 meal-sheet slice of the redesign: the
-// recipe detail's add card and soft edit/history pills, the adjust sheet with
+// recipe detail's add card, soft edit/history pills and section cards
+// (2026-10-11), the adjust sheet with
 // a removed item, its add dialog and the discard decision card (2026-10-11),
 // the info card of a portion without cooked weight, the scan result's
 // actions, its details sheet, the scan preview and the manual sheet — at the
@@ -27,6 +28,7 @@ import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_scan_preview_sheet.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
+import 'package:eatova/src/widgets/recipes/recipe_sections.dart';
 
 import '../support/design_capture.dart';
 import '../support/harness.dart';
@@ -202,6 +204,26 @@ void main() {
       await scrollDesignTabBy(tester, 620);
       expect(find.byType(Divider), findsNothing);
       await captureDesignShot(tester, 'meal-sheets-recipe-detail-01');
+
+      // The import preview's section cards: bullets for the ingredients,
+      // round step badges without the caption's "1." markers, the pro tip
+      // on the brand surface.
+      for (final key in [
+        'recipe-detail-portion',
+        'recipe-detail-ingredients',
+        'recipe-detail-preparation',
+        'recipe-detail-pro-hint',
+      ]) {
+        expect(
+          tester.widget(find.byKey(ValueKey(key))),
+          isA<RecipeSectionCard>(),
+          reason: key,
+        );
+      }
+      expect(find.text('Cook the rice and let it cool.'), findsOneWidget);
+      expect(find.textContaining('1. Cook'), findsNothing);
+      await scrollDesignTabBy(tester, 2000);
+      await captureDesignShot(tester, 'meal-sheets-recipe-detail-02');
     });
 
     testWidgets('inline add card at 320 px and 2x text', (tester) async {
@@ -212,6 +234,9 @@ void main() {
       await _reveal(tester, 'recipe-add-card');
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-sheets-recipe-add-320-x2');
+      await _reveal(tester, 'recipe-detail-preparation');
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-sheets-recipe-sections-320-x2');
     });
   });
 
