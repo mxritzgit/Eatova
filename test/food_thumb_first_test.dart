@@ -56,7 +56,9 @@ Future<void> _pump(
       selectedDate: _day,
       onDateSelected: onDate,
       dayLoading: loading,
-      onAddMeal: onAdd,
+      onAddMeal: onAdd == null
+          ? null
+          : (result, slot, _) => onAdd(result, slot),
     ),
     brightness: brightness,
     locale: locale,

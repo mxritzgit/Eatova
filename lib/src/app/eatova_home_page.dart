@@ -928,8 +928,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // notify, so these must answer with the store's state of THAT
         // moment. `favorites` hands out the store's own list instance —
         // the sheet uses its identity as the change fingerprint.
-        mealsOfSelectedDay: () =>
-            _store.mealsForFoodDate(_store.selectedFoodDate),
+        mealsForDay: (day) => _store.mealsForFoodDate(day),
         favorites: () => _store.favorites,
         favoriteUseCounts: () =>
             favoriteUseCounts(_store.loggedMeals, now: clock.now()),
@@ -950,8 +949,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             profile: _store.profile,
             favorites: _store.favorites,
             loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
-            onAddMeal: (result, slot) =>
-                _store.addResultToDailyTotal(result, slot: slot),
+            onAddMeal: (result, slot, bound) => _store.addResultToDailyTotal(
+              result,
+              slot: slot,
+              foodDate: bound.day,
+              startedToday: bound.startedToday,
+            ),
             onUpdateMeal: _store.updateLoggedMealResult,
             isFavorite: _store.isFavorite,
             onToggleFavorite: _store.toggleFavorite,

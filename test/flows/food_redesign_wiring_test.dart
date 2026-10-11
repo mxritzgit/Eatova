@@ -20,6 +20,7 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/planned_meal.dart';
@@ -823,6 +824,149 @@ void main() {
         );
       });
       semantics.dispose();
+    });
+  });
+
+  // R2-02/R2-3: the store's selected day follows today at midnight (timer
+  // or resume) under an open sheet. The sheet's header kept naming the old
+  // day while its add landed on the new one, and that day lost its streak
+  // credit.
+  group('A sheet open across midnight', () {
+    LoggedMeal dinnerOn(DateTime day) => LoggedMeal(
+      id: 'dinner-${localDayKey(day)}',
+      result: _result('Pasta', 640),
+      loggedAt: DateTime(day.year, day.month, day.day, 19),
+      forcedSlot: MealSlot.dinner,
+      localDay: localDayKey(day),
+    );
+
+    LifetimeStats streakUpTo(DateTime day) => LifetimeStats(
+      mealsLogged: 30,
+      currentStreak: 30,
+      longestStreak: 30,
+      lastTrackedDate: day,
+    );
+
+    Finder alreadyAdded(String name) => find.descendant(
+      of: _key('add-meal-sheet'),
+      matching: find.text(name),
+    );
+
+    testWidgets('the add sheet books onto the day it shows and keeps that '
+        'day\'s streak', (tester) async {
+      var now = DateTime(2026, 10, 11, 23, 58);
+      await withClock(Clock(() => now), () async {
+        final store = await _pumpFood(
+          tester,
+          meals: [dinnerOn(DateTime(2026, 10, 11))],
+          safeAreas: false,
+        );
+        store.lifetimeStats = streakUpTo(DateTime(2026, 10, 10));
+        await _tapVisible(tester, _key('food-slot-add-dinner'));
+        expect(_text(tester, 'add-meal-date-context'), contains('Oct 11'));
+        expect(alreadyAdded('Pasta'), findsOneWidget);
+
+        now = DateTime(2026, 10, 12, 0, 2);
+        expect(store.maybeRollOverToToday(), isTrue);
+        await tester.pumpAndSettle();
+        expect(store.selectedFoodDate, DateTime(2026, 10, 12));
+        expect(_text(tester, 'add-meal-date-context'), contains('Oct 11'));
+        expect(
+          alreadyAdded('Pasta'),
+          findsOneWidget,
+          reason: '"already added" stays on the day the header names',
+        );
+
+        await tester.enterText(
+          _key('kcal-product-search-input'),
+          'Dr Oetker Salami',
+        );
+        await tester.tap(_key('kcal-product-search-button'));
+        await tester.pumpAndSettle();
+        await tester.tap(_key('kcal-product-suggestion-0'));
+        await tester.pumpAndSettle();
+        await _tapVisible(tester, _key('kcal-product-suggestion-add-0'));
+        final added = store.loggedMeals.firstWhere(
+          (m) => m.result.mealName.contains('Salami'),
+        );
+        expect(added.localDay, '2026-10-11');
+        expect(added.slot, MealSlot.dinner);
+        expect(store.lifetimeStats.lastTrackedDate, DateTime(2026, 10, 11));
+        expect(store.lifetimeStats.currentStreak, 31);
+      });
+    });
+
+    testWidgets('manual entry from the dock books onto its day after the '
+        'resume rollover, also at the end of the 25-hour DST day', (
+      tester,
+    ) async {
+      // 2026-10-25 is the fall-back day in Europe/Berlin.
+      var now = DateTime(2026, 10, 25, 23, 58);
+      await withClock(Clock(() => now), () async {
+        final store = await _pumpFood(tester, meals: const <LoggedMeal>[]);
+        store.lifetimeStats = streakUpTo(DateTime(2026, 10, 24));
+        await tester.longPress(_key('food-search'));
+        await tester.pumpAndSettle();
+        final sheet = _key('manual-meal-sheet');
+        expect(
+          find.descendant(of: sheet, matching: find.text('Sunday, Oct 25')),
+          findsOneWidget,
+        );
+        await tester.enterText(_key('manual-meal-name'), 'Soup');
+        await tester.enterText(_key('manual-meal-kcal100'), '120');
+
+        // A phone put away over midnight and picked up again.
+        now = DateTime(2026, 10, 26, 0, 2);
+        for (final state in [
+          AppLifecycleState.inactive,
+          AppLifecycleState.hidden,
+          AppLifecycleState.paused,
+          AppLifecycleState.hidden,
+          AppLifecycleState.inactive,
+          AppLifecycleState.resumed,
+        ]) {
+          tester.binding.handleAppLifecycleStateChanged(state);
+        }
+        await tester.pumpAndSettle();
+        expect(store.selectedFoodDate, DateTime(2026, 10, 26));
+        expect(
+          find.descendant(of: sheet, matching: find.text('Sunday, Oct 25')),
+          findsOneWidget,
+        );
+
+        await _tapVisible(tester, _key('manual-meal-save'));
+        final soup = store.loggedMeals.firstWhere(
+          (m) => m.result.mealName == 'Soup',
+        );
+        expect(soup.localDay, '2026-10-25');
+        expect(store.lifetimeStats.lastTrackedDate, DateTime(2026, 10, 25));
+        expect(store.lifetimeStats.currentStreak, 31);
+      });
+    });
+
+    testWidgets('a barcode scan started before midnight books onto the day '
+        'it started on', (tester) async {
+      final prior = MobileScannerPlatform.instance;
+      final scanner = _FakeScanner();
+      MobileScannerPlatform.instance = scanner;
+      addTearDown(() => MobileScannerPlatform.instance = prior);
+      var now = DateTime(2026, 10, 11, 23, 58);
+      await withClock(Clock(() => now), () async {
+        final store = await _pumpFood(tester, meals: const <LoggedMeal>[]);
+        await tester.tap(_key('food-action-barcode'));
+        await tester.pumpAndSettle();
+
+        now = DateTime(2026, 10, 12, 0, 2);
+        expect(store.maybeRollOverToToday(), isTrue);
+        await tester.pumpAndSettle();
+        scanner.emit('4001724012345');
+        await tester.pumpAndSettle();
+        await _tapVisible(tester, _key('analyse-add-daily-button'));
+        final added = store.loggedMeals.firstWhere(
+          (m) => m.result.mealName.contains('Salami'),
+        );
+        expect(added.localDay, '2026-10-11');
+      });
     });
   });
 }

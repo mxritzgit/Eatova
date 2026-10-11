@@ -257,7 +257,7 @@ Future<void> _oeffneSheet(
     mitScope
         ? FoodStoreScope(
             store: store,
-            mealsOfSelectedDay: () => store.meals,
+            mealsForDay: (_) => store.meals,
             favorites: () => store.favorites,
             child: host,
           )
