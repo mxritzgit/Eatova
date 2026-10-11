@@ -29,6 +29,7 @@ class DraftCandidate {
     this.carbsPer100G,
     this.fatPer100G,
     this.servingGrams,
+    this.servingUnit,
     this.barcode,
   });
 
@@ -47,6 +48,10 @@ class DraftCandidate {
 
   /// One serving or piece in grams, when the source states it.
   final int? servingGrams;
+
+  /// What [servingGrams] counts ("1 Scheibe (28 g)": a slice); null for a
+  /// plain weight ("40 g"), which a counted amount cannot follow.
+  final CountUnit? servingUnit;
 
   /// Product barcode, for products and product favorites only.
   final String? barcode;
@@ -93,7 +98,8 @@ class DraftFoodItem {
   );
 
   /// The same line with another candidate. A stated countable amount ("1
-  /// Scheibe") follows the new candidate's serving size when it has one.
+  /// Scheibe") follows the new candidate's serving when it counts the same
+  /// unit (see [portionGramsFor]).
   DraftFoodItem withCandidate(DraftCandidate candidate) => DraftFoodItem(
     described: described,
     selected: candidate,
@@ -124,39 +130,114 @@ class DraftFoodItem {
 }
 
 /// Grams for [item] when it uses [candidate]: a stated countable amount
-/// times the candidate's serving size, else null (keep the current grams).
+/// times the candidate's serving, else null (keep the current grams). Only
+/// a serving of the same unit says what the amount weighs ("2 Scheiben"
+/// with "1 Scheibe (28 g)"): a plain weight may be one slice or two, and a
+/// "Portion" is the maker's, not the user's. A result more than
+/// [_maxServingDeviation] times off the model's grams is mis-filled data.
 /// The estimate's serving is the model's own reading of the amount, so it
 /// returns the model's grams.
 int? portionGramsFor(DescribedFoodItem item, DraftCandidate candidate) {
   if (item.gramsSource != DescribedGramsSource.stated) return null;
-  final count = countableAmount(item.amountText);
-  if (count == null) return null;
+  final amount = _countOf(item.amountText);
+  if (amount == null) return null;
   if (candidate.origin == DraftItemOrigin.estimate) return item.grams;
   final serving = candidate.servingGrams;
-  if (serving == null) return null;
-  return clampPortionGrams(serving * count);
+  if (serving == null ||
+      amount.unit == CountUnit.portion ||
+      candidate.servingUnit != amount.unit) {
+    return null;
+  }
+  final grams = clampPortionGrams(serving * amount.count);
+  final low = math.min(grams, item.grams);
+  final high = math.max(grams, item.grams);
+  return low > 0 && high <= low * _maxServingDeviation ? grams : null;
 }
+
+const double _maxServingDeviation = 2;
+
+/// What a countable amount counts. Words that name one piece of the food
+/// ("Ei", "Riegel", "Apfel") count pieces.
+enum CountUnit { slice, piece, glass, cup, can, pack, portion }
 
 /// The count of a countable amount ("1 Scheibe", "zwei Stück", "½ Portion"),
 /// or null for weights and volumes ("200 g", "300 ml").
-double? countableAmount(String? amountText) {
+double? countableAmount(String? amountText) => _countOf(amountText)?.count;
+
+({double count, CountUnit unit})? _countOf(String? amountText) {
   final text = amountText?.trim().toLowerCase();
   if (text == null || text.isEmpty) return null;
   final match = _countable.firstMatch(text);
   if (match == null) return null;
   final number = match.group(1)!.replaceAll(',', '.');
-  return _countWords[number] ?? double.tryParse(number);
+  final count = _countWords[number] ?? double.tryParse(number);
+  final unit = _countUnits[match.group(2)!];
+  return count == null || unit == null ? null : (count: count, unit: unit);
 }
 
 final RegExp _countable = RegExp(
   r'^(\d+(?:[.,]\d+)?|½|ein|eine|einen|einem|einer|zwei|drei|vier|fünf|'
   r'halbe?|a|an|one|two|three|four|five|half)\s+'
   r'(scheiben?|stücke?|stück|portionen?|gläser|glas|becher|riegel|tassen?|'
-  r'eier|ei|brötchen|äpfel|apfel|bananen?|dosen?|packungen?|'
+  r'eier|ei|brötchen|äpfel|apfel|bananen?|dosen?|packung(?:en)?|'
   r'slices?|pieces?|servings?|portions?|glass(?:es)?|cups?|bars?|eggs?|'
   r'rolls?|apples?|bananas?|cans?|packs?)(?=[\s.,;()]|$)',
   unicode: true,
 );
+
+/// Every unit word [_countable] matches, by what it counts. Double-quoted:
+/// matching data, not UI text.
+const Map<String, CountUnit> _countUnits = {
+  "scheibe": CountUnit.slice,
+  "scheiben": CountUnit.slice,
+  "slice": CountUnit.slice,
+  "slices": CountUnit.slice,
+  "stück": CountUnit.piece,
+  "stücke": CountUnit.piece,
+  "piece": CountUnit.piece,
+  "pieces": CountUnit.piece,
+  "ei": CountUnit.piece,
+  "eier": CountUnit.piece,
+  "egg": CountUnit.piece,
+  "eggs": CountUnit.piece,
+  "riegel": CountUnit.piece,
+  "bar": CountUnit.piece,
+  "bars": CountUnit.piece,
+  "brötchen": CountUnit.piece,
+  "roll": CountUnit.piece,
+  "rolls": CountUnit.piece,
+  "apfel": CountUnit.piece,
+  "äpfel": CountUnit.piece,
+  "apple": CountUnit.piece,
+  "apples": CountUnit.piece,
+  "banane": CountUnit.piece,
+  "bananen": CountUnit.piece,
+  "banana": CountUnit.piece,
+  "bananas": CountUnit.piece,
+  "glas": CountUnit.glass,
+  "gläser": CountUnit.glass,
+  "glass": CountUnit.glass,
+  "glasses": CountUnit.glass,
+  "becher": CountUnit.cup,
+  "tasse": CountUnit.cup,
+  "tassen": CountUnit.cup,
+  "cup": CountUnit.cup,
+  "cups": CountUnit.cup,
+  "dose": CountUnit.can,
+  "dosen": CountUnit.can,
+  "can": CountUnit.can,
+  "cans": CountUnit.can,
+  "packung": CountUnit.pack,
+  "packungen": CountUnit.pack,
+  "pack": CountUnit.pack,
+  "packs": CountUnit.pack,
+  "portion": CountUnit.portion,
+  "portione": CountUnit.portion,
+  "portionen": CountUnit.portion,
+  "portions": CountUnit.portion,
+  "serving": CountUnit.portion,
+  "servings": CountUnit.portion,
+};
 
 const Map<String, double> _countWords = {
   '½': .5,
@@ -598,6 +679,7 @@ DraftCandidate? _favoriteCandidate(MealAnalysisResult result) {
       (result.explicitZeroKcal && result.kcalPer100G == 0 ? 0.0 : null);
   if (density == null) return null;
   final grams = result.estimatedGrams;
+  final serving = _serving(result);
   return DraftCandidate(
     origin: DraftItemOrigin.favorite,
     title: result.mealName,
@@ -606,7 +688,8 @@ DraftCandidate? _favoriteCandidate(MealAnalysisResult result) {
     proteinPer100G: _per100FromText(result.protein, grams),
     carbsPer100G: _per100FromText(result.carbs, grams),
     fatPer100G: _per100FromText(result.fat, grams),
-    servingGrams: _servingGrams(result),
+    servingGrams: serving?.grams,
+    servingUnit: serving?.unit,
     barcode: _nonEmpty(result.barcode),
   );
 }
@@ -622,6 +705,7 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
   }
   final per100 = hit.ingredientNutritionPer100g;
   final grams = result.estimatedGrams;
+  final serving = _serving(result);
   return DraftCandidate(
     origin: DraftItemOrigin.product,
     title: hit.title,
@@ -630,23 +714,27 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
     proteinPer100G: per100?.proteinG ?? _per100FromText(result.protein, grams),
     carbsPer100G: per100?.carbsG ?? _per100FromText(result.carbs, grams),
     fatPer100G: per100?.fatG ?? _per100FromText(result.fat, grams),
-    servingGrams: _servingGrams(result),
+    servingGrams: serving?.grams,
+    servingUnit: serving?.unit,
     barcode: _nonEmpty(hit.code),
   );
 }
 
-/// One piece or serving of an Open Food Facts product, from the serving its
-/// note records. `fromOpenFoodFacts` sets the portion to that serving, or to
-/// the 100 g base without one; a serving text with a count ("2 Scheiben
-/// (50 g)") is divided by it. A bare 100 g is the reference amount, not a
-/// piece, so it gives none.
-int? _servingGrams(MealAnalysisResult result) {
+/// One piece or serving of an Open Food Facts product and what it counts,
+/// from the serving its note records. `fromOpenFoodFacts` sets the portion
+/// to that serving, or to the 100 g base without one; a serving text with a
+/// count ("2 Scheiben (50 g)") is divided by it. A plain weight ("40 g")
+/// counts no unit. A bare 100 g is the reference amount, not a piece, so it
+/// gives none.
+({int grams, CountUnit? unit})? _serving(MealAnalysisResult result) {
   final serving = MealResultOffNote.resolve(result.portionNotes)?.serving;
   final grams = result.estimatedGrams;
   if (serving == null || !isPlausiblePortionGrams(grams)) return null;
-  final count = countableAmount(serving);
-  if (count != null && count > 0) return clampPortionGrams(grams / count);
-  return grams == 100 ? null : grams;
+  final count = _countOf(serving);
+  if (count != null && count.count > 0) {
+    return (grams: clampPortionGrams(grams / count.count), unit: count.unit);
+  }
+  return grams == 100 ? null : (grams: grams, unit: null);
 }
 
 /// A stored macro text ("12,5 g", "-") per 100 g of [grams], or null.

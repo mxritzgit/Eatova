@@ -254,6 +254,7 @@ const toastProduct = DraftCandidate(
   carbsPer100G: 49,
   fatPer100G: 4.8,
   servingGrams: 26,
+  servingUnit: CountUnit.slice,
   barcode: '20345678',
 );
 

@@ -167,8 +167,11 @@ The feature's Dart entry points:
   model's cooked estimate (about 150).
 - A scan, recipe or manual favorite must name the same food both ways
   ("Toast Hawaii" is not "Toast"); product favorites fit like search hits.
-- A stated countable amount ("1 Scheibe") uses the candidate's serving size
-  from the product's serving text; a stated weight keeps the AI's grams.
+- A stated countable amount ("2 Scheiben") uses the candidate's serving
+  from the product's serving text only when it counts the same unit ("1
+  Scheibe (28 g)") and the result is within 2× of the AI's grams. A plain
+  weight ("50 g") may be one slice or two, and a "Portion" is the maker's,
+  so those keep the AI's grams, as does a stated weight.
 - The draft's source is Open Food Facts with confidence "database" only when
   every line is product-backed; otherwise it is an AI estimate.
 

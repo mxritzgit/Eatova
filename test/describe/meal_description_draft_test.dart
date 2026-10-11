@@ -41,6 +41,7 @@ const DraftCandidate _harry = DraftCandidate(
   carbsPer100G: 48,
   fatPer100G: 3.5,
   servingGrams: 28,
+  servingUnit: CountUnit.slice,
   barcode: '4009249001119',
 );
 
@@ -107,6 +108,8 @@ void main() {
         'an apple': 1,
         'Ein Glas.': 1,
         '1 Scheibe (28 g)': 1,
+        '1 Packung': 1,
+        'zwei Packungen': 2,
         '200 g': null,
         '300 ml': null,
         'ein bisschen': null,
@@ -131,6 +134,13 @@ void main() {
       );
       expect(portionGramsFor(_toast, _nutellaProduct), isNull);
       expect(portionGramsFor(_nutella, _harry), isNull, reason: 'geschaetzt');
+      const plain = DraftCandidate(
+        origin: DraftItemOrigin.product,
+        title: 'Toastbrot',
+        kcalPer100G: 260,
+        servingGrams: 50,
+      );
+      expect(portionGramsFor(_toast, plain), isNull, reason: 'keine Einheit');
     });
   });
 

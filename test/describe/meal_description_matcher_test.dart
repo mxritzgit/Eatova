@@ -636,6 +636,123 @@ void main() {
       },
     );
 
+    // A serving only says how much a counted amount weighs when it counts
+    // the same unit: "50 g" may be one slice or two, a "Portion" is the
+    // maker's, and no serving is a can or several packs.
+    test('eine Stueckzahl folgt nur einer Portion derselben Einheit', () async {
+      final products = _FakeProducts({
+        'Toastbrot': _hits([
+          _product(
+            '1',
+            'Toastbrot',
+            brand: 'Harry',
+            kcal: 255,
+            servingSize: '50 g',
+            servingQuantity: 50,
+          ),
+        ]),
+        'Cola': _hits([
+          _product(
+            '2',
+            'Cola',
+            brand: 'Coca-Cola',
+            kcal: 42,
+            servingSize: '250 ml',
+            servingQuantity: 250,
+          ),
+        ]),
+        'Gummibaerchen': _hits([
+          _product(
+            '3',
+            'Gummibaerchen',
+            brand: 'Haribo',
+            kcal: 343,
+            servingSize: '1 Portion (25 g)',
+            servingQuantity: 25,
+          ),
+        ]),
+        'Haferflocken': _hits([
+          _product(
+            '4',
+            'Haferflocken',
+            brand: 'Koelln',
+            kcal: 370,
+            servingSize: '1 Portion (40 g)',
+            servingQuantity: 40,
+          ),
+        ]),
+      });
+      final draft = await _matcher(products).match(
+        _meal([
+          twoSlices,
+          _food(
+            'Cola',
+            grams: 330,
+            kcal: 139,
+            amount: 'eine Dose',
+            stated: true,
+          ),
+          _food(
+            'Gummibaerchen',
+            grams: 400,
+            kcal: 1372,
+            amount: '2 Packungen',
+            stated: true,
+          ),
+          _food(
+            'Haferflocken',
+            grams: 60,
+            kcal: 222,
+            amount: 'eine Portion',
+            stated: true,
+          ),
+        ]),
+      );
+      for (final (index, barcode, grams) in [
+        (0, '1', 50),
+        (1, '2', 330),
+        (2, '3', 400),
+        (3, '4', 60),
+      ]) {
+        final line = draft.items[index];
+        expect(line.selected.barcode, barcode, reason: 'Zeile $index');
+        expect(line.grams, grams, reason: 'Zeile $index: Modell-Gramm');
+        expect(
+          line.withCandidate(line.selected).grams,
+          grams,
+          reason: 'Zeile $index: auch beim Wechsel',
+        );
+      }
+    });
+
+    test('eine Portion weit weg vom Modell gilt als falsch erfasst', () async {
+      Future<DraftFoodItem> lineWith(String servingSize, int grams) async {
+        final products = _FakeProducts({
+          'Toastbrot': _hits([
+            _product(
+              '1',
+              'Toastbrot',
+              brand: 'Harry',
+              kcal: 255,
+              servingSize: servingSize,
+              servingQuantity: grams,
+            ),
+          ]),
+        });
+        return (await _matcher(
+          products,
+        ).match(_meal([twoSlices]))).items.single;
+      }
+
+      // The loaf, not a slice: 500 g against the model's 50 g.
+      final loaf = await lineWith('1 Scheibe (250 g)', 250);
+      expect(loaf.selected.barcode, '1');
+      expect(loaf.grams, 50);
+      // Twice the model's reading is still a slice.
+      final thick = await lineWith('1 Scheibe (50 g)', 50);
+      expect(thick.grams, 100);
+    });
+
     test('Makros pro 100 g kommen vom Produkt', () async {
       final products = _FakeProducts({
         'Nutella': _hits([
