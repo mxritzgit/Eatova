@@ -60,12 +60,16 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
   idempotent operation.
 - The shopping receipt merges ingredients by a German and English vocabulary
   of common foods and their exact names; when in doubt it keeps two rows
-  rather than merge different products. A row of one ingredient keeps the id
-  of the earlier per-recipe line; a merged row has its own id, so a meal added
-  later makes it a fresh, unchecked requirement. Catalog recipes scale per
-  serving; an own or Coach recipe planned for more than one serving shows its
-  amounts as written ("Originalrezept") and leaves them out of the total. No
-  prices, no store aisles and no editable pantry.
+  rather than merge different products, and a name still holding an amount
+  it cannot read ("Reis (300 g gekocht)") keeps its own row. A row of one
+  ingredient keeps the id of the earlier per-recipe line; a merged row has
+  its own id over the week's meals including eaten ones. Eating a meal keeps
+  what was bought ticked off; a meal added later makes a fresh, unchecked
+  requirement, and removing a meal reopens the merged rows it was part of.
+  Catalog recipes scale per serving; an own or Coach recipe planned for any
+  number of servings other than one (e.g. 0.5 or 2) shows its amounts as
+  written ("Originalrezept") and leaves them out of the total. No prices, no
+  store aisles and no editable pantry.
 - Structured recipe nutrition scales with the saved ingredients and servings.
   Without a known cooked mass, the recipe remains portion-based; the app does
   not invent a grams-per-portion value. Free-text ingredients are not a complete
