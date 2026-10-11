@@ -4,7 +4,8 @@ Base source review: **2026-09-14**, main through PR #88; authentication and
 onboarding updated **2026-09-16**; Today, Settings and visual contracts
 updated **2026-10-01** for the dark redesign (PR #118); Training, Coach `/log`
 and dictation updated **2026-10-03** ([design](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md));
-meal description by text or voice added **2026-10-10** ([contract](MEAL-DESCRIBE.md)).
+meal description by text or voice added **2026-10-10** ([contract](MEAL-DESCRIBE.md));
+the shopping list became one weekly receipt **2026-10-11**.
 This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
@@ -19,7 +20,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Meal description | "Describe" in the add sheet: a typed or dictated sentence becomes a draft with one line per food. The AI splits the sentence and estimates amounts; each line uses a matching favorite or database product when one fits and the AI estimate otherwise, marked as such. Lines can switch candidate, change grams or be removed; nothing is logged before Add. Counts as one meal scan | [Contract](MEAL-DESCRIBE.md), [sheet](../lib/src/widgets/kcal/meal_describe_sheet.dart) |
 | Recipes | Browse catalog; create, edit or delete own/adopted recipes; photo, preparation, structured ingredients, fractional servings; add to selected diary date | [Recipes](../lib/src/screens/recipes/recipes_screen.dart) |
 | Meal Plan | Weekly date/slot planning with recipe snapshots and servings; explicit consumption adds to diary without double-counting retries | [Plan screen](../lib/src/screens/recipes/meal_plan_screen.dart), [store](../lib/src/app/home_store_meal_plan.dart) |
-| Shopping List | Weekly ingredient aggregation and durable checked state; compatible structured quantities combine, free-text lines remain independent | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart) |
+| Shopping List | One receipt for the week's uneaten meals: the same ingredient from several meals is one row with the summed amount and a detail line of the days (free-text amounts are read and converted to the planned servings; an amount that cannot be converted keeps the recipe's own, marked). Spices and staples sit in a collapsed "Gewürze & Vorrat" section outside the progress; a recipe without ingredients gets a note. Durable checked state, one check per tap; checks of the earlier per-recipe list carry over | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart), [receipt model](../lib/src/models/shopping_receipt.dart) |
 | Training plans | Multiple workouts, plan selection/editing, exercise lists, repetition/timed sets and rest | [Training](../lib/src/screens/training/training_screen.dart) |
 | Workout player | List of exercise cards with one tap per set (✓; timed sets ▶ with a 3 s lead and "Done early"); weights carry forward within an exercise or come from Last time; undo, skip set/exercise, complete the rest as planned; rests and timed sets keep running while the phone is locked; one generic rest alert per phase, whose tap reopens the workout; finish sheet (save the done sets, log the rest as shown, or discard); local recovery | [Player](../lib/src/screens/training/training_player_screen.dart), [Training design](TRAINING-DESIGN.md#workout-player-list-2026-10-03) |
 | Training log | "Log workout" for a free workout (today, yesterday or up to 30 days back, optional duration, exercises with sets or a time, note) and "Log as done" for the plan's shown workout; nothing is written before Add | [Log editor](../lib/src/screens/training/training_log_editor.dart) |
@@ -57,6 +58,14 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
 
 - Planning a meal does not count it as eaten. Consumption is an explicit,
   idempotent operation.
+- The shopping receipt merges ingredients by a German and English vocabulary
+  of common foods and their exact names; when in doubt it keeps two rows
+  rather than merge different products. A row of one ingredient keeps the id
+  of the earlier per-recipe line; a merged row has its own id, so a meal added
+  later makes it a fresh, unchecked requirement. Catalog recipes scale per
+  serving; an own or Coach recipe planned for more than one serving shows its
+  amounts as written ("Originalrezept") and leaves them out of the total. No
+  prices, no store aisles and no editable pantry.
 - Structured recipe nutrition scales with the saved ingredients and servings.
   Without a known cooked mass, the recipe remains portion-based; the app does
   not invent a grams-per-portion value. Free-text ingredients are not a complete

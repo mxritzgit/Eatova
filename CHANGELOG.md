@@ -62,6 +62,25 @@ the complete current product.
     recipe import and Coach brief fields count like the server, and the iOS
     camera and photo prompts mention recipe photos.
   - Rollout: `coach-chat` needs a redeploy; there is no migration.
+- **Weekly shopping receipt** (2026-10-11): the shopping list is one receipt
+  for the week instead of one block per recipe.
+  - The same ingredient from several planned meals is one row with the summed
+    amount ("Hähnchenbrust 540 g") and a detail line of the days ("Di 180 g ·
+    Do Mittag 180 g · Do Abend 180 g"). Free-text amounts are read (numbers,
+    fractions, ranges, "ca.", German and English units) and converted to the
+    planned servings; an amount that cannot be converted keeps the recipe's
+    own with "(Rezept für 4 Port.)" or "(Originalrezept)" and stays out of the
+    total. German and English names of common foods merge; different
+    products (Kokosmilch and Milch, Süßkartoffel and Kartoffel) do not.
+  - Salt, pepper, powders, dried herbs, stock and small amounts of oil,
+    vinegar, sauces, flour or sugar move to a collapsed "Gewürze & Vorrat"
+    section after the main rows, one line of names until "Einzeln abhaken"
+    opens it. It has its own count and stays out of the totals, the progress
+    and the stamp. Plain water is dropped.
+  - A recipe without ingredients is one note under the rows. One tap still
+    writes one check; a row of one ingredient keeps its earlier id, and lines
+    ticked off on the per-recipe list stay ticked off. No schema or sync
+    change; no prices.
 - **Audit fixes** (2026-10-11, #147):
   - Privacy: the SQLite cache stays out of Android backup and device-to-device
     transfer. Picker photos a dead process left in the cache (full gallery
