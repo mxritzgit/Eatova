@@ -1289,6 +1289,58 @@ void main() {
     });
   });
 
+  group('an invalid active row blocks every way to complete it', () {
+    testWidgets('Complete remaining waits for a valid active value', (
+      tester,
+    ) async {
+      final host = await _open(tester);
+      await tester.enterText(_key('training-set-reps-0-0'), '');
+      await tester.pump();
+      await _tap(tester, 'training-exercise-menu-0');
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<PopupMenuItem<String>>(
+              _key('training-timer-complete-remaining'),
+            )
+            .enabled,
+        isFalse,
+      );
+      await tester.tap(_key('training-timer-complete-remaining'));
+      await tester.pumpAndSettle();
+      expect(host.writes.last!.completedSets, isEmpty);
+      // Close the menu over its barrier.
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(_key('training-set-reps-0-0'), '6');
+      await tester.pump();
+      await _exerciseMenu(tester, 0, 'training-timer-complete-remaining');
+      expect(host.writes.last!.completedSets, hasLength(3));
+      expect(host.writes.last!.actualSets.first.reps, 6);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('Done early waits for a valid active weight', (tester) async {
+      final host = await _open(tester, plan: timerPlan());
+      await _tap(tester, 'training-set-check-0-0');
+      await _elapse(tester, host, const Duration(seconds: 5));
+      await tester.enterText(_key('training-set-weight-0-0'), '2500');
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextButton>(_key('training-timer-done-early'))
+            .onPressed,
+        isNull,
+      );
+      await tester.enterText(_key('training-set-weight-0-0'), '25');
+      await tester.pump();
+      await _tap(tester, 'training-timer-done-early');
+      expect(host.writes.last!.actualSets.single.weightKg, 25);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   group('invalid values never outlive their field', () {
     const missing =
         'Enter the actual repetitions for completed sets before saving the '

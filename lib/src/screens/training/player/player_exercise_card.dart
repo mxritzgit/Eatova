@@ -145,6 +145,9 @@ class PlayerExerciseCard extends StatelessWidget {
                 value: 'complete-remaining',
                 icon: Icons.done_all_rounded,
                 label: l.trainingTimerCompleteRemaining(remaining),
+                // As for ✓: the active row's invalid field would log its
+                // last valid value instead.
+                enabled: activeValid,
               ),
               eatovaMenuItem(
                 key: const ValueKey('training-timer-skip-exercise'),
@@ -338,7 +341,7 @@ class PlayerExerciseCard extends StatelessWidget {
               const SizedBox(height: 8),
               TextButton.icon(
                 key: const ValueKey('training-timer-done-early'),
-                onPressed: enabled ? actions.complete : null,
+                onPressed: enabled && activeValid ? actions.complete : null,
                 style: TextButton.styleFrom(
                   foregroundColor: t.onForest,
                   minimumSize: const Size(0, 48),
