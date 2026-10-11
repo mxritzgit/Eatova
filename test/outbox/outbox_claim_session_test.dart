@@ -231,4 +231,66 @@ void main() {
       );
     });
   });
+
+  test('an explicit retry while another engine holds the claim keeps the '
+      'next meal plan load single', () async {
+    final server = FakeServer()
+      ..profileRow = {
+        ...serverProfileRow(testProfile()),
+        'manual_energy': true,
+      };
+    final client = _client(server);
+    addTearDown(client.dispose);
+    await _signIn(client);
+    final blocked = SyncOp.mealInsert(
+      LoggedMeal(
+        id: _mealId,
+        loggedAt: DateTime.utc(2026, 9, 20, 11),
+        result: mealResult('Abgelehnt'),
+      ),
+      trackDay: false,
+    ).withBlockedReason(SyncBlockedReason.rejected);
+    // The background worker holds the claim, so the replay after the retry
+    // commits nothing the store could observe.
+    final kv = InMemoryKeyValueStore({
+      'eatova.v1.outbox.$_owner': jsonEncode({
+        'items': [blocked.toJson()],
+      }),
+      syncSessionKey: jsonEncode({
+        'owner': _owner,
+        'session': _session,
+        'generation': 'worker-generation',
+      }),
+      syncClaimKey(_owner): jsonEncode({
+        'generation': 'worker-generation',
+        'token': 'background-worker',
+        'expires_at': clock
+            .now()
+            .toUtc()
+            .add(SyncExecutionGuard.leaseDuration)
+            .toIso8601String(),
+      }),
+    });
+    final store = _store(server, client, LocalCache(kv, _owner));
+    addTearDown(store.dispose);
+    await bootUntilIdle(store);
+    expect(server.mealRows, isEmpty, reason: 'precondition');
+
+    await store.syncPendingWrites(retryBlocked: true);
+    await settle();
+    final queued = jsonDecode(kv.snapshot['eatova.v1.outbox.$_owner']!)
+        as Map<String, dynamic>;
+    expect((queued['items'] as List).single['blocked_reason'], isNull,
+        reason: 'precondition: the retry unblocked the op');
+
+    server.serveMealPlans = true;
+    int planLoads() => server.requests
+        .where((r) => r.url.path.endsWith('/rpc/load_meal_plan'))
+        .length;
+    final before = planLoads();
+    await store.retryMealPlans();
+    await settle();
+    expect(planLoads(), before + 1,
+        reason: 'the own retry commit is no foreign change');
+  });
 }

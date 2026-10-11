@@ -474,8 +474,8 @@ extension LocalCacheMutations on LocalCache {
     }
   }, guards: guards);
 
-  Future<void> retryBlockedSyncOperations() async {
-    await _atomicMutation((state, queue) {
+  Future<LocalMutationReceipt> retryBlockedSyncOperations() {
+    return _atomicMutation((state, queue) {
       for (var i = 0; i < queue.length; i++) {
         if (queue[i].blockedReason == SyncBlockedReason.trainingHeadConflict) {
           continue;

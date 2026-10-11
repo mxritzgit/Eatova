@@ -161,7 +161,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       ) {
         await running;
       }
-      await _cache?.retryBlockedSyncOperations();
+      final receipt = await _cache?.retryBlockedSyncOperations();
+      // The store's own commit: a later snapshot must not take it for a
+      // foreign one, even if the replay below commits nothing (claim held).
+      if (receipt != null && !_disposed && !_trainingSessionEnded) {
+        _observeLocalCommit(receipt);
+        _mutate(() => _outbox = receipt.operations);
+      }
     }
     await _replayOutbox();
   }
