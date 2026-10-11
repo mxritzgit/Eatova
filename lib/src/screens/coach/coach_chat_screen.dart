@@ -3010,14 +3010,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                       child: _loading
                           ? const Center(
                               key: ValueKey('coach-loading'),
-                              child: SizedBox(
-                                width: 22,
-                                height: 22,
-                                // Color comes from progressIndicatorTheme (t.accent).
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
+                              child: AppSpinner(strokeWidth: 2),
                             )
                           : isHero
                           ? _CoachHero(

@@ -1325,14 +1325,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
         children: [
           _SectionLabel(
             l10n.ingredientSearching,
-            trailing: SizedBox(
-              key: const ValueKey('product-search-spinner'),
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: context.t.accent,
-              ),
+            trailing: const AppSpinner(
+              key: ValueKey('product-search-spinner'),
+              size: 16,
+              strokeWidth: 2,
             ),
           ),
           const SizedBox(height: _kLabelGap),
