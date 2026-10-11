@@ -484,10 +484,12 @@ class _SummaryCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 2,
               children: [
+                // No-break spaces keep each number with its unit: a wrapped
+                // figure breaks after the "·" only.
                 Text(
                   result.isRecipeWithoutCookedWeight
-                      ? '${result.caloriesKcal} kcal · ${context.l10n.recipeCalcSavedPortion}'
-                      : '${result.caloriesKcal} kcal · ${result.estimatedGrams} g',
+                      ? '${result.caloriesKcal}\u00a0kcal · ${context.l10n.recipeCalcSavedPortion}'
+                      : '${result.caloriesKcal}\u00a0kcal · ${result.estimatedGrams}\u00a0g',
                   key: const ValueKey('edit-meal-summary-figure'),
                   style: AppType.display(16, color: t.ink),
                 ),

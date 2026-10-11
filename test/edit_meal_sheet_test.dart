@@ -119,7 +119,7 @@ void main() {
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
     expect(find.text('Mahlzeit bearbeiten'), findsOneWidget);
     expect(find.text('Test-Bowl'), findsOneWidget);
-    expect(find.text('350 kcal · 350 g'), findsOneWidget);
+    expect(find.text('350\u00a0kcal · 350\u00a0g'), findsOneWidget);
 
     // Without a change, save is disabled.
     final saveButton = find.byKey(const ValueKey('edit-meal-save-button'));
@@ -167,7 +167,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Back in the edit sheet: the summary shows the new values.
-    expect(find.text('200 kcal · 200 g'), findsOneWidget);
+    expect(find.text('200\u00a0kcal · 200\u00a0g'), findsOneWidget);
     expect(find.text('Angepasst'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
