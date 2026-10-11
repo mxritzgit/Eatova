@@ -9,6 +9,17 @@ class _RecipeListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final photo = ClipRRect(
+      borderRadius: BorderRadius.circular(rControl),
+      child: SizedBox(
+        width: 78,
+        height: 84,
+        child: RecipePhoto(recipe: recipe),
+      ),
+    );
+    // From 1.5x text the photo goes above the title, which then gets the
+    // row's width instead of breaking "Asparagu|s" beside the photo.
+    final stacked = MediaQuery.textScalerOf(context).scale(17) > 25.5;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -19,19 +30,12 @@ class _RecipeListTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(rControl),
-                child: SizedBox(
-                  width: 78,
-                  height: 84,
-                  child: RecipePhoto(recipe: recipe),
-                ),
-              ),
-              const SizedBox(width: 14),
+              if (!stacked) ...[photo, const SizedBox(width: 14)],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (stacked) ...[photo, const SizedBox(height: 10)],
                     Text(
                       recipe.displayTitle(context.l10n),
                       style: AppType.display(17, color: t.ink, height: 1.2),

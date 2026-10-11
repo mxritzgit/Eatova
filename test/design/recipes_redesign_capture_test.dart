@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../support/design_capture.dart';
 import '../support/recipes_design_fixtures.dart';
+import '../support/text_layout.dart';
 
 final _now = DateTime(2026, 9, 28, 18, 30);
 
@@ -69,6 +70,50 @@ void main() {
       );
       await precacheDesignImages(tester);
       await captureDesignShot(tester, 'recipes-01');
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  // At 200 % text the 20 px shelf titles grew to 40 px and broke
+  // "recommendation|s" even on a 390 px phone.
+  testWidgets('recipes: titles stay whole at 320 px and 2x text', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      await pumpDesignRecipes(tester, textScale: 2);
+      tester.view.physicalSize =
+          Size(320, kDesignViewport.height) * kDesignPixelRatio;
+      await tester.pumpAndSettle();
+      final page = find.byKey(const ValueKey('screen-recipes'));
+      for (final (link, title) in const [
+        ('recipe-lean-see-all', 'High protein, under 500 kcal'),
+        ('recipes-more-see-all', 'More recommendations'),
+      ]) {
+        // The list builds lazily: scroll until the shelf exists.
+        await tester.scrollUntilVisible(
+          find.byKey(ValueKey(link)),
+          300,
+          scrollable: find
+              .descendant(of: page, matching: find.byType(Scrollable))
+              .first,
+        );
+        await tester.pumpAndSettle();
+        expectWholeWordsIn(tester, page, title);
+      }
+      // The list rows: beside the 78 px photo the title broke
+      // "Asparagu|s"; from 1.5x text the photo sits above it.
+      const salmon = 'Salmon with Sweet Potato & Asparagus';
+      await tester.scrollUntilVisible(
+        find.text(salmon),
+        300,
+        scrollable: find
+            .descendant(of: page, matching: find.byType(Scrollable))
+            .first,
+      );
+      await tester.pumpAndSettle();
+      expectWholeWordsIn(tester, page, salmon);
+      await precacheDesignImages(tester);
+      await captureDesignShot(tester, 'recipes-320-x2');
       expect(tester.takeException(), isNull);
     });
   });
