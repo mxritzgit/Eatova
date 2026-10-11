@@ -337,11 +337,13 @@ void main() {
       await captureDesignShot(tester, 'misc-analysis-error$suffix');
     });
 
-    for (final (state, completed, open, valid) in [
-      ('open-sets', 4, 2, true),
-      ('nothing-done', 0, 6, true),
+    for (final (state, completed, open, valid, activeValid) in [
+      ('open-sets', 4, 2, true, true),
+      ('nothing-done', 0, 6, true, true),
       // Missing set values: the boxed warning note above a locked save.
-      ('missing-values', 4, 2, false),
+      ('missing-values', 4, 2, false, true),
+      // An invalid active row: the note above a locked "I did the rest".
+      ('active-invalid', 4, 2, true, false),
     ]) {
       testWidgets('finish sheet $state$suffix', (tester) async {
         final note = TextEditingController();
@@ -355,7 +357,7 @@ void main() {
             open: open,
             total: completed + open,
             valuesValid: valid,
-            activeValid: true,
+            activeValid: activeValid,
             note: note,
             onNoteChanged: () {},
           ),
@@ -376,7 +378,9 @@ void main() {
         } else {
           _expectPill<SoftPillButton>('training-finish-log-rest');
         }
-        if (!valid) expect(find.byType(SignalNote), findsOneWidget);
+        if (!valid || !activeValid) {
+          expect(find.byType(SignalNote), findsOneWidget);
+        }
         expect(find.byType(TextButton), findsOneWidget, reason: 'launcher');
         expect(tester.takeException(), isNull);
         await captureDesignShot(tester, 'misc-finish-$state$suffix');

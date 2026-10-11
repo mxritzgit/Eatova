@@ -161,11 +161,14 @@ class _FinishSheet extends StatelessWidget {
                 const SizedBox(height: 8),
                 // Saving the done sets skips the active row; logging the rest
                 // records it, so it needs its own reason when disabled.
+                // The same boxed note as the missing values above.
                 if (valuesValid && !activeValid) ...[
-                  Text(
+                  SignalNote(
                     l.trainingTimerLogRestInvalid,
                     key: const ValueKey('training-finish-log-rest-invalid'),
-                    style: AppType.ui(14, color: t.danger),
+                    tone: t.warning,
+                    icon: Icons.warning_amber_rounded,
+                    boxed: true,
                   ),
                   const SizedBox(height: 8),
                 ],
