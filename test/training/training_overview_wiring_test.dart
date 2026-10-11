@@ -205,6 +205,27 @@ void main() {
       });
     });
 
+    testWidgets('history: its Log workout opens the log editor over it', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(kTrainingDesignNow), () async {
+        await pumpTrainingDesignHome(tester);
+        await _openTraining(tester);
+        await _tap(tester, 'training-open-history');
+        final history = tester.widget<TrainingHistoryScreen>(
+          find.byType(TrainingHistoryScreen),
+        );
+        // The empty history's way forward: wired whenever an account can
+        // write, as on the Training tab.
+        expect(history.onLogWorkout, isNotNull);
+        history.onLogWorkout!();
+        await settleFrames(tester);
+        expect(find.byKey(const ValueKey('training-log-save')), findsOneWidget);
+        expect(find.byType(TrainingHistoryScreen), findsOneWidget);
+        await _leave(tester);
+      });
+    });
+
     testWidgets('Start opens the player on the rotation\'s next workout', (
       tester,
     ) async {

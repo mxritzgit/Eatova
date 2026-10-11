@@ -369,6 +369,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// their meal, not diagnose a network.
   bool _searchGaveUp = false;
 
+  /// Why the last search failed when the SERVICE failed (unreachable, or
+  /// rate limited); null otherwise. Written with [_productSearchMessage] in
+  /// every branch and only ever set alongside a message, so
+  /// [_searchStateDirty] already covers it.
+  _SearchFailure? _searchFailure;
+
   /// Definitively nothing found OR the search gave up: both lead with the
   /// manual form. A 429 or an unreachable service lead with "Try again" and
   /// keep the form as the second way; the min-chars hint offers neither.
@@ -661,6 +667,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSearchMessage = null;
         _searchCameUpEmpty = false;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
     }
     if (query.length < _autoSearchMinChars) return;
@@ -692,6 +699,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSearchMessage = context.l10n.foodSearchMinCharsHint;
         _searchCameUpEmpty = false;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
       return;
     }
@@ -713,6 +721,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
             : null;
         _searchCameUpEmpty = cached.isEmpty;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
       return;
     }
@@ -727,6 +736,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSearchMessage = context.l10n.foodSearchNoResultsHint;
         _searchCameUpEmpty = true;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
       return;
     }
@@ -739,6 +749,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _searchCameUpEmpty = false;
       _searchGaveUp = false;
       _productSearchMessage = null;
+      _searchFailure = null;
     });
     _armSlowHint(requestId);
 
@@ -759,6 +770,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
             : null;
         _searchCameUpEmpty = suggestions.isEmpty;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -795,6 +807,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
         // anything about the product.
         _searchCameUpEmpty = false;
         _searchGaveUp = abgelaufen;
+        _searchFailure = gedrosselt
+            ? _SearchFailure.throttled
+            : !abgelaufen && showTransientError
+            ? _SearchFailure.unreachable
+            : null;
       });
     }
   }
@@ -831,6 +848,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _productSearchMessage = context.l10n.foodSearchCanceledHint;
       _searchCameUpEmpty = false;
       _searchGaveUp = true;
+      _searchFailure = null;
     });
   }
 
@@ -1323,11 +1341,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     }
     if (_productSuggestions.isEmpty && _productSearchMessage != null) {
       final message = _productSearchMessage!;
-      final throttled = message == l10n.searchRateLimited;
+      final throttled = _searchFailure == _SearchFailure.throttled;
       // The service failed (unreachable or throttled): neither says the
       // product does not exist, so the way forward is to try again — and,
       // for someone who just wants to log the meal, the form.
-      final failed = throttled || message == l10n.foodSearchUnreachableHint;
+      final failed = _searchFailure != null;
       void manual() =>
           _openManualEntry(initialName: _searchController.text.trim());
       return CalmState(
@@ -2092,29 +2110,30 @@ class _SearchSlowHint extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Padding(
+    // On the sheet's gutter, flush with the section label above it.
+    return Row(
       key: const ValueKey('product-search-slow-hint'),
-      padding: const EdgeInsets.only(left: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              l10n.foodAnalysisSlowHint,
-              style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
-            ),
+      children: [
+        Expanded(
+          child: Text(
+            l10n.foodAnalysisSlowHint,
+            style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
           ),
-          const SizedBox(width: 12),
-          SoftPillButton(
-            key: const ValueKey('product-search-cancel'),
-            label: l10n.commonCancel,
-            onTap: onCancel,
-            tone: SoftPillTone.neutral,
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(width: 12),
+        SoftPillButton(
+          key: const ValueKey('product-search-cancel'),
+          label: l10n.commonCancel,
+          onTap: onCancel,
+          tone: SoftPillTone.neutral,
+        ),
+      ],
     );
   }
 }
+
+/// Why a product search failed on the service's side.
+enum _SearchFailure { unreachable, throttled }
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
