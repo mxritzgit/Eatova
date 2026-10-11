@@ -197,6 +197,34 @@ void main() {
       });
     });
 
+    // Descriptions spend the same analyze-meal quota as photo scans, so a
+    // 429 on a scan must not blame photos the user may never have taken.
+    test('429-Text spricht von Mahlzeit-Analysen, nicht von Fotos', () {
+      final now = DateTime(2026, 10, 10, 12);
+      withClock(Clock.fixed(now), () {
+        for (final (l10n, photoWords, mealWord) in [
+          (_de, RegExp('Foto|Bild', caseSensitive: false), 'Mahlzeit'),
+          (_en, RegExp('photo|image|picture', caseSensitive: false), 'meal'),
+        ]) {
+          final plain = mealAnalysisErrorMessage(
+            const MealAnalysisRateLimited(),
+            _fallback,
+            l10n,
+          );
+          final until = mealAnalysisErrorMessage(
+            MealAnalysisRateLimited(resetAt: DateTime(2026, 10, 10, 13, 30)),
+            _fallback,
+            l10n,
+          );
+          for (final text in [plain, until]) {
+            expect(text, isNot(contains(photoWords)), reason: text);
+            expect(text, contains(mealWord), reason: text);
+          }
+          expect(until, contains('13:30'));
+        }
+      });
+    });
+
     // F9-03: the server's `error` codes are mapped client-side; `message`
     // (German) is never shown.
     test('Server-Codes -> ARB-Keys, message bleibt Debug', () {

@@ -198,8 +198,9 @@
   "foodAnalysisProviderErrorMessage": "Die Analyse konnte nicht abgeschlossen werden. Bitte versuch es gleich nochmal.",
   "foodAnalysisServiceUnavailableMessage": "Die Analyse ist gerade nicht verfügbar. Bitte versuch es später nochmal.",
   "foodAnalysisImageUnusableMessage": "Das Foto konnte nicht verarbeitet werden. Bitte nimm ein neues auf.",
-  "foodAnalysisRateLimitUntilMessage": "Zu viele Foto-Analysen. Ab {time} Uhr geht es weiter.",
+  "foodAnalysisRateLimitUntilMessage": "Zu viele Mahlzeit-Analysen. Ab {time} Uhr geht es weiter.",
   "@foodAnalysisRateLimitUntilMessage": {
+    "description": "The analysis quota, shared by photo scans and meal descriptions, is used up until {time}.",
     "placeholders": {
       "time": { "type": "String" }
     }
@@ -1503,7 +1504,8 @@
   },
   "foodImageTooLargeError": "Das Bild ist zu groß. Bitte ein kleineres Foto auswählen.",
   "foodReauthRequiredError": "Bitte erneut anmelden, bevor du ein Foto analysierst.",
-  "foodAnalysisRateLimitError": "Zu viele Foto-Analysen. Bitte später erneut versuchen.",
+  "foodAnalysisRateLimitError": "Zu viele Mahlzeit-Analysen. Bitte später erneut versuchen.",
+  "@foodAnalysisRateLimitError": {"description": "The analysis quota, shared by photo scans and meal descriptions, is used up."},
   "foodProductImplausibleMessage": "{productName} gefunden, aber die Nährwertangabe ist unplausibel ({kcal} kcal / 100 g). Bitte manuell eintragen.",
   "@foodProductImplausibleMessage": {
     "placeholders": {

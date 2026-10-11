@@ -174,7 +174,9 @@ The feature's Dart entry points:
 
 - `no_food_in_text` and `invalid_meal_text` are a hint under the text field;
   the user edits the sentence.
-- Re-auth and quota have describe texts ("meal analyses", no photo).
+- Re-auth and quota have describe texts ("meal analyses", no photo). Both
+  modes share the quota, so the photo scan's quota text says "meal
+  analyses" too.
 - A function without describe mode answers `invalid_body` (or
   `missing_image`); the sheet shows "service unavailable", like a 413 or an
   image code, never a photo or connection text. `invalid_hint` falls back
