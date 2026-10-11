@@ -72,24 +72,28 @@ function singleUnqualifiedBlock(evidence: string): string {
       [...evidence.matchAll(nutritionHeading)].length <= 1 ? evidence : '';
 }
 
+const maxValue = (field: Field) => field === 'calories_kcal' || field === 'estimated_g' ? 10_000 : 1000;
+
 // Every value a source number can mean. "2.450 kcal" and "1,050 calories"
 // group thousands: kcal and weights are never written with three decimals,
 // grams may be. A number after "2 " or before " 450" may continue a
 // space-grouped one (NFKC turns narrow and no-break spaces into spaces) or
-// stand alone in a flattened caption.
+// stand alone in a flattened caption. A grouped reading the field cannot
+// hold ("520 100" kcal, "1,125 g" as 1125 g) is no alternative.
 function readings(field: Field, number: string, before: string, after: string): number[] {
   const values = [Number(number.replace(',', '.'))];
   const separator = /^[1-9]\d{0,2}([.,])\d{3}$/.exec(number)?.[1];
   if (separator) {
     const whole = Number(number.replace(separator, ''));
     if (field === 'calories_kcal' || field === 'estimated_g') values[0] = whole;
-    else values.push(whole);
+    else if (whole <= maxValue(field)) values.push(whole);
   }
   const lead = /^\d{3}(?:[.,]\d{1,2})?$/.test(number)
     ? /(?:^|[^\p{L}\d.,\-−–—/⁄])([1-9]\d{0,2}(?: \d{3})*) $/u.exec(before)?.[1] : undefined;
   const tail = /^[1-9]\d{0,2}$/.test(number)
     ? /^((?: \d{3})+(?:[.,]\d{1,2})?)(?![.,]?\d)/.exec(after)?.[1] : undefined;
-  if (lead || tail) values.push(Number(`${lead ?? ''}${number}${tail ?? ''}`.replaceAll(' ', '').replace(',', '.')));
+  const grouped = Number(`${lead ?? ''}${number}${tail ?? ''}`.replaceAll(' ', '').replace(',', '.'));
+  if ((lead || tail) && grouped <= maxValue(field)) values.push(grouped);
   return values;
 }
 
@@ -147,8 +151,7 @@ function sourcedValue(value: unknown, numbers: number[][], field: Field, recover
   // Only a single possible reading is recovered; the model decides between two.
   if (recoverMissing && (value === null || value === undefined) && common.length === 1) value = common[0];
   const min = field === 'estimated_g' ? 1 : 0;
-  const max = field === 'calories_kcal' || field === 'estimated_g' ? 10_000 : 1000;
-  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max &&
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= maxValue(field) &&
     common.includes(value) ? value : null;
 }
 
@@ -189,8 +192,7 @@ export function sourcedNutrition(row: Record<string, unknown>, evidence: string,
     }
     const value = sourcedValue(row[field], numbers[field], field, allowUnspecified);
     const converted = value === null ? null : value / divisor;
-    const max = field === 'calories_kcal' || field === 'estimated_g' ? 10_000 : 1000;
-    result[field] = converted !== null && converted <= max ? converted : null;
+    result[field] = converted !== null && converted <= maxValue(field) ? converted : null;
   }
   if (conflicts.length) result.nutrition_conflicts = conflicts;
   result.nutrition_basis = basis === 'unspecified' || basis === 'per_recipe' && servings === null

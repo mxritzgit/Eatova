@@ -180,17 +180,35 @@ Deno.test('grouped kcal totals keep their thousands and are never read as decima
   check(flat.calories_kcal === 520 && flat.carbs_g === 100, 'Adjacent kcal and carbs stay separate');
 });
 
+Deno.test('a grouped reading no field can hold leaves adjacent numbers recoverable', () => {
+  const missing = (evidence: string) => sourcedNutrition({ nutrition_basis: 'unspecified', calories_kcal: null,
+    protein_g: null, carbs_g: null, fat_g: null }, evidence, null, true);
+  const flat = missing('Kalorien 520 100g KH');
+  check(flat.calories_kcal === 520 && flat.carbs_g === 100, `520 100 kcal is no reading: ${JSON.stringify(flat)}`);
+  const proteinFirst = missing('Nährwerte: Protein 30 450 kcal');
+  check(proteinFirst.protein_g === 30 && proteinFirst.calories_kcal === 450,
+    `30 450 g protein is no reading: ${JSON.stringify(proteinFirst)}`);
+  const grams = missing('Nährwerte: 1,125 g Fett');
+  check(grams.fat_g === 1.125 && !grams.nutrition_conflicts, `1125 g fat is no reading: ${JSON.stringify(grams)}`);
+  // Two readings within range stay the model's decision.
+  check(missing('Nährwerte: 2 450 kcal').calories_kcal === null, '2 450 kcal stays ambiguous');
+  check(missing('Nährwerte: 1.000 g Fett').fat_g === null, '1.000 g fat stays ambiguous');
+});
+
 Deno.test('a space-grouped kcal row after a blank line stays in its nutrition section', async () => {
-  const nutrition = 'Nährwerte gesamt:\n120 g Protein, 200 g KH\n\n2 450 kcal\n80 g Fett';
-  const text = `Für 4 Portionen\n800 g Hackfleisch\nAlles anbraten.\n\n${nutrition}`;
-  const result = await parseExtraction(JSON.stringify({ status: 'ready', candidates: [{
-    title: 'Hack', ingredient_quotes: ['800 g Hackfleisch'], preparation_quotes: ['Alles anbraten.'],
-    servings: 4, servings_quote: 'Für 4 Portionen', nutrition_quote: nutrition, nutrition_basis: 'per_recipe',
-    calories_kcal: 2450, protein_g: 120, carbs_g: 200, fat_g: 80,
-  }] }), { source: { url: null }, text, incomplete: false, truncated: false }, 2);
-  const recipe = result?.candidates[0];
-  check(recipe?.calories_kcal === 612.5 && recipe.protein_g === 30 && recipe.fat_g === 20,
-    `Complete section per serving: ${JSON.stringify(recipe)}`);
+  // Plain, no-break, six-per-em, thin, figure and narrow no-break spaces.
+  for (const space of [' ', ' ', ' ', ' ', ' ', ' ']) {
+    const nutrition = `Nährwerte gesamt:\n120 g Protein, 200 g KH\n\n2${space}450 kcal\n80 g Fett`;
+    const text = `Für 4 Portionen\n800 g Hackfleisch\nAlles anbraten.\n\n${nutrition}`;
+    const result = await parseExtraction(JSON.stringify({ status: 'ready', candidates: [{
+      title: 'Hack', ingredient_quotes: ['800 g Hackfleisch'], preparation_quotes: ['Alles anbraten.'],
+      servings: 4, servings_quote: 'Für 4 Portionen', nutrition_quote: nutrition, nutrition_basis: 'per_recipe',
+      calories_kcal: 2450, protein_g: 120, carbs_g: 200, fat_g: 80,
+    }] }), { source: { url: null }, text, incomplete: false, truncated: false }, 2);
+    const recipe = result?.candidates[0];
+    check(recipe?.calories_kcal === 612.5 && recipe.protein_g === 30 && recipe.fat_g === 20,
+      `Complete section per serving with U+${space.charCodeAt(0).toString(16)}: ${JSON.stringify(recipe)}`);
+  }
 });
 
 Deno.test('fractional references cannot become a whole dish through typography normalization', () => {

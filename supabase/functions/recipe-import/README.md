@@ -44,10 +44,12 @@ Macro abbreviations `P` (protein), `C` (carbohydrates) and `F` (fat) are
 case-insensitive and require grams, before or after the letter: `31g P 13g C
 9g F` or `P: 31g C: 13g F: 9g`. Decimals and zero are preserved. Thousands
 separators make kcal and weights integers (`2.450 kcal` and `1,050 calories`
-are 2450 and 1050, never 2.45 or 1.05). Grams such as `1,125 g` and digit
+are 2450 and 1050, never 2.45 or 1.05). Grams such as `1.000 g` and digit
 groups separated by a space (`2 450 kcal`, also narrow or no-break) have two
 possible readings: only a model value matching one of them is kept, and none
-is recovered without the model. Ingredient
+is recovered without the model. A grouped reading above the field's limit is
+no reading: `1,125 g` stays 1.125 g, and `Kalorien 520 100g KH` stays 520 kcal
+and 100 g carbohydrates. Ingredient
 word prefixes and temperatures without gram units do not supply macro values.
 Parenthesized single-item nutrition headings such as `Nährwerte (1 Bowl)` and
 `Nutrition (one pizza)` are source proof of a per-item basis, independent of
