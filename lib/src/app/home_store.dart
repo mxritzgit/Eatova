@@ -710,6 +710,9 @@ class HomeStore extends _HomeStoreBase
   bool get _serverAnsweredProfileAndWeightLog =>
       _serverProfileLoaded && _serverWeightLogLoaded;
 
+  @override
+  bool get _serverAnsweredWeightLog => _serverWeightLogLoaded;
+
   /// The meal load answered in this session — the weekly check's third
   /// source (docs/WEIGHT-TREND.md); same lifecycle as the two above.
   @override
@@ -1404,6 +1407,8 @@ class HomeStore extends _HomeStoreBase
     }
     final conflict = await _writeCacheSnapshot(cacheVersionsBeforeLoad);
     _completeProfileReady();
+    // A Health weight read during the boot is judged against the loaded log.
+    if (_serverWeightLogLoaded) _offerDeferredHealthWeight();
     // The profile follows the weight trend (docs/WEIGHT-TREND.md), once the
     // server answered both profile and weight log in this session: a full
     // row written from a cached profile could overwrite a newer one. After

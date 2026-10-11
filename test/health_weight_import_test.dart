@@ -510,4 +510,80 @@ void main() {
       expect(s.health.writeWeightCalls, 0);
     }),
   );
+
+  group('Health-Gewicht vor geladenem Gewichtslog', () {
+    // iOS reads Health on the first frame, before the boot load answers the
+    // weight log. Eatova's own write-back (same weight, same time) must not
+    // pass as new against a still empty log, or one tap logs it twice.
+    ({HomeStore store, _FakeHealthService health, _SnackCapture snacks})
+    unbooted(FakeServer server) {
+      final client = SupabaseClient(
+        'https://example.supabase.co',
+        'test-anon-key',
+        httpClient: server.client(),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      addTearDown(client.dispose);
+      final health = _FakeHealthService();
+      final snacks = _SnackCapture();
+      final cache = LocalCache(InMemoryKeyValueStore(), 'user-health-early');
+      final store = HomeStore(
+        sync: EatovaSync.forUser(client, 'user-health-early'),
+        health: health,
+        notificationService: const NoopNotificationService(),
+        initialUserName: 'Test',
+        emitSnack: snacks.call,
+        debugCache: cache,
+      );
+      addTearDown(store.dispose);
+      return (store: store, health: health, snacks: snacks);
+    }
+
+    test(
+      'die eigene Rueckschreibung wird vor dem Laden nicht angeboten',
+      () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
+        final weighedAt = DateTime(2026, 10, 11, 7, 30);
+        final server = FakeServer()
+          ..weightRows['w1'] = <String, dynamic>{
+            'recorded_at': weighedAt.toUtc().toIso8601String(),
+            'weight_kg': 80.0,
+          };
+        final s = unbooted(server);
+        s.health
+          ..nextWeightKg = 80.0
+          ..weightMeasuredAt = weighedAt;
+
+        await s.store.refreshHealthSteps();
+        expect(s.snacks.actions.whereType<SnackBarAction>(), isEmpty);
+
+        await bootUntilIdle(s.store);
+        expect(s.store.weightLog.entries, hasLength(1));
+        expect(s.snacks.actions.whereType<SnackBarAction>(), isEmpty);
+      }),
+    );
+
+    test(
+      'ein wirklich neues Gewicht wird nach dem Laden angeboten',
+      () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
+        final server = FakeServer()
+          ..weightRows['w1'] = <String, dynamic>{
+            'recorded_at': DateTime(2026, 10, 9, 7).toUtc().toIso8601String(),
+            'weight_kg': 80.0,
+          };
+        final s = unbooted(server);
+        s.health
+          ..nextWeightKg = 79.2
+          ..weightMeasuredAt = DateTime(2026, 10, 11, 7, 30);
+
+        await s.store.refreshHealthSteps();
+        expect(s.snacks.actions.whereType<SnackBarAction>(), isEmpty);
+
+        await bootUntilIdle(s.store);
+        expect(
+          s.snacks.messages,
+          contains('Apple Health: 79,2 kg übernehmen?'),
+        );
+      }),
+    );
+  });
 }

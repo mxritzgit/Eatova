@@ -40,6 +40,15 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   ({double kg, DateTime measuredAt})? _lastOfferedHealthWeight;
   bool _healthWeightImportInFlight = false;
 
+  /// A Health weight read before the server answered the weight log: the
+  /// log may still be empty (fresh sign-in, cold start), so Eatova's own
+  /// write-back would pass as new. Offered once the log is loaded.
+  ({double kg, DateTime measuredAt})? _deferredHealthWeight;
+
+  /// The server answered the weight-log load in this session; the boot flag
+  /// lives in [HomeStore].
+  bool get _serverAnsweredWeightLog;
+
   /// A Health weight measured longer ago is not offered: "apply?" without a
   /// date would pass an old reading off as a current one.
   static const Duration _healthWeightOfferMaxAge = Duration(days: 7);
@@ -271,10 +280,14 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         _healthWeightImportInFlight ||
         kg == null ||
         measuredAt == null ||
-        !isValidWeightLogKg(kg) ||
-        !_healthWeightIsNew(kg, measuredAt)) {
+        !isValidWeightLogKg(kg)) {
       return;
     }
+    if (sync != null && !_serverAnsweredWeightLog) {
+      _deferredHealthWeight = (kg: kg, measuredAt: measuredAt);
+      return;
+    }
+    if (!_healthWeightIsNew(kg, measuredAt)) return;
     final sample = (kg: kg, measuredAt: measuredAt);
     if (_lastOfferedHealthWeight == sample) return;
     _lastOfferedHealthWeight = sample;
@@ -292,6 +305,15 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         onPressed: () => unawaited(_importOfferedHealthWeight(kg, measuredAt)),
       ),
     );
+  }
+
+  /// Offers the Health weight held back until the weight log was loaded.
+  void _offerDeferredHealthWeight() {
+    final deferred = _deferredHealthWeight;
+    _deferredHealthWeight = null;
+    if (deferred != null) {
+      _maybeOfferHealthWeight(deferred.kg, deferred.measuredAt);
+    }
   }
 
   /// Whether a Health sample adds to the weight log: recent, newer than the
@@ -314,8 +336,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     DateTime measuredAt,
   ) async {
     if (_disposed || _healthSessionEnded || _healthWeightImportInFlight) return;
-    // A weigh-in may have landed since the offer.
-    if (!_healthWeightIsNew(kg, measuredAt)) return;
+    // A weigh-in may have landed since the offer; a re-hydration may have
+    // dropped the loaded log.
+    if ((sync != null && !_serverAnsweredWeightLog) ||
+        !_healthWeightIsNew(kg, measuredAt)) {
+      return;
+    }
     final generation = _healthGeneration;
     _healthWeightImportInFlight = true;
     try {
