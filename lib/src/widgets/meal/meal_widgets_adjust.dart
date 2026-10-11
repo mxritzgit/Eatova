@@ -456,22 +456,41 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                               size: 18,
                             ),
                             const SizedBox(width: 10),
+                            // The count moves under the total when both do
+                            // not fit one line (large text), instead of
+                            // squeezing the total into a word per line.
                             Expanded(
-                              child: Text(
-                                l10n.foodAdjustedTotalApprox(
-                                    totalGrams, totalKcal),
-                                style: AppType.display(18, color: t.ink),
+                              child: Wrap(
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 8,
+                                runSpacing: 2,
+                                children: [
+                                  Text(
+                                    l10n.foodAdjustedTotalApprox(
+                                        totalGrams, totalKcal),
+                                    key: const ValueKey(
+                                      'analyse-adjusted-total',
+                                    ),
+                                    style: AppType.display(18, color: t.ink),
+                                  ),
+                                  if (adjustedItems.isNotEmpty)
+                                    Text(
+                                      l10n.foodItemsCountLabel(
+                                        adjustedItems.length,
+                                      ),
+                                      key: const ValueKey(
+                                        'analyse-adjusted-count',
+                                      ),
+                                      style: AppType.display(
+                                        11,
+                                        weight: FontWeight.w500,
+                                        color: t.ink2,
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
-                            if (adjustedItems.isNotEmpty)
-                              Text(
-                                l10n.foodItemsCountLabel(adjustedItems.length),
-                                style: AppType.display(
-                                  11,
-                                  weight: FontWeight.w500,
-                                  color: t.ink2,
-                                ),
-                              ),
                           ],
                         ),
                       ),

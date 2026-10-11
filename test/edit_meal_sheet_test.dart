@@ -74,9 +74,13 @@ Future<void> _openSheet(
   WidgetTester tester,
   _EditCapture capture, {
   bool withRemove = true,
+  double textScale = 1.0,
+  Size? surfaceSize,
 }) async {
   await pumpLocalized(
     tester,
+    textScale: textScale,
+    surfaceSize: surfaceSize,
     Builder(
       builder: (context) => Center(
         child: TextButton(
@@ -464,6 +468,47 @@ void main() {
     await _openSheet(tester, capture, withRemove: false);
 
     expect(find.byKey(const ValueKey('edit-meal-delete-button')), findsNothing);
+  });
+
+  // Large text: the source label leaves the figure's line instead of
+  // squeezing "350 kcal · 350 g" into a word per line (review DSA-4).
+  testWidgetsRobust('Summary: source label wraps under the figure at 2x', (
+    WidgetTester tester,
+  ) async {
+    await _openSheet(
+      tester,
+      _EditCapture(),
+      textScale: 2,
+      surfaceSize: const Size(320, 900),
+    );
+    final figure = tester.getRect(
+      find.byKey(const ValueKey('edit-meal-summary-figure')),
+    );
+    final source = tester.getRect(
+      find.byKey(const ValueKey('edit-meal-summary-source')),
+    );
+    expect(source.top, greaterThanOrEqualTo(figure.bottom));
+    expect(source.left, closeTo(figure.left, 0.5));
+  });
+
+  testWidgetsRobust('Summary: source label stays at the right edge when it fits', (
+    WidgetTester tester,
+  ) async {
+    await _openSheet(
+      tester,
+      _EditCapture(),
+      surfaceSize: const Size(900, 900),
+    );
+    final card = tester.getRect(find.byKey(const ValueKey('edit-meal-summary')));
+    final figure = tester.getRect(
+      find.byKey(const ValueKey('edit-meal-summary-figure')),
+    );
+    final source = tester.getRect(
+      find.byKey(const ValueKey('edit-meal-summary-source')),
+    );
+    expect(source.center.dy, closeTo(figure.center.dy, 0.5));
+    // The card's 1 px border and 14 px padding.
+    expect(source.right, closeTo(card.right - 15, 0.5));
   });
 
   // ─── Integration through the real app shell ─────────────────────────────

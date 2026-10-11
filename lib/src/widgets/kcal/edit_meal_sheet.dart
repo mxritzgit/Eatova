@@ -474,22 +474,35 @@ class _SummaryCard extends StatelessWidget {
         children: [
           Icon(Icons.local_fire_department_outlined, color: t.accent, size: 18),
           const SizedBox(width: 10),
+          // The source sits at the right edge while both fit one line and
+          // moves under the figure otherwise, so large text does not squeeze
+          // "158 kcal · 250 g" into a word per line.
           Expanded(
-            child: Text(
-              result.isRecipeWithoutCookedWeight
-                  ? '${result.caloriesKcal} kcal · ${context.l10n.recipeCalcSavedPortion}'
-                  : '${result.caloriesKcal} kcal · ${result.estimatedGrams} g',
-              style: AppType.display(16, color: t.ink),
-            ),
-          ),
-          Text(
-            adjusted
-                ? context.l10n.foodAdjustedLabel
-                : result.resolvedSourceLabel(context.l10n),
-            style: AppType.ui(
-              11,
-              weight: FontWeight.w600,
-              color: adjusted ? t.ink : t.ink2,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 2,
+              children: [
+                Text(
+                  result.isRecipeWithoutCookedWeight
+                      ? '${result.caloriesKcal} kcal · ${context.l10n.recipeCalcSavedPortion}'
+                      : '${result.caloriesKcal} kcal · ${result.estimatedGrams} g',
+                  key: const ValueKey('edit-meal-summary-figure'),
+                  style: AppType.display(16, color: t.ink),
+                ),
+                Text(
+                  adjusted
+                      ? context.l10n.foodAdjustedLabel
+                      : result.resolvedSourceLabel(context.l10n),
+                  key: const ValueKey('edit-meal-summary-source'),
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w600,
+                    color: adjusted ? t.ink : t.ink2,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
