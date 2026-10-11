@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (53)
+## Migrationen (54)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -87,6 +87,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 51. `20261001100000_training_history_rpc_least_privilege.sql`
 52. `20261003100000_profiles_energy_check.sql`
 53. `20261004090000_chat_message_workout_log.sql`
+54. `20261011100000_recipe_recreate_after_delete.sql`
 
 ## Tabellen in `public` (24)
 
@@ -201,7 +202,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
-| `apply_recipe_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100000_offline_sync_versions.sql` |
+| `apply_recipe_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20261011100000_recipe_recreate_after_delete.sql` |
 | `apply_sync_operation` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20261003100000_profiles_energy_check.sql` |
 | `apply_training_plan_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `claim_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
