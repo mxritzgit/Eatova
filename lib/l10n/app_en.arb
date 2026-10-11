@@ -2859,6 +2859,7 @@
   "recipeHistoryExplanation": "Find previous versions and deleted recipes here. Restoring a version saves a new change.",
   "recipeHistoryRestore": "Restore version",
   "recipeHistoryRestoring": "Restoring…",
+  "recipeHistoryChecking": "Checking current version…",
   "recipeHistoryRestoreConfirm": "Restore this version of “{title}”? The current version stays in the history. If another change arrives at the same time, your version is saved as a separate recipe.",
   "recipeHistoryRestored": "Recipe version saved.",
   "recipeHistoryVersion": "Version {revision}",

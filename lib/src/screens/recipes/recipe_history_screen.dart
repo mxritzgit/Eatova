@@ -44,6 +44,10 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
   int? _next;
   int? _restoring;
 
+  /// True while the fresh head loads, before the dialog asks: the tapped
+  /// pill says it is checking, so a slow read does not look frozen.
+  bool _checkingHead = false;
+
   /// Set once the dialog is confirmed: only then does the pill say
   /// "Restoring…"; before, the user has approved nothing.
   bool _restoreConfirmed = false;
@@ -82,7 +86,10 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
 
   Future<void> _restore(RecipeVersion version) async {
     if (!_current || _restoring != null || !version.hasRecipeContent) return;
-    setState(() => _restoring = version.revision);
+    setState(() {
+      _restoring = version.revision;
+      _checkingHead = true;
+    });
     try {
       // A timeline cursor is historical. Confirmation binds to a fresh head;
       // a later concurrent edit is handled by the store's CAS conflict policy.
@@ -90,6 +97,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
       if (!mounted || !widget.isSessionCurrent()) return;
       final expected = head.currentRevision;
       if (expected == null) throw StateError('Recipe head is unavailable');
+      setState(() => _checkingHead = false);
       final l10n = context.l10n;
       final confirm = await showEatovaDialog<bool>(
         context: context,
@@ -126,6 +134,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
       if (mounted) {
         setState(() {
           _restoring = null;
+          _checkingHead = false;
           _restoreConfirmed = false;
         });
       }
@@ -158,6 +167,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 key: ValueKey('recipe-history-version-${version.revision}'),
                 version: version,
                 restoreEnabled: _restoring == null,
+                checking: _checkingHead && _restoring == version.revision,
                 restoring:
                     _restoreConfirmed && _restoring == version.revision,
                 onRestore: () => _restore(version),
@@ -241,6 +251,7 @@ class _VersionCard extends StatefulWidget {
     required this.version,
     required this.restoreEnabled,
     required this.onRestore,
+    this.checking = false,
     this.restoring = false,
   });
 
@@ -248,6 +259,10 @@ class _VersionCard extends StatefulWidget {
 
   /// False while any restore is in flight.
   final bool restoreEnabled;
+
+  /// True while THIS version's restore reads the current head, before the
+  /// dialog asks: its pill says so.
+  final bool checking;
 
   /// True while THIS version is being restored (after the confirm): its
   /// pill says so.
@@ -354,6 +369,8 @@ class _VersionCardState extends State<_VersionCard> {
               key: ValueKey('recipe-history-restore-${version.revision}'),
               label: widget.restoring
                   ? l10n.recipeHistoryRestoring
+                  : widget.checking
+                  ? l10n.recipeHistoryChecking
                   : l10n.recipeHistoryRestore,
               icon: Icons.restore_rounded,
               onTap: widget.restoreEnabled ? widget.onRestore : null,

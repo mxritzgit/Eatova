@@ -2922,6 +2922,7 @@
   "recipeHistoryExplanation": "Hier findest du frühere Versionen und gelöschte Rezepte. Eine Wiederherstellung wird als neue Änderung gespeichert.",
   "recipeHistoryRestore": "Version wiederherstellen",
   "recipeHistoryRestoring": "Wird wiederhergestellt…",
+  "recipeHistoryChecking": "Aktuelle Version wird geprüft…",
   "recipeHistoryRestoreConfirm": "Diese Version von „{title}“ wiederherstellen? Der aktuelle Stand bleibt im Verlauf erhalten. Falls gleichzeitig eine andere Änderung eintrifft, wird deine Version als separates Rezept gesichert.",
   "recipeHistoryRestored": "Rezeptversion gespeichert.",
   "recipeHistoryVersion": "Version {revision}",
