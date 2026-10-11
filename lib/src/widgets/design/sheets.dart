@@ -25,13 +25,21 @@ class SheetScaffold extends StatelessWidget {
     this.destructive = false,
     this.onAction,
     this.actionEnabled = true,
+    this.icon,
   });
 
   final String title;
   final String subtitle;
   final List<Widget> children;
   final String actionLabel;
+
+  /// Danger action at the foot. The title stays `ink`: the red belongs to
+  /// the header glyph and the action, not to a whole line of text.
   final bool destructive;
+
+  /// Optional 48 px header tile above the title (danger tint when
+  /// [destructive], accent otherwise) — the decision card's header.
+  final IconData? icon;
 
   /// Defaults to closing: a sheet without its own action only confirms.
   final VoidCallback? onAction;
@@ -42,6 +50,10 @@ class SheetScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    // The tile is decoration: with large text it gives its room to the
+    // field and the action, which must stay in reach.
+    final showIcon =
+        icon != null && MediaQuery.textScalerOf(context).scale(14) <= 21;
     // Scrollable, not just shrink-wrapping: a plain Column overflowed by
     // ~101 px at textScaler 2.0.
     return SingleChildScrollView(
@@ -50,15 +62,23 @@ class SheetScaffold extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          if (showIcon) ...<Widget>[
+            ExcludeSemantics(
+              child: IconTile(
+                icon: icon!,
+                color: destructive ? t.danger : t.accent,
+                size: 48,
+                glyphSize: 22,
+                radius: rControl,
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
           HeadingSemantics(
             level: 1,
             child: Text(
               title,
-              style: AppType.display(
-                24,
-                color: destructive ? t.danger : t.ink,
-                height: 1.15,
-              ),
+              style: AppType.display(24, color: t.ink, height: 1.15),
             ),
           ),
           const SizedBox(height: 6),
@@ -66,7 +86,7 @@ class SheetScaffold extends StatelessWidget {
           const SizedBox(height: 18),
           ...children,
           const SizedBox(height: 20),
-          // The SAME primary action as every screen foot (ink/bg, rButton):
+          // The SAME primary action as every screen foot (accent, rButton):
           // a forest fill was 1.33:1 against `surf` in dark mode and gave the
           // app two primary-button languages. The button draws its own
           // disabled state, so no Opacity wrapper on top of it.

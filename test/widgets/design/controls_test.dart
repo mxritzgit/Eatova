@@ -387,6 +387,72 @@ void main() {
       );
       expect(materialOf().color, AppTokens.light.danger);
     });
+
+    // X-11: danger at 38 % over the dark ground mixed a muddy brown pill
+    // with an unreadable `bg` label. Locked, the destructive action takes
+    // the soft danger pair and arms into the filled pill once valid.
+    for (final brightness in Brightness.values) {
+      testWidgets(
+        'gesperrt destruktiv: weicher Danger-Hauch statt brauner Flaeche '
+        '(${brightness.name})',
+        (tester) async {
+          final t = brightness == Brightness.light
+              ? AppTokens.light
+              : AppTokens.dark;
+          await tester.pumpWidget(
+            designHarness(
+              const PrimaryActionButton(label: 'Loeschen', destructive: true),
+              brightness: brightness,
+            ),
+          );
+          final material = tester.widget<Material>(
+            find
+                .descendant(
+                  of: find.byType(PrimaryActionButton),
+                  matching: find.byType(Material),
+                )
+                .first,
+          );
+          expect(material.color, t.danger.withValues(alpha: 0.12));
+          expect(
+            tester.widget<Text>(find.text('Loeschen')).style!.color,
+            t.danger.withValues(alpha: 0.55),
+          );
+        },
+      );
+    }
+  });
+
+  group('IconTile header', () {
+    testWidgets('glyphSize und radius aendern nur die Kopf-Kachel', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        designHarness(
+          IconTile(
+            icon: Icons.bolt_rounded,
+            color: AppTokens.light.danger,
+            size: 48,
+            glyphSize: 22,
+            radius: rControl,
+          ),
+        ),
+      );
+      expect(tester.widget<Icon>(find.byIcon(Icons.bolt_rounded)).size, 22);
+      expect(
+        decorationOf(tester, find.byType(IconTile)).borderRadius,
+        BorderRadius.circular(rControl),
+      );
+      // The list-row default is untouched.
+      await tester.pumpWidget(
+        designHarness(const IconTile(icon: Icons.bolt_rounded)),
+      );
+      expect(tester.widget<Icon>(find.byIcon(Icons.bolt_rounded)).size, 16);
+      expect(
+        decorationOf(tester, find.byType(IconTile)).borderRadius,
+        BorderRadius.circular(rChip),
+      );
+    });
   });
 
   group('AppNavBar', () {

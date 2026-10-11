@@ -402,21 +402,13 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     if (_saving || _askingToDiscard) return;
     if (_hasUserChanges) {
       _askingToDiscard = true;
-      final discard = await showEatovaDialog<bool>(
-        context: context,
-        builder: (dialogContext) => EatovaConfirmDialog(
-          title: context.l10n.foodDiscardChangesTitle,
-          body: context.l10n.recipesDiscardChangesBody,
-          confirmLabel: context.l10n.foodDiscardChangesConfirm,
-          cancelLabel: context.l10n.foodDiscardChangesKeepEditing,
-          destructive: true,
-          confirmKey: const ValueKey('recipe-import-discard'),
-          onConfirm: () => Navigator.of(dialogContext).pop(true),
-          onCancel: () => Navigator.of(dialogContext).pop(false),
-        ),
+      final discard = await confirmDiscardChanges(
+        context,
+        body: context.l10n.recipesDiscardChangesBody,
+        confirmKey: const ValueKey('recipe-import-discard'),
       );
       _askingToDiscard = false;
-      if (!mounted || discard != true) return;
+      if (!mounted || !discard) return;
     }
     if (mounted) Navigator.of(context).pop(_lastSaved);
   }

@@ -1268,8 +1268,8 @@
   "settingsAccountDiscardTitle": "Cancel this change?",
   "settingsAccountDiscardBody": "The code from your e-mail expires with it. A fresh attempt needs a fresh code.",
   "settingsAccountDiscardBodyConfirmed": "The first code is already confirmed and used up. Cancelling now restarts the address change from scratch, with two new codes.",
-  "settingsAccountDiscardKeep": "Keep going",
-  "settingsAccountDiscardConfirm": "Cancel",
+  "settingsAccountDiscardKeep": "Continue",
+  "settingsAccountDiscardConfirm": "Stop change",
 
   "exportSheetLoadingSubtitle": "Your data is loading from the server …",
   "exportSheetErrorSubtitle": "This copy is incomplete or could not be fully verified. Please try again later.",

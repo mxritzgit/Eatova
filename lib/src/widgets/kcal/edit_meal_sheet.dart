@@ -95,36 +95,6 @@ Future<MealEditOutcome?> showEditMealSheet(
   );
 }
 
-/// Shared "discard changes?" confirmation for every way of closing a dirty
-/// sheet.
-///
-/// `barrierDismissible: true` is intentional: a tap beside the dialog means
-/// cancel, the harmless answer. The dialog sits on the root navigator above
-/// the sheet route, so its own barrier swallows that tap and the sheet below
-/// never sees it.
-///
-/// Returns true to discard, false to keep the sheet open.
-Future<bool> _confirmDiscardChanges(BuildContext context) async {
-  final l10n = context.l10n;
-  final verwerfen = await showEatovaDialog<bool>(
-    context: context,
-    builder: (dialogContext) => EatovaConfirmDialog(
-      key: const ValueKey('discard-changes-dialog'),
-      title: l10n.foodDiscardChangesTitle,
-      body: l10n.foodDiscardChangesBody,
-      icon: Icons.edit_off_rounded,
-      destructive: true,
-      cancelKey: const ValueKey('discard-changes-cancel'),
-      cancelLabel: l10n.foodDiscardChangesKeepEditing,
-      onCancel: () => Navigator.of(dialogContext).pop(false),
-      confirmKey: const ValueKey('discard-changes-confirm'),
-      confirmLabel: l10n.foodDiscardChangesConfirm,
-      onConfirm: () => Navigator.of(dialogContext).pop(true),
-    ),
-  );
-  return verwerfen ?? false;
-}
-
 /// Intercepts the drag-down dismissal of a modal bottom sheet.
 ///
 /// `PopScope` only covers half of it: a barrier tap goes through
@@ -307,7 +277,10 @@ class _EditMealSheetState extends State<EditMealSheet> {
     if (_saving) return;
     if (_discardDialogOpen) return;
     _discardDialogOpen = true;
-    final verwerfen = await _confirmDiscardChanges(context);
+    final verwerfen = await confirmDiscardChanges(
+      context,
+      body: context.l10n.foodDiscardChangesBody,
+    );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
     // The dialog is already popped, so the sheet is the top route again.

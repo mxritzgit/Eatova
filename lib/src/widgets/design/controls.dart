@@ -174,15 +174,27 @@ class HeaderIconButton extends StatelessWidget {
 }
 
 /// Faintly tinted tile behind an icon (list rows, stats).
+///
+/// [glyphSize] and [radius] default to the list-row tile (16 px glyph,
+/// [rChip]); header tiles such as the decision card's use 22 px and
+/// [rControl].
 class IconTile extends StatelessWidget {
-  const IconTile({super.key, required this.icon, this.color, this.size = 34})
-    : _child = null;
+  const IconTile({
+    super.key,
+    required this.icon,
+    this.color,
+    this.size = 34,
+    this.glyphSize = 16,
+    this.radius = rChip,
+  }) : _child = null;
 
   const IconTile.custom({
     super.key,
     required Widget child,
     this.color,
     this.size = 34,
+    this.glyphSize = 16,
+    this.radius = rChip,
   }) : icon = null,
        _child = child;
 
@@ -190,6 +202,8 @@ class IconTile extends StatelessWidget {
   final Widget? _child;
   final Color? color;
   final double size;
+  final double glyphSize;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
@@ -199,7 +213,7 @@ class IconTile extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         color: color == null ? t.tile : color!.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(rChip),
+        borderRadius: BorderRadius.circular(radius),
       ),
       // Not the full category color: the glyph would sit on its OWN 15 % tint
       // at ~2.2:1 in light mode — that is what [AppTokens.readableOnTint] is
@@ -207,13 +221,13 @@ class IconTile extends StatelessWidget {
       child: _child == null
           ? Icon(
               icon,
-              size: 16,
+              size: glyphSize,
               color: color == null ? t.ink : t.readableOnTint(color!),
             )
           : Center(
               child: IconTheme(
                 data: IconThemeData(
-                  size: 16,
+                  size: glyphSize,
                   color: color == null ? t.ink : t.readableOnTint(color!),
                 ),
                 child: _child,
@@ -482,11 +496,16 @@ class PrimaryActionButton extends StatelessWidget {
     final t = context.t;
     final enabled = onTap != null;
     // Disabled: the fill drops to 38 % and the label dims — a locked CTA must
-    // not look pressable. InkWell without onTap draws no ripple.
-    final fill = (destructive ? t.danger : t.accentFill)
-        .withValues(alpha: enabled ? 1 : kDisabledFillAlpha);
-    final onFill = (destructive ? t.bg : t.onAccentFill)
-        .withValues(alpha: enabled ? 1 : 0.8);
+    // not look pressable. InkWell without onTap draws no ripple. A locked
+    // destructive CTA takes the soft danger pair ([SoftPillTone.danger])
+    // instead: danger at 38 % over the dark ground mixed a muddy brown with an
+    // unreadable label. The tint arms into the filled pill once valid.
+    final fill = destructive
+        ? (enabled ? t.danger : t.danger.withValues(alpha: 0.12))
+        : t.accentFill.withValues(alpha: enabled ? 1 : kDisabledFillAlpha);
+    final onFill = destructive
+        ? (enabled ? t.bg : t.danger.withValues(alpha: 0.55))
+        : t.onAccentFill.withValues(alpha: enabled ? 1 : 0.8);
     // A bare InkWell carries neither `isButton` nor an enabled state, so a
     // screen reader would announce the primary action as plain text and a
     // disabled one as a button that does nothing. `onTap == null` is the

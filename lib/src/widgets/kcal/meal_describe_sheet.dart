@@ -744,24 +744,16 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
     if (_listening && _inAppRecognizer) setState(_cancelSpeech);
     _discardDialogOpen = true;
     final l10n = context.l10n;
-    final discard = await showEatovaDialog<bool>(
-      context: context,
-      builder: (dialogContext) => EatovaConfirmDialog(
-        key: const ValueKey('describe-discard-dialog'),
-        title: l10n.foodDescribeDiscardTitle,
-        body: l10n.foodDescribeDiscardBody,
-        icon: Icons.edit_off_rounded,
-        destructive: true,
-        cancelKey: const ValueKey('describe-discard-cancel'),
-        cancelLabel: l10n.foodDiscardChangesKeepEditing,
-        onCancel: () => Navigator.of(dialogContext).pop(false),
-        confirmKey: const ValueKey('describe-discard-confirm'),
-        confirmLabel: l10n.foodDiscardChangesConfirm,
-        onConfirm: () => Navigator.of(dialogContext).pop(true),
-      ),
+    final discard = await confirmDiscardChanges(
+      context,
+      title: l10n.foodDescribeDiscardTitle,
+      body: l10n.foodDescribeDiscardBody,
+      dialogKey: const ValueKey('describe-discard-dialog'),
+      keepKey: const ValueKey('describe-discard-cancel'),
+      confirmKey: const ValueKey('describe-discard-confirm'),
     );
     _discardDialogOpen = false;
-    if (!mounted || discard != true) return;
+    if (!mounted || !discard) return;
     Navigator.of(context).pop();
   }
 

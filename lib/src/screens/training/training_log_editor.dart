@@ -427,23 +427,17 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     }
     _closing = true;
     final l10n = context.l10n;
-    final discard = await showEatovaDialog<bool>(
-      context: context,
-      builder: (dialogContext) => EatovaConfirmDialog(
-        key: const ValueKey('training-log-discard-dialog'),
-        title: l10n.trainingPageDiscardTitle,
-        body: l10n.trainingPageDiscardBody,
-        icon: Icons.edit_off_rounded,
-        destructive: true,
-        cancelLabel: l10n.trainingPageKeepEditing,
-        onCancel: () => Navigator.pop(dialogContext, false),
-        confirmKey: const ValueKey('training-log-discard-confirm'),
-        confirmLabel: l10n.trainingPageDiscard,
-        onConfirm: () => Navigator.pop(dialogContext, true),
-      ),
+    final discard = await confirmDiscardChanges(
+      context,
+      title: l10n.trainingPageDiscardTitle,
+      body: l10n.trainingPageDiscardBody,
+      confirmLabel: l10n.trainingPageDiscard,
+      keepLabel: l10n.trainingPageKeepEditing,
+      dialogKey: const ValueKey('training-log-discard-dialog'),
+      confirmKey: const ValueKey('training-log-discard-confirm'),
     );
     _closing = false;
-    if (mounted && discard == true) Navigator.pop(context);
+    if (mounted && discard) Navigator.pop(context);
   }
 
   void _setDay(DateTime day) {

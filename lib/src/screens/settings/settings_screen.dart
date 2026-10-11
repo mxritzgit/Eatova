@@ -1125,6 +1125,7 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
           ? l10n.settingsDeleteAccountSheetSubtitle
           : l10n.settingsDeleteAccountCodeSentTo(widget.email),
       destructive: true,
+      icon: Icons.delete_outline_rounded,
       actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
       actionEnabled: ersterSchritt ? !_busy && _scharf(wort) : !_busy,
       onAction: ersterSchritt

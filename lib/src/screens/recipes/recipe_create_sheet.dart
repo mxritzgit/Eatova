@@ -72,33 +72,6 @@ class _RecipeField {
   bool get veraendert => controller.text != start;
 }
 
-/// D5: shared "discard changes?" confirmation for every way of closing a
-/// filled sheet. `barrierDismissible` stays `true`: a tap outside means
-/// cancel, and the dialog's own barrier swallows it, so the sheet below never
-/// sees it. Twin of `_confirmDiscardChanges` in
-/// lib/src/widgets/kcal/edit_meal_sheet.dart — duplicated because this file is
-/// a `part` without imports.
-Future<bool> _confirmDiscardChanges(BuildContext context) async {
-  final l10n = context.l10n;
-  final verwerfen = await showEatovaDialog<bool>(
-    context: context,
-    builder: (dialogContext) => EatovaConfirmDialog(
-      key: const ValueKey('discard-changes-dialog'),
-      title: l10n.foodDiscardChangesTitle,
-      body: l10n.recipesDiscardChangesBody,
-      icon: Icons.edit_off_rounded,
-      destructive: true,
-      cancelKey: const ValueKey('discard-changes-cancel'),
-      cancelLabel: l10n.foodDiscardChangesKeepEditing,
-      onCancel: () => Navigator.of(dialogContext).pop(false),
-      confirmKey: const ValueKey('discard-changes-confirm'),
-      confirmLabel: l10n.foodDiscardChangesConfirm,
-      onConfirm: () => Navigator.of(dialogContext).pop(true),
-    ),
-  );
-  return verwerfen ?? false;
-}
-
 /// D5: intercepts the drag-down dismiss of a modal bottom sheet.
 ///
 /// A `PopScope` is not enough: a barrier tap goes through `Navigator.maybePop`
@@ -660,7 +633,10 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   Future<void> _askDiscard() async {
     if (_discardDialogOpen || _saving) return;
     _discardDialogOpen = true;
-    final verwerfen = await _confirmDiscardChanges(context);
+    final verwerfen = await confirmDiscardChanges(
+      context,
+      body: context.l10n.recipesDiscardChangesBody,
+    );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
     // The dialog is already popped, so the sheet is topmost again. No result:

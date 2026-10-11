@@ -1319,8 +1319,8 @@
   "settingsAccountDiscardTitle": "Vorgang abbrechen?",
   "settingsAccountDiscardBody": "Der Code aus deiner E-Mail verfällt damit. Für einen neuen Anlauf brauchst du einen neuen Code.",
   "settingsAccountDiscardBodyConfirmed": "Der erste Code ist schon bestätigt und damit verbraucht. Brichst du jetzt ab, fängt die Adressänderung komplett von vorn an — mit zwei neuen Codes.",
-  "settingsAccountDiscardKeep": "Weiter",
-  "settingsAccountDiscardConfirm": "Abbrechen",
+  "settingsAccountDiscardKeep": "Weitermachen",
+  "settingsAccountDiscardConfirm": "Änderung abbrechen",
 
   "exportSheetLoadingSubtitle": "Deine Daten werden vom Server geladen …",
   "exportSheetErrorSubtitle": "Diese Kopie ist unvollständig oder konnte nicht vollständig geprüft werden. Bitte versuche es später erneut.",

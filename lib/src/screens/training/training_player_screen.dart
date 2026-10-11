@@ -517,6 +517,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             label: l.trainingTimerAlertsLater,
             onPressed: () => Navigator.pop(context, false),
             secondary: true,
+            // Keyboard focus starts on the answer that asks nothing.
+            autofocus: true,
           ),
         ],
       ),
@@ -788,6 +790,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             buttonKey: const ValueKey('training-timer-unstored-leave'),
             label: l.trainingTimerLeaveUnstored,
             onPressed: () => Navigator.pop(context, _UnstoredChoice.leave),
+            // Next to Finish it is the soft danger alternative, alone the
+            // filled danger action.
             secondary: canFinish,
             destructive: true,
           ),
@@ -796,6 +800,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             label: l.trainingTimerStay,
             onPressed: () => Navigator.pop(context, _UnstoredChoice.stay),
             secondary: true,
+            // Keyboard focus starts on the safe way out.
+            autofocus: true,
           ),
         ],
       ),
