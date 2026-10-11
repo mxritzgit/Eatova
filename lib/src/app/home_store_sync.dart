@@ -20,6 +20,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   Future<void>? _cacheSnapshotInFlight;
   Object? _lastSyncError;
   bool _syncHintShown = false;
+
+  /// Entities whose latest delivery attempt failed. A pending op of any other
+  /// entity has not failed yet: it is on its way or waits its turn.
+  final Set<String> _failedSyncEntities = {};
+
+  /// Entities whose delivery outlasted the window without a known failure.
+  /// Slowness is no failure, so their queue hint waits for a failed attempt.
+  final Set<String> _syncHintOnFailure = {};
   Map<String, int> _cacheObservedVersions = const {};
   int _localCommitGeneration = 0;
   Map<String, TrainingPlanHead> _trainingHeads = {};
@@ -286,34 +294,56 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     await commit;
     if (sync == null) return SyncDelivery.delivered;
     // Publication follows COMMIT. Delivery is independent of UI durability.
+    var windowExpired = false;
     if (awaitDelivery) {
-      await _replayOutbox().timeout(kSyncDeliveryWindow, onTimeout: () {});
+      await _replayOutbox().timeout(
+        kSyncDeliveryWindow,
+        onTimeout: () {
+          windowExpired = true;
+        },
+      );
     } else {
       unawaited(_replayOutbox());
     }
     _ensureMutationActive();
     final pending = _outbox.map((op) => op.operationId).toSet();
-    final delivery = intents.any((op) => pending.contains(op.operationId))
+    final queued = intents
+        .where((op) => pending.contains(op.operationId))
+        .toList();
+    final delivery = queued.isNotEmpty
         ? (_lastSyncError == null
               ? SyncDelivery.queuedRetry
               : queuedDelivery(_lastSyncError!))
         : SyncDelivery.delivered;
-    if (notifyQueued && delivery != SyncDelivery.delivered && !_syncHintShown) {
-      _syncHintShown = true;
-      final message = switch (syncBlockedReason) {
-        SyncBlockedReason.capacity => _l10n.settingsSyncCapacity,
-        SyncBlockedReason.backendUnavailable => _l10n.settingsSyncUnavailable,
-        SyncBlockedReason.rejected => _l10n.settingsSyncRejected,
-        SyncBlockedReason.trainingHeadConflict => _l10n.syncTrainingReviewRequired,
-        null => queuedSyncHint(_lastSyncError, _l10n),
-      };
-      _emitSnack(
-        message,
-        icon: Icons.sync_problem_rounded,
-        tone: SnackTone.neutral,
-      );
+    if (notifyQueued && queued.isNotEmpty) {
+      if (windowExpired &&
+          syncBlockedReason == null &&
+          !queued.any((op) => _failedSyncEntities.contains(op.entityKey))) {
+        // Still on its way: claiming a failed save would be false.
+        _syncHintOnFailure.addAll(queued.map((op) => op.entityKey));
+      } else {
+        _emitQueuedSyncHint();
+      }
     }
     return delivery;
+  }
+
+  /// The once-per-episode hint that a committed write waits in the outbox.
+  void _emitQueuedSyncHint() {
+    if (_syncHintShown) return;
+    _syncHintShown = true;
+    final message = switch (syncBlockedReason) {
+      SyncBlockedReason.capacity => _l10n.settingsSyncCapacity,
+      SyncBlockedReason.backendUnavailable => _l10n.settingsSyncUnavailable,
+      SyncBlockedReason.rejected => _l10n.settingsSyncRejected,
+      SyncBlockedReason.trainingHeadConflict => _l10n.syncTrainingReviewRequired,
+      null => queuedSyncHint(_lastSyncError, _l10n),
+    };
+    _emitSnack(
+      message,
+      icon: Icons.sync_problem_rounded,
+      tone: SnackTone.neutral,
+    );
   }
 
   Future<Map<String, int>> _localSessionGuards(LocalCache cache) async {
@@ -467,9 +497,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           _adoptSyncResult(op, result);
           _notifyRecipeSaveAcknowledged(op, result);
           _lastSyncError = null;
+          _failedSyncEntities.remove(op.entityKey);
+          if (!_outbox.any((entry) => entry.entityKey == op.entityKey)) {
+            _syncHintOnFailure.remove(op.entityKey);
+          }
           succeeded = true;
         } catch (error, stack) {
           _lastSyncError = error;
+          _failedSyncEntities.add(op.entityKey);
           if (_disposed || _trainingSessionEnded) return;
           _ensureMutationActive();
           blocked.add(op.entityKey);
@@ -488,6 +523,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             );
             _mutate(() => _outbox = receipt.operations);
           }
+          // A write whose window passed while it was still on its way.
+          if (_syncHintOnFailure.remove(op.entityKey)) _emitQueuedSyncHint();
           unawaited(
             CrashReporter.captureSyncFailure(
               error,
