@@ -110,7 +110,7 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
                             hint: _hint,
                             valid: valid,
                             onChanged: (_) => setState(() {}),
-                            onSuggestion: _applySuggestion,
+                            onSuggestion: _toggleSuggestion,
                           ),
                         ],
                       ),
@@ -127,15 +127,39 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
     );
   }
 
-  void _applySuggestion(String suggestion) {
-    final current = _hint.text.trim();
-    final next = current.isEmpty ? suggestion : '$current · $suggestion';
-    if (next.length > MealAnalysisRequest.maxHintLength) return;
+  /// Adds [suggestion] as a ' · ' part of the note, or takes it out again
+  /// when the note already holds it.
+  void _toggleSuggestion(String suggestion) {
+    final parts = _hint.text
+        .split(_suggestionSeparator)
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
+    final picked = _matchesSuggestion(suggestion);
+    final String next;
+    if (parts.any(picked)) {
+      next = parts.where((part) => !picked(part)).join(_suggestionSeparator);
+    } else {
+      final current = _hint.text.trim();
+      next = current.isEmpty
+          ? suggestion
+          : '$current$_suggestionSeparator$suggestion';
+      if (next.length > MealAnalysisRequest.maxHintLength) return;
+    }
     _hint
       ..text = next
       ..selection = TextSelection.collapsed(offset: next.length);
     setState(() {});
   }
+}
+
+/// Joins the suggestion parts of the note.
+const String _suggestionSeparator = ' · ';
+
+/// Whether a note part is [suggestion], ignoring case and padding.
+bool Function(String part) _matchesSuggestion(String suggestion) {
+  final wanted = suggestion.toLowerCase();
+  return (part) => part.trim().toLowerCase() == wanted;
 }
 
 class _ScanHeader extends StatelessWidget {
@@ -271,15 +295,21 @@ class _ScanContext extends StatelessWidget {
           errorText: valid ? null : l10n.foodScanContextInvalid,
           bottomGap: 10,
         ),
+        // The app's chip language: a picked suggestion is the accent pill
+        // with a check and taps off again; the others offer a "+".
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final suggestion in suggestions)
-              _ScanSuggestion(
+            for (final (i, suggestion) in suggestions.indexed)
+              FilterChipPill(
+                key: ValueKey('meal-scan-suggestion-$i'),
                 label: suggestion,
                 selected: _hasSuggestion(suggestion),
-                onPressed: () => onSuggestion(suggestion),
+                icon: _hasSuggestion(suggestion)
+                    ? Icons.check_rounded
+                    : Icons.add_rounded,
+                onTap: () => onSuggestion(suggestion),
               ),
           ],
         ),
@@ -287,43 +317,8 @@ class _ScanContext extends StatelessWidget {
     );
   }
 
-  bool _hasSuggestion(String suggestion) => hint.text
-      .split(' · ')
-      .any((part) => part.trim().toLowerCase() == suggestion.toLowerCase());
-}
-
-class _ScanSuggestion extends StatelessWidget {
-  const _ScanSuggestion({
-    required this.label,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      selected: selected,
-      child: TextButton(
-        onPressed: selected ? null : onPressed,
-        style: TextButton.styleFrom(
-          foregroundColor: t.ink2,
-          disabledForegroundColor: t.ink,
-          backgroundColor: selected ? t.brandSurface : t.tile,
-          minimumSize: const Size(0, kButtonMinHeight),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(rChip),
-          ),
-        ),
-        child: Text(label, style: AppType.ui(12, weight: FontWeight.w500)),
-      ),
-    );
-  }
+  bool _hasSuggestion(String suggestion) =>
+      hint.text.split(_suggestionSeparator).any(_matchesSuggestion(suggestion));
 }
 
 class _ScanFooter extends StatelessWidget {

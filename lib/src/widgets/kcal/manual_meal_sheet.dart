@@ -413,6 +413,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                       unit: 'g',
                       numeric: true,
                       errorText: _gramsFehler,
+                      onBrand: true,
                     ),
                     if (vorschau != null) ...[
                       const SizedBox(height: 16),
@@ -559,13 +560,18 @@ class _ManualGroup extends StatelessWidget {
                 Flexible(
                   child: Padding(
                     padding: const EdgeInsets.only(left: 10),
-                    child: Text(
-                      trailing!,
-                      textAlign: TextAlign.right,
-                      style: AppType.ui(
-                        11,
-                        weight: FontWeight.w500,
-                        color: t.ink2,
+                    // Flush with the field edge, not at the row's half mark.
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      heightFactor: 1,
+                      child: Text(
+                        trailing!,
+                        textAlign: TextAlign.end,
+                        style: AppType.ui(
+                          11,
+                          weight: FontWeight.w500,
+                          color: t.ink2,
+                        ),
                       ),
                     ),
                   ),
@@ -594,6 +600,7 @@ class _ManualField extends StatefulWidget {
     this.maxChars,
     this.errorText,
     this.dot,
+    this.onBrand = false,
   });
 
   final Key fieldKey;
@@ -610,6 +617,9 @@ class _ManualField extends StatefulWidget {
   final int? maxChars;
   final String? errorText;
   final Color? dot;
+
+  /// Sits on the brandSurface portion panel: [FieldCapsule.onBrand].
+  final bool onBrand;
 
   @override
   State<_ManualField> createState() => _ManualFieldState();
@@ -662,6 +672,7 @@ class _ManualFieldState extends State<_ManualField> {
         FieldCapsule(
           focusNode: _focus,
           error: hasError,
+          onBrand: widget.onBrand,
           padding: const EdgeInsets.symmetric(horizontal: 13),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,

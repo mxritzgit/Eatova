@@ -784,9 +784,12 @@ class _GramStepperState extends State<_GramStepper> {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    // On the brandSurface portion panel: the field/fieldFocus fills vanish
+    // there, so the capsule takes the panel variant.
     return FieldCapsule(
       focusNode: _focus,
       error: widget.invalid,
+      onBrand: true,
       shape: SheetFieldShape.pill,
       shadow: false,
       constraints: const BoxConstraints(minHeight: 56),
