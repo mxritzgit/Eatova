@@ -1154,6 +1154,63 @@ void main() {
       expect(entry.snapshot.actualSets.map((a) => a.reps).toSet(), {8});
     });
 
+    // The active row's field reports valid input only, so its draft keeps
+    // the last valid value while the row shows the invalid one.
+    for (final (cell, invalid, fixed) in [
+      ('weight', '2500', '25'),
+      ('reps', '', '6'),
+    ]) {
+      testWidgets('"I did the rest" waits for a valid active $cell', (
+        tester,
+      ) async {
+        final host = await _open(tester);
+        await _tap(tester, 'training-set-check-0-0');
+        await tester.enterText(_key('training-set-$cell-0-1'), invalid);
+        await tester.pump();
+        await _tap(tester, 'training-timer-finish');
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<SoftPillButton>(_key('training-finish-log-rest')).onTap,
+          isNull,
+        );
+        expect(
+          find.text(
+            'Correct the marked value to log the remaining sets as shown.',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<PrimaryActionButton>(_key('training-finish-save'))
+              .onTap,
+          isNotNull,
+          reason: 'saving the done set skips the active row',
+        );
+        await tester.tap(_key('training-finish-log-rest'), warnIfMissed: false);
+        await tester.pumpAndSettle();
+        expect(host.completed, isEmpty);
+
+        await _tap(tester, 'training-finish-keep');
+        await tester.pumpAndSettle();
+        await tester.enterText(_key('training-set-$cell-0-1'), fixed);
+        await tester.pump();
+        await _tap(tester, 'training-timer-finish');
+        await tester.pumpAndSettle();
+        expect(_key('training-finish-log-rest-invalid'), findsNothing);
+        await _tap(tester, 'training-finish-log-rest');
+        await tester.pumpAndSettle();
+        final logged = host.completed.single.snapshot.actualSets.singleWhere(
+          (a) =>
+              a.reference ==
+              const TrainingSetReference(exerciseIndex: 0, setIndex: 1),
+        );
+        expect(
+          cell == 'weight' ? logged.weightKg : logged.reps,
+          num.parse(fixed),
+        );
+      });
+    }
+
     testWidgets('with no completed set only Discard and Keep training', (
       tester,
     ) async {

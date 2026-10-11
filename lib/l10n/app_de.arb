@@ -2268,6 +2268,7 @@
     }
   },
   "trainingTimerLogRest": "Den Rest auch gemacht – wie angezeigt eintragen",
+  "trainingTimerLogRestInvalid": "Korrigiere den markierten Wert, um den Rest wie angezeigt einzutragen.",
   "trainingTimerKeepTraining": "Weiter trainieren",
   "trainingTimerNothingDone": "Noch kein Satz geschafft, es gibt nichts zu speichern.",
   "trainingTimerNotStored": "Nicht gesichert: Dein Plan hat sich geändert. Beenden speichert dieses Training trotzdem.",

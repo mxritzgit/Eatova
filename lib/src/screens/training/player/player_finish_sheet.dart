@@ -10,7 +10,9 @@ enum PlayerFinishChoice {
   /// Save the completed sets; open sets count as skipped.
   save,
 
-  /// Log the open sets with the values shown, then save.
+  /// Log the open sets with the values shown, then save. Needs valid values
+  /// in the active row: its field reports only valid input, so an invalid
+  /// one would be logged with the last valid value instead.
   logRest,
 
   /// Discard the workout (only offered with no completed set).
@@ -23,6 +25,7 @@ enum PlayerFinishChoice {
 /// The finish sheet (spec A7): summary, note and an honest primary action.
 /// With open sets the primary saves only what was done; with no completed
 /// set there is nothing to save, only Discard or Keep training.
+/// [valuesValid] covers the completed sets, [activeValid] the active row.
 Future<PlayerFinishChoice?> showPlayerFinishSheet(
   BuildContext context, {
   required int completed,
@@ -30,6 +33,7 @@ Future<PlayerFinishChoice?> showPlayerFinishSheet(
   required int open,
   required int total,
   required bool valuesValid,
+  required bool activeValid,
   required TextEditingController note,
   required VoidCallback onNoteChanged,
 }) => showEatovaSheet<PlayerFinishChoice>(
@@ -40,6 +44,7 @@ Future<PlayerFinishChoice?> showPlayerFinishSheet(
     open: open,
     total: total,
     valuesValid: valuesValid,
+    activeValid: activeValid,
     note: note,
     onNoteChanged: onNoteChanged,
   ),
@@ -52,6 +57,7 @@ class _FinishSheet extends StatelessWidget {
     required this.open,
     required this.total,
     required this.valuesValid,
+    required this.activeValid,
     required this.note,
     required this.onNoteChanged,
   });
@@ -61,6 +67,7 @@ class _FinishSheet extends StatelessWidget {
   final int open;
   final int total;
   final bool valuesValid;
+  final bool activeValid;
   final TextEditingController note;
   final VoidCallback onNoteChanged;
 
@@ -150,11 +157,21 @@ class _FinishSheet extends StatelessWidget {
               ),
               if (open > 0) ...[
                 const SizedBox(height: 8),
+                // Saving the done sets skips the active row; logging the rest
+                // records it, so it needs its own reason when disabled.
+                if (valuesValid && !activeValid) ...[
+                  Text(
+                    l.trainingTimerLogRestInvalid,
+                    key: const ValueKey('training-finish-log-rest-invalid'),
+                    style: AppType.ui(14, color: t.danger),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 secondary(
                   'log-rest',
                   l.trainingTimerLogRest,
                   PlayerFinishChoice.logRest,
-                  enabled: valuesValid,
+                  enabled: valuesValid && activeValid,
                 ),
               ],
             ],

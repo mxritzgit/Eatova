@@ -844,6 +844,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       open: _session.openSetCount,
       total: _session.totalSets,
       valuesValid: _completionValuesValid,
+      activeValid: _activeValid,
       note: _note,
       onNoteChanged: _persistSoon,
     );
@@ -853,6 +854,9 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       case PlayerFinishChoice.save:
         await _persist(_SaveIntent.complete);
       case PlayerFinishChoice.logRest:
+        // Checked before recording: once logged, the active row's stale
+        // draft would already be in the ledger.
+        if (!_activeValid || !_completionValuesValid) return;
         _act(_session.completeOpenSetsAsShown);
         await _persist(_SaveIntent.complete);
       case PlayerFinishChoice.discard:

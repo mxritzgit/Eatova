@@ -2216,6 +2216,7 @@
     }
   },
   "trainingTimerLogRest": "I did the remaining sets — log as shown",
+  "trainingTimerLogRestInvalid": "Correct the marked value to log the remaining sets as shown.",
   "trainingTimerKeepTraining": "Keep training",
   "trainingTimerNothingDone": "No set is completed yet, so there is nothing to save.",
   "trainingTimerNotStored": "Not stored: your plan changed. Finish still saves this workout.",
