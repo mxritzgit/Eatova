@@ -5,7 +5,11 @@
 // strip, the meal menu and its remove decision card (2026-10-11), the
 // shopping list (filled and empty), and the recipe
 // history with its restore dialog. The receipt (2026-10-10) also renders a
-// German import with section labels and its done stamp.
+// German import with section labels and its done stamp, and (2026-10-11)
+// its Open Prices estimate: loading (rows and totals), a mix of prices,
+// "k. A.", "–" and a pack price, ticked rows, every line priced and then
+// done under the stamp, a failed lookup, and 320 px with 2x text (rows and
+// totals). Those prices come from a scripted service, not from Open Prices.
 // Own recipes without a photo (2026-10-11) show the glowing recipe art in
 // the week rows, the editor's list and its chosen card (meal-plan-art-*).
 //
@@ -23,6 +27,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/shopping_list.dart';
+import 'package:eatova/src/models/shopping_price.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/screens/recipes/recipe_history_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
@@ -35,6 +40,7 @@ import 'package:eatova/src/widgets/recipes/recipe_photo.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
 import '../support/design_capture.dart';
+import '../support/fake_shopping_prices.dart';
 import '../support/harness.dart';
 
 /// Monday, so the shown week starts today.
@@ -140,6 +146,107 @@ Future<void> _seedOwnRecipes(HomeStore store) async {
       slot: MealSlot.lunch,
     ),
   );
+}
+
+/// The owner's example week for the price estimate: a Monday pizza and a
+/// breakfast as free text, next to the weighed bowl.
+FitnessRecipe get _mondayPizza => recipeCatalogDe.first.copyWith(
+  title: 'Montag-Pizza',
+  ingredients:
+      '• 1 Packung Pizzateig\n• 200 g passierte Tomaten\n• 125 g Mozzarella\n'
+      '• 80 g Salami\n• 1 Prise Salz\n• Basilikum',
+  structuredIngredients: const [],
+);
+
+FitnessRecipe get _breakfast => recipeCatalogDe.first.copyWith(
+  title: 'Frühstück',
+  ingredients: '• 500 ml Milch\n• Vollkornbrot\n• 2 Eier\n• 1 Gurke',
+  structuredIngredients: const [],
+);
+
+/// Scripted outcomes, a mix the real data gives: prices, "k. A.", "–" for
+/// seasoning and a pack price for a line without an amount.
+LinePrice _capturePrice(PriceRequestLine line) => switch (line.label) {
+  'Pizzateig' => const LinePriceNoData(),
+  'Passierte Tomaten' => const LinePriceNoData(),
+  'Mozzarella' => fakeEstimate(53, median: 4.25),
+  'Salami' => fakeEstimate(150, median: 18.78),
+  'Salz' => const LinePriceSkipped(),
+  'Basilikum' => const LinePriceNoData(),
+  'Milch' => fakeEstimate(58, median: 1.15, basis: PriceBasis.volume),
+  'Vollkornbrot' => fakeEstimate(231, median: 4.61, kind: LinePriceKind.pack),
+  'Eier' => fakeEstimate(60, median: .30, basis: PriceBasis.piece),
+  'Gurke' => fakeEstimate(89, median: .89, basis: PriceBasis.piece),
+  'Rice' => fakeEstimate(60, median: 3.98),
+  _ => const LinePriceNoData(),
+};
+
+/// The same week with a price on every line but the salt, so the sum is
+/// complete.
+LinePrice _everyLinePriced(PriceRequestLine line) => switch (line.label) {
+  'Pizzateig' => fakeEstimate(149, median: 3.73, kind: LinePriceKind.pack),
+  'Passierte Tomaten' => fakeEstimate(40, median: 1.98),
+  'Basilikum' => fakeEstimate(
+    199,
+    median: 1.99,
+    basis: PriceBasis.piece,
+    kind: LinePriceKind.piece,
+  ),
+  'Chicken breast' => fakeEstimate(180, median: 9.99),
+  _ => _capturePrice(line),
+};
+
+/// The receipt's check ids by label.
+Map<String, String> _priceIds(HomeStore store) => {
+  for (final line in priceRequestLines(
+    buildShoppingList(store.plannedMeals, _now, decimalSeparator: ','),
+  ))
+    line.label: line.id,
+};
+
+/// Mounts the German receipt of the example week with [prices], on a phone
+/// whose region is Germany.
+Future<HomeStore> _pumpPricedReceipt(
+  WidgetTester tester,
+  FakeShoppingPriceService prices, {
+  bool narrow = false,
+  double textScale = 1,
+}) async {
+  tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
+  addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+  _viewport(tester, narrow: narrow);
+  final store = _store();
+  await store.savePlannedMeal(
+    PlannedMeal.create(recipe: _mondayPizza, day: _now, slot: MealSlot.dinner),
+  );
+  await store.savePlannedMeal(
+    PlannedMeal.create(
+      recipe: _breakfast,
+      day: _now.add(const Duration(days: 1)),
+      slot: MealSlot.breakfast,
+    ),
+  );
+  await store.savePlannedMeal(
+    PlannedMeal.create(
+      recipe: _bowl,
+      day: _now.add(const Duration(days: 2)),
+      slot: MealSlot.lunch,
+    ),
+  );
+  await tester.pumpWidget(
+    designCaptureBoundary(
+      localizedApp(
+        MealPlanScreen(store: store, prices: prices),
+        locale: const Locale('de'),
+        textScale: textScale,
+        safeArea: false,
+        scaffold: false,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await _tapVisible(tester, _key('meal-plan-tab-shopping'));
+  return store;
 }
 
 /// Pins the reference phone, or a 320 px wide one for the narrow checks.
@@ -443,6 +550,135 @@ void main() {
       expect(find.byType(SkeletonCard), findsWidgets);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-plan-week-loading');
+    });
+  });
+
+  testWidgets('German receipt with prices, loading and loaded', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      final prices = FakeShoppingPriceService(priceOf: _capturePrice);
+      await _pumpPricedReceipt(tester, prices);
+      expect(prices.runs, hasLength(1));
+      expect(_key('shopping-price-total'), findsOneWidget);
+      await scrollDesignTabBy(tester, 160);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-prices-loading');
+      // The totals while loading.
+      await scrollDesignTabBy(tester, 3000);
+      expect(find.text('Preise werden geladen …'), findsOneWidget);
+      await captureDesignShot(
+        tester,
+        'meal-plan-shopping-receipt-prices-loading-01',
+      );
+
+      await scrollDesignTabBy(tester, -10000);
+      await scrollDesignTabBy(tester, 160);
+      prices.lastRun.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-prices');
+      await scrollDesignTabBy(tester, 620);
+      // With the real font the pack line fits in full.
+      expect(find.text('4,61 €/kg · 1 Pck.'), findsOneWidget);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-prices-01');
+      await scrollDesignTabBy(tester, 3000);
+      expect(_key('shopping-price-source'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-prices-02');
+    });
+  });
+
+  testWidgets('German receipt with prices, a few rows ticked', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final prices = FakeShoppingPriceService(priceOf: _capturePrice);
+      final store = await _pumpPricedReceipt(tester, prices);
+      prices.lastRun.complete();
+      // A priced row, a "k. A." row, a "–" row and a weighed one.
+      final ids = _priceIds(store);
+      for (final label in ['Rice', 'Pizzateig', 'Mozzarella', 'Salz']) {
+        await store.setShoppingChecked(
+          ShoppingCheck(id: ids[label]!, checked: true),
+        );
+      }
+      await tester.pumpAndSettle();
+      await scrollDesignTabBy(tester, 160);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(
+        tester,
+        'meal-plan-shopping-receipt-prices-checked',
+      );
+    });
+  });
+
+  testWidgets('German receipt, every line priced, then done', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final prices = FakeShoppingPriceService(priceOf: _everyLinePriced);
+      final store = await _pumpPricedReceipt(tester, prices);
+      prices.lastRun.complete();
+      await tester.pumpAndSettle();
+      await scrollDesignTabBy(tester, 3000);
+      expect(find.text('Alle Positionen geschätzt'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-prices-all');
+
+      for (final id in _priceIds(store).values) {
+        await store.setShoppingChecked(ShoppingCheck(id: id, checked: true));
+      }
+      await tester.pumpAndSettle();
+      expect(_key('shopping-receipt-stamp'), findsOneWidget);
+      expect(
+        tester.getRect(_key('shopping-receipt-stamp')).bottom,
+        lessThan(tester.getRect(_key('shopping-price-total')).top),
+      );
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-prices-done');
+    });
+  });
+
+  testWidgets('German receipt, prices failed to load', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final prices = FakeShoppingPriceService(priceOf: _capturePrice);
+      await _pumpPricedReceipt(tester, prices);
+      prices.lastRun.fail();
+      await tester.pumpAndSettle();
+      await scrollDesignTabBy(tester, 3000);
+      expect(find.text('Preise gerade nicht abrufbar'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(
+        tester,
+        'meal-plan-shopping-receipt-prices-failed',
+      );
+    });
+  });
+
+  testWidgets('320 px with 2x text, receipt with prices', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final prices = FakeShoppingPriceService(priceOf: _capturePrice);
+      await _pumpPricedReceipt(tester, prices, narrow: true, textScale: 2);
+      prices.lastRun.complete();
+      await tester.pumpAndSettle();
+      await scrollDesignTabBy(tester, 700);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-narrow-shopping-prices');
+      await scrollDesignTabBy(tester, 3000);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-narrow-shopping-prices-01');
+      // Back up to the sum and its note at 2x.
+      await tester.scrollUntilVisible(
+        _key('shopping-price-total'),
+        -120,
+        scrollable: designMainScrollable(),
+      );
+      await scrollDesignTabBy(
+        tester,
+        tester.getTopLeft(_key('shopping-price-total')).dy - 300,
+      );
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(
+        tester,
+        'meal-plan-narrow-shopping-prices-totals',
+      );
     });
   });
 

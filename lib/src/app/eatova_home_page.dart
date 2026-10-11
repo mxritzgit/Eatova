@@ -26,10 +26,12 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/open_prices_api.dart';
 import '../services/recipe_import_inbox.dart';
 import '../services/recipe_import_service.dart';
 import '../services/rest_alerts.dart';
 import '../services/meal_scan_identity.dart';
+import '../services/shopping_price_service.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_connectivity.dart';
 import '../services/uuid.dart';
@@ -84,6 +86,7 @@ class EatovaHomePage extends StatefulWidget {
     this.backgroundSyncScheduler,
     this.recipeImportInbox,
     this.recipeImportService,
+    this.openPrices,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -110,6 +113,9 @@ class EatovaHomePage extends StatefulWidget {
   final BackgroundSyncScheduler? backgroundSyncScheduler;
   final RecipeImportInbox? recipeImportInbox;
   final RecipeImportService? recipeImportService;
+
+  /// Community prices for the shopping receipt; null shows none.
+  final OpenPricesSource? openPrices;
 
   /// Test seam (DATA-3): inject the durable cache so clobber-guard and
   /// hydration are testable without a Supabase session. Null in production.
@@ -140,6 +146,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   HomeStore get debugStore => _store;
 
   late final HomeStore _store;
+
+  /// The receipt's price estimate. Its in-memory cache lives exactly as long
+  /// as this page, which is keyed by account and session.
+  ShoppingPriceService? _shoppingPrices;
   ReconnectSyncCoordinator? _reconnectSync;
   bool _backgroundSyncRequested = false;
 
@@ -191,6 +201,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       emitSnack: _emitSnack,
     );
     _store.addListener(_onStoreChanged);
+    if (widget.openPrices case final source?) {
+      _shoppingPrices = OpenPricesShoppingPriceService(source);
+    }
     widget.recipeImportInbox?.addListener(_scheduleRecipeImport);
     // No sync (preview/test) means no boot/welcome phase.
     _welcomeFinished = widget.sync == null;
@@ -246,6 +259,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _planDraftRequest.dispose();
     _logDraftRequest.dispose();
     _localHours.dispose();
+    _shoppingPrices?.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -885,7 +899,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           ownerStore.addResultToDailyTotal(result, slot: slot),
       openMealPlan: () {
         if (_isStoreSessionCurrent(ownerStore)) {
-          unawaited(MealPlanScreen.open(context, ownerStore));
+          unawaited(
+            MealPlanScreen.open(context, ownerStore, prices: _shoppingPrices),
+          );
         }
       },
       isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
@@ -974,7 +990,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // A planned pick is eaten in the plan (eatPlannedMeal).
             onOpenMealPlan: () {
               if (_isStoreSessionCurrent(ownerStore)) {
-                unawaited(MealPlanScreen.open(context, ownerStore));
+                unawaited(
+                  MealPlanScreen.open(
+                    context,
+                    ownerStore,
+                    prices: _shoppingPrices,
+                  ),
+                );
               }
             },
           ),
@@ -1069,7 +1091,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onImport: () => _openRecipeImport(),
         onOpenMealPlan: () {
           if (_isStoreSessionCurrent(ownerStore)) {
-            unawaited(MealPlanScreen.open(context, ownerStore));
+            unawaited(
+              MealPlanScreen.open(context, ownerStore, prices: _shoppingPrices),
+            );
           }
         },
         onDeleteRecipe: widget.sync == null ? null : _store.deleteUserRecipe,

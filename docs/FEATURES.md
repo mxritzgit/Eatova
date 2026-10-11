@@ -4,7 +4,8 @@ Base source review: **2026-09-14**, main through PR #88; authentication and
 onboarding updated **2026-09-16**; Today, Settings and visual contracts
 updated **2026-10-01** for the dark redesign (PR #118); Training, Coach `/log`
 and dictation updated **2026-10-03** ([design](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md));
-meal description by text or voice added **2026-10-10** ([contract](MEAL-DESCRIBE.md)).
+meal description by text or voice added **2026-10-10** ([contract](MEAL-DESCRIBE.md));
+shopping list prices from Open Prices added **2026-10-11** ([contract](SHOPPING-PRICES.md)).
 This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
@@ -19,7 +20,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Meal description | "Describe" in the add sheet: a typed or dictated sentence becomes a draft with one line per food. The AI splits the sentence and estimates amounts; each line uses a matching favorite or database product when one fits and the AI estimate otherwise, marked as such. Lines can switch candidate, change grams or be removed; nothing is logged before Add. Counts as one meal scan | [Contract](MEAL-DESCRIBE.md), [sheet](../lib/src/widgets/kcal/meal_describe_sheet.dart) |
 | Recipes | Browse catalog; create, edit or delete own/adopted recipes; photo, preparation, structured ingredients, fractional servings; add to selected diary date | [Recipes](../lib/src/screens/recipes/recipes_screen.dart) |
 | Meal Plan | Weekly date/slot planning with recipe snapshots and servings; explicit consumption adds to diary without double-counting retries | [Plan screen](../lib/src/screens/recipes/meal_plan_screen.dart), [store](../lib/src/app/home_store_meal_plan.dart) |
-| Shopping List | Weekly ingredient aggregation and durable checked state; compatible structured quantities combine, free-text lines remain independent | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart) |
+| Shopping List | Weekly ingredient aggregation and durable checked state; compatible structured quantities combine, free-text lines remain independent. In Germany each row shows a community price estimate from Open Prices (last 6 weeks, share of the printed amount, "k. A." without enough data) with a (sub)total and attribution | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart), [prices](SHOPPING-PRICES.md) |
 | Training plans | Multiple workouts, plan selection/editing, exercise lists, repetition/timed sets and rest | [Training](../lib/src/screens/training/training_screen.dart) |
 | Workout player | List of exercise cards with one tap per set (✓; timed sets ▶ with a 3 s lead and "Done early"); weights carry forward within an exercise or come from Last time; undo, skip set/exercise, complete the rest as planned; rests and timed sets keep running while the phone is locked; one generic rest alert per phase, whose tap reopens the workout; finish sheet (save the done sets, log the rest as shown, or discard); local recovery | [Player](../lib/src/screens/training/training_player_screen.dart), [Training design](TRAINING-DESIGN.md#workout-player-list-2026-10-03) |
 | Training log | "Log workout" for a free workout (today, yesterday or up to 30 days back, optional duration, exercises with sets or a time, note) and "Log as done" for the plan's shown workout; nothing is written before Add | [Log editor](../lib/src/screens/training/training_log_editor.dart) |
@@ -98,6 +99,11 @@ and [Backend](BACKEND.md) for persistence details.
   identified. Diary, recipes and recipe history paginate; other sections have a
   10,000-row client limit (a server cap may be lower).
   [Export source](../lib/src/services/data_export.dart).
+- Shopping prices exist only when a device locale names Germany (or, without
+  any device region, for German as app language). The community data is
+  sparse, so expect many "k. A." lines (about 25–40 % of lines priced);
+  estimates are shares of the amount, not what the till charges for a pack.
+  See [shopping prices](SHOPPING-PRICES.md).
 - Dictation hears one language at a time (German or English); a mix of both
   in one recording is not transcribed reliably. Apple ends a server-based
   recording after about a minute; the text so far stays.

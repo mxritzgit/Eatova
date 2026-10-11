@@ -20,6 +20,7 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/services/open_prices_api.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 import '../fixlauf_a_helpers.dart';
@@ -99,11 +100,12 @@ Future<void> pumpUntil(
 ///
 /// [store] is the backing key-value store of the injected [LocalCache]; pass
 /// one to assert against the PERSISTED slots, otherwise a fresh in-memory
-/// store is used.
+/// store is used. [openPrices] wires the shopping receipt's prices.
 Future<HomeStore> pumpSignedIn(
   WidgetTester tester,
   FixlaufServer server, {
   KeyValueStore? store,
+  OpenPricesSource? openPrices,
 }) async {
   // NOT disposed in a tearDown: `SupabaseClient.dispose()` awaits its REST,
   // functions and isolate layers, and a tearDown runs OUTSIDE the fake-async
@@ -132,6 +134,7 @@ Future<HomeStore> pumpSignedIn(
       sync: EatovaSync.forUser(client, kFixlaufUser),
       debugCache: LocalCache(store ?? InMemoryKeyValueStore(), kFixlaufUser),
       showWelcome: false,
+      openPrices: openPrices,
     ),
   ));
   await pumpUntil(

@@ -12,7 +12,10 @@ import '../../models/logged_meal.dart';
 import '../../models/number_input.dart';
 import '../../models/planned_meal.dart';
 import '../../models/shopping_list.dart';
+import '../../models/shopping_price.dart';
 import '../../services/local_day.dart';
+import '../../services/shopping_price_controller.dart';
+import '../../services/shopping_price_service.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
@@ -27,6 +30,7 @@ import '../../widgets/kcal/food_date_picker.dart';
 import '../../widgets/kcal/meal_slot_picker.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
+import '../settings/settings_controls.dart' show openLegalLink;
 import '../today/today_texts.dart' show kcalThousands, todayWeekdayShort;
 
 part 'meal_plan_editor.dart';
@@ -51,12 +55,20 @@ bool _largeText(BuildContext context) =>
 String _keepTogether(String text) => text.replaceAll(' ', '\u00A0');
 
 class MealPlanScreen extends StatefulWidget {
-  const MealPlanScreen({super.key, required this.store});
+  const MealPlanScreen({super.key, required this.store, this.prices});
   final HomeStore store;
-  static Future<void> open(BuildContext context, HomeStore store) =>
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => MealPlanScreen(store: store)),
-      );
+
+  /// The receipt's price estimate; null leaves the receipt without prices.
+  final ShoppingPriceService? prices;
+  static Future<void> open(
+    BuildContext context,
+    HomeStore store, {
+    ShoppingPriceService? prices,
+  }) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => MealPlanScreen(store: store, prices: prices),
+    ),
+  );
   @override
   State<MealPlanScreen> createState() => _MealPlanScreenState();
 }
@@ -72,7 +84,45 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   /// The shown days' sections, so a tap in the week strip can scroll to one.
   final Map<String, GlobalKey> _dayKeys = {};
+
+  /// The receipt's prices; null without a price service.
+  ShoppingPriceController? _prices;
   HomeStore get store => widget.store;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.prices case final service?) {
+      _prices = ShoppingPriceController(service);
+    }
+  }
+
+  @override
+  void didUpdateWidget(MealPlanScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.prices != widget.prices) {
+      _prices?.dispose();
+      _prices = switch (widget.prices) {
+        final service? => ShoppingPriceController(service),
+        null => null,
+      };
+    }
+  }
+
+  @override
+  void dispose() {
+    _prices?.dispose();
+    super.dispose();
+  }
+
+  /// The price region, or null when the receipt shows no prices: no
+  /// service, or a device region other than Germany.
+  PriceRegion? _priceRegion(BuildContext context) => _prices == null
+      ? null
+      : priceRegionFor(
+          View.of(context).platformDispatcher.locales,
+          Localizations.localeOf(context),
+        );
 
   /// Runs one plan mutation with its toast. [removal] words the feedback as
   /// a removal: a delete never confirms with "Saved.".
@@ -155,6 +205,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   void _showWeek(int deltaDays) => setState(() {
     _week = DateTime(_week.year, _week.month, _week.day + deltaDays);
     _dayKeys.clear();
+    _prices?.pause();
   });
 
   List<DateTime> get _days => [
@@ -206,6 +257,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 l10n: l,
               )
             : const <ShoppingItem>[];
+        final region = _shopping && ready && items.isNotEmpty
+            ? _priceRegion(context)
+            : null;
+        final prices = region == null ? null : _prices;
+        prices?.show(priceRequestLines(items), region!);
         return Scaffold(
           backgroundColor: t.bg,
           body: SafeArea(
@@ -227,8 +283,10 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       ValueKey('meal-plan-tab-shopping'),
                     ],
                     selected: _shopping ? 1 : 0,
-                    onSelected: (index) =>
-                        setState(() => _shopping = index == 1),
+                    onSelected: (index) => setState(() {
+                      _shopping = index == 1;
+                      if (!_shopping) _prices?.pause();
+                    }),
                   ),
                   const SizedBox(height: 14),
                   _weekCard(context, ready: ready, items: items),
@@ -271,7 +329,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       ),
                     ),
                   if (_shopping)
-                    ..._shoppingList(context, items, ready: ready)
+                    ..._shoppingList(
+                      context,
+                      items,
+                      ready: ready,
+                      prices: prices,
+                    )
                   else ...[
                     // One child, so every day is built and the strip can
                     // scroll to any of them.
@@ -620,6 +683,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     BuildContext context,
     List<ShoppingItem> items, {
     required bool ready,
+    ShoppingPriceController? prices,
   }) {
     final l = context.l10n;
     final freeText = items.any((i) => i.grams == null);
@@ -634,7 +698,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         ),
       if (items.isNotEmpty) ...[
         const SizedBox(height: 18),
-        _receipt(context, items),
+        if (prices == null)
+          _receipt(context, items)
+        else
+          ListenableBuilder(
+            listenable: prices,
+            builder: (context, _) => _receipt(context, items, prices: prices),
+          ),
         const SizedBox(height: 14),
         _Footnote(l.mealPlanShoppingIntro),
         if (freeText) ...[
@@ -660,8 +730,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         };
 
   /// The week's list as one receipt: the weighed ingredients summed across
-  /// meals, then every recipe with free-text ingredients line by line.
-  Widget _receipt(BuildContext context, List<ShoppingItem> items) {
+  /// meals, then every recipe with free-text ingredients line by line. With
+  /// [prices], each row carries its estimate and the totals their sum.
+  Widget _receipt(
+    BuildContext context,
+    List<ShoppingItem> items, {
+    ShoppingPriceController? prices,
+  }) {
     final l = context.l10n;
     final checks = store.shoppingChecks;
     final weighed = items.where((i) => i.grams != null).toList();
@@ -681,10 +756,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                     '${NumberFormat('0.##', l.localeName).format(item.grams)} g',
                 checked: checks[item.id] ?? false,
                 onTap: _toggleCheck(item.id, checks[item.id] ?? false),
+                priceId: item.id,
+                price: prices?.priceFor(item.id),
               ),
           ],
         ),
-      for (final item in freeText) _receiptRecipe(context, item),
+      for (final item in freeText) _receiptRecipe(context, item, prices),
     ];
     return _ReceiptPaper(
       key: const ValueKey('shopping-receipt'),
@@ -700,7 +777,14 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             section,
           ],
           const _ReceiptRule(doubled: true),
-          _ReceiptTotals(done: done, total: total),
+          _ReceiptTotals(
+            done: done,
+            total: total,
+            price: prices?.totalFor(
+              priceRequestLines(items).map((line) => line.id),
+            ),
+          ),
+          if (prices != null) const _ReceiptPriceSource(),
           _ReceiptFooter(seed: localDayKey(_week)),
         ],
       ),
@@ -709,7 +793,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   /// A recipe with free-text ingredients: its title, day, slot and servings,
   /// then each ingredient line with its own check.
-  Widget _receiptRecipe(BuildContext context, ShoppingItem item) {
+  Widget _receiptRecipe(
+    BuildContext context,
+    ShoppingItem item,
+    ShoppingPriceController? prices,
+  ) {
     final l = context.l10n;
     final checks = store.shoppingChecks;
     final plan = store.plannedMeals.where((p) => p.id == item.planId).firstOrNull;
@@ -755,6 +843,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                   line.id,
                   shoppingLineChecked(checks, item, line),
                 ),
+                priceId: line.id,
+                price: prices?.priceFor(line.id),
               ),
       ],
     );

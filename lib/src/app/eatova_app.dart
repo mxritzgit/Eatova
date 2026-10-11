@@ -19,6 +19,7 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/open_prices_api.dart';
 import '../services/recipe_import_inbox.dart';
 import '../services/recipe_import_service.dart';
 import '../services/recipe_share_receiver.dart';
@@ -48,6 +49,7 @@ class EatovaApp extends StatefulWidget {
     this.debugCacheBuilder,
     this.recipeImportService,
     this.recipeShareReceiver,
+    this.openPrices,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -60,6 +62,11 @@ class EatovaApp extends StatefulWidget {
   final BackgroundSyncScheduler? backgroundSyncScheduler;
   final RecipeImportService? recipeImportService;
   final RecipeShareReceiver? recipeShareReceiver;
+
+  /// Community prices for the shopping receipt. `main` injects the real
+  /// source; null (tests, preview) leaves the receipt without prices and
+  /// without a request.
+  final OpenPricesSource? openPrices;
 
   @visibleForTesting
   final LocalCache Function(String userId)? debugCacheBuilder;
@@ -220,6 +227,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           key: ValueKey((user.id, user.sessionId)),
           recipeImportInbox: _recipeInbox,
           recipeImportService: widget.recipeImportService,
+          openPrices: widget.openPrices,
           mealAnalyzer: widget.mealAnalyzer,
           productService: widget.productService,
           photoInput: widget.photoInput,
