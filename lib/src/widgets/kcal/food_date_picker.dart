@@ -27,6 +27,10 @@ Future<DateTime?> showFoodDatePicker(
 );
 
 /// Calendar changes remain a draft until the diary day is confirmed.
+///
+/// Calendar only: Material's typed-date mode (an orphaned toggle icon and the
+/// stock outlined "Enter date" field) was dropped; the themed month grid and
+/// the Today pill cover every reachable day.
 class FoodDatePicker extends StatefulWidget {
   const FoodDatePicker({
     super.key,
@@ -55,30 +59,14 @@ class FoodDatePicker extends StatefulWidget {
 
 class _FoodDatePickerState extends State<FoodDatePicker> {
   late DateTime _day = DateUtils.dateOnly(widget.initialDate);
-  bool _input = false;
   int _calendarVersion = 0;
-  final _form = GlobalKey<FormState>();
 
-  void _confirm() {
-    if (_input) {
-      if (!_form.currentState!.validate()) return;
-      _form.currentState!.save();
-    }
-    Navigator.of(context).pop(_day);
-  }
+  void _confirm() => Navigator.of(context).pop(_day);
 
   void _today() => setState(() {
     _day = DateUtils.dateOnly(widget.today);
-    _input = false;
     _calendarVersion++;
   });
-
-  void _toggleInput() {
-    if (_input && _form.currentState!.validate()) {
-      _form.currentState!.save();
-    }
-    setState(() => _input = !_input);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -123,31 +111,13 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          l10n.foodDatePickerHelpText,
-                          style: AppType.display(24, color: t.ink),
-                        ),
-                      ),
-                      IconButton(
-                        key: const ValueKey('food-date-close'),
-                        tooltip: l10n.commonClose,
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: IconButton.styleFrom(backgroundColor: t.surf2),
-                        icon: Icon(
-                          Icons.close_rounded,
-                          color: t.ink2,
-                          size: 21,
-                        ),
-                      ),
-                    ],
-                  ),
+                SheetHeader(
+                  title: l10n.foodDatePickerHelpText,
+                  onClose: () => Navigator.of(context).pop(),
+                  closeKey: const ValueKey('food-date-close'),
+                  closeTooltip: l10n.commonClose,
+                  padding: const EdgeInsets.fromLTRB(20, 0, 18, 12),
                 ),
-                const SizedBox(height: 12),
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
                   width: double.infinity,
@@ -188,56 +158,22 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    key: const ValueKey('food-date-input-toggle'),
-                    tooltip: _input
-                        ? material.calendarModeButtonLabel
-                        : material.inputDateModeButtonLabel,
-                    onPressed: _toggleInput,
-                    icon: Icon(
-                      _input
-                          ? Icons.calendar_month_rounded
-                          : Icons.edit_calendar_outlined,
+                const SizedBox(height: 12),
+                Theme(
+                  data: theme.copyWith(datePickerTheme: calendarTheme),
+                  child: SizedBox(
+                    height: 350 + (scale.scale(14) - 14).clamp(0, 28) * 5,
+                    child: CalendarDatePicker(
+                      key: ValueKey('food-calendar-$_calendarVersion'),
+                      initialDate: _day,
+                      firstDate: widget.firstDate,
+                      lastDate: widget.lastDate ?? widget.today,
+                      currentDate: widget.today,
+                      onDateChanged: (day) =>
+                          setState(() => _day = DateUtils.dateOnly(day)),
                     ),
                   ),
                 ),
-                if (_input)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                    child: Form(
-                      key: _form,
-                      child: InputDatePickerFormField(
-                        initialDate: _day,
-                        firstDate: widget.firstDate,
-                        lastDate: widget.lastDate ?? widget.today,
-                        autofocus: true,
-                        onDateSaved: (day) => _day = DateUtils.dateOnly(day),
-                        onDateSubmitted: (day) {
-                          _day = DateUtils.dateOnly(day);
-                          _confirm();
-                        },
-                      ),
-                    ),
-                  )
-                else
-                  Theme(
-                    data: theme.copyWith(datePickerTheme: calendarTheme),
-                    child: SizedBox(
-                      height: 350 + (scale.scale(14) - 14).clamp(0, 28) * 5,
-                      child: CalendarDatePicker(
-                        key: ValueKey('food-calendar-$_calendarVersion'),
-                        initialDate: _day,
-                        firstDate: widget.firstDate,
-                        lastDate: widget.lastDate ?? widget.today,
-                        currentDate: widget.today,
-                        onDateChanged: (day) =>
-                            setState(() => _day = DateUtils.dateOnly(day)),
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),

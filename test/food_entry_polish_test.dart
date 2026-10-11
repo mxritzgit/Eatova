@@ -399,8 +399,13 @@ void main() {
     }
   }
 
+  // The typed-date mode (a stray toggle icon and Material's outlined "Enter
+  // date" field) was removed on purpose (design review X-16, 2026-10-11):
+  // the themed calendar is the only way in, and it must still refuse a
+  // future day and return the picked one only on confirm.
   testWidgets(
-    'calendar close cancels; date input rejects future and saves valid day',
+    'calendar close cancels; calendar only, no future day, picked day on '
+    'confirm',
     (tester) async {
       DateTime? result;
       await _mount(
@@ -426,23 +431,28 @@ void main() {
       expect(result, isNull);
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
-      await tester.tap(_key('food-date-input-toggle'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextFormField), '09/15/2026');
-      await tester.tap(_key('food-date-confirm'));
-      await tester.pumpAndSettle();
-      expect(result, isNull);
-      expect(find.byType(InputDatePickerFormField), findsOneWidget);
-      await tester.enterText(find.byType(TextFormField), '09/10/2026');
-      await tester.tap(_key('food-date-input-toggle'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<CalendarDatePicker>(find.byType(CalendarDatePicker))
-            .initialDate,
-        DateTime(2026, 9, 10),
+      expect(_key('food-date-input-toggle'), findsNothing);
+      expect(find.byType(InputDatePickerFormField), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byType(CalendarDatePicker), findsOneWidget);
+
+      Finder day(String label) => find.descendant(
+        of: find.byType(CalendarDatePicker),
+        matching: find.text(label),
       );
-      expect(result, isNull);
+      String preview() =>
+          tester.widget<Text>(_key('food-date-preview')).data!;
+      final today = preview();
+
+      // Tomorrow is past lastDate: the cell is there but does not pick.
+      await tester.tap(day('15'));
+      await tester.pumpAndSettle();
+      expect(preview(), today);
+
+      await tester.tap(day('10'));
+      await tester.pumpAndSettle();
+      expect(preview(), isNot(today));
+      expect(result, isNull, reason: 'a pick is a draft until confirmed');
       await tester.tap(_key('food-date-confirm'));
       await tester.pumpAndSettle();
       expect(result, DateTime(2026, 9, 10));
