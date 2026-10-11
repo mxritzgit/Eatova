@@ -1,6 +1,7 @@
 const nutritionHeading = /\b(?:nährwerte|naehrwerte|nutrition(?:al)?(?:\s+(?:values|facts))?|macros?)\b/gi;
 const sectionHeading = /\b(?:zutaten|ingredients|zubereitung|preparation|instructions|method|rezept|recipe|variante?|variation|vegan)\s*(?:\d+\s*)?:|(?:^|\n)[ \t]*(?:zutaten|ingredients|zubereitung|preparation|instructions|method)[ \t]*(?=\r?\n|$)/gi;
-const nutrientStart = /^(?:[-*•][ \t]+)?(?:\d+(?:[.,]\d+)?\s*(?:g\s*)?(?:kcal|calories|kalorien|protein|eiweiß|eiweiss|carbs?|kohlenhydrate|kh|fett|fat|p|c|f)\b|(?:kcal|calories|kalorien|protein|eiweiß|eiweiss|carbs?|kohlenhydrate|kh|fett|fat|p|c|f)\s*[:=]?\s*\d)/i;
+// Numbers include space-grouped thousands ("2 450 kcal", also narrow/no-break spaces).
+const nutrientStart = /^(?:[-*•][ \t]+)?(?:(?:[1-9]\d{0,2}(?:[ \u00a0\u2009\u202f]\d{3})+|\d+)(?:[.,]\d+)?\s*(?:g\s*)?(?:kcal|calories|kalorien|protein|eiweiß|eiweiss|carbs?|kohlenhydrate|kh|fett|fat|p|c|f)\b|(?:kcal|calories|kalorien|protein|eiweiß|eiweiss|carbs?|kohlenhydrate|kh|fett|fat|p|c|f)\s*[:=]?\s*\d)/i;
 
 /** Complete a uniquely located quote inside one bounded source nutrition section. */
 export function completeNutritionEvidence(evidence: string, source: string): string {

@@ -72,10 +72,36 @@ function singleUnqualifiedBlock(evidence: string): string {
       [...evidence.matchAll(nutritionHeading)].length <= 1 ? evidence : '';
 }
 
-function nutritionNumbers(evidence: string): Record<Field, string[]> {
+// Every value a source number can mean. "2.450 kcal" and "1,050 calories"
+// group thousands: kcal and weights are never written with three decimals,
+// grams may be. A number after "2 " or before " 450" may continue a
+// space-grouped one (NFKC turns narrow and no-break spaces into spaces) or
+// stand alone in a flattened caption.
+function readings(field: Field, number: string, before: string, after: string): number[] {
+  const values = [Number(number.replace(',', '.'))];
+  const separator = /^[1-9]\d{0,2}([.,])\d{3}$/.exec(number)?.[1];
+  if (separator) {
+    const whole = Number(number.replace(separator, ''));
+    if (field === 'calories_kcal' || field === 'estimated_g') values[0] = whole;
+    else values.push(whole);
+  }
+  const lead = /^\d{3}(?:[.,]\d{1,2})?$/.test(number)
+    ? /(?:^|[^\p{L}\d.,\-−–—/⁄])([1-9]\d{0,2}(?: \d{3})*) $/u.exec(before)?.[1] : undefined;
+  const tail = /^[1-9]\d{0,2}$/.test(number)
+    ? /^((?: \d{3})+(?:[.,]\d{1,2})?)(?![.,]?\d)/.exec(after)?.[1] : undefined;
+  if (lead || tail) values.push(Number(`${lead ?? ''}${number}${tail ?? ''}`.replaceAll(' ', '').replace(',', '.')));
+  return values;
+}
+
+// The values all source numbers of a field allow; distinct numbers leave none.
+function agreed(numbers: number[][]): number[] {
+  return numbers.length ? numbers.reduce((common, values) => common.filter((value) => values.includes(value))) : [];
+}
+
+function nutritionNumbers(evidence: string): Record<Field, number[][]> {
   evidence = evidence.normalize('NFKC');
-  const result: Record<Field, string[]> = { calories_kcal: [], protein_g: [], carbs_g: [], fat_g: [], estimated_g: [] };
-  const pairs: { field: Field; number: number; label: number; value: string }[] = [];
+  const result: Record<Field, number[][]> = { calories_kcal: [], protein_g: [], carbs_g: [], fat_g: [], estimated_g: [] };
+  const pairs: { field: Field; number: number; label: number; values: number[] }[] = [];
   for (const field of Object.keys(LABELS) as Field[]) {
     const name = LABELS[field];
     const before = new RegExp('(?:^|[^\\p{L}\\d.,\\-−–—/⁄])(\\d+(?:[.,]\\d+)?)\\s*(g\\s*)?(' + name + ')(?=$|[^\\p{L}])', 'giu');
@@ -88,14 +114,16 @@ function nutritionNumbers(evidence: string): Record<Field, string[]> {
       if (/^\s*[:=]/.test(trailing)) continue;
       // "15 g protein powder" and "7 g fat free yogurt" are ingredients, not macros.
       if (/^\s*(?:powder|pulver|free|reduced)\b/i.test(trailing)) continue;
-      pairs.push({ field, number: match.index! + match[0].indexOf(match[1]),
-        label: match.index! + match[0].length - match[3].length, value: match[1] });
+      const number = match.index! + match[0].indexOf(match[1]);
+      pairs.push({ field, number, label: match.index! + match[0].length - match[3].length,
+        values: readings(field, match[1], evidence.slice(0, number), '') });
     }
     for (const match of evidence.matchAll(after)) {
-      if (match[1].length === 1 && !/^\s*g(?!\p{L})/iu.test(evidence.slice(match.index! + match[0].length))) continue;
-      if (/^(?:[eE][+-]?\d|[.,/⁄]\d|\s*(?:g\s*)?(?:[-−–—]|to\b|bis\b)\s*\d)/i.test(evidence.slice(match.index! + match[0].length))) continue;
+      const trailing = evidence.slice(match.index! + match[0].length);
+      if (match[1].length === 1 && !/^\s*g(?!\p{L})/iu.test(trailing)) continue;
+      if (/^(?:[eE][+-]?\d|[.,/⁄]\d|\s*(?:g\s*)?(?:[-−–—]|to\b|bis\b)\s*\d)/i.test(trailing)) continue;
       pairs.push({ field, number: match.index! + match[0].length - match[2].length,
-        label: match.index! + match[0].indexOf(match[1]), value: match[2] });
+        label: match.index! + match[0].indexOf(match[1]), values: readings(field, match[2], '', trailing) });
     }
   }
   // Bind pairs in reading order. A number already labelled as protein cannot
@@ -109,18 +137,19 @@ function nutritionNumbers(evidence: string): Record<Field, string[]> {
     if (owner) continue;
     usedLabels.add(pair.label);
     usedNumbers.set(pair.number, pair.field);
-    result[pair.field].push(pair.value);
+    result[pair.field].push(pair.values);
   }
   return result;
 }
 
-function sourcedValue(value: unknown, numbers: string[], field: Field, recoverMissing: boolean): number | null {
-  if (recoverMissing && (value === null || value === undefined)) {
-    const distinct = new Set(numbers.map((number) => Number(number.replace(',', '.'))));
-    if (distinct.size === 1) value = [...distinct][0];
-  }
-  return evidencedNumber(value, numbers, field === 'estimated_g' ? 1 : 0,
-    field === 'calories_kcal' || field === 'estimated_g' ? 10_000 : 1000);
+function sourcedValue(value: unknown, numbers: number[][], field: Field, recoverMissing: boolean): number | null {
+  const common = agreed(numbers);
+  // Only a single possible reading is recovered; the model decides between two.
+  if (recoverMissing && (value === null || value === undefined) && common.length === 1) value = common[0];
+  const min = field === 'estimated_g' ? 1 : 0;
+  const max = field === 'calories_kcal' || field === 'estimated_g' ? 10_000 : 1000;
+  return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max &&
+    common.includes(value) ? value : null;
 }
 
 export function sourcedNutrition(row: Record<string, unknown>, evidence: string, servings: number | null, allowUnspecified: boolean, servingsEvidence = ''): Nutrition {
@@ -155,8 +184,7 @@ export function sourcedNutrition(row: Record<string, unknown>, evidence: string,
   const numbers = nutritionNumbers(block);
   const conflicts: NutritionField[] = [];
   for (const field of Object.keys(LABELS) as Field[]) {
-    if (allowUnspecified && field !== 'estimated_g' &&
-        new Set(numbers[field].map((number) => Number(number.replace(',', '.')))).size > 1) {
+    if (allowUnspecified && field !== 'estimated_g' && numbers[field].length && !agreed(numbers[field]).length) {
       conflicts.push(field);
     }
     const value = sourcedValue(row[field], numbers[field], field, allowUnspecified);

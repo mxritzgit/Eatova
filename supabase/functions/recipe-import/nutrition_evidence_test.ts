@@ -147,6 +147,52 @@ Deno.test('a total-fat label does not turn an unqualified table into recipe tota
   check(result.nutrition_basis === 'unspecified', 'Nutrient names are not serving bases');
 });
 
+Deno.test('grouped kcal totals keep their thousands and are never read as decimals', () => {
+  const total = (evidence: string, calories: number | null, v2 = true) => sourcedNutrition({ nutrition_basis: 'per_recipe',
+    calories_kcal: calories, protein_g: 120, carbs_g: 200, fat_g: 80 }, evidence, 4, v2, 'Für 4 Portionen').calories_kcal;
+  const dot = 'Nährwerte gesamt: 2.450 kcal, 120 g Protein, 200 g KH, 80 g Fett';
+  check(total(dot, 2450) === 612.5, 'The model reading of 2.450 kcal is source-proven');
+  check(total(dot, null) === 612.5, 'Recovery reads 2.450 kcal as 2450, never 0.6125 per serving');
+  check(total(dot, 2.45) === null && total(dot, 2.45, false) === null, 'A decimal kcal reading is not proven');
+  const english = (calories: number | null) => sourcedNutrition({ nutrition_basis: 'per_serving', calories_kcal: calories,
+    protein_g: 60, carbs_g: 100, fat_g: 40 }, 'Per serving: 1,050 calories, 60g protein, 100g carbs, 40g fat', 2, true).calories_kcal;
+  check(english(1050) === 1050 && english(null) === 1050, 'English thousands separator');
+  const unknown = { nutrition_basis: 'unspecified', calories_kcal: null };
+  const twice = sourcedNutrition(unknown, 'Nährwerte: 2.450 kcal (2450 kcal)', null, true);
+  check(twice.calories_kcal === 2450 && !twice.nutrition_conflicts, 'One total in two spellings is no conflict');
+  const conflict = sourcedNutrition(unknown, 'Nährwerte: 2.450 kcal, 2.540 kcal', null, true);
+  check(conflict.calories_kcal === null && conflict.nutrition_conflicts?.includes('calories_kcal'), 'Distinct totals conflict');
+  // A space can group thousands or separate two numbers: the model decides.
+  for (const space of [' ', '\u202f', '\u00a0']) {
+    const grouped = `Nährwerte gesamt: 2${space}450 kcal, 120 g Protein, 200 g KH, 80 g Fett`;
+    check(total(grouped, 2450) === 612.5, `2${space}450 kcal with the model's 2450`);
+    check(total(grouped, null) === null, `2${space}450 kcal is not recovered as 450 kcal (112.5 per serving)`);
+  }
+  const labelFirst = (calories: number | null) => sourcedNutrition({ nutrition_basis: 'per_serving', calories_kcal: calories },
+    'Pro Portion: Kalorien: 2 450, Protein: 30 g', null, true).calories_kcal;
+  check(labelFirst(2450) === 2450 && labelFirst(null) === null, 'Kalorien: 2 450 is never 2 kcal');
+  // Grams keep their decimals; a flattened caption keeps adjacent numbers apart.
+  const grams = sourcedNutrition({ nutrition_basis: 'unspecified', fat_g: 1.125, carbs_g: 12.5 },
+    'Nährwerte: 1,125 g Fett, 12,5 g KH', null, true);
+  check(grams.fat_g === 1.125 && grams.carbs_g === 12.5, 'Decimal grams stay decimal');
+  const flat = sourcedNutrition({ nutrition_basis: 'unspecified', calories_kcal: 520, carbs_g: 100 },
+    'Kalorien 520 100g KH', null, true);
+  check(flat.calories_kcal === 520 && flat.carbs_g === 100, 'Adjacent kcal and carbs stay separate');
+});
+
+Deno.test('a space-grouped kcal row after a blank line stays in its nutrition section', async () => {
+  const nutrition = 'Nährwerte gesamt:\n120 g Protein, 200 g KH\n\n2 450 kcal\n80 g Fett';
+  const text = `Für 4 Portionen\n800 g Hackfleisch\nAlles anbraten.\n\n${nutrition}`;
+  const result = await parseExtraction(JSON.stringify({ status: 'ready', candidates: [{
+    title: 'Hack', ingredient_quotes: ['800 g Hackfleisch'], preparation_quotes: ['Alles anbraten.'],
+    servings: 4, servings_quote: 'Für 4 Portionen', nutrition_quote: nutrition, nutrition_basis: 'per_recipe',
+    calories_kcal: 2450, protein_g: 120, carbs_g: 200, fat_g: 80,
+  }] }), { source: { url: null }, text, incomplete: false, truncated: false }, 2);
+  const recipe = result?.candidates[0];
+  check(recipe?.calories_kcal === 612.5 && recipe.protein_g === 30 && recipe.fat_g === 20,
+    `Complete section per serving: ${JSON.stringify(recipe)}`);
+});
+
 Deno.test('fractional references cannot become a whole dish through typography normalization', () => {
   for (const fraction of ['½', '¼', '1/2', '1⁄2']) {
     const result = sourcedNutrition({ nutrition_basis: 'per_recipe', ...values },
