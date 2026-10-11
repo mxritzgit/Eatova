@@ -18,6 +18,7 @@ import 'package:eatova/src/services/trend_service.dart';
 
 import '../support/design_capture.dart';
 import '../support/harness.dart';
+import '../support/text_layout.dart';
 
 final DateTime _now = DateTime(2026, 9, 28, 19);
 
@@ -63,6 +64,50 @@ void main() {
       await scrollDesignTabBy(tester, 600);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'trends-01');
+    });
+  });
+
+  // At 320 px and 200 % text the equal thirds split "Tage", "Kalorien" and
+  // "2.214" mid-word and cut the macro values to "12…".
+  testWidgets('trends: 320 px and 2x text keep words and values whole', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      pinDesignViewport(tester);
+      tester.view.physicalSize =
+          Size(320, kDesignViewport.height) * kDesignPixelRatio;
+      await tester.pumpWidget(
+        designCaptureBoundary(
+          localizedApp(
+            TrendsScreen(kcalGoal: 2200, loadTotals: () async => _month()),
+            locale: const Locale('de'),
+            scaffold: false,
+            safeArea: false,
+            textScale: 2,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final page = find.byKey(const ValueKey('screen-trends'));
+      for (final text in ['7 Tage', '30 Tage', '90 Tage', 'Kalorien pro']) {
+        expectWholeWordsIn(tester, page, text);
+      }
+      await captureDesignShot(tester, 'trends-320-x2');
+      await scrollDesignTabBy(tester, 900);
+      for (final text in [
+        '2.214 kcal',
+        'Ø KALORIEN',
+        'pro getracktem Tag',
+        'ZIEL GETROFFEN',
+      ]) {
+        expectWholeWordsIn(tester, page, text);
+      }
+      final macros = find.byKey(const ValueKey('trends-avg-macros'));
+      for (final text in ['Protein', 'Kohlenhydrate', 'Fett', ' g']) {
+        expectWholeWordsIn(tester, macros, text);
+      }
+      await captureDesignShot(tester, 'trends-320-x2-01');
     });
   });
 
