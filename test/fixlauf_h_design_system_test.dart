@@ -97,14 +97,15 @@ void main() {
           kButtonMinHeight);
     });
 
-    // The secondary action: a tonal `surf2` pill with an `ink` label, 700.
+    // The secondary action: a tonal `softFill` pill with an `ink` label, 700
+    // (`softFill` holds on the light page ground, where `surf2` vanished).
     renderMatrix('OutlinedButton ist die tonale Sekundaer-Pille, 48 px',
         (tester, c) async {
       final t = c.t;
       final style = buildEatovaTheme(c.brightness).outlinedButtonTheme.style!;
       final fill = style.backgroundColor!.resolve(<WidgetState>{})!;
       final fg = style.foregroundColor!.resolve(<WidgetState>{})!;
-      expect(fill, t.surf2);
+      expect(fill, t.softFill);
       expect(style.side!.resolve(<WidgetState>{}), BorderSide.none);
       expect(fg, t.ink);
       expect(_kontrast(fg, fill), greaterThanOrEqualTo(4.5));

@@ -209,8 +209,8 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     // semantics for all three (dark redesign 2026-09-28): text = quiet `ink`
     // (a screen sets `accent` only for an explicitly affirmative action),
     // filled = the primary action (accent pill, like [PrimaryActionButton]),
-    // outlined = the SECONDARY action, a tonal `surf2` pill with an `ink`
-    // label.
+    // outlined = the SECONDARY action, a tonal `softFill` pill with an `ink`
+    // label (`surf2` vanished on the light page ground, 1.05:1).
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: t.ink,
@@ -239,9 +239,9 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: t.surf2,
+        backgroundColor: t.softFill,
         foregroundColor: t.ink,
-        disabledBackgroundColor: t.surf2.withValues(alpha: 0.5),
+        disabledBackgroundColor: t.softFill.withValues(alpha: 0.5),
         disabledForegroundColor: t.ink2.withValues(alpha: 0.5),
         side: BorderSide.none,
         textStyle: AppType.ui(15, weight: FontWeight.w700),
