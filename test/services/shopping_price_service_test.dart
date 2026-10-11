@@ -130,6 +130,29 @@ Future<Map<String, LinePrice>> _run(
   List<PriceRequestLine> lines = _list,
 ]) => _at(() => service.estimate(lines, region: PriceRegion.germany).result);
 
+/// A page of [rows] that says it is complete unless [pages] says otherwise.
+OpenPricesPage _pageOf(List<OpenPriceRow> rows, {int pages = 1}) =>
+    OpenPricesPage(items: rows, page: 1, pages: pages, total: rows.length);
+
+/// A loose-goods price of [tag] in German shop [shop], in the window.
+OpenPriceRow _loose(int shop, String tag, String per, double price) =>
+    OpenPriceRow(
+      id: 9000 + shop,
+      type: OpenPriceType.category,
+      price: price,
+      pricePer: per,
+      currency: 'EUR',
+      date: '2026-10-01',
+      locationId: shop,
+      locationType: 'OSM',
+      countryCode: 'DE',
+      categoryTag: tag,
+    );
+
+/// An unnamed weighed product: only its barcode can price it.
+PriceRequestLine _unnamed(String code, {String label = 'Produkt X'}) =>
+    PriceRequestLine(id: code, label: label, grams: 100, productCode: code);
+
 OpenPricesShoppingPriceService _service(
   _FakeSource source, {
   int maxRequestsPerRun = 16,
@@ -255,6 +278,89 @@ void main() {
     // The next run asks again instead of keeping a partial answer all day.
     await _run(service);
     expect(source.queries.where(overlap), hasLength(2));
+  });
+
+  test('a barcode answer cut off after its one page is shown, not '
+      'cached', () async {
+    bool barcodes(Map<String, String> q) => q.containsKey('product_code__in');
+    final source = _FakeSource(
+      // Nutella's price is on page 1; X's may be on page 2.
+      prices: (query) async =>
+          barcodes(query) ? _pageOf(_barcodes.items, pages: 2) : _answer(query),
+      product: (_) async => null,
+    );
+    final service = _service(source);
+    final lines = [_list.first, _unnamed('4000000000099')];
+    final first = await _run(service, lines);
+    expect(first['nutella'], isA<LinePriceEstimate>());
+    expect(first['4000000000099'], isA<LinePriceNoData>());
+    expect(source.queries.where(barcodes), hasLength(1));
+    // "No row on page 1" is no proof of no price: the next run asks again
+    // instead of keeping that answer all day.
+    await _run(service, lines);
+    expect(source.queries.where(barcodes), hasLength(2));
+  });
+
+  test('barcode categories are kept like prices: until midnight and under '
+      'twelve hours', () async {
+    final source = _FakeSource(product: (_) async => null);
+    final service = _service(source);
+    final lines = [_unnamed('4000000000099')];
+
+    _now = DateTime(2026, 10, 11, 23, 50);
+    await _run(service, lines);
+    expect(source.products, ['4000000000099']);
+    _now = DateTime(2026, 10, 11, 23, 59);
+    await _run(service, lines);
+    expect(source.products, hasLength(1), reason: 'the same day');
+
+    _now = DateTime(2026, 10, 12, 0, 10);
+    await _run(service, lines);
+    expect(source.products, hasLength(2), reason: 'after midnight');
+
+    _now = DateTime(2026, 10, 12, 12, 9);
+    await _run(service, lines);
+    expect(source.products, hasLength(2), reason: 'under twelve hours');
+    _now = DateTime(2026, 10, 12, 12, 10);
+    await _run(service, lines);
+    expect(source.products, hasLength(3), reason: 'twelve hours on');
+  });
+
+  test('a barcode\'s categories price a line only when the product passes '
+      'the entry\'s tags and the line names no excluded word', () async {
+    const fresh = ['en:fresh-vegetables', 'en:garlic'];
+    final pickle = _tags.first.items
+        .firstWhere((row) => row.productCode == '4306188409588')
+        .categoriesTags;
+    final categories = {
+      '4000000000001': fresh,
+      // Tagged as fresh garlic, named as granulated.
+      '4000000000002': fresh,
+      '4000000000003': pickle,
+    };
+    final source = _FakeSource(
+      // Enough loose garlic and cucumber prices to price either entry.
+      prices: (query) async => _pageOf([
+        if (query['type'] == 'CATEGORY')
+          for (var shop = 1; shop <= 3; shop++) ...[
+            _loose(shop, 'en:garlic', 'KILOGRAM', 4 + shop / 10),
+            _loose(10 + shop, 'en:cucumbers', 'UNIT', 0.7 + shop / 10),
+          ],
+      ]),
+      product: (code) async => categories[code],
+    );
+    final prices = await _run(_service(source), [
+      _unnamed('4000000000001', label: 'Bio Knolle'),
+      _unnamed('4000000000002', label: 'Ostmann Knoblauchgranulat'),
+      _unnamed('4000000000003', label: 'Kühne Gurkensticks'),
+    ]);
+    expect(prices['4000000000001'], isA<LinePriceEstimate>());
+    expect(prices['4000000000002'], isA<LinePriceNoData>());
+    expect(prices['4000000000003'], isA<LinePriceNoData>());
+    expect(
+      source.queries.map((q) => q['product__categories_tags__overlap']),
+      isNot(contains(contains('en:cucumbers'))),
+    );
   });
 
   test('a run past its budget sends nothing more', () async {

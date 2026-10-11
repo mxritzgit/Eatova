@@ -80,12 +80,17 @@ class ShoppingPriceCache {
 
   int get length => _entries.length;
 
+  /// Whether an answer fetched [at] still holds [now]: the same local day
+  /// and under [ttl].
+  bool holds(DateTime at, DateTime now) =>
+      localDayKey(at) == localDayKey(now) &&
+      !now.isBefore(at) &&
+      now.difference(at) < ttl;
+
   PriceCacheHit? read(String key, DateTime now) {
     final entry = _entries[key];
     if (entry == null) return null;
-    if (localDayKey(entry.at) != localDayKey(now) ||
-        now.isBefore(entry.at) ||
-        now.difference(entry.at) >= ttl) {
+    if (!holds(entry.at, now)) {
       _entries.remove(key);
       return null;
     }
@@ -131,8 +136,10 @@ class OpenPricesShoppingPriceService implements ShoppingPriceService {
 
   final Queue<DateTime> _recentRequests = Queue();
 
-  /// Barcode -> categories (null: unknown product), for the session.
-  final LinkedHashMap<String, List<String>?> _categories = LinkedHashMap();
+  /// Barcode -> categories (null: unknown product), kept like an aggregate:
+  /// on the local day of the lookup and under the cache's ttl.
+  final LinkedHashMap<String, ({DateTime at, List<String>? tags})> _categories =
+      LinkedHashMap();
   final Set<_PriceRun> _runs = {};
   bool _schemaReported = false;
   bool _disposed = false;
@@ -171,13 +178,27 @@ class OpenPricesShoppingPriceService implements ShoppingPriceService {
     return _recentRequests.length < sessionLimit;
   }
 
-  void _rememberCategories(String code, List<String>? tags) {
+  void _rememberCategories(String code, List<String>? tags, DateTime now) {
     _categories
       ..remove(code)
-      ..[code] = tags;
+      ..[code] = (at: now, tags: tags);
     while (_categories.length > cache.maxEntries) {
       _categories.remove(_categories.keys.first);
     }
+  }
+
+  /// The categories looked up for [code], unless they expired.
+  ({DateTime at, List<String>? tags})? _categoriesOf(
+    String code,
+    DateTime now,
+  ) {
+    final entry = _categories[code];
+    if (entry == null) return null;
+    if (!cache.holds(entry.at, now)) {
+      _categories.remove(code);
+      return null;
+    }
+    return entry;
   }
 
   /// A changed answer shape is reported once per session, without content.
@@ -261,6 +282,9 @@ class _PriceRun {
 
   final Map<String, PriceAggregate?> _codes = {};
   final Set<String> _codesFailed = {};
+
+  /// Barcode categories this run read or looked up; stable within the run.
+  final Map<String, List<String>?> _categories = {};
   final Set<String> _categoriesFailed = {};
 
   /// Barcodes beyond the lookup cap: priced as unknown this run.
@@ -374,10 +398,13 @@ class _PriceRun {
       if (_categoriesFailed.contains(code)) {
         return const _Done(LinePriceUnavailable());
       }
-      if (!service._categories.containsKey(code)) return _NeedCategories(code);
-      final tags = service._categories[code];
+      if (!_knowsCategories(code)) return _NeedCategories(code);
+      final tags = _categories[code];
       entry = tags == null ? null : priceEntryForCategories(tags);
-      if (entry == null) return const _Done(LinePriceNoData());
+      // The name still rules out what the tags miss ("Knoblauchgranulat").
+      if (entry == null || priceLabelExcluded(entry, line.label)) {
+        return const _Done(LinePriceNoData());
+      }
     }
     if (!linePriceable(line, entry, impliedUnit: match.impliedUnit)) {
       return const _Done(LinePriceNoData());
@@ -401,6 +428,14 @@ class _PriceRun {
     final hit = service.cache.read(_codeKey(code), clock.now());
     if (hit == null) return false;
     _codes[code] = hit.aggregate;
+    return true;
+  }
+
+  bool _knowsCategories(String code) {
+    if (_categories.containsKey(code)) return true;
+    final hit = service._categoriesOf(code, clock.now());
+    if (hit == null) return false;
+    _categories[code] = hit.tags;
     return true;
   }
 
@@ -521,6 +556,10 @@ class _PriceRun {
         final page = await _page(
           OpenPricesQuery.barcodes(region, since, chunk),
         );
+        // One page only. When there are more, a code without a row on this
+        // one may still have prices: the answer prices this run, uncached.
+        final truncated = page.pages > 1;
+        if (truncated) _partial = true;
         for (final code in chunk) {
           final aggregate = exactProductAggregate(
             code,
@@ -529,7 +568,9 @@ class _PriceRun {
             today: today,
           );
           _codes[code] = aggregate;
-          service.cache.write(_codeKey(code), aggregate, clock.now());
+          if (!truncated) {
+            service.cache.write(_codeKey(code), aggregate, clock.now());
+          }
         }
       } on ShoppingPriceCancelled {
         rethrow;
@@ -566,7 +607,8 @@ class _PriceRun {
   Future<void> _fetchCategories(String code) async {
     try {
       final tags = await _request((c) => c.productCategories(code));
-      service._rememberCategories(code, tags);
+      _categories[code] = tags;
+      service._rememberCategories(code, tags, clock.now());
     } on ShoppingPriceCancelled {
       rethrow;
     } catch (error) {

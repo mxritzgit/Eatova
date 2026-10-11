@@ -1,7 +1,8 @@
 // The receipt's price view state (docs/SHOPPING-PRICES.md): one run per
 // change of lines, no synchronous notify from build, cancellation on pause
 // and dispose, late results ignored, a cooldown for failed lines, a fresh
-// start after midnight, and no endless loading when the service gives up.
+// start after midnight (also for a run in flight across it), and no endless
+// loading when the service gives up.
 
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -170,6 +171,41 @@ void main() {
       controller.show(const [_milk], PriceRegion.germany);
       await _settle();
       expect(service.runs, hasLength(2));
+    }),
+  );
+
+  test(
+    'a run that settles after midnight asks again for the new day by '
+    'itself',
+    () => _at(() async {
+      _now = DateTime(2026, 10, 11, 23, 59, 50);
+      controller.show(const [_milk], PriceRegion.germany);
+      await _settle();
+      _now = DateTime(2026, 10, 12, 0, 0, 5);
+      service.lastRun.complete();
+      await _settle();
+      // Nothing else calls show while the receipt stays open.
+      expect(service.runs, hasLength(2));
+      expect(service.lastRun.lines, const [_milk]);
+      expect(controller.priceFor('milk'), isA<LinePriceLoading>());
+
+      service.lastRun.complete();
+      await _settle();
+      expect(controller.priceFor('milk'), isA<LinePriceEstimate>());
+    }),
+  );
+
+  test(
+    'a run the service gives up after midnight asks again too',
+    () => _at(() async {
+      _now = DateTime(2026, 10, 11, 23, 59, 50);
+      controller.show(const [_milk], PriceRegion.germany);
+      await _settle();
+      _now = DateTime(2026, 10, 12, 0, 0, 5);
+      service.lastRun.handle.cancel();
+      await _settle();
+      expect(service.runs, hasLength(2));
+      expect(controller.priceFor('milk'), isA<LinePriceLoading>());
     }),
   );
 

@@ -96,10 +96,17 @@ One run per change of the shown lines, on the device:
 2. **In parallel:** the exact barcodes of weighed Open Food Facts ingredients
    (`type=PRODUCT&product_code__in=…`, at most 40 per request, one page) and,
    when a missing entry uses loose-goods prices, the category snapshot
-   (`type=CATEGORY`, at most 2 pages).
+   (`type=CATEGORY`, at most 2 pages). When the barcode answer has more
+   pages, a code without a row on the first may still have prices further
+   on: that answer prices the run, but is never cached.
 3. **Product records** (`/products/code/{code}`) for barcodes without a price
    of their own and without a name match: at most 6 per run, heaviest first;
-   their `categories_tags` choose an entry, walking from the most specific tag.
+   their `categories_tags` choose an entry, walking from the most specific
+   tag of the dictionary. The product must pass that entry's required and
+   excluded tags like a price row, and the line's name its excluded words;
+   otherwise the line has no price and no broader tag is tried (a pickle
+   tagged `en:cucumbers` is no cucumber, "Knoblauchgranulat" no fresh
+   garlic).
 4. **One overlap request** for every missing entry
    (`type=PRODUCT&product__categories_tags__overlap=…`, at most 30 tags per
    chunk), pages one after another, at most 8 pages per run. A truncated
@@ -119,7 +126,9 @@ succeeded; otherwise its lines show `k. A.` and are asked again on the next
 visit, at most once a minute. Leaving the shopping tab, changing the week or
 closing the planner cancels the run and closes its socket. A run the service
 refuses (a planner outliving its session) shows its lines as unavailable
-instead of loading forever.
+instead of loading forever. A run that settles after midnight priced
+yesterday: its results are dropped and the shown lines are asked again for
+the new day, without waiting for the list to change.
 
 Requests send the User-Agent `Eatova/1.0 (Open Prices shopping estimate;
 mxritzgit/eatova)`, no credentials and no cookies.
@@ -186,12 +195,16 @@ and English keys, blocked false friends and the matching rules:
 5. The longest key wins, a tie goes to the rightmost word. A blocked winner
    ("Kokosmilch", "Pflanzenmilch", "Tomatenmark", "Paprikapulver",
    "Süßkartoffel") means no price.
-6. An entry's excluded words anywhere in the label, also after the comma or
-   in parentheses, mean no price: "Tomaten, passiert", "Tomaten (Dose)",
-   "Knoblauch, granuliert".
+6. An entry's excluded words anywhere in the label, also after the comma,
+   in parentheses or as the end of a compound, mean no price: "Tomaten,
+   passiert", "Tomaten (Dose)", "Tomaten, sonnengetrocknet", "Knoblauch,
+   granuliert", "Gurken (Glas)".
 
 Garlic counts fresh bulbs only (`en:fresh-vegetables`, no pickles or cans):
-granulated garlic and garlic in oil share its tags. A banana weighs 170 g
+granulated garlic and garlic in oil share its tags. Cucumbers count fresh
+only: pickles share `en:cucumbers`, so "Essiggurken", "Delikatessgurken" and
+"Gherkins" are blocked and "eingelegt", "sauer" or "Glas" in the label mean
+no price. A banana weighs 170 g
 unpeeled, as it is sold by the kilogram. "Skyr" reads as yogurt, whose rows
 include it.
 
@@ -214,9 +227,10 @@ Piece, pack and spoon weights are starting values for review.
 ## Cache and privacy
 
 The cache lives in memory in the signed-in home page (keyed by account and
-session): aggregates per entry and per barcode for the local day and under
-12 hours, "no data" included, failures never; barcode categories for the
-session; at most 500 entries. Nothing is written to disk, so sign-out or an
+session): aggregates per entry and per barcode, and the categories of each
+barcode, for the local day and under 12 hours, "no data" included,
+failures and truncated answers never; at most 500 entries of each.
+Nothing is written to disk, so sign-out or an
 account switch drops it. The requests carry category identifiers from the
 built-in dictionary, barcodes of products in the list, the fixed Germany-wide
 circle and the window, and the device's IP address; never the user's wording,
@@ -229,12 +243,12 @@ shape is reported once per session without content. See
 
 | Suite | Covers |
 | --- | --- |
-| `test/shopping_prices/price_label_test.dart` | Catalog lines, English, umlauts, compounds and cuts, false friends, modifier nouns, excluded words, trailing phrases, seasoning, tie rules, dictionary integrity |
+| `test/shopping_prices/price_label_test.dart` | Catalog lines, English, umlauts, compounds and cuts, false friends, modifier nouns, excluded words (also as a compound's end), pickled cucumbers, trailing phrases, seasoning, tie rules, categories against required and excluded tags, dictionary integrity |
 | `test/shopping_prices/price_amount_test.dart` | Every display unit (read from `shopping_list.dart`) through the parser; fractions, ranges, multiples, ambiguous numbers |
 | `test/shopping_prices/price_aggregation_test.dart` | Window cutoff (day 42 in, day 43 and future out), client filters, fresh garlic, discounts, normalisation, sample rule, one price per shop, 3x band, exact barcode, line cost, totals, region rule |
 | `test/services/open_prices_wire_test.dart` | Loopback server with recorded answers: end to end, spec parameter allowlist and values, headers, paging, retry, timeout, 404, broken envelope, byte limit |
-| `test/services/shopping_price_service_test.dart` | Concurrency, lookup cap, budgets, nothing sent past the run budget, cache and expiry, truncated and failed results not cached, cancel, dispose, session limit, diagnostics |
-| `test/services/shopping_price_controller_test.dart` | One run per change, no synchronous notify, pause, late results, retry cooldown, midnight, a refused run |
+| `test/services/shopping_price_service_test.dart` | Concurrency, lookup cap, budgets, nothing sent past the run budget, cache and expiry (barcode categories included), truncated tag and barcode answers and failed results not cached, category fallback against the entry's tags and excluded words, cancel, dispose, session limit, diagnostics |
+| `test/services/shopping_price_controller_test.dart` | One run per change, no synchronous notify, pause, late results, retry cooldown, midnight (also for a run in flight across it), a refused run |
 | `test/meal_plan/shopping_prices_receipt_test.dart` | Receipt states, sum and note, no layout jump at 390 px and at 320 px with 2x text, stamp clear of the sum, seasoning only, checks, English, region, cancellation, link, semantics |
 | `test/design/meal_plan_capture_test.dart` | Receipt shots with prices: loading (rows and totals), loaded, ticks, every line priced, done with stamp, failed, and 320 px at 2x text (rows and totals) |
 

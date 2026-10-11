@@ -12,7 +12,7 @@ import 'fitness_recipe.dart' show foldRecipeSearchText;
 import 'shopping_price.dart';
 
 /// Bumped with every change of entries or tags; part of the cache key.
-const int kPriceDictionaryVersion = 2;
+const int kPriceDictionaryVersion = 3;
 
 /// One priceable ingredient: which Open Prices rows describe it and how a
 /// recipe amount converts into its price basis.
@@ -42,9 +42,10 @@ class PriceEntry {
   /// Tags a product row must carry all of, and none of.
   final List<String> requireTags, excludeTags;
 
-  /// Folded words anywhere in a label, also after a comma or in
-  /// parentheses, that name a product this entry does not price
-  /// ("Tomaten, passiert", "Knoblauch, granuliert").
+  /// Folded words anywhere in a label, also after a comma, in parentheses
+  /// or as the end of a compound, that name a product this entry does not
+  /// price ("Tomaten, passiert", "Knoblauchgranulat"); see
+  /// [priceLabelExcluded].
   final List<String> excludeWords;
   final PriceBasis basis;
 
@@ -64,6 +65,13 @@ class PriceEntry {
 
   /// Category-price tags; the product tags unless set.
   List<String> get categoryTags => _categoryTags ?? productTags;
+
+  /// Whether a product with [categoriesTags] is this entry: one of its
+  /// product tags, all required tags and no excluded one.
+  bool matchesProduct(List<String> categoriesTags) =>
+      productTags.any(categoriesTags.contains) &&
+      requireTags.every(categoriesTags.contains) &&
+      !excludeTags.any(categoriesTags.contains);
 }
 
 /// Every entry by id.
@@ -192,6 +200,10 @@ const Map<String, PriceEntry> kPriceEntries = {
     "cucumber",
     productTags: ["en:cucumbers"],
     excludeTags: ["en:pickles", "en:pickled-cucumbers", "en:gherkins"],
+    excludeWords: [
+      "eingelegt", "eingelegte", "eingelegten", "sauer", "saure", "sauren", //
+      "glas", "pickled", "gherkin", "gherkins",
+    ],
     basis: PriceBasis.piece,
     categoryPrices: true,
     units: {PriceUnit.piece: 400},
@@ -476,8 +488,12 @@ const Map<String, String?> kPriceKeys = {
   "salzgurken": null,
   "senfgurke": null,
   "senfgurken": null,
+  "delikatessgurke": null,
+  "delikatessgurken": null,
   "cornichons": null,
   "pickles": null,
+  "gherkin": null,
+  "gherkins": null,
   "sojajoghurt": null,
   "kokosjoghurt": null,
   "suesskartoffel": null,
@@ -737,15 +753,27 @@ PriceMatch matchPriceEntry(String label, {PriceQuantity? quantity}) {
   final id = kPriceKeys[winner.key];
   if (id == null) return const PriceMatch(blocked: true);
   final entry = kPriceEntries[id]!;
-  if (entry.excludeWords.isNotEmpty &&
-      _folded(label).split(_nonLetters).any(entry.excludeWords.contains)) {
-    return const PriceMatch(blocked: true);
-  }
+  if (priceLabelExcluded(entry, label)) return const PriceMatch(blocked: true);
   if (entry.spiceWhenSpooned &&
       (quantity is SpoonQuantity || quantity is PinchQuantity)) {
     return const PriceMatch(skipped: true);
   }
   return PriceMatch(entry: entry, impliedUnit: winner.impliedUnit);
+}
+
+/// Whether [label] names a product [entry] does not price: one of its
+/// excluded words anywhere in the label, as a word of its own or as the end
+/// of a compound ("Knoblauchgranulat", "sonnengetrocknet").
+bool priceLabelExcluded(PriceEntry entry, String label) {
+  if (entry.excludeWords.isEmpty) return false;
+  for (final token in _folded(label).split(_nonLetters)) {
+    for (final word in entry.excludeWords) {
+      if (token == word || (word.length >= 4 && token.endsWith(word))) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 class _Candidate {
@@ -834,11 +862,15 @@ PriceUnit? _unitOf(String text) {
 
 /// The entry for an Open Food Facts product's categories, walking from the
 /// most specific tag (the end of the list); only tags of the dictionary
-/// count, never a broad one such as `en:dairies`.
+/// count, never a broad one such as `en:dairies`. The product must pass the
+/// entry's required and excluded tags like a price row, or it has none: a
+/// pickle tagged `en:cucumbers` is no cucumber, and no broader tag is tried.
 PriceEntry? priceEntryForCategories(List<String> categoriesTags) {
   for (final tag in categoriesTags.reversed) {
     final id = _entryByTag[tag];
-    if (id != null) return kPriceEntries[id];
+    if (id == null) continue;
+    final entry = kPriceEntries[id]!;
+    return entry.matchesProduct(categoriesTags) ? entry : null;
   }
   return null;
 }

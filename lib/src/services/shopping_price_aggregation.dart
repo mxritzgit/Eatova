@@ -69,7 +69,7 @@ List<PriceObservation> priceObservations(
     final String key;
     switch (row.type) {
       case OpenPriceType.product:
-        if (!_productMatches(entry, row.categoriesTags)) continue;
+        if (!entry.matchesProduct(row.categoriesTags)) continue;
         value = _productValue(entry, row, price);
         key = 'code:${row.productCode ?? 'row-${row.id}'}';
       case OpenPriceType.category:
@@ -98,11 +98,6 @@ List<PriceObservation> priceObservations(
   }
   return observations;
 }
-
-bool _productMatches(PriceEntry entry, List<String> tags) =>
-    entry.productTags.any(tags.contains) &&
-    entry.requireTags.every(tags.contains) &&
-    !entry.excludeTags.any(tags.contains);
 
 double? _productValue(PriceEntry entry, OpenPriceRow row, double price) {
   if (entry.basis == PriceBasis.piece) {

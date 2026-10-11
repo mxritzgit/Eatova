@@ -25,6 +25,9 @@ class ShoppingPriceController extends ChangeNotifier {
   /// Outcome per line id, with the local day it is valid for.
   final Map<String, ({String day, LinePrice price})> _results = {};
   String? _fingerprint;
+
+  /// What the last [show] asked for, to ask again after midnight.
+  ({List<PriceRequestLine> lines, PriceRegion region})? _shown;
   ShoppingPriceRun? _run;
   int _generation = 0;
   DateTime? _lastFailure;
@@ -56,6 +59,7 @@ class ShoppingPriceController extends ChangeNotifier {
     ].join('\n');
     if (fingerprint == _fingerprint) return;
     _fingerprint = fingerprint;
+    _shown = (lines: lines, region: region);
     _cancelRun();
     _results.removeWhere((_, r) => r.day != day);
     final generation = ++_generation;
@@ -66,6 +70,7 @@ class ShoppingPriceController extends ChangeNotifier {
     if (pending.isEmpty) return;
     scheduleMicrotask(() {
       if (_disposed || generation != _generation) return;
+      if (_askAgainAfterMidnight(day)) return;
       final run = service.estimate(pending, region: region);
       _run = run;
       _apply(run.initial, day);
@@ -73,11 +78,13 @@ class ShoppingPriceController extends ChangeNotifier {
         (prices) {
           if (_disposed || generation != _generation) return;
           _run = null;
+          if (_askAgainAfterMidnight(day)) return;
           _apply(prices, day);
         },
         onError: (Object _) {
           if (_disposed || generation != _generation) return;
           _run = null;
+          if (_askAgainAfterMidnight(day)) return;
           // Not our cancel (that bumps the generation): the service gave
           // up on the run, e.g. after a logout. The lines stop loading.
           _apply({
@@ -101,6 +108,17 @@ class ShoppingPriceController extends ChangeNotifier {
     if (last == null || clock.now().difference(last) >= retryCooldown) {
       _results.removeWhere((_, r) => r.price is LinePriceUnavailable);
     }
+  }
+
+  /// A run for [day] that settles after midnight is dropped and the shown
+  /// lines are asked again for today: the receipt calls [show] only when
+  /// the list changes, so nothing else would end their loading.
+  bool _askAgainAfterMidnight(String day) {
+    final shown = _shown;
+    if (day == _today || shown == null) return false;
+    _fingerprint = null;
+    show(shown.lines, shown.region);
+    return true;
   }
 
   void _apply(Map<String, LinePrice> prices, String day) {

@@ -33,6 +33,7 @@ void main() {
       'Zarte Haferflocken': 'oats',
       'Natives Olivenöl extra': 'oliveOil',
       'Salatgurke': 'cucumber',
+      'Gurke': 'cucumber',
       'Vollmilch 3,5 %': 'milk',
       'Ei': 'egg',
       'Eier (Größe M)': 'egg',
@@ -69,6 +70,7 @@ void main() {
       'Bananas': 'banana',
       'Large eggs': 'egg',
       'Minced beef': 'mince',
+      'Cucumber': 'cucumber',
     };
     for (final MapEntry(key: label, value: id) in cases.entries) {
       expect(_match(label).entry?.id, id, reason: label);
@@ -97,12 +99,15 @@ void main() {
       'Haselnussmilch',
       'Süßkartoffeln',
       'Essiggurken',
+      'Delikatessgurken',
       'Röstzwiebeln',
       'Coconut milk',
       'Diced tomatoes',
       'Spring onions',
       'Peanut butter',
       'Potato flour',
+      'Pickled cucumbers',
+      'Gherkins',
     ]) {
       final match = _match(label);
       expect(match.entry, isNull, reason: label);
@@ -134,16 +139,22 @@ void main() {
     expect(_match('Brot mit Butter').entry?.id, 'bread');
   });
 
-  test('a processed form named after a comma or in parentheses is not the '
-      'fresh food', () {
+  test('a processed form named anywhere in the label, also after a comma, in '
+      'parentheses or as the end of a compound, is not the fresh food', () {
     for (final label in const [
       'Tomaten, passiert',
       'Tomaten, gehackt',
       'Tomaten (aus der Dose)',
       'Tomaten in Stücken',
+      'Tomaten, sonnengetrocknet',
       'Knoblauch, granuliert',
       'Knoblauch, getrocknet',
       'Garlic (dried)',
+      'Gurken, eingelegt',
+      'Gurken (Glas)',
+      'Gurken, süßsauer',
+      'Eingelegte Gurken',
+      'Saure Gurken',
     ]) {
       final match = _match(label);
       expect(match.entry, isNull, reason: label);
@@ -239,6 +250,63 @@ void main() {
     // that is why the name is read first.
     expect(priceEntryForCategories(const ['en:sweet-spreads']), isNull);
     expect(_match('Nutella').entry?.id, 'hazelnutSpread');
+  });
+
+  test('categories pass the entry\'s required and excluded tags, like a '
+      'price row, and never fall back to a broader tag', () {
+    // The recorded "Gewürzgurken Auslese" (tags_page1.json): a pickle that
+    // carries en:cucumbers.
+    const pickle = [
+      'en:plant-based-foods-and-beverages',
+      'en:plant-based-foods',
+      'en:fruits-and-vegetables-based-foods',
+      'en:vegetable-based-foods-and-beverages',
+      'en:canned-foods',
+      'en:vegetables-based-foods',
+      'en:canned-plant-based-foods',
+      'en:pickles',
+      'en:vegetables',
+      'en:canned-vegetables',
+      'en:cucumbers',
+      'en:plant-based-pickles',
+      'en:pickled-vegetables',
+      'en:small-cucumbers',
+      'en:gherkins',
+      'en:pickled-cucumbers',
+    ];
+    expect(priceEntryForCategories(pickle), isNull);
+    // Granulated garlic and canned tomatoes are not fresh vegetables.
+    expect(
+      priceEntryForCategories(const [
+        'en:plant-based-foods',
+        'en:condiments',
+        'en:spices',
+        'en:garlic',
+        'en:dried-garlic',
+        'en:garlic-powder',
+      ]),
+      isNull,
+    );
+    expect(
+      priceEntryForCategories(const [
+        'en:canned-foods',
+        'en:tomatoes',
+        'en:canned-tomatoes',
+      ]),
+      isNull,
+    );
+    // The fresh products still find their entry.
+    expect(
+      priceEntryForCategories(const ['en:fresh-vegetables', 'en:garlic'])?.id,
+      'garlic',
+    );
+    expect(
+      priceEntryForCategories(const [
+        'en:fresh-vegetables',
+        'en:cucumbers',
+      ])?.id,
+      'cucumber',
+    );
   });
 
   group('dictionary integrity', () {
