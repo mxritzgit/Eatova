@@ -7,6 +7,7 @@
 // --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/ for comparison with design/shots/food-0N.png;
 // without it the suite still checks the scenario's numbers and geometry.
+// `food-pick-art` puts an own recipe without a photo in the 40 px pick row.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +20,7 @@ import '../flows/flow_test_helpers.dart' show storeOf;
 import '../support/design_capture.dart';
 import '../support/food_design_fixture.dart';
 import '../support/harness.dart';
+import '../support/today_design_fixture.dart' show designOwnRecipe;
 
 Future<void> _pumpFood(WidgetTester tester) async {
   pinDesignViewport(tester);
@@ -108,6 +110,31 @@ void main() {
       );
       expect(dock.top - addSnacks.bottom, closeTo(44, 1));
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('food-pick-art: an own recipe without a photo in the 40 px row', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(foodDesignNow), () async {
+      await _pumpFood(tester);
+      await storeOf(tester).saveUserRecipe(designOwnRecipe);
+      await tester.pumpAndSettle();
+      expect(find.text('FITS TONIGHT · 590 KCAL'), findsOneWidget);
+      final row = find.byKey(const ValueKey('food-pick-row'));
+      // The smallest slot of the art: an 18 px glyph with the firmer line.
+      final art = find.descendant(
+        of: row,
+        matching: find.byKey(const ValueKey('recipe-art-bowl')),
+      );
+      expect(art, findsOneWidget);
+      expect(tester.getSize(art), const Size(40, 40));
+
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      await precacheDesignImages(tester);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'food-pick-art');
     });
   });
 }

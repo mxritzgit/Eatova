@@ -6,6 +6,8 @@
 // shopping list (filled and empty), and the recipe
 // history with its restore dialog. The receipt (2026-10-10) also renders a
 // German import with section labels and its done stamp.
+// Own recipes without a photo (2026-10-11) show the glowing recipe art in
+// the week rows, the editor's list and its chosen card (meal-plan-art-*).
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/meal-plan-*.png; without it the suite still checks that
@@ -29,6 +31,7 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/user_recipe_reads.dart';
 import 'package:eatova/src/widgets/design/states.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
+import 'package:eatova/src/widgets/recipes/recipe_photo.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
 import '../support/design_capture.dart';
@@ -90,6 +93,55 @@ FitnessRecipe get _pizza => recipeCatalogDe.first.copyWith(
   structuredIngredients: const [],
 );
 
+/// An own recipe without a photo (imageAsset ''): every thumb shows the
+/// glowing recipe art, its motif from [categories].
+FitnessRecipe _own(String slug, String title, List<String> categories) =>
+    FitnessRecipe(
+      slug: 'user_$slug',
+      title: title,
+      description: '',
+      portion: '1 bowl (about 420 g)',
+      ingredients: '150 g rice\n180 g chicken breast',
+      preparation: 'Cook, slice and serve.',
+      professionalHint: '',
+      imageAsset: '',
+      caloriesKcal: 590,
+      proteinG: 48,
+      carbsG: 60,
+      fatG: 14,
+      estimatedGrams: 420,
+      categories: categories,
+      userCreated: true,
+    );
+
+/// Bowl, fish and leaf: the three motifs of the art.
+final _ownBowl = _own('art_bowl', 'Green power bowl', const ['Eigene']);
+final _ownFish = _own('art_fish', 'Lemon salmon tray', const ['Fisch']);
+final _ownLeaf = _own('art_leaf', 'Chickpea spinach curry', const [
+  'Vegetarisch',
+]);
+
+/// Plans the three own recipes (lunch and dinner today, lunch tomorrow) and
+/// keeps them in the store, so the editor lists them first.
+Future<void> _seedOwnRecipes(HomeStore store) async {
+  for (final recipe in [_ownLeaf, _ownFish, _ownBowl]) {
+    await store.saveUserRecipe(recipe);
+  }
+  await store.savePlannedMeal(
+    PlannedMeal.create(recipe: _ownBowl, day: _now, slot: MealSlot.lunch),
+  );
+  await store.savePlannedMeal(
+    PlannedMeal.create(recipe: _ownFish, day: _now, slot: MealSlot.dinner),
+  );
+  await store.savePlannedMeal(
+    PlannedMeal.create(
+      recipe: _ownLeaf,
+      day: _now.add(const Duration(days: 1)),
+      slot: MealSlot.lunch,
+    ),
+  );
+}
+
 /// Pins the reference phone, or a 320 px wide one for the narrow checks.
 void _viewport(WidgetTester tester, {bool narrow = false}) {
   pinDesignViewport(tester);
@@ -105,10 +157,13 @@ Future<HomeStore> _pumpPlan(
   bool narrow = false,
   double textScale = 1,
   bool withPlans = true,
+  bool ownRecipes = false,
 }) async {
   _viewport(tester, narrow: narrow);
   final store = _store();
-  if (withPlans) {
+  if (ownRecipes) {
+    await _seedOwnRecipes(store);
+  } else if (withPlans) {
     final breakfast = PlannedMeal.create(
       recipe: recipeCatalogEn[11],
       day: _now,
@@ -424,6 +479,88 @@ void main() {
       expect(find.text('Plan for this day'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-plan-editor-calendar');
+    });
+  });
+
+  testWidgets('own recipes without a photo: week rows and the editor', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pumpPlan(tester, ownRecipes: true);
+      // Today's 56 px row thumbs draw the art, each in its own motif.
+      expect(_key('recipe-art-bowl'), findsOneWidget);
+      expect(_key('recipe-art-fish'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-art-week');
+
+      // The editor lists the own recipes first, with the art in the
+      // 64 x 70 list thumbs ...
+      await _tapVisible(tester, _key('meal-plan-add-2026-09-28'));
+      await precacheDesignImages(tester);
+      final inEditor = find.descendant(
+        of: _key('meal-plan-editor-scroll'),
+        matching: find.byType(RecipeArt),
+      );
+      expect(inEditor, findsNWidgets(3));
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-art-editor-list');
+
+      // ... and on the chosen recipe's card.
+      await _tapVisible(
+        tester,
+        find.descendant(
+          of: _key('meal-plan-editor-scroll'),
+          matching: find.text(_ownBowl.title),
+        ),
+      );
+      expect(_key('meal-plan-slot-group'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: _key('meal-plan-editor-scroll'),
+          matching: _key('recipe-art-bowl'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-art-editor-card');
+    });
+  });
+
+  testWidgets('320 px with 2x text, own recipes without a photo', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pumpPlan(tester, ownRecipes: true, narrow: true, textScale: 2);
+      await tester.scrollUntilVisible(
+        find.text(_ownFish.title),
+        200,
+        scrollable: designMainScrollable(),
+      );
+      // The whole dinner row, thumb included.
+      await scrollDesignTabBy(tester, -160);
+      expect(find.byType(RecipeArt), findsWidgets);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-art-narrow-week');
+      await scrollDesignTabBy(tester, -3000);
+
+      await _tapVisible(tester, _key('meal-plan-add-2026-09-28'));
+      await _tapVisible(
+        tester,
+        find.descendant(
+          of: _key('meal-plan-editor-scroll'),
+          matching: find.text(_ownFish.title),
+        ),
+      );
+      // Large text stacks the card: the art spans the width.
+      expect(
+        find.descendant(
+          of: _key('meal-plan-editor-scroll'),
+          matching: _key('recipe-art-fish'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-art-narrow-editor-card');
     });
   });
 

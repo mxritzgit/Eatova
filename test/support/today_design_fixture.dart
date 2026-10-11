@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -169,6 +170,27 @@ List<LoggedMeal> designDay() => <LoggedMeal>[
     fat: 6,
   ),
 ];
+
+/// An own recipe without a photo that wins the dinner pick of the Today and
+/// Food scenarios: more protein than the catalog's best (58 g) and within
+/// their 902 kcal left. Its thumbs show the glowing recipe art.
+const FitnessRecipe designOwnRecipe = FitnessRecipe(
+  slug: 'user_design_power_bowl',
+  title: 'Green power bowl',
+  description: '',
+  portion: '1 bowl (about 420 g)',
+  ingredients: '150 g rice\n180 g chicken breast\n1 handful spinach',
+  preparation: 'Cook the rice. Sear the chicken and serve both.',
+  professionalHint: '',
+  imageAsset: '',
+  caloriesKcal: 590,
+  proteinG: 62,
+  carbsG: 60,
+  fatG: 12,
+  estimatedGrams: 420,
+  categories: <String>['Eigene'],
+  userCreated: true,
+);
 
 /// Five exercises of 4 x 10 with 160 s rest: the app's estimate is 50 min.
 TrainingPlan designPlan() => TrainingPlan(

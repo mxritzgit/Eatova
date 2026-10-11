@@ -9,7 +9,9 @@
 //   coach-cards-recipe-noimage  a recipe card whose photo failed: the art
 //   coach-cards-recipe-added    the same card once added: the done capsule
 //   coach-cards-recipe-sheet-320-x2  the sheet at 320 px with 2x text
+//   coach-cards-recipe-sheet-320-x2-01  further down: the step badges
 //   coach-cards-plan         a training plan proposal
+//   coach-cards-plan-320-x2  the plan card with its eyebrow wrapped
 //   coach-cards-log          a /log workout draft
 //   coach-cards-brief        the training brief from "/plan" (no plan)
 //   coach-cards-brief-goal   the same brief with an own goal typed
@@ -44,6 +46,8 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/recipes/recipe_photo.dart' show RecipeArt;
+import 'package:eatova/src/widgets/recipes/recipe_sections.dart'
+    show RecipeStepBadge;
 
 import '../flows/flow_test_helpers.dart' show settleFrames;
 import '../support/design_capture.dart';
@@ -322,6 +326,43 @@ void main() {
     await tester.drag(sheet, const Offset(0, -420));
     await settleFrames(tester);
     await captureDesignShot(tester, 'coach-cards-recipe-sheet-320-x2');
+    // Further down: the round step badges at 2x, the "1." markers gone.
+    await tester.drag(sheet, const Offset(0, -700));
+    await settleFrames(tester);
+    expect(
+      find.descendant(of: sheet, matching: find.byType(RecipeStepBadge)),
+      findsNWidgets(2),
+    );
+    expect(find.textContaining('1. Cook'), findsNothing);
+    await captureDesignShot(tester, 'coach-cards-recipe-sheet-320-x2-01');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('plan card at 320 px and 2x text: the wrapped eyebrow', (
+    tester,
+  ) async {
+    await _pumpCoach(
+      tester,
+      [_user('u1', 'Build me a plan for two days a week.'), _planAnswer()],
+      width: 320,
+      textScale: 2,
+    );
+    final card = find.byKey(const ValueKey('coach-plan-card'));
+    // The label wraps; its glyph stays centred on the first line.
+    final label = find.descendant(
+      of: card,
+      matching: find.text('TRAINING PLAN · DRAFT'),
+    );
+    // Clear of the header, so the whole eyebrow shows.
+    await Scrollable.ensureVisible(tester.element(label), alignment: 0.3);
+    await settleFrames(tester);
+    final glyph = find.descendant(of: card, matching: find.byType(Icon)).first;
+    final text = tester.getRect(label);
+    const line = 12 * 2 * 1.25;
+    expect(text.height, greaterThan(line * 1.5), reason: 'label wraps');
+    expect(tester.getCenter(glyph).dy, closeTo(text.top + line / 2, 1));
+    await captureDesignShot(tester, 'coach-cards-plan-320-x2');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
