@@ -288,6 +288,8 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 
   /// A known non-resumed state; an unknown one (tests) counts as foreground.
+  /// Needs the widgets binding, which the app always has; a store test that
+  /// reaches the backfill initializes it.
   static bool get _appInBackground {
     final state = WidgetsBinding.instance.lifecycleState;
     return state != null && state != AppLifecycleState.resumed;
