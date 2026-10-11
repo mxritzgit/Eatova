@@ -450,6 +450,23 @@ void main() {
       expect(vorschau.kcalPer100G, 153);
     });
 
+    test('eine widersprechende Dichte skaliert weiterhin nicht', () {
+      // 850 kcal on 300 g next to 260 kcal/100 g (780 kcal): the calories win.
+      const bowl = MealAnalysisResult(
+        mealName: 'Bowl',
+        caloriesKcal: 850,
+        estimatedGrams: 300,
+        kcalPer100G: 260,
+        protein: '-',
+        carbs: '-',
+        fat: '-',
+        confidence: 'Mittel',
+        portionNotes: '',
+      );
+      expect(bowl.adjustedToGrams(150).caloriesKcal, 425);
+      expect(bowl.asSingleComponent.adjustedToGrams(150).caloriesKcal, 425);
+    });
+
     test('Portion unter 1 kcal mit bekannter Dichte ist eine Messung', () {
       final teebeutel = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
         'product_name': 'Kräutertee',
