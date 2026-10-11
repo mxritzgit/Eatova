@@ -1212,9 +1212,11 @@ class MealAnalysisResult {
     if (menge != null && isPlausiblePortionGrams(menge)) {
       return clampPortionGrams(menge);
     }
-    final ausText = _estimateGramsFromText(product['serving_size']?.toString());
+    // The text names the same serving and gets the same check: a sub-gram
+    // serving (one mint, "0,49 g") also falls back to the 100 g base.
+    final ausText = gramsInServingText(product['serving_size']?.toString());
     if (ausText != null && isPlausiblePortionGrams(ausText)) {
-      return ausText;
+      return clampPortionGrams(ausText);
     }
     return 100;
   }
@@ -1425,16 +1427,25 @@ class MealAnalysisResult {
     return match == null ? null : int.tryParse(match.group(0)!);
   }
 
-  /// First gram figure in a text. Only for OFF's `serving_size`, a field that
-  /// carries exactly ONE serving. For model explanation text see
-  /// [_unambiguousGramsFromText].
-  static int? _estimateGramsFromText(String? value) {
+  /// First gram figure in a text, decimals included ("0,49 g" is 0.49, not
+  /// 49). Only for OFF's `serving_size`, a field that carries exactly ONE
+  /// serving. For model explanation text see [_unambiguousGramsFromText].
+  static double? gramsInServingText(String? value) {
     if (value == null) {
       return null;
     }
-    final match = RegExp(r'(\d{2,4})\s*g').firstMatch(value.toLowerCase());
-    return match == null ? null : int.tryParse(match.group(1)!);
+    final match = _servingGramsPattern.firstMatch(value.toLowerCase());
+    return match == null
+        ? null
+        : double.tryParse(match.group(1)!.replaceAll(',', '.'));
   }
+
+  /// A number not started mid-number, then a gram unit ("g", "gr", "gramm",
+  /// "grams") not followed by a letter: "1 glass" holds no gram figure.
+  static final RegExp _servingGramsPattern = RegExp(
+    r'(?<![\d.,])(\d+(?:[.,]\d+)?)\s*g(?:r|rs|ramm|ramme|rammes|rams?)?'
+    r'(?![a-zäöüß])',
+  );
 
   /// Grams from model explanation text, but only when it carries EXACTLY ONE
   /// gram figure (Komplettreview 2026-08-19, finding 3).

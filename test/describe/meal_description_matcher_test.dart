@@ -779,6 +779,47 @@ void main() {
       expect(thick.grams, 100);
     });
 
+    test('eine Portion unter 1 g gibt keine Stueckgroesse vor', () async {
+      final products = _FakeProducts({
+        'Tic Tac': _hits([
+          _product(
+            '1',
+            'Tic Tac',
+            kcal: 390,
+            servingSize: '1 Stück (0,49 g)',
+            servingQuantity: 0.49,
+          ),
+        ]),
+        'Süßstoff': _hits([
+          _product(
+            '2',
+            'Süßstoff',
+            kcal: 300,
+            servingSize: '1 Tablette (0,06 g)',
+            servingQuantity: 0.06,
+          ),
+        ]),
+      });
+      final draft = await _matcher(products).match(
+        _meal([
+          _food('Tic Tac', grams: 2, kcal: 8, amount: '2 Stück', stated: true),
+          _food('Süßstoff', grams: 1, kcal: 3, amount: '2 Stück', stated: true),
+        ]),
+      );
+      for (final (line, code) in [
+        (draft.items[0], '1'),
+        (draft.items[1], '2'),
+      ]) {
+        final product = line.candidates.firstWhere((c) => c.barcode == code);
+        expect(product.servingGrams, isNull, reason: 'keine 49 g pro Stück');
+        expect(
+          line.withCandidate(product).grams,
+          line.described.grams,
+          reason: 'Modell-Gramm statt 100 g pro Stück',
+        );
+      }
+    });
+
     test('Makros pro 100 g kommen vom Produkt', () async {
       final products = _FakeProducts({
         'Nutella': _hits([

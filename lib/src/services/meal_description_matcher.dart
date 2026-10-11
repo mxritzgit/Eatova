@@ -763,6 +763,9 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
   final serving = MealResultOffNote.resolve(result.portionNotes)?.serving;
   final grams = result.estimatedGrams;
   if (serving == null || !isPlausiblePortionGrams(grams)) return null;
+  // A sub-gram serving ("1 Stück (0,49 g)") left the portion at the 100 g base.
+  final stated = MealAnalysisResult.gramsInServingText(serving);
+  if (stated != null && !isPlausiblePortionGrams(stated)) return null;
   final count = _countOf(serving);
   if (count != null && count.count > 0) {
     return (grams: clampPortionGrams(grams / count.count), unit: count.unit);
