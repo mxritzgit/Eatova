@@ -499,6 +499,9 @@
     }
   },
   "recipesEmptyStateMessage": "Kein Rezept gefunden. Versuch eine andere Kategorie oder Suche.",
+  "recipesNoResultTitle": "Kein Rezept gefunden",
+  "recipesNoResultBody": "Versuch eine andere Kategorie oder Suche.",
+  "recipesNoResultShowAll": "Alle Rezepte zeigen",
   "recipesImagePlaceholderLabel": "REZEPT",
   "recipesOwnTitle": "Eigenes Rezept",
   "recipesBrandTitle": "Eatova Rezept",
@@ -969,6 +972,7 @@
   "trendsErrorTitle": "Trends konnten nicht geladen werden",
   "trendsErrorBody": "Prüfe deine Internetverbindung und versuche es erneut.",
   "trendsRetryCta": "Erneut versuchen",
+  "trendsLoading": "Trends werden geladen…",
   "trendsChartGoalLabel": "Ziel {goal}",
   "@trendsChartGoalLabel": {
     "placeholders": {
@@ -1844,6 +1848,7 @@
   "foodFavoritesSortLabel": "Favoriten sortieren",
   "foodFavoritesSearchHint": "Favoriten durchsuchen",
   "foodFavoritesEmptyHint": "Noch keine Favoriten. Tippe bei einem Suchtreffer oder Scan-Ergebnis auf das Herz, dann landet die Mahlzeit hier.",
+  "foodFavoritesEmptySearchAction": "Lebensmittel suchen",
   "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche.",
   "trainingPageGoal": "Trainingsziel",
   "trainingPageContentLimit": "Dein Plan enthält zu viel Text. Kürze die Beschreibungen und Hinweise.",
@@ -2515,6 +2520,7 @@
   "healthConnectReview": "Verbindung prüfen",
   "trainingHistoryTitle": "Trainingsverlauf",
   "trainingHistorySubtitle": "Deine abgeschlossenen Trainings.",
+  "trainingHistoryEmptyTitle": "Noch keine Trainings",
   "trainingHistoryEmpty": "Hier erscheinen deine Trainings. Starte eines aus einem Plan oder trage ein bereits absolviertes nach.",
   "trainingHistoryLoadError": "Der Verlauf konnte nicht geladen werden. Gespeicherte Trainings bleiben verfügbar. Versuche es erneut.",
   "trainingHistoryNote": "Notiz zum Training",
@@ -2875,11 +2881,15 @@
   "recipeHistoryTitle": "Rezeptverlauf",
   "recipeHistoryExplanation": "Hier findest du frühere Versionen und gelöschte Rezepte. Eine Wiederherstellung wird als neue Änderung gespeichert.",
   "recipeHistoryRestore": "Version wiederherstellen",
+  "recipeHistoryRestoring": "Wird wiederhergestellt…",
   "recipeHistoryRestoreConfirm": "Diese Version von „{title}“ wiederherstellen? Der aktuelle Stand bleibt im Verlauf erhalten. Falls gleichzeitig eine andere Änderung eintrifft, wird deine Version als separates Rezept gesichert.",
   "recipeHistoryRestored": "Rezeptversion gespeichert.",
   "recipeHistoryVersion": "Version {revision}",
   "recipeHistoryDeleted": "Gelöscht",
   "recipeHistoryEmpty": "Noch kein Rezeptverlauf vorhanden.",
+  "recipeHistoryEmptyTitle": "Noch nichts wiederherzustellen",
+  "recipeHistoryEmptyBody": "Wenn du eines deiner Rezepte änderst oder löschst, erscheint die frühere Version hier.",
+  "recipeHistoryLoading": "Versionen werden geladen…",
   "recipeHistoryLoadMore": "Ältere Versionen laden",
   "@recipeHistoryRestoreConfirm": {
     "placeholders": {

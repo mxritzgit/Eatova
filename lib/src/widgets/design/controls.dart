@@ -10,6 +10,7 @@ import '../common/lively.dart';
 import '../common/motion.dart';
 import 'app_icon.dart';
 import 'readable_width.dart';
+import 'states.dart' show AppSpinner;
 
 // ---------------------------------------------------------------------------
 // CONTROLS — icon buttons, icon tile, toggle, segmented pill, filter chip,
@@ -472,7 +473,7 @@ const double kDisabledFillAlpha = 0.38;
 /// Dark redesign (2026-09-28): an accent pill ([AppTokens.accentFill]) with an
 /// [AppTokens.onAccentFill] label in weight 800. The destructive variant keeps
 /// `danger` with a `bg` label. `onTap == null` renders the visible disabled
-/// state (dimmed fill and label).
+/// state (dimmed fill and label); [busy] the working state.
 class PrimaryActionButton extends StatelessWidget {
   const PrimaryActionButton({
     super.key,
@@ -481,6 +482,7 @@ class PrimaryActionButton extends StatelessWidget {
     this.onTap,
     this.destructive = false,
     this.height = kPrimaryButtonHeight,
+    this.busy = false,
   });
 
   final String label;
@@ -491,21 +493,28 @@ class PrimaryActionButton extends StatelessWidget {
   /// Minimum height; [kPrimaryButtonHeight] is the app-wide default.
   final double height;
 
+  /// Work in flight ("Saving…"): a spinner in place of the icon, taps
+  /// ignored, the fill kept at full strength — working, not locked. The
+  /// button is the only progress signal; no extra bar above it.
+  final bool busy;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final enabled = onTap != null;
+    final enabled = onTap != null && !busy;
     // Disabled: the fill drops to 38 % and the label dims — a locked CTA must
     // not look pressable. InkWell without onTap draws no ripple. A locked
     // destructive CTA takes the soft danger pair ([SoftPillTone.danger])
     // instead: danger at 38 % over the dark ground mixed a muddy brown with an
-    // unreadable label. The tint arms into the filled pill once valid.
+    // unreadable label. The tint arms into the filled pill once valid. Busy
+    // keeps the full fill: working, not locked.
+    final lit = enabled || busy;
     final fill = destructive
-        ? (enabled ? t.danger : t.danger.withValues(alpha: 0.12))
-        : t.accentFill.withValues(alpha: enabled ? 1 : kDisabledFillAlpha);
+        ? (lit ? t.danger : t.danger.withValues(alpha: 0.12))
+        : t.accentFill.withValues(alpha: lit ? 1 : kDisabledFillAlpha);
     final onFill = destructive
-        ? (enabled ? t.bg : t.danger.withValues(alpha: 0.55))
-        : t.onAccentFill.withValues(alpha: enabled ? 1 : 0.8);
+        ? (lit ? t.bg : t.danger.withValues(alpha: 0.55))
+        : t.onAccentFill.withValues(alpha: lit ? 1 : 0.8);
     // A bare InkWell carries neither `isButton` nor an enabled state, so a
     // screen reader would announce the primary action as plain text and a
     // disabled one as a button that does nothing. `onTap == null` is the
@@ -520,7 +529,7 @@ class PrimaryActionButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(rButton),
         elevation: 0,
         child: InkWell(
-          onTap: onTap,
+          onTap: enabled ? onTap : null,
           borderRadius: BorderRadius.circular(rButton),
           child: ConstrainedBox(
             // Min height, not a fixed one: at textScaler 2.0 the label would
@@ -534,7 +543,17 @@ class PrimaryActionButton extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  if (icon != null) ...<Widget>[
+                  if (busy) ...<Widget>[
+                    ExcludeSemantics(
+                      child: AppSpinner(
+                        size: 18,
+                        strokeWidth: 2,
+                        color: onFill,
+                        trackColor: onFill.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ] else if (icon != null) ...<Widget>[
                     Icon(icon, size: 18, color: onFill),
                     const SizedBox(width: 8),
                   ],

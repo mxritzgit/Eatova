@@ -494,6 +494,9 @@
     }
   },
   "recipesEmptyStateMessage": "No recipe found. Try a different category or search term.",
+  "recipesNoResultTitle": "No recipe found",
+  "recipesNoResultBody": "Try a different category or search term.",
+  "recipesNoResultShowAll": "Show all recipes",
   "recipesImagePlaceholderLabel": "RECIPE",
   "recipesOwnTitle": "Your recipe",
   "recipesBrandTitle": "Eatova recipe",
@@ -932,6 +935,7 @@
   "trendsErrorTitle": "Trends could not be loaded",
   "trendsErrorBody": "Check your internet connection and try again.",
   "trendsRetryCta": "Try again",
+  "trendsLoading": "Loading trends…",
   "trendsChartGoalLabel": "Goal {goal}",
   "@trendsChartGoalLabel": {
     "placeholders": {
@@ -1792,6 +1796,7 @@
   "foodFavoritesSortLabel": "Sort favorites",
   "foodFavoritesSearchHint": "Search favorites",
   "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
+  "foodFavoritesEmptySearchAction": "Search food",
   "foodFavoritesNoMatchHint": "No favorite matches your search.",
   "trainingPageGoal": "Training goal",
   "trainingPageContentLimit": "Your plan contains too much text. Shorten the descriptions and notes.",
@@ -2462,6 +2467,7 @@
   "healthConnectReview": "Review connection",
   "trainingHistoryTitle": "Workout history",
   "trainingHistorySubtitle": "Your completed workouts.",
+  "trainingHistoryEmptyTitle": "No workouts yet",
   "trainingHistoryEmpty": "Your workouts appear here. Start one from a plan or log a workout you already did.",
   "trainingHistoryLoadError": "History could not load. Saved workouts remain available. Try again.",
   "trainingHistoryNote": "Workout note",
@@ -2807,11 +2813,15 @@
   "recipeHistoryTitle": "Recipe history",
   "recipeHistoryExplanation": "Find previous versions and deleted recipes here. Restoring a version saves a new change.",
   "recipeHistoryRestore": "Restore version",
+  "recipeHistoryRestoring": "Restoring…",
   "recipeHistoryRestoreConfirm": "Restore this version of “{title}”? The current version stays in the history. If another change arrives at the same time, your version is saved as a separate recipe.",
   "recipeHistoryRestored": "Recipe version saved.",
   "recipeHistoryVersion": "Version {revision}",
   "recipeHistoryDeleted": "Deleted",
   "recipeHistoryEmpty": "No recipe history yet.",
+  "recipeHistoryEmptyTitle": "Nothing to restore yet",
+  "recipeHistoryEmptyBody": "When you change or delete one of your recipes, the earlier version shows up here.",
+  "recipeHistoryLoading": "Loading versions…",
   "recipeHistoryLoadMore": "Load earlier versions",
   "@recipeHistoryRestoreConfirm": {
     "placeholders": {

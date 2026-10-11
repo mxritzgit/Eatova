@@ -100,11 +100,17 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       contentTextStyle:
           AppType.ui(13.5, weight: FontWeight.w500, color: t.onForest),
       actionTextColor: t.lime,
+      // Depth from a hairline, not a shadow: a sheet's [SnackHost] strip
+      // clipped Material's elevation shadow into a hard seam in light mode.
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rControl),
+        borderRadius: BorderRadius.circular(rTile),
+        side: BorderSide(color: t.lineStrong),
       ),
       behavior: SnackBarBehavior.floating,
-      elevation: 8,
+      elevation: 0,
+      // On the pages' 20 px gutter (Material's default is 15).
+      // `SnackHost._toastReserve` measures with the same horizontal inset.
+      insetPadding: const EdgeInsets.fromLTRB(20, 5, 20, 12),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: t.bg,
@@ -166,10 +172,15 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       margin: const EdgeInsets.symmetric(horizontal: 20),
       waitDuration: const Duration(milliseconds: 400),
     ),
+    // Rounded like every other pill in the app: bars end in caps on a
+    // `tile` track, spinners in round caps.
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: t.accent,
       linearTrackColor: t.tile,
+      linearMinHeight: 4,
+      borderRadius: BorderRadius.circular(rPill),
       circularTrackColor: t.tile,
+      strokeCap: StrokeCap.round,
     ),
     // UNREACHED TODAY, kept as a net: `lib/` contains no Material Chip at all
     // (no Filter/Choice/Input/ActionChip, no bare `Chip`) — the app draws

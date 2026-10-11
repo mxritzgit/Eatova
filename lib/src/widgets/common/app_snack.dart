@@ -30,6 +30,15 @@ Color _toneColor(AppTokens t, SnackTone tone) => switch (tone) {
   SnackTone.error => t.danger,
 };
 
+/// The glyph a toast shows when its caller names none: every toast carries
+/// the tone disc, so feedback looks the same on every screen.
+IconData _toneIcon(SnackTone tone) => switch (tone) {
+  SnackTone.positive => Icons.check_circle_outline_rounded,
+  SnackTone.neutral => Icons.info_outline_rounded,
+  SnackTone.warning => Icons.warning_amber_rounded,
+  SnackTone.error => Icons.error_outline_rounded,
+};
+
 /// Alpha of the disc behind the glyph. Glyph and disc share one color, so the
 /// disc IS the glyph's ground — the correction below has to know it.
 const double _kSnackIconTint = 0.18;
@@ -93,7 +102,8 @@ Color _legibleOnSnack(Color tone, Color ground, Color onGround) {
 }
 
 /// Shows a short floating toast. ALWAYS removes the current one first so
-/// snackbars do not stack on rapid actions.
+/// snackbars do not stack on rapid actions. Without [icon] the toast shows
+/// its [tone]'s glyph.
 ///
 /// Auto-dismiss: Flutter's built-in snackbar timer does NOT fire reliably when
 /// system animations are off ("reduce motion") — the entrance completes
@@ -116,6 +126,7 @@ void showAppSnack(
   final messenger = host?._messenger ?? ScaffoldMessenger.maybeOf(context);
   if (messenger == null) return;
   messenger.removeCurrentSnackBar();
+  final glyph = icon ?? _toneIcon(tone);
   // The toast sits on the brand surface (snackBarTheme), so the icon takes the
   // lime accent, not the card accent, which would be invisible here. [accent]
   // stays as a direct override for surfaces that still pass a color. Whichever
@@ -134,10 +145,8 @@ void showAppSnack(
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
-            _SnackIcon(icon: icon, accent: effectiveAccent),
-            const SizedBox(width: 10),
-          ],
+          _SnackIcon(icon: glyph, accent: effectiveAccent),
+          const SizedBox(width: 10),
           Flexible(child: Text(message)),
         ],
       ),
@@ -145,7 +154,7 @@ void showAppSnack(
     action: action,
   );
   if (host != null) {
-    host._show(snackBar, message, hasIcon: icon != null);
+    host._show(snackBar, message, hasIcon: true);
   } else {
     messenger.showSnackBar(snackBar);
   }
@@ -294,9 +303,10 @@ class _SnackHostState extends State<SnackHost> {
         ? 0.0
         : measure(_actionLabel!, theme.textTheme.labelLarge!, double.infinity) +
               48;
+    // 40 px inset (snackBarTheme.insetPadding) plus 2 x 16 content padding.
     final textWidth = math.max(
       1.0,
-      width - 62 - (_hasIcon ? 34 : 0) - actionWidth,
+      width - 72 - (_hasIcon ? 34 : 0) - actionWidth,
     );
     final textHeight = measure(_message, style, textWidth);
     return math.max(48.0, math.max(twoLines, textHeight) + 28) +
