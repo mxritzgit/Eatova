@@ -182,10 +182,14 @@ class CoachChatService {
   /// A connection that dies mid-request is the same case: functions_client
   /// wraps every transport error up to the response HEADERS, and coach-chat
   /// sends those only once its work is done (buffered modes) or under way
-  /// (stream). A network switch or iOS reclaiming a backgrounded app's socket
-  /// leaves the slot spent and the answer stored, so [verbindungWeg] callers
-  /// ask too — with one attempt, because offline the lookup fails as well and
-  /// PostgREST's GET backoff would hold the error back for seconds.
+  /// (stream). Either way the server finishes without the client: it reads
+  /// the provider to the end, stores an approved answer and keeps the slot
+  /// spent (for the stream since COACH-4). A network switch or iOS reclaiming
+  /// a backgrounded app's socket therefore leaves an answer that reaches the
+  /// transcript once the provider is done. A lookup that runs earlier still
+  /// sees the question as the last row, and the error stands. [verbindungWeg]
+  /// callers ask too — with one attempt, because offline the lookup fails as
+  /// well and PostgREST's GET backoff would hold the error back for seconds.
   Future<ChatMessage?> _nachzuegler({
     required String sessionId,
     required String gesendet,
