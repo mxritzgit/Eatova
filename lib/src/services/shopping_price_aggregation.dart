@@ -138,9 +138,10 @@ int? parsePieceCount(String? text) {
   return count != null && count > 0 && count <= 100 ? count : null;
 }
 
-/// The median after dropping duplicates and values outside a 3x band
-/// around the first median. Null with fewer than [minSamples] distinct
-/// (product or tag, shop) prices.
+/// The median over independent prices: duplicates dropped, each (product
+/// or tag, shop) counted once at its own median, then values outside a 3x
+/// band around the first median dropped. Null with fewer than [minSamples]
+/// such prices left.
 PriceAggregate? aggregatePriceObservations(
   List<PriceObservation> observations, {
   required PriceBasis basis,
@@ -152,22 +153,34 @@ PriceAggregate? aggregatePriceObservations(
     unique.putIfAbsent(observation.dedupKey, () => observation);
   }
   if (unique.isEmpty) return null;
-  final first = _median(unique.values.map((o) => o.value));
-  final kept = [
-    for (final o in unique.values)
-      if (o.value >= first / 3 && o.value <= first * 3) o,
+  // A shop reporting the same product again does not weigh twice.
+  final bySource = <String, List<PriceObservation>>{};
+  for (final observation in unique.values) {
+    (bySource[observation.distinctKey] ??= []).add(observation);
+  }
+  final sources = [
+    for (final reports in bySource.values)
+      (
+        value: _median(reports.map((o) => o.value)),
+        date: reports.map((o) => o.date).reduce(_later),
+      ),
   ];
-  if (kept.map((o) => o.distinctKey).toSet().length < minSamples) return null;
+  final first = _median(sources.map((s) => s.value));
+  final kept = [
+    for (final s in sources)
+      if (s.value >= first / 3 && s.value <= first * 3) s,
+  ];
+  if (kept.length < minSamples) return null;
   return PriceAggregate(
     basis: basis,
-    median: _median(kept.map((o) => o.value)),
+    median: _median(kept.map((s) => s.value)),
     samples: kept.length,
-    newestDate: kept
-        .map((o) => o.date)
-        .reduce((a, b) => a.compareTo(b) >= 0 ? a : b),
+    newestDate: kept.map((s) => s.date).reduce(_later),
     exactProduct: exactProduct,
   );
 }
+
+String _later(String a, String b) => a.compareTo(b) >= 0 ? a : b;
 
 double _median(Iterable<double> values) {
   final sorted = values.toList()..sort();

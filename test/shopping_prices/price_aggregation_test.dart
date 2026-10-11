@@ -168,6 +168,45 @@ void main() {
     expect(_aggregate('cucumber', cucumbers)!.median, closeTo(.79, 1e-9));
   });
 
+  test('garlic counts fresh bulbs only, not granules or garlic in oil', () {
+    // The capture's garlic rows with their tags.
+    const fresh = [
+      'en:condiments',
+      'en:fresh-vegetables',
+      'en:garlic',
+      'en:fresh-garlic',
+    ];
+    final rows = [
+      for (var shop = 1; shop <= 3; shop++)
+        _product(price: 1.49, quantity: 150, location: shop, tags: fresh),
+      // "Knoblauch, granuliert": a dried spice.
+      _product(
+        price: .79,
+        quantity: 70,
+        location: 4,
+        tags: const ['en:condiments', 'en:garlics'],
+      ),
+      // "Knoblauch Toskanische Art mit Kräutern in Öl", fresh tag or not.
+      _product(
+        price: 1.99,
+        quantity: 190,
+        location: 5,
+        tags: const [
+          'en:canned-foods',
+          'en:pickles',
+          'en:garlics',
+          'en:fresh-vegetables',
+        ],
+      ),
+    ];
+    final aggregate = _aggregate('garlic', rows)!;
+    expect(aggregate.median, closeTo(9.9333, 1e-4));
+    expect(aggregate.samples, 3);
+    // Two fresh bulbs are too few; the spice and the antipasto do not make
+    // up the rest.
+    expect(_aggregate('garlic', rows.skip(1).toList()), isNull);
+  });
+
   test('a discount counts at its regular price, or not at all', () {
     final rows = [
       _butter(4.0, shop: 1),
@@ -349,6 +388,59 @@ void main() {
     expect(_aggregate('butter', twice), isNull);
   });
 
+  test('a shop reporting the same product again weighs once in the median', () {
+    // The capture's spreads: a store brand reported in one shop on two
+    // dates would pull the median down to its own price (6.92 EUR/kg).
+    final spreads = [
+      for (final date in ['2026-09-18', '2026-09-25'])
+        _product(
+          price: 1.99,
+          quantity: 400,
+          location: 7257,
+          date: date,
+          code: '4337256000001',
+          tags: const ['en:hazelnut-spreads'],
+        ),
+      _product(
+        price: 3.99,
+        quantity: 450,
+        location: 7257,
+        date: '2026-09-18',
+        code: '4008400401621',
+        tags: const ['en:hazelnut-spreads'],
+      ),
+      _product(
+        price: 3.99,
+        quantity: 350,
+        location: 2087,
+        date: '2026-09-02',
+        code: '8000500000001',
+        tags: const ['en:hazelnut-spreads'],
+      ),
+    ];
+    final aggregate = _aggregate('hazelnutSpread', spreads)!;
+    expect(aggregate.median, closeTo(8.8667, 1e-4));
+    expect(aggregate.samples, 3, reason: 'three independent prices');
+    expect(aggregate.newestDate, '2026-09-25');
+
+    // A shop's own reports meet at their median first: loose bananas at
+    // 1.09 and 1.49 in shop 1 count as one price of 1.29.
+    final bananas = [
+      _category(tag: 'en:bananas', price: 1.09, per: 'KILOGRAM', location: 1),
+      _category(
+        tag: 'en:bananas',
+        price: 1.49,
+        per: 'KILOGRAM',
+        location: 1,
+        date: '2026-09-20',
+      ),
+      _category(tag: 'en:bananas', price: 1.39, per: 'KILOGRAM', location: 2),
+      _category(tag: 'en:bananas', price: 1.45, per: 'KILOGRAM', location: 3),
+    ];
+    final loose = _aggregate('banana', bananas)!;
+    expect((loose.median, loose.samples), (1.39, 3));
+  });
+
   test('the 3x band drops a premium outlier before the median', () {
     // The capture's 250 ml bottle at 59.96 EUR per litre.
     final oil = [
@@ -470,7 +562,8 @@ void main() {
         cents(cost('Olivenöl', agg(12.99, PriceBasis.volume), amount: '2 EL')),
         39,
       );
-      expect(cents(cost('Bananen', agg(1.29), amount: '6')), 93);
+      // Six unpeeled bananas of 170 g, as sold by the kilogram.
+      expect(cents(cost('Bananen', agg(1.29), amount: '6')), 132);
       expect(cents(cost('Brot', agg(4.61), amount: '1')), 231);
       expect(cents(cost('Lachs', agg(39.9), amount: '2 x 150 g')), 1197);
       // "2 Knoblauchzehen" are two cloves of 4 g, not two bulbs.
@@ -570,6 +663,13 @@ void main() {
     expect((loading.pending, loading.complete), (1, false));
     final failed = shoppingPriceTotal([const LinePriceUnavailable()]);
     expect((failed.unpriced, failed.failed), (1, true));
+    expect((all.skipped, all.lines, all.nothingToPrice), (1, 3, false));
+    // Seasoning only: nothing is missing, and nothing to add up either.
+    final seasoning = shoppingPriceTotal(const [
+      LinePriceSkipped(),
+      LinePriceSkipped(),
+    ]);
+    expect((seasoning.complete, seasoning.nothingToPrice), (true, true));
   });
 
   test('prices are shown for a German device region only', () {

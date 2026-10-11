@@ -214,15 +214,15 @@ void main() {
         'almighurt': 42,
         'milch': 57,
         'butter': 119,
-        // Six bananas of 120 g at the loose price per kilogram.
-        'bananen': 93,
+        // Six unpeeled bananas of 170 g at the loose price per kilogram.
+        'bananen': 132,
         // Two shops with a cucumber price: too few.
         'gurke': 'LinePriceNoData',
         'salami': 'LinePriceNoData',
         'salz': 'LinePriceSkipped',
         'brokkoli': 'LinePriceNoData',
-        // A loaf of 500 g.
-        'brot': 230,
+        // A loaf of 500 g; a shop's repeat reports of one bread count once.
+        'brot': 217,
         'lachs': 1197,
         'spinat': 'LinePriceNoData',
         'kokos': 'LinePriceNoData',

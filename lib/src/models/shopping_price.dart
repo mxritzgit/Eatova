@@ -219,7 +219,8 @@ class PriceAggregate {
   /// EUR per kilogram, litre or piece.
   final double median;
 
-  /// Prices behind the median, after deduplication and the outlier band.
+  /// Independent (product or category, shop) prices behind the median,
+  /// after deduplication and the outlier band.
   final int samples;
 
   /// Purchase date of the newest price, `YYYY-MM-DD`.
@@ -354,19 +355,30 @@ class ShoppingPriceTotal {
     required this.unpriced,
     required this.pending,
     required this.failed,
+    this.skipped = 0,
   });
 
   final int cents, priced, unpriced, pending;
   final bool failed;
 
+  /// Seasoning, deliberately without a price.
+  final int skipped;
+
   /// Every line that should carry a price does.
   bool get complete => unpriced == 0 && pending == 0;
+
+  /// Every line is seasoning: nothing to add up.
+  bool get nothingToPrice =>
+      priced == 0 && unpriced == 0 && pending == 0 && skipped > 0;
+
+  /// The receipt's price lines.
+  int get lines => priced + unpriced + pending + skipped;
 }
 
 /// Sums the displayed cents, so the total always equals the shown values.
 /// Skipped lines are neither priced nor missing.
 ShoppingPriceTotal shoppingPriceTotal(Iterable<LinePrice> prices) {
-  var cents = 0, priced = 0, unpriced = 0, pending = 0;
+  var cents = 0, priced = 0, unpriced = 0, pending = 0, skipped = 0;
   var failed = false;
   for (final price in prices) {
     switch (price) {
@@ -381,7 +393,7 @@ ShoppingPriceTotal shoppingPriceTotal(Iterable<LinePrice> prices) {
       case LinePriceNoData():
         unpriced++;
       case LinePriceSkipped():
-        break;
+        skipped++;
     }
   }
   return ShoppingPriceTotal(
@@ -390,5 +402,6 @@ ShoppingPriceTotal shoppingPriceTotal(Iterable<LinePrice> prices) {
     unpriced: unpriced,
     pending: pending,
     failed: failed,
+    skipped: skipped,
   );
 }

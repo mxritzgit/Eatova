@@ -12,7 +12,7 @@ import 'fitness_recipe.dart' show foldRecipeSearchText;
 import 'shopping_price.dart';
 
 /// Bumped with every change of entries or tags; part of the cache key.
-const int kPriceDictionaryVersion = 1;
+const int kPriceDictionaryVersion = 2;
 
 /// One priceable ingredient: which Open Prices rows describe it and how a
 /// recipe amount converts into its price basis.
@@ -23,6 +23,7 @@ class PriceEntry {
     List<String>? categoryTags,
     this.requireTags = const [],
     this.excludeTags = const [],
+    this.excludeWords = const [],
     this.basis = PriceBasis.mass,
     this.categoryPrices = false,
     this.density = 1.0,
@@ -40,6 +41,11 @@ class PriceEntry {
 
   /// Tags a product row must carry all of, and none of.
   final List<String> requireTags, excludeTags;
+
+  /// Folded words anywhere in a label, also after a comma or in
+  /// parentheses, that name a product this entry does not price
+  /// ("Tomaten, passiert", "Knoblauch, granuliert").
+  final List<String> excludeWords;
   final PriceBasis basis;
 
   /// Whether loose-goods category prices (`type=CATEGORY`) count: per
@@ -93,6 +99,12 @@ const Map<String, PriceEntry> kPriceEntries = {
       "en:ketchup",
       "en:strained-tomatoes",
     ],
+    excludeWords: [
+      "passiert", "passierte", "gehackt", "gehackte", "stueckig", //
+      "stueckige", "stuecken", "geschaelt", "geschaelte", "getrocknet", //
+      "getrocknete", "dose", "dosen", "konserve", "canned", "tinned", //
+      "dried", "puree",
+    ],
     categoryPrices: true,
     units: {PriceUnit.piece: 100},
   ),
@@ -106,6 +118,13 @@ const Map<String, PriceEntry> kPriceEntries = {
   "garlic": PriceEntry(
     "garlic",
     productTags: ["en:garlic", "en:garlics"],
+    // Fresh bulbs only: granulated garlic and garlic in oil share the tags.
+    requireTags: ["en:fresh-vegetables"],
+    excludeTags: ["en:pickles", "en:canned-foods"],
+    excludeWords: [
+      "granuliert", "granulat", "getrocknet", "getrocknete", "pulver", //
+      "eingelegt", "eingelegte", "granulated", "dried", "powder", "pickled",
+    ],
     categoryPrices: true,
     units: {PriceUnit.clove: 4, PriceUnit.piece: 50},
   ),
@@ -181,7 +200,8 @@ const Map<String, PriceEntry> kPriceEntries = {
     "banana",
     productTags: ["en:bananas"],
     categoryPrices: true,
-    units: {PriceUnit.piece: 120},
+    // Unpeeled, as sold by the kilogram.
+    units: {PriceUnit.piece: 170},
   ),
   "apple": PriceEntry(
     "apple",
@@ -339,6 +359,7 @@ const Map<String, String?> kPriceKeys = {
   "naturjoghurt": "yogurt",
   "yogurt": "yogurt",
   "yoghurt": "yogurt",
+  "skyr": "yogurt",
   "gouda": "gouda",
   "olivenoel": "oliveOil",
   "olive oil": "oliveOil",
@@ -375,6 +396,9 @@ const Map<String, String?> kPriceKeys = {
   "buttermilch": null,
   "kondensmilch": null,
   "dosenmilch": null,
+  "pflanzenmilch": null,
+  "cashewmilch": null,
+  "haselnussmilch": null,
   "coconut milk": null,
   "almond milk": null,
   "oat milk": null,
@@ -438,6 +462,11 @@ const Map<String, String?> kPriceKeys = {
   "rice flour": null,
   "almond flour": null,
   "coconut flour": null,
+  "potato flour": null,
+  "oat flour": null,
+  "corn flour": null,
+  "chickpea flour": null,
+  "buckwheat flour": null,
   // Blocked: pickles and other false friends.
   "essiggurke": null,
   "essiggurken": null,
@@ -562,6 +591,21 @@ const Set<String> kPriceDescriptors = {
   "boneless", "skinless",
 };
 
+/// Nouns that turn a key before them into a modifier of another food:
+/// "rice vinegar", "milk chocolate", "garlic bread". Such a key prices
+/// nothing; a later key ("bread") still can.
+const Set<String> kPriceModifierHeads = {
+  "vinegar", "noodle", "noodles", "chocolate", "bean", "beans", "chips", //
+  "crisps", "fries", "wedges", "bread", "breadcrumbs", "crumbs", "paste", //
+  "sauce", "powder", "flakes", "cake", "cakes", "crackers", "starch", //
+  "syrup", "juice", "soup", "stock", "broth", "pudding", "pie", "rings", //
+  "seasoning", "salad", "dumplings", "rolls", "spread", "drink", "wine", //
+  "flour", "cream", "tortilla", "tortillas", "wraps", "bar", "bars", //
+  "puree", "essig", "nudeln", "sosse", "pulver", "flocken", "saft", //
+  "suppe", "bruehe", "creme", "schokolade", "mark", "sirup", "aufstrich", //
+  "salat",
+};
+
 const Set<String> _stopWords = {
   "und", "mit", "von", "vom", "der", "die", "das", "den", "dem", "des", //
   "ein", "eine", "einer", "eines", "einem", "einen", "im", "in", "aus", //
@@ -617,7 +661,8 @@ class PriceMatch {
 const PriceMatch _noMatch = PriceMatch();
 
 /// Lower case, umlauts and ß folded, parentheses dropped and cut at the first
-/// alternative or list separator: "Mozzarella, gerieben" -> "mozzarella".
+/// alternative, list separator or trailing phrase: "Mozzarella, gerieben"
+/// -> "mozzarella", "Hähnchenbrust mit Paprika" -> "haehnchenbrust".
 String normalizePriceLabel(String label) {
   final text = _foldedWithoutParentheses(label);
   final cut = _separator.firstMatch(text);
@@ -625,20 +670,23 @@ String normalizePriceLabel(String label) {
 }
 
 final RegExp _separator = RegExp(
-  r',|;|/| oder | or | bzw\.? | z\. ?b\.? | e\.g\. ',
+  r',|;|/| oder | or | bzw\.? | z\. ?b\.? | e\.g\. '
+  r'| mit | ohne | with | without | in | im ',
 );
 final RegExp _nonLetters = RegExp(r'[^a-zà-ÿ]+');
 
-String _foldedWithoutParentheses(String label) {
+String _foldedWithoutParentheses(String label) => _folded(
+  label,
+).replaceAll(RegExp(r'\([^)]*\)'), ' ').replaceAll(RegExp(r'\s+'), ' ');
+
+String _folded(String label) {
   // Decomposed umlauts first: Dart has no NFC normalisation.
   final composed = label
       .toLowerCase()
       .replaceAll("ä", "ä")
       .replaceAll("ö", "ö")
       .replaceAll("ü", "ü");
-  return foldRecipeSearchText(
-    composed,
-  ).replaceAll(RegExp(r'\([^)]*\)'), ' ').replaceAll(RegExp(r'\s+'), ' ');
+  return foldRecipeSearchText(composed);
 }
 
 /// Reads [label] against the dictionary. [quantity] decides spice and pinch
@@ -654,7 +702,13 @@ PriceMatch matchPriceEntry(String label, {PriceQuantity? quantity}) {
   if (tokens.isEmpty) return _noMatch;
 
   _Candidate? best;
+  var modified = false;
   void consider(_Candidate candidate) {
+    // "rice vinegar": the key only describes the food after it.
+    if (candidate.modified) {
+      modified = true;
+      return;
+    }
     if (best == null ||
         candidate.length > best!.length ||
         (candidate.length == best!.length && candidate.end > best!.end)) {
@@ -667,11 +721,12 @@ PriceMatch matchPriceEntry(String label, {PriceQuantity? quantity}) {
   final cleaned = tokens.where((t) => !kPriceDescriptors.contains(t)).toList();
   _exactNgrams(cleaned, consider);
   for (var i = 0; i < cleaned.length; i++) {
-    _compound(cleaned[i], i, consider);
+    _compound(cleaned, i, consider);
   }
 
   final winner = best;
   if (winner == null) {
+    if (modified) return const PriceMatch(blocked: true);
     final skipped = cleaned.any(
       (t) =>
           kPriceSkipWords.contains(t) ||
@@ -682,6 +737,10 @@ PriceMatch matchPriceEntry(String label, {PriceQuantity? quantity}) {
   final id = kPriceKeys[winner.key];
   if (id == null) return const PriceMatch(blocked: true);
   final entry = kPriceEntries[id]!;
+  if (entry.excludeWords.isNotEmpty &&
+      _folded(label).split(_nonLetters).any(entry.excludeWords.contains)) {
+    return const PriceMatch(blocked: true);
+  }
   if (entry.spiceWhenSpooned &&
       (quantity is SpoonQuantity || quantity is PinchQuantity)) {
     return const PriceMatch(skipped: true);
@@ -690,7 +749,8 @@ PriceMatch matchPriceEntry(String label, {PriceQuantity? quantity}) {
 }
 
 class _Candidate {
-  const _Candidate(this.key, this.end, {this.impliedUnit});
+  _Candidate(this.key, this.end, List<String> tokens, {this.impliedUnit})
+    : modified = tokens.skip(end + 1).any(kPriceModifierHeads.contains);
 
   /// The matched key; the longest one wins.
   final String key;
@@ -698,6 +758,9 @@ class _Candidate {
   /// Index of the last token; ties go to the rightmost (the head noun).
   final int end;
   final PriceUnit? impliedUnit;
+
+  /// A modifier head follows the key ("rice vinegar").
+  final bool modified;
 
   int get length => key.length;
 }
@@ -709,7 +772,12 @@ void _exactNgrams(List<String> tokens, void Function(_Candidate) consider) {
       for (final key in {words.join(' '), words.join()}) {
         if (kPriceKeys.containsKey(key)) {
           consider(
-            _Candidate(key, start + size - 1, impliedUnit: _unitOf(key)),
+            _Candidate(
+              key,
+              start + size - 1,
+              tokens,
+              impliedUnit: _unitOf(key),
+            ),
           );
         }
       }
@@ -719,13 +787,18 @@ void _exactNgrams(List<String> tokens, void Function(_Candidate) consider) {
 
 /// A compound ending in a head ("kirschtomaten"), or a cut of a known
 /// ingredient ("haehnchenbrustfilet", "knoblauchzehe").
-void _compound(String token, int index, void Function(_Candidate) consider) {
+void _compound(
+  List<String> tokens,
+  int index,
+  void Function(_Candidate) consider,
+) {
+  final token = tokens[index];
   void suffix(String word, PriceUnit? unit) {
     for (final head in kPriceCompoundHeads) {
       if (head.length >= 4 &&
           word.length > head.length &&
           word.endsWith(head)) {
-        consider(_Candidate(head, index, impliedUnit: unit));
+        consider(_Candidate(head, index, tokens, impliedUnit: unit));
       }
     }
   }
@@ -737,7 +810,7 @@ void _compound(String token, int index, void Function(_Candidate) consider) {
     if (stem.length < 3) continue;
     final unit = _unitOf(ending);
     if (kPriceKeys.containsKey(stem)) {
-      consider(_Candidate(stem, index, impliedUnit: unit));
+      consider(_Candidate(stem, index, tokens, impliedUnit: unit));
     }
     suffix(stem, unit);
   }

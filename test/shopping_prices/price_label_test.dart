@@ -46,6 +46,10 @@ void main() {
       'Pizzateig (Kühlregal)': 'pizzaDough',
       'Weizenmehl Type 405': 'flour',
       'Zucchini': 'zucchini',
+      // The yogurt rows carry Skyr too.
+      'Skyr': 'yogurt',
+      'Tomaten, gewürfelt': 'tomato',
+      'Knoblauch, fein gehackt': 'garlic',
     };
     for (final MapEntry(key: label, value: id) in cases.entries) {
       final match = _match(label);
@@ -88,6 +92,9 @@ void main() {
       'Paprikapulver edelsüß',
       'Erdnussbutter',
       'Buttermilch',
+      'Pflanzenmilch',
+      'Cashewmilch',
+      'Haselnussmilch',
       'Süßkartoffeln',
       'Essiggurken',
       'Röstzwiebeln',
@@ -95,6 +102,48 @@ void main() {
       'Diced tomatoes',
       'Spring onions',
       'Peanut butter',
+      'Potato flour',
+    ]) {
+      final match = _match(label);
+      expect(match.entry, isNull, reason: label);
+      expect(match.blocked, isTrue, reason: label);
+    }
+  });
+
+  test('a key that only describes the food after it prices nothing', () {
+    for (final label in const [
+      'Rice vinegar',
+      'Rice noodles',
+      'Rice wine vinegar',
+      'Milk chocolate',
+      'Egg noodles',
+      'Butter beans',
+      'Potato chips',
+      'Onion rings',
+      'Apple pie',
+    ]) {
+      final match = _match(label);
+      expect(match.entry, isNull, reason: label);
+      expect(match.blocked, isTrue, reason: label);
+    }
+    // A later key is the food itself.
+    expect(_match('Garlic bread').entry?.id, 'bread');
+    expect(_match('Bread rolls').entry?.id, 'breadRoll');
+    // What follows "with" or "mit" describes, it never blocks.
+    expect(_match('Chicken breast with BBQ sauce').entry?.id, 'chickenBreast');
+    expect(_match('Brot mit Butter').entry?.id, 'bread');
+  });
+
+  test('a processed form named after a comma or in parentheses is not the '
+      'fresh food', () {
+    for (final label in const [
+      'Tomaten, passiert',
+      'Tomaten, gehackt',
+      'Tomaten (aus der Dose)',
+      'Tomaten in Stücken',
+      'Knoblauch, granuliert',
+      'Knoblauch, getrocknet',
+      'Garlic (dried)',
     ]) {
       final match = _match(label);
       expect(match.entry, isNull, reason: label);
@@ -170,6 +219,8 @@ void main() {
     expect(normalizePriceLabel('Milch / Hafermilch'), 'milch');
     expect(normalizePriceLabel('Butter; weich'), 'butter');
     expect(normalizePriceLabel('Rice or quinoa'), 'rice');
+    expect(normalizePriceLabel('Hähnchenbrust ohne Haut'), 'haehnchenbrust');
+    expect(normalizePriceLabel('Lachs in Scheiben'), 'lachs');
   });
 
   test('categories walk from the most specific tag', () {
@@ -242,9 +293,16 @@ void main() {
       }
     });
 
-    test('descriptors and skip words are folded', () {
-      for (final word in [...kPriceDescriptors, ...kPriceSkipWords]) {
+    test('descriptors, skip words, modifier heads and excluded words are '
+        'folded', () {
+      for (final word in [
+        ...kPriceDescriptors,
+        ...kPriceSkipWords,
+        ...kPriceModifierHeads,
+        for (final entry in kPriceEntries.values) ...entry.excludeWords,
+      ]) {
         expect(words.hasMatch(word), isTrue, reason: word);
+        expect(foldRecipeSearchText(word), word, reason: word);
       }
     });
   });
