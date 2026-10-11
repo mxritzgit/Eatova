@@ -273,7 +273,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// as well as on a card [surf]: the neutral `SoftPillButton` tone and the
   /// rest of a step track. Dark keeps the [surf2] value (1.21:1 on bg);
   /// light steps below [surf2], which measured 1.05:1 on bg and let these
-  /// controls vanish (1.25:1 on bg, 1.38:1 on a card).
+  /// controls vanish (1.21:1 on bg, 1.33:1 on a card). Only a shade deeper
+  /// than [field], whose capsule also carries a shadow: a neutral pill under
+  /// an input must not outweigh it, nor the accent pill beside it.
   final Color softFill;
 
   /// Modal barrier behind sheets and dialogs.
@@ -386,7 +388,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     field: Color(0xFFE4E2EB),
     fieldFocus: Color(0xFFEBE9F1),
     fieldError: Color(0xFFF5E2E1),
-    softFill: Color(0xFFDCDAE5),
+    softFill: Color(0xFFE0DEE8),
     scrim: Color(0x5217151F),
     // Slot tints (12 %, dinner 14 %) with the matching *Ink glyphs.
     slotBreakfastTint: Color(0x1F2D7DD2),
