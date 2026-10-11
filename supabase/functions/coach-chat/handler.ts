@@ -706,7 +706,10 @@ function finalizeAnswer(
   locale: CoachLocale,
 ): { reply: string; refusal: boolean } {
   if (finishReason === "content_filter") {
-    return { reply: refusalForReason("fallback", locale), refusal: true };
+    // The provider's safety system declined the answer. For a photo this is
+    // the only stage that saw the content, so it is treated like a declined
+    // classification: decline and point to help (COACH-2).
+    return { reply: refusalForReason("provider_refusal", locale), refusal: true };
   }
   if (!["stop", "length"].includes(finishReason)) {
     throw new ProviderError(502, `Provider completion failed (finish_reason=${finishReason})`);
@@ -1711,8 +1714,9 @@ const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
     de: "Das konnte ich gerade nicht sicher einordnen - da ist bei mir etwas schiefgelaufen. Formulier es bitte nochmal, dann versuche ich es erneut.",
     en: "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.",
   },
-  // The provider's safety system declined to classify the message, so nothing
-  // is known about it. It may be a crisis: decline, and point to help gently.
+  // The provider's safety system declined to classify the message, or declined
+  // the chat answer, so nothing is known about it. It may be a crisis: decline,
+  // and point to help gently.
   provider_refusal: {
     de: "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.",
     en: "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists helplines for your country. I'm happy to help with training and nutrition.",

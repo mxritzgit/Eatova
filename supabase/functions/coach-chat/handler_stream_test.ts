@@ -46,7 +46,13 @@ const DAILY_LIMIT = 5;
 // in handler_test.ts: eine Aenderung dort muss hier rot werden.
 const FALLBACK_REPLY =
   "Das geht ueber meinen Bereich hinaus - ich bin nur fuer Training und Ernaehrung da.";
-const FALLBACK_REPLY_EN = "That's outside my area - I'm only here for training and nutrition.";
+const PROVIDER_REFUSAL_REPLY =
+  "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr " +
+  "unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.";
+const PROVIDER_REFUSAL_REPLY_EN =
+  "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available " +
+  "around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists " +
+  "helplines for your country. I'm happy to help with training and nutrition.";
 const PROMPT_LEAK_REPLY =
   "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
 
@@ -1678,6 +1684,7 @@ Deno.test("Security S01: filtered answers never leave JSON or SSE and never ente
         const events = stream ? parseSse(await response.text()) : [];
         const result = stream ? events[events.length - 1].data : await response.json();
         assertEquals(result.refusal, true, "provider safety refusal preserved");
+        assertEquals(result.reply, PROVIDER_REFUSAL_REPLY, "signposting catalogue text");
         assertEquals(deltaTexte(events).length, 0, "no rejected text leaves as deltas");
         assertEquals(stub.assistantRows().filter(row => row.refusal === false).length, 0, "no accepted assistant row");
         assertEquals(stub.callsTo("refund_chat_quota").length, 0, "paid safety refusal is not refunded");
@@ -1911,31 +1918,42 @@ Deno.test("Claude: Denk- und Signatur-Deltas erreichen weder delta noch done noc
 Deno.test("Claude: stop_reason refusal liefert den lokalisierten Katalogtext ohne ein delta", async () => {
   // Die Sicherheitsklassifikatoren des Anbieters lehnen per stop_reason ab,
   // mitunter nach Text. Nichts davon darf raus, der Slot bleibt bezahlt.
-  for (const [locale, katalog] of [["de", FALLBACK_REPLY], ["en", FALLBACK_REPLY_EN]] as const) {
+  // COACH-2: nothing is known about the declined content, so the text is the
+  // classifier's provider_refusal text with the helpline. For a photo the
+  // answer call is the only stage that saw it.
+  const faelle = [
+    { locale: "de", katalog: PROVIDER_REFUSAL_REPLY, bild: "Analysiere dieses Bild im Fitness-Kontext." },
+    { locale: "en", katalog: PROVIDER_REFUSAL_REPLY_EN, bild: BILD_STANDARD_EN },
+  ];
+  for (const { locale, katalog, bild } of faelle) {
     for (const mitText of [false, true]) {
-      const was = `${locale}, ${mitText ? "nach Text" : "ohne Text"}`;
-      const stub = installFetch({
-        answerChunks: [...KOPF, ...(mitText ? [textDelta(LANGER_TEXT_A)] : []), ...abschluss("content_filter")],
-      });
-      try {
-        const res = await handleRequest(makeRequest({ message: FRAGE, locale }, true));
-        assertEquals(res.status, 200, `${was}: Status`);
-        const roh = await res.text();
-        const events = parseSse(roh);
-        assertEquals(events.map((e) => e.event).join(","), "meta,done", `${was}: nur meta und done`);
-        const done = events[1].data;
-        assertEquals(done.reply, katalog, `${was}: Katalogtext`);
-        assertEquals(done.refusal, true, `${was}: refusal`);
-        assertEquals(done.refusal_reason, "model_refusal", `${was}: refusal_reason`);
-        assert(!roh.includes("Muskulatur"), `${was}: abgelehnter Text auf der Leitung`);
-        const rows = stub.assistantRows();
-        assertEquals(rows.length, 1, `${was}: eine Zeile`);
-        assertEquals(rows[0].content, katalog, `${was}: gespeicherter Katalogtext`);
-        assertEquals(rows[0].refusal, true, `${was}: gespeicherte Refusal`);
-        assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${was}: kein Refund`);
-        assertEquals(stub.quotaUsed(), 1, `${was}: Slot bleibt verbraucht`);
-      } finally {
-        stub.restore();
+      for (const mitFoto of [false, true]) {
+        const was = `${locale}, ${mitText ? "nach Text" : "ohne Text"}, ${mitFoto ? "Foto" : "nur Text"}`;
+        const stub = installFetch({
+          answerChunks: [...KOPF, ...(mitText ? [textDelta(LANGER_TEXT_A)] : []), ...abschluss("content_filter")],
+        });
+        try {
+          const payload = mitFoto ? { message: bild, image_base64: FOTO, locale } : { message: FRAGE, locale };
+          const res = await handleRequest(makeRequest(payload, true));
+          assertEquals(res.status, 200, `${was}: Status`);
+          const roh = await res.text();
+          const events = parseSse(roh);
+          assertEquals(events.map((e) => e.event).join(","), "meta,done", `${was}: nur meta und done`);
+          const done = events[1].data;
+          assertEquals(done.reply, katalog, `${was}: Katalogtext`);
+          assert(String(done.reply).includes("0800 111 0 111"), `${was}: Hilfe-Nummer`);
+          assertEquals(done.refusal, true, `${was}: refusal`);
+          assertEquals(done.refusal_reason, "model_refusal", `${was}: refusal_reason`);
+          assert(!roh.includes("Muskulatur"), `${was}: abgelehnter Text auf der Leitung`);
+          const rows = stub.assistantRows();
+          assertEquals(rows.length, 1, `${was}: eine Zeile`);
+          assertEquals(rows[0].content, katalog, `${was}: gespeicherter Katalogtext`);
+          assertEquals(rows[0].refusal, true, `${was}: gespeicherte Refusal`);
+          assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${was}: kein Refund`);
+          assertEquals(stub.quotaUsed(), 1, `${was}: Slot bleibt verbraucht`);
+        } finally {
+          stub.restore();
+        }
       }
     }
   }

@@ -2803,6 +2803,43 @@ Deno.test("COACH-1: ein Leck mit Krisennummer wird zum Krisen-Katalogtext, nicht
   }
 });
 
+// COACH-2: byte copies of REFUSAL_TEXTS.provider_refusal.
+const PROVIDER_REFUSAL_REPLY =
+  "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.";
+const PROVIDER_REFUSAL_REPLY_EN =
+  "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists helplines for your country. I'm happy to help with training and nutrition.";
+
+Deno.test("COACH-2: Provider-Ablehnung der Antwort auf ein Foto zeigt die Hilfe-Nummer", async () => {
+  // The answer call is the only stage that sees the photo. When the
+  // provider's safety system declines it, nothing is known about the image,
+  // exactly like a declined classification, so it gets the same text.
+  for (const { locale, caption, expected } of [
+    { locale: "de", caption: "Analysiere dieses Bild im Fitness-Kontext.", expected: PROVIDER_REFUSAL_REPLY },
+    { locale: "en", caption: IMAGE_DEFAULT_CAPTION_EN, expected: PROVIDER_REFUSAL_REPLY_EN },
+  ]) {
+    const stub = installFetch({
+      classifierCategory: "fitness",
+      answerContent: "",
+      answerFinishReason: "content_filter",
+    });
+    try {
+      const res = await handleRequest(makeRequest({ message: caption, image_base64: IMAGE_BASE64, locale }));
+      assertEquals(res.status, 200, `${locale}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.refusal, true, `${locale}: refusal`);
+      assertEquals(body.refusal_reason, "model_refusal", `${locale}: refusal_reason`);
+      assertEquals(body.reply, expected, `${locale}: Hinweistext`);
+      assert(String(body.reply).includes(CRISIS_NUMBER), `${locale}: Hilfe-Nummer`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${locale}: kein Refund`);
+      const stored = storedAssistantRow(stub);
+      assertEquals(stored?.refusal, true, `${locale}: gespeichert als Refusal`);
+      assertEquals(stored?.content, expected, `${locale}: gespeicherter Text`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
 // ------------------------------------------------------------------ P5-08
 // Protocol guards that had no coach-chat test at all (analyze-meal has the
 // OPTIONS/405 pair). Every one of them must answer BEFORE a quota slot is
