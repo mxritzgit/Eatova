@@ -2,9 +2,9 @@
 // the settings language (2026-10-04).
 //
 // Mounts the settings page and the goals page it leads to (plan hero,
-// groups, pickers, the read-only trend row, the target notes) with realistic
-// data at the design's reference geometry (390x844, DPR 2, real fonts). The
-// profile has its own capture suite.
+// groups, pickers, the read-only trend row, the target notes, Save locked by
+// an invalid value) with realistic data at the design's reference geometry
+// (390x844, DPR 2, real fonts). The profile has its own capture suite.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/. Without it the suite still checks that every surface
@@ -19,6 +19,7 @@ import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -316,6 +317,29 @@ void main() {
       await tester.pumpAndSettle();
       expect(reached, findsOneWidget);
       await captureDesignShot(tester, 'goals-notes');
+    });
+  });
+
+  testWidgets('goals: Save locked by an invalid value', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _mount(tester, const GoalsScreen(profile: _profile));
+      // A slipped decimal: 755 kg is out of range and locks Save, which
+      // dims its own fill once (no Opacity on top).
+      await tester.enterText(
+        find.byKey(const ValueKey('settings-weight')),
+        '755',
+      );
+      await tester.pumpAndSettle();
+      final save = find.byKey(const ValueKey('settings-save'));
+      expect(tester.widget<PrimaryActionButton>(save).onTap, isNull);
+      expect(
+        find.byKey(const ValueKey('settings-validation-note')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'goals-save-locked');
     });
   });
 

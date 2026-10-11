@@ -9,6 +9,8 @@
 //   profile-de-00/01 the densest part in German
 //   profile-new-00   a fresh account (one weigh-in, nothing connected)
 //   profile-weight-sheet / profile-bmi-sheet  the two sheets
+//   profile-weight-sheet-locked / -invalid    Save locked: empty, then
+//                    out of range
 //   profile-xl-NN    the page at 2.0 text scale
 //   profile-hc       the Android Health Connect variant of the last card
 //
@@ -26,6 +28,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/design_capture.dart';
 import '../support/harness.dart';
@@ -262,6 +265,30 @@ void main() {
       expect(find.byKey(const ValueKey('profile-weight-input')),
           findsOneWidget);
       await captureDesignShot(tester, 'profile-weight-sheet');
+
+      // Locked: an empty field, then a value out of range. Save dims its own
+      // fill once (no Opacity on top).
+      PrimaryActionButton save() => tester.widget<PrimaryActionButton>(
+        find.byKey(const ValueKey('profile-weight-save')),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('profile-weight-input')),
+        '',
+      );
+      await tester.pumpAndSettle();
+      expect(save().onTap, isNull);
+      await captureDesignShot(tester, 'profile-weight-sheet-locked');
+      await tester.enterText(
+        find.byKey(const ValueKey('profile-weight-input')),
+        '755',
+      );
+      await tester.pumpAndSettle();
+      expect(save().onTap, isNull);
+      expect(
+        find.byKey(const ValueKey('profile-weight-error')),
+        findsOneWidget,
+      );
+      await captureDesignShot(tester, 'profile-weight-sheet-invalid');
       Navigator.of(
         tester.element(find.byKey(const ValueKey('profile-weight-input'))),
       ).pop();

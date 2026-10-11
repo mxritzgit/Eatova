@@ -11,22 +11,68 @@
 //                       the exercise and header overflow menus (MenuRow)
 //   training-player-discard-dialog
 //                       the discard decision card behind the header menu
+//   training-player-menu-tooltip
+//                       the long-press label of the header menu (tooltip
+//                       theme)
 //   training-plan-menu / training-workout-menu
 //                       the plan's tune menu and the workout chooser on the
 //                       Training tab
+//   training-player-unstored-dialog (-320-x2)
+//                       leaving when the store refused the place: Finish,
+//                       the soft-danger "Leave without saving" and Stay
 //
 // Shots are written only with DARK_REDESIGN_CAPTURE or
 // DESIGN_CAPTURE_BRIGHTNESS; the normal pass checks that each surface shows.
 
 import 'package:clock/clock.dart';
+import 'package:eatova/src/screens/training/training_player_screen.dart';
+import 'package:eatova/src/services/screen_awake.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../flows/flow_test_helpers.dart' show settleFrames;
 import '../support/design_capture.dart';
+import '../support/harness.dart';
 import '../training/training_overview_fixture.dart';
 
 Finder _key(String id) => find.byKey(ValueKey(id));
+
+final class _NoAwake implements ScreenAwake {
+  const _NoAwake();
+
+  @override
+  Future<void> setKeepAwake(bool on, {String owner = 'default'}) async {}
+}
+
+/// The list player alone, with a store that refuses every checkpoint (the
+/// source plan changed), so leaving after a set asks on the unstored card.
+Future<void> _pumpRefusingPlayer(
+  WidgetTester tester, {
+  double width = 390,
+  double textScale = 1,
+}) async {
+  pinDesignViewport(tester);
+  tester.view.physicalSize =
+      Size(width, kDesignViewport.height) * kDesignPixelRatio;
+  await tester.pumpWidget(
+    designCaptureBoundary(
+      localizedApp(
+        TrainingPlayerScreen(
+          plan: trainingDesignPlan(),
+          onPersist: (_) async => false,
+          onComplete: (_) async {},
+          screenAwake: const _NoAwake(),
+          monotonicNow: () => Duration.zero,
+        ),
+        locale: const Locale('en'),
+        textScale: textScale,
+        safeArea: false,
+        scaffold: false,
+      ),
+    ),
+  );
+  await settleFrames(tester);
+}
 
 Future<void> _tap(WidgetTester tester, String id) async {
   await tester.ensureVisible(_key(id));
@@ -88,6 +134,14 @@ void main() {
       await tester.tapAt(const Offset(20, 400));
       await settleFrames(tester);
 
+      // Long-press shows the trigger's label in the tooltip theme.
+      await tester.longPress(_key('training-timer-menu'));
+      await settleFrames(tester, rounds: 20);
+      expect(find.text('Workout options'), findsOneWidget);
+      await captureDesignShot(tester, 'training-player-menu-tooltip');
+      await tester.pump(const Duration(seconds: 3));
+      await settleFrames(tester);
+
       await _tap(tester, 'training-timer-menu');
       expect(_key('training-timer-discard'), findsOneWidget);
       await captureDesignShot(tester, 'training-player-menu');
@@ -125,4 +179,34 @@ void main() {
       await settleFrames(tester);
     });
   });
+
+  for (final (suffix, width, scale) in const [
+    ('', 390.0, 1.0),
+    ('-320-x2', 320.0, 2.0),
+  ]) {
+    testWidgets('unstored leave: Finish, soft-danger leave and Stay$suffix', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(kTrainingDesignNow), () async {
+        await _pumpRefusingPlayer(tester, width: width, textScale: scale);
+        await _tap(tester, 'training-set-check-0-0');
+        await _tap(tester, 'training-timer-back');
+        // A done set can still be finished: all three actions show.
+        for (final id in [
+          'training-timer-unstored-finish',
+          'training-timer-unstored-leave',
+          'training-timer-unstored-stay',
+        ]) {
+          expect(_key(id), findsOneWidget, reason: id);
+        }
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(
+          tester,
+          'training-player-unstored-dialog$suffix',
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        await settleFrames(tester);
+      });
+    });
+  }
 }

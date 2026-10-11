@@ -1,7 +1,7 @@
 // Visual evidence for the 2026-10-03 meal-sheet slice of the redesign: the
 // recipe detail's add card and soft edit/history pills, the adjust sheet with
 // a removed item, its add dialog and the discard decision card (2026-10-11),
-// the scan result's actions and the manual sheet — at the reference phone, at
+// the info card of a portion without cooked weight, the scan result's actions and the manual sheet — at the reference phone, at
 // 320 px and at 2x text.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
@@ -80,6 +80,33 @@ const _poke = FitnessRecipe(
   categories: ['Fisch'],
   userCreated: true,
 );
+
+/// Half a portion of a batch logged by servings: measured nutrition, but no
+/// cooked weight, so adjusting it opens the info card instead of the sheet.
+MealAnalysisResult _servingsPortion() => FitnessRecipe(
+  slug: 'user_overnight_oats',
+  title: 'Overnight oats',
+  description: '',
+  portion: '',
+  ingredients: '',
+  preparation: '',
+  professionalHint: '',
+  imageAsset: '',
+  caloriesKcal: 0,
+  proteinG: 0,
+  carbsG: 0,
+  fatG: 0,
+  estimatedGrams: 0,
+  categories: const [],
+  batchServings: 4,
+  structuredIngredients: [
+    RecipeIngredient(
+      name: 'Oats',
+      grams: 400,
+      per100g: const RecipeNutrition(caloriesKcal: 350, proteinG: 10, fatG: 0),
+    ),
+  ],
+).toMealResultForServings(0.5);
 
 /// The reference phone, optionally narrowed to [width] logical pixels.
 void _viewport(WidgetTester tester, {double width = 390}) {
@@ -270,6 +297,32 @@ void main() {
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-sheets-discard-dialog-320-x2');
     });
+
+    for (final (suffix, width, scale) in const [
+      ('', 390.0, 1.0),
+      ('-320-x2', 320.0, 2.0),
+    ]) {
+      testWidgets('no cooked weight: the info card$suffix', (tester) async {
+        final portion = _servingsPortion();
+        expect(portion.isRecipeWithoutCookedWeight, isTrue);
+        await _host(
+          tester,
+          (context) => showWeightAdjustmentSheet(context, portion),
+          width: width,
+          textScale: scale,
+        );
+        expect(
+          find.textContaining('cooked weight was not recorded'),
+          findsOneWidget,
+        );
+        expect(find.text('Close'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(
+          tester,
+          'meal-sheets-no-cooked-weight-info$suffix',
+        );
+      });
+    }
 
     testWidgets('320 px and 2x text', (tester) async {
       await _host(
