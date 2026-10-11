@@ -162,7 +162,13 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// the setter on the previously hardcoded text.
   AppLocalizations _l10n = deL10n;
 
-  void setLocalizations(AppLocalizations l10n) => _l10n = l10n;
+  void setLocalizations(AppLocalizations l10n) {
+    _l10n = l10n;
+    // The shell passes every locale change here: Android channel names
+    // follow it, also when no reminder path ever ran.
+    final Object service = notificationService;
+    if (service is NotificationLocalizable) service.setLocalizations(l10n);
+  }
 
   bool _disposed = false;
   bool _trainingSessionEnded = false;

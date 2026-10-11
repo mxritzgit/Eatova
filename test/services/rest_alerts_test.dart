@@ -455,6 +455,79 @@ void main() {
 
   // Final review P-4: Android defers the inexact rest alarm, and the player
   // cancels it once it sees the deadline; the cue is the foreground sound.
+  group('Android-Kanaele folgen der App-Sprache', () {
+    AndroidNotificationChannel last(_FakeGateway gateway, String id) =>
+        gateway.channels.lastWhere((c) => c.id == id);
+
+    test(
+      'ein frueher Init auf Deutsch wird mit der englischen Sprache umbenannt',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway);
+        // The signed-out cold start cancels before any locale arrives.
+        await service.cancelAll();
+        expect(last(gateway, 'eatova_nudges').name, 'Eatova Erinnerungen');
+
+        service.setLocalizations(enL10n);
+        await service.cancelNudges();
+
+        expect(last(gateway, 'eatova_nudges').name, 'Eatova reminders');
+        expect(
+          last(gateway, 'eatova_nudges').description,
+          enL10n.notifChannelDescription,
+        );
+        expect(last(gateway, 'eatova_training').name, 'Workout timer');
+        expect(
+          last(gateway, 'eatova_training').description,
+          enL10n.trainingRestChannelDescription,
+        );
+
+        // The same locale again (every didChangeDependencies) costs nothing.
+        final created = gateway.channels.length;
+        service.setLocalizations(enL10n);
+        await service.cancelNudges();
+        expect(gateway.channels, hasLength(created));
+      }),
+    );
+
+    test(
+      'iOS legt bei einem Sprachwechsel keine Kanaele an',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway, platform: NotificationPlatform.ios);
+        await service.cancelAll();
+
+        service.setLocalizations(enL10n);
+        await service.cancelNudges();
+
+        expect(gateway.channels, isEmpty);
+      }),
+    );
+
+    test(
+      'Erinnerungen aus: der Kaltstart legt die Kanaele in der Sprache des '
+      'Stores an',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway);
+        final store = _store(
+          LocalCache(InMemoryKeyValueStore(), 'channel-locale'),
+          service,
+        );
+        store.setLocalizations(enL10n);
+
+        await store.initNotificationsFromCache();
+
+        expect(
+          gateway.channels.map((c) => c.name),
+          everyElement(isIn(['Eatova reminders', 'Workout timer'])),
+        );
+        expect(last(gateway, 'eatova_nudges').name, 'Eatova reminders');
+        expect(last(gateway, 'eatova_training').name, 'Workout timer');
+      }),
+    );
+  });
+
   group('Sofort-Signal bei einem gesehenen Phasenende', () {
     Future<void> cue(LocalNotificationService service, [int? id]) =>
         service.cueRestAlert(

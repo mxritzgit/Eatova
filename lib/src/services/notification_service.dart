@@ -96,8 +96,8 @@ abstract class NotificationPermissionProbe {
 
 /// Extra seam on [NotificationService] (same pattern as
 /// [NotificationPermissionProbe]): passes the active locale in so the Android
-/// channel name/description is (re-)created in that language on the next
-/// `init()`.
+/// channel name/description is created in that language, or renamed when
+/// `init()` already created it in another.
 ///
 /// A separate interface keeps `init()`'s parameterless signature and existing
 /// test doubles valid. Callers probe via `is`; absence just means the channel
@@ -344,8 +344,30 @@ class LocalNotificationService
   /// hardcoded string while nobody calls [setLocalizations].
   AppLocalizations _l10n = deL10n;
 
+  /// Android names the channels only when they are created, and [init] runs
+  /// once per process, often before the app's locale arrives (the signed-out
+  /// cancel, a permission read). A new locale therefore renames them.
   @override
-  void setLocalizations(AppLocalizations l10n) => _l10n = l10n;
+  void setLocalizations(AppLocalizations l10n) {
+    if (l10n.localeName == _l10n.localeName) return;
+    _l10n = l10n;
+    if (_platform != NotificationPlatform.android) return;
+    unawaited(
+      _enqueueMutation(() async {
+        // Not initialized yet: the next init() names them in this locale.
+        if (!_initialized) return;
+        try {
+          await _createAndroidChannels();
+        } catch (e, st) {
+          await CrashReporter.capture(
+            e,
+            st,
+            context: 'notification-channel-locale',
+          );
+        }
+      }),
+    );
+  }
 
   static const String _androidChannelId = 'eatova_nudges';
   String get _androidChannelName => _l10n.notifChannelName;
@@ -430,30 +452,41 @@ class LocalNotificationService
       await _setLocalTimezone();
       await _gateway.initialize(settings, onResponse: _onResponse);
       // Android 8+ needs an explicit channel or nudges are not shown.
-      // Idempotent — recreating it is a no-op.
       if (_platform == NotificationPlatform.android) {
-        await _gateway.createAndroidChannel(
-          AndroidNotificationChannel(
-            _androidChannelId,
-            _androidChannelName,
-            description: _androidChannelDescription,
-            importance: Importance.defaultImportance,
-          ),
-        );
-        await _gateway.createAndroidChannel(
-          AndroidNotificationChannel(
-            _restChannelId,
-            _l10n.trainingRestChannelName,
-            description: _l10n.trainingRestChannelDescription,
-            importance: Importance.defaultImportance,
-          ),
-        );
+        await _createAndroidChannels();
       }
       _initialized = true;
     } catch (e, st) {
       // Not available for now; the next init() retries. Reported, not
       // rethrown: a PlatformException here was a zone error per cold start.
       await CrashReporter.capture(e, st, context: 'notification-init');
+    }
+  }
+
+  /// Creates both channels in the current locale. Recreating an existing id
+  /// keeps the user's channel settings and only updates name and
+  /// description. A locale that arrives meanwhile names them again.
+  Future<void> _createAndroidChannels() async {
+    String? named;
+    while (named != _l10n.localeName) {
+      final l10n = _l10n;
+      named = l10n.localeName;
+      await _gateway.createAndroidChannel(
+        AndroidNotificationChannel(
+          _androidChannelId,
+          l10n.notifChannelName,
+          description: l10n.notifChannelDescription,
+          importance: Importance.defaultImportance,
+        ),
+      );
+      await _gateway.createAndroidChannel(
+        AndroidNotificationChannel(
+          _restChannelId,
+          l10n.trainingRestChannelName,
+          description: l10n.trainingRestChannelDescription,
+          importance: Importance.defaultImportance,
+        ),
+      );
     }
   }
 
