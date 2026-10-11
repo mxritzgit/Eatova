@@ -384,8 +384,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(rSheet),
             ),
-            border: Border.all(color: context.t.lineStrong),
           ),
+          foregroundDecoration: sheetEdgeDecoration(context.t),
           clipBehavior: Clip.antiAlias,
           child: SnackHost(child: body),
         ),

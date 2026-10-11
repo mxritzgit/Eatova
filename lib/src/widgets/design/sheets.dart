@@ -847,6 +847,15 @@ class _SheetDismissGuardState extends State<SheetDismissGuard>
   }
 }
 
+/// The 1 px [AppTokens.lineStrong] edge of a sheet that paints its own
+/// shell, for a Container's `foregroundDecoration`. Drawn over the content
+/// like the shape side of [showEatovaSheet]; as a border in `decoration` it
+/// would pad the content 1 px off the 20 px gutter.
+BoxDecoration sheetEdgeDecoration(AppTokens t) => BoxDecoration(
+  borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
+  border: Border.all(color: t.lineStrong),
+);
+
 /// Gap between the top safe area and a sheet's top edge.
 const double kSheetTopGap = 12;
 

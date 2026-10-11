@@ -75,8 +75,8 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(rSheet),
           ),
-          border: Border.all(color: t.lineStrong),
         ),
+        foregroundDecoration: sheetEdgeDecoration(t),
         clipBehavior: Clip.antiAlias,
         child: Column(
           mainAxisSize: MainAxisSize.min,

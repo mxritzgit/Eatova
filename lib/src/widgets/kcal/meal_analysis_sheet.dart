@@ -622,8 +622,8 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(rSheet),
             ),
-            border: Border.all(color: t.lineStrong),
           ),
+          foregroundDecoration: sheetEdgeDecoration(t),
           child: SnackHost(measureToast: true, child: body),
         ),
       ),
