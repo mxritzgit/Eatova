@@ -18,9 +18,13 @@ class ShoppingItem {
     this.originalBatchServings,
     this.planId,
     this.lines = const [],
+    this.planGrams = const {},
   });
   final String id, name;
   final double? grams;
+
+  /// A weighed item's [grams] per planned meal id; display only.
+  final Map<String, double> planGrams;
   final String? recipeTitle;
 
   /// The planned meal behind a free-text item (its day and slot); display
@@ -119,6 +123,7 @@ List<ShoppingItem> buildShoppingList(
   final start = localDayKey(weekStart);
   final groups = <String, ({String name, double grams})>{};
   final sources = <String, Set<String>>{};
+  final perPlan = <String, Map<String, double>>{};
   final unquantified = <ShoppingItem>[];
   String identity(Object value) =>
       '$start:${sha256.convert(utf8.encode(jsonEncode(value)))}';
@@ -155,6 +160,9 @@ List<ShoppingItem> buildShoppingList(
     for (final ingredient in recipe.structuredIngredients) {
       final key = ingredient.shoppingKey;
       (sources[key] ??= {}).add(plan.id);
+      final share = ingredient.grams * plan.servings / recipe.batchServings;
+      final shares = perPlan[key] ??= {};
+      shares[plan.id] = (shares[plan.id] ?? 0) + share;
       final previous = groups[key];
       groups[key] = (
         name:
@@ -178,6 +186,7 @@ List<ShoppingItem> buildShoppingList(
               ]),
               name: e.value.name,
               grams: e.value.grams,
+              planGrams: perPlan[e.key]!,
             ),
           )
           .toList()
