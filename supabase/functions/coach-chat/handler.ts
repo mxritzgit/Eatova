@@ -2742,6 +2742,13 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     }, 413);
   }
 
+  // BE-1: Postgres text holds neither NUL nor a lone surrogate, so storing
+  // such a message fails. That failure came after the paid classifier and
+  // refunded the slot: free classifier calls on repeat. Reject it up front.
+  if (rawMessage.includes("\u0000") || !rawMessage.isWellFormed()) {
+    return json({ error: "invalid_message" }, 400);
+  }
+
   if (hasImage && imageBase64.length > MAX_IMAGE_BASE64_CHARS) {
     return json({
       error: "image_too_large",
