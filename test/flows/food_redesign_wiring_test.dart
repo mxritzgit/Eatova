@@ -154,6 +154,11 @@ Future<HomeStore> _pumpFood(
 
 Finder _key(String key) => find.byKey(ValueKey<String>(key));
 
+/// `foodMacroSummary` as rendered: no-break spaces hold each token ("P 41 g")
+/// together, so a narrow line breaks only after a ' · ' separator.
+String _macros(String line) =>
+    line.replaceAll(' ', '\u00a0').replaceAll('\u00a0·\u00a0', '\u00a0· ');
+
 Finder _inCard(MealSlot slot, Finder finder) =>
     find.descendant(of: _key('food-slot-card-${slot.name}'), matching: finder);
 
@@ -424,9 +429,9 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           _text(tester, 'food-slot-macros-breakfast'),
-          'P 35 g · C 51 g · F 4 g',
+          _macros('P 35 g · C 51 g · F 4 g'),
         );
-        expect(find.text('P 27 g · C 10 g · F 1 g'), findsOneWidget);
+        expect(find.text(_macros('P 27 g · C 10 g · F 1 g')), findsOneWidget);
         // Each entry's logged time comes back with the details.
         for (final id in ['b1', 'b2', 'b3']) {
           expect(_text(tester, 'food-entry-time-$id'), '08:10');

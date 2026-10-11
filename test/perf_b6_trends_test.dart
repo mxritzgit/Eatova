@@ -398,7 +398,7 @@ void main() {
         // 7-day view: weekday row present, one label per slot.
         expect(erst.weekdayLabels, hasLength(7));
         expect(erst.gridLabels, hasLength(4));
-        expect(erst.goalLabel, isNotNull);
+        // The goal line's label is a legend in the card header now.
 
         final englisch = bauen(erst, enL10n);
         expect(identical(englisch, erst), isFalse);

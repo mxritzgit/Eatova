@@ -88,6 +88,11 @@ void _pin390(WidgetTester tester) {
 String? _textOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(ValueKey(key))).data;
 
+/// `foodMacroSummary` as rendered: no-break spaces hold each token ("P 41 g")
+/// together, so a narrow line breaks only after a ' · ' separator.
+String _macros(String line) =>
+    line.replaceAll(' ', '\u00a0').replaceAll('\u00a0·\u00a0', '\u00a0· ');
+
 Widget _list({List<LoggedMeal>? meals}) => ExistingMealsList(
       meals: meals ?? _meals,
       slot: MealSlot.dinner,
@@ -112,7 +117,7 @@ void main() {
     // 40.5 -> 41 (half up), 29.4 -> 29; comma AND dot are parsed.
     expect(
       _textOf(tester, 'analyse-existing-total-macros'),
-      'P 41 g · K 67 g · F 29 g',
+      _macros('P 41 g · K 67 g · F 29 g'),
     );
   });
 
@@ -124,12 +129,12 @@ void main() {
 
     expect(
       _textOf(tester, 'analyse-existing-macros-m1'),
-      'P 34 g · K 2 g · F 28 g',
+      _macros('P 34 g · K 2 g · F 28 g'),
     );
     // 6.5 -> 7 and 1.4 -> 1, rounded per row.
     expect(
       _textOf(tester, 'analyse-existing-macros-m2'),
-      'P 7 g · K 65 g · F 1 g',
+      _macros('P 7 g · K 65 g · F 1 g'),
     );
     // '-' everywhere -> no "P 0 g" row faking a measurement.
     expect(
@@ -174,7 +179,7 @@ void main() {
     expect(tester.takeException(), isNull);
 
     expect(find.text('Total'), findsOneWidget);
-    expect(find.text('P 41 g · C 67 g · F 29 g'), findsOneWidget);
+    expect(find.text(_macros('P 41 g · C 67 g · F 29 g')), findsOneWidget);
   });
 
   testWidgets('Rendert bei 390 pt und Textskala 1.3 in Hell UND Dunkel ohne '
@@ -215,6 +220,6 @@ void main() {
 
     expect(find.text('420 kcal'), findsOneWidget);
     // Once in the header, once in the row.
-    expect(find.text('P 34 g · K 2 g · F 28 g'), findsNWidgets(2));
+    expect(find.text(_macros('P 34 g · K 2 g · F 28 g')), findsNWidgets(2));
   });
 }

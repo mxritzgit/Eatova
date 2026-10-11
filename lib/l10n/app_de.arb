@@ -139,7 +139,7 @@
   "foodEntryDeleteSemantics": "Eintrag löschen",
   "foodPortionFallback": "1 Portion",
   "foodEditMealTitle": "Mahlzeit bearbeiten",
-  "foodMacroSummary": "P {protein} g · K {carbs} g · F {fat} g",
+  "foodMacroSummary": "P\u00a0{protein}\u00a0g\u00a0· K\u00a0{carbs}\u00a0g\u00a0· F\u00a0{fat}\u00a0g",
   "@foodMacroSummary": {
     "placeholders": {
       "protein": { "type": "int" },
@@ -258,22 +258,22 @@
   "todayEnergyCheckBurnMore": "Laut deinen letzten drei Wochen verbrauchst du rund {observed} kcal am Tag – etwa {difference} kcal mehr als berechnet.",
   "@todayEnergyCheckBurnMore": {
     "placeholders": {
-      "observed": { "type": "int" },
-      "difference": { "type": "int" }
+      "observed": { "type": "int", "format": "decimalPattern" },
+      "difference": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckBurnLess": "Laut deinen letzten drei Wochen verbrauchst du rund {observed} kcal am Tag – etwa {difference} kcal weniger als berechnet.",
   "@todayEnergyCheckBurnLess": {
     "placeholders": {
-      "observed": { "type": "int" },
-      "difference": { "type": "int" }
+      "observed": { "type": "int", "format": "decimalPattern" },
+      "difference": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckQuestion": "Tagesziel von {current} auf {proposed} kcal anpassen?",
   "@todayEnergyCheckQuestion": {
     "placeholders": {
-      "current": { "type": "int" },
-      "proposed": { "type": "int" }
+      "current": { "type": "int", "format": "decimalPattern" },
+      "proposed": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckBasis": "Grundlage: {days} Tage mit Einträgen, {weighIns} Wiegungen",

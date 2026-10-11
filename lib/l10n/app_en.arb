@@ -139,7 +139,7 @@
   "foodEntryDeleteSemantics": "Delete entry",
   "foodPortionFallback": "1 portion",
   "foodEditMealTitle": "Edit meal",
-  "foodMacroSummary": "P {protein} g · C {carbs} g · F {fat} g",
+  "foodMacroSummary": "P\u00a0{protein}\u00a0g\u00a0· C\u00a0{carbs}\u00a0g\u00a0· F\u00a0{fat}\u00a0g",
   "@foodMacroSummary": {
     "placeholders": {
       "protein": { "type": "int" },
@@ -258,22 +258,22 @@
   "todayEnergyCheckBurnMore": "Your last three weeks suggest you burn about {observed} kcal a day – roughly {difference} kcal more than calculated.",
   "@todayEnergyCheckBurnMore": {
     "placeholders": {
-      "observed": { "type": "int" },
-      "difference": { "type": "int" }
+      "observed": { "type": "int", "format": "decimalPattern" },
+      "difference": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckBurnLess": "Your last three weeks suggest you burn about {observed} kcal a day – roughly {difference} kcal less than calculated.",
   "@todayEnergyCheckBurnLess": {
     "placeholders": {
-      "observed": { "type": "int" },
-      "difference": { "type": "int" }
+      "observed": { "type": "int", "format": "decimalPattern" },
+      "difference": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckQuestion": "Change your daily goal from {current} to {proposed} kcal?",
   "@todayEnergyCheckQuestion": {
     "placeholders": {
-      "current": { "type": "int" },
-      "proposed": { "type": "int" }
+      "current": { "type": "int", "format": "decimalPattern" },
+      "proposed": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckBasis": "Based on {days} logged days and {weighIns} weigh-ins",

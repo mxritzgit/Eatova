@@ -96,7 +96,8 @@ class _TodayEnergyCheckCardState extends State<TodayEnergyCheckCard> {
               key: const ValueKey('today-energy-check-accept'),
               label: l10n.todayEnergyCheckAccept,
               icon: Icons.check_rounded,
-              height: 46,
+              // The touch floor the other in-card primaries use.
+              height: kButtonMinHeight,
               onTap: _busy ? null : () => _answer(widget.onAccept),
             ),
             const SizedBox(height: 8),

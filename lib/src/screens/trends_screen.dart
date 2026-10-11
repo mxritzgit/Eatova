@@ -282,6 +282,7 @@ class _RangeSelector extends StatelessWidget {
                 label: l10n.trendsRangeDaysLabel(ranges[i]),
                 selected: ranges[i] == selected,
                 onTap: () => onSelected(ranges[i]),
+                expand: true,
               ),
             ),
           ),
@@ -348,6 +349,11 @@ class _ChartCardState extends State<_ChartCard> {
     final spokenGoal = widget.goalPerDay.isEmpty
         ? widget.kcalGoal
         : widget.goalPerDay.last;
+    // The goal line's legend: today's slot including its step bonus. It sits
+    // in the header, not on the plot, where it covered the latest bars.
+    final legendGoal = widget.goalPerDay.any((g) => g > 0)
+        ? widget.goalPerDay.last
+        : 0;
     final semanticsValue = trackedDays == 0
         ? l10n.trendsChartSemanticsEmpty
         : avg == null
@@ -363,8 +369,9 @@ class _ChartCardState extends State<_ChartCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The range is already the selected pill above the card; the
+          // trailing slot carries the goal line's legend instead.
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
                 child: Text(
@@ -376,17 +383,22 @@ class _ChartCardState extends State<_ChartCard> {
                   ),
                 ),
               ),
-              Flexible(
-                child: Text(
-                  l10n.trendsRangeDaysLabel(rangeDays),
-                  textAlign: TextAlign.right,
-                  style: AppType.ui(
-                    11.5,
-                    weight: FontWeight.w600,
-                    color: t.ink2,
+              if (legendGoal > 0)
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 10),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      heightFactor: 1,
+                      child: _GoalLegend(
+                        label: l10n.trendsChartGoalLabel(
+                          formatThousands(legendGoal, l10n.localeName),
+                        ),
+                        lineColor: t.ink.withValues(alpha: 0.6),
+                      ),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -418,7 +430,6 @@ class _ChartCardState extends State<_ChartCard> {
                       barColor: t.progressAccent,
                       goalLineColor: t.ink.withValues(alpha: 0.6),
                       bandColor: t.ink.withValues(alpha: 0.05),
-                      labelFill: t.surf,
                     ),
                     size: Size.infinite,
                   ),
@@ -447,6 +458,43 @@ class _ChartCardState extends State<_ChartCard> {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// The goal line's key: a short stroke in the line's colour and its label.
+class _GoalLegend extends StatelessWidget {
+  const _GoalLegend({required this.label, required this.lineColor});
+
+  final String label;
+  final Color lineColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: const ValueKey('trends-goal-legend'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 14,
+          height: 1.4,
+          decoration: BoxDecoration(
+            color: lineColor,
+            borderRadius: BorderRadius.circular(rPill),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            style: AppType.ui(
+              11.5,
+              weight: FontWeight.w600,
+              color: context.t.ink2,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -755,7 +803,6 @@ class _KcalTrendPainter extends CustomPainter {
     required this.barColor,
     required this.goalLineColor,
     required this.bandColor,
-    required this.labelFill,
   }) : assert(goalPerDay.length == window.length);
 
   final List<TrendDayTotals?> window;
@@ -763,15 +810,11 @@ class _KcalTrendPainter extends CustomPainter {
   /// Effective goal per slot, same length as [window].
   final List<int> goalPerDay;
 
-  /// Tick labels, goal label and weekday row, plus the axis maximum they were
-  /// laid out for. Shared by every frame of one build-up.
+  /// Tick labels and weekday row, plus the axis maximum they were laid out
+  /// for. Shared by every frame of one build-up.
   final TrendChartLabels labels;
   final double progress;
   final Color gridColor, barColor, goalLineColor, bandColor;
-
-  /// The card colour behind the goal label: a day over the goal draws its
-  /// bar right where the label sits.
-  final Color labelFill;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -852,9 +895,8 @@ class _KcalTrendPainter extends CustomPainter {
       );
     }
 
-    // Target line: brighter than the grid, solid, stepped per slot, labelled
-    // at the right end with the LAST slot's goal (today's, incl. bonus).
-    final lastGoal = goalPerDay.isEmpty ? 0 : goalPerDay.last;
+    // Target line: brighter than the grid, solid, stepped per slot. Its
+    // legend sits in the card header, so no label covers the latest bars.
     if (goalPerDay.any((g) => g > 0)) {
       final goalPaint = Paint()
         ..color = goalLineColor
@@ -880,29 +922,6 @@ class _KcalTrendPainter extends CustomPainter {
         path.lineTo(x1, y);
       }
       canvas.drawPath(path, goalPaint..style = PaintingStyle.stroke);
-      final goalLabel = labels.goalLabel;
-      if (lastGoal > 0 && goalLabel != null) {
-        final anchor = Offset(inner.right, yOf(lastGoal) - 4);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(
-              anchor.dx - goalLabel.width - 4,
-              anchor.dy - goalLabel.height - 1,
-              goalLabel.width + 8,
-              goalLabel.height + 2,
-            ),
-            const Radius.circular(6),
-          ),
-          Paint()..color = labelFill,
-        );
-        _paintLabel(
-          canvas,
-          goalLabel,
-          Offset(anchor.dx, anchor.dy),
-          alignRight: true,
-          above: true,
-        );
-      }
     }
 
     // 7-day view: weekday abbreviations under each slot as the x labels.
@@ -925,14 +944,12 @@ class _KcalTrendPainter extends CustomPainter {
     bool alignRight = false,
     bool centerHorizontally = false,
     bool centerVertically = false,
-    bool above = false,
   }) {
     var dx = anchor.dx;
     if (alignRight) dx -= tp.width;
     if (centerHorizontally) dx -= tp.width / 2;
     var dy = anchor.dy;
     if (centerVertically) dy -= tp.height / 2;
-    if (above) dy -= tp.height;
     tp.paint(canvas, Offset(dx, dy));
   }
 
@@ -958,8 +975,7 @@ class _KcalTrendPainter extends CustomPainter {
       old.gridColor != gridColor ||
       old.barColor != barColor ||
       old.goalLineColor != goalLineColor ||
-      old.bandColor != bandColor ||
-      old.labelFill != labelFill;
+      old.bandColor != bandColor;
 }
 
 /// One-time init of the `intl` date symbols for the weekday labels; the load
@@ -1004,7 +1020,7 @@ void debugClearTrendDateFormats() {
 
 /// Everything text-shaped in the trend chart, laid out ONCE.
 ///
-/// Tick labels, the target-line label and the weekday row depend on the data,
+/// Tick labels and the weekday row depend on the data,
 /// the locale and the label colour — never on the animation progress. The
 /// painter used to build them inside `paint()`: up to twelve
 /// `TextPainter.layout()` calls plus as many `NumberFormat`s and seven
@@ -1021,7 +1037,6 @@ class TrendChartLabels {
     this._signature, {
     required this.niceMax,
     required this.gridLabels,
-    required this.goalLabel,
     required this.weekdayLabels,
     required this.emptyHintText,
     required this.emptyHintStyle,
@@ -1037,9 +1052,6 @@ class TrendChartLabels {
 
   /// The four tick labels, bottom (0) to top ([niceMax]).
   final List<TextPainter> gridLabels;
-
-  /// Label of the target line; null when no slot carries a goal.
-  final TextPainter? goalLabel;
 
   /// Weekday abbreviation per slot — only in the 7-day view, else empty.
   final List<TextPainter> weekdayLabels;
@@ -1074,13 +1086,10 @@ class TrendChartLabels {
     }
     final niceMax = _niceMax(math.max(maxKcal, maxGoal));
     final showWeekdays = window.length == 7;
-    final lastGoal = goalPerDay.isEmpty ? 0 : goalPerDay.last;
-    final labelledGoal = goalPerDay.any((g) => g > 0) ? lastGoal : 0;
     final signature = (
       locale: l10n.localeName,
       color: axisTextColor,
       niceMax: niceMax,
-      goal: labelledGoal,
       // Only the weekday row depends on the date, and only in the 7-day view.
       firstDay: showWeekdays ? firstDay : null,
     );
@@ -1099,12 +1108,6 @@ class TrendChartLabels {
         for (var i = 0; i <= 3; i++)
           _laidOut(formatThousands((niceMax * i / 3).round(), locale), style),
       ],
-      goalLabel: labelledGoal > 0
-          ? _laidOut(
-              l10n.trendsChartGoalLabel(formatThousands(labelledGoal, locale)),
-              style,
-            )
-          : null,
       weekdayLabels: <TextPainter>[
         if (showWeekdays)
           for (var i = 0; i < window.length; i++)

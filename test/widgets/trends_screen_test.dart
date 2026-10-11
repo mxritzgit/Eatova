@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/harness.dart';
 
@@ -326,12 +327,14 @@ void main() {
     });
   }
   // The goal label sat on the bars ("Goal 2,200" half covered when a day
-  // went over): it now stands on a pill in the card colour.
+  // went over), later on a card-coloured pill that still hid the latest
+  // bars. It is a legend in the card header now, where the repeated range
+  // ("30 Tage", already the selected pill) used to float mid-row.
   for (final (helligkeit, t) in const <(Brightness, AppTokens)>[
     (Brightness.dark, AppTokens.dark),
     (Brightness.light, AppTokens.light),
   ]) {
-    testWidgets('${helligkeit.name}: das Ziel-Label steht auf einer Karte', (
+    testWidgets('${helligkeit.name}: das Ziel steht als Legende im Kopf', (
       tester,
     ) async {
       await _pumpTrends(
@@ -341,18 +344,65 @@ void main() {
       );
       await tester.pump();
       await tester.pumpAndSettle();
-      // The bars are rounded rects too; look for the one in the card colour
-      // (compared as ARGB: the theme arrives through a lerp).
+      final legende = find.byKey(const ValueKey('trends-goal-legend'));
+      expect(
+        find.descendant(of: legende, matching: find.text('Ziel 2.200')),
+        findsOneWidget,
+      );
+      expect(find.text('30 Tage'), findsOneWidget, reason: 'only the pill');
+      // Flush with the card's right edge, level with the title.
+      final titel = tester.getRect(find.text('Kalorien pro Tag'));
+      final karte = tester.getRect(
+        find
+            .ancestor(of: legende, matching: find.byType(AppCard))
+            .first,
+      );
+      expect(
+        karte.right - tester.getRect(legende).right,
+        // The card's 18 px padding inside its 1 px border.
+        moreOrLessEquals(19, epsilon: 0.5),
+      );
+      expect(
+        tester.getCenter(legende).dy,
+        moreOrLessEquals(titel.center.dy, epsilon: 1),
+      );
+      // Nothing card-coloured is painted over the plot any more (compared
+      // as ARGB: the theme arrives through a lerp).
       expect(
         find.byKey(const ValueKey('trends-chart')),
-        paints..something(
-          (method, arguments) =>
-              method == #drawRRect &&
-              (arguments[1] as Paint).color.toARGB32() == t.surf.toARGB32(),
+        isNot(
+          paints..something(
+            (method, arguments) =>
+                method == #drawRRect &&
+                (arguments[1] as Paint).color.toARGB32() ==
+                    t.surf.toARGB32(),
+          ),
         ),
       );
     });
   }
+
+  testWidgets('die Zeitraum-Pillen zentrieren ihre Beschriftung', (
+    tester,
+  ) async {
+    await _pumpTrends(tester, loader: () async => _sechsTage());
+    await tester.pump();
+    await tester.pumpAndSettle();
+    for (final range in const [7, 30, 90]) {
+      final pille = tester.getRect(find.byKey(ValueKey('trends-range-$range')));
+      final text = tester.getRect(
+        find.descendant(
+          of: find.byKey(ValueKey('trends-range-$range')),
+          matching: find.text('$range Tage'),
+        ),
+      );
+      expect(
+        text.center.dx,
+        moreOrLessEquals(pille.center.dx, epsilon: 1),
+        reason: '$range Tage',
+      );
+    }
+  });
   test('dunkel bleiben die Balken der Akzent', () {
     expect(AppTokens.dark.progressAccent, AppTokens.dark.accent);
   });
