@@ -209,7 +209,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
               children: [
                 const SheetHandle(),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+                  padding: const EdgeInsets.fromLTRB(20, 18, 18, 12),
                   child: _header(context, title, compact: compact),
                 ),
                 Flexible(
@@ -296,11 +296,10 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
   }
 
   Widget _header(BuildContext context, String title, {required bool compact}) {
-    final close = IconButton(
-      key: const ValueKey('training-editor-close'),
-      onPressed: _busy ? null : _close,
+    final close = SheetCloseButton(
+      buttonKey: const ValueKey('training-editor-close'),
+      onTap: _busy ? null : _close,
       tooltip: context.l10n.trainingPageClose,
-      icon: const Icon(Icons.close_rounded),
     );
     if (compact) {
       return Row(
@@ -319,7 +318,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
         ],
       );
     }
-    final style = AppType.display(24, color: context.t.ink, height: 1.15);
+    final style = sheetTitleStyle(context.t);
     final heading = HeadingSemantics(
       level: 1,
       child: Text(title, style: style),
@@ -333,33 +332,15 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
             textDirection: Directionality.of(context),
             textScaler: MediaQuery.textScalerOf(context),
           )..layout();
-          if (measure.width >
-              constraints.maxWidth -
-                  48 -
-                  (MediaQuery.textScalerOf(context).scale(14) <= 18 ? 58 : 0)) {
-            inline = false;
-          }
+          if (measure.width > constraints.maxWidth - 56) inline = false;
           measure.dispose();
         }
+        // Title and close only, like Log workout and Plan with Coach.
         return inline
             ? Row(
                 children: [
-                  if (MediaQuery.textScalerOf(context).scale(14) <= 18) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: context.t.forest,
-                        borderRadius: BorderRadius.circular(rControl),
-                      ),
-                      child: Icon(
-                        Icons.fitness_center_rounded,
-                        color: context.t.lime,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
                   Expanded(child: heading),
+                  const SizedBox(width: 8),
                   close,
                 ],
               )

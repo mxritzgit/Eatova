@@ -534,7 +534,7 @@ class _DraftLineEditorState extends State<_DraftLineEditor> {
                         textScaler: MediaQuery.textScalerOf(
                           context,
                         ).clamp(maxScaleFactor: 1.5),
-                        style: AppType.display(22, color: t.ink, height: 1.15),
+                        style: sheetTitleStyle(t),
                       ),
                     ),
                     if (subtitle.isNotEmpty) ...[
@@ -548,11 +548,9 @@ class _DraftLineEditorState extends State<_DraftLineEditor> {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton(
+              SheetCloseButton(
                 tooltip: l10n.commonClose,
-                onPressed: () => Navigator.of(context).pop(),
-                style: IconButton.styleFrom(backgroundColor: t.surf2),
-                icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
+                onTap: () => Navigator.of(context).pop(),
               ),
             ],
           ),

@@ -171,19 +171,17 @@ class _PlanEditorState extends State<_PlanEditor> {
                     level: 1,
                     child: Text(
                       widget.plan == null ? l.mealPlanAdd : l.mealPlanEdit,
-                      style: AppType.display(24, color: t.ink, height: 1.15),
+                      style: sheetTitleStyle(t),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  key: const ValueKey('meal-plan-editor-close'),
+                SheetCloseButton(
+                  buttonKey: const ValueKey('meal-plan-editor-close'),
                   tooltip: l.commonClose,
-                  onPressed: _saving
+                  onTap: _saving
                       ? null
                       : () => Navigator.of(context).maybePop(),
-                  style: IconButton.styleFrom(backgroundColor: t.surf2),
-                  icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
                 ),
               ],
             ),

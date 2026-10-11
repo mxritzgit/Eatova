@@ -447,44 +447,15 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 16, 14),
-      child: Row(
-        children: [
-          SlotIconTile(slot: slot, size: 40),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                HeadingSemantics(
-                  level: 1,
-                  child: Text(
-                    l10n.foodEditMealTitle,
-                    style: AppType.display(22, color: t.ink, height: 1.15),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  mealName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('edit-meal-sheet-close'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-          ),
-        ],
-      ),
+    return SheetHeader(
+      leading: SlotIconTile(slot: slot, size: 40),
+      title: l10n.foodEditMealTitle,
+      subtitle: mealName,
+      subtitleMaxLines: 1,
+      onClose: onClose,
+      closeKey: const ValueKey('edit-meal-sheet-close'),
+      closeTooltip: l10n.commonClose,
     );
   }
 }

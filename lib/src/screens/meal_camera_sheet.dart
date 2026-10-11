@@ -309,7 +309,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         const SheetHandle(padding: EdgeInsets.only(top: 10, bottom: 4)),
         _HeaderRow(onClose: () => Navigator.of(context).pop()),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          // The sheets' 20 px gutter, like title and close ring.
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: IgnorePointer(
             ignoring: _busy,
             child: MealSlotPicker(
@@ -321,7 +322,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(rCard),
               // The viewfinder is dark in both modes, like the barcode
@@ -377,11 +378,13 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       child: SizedBox(
         height: panelHeight,
         child: Container(
+          // The page ground plus the 1 px edge of every Eatova sheet.
           decoration: BoxDecoration(
             color: context.t.bg,
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(rSheet),
             ),
+            border: Border.all(color: context.t.lineStrong),
           ),
           clipBehavior: Clip.antiAlias,
           child: SnackHost(child: body),
@@ -542,28 +545,15 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return Padding(
-      // The close circle's edge lines up with the slot picker (16 px).
-      padding: const EdgeInsets.fromLTRB(20, 2, 12, 2),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              l10n.foodScanMealTitle,
-              style: AppType.display(17, color: t.ink),
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('meal-camera-close'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-          ),
-        ],
-      ),
+    // Compact title: the height belongs to the viewfinder.
+    return SheetHeader(
+      title: l10n.foodScanMealTitle,
+      compact: true,
+      onClose: onClose,
+      closeKey: const ValueKey('meal-camera-close'),
+      closeTooltip: l10n.commonClose,
+      padding: const EdgeInsets.fromLTRB(20, 2, 18, 6),
     );
   }
 }

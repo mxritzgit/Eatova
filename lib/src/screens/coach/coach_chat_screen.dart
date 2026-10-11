@@ -3223,14 +3223,7 @@ class _CoachInfoSheetUnbekannt extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                l10n.coachTitle,
-                style: AppType.display(
-                  20,
-                  weight: FontWeight.w700,
-                  color: t.ink,
-                ),
-              ),
+              SheetTitle(l10n.coachTitle),
               const SizedBox(height: 6),
               Text(
                 l10n.coachInfoIntro,

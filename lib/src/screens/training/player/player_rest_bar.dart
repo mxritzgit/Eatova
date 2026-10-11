@@ -147,11 +147,10 @@ class PlayerRestView extends StatelessWidget {
           children: [
             Align(
               alignment: AlignmentDirectional.centerStart,
-              child: IconButton(
-                key: const ValueKey('training-timer-rest-collapse'),
+              child: SheetCloseButton(
+                buttonKey: const ValueKey('training-timer-rest-collapse'),
                 tooltip: l.trainingTimerRestCollapse,
-                onPressed: onCollapse,
-                icon: const Icon(Icons.close_rounded),
+                onTap: onCollapse,
               ),
             ),
             const SizedBox(height: 24),

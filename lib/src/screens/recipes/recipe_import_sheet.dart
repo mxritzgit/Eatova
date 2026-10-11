@@ -406,6 +406,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         context,
         body: context.l10n.recipesDiscardChangesBody,
         confirmKey: const ValueKey('recipe-import-discard'),
+        keepKey: const ValueKey('recipe-import-keep-editing'),
       );
       _askingToDiscard = false;
       if (!mounted || !discard) return;
@@ -470,11 +471,18 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         child: SingleChildScrollView(
           key: const ValueKey('recipe-import-sheet'),
           controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // The sheet opens without Material's handle (enableDrag is off
+              // for the discard guard), so it draws the grip itself; its
+              // dismiss action takes the same guarded path as the close.
+              SheetHandle(
+                padding: const EdgeInsets.only(top: 10, bottom: 6),
+                onDismiss: _close,
+              ),
               Row(
                 children: [
                   Expanded(
@@ -485,26 +493,15 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                         // Capped like a tab title: at 2x on 320 px the
                         // uncapped "importieren" broke mid-word.
                         textScaler: AppType.pageTitleScaler(context),
-                        style: AppType.display(
-                          compactTitle ? 20 : 24,
-                          color: t.ink,
-                          height: 1.15,
-                        ),
+                        style: sheetTitleStyle(t, compact: compactTitle),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    key: const ValueKey('recipe-import-close'),
+                  SheetCloseButton(
+                    buttonKey: const ValueKey('recipe-import-close'),
                     tooltip: l10n.commonClose,
-                    onPressed: _saving ? null : _close,
-                    style: IconButton.styleFrom(
-                      backgroundColor: t.surf2,
-                      foregroundColor: t.ink2,
-                      disabledBackgroundColor: t.surf2,
-                      disabledForegroundColor: t.inkDisabled,
-                    ),
-                    icon: const Icon(Icons.close_rounded, size: 21),
+                    onTap: _saving ? null : _close,
                   ),
                 ],
               ),

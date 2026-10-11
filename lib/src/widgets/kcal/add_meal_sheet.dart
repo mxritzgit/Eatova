@@ -1590,7 +1590,7 @@ class _SheetHeader extends StatelessWidget {
     final l10n = context.l10n;
     final date = MaterialLocalizations.of(context).formatMediumDate(foodDate);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 16, 16),
+      padding: const EdgeInsets.fromLTRB(20, 8, 18, 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -1650,23 +1650,11 @@ class _SheetHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // The Food tab's round header button (card fill, strong outline),
-          // drawn at 44 inside Material's 48 px touch target.
-          PressScale(
-            child: IconButton(
-              key: const ValueKey('add-meal-sheet-close'),
-              onPressed: onClose,
-              tooltip: l10n.commonClose,
-              style: IconButton.styleFrom(
-                backgroundColor: t.surf,
-                foregroundColor: t.inkMuted,
-                fixedSize: const Size.square(44),
-                minimumSize: const Size.square(44),
-                padding: EdgeInsets.zero,
-                shape: CircleBorder(side: BorderSide(color: t.lineStrong)),
-              ),
-              icon: const Icon(Icons.close_rounded, size: 20),
-            ),
+          // The Food tab's round header button, shared by every sheet.
+          SheetCloseButton(
+            buttonKey: const ValueKey('add-meal-sheet-close'),
+            onTap: onClose,
+            tooltip: l10n.commonClose,
           ),
         ],
       ),

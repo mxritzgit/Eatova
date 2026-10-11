@@ -698,7 +698,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         children: [
           const SheetHandle(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 16, 12),
+            padding: const EdgeInsets.fromLTRB(20, 4, 18, 12),
             child: Row(
               children: [
                 if (!compact &&
@@ -735,16 +735,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                               color: t.ink,
                               weight: FontWeight.w600,
                             )
-                          : AppType.display(24, color: t.ink, height: 1.15),
+                          : sheetTitleStyle(t),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  key: const ValueKey('recipe-create-close'),
-                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-                  style: IconButton.styleFrom(backgroundColor: t.surf2),
-                  onPressed: _saving
+                SheetCloseButton(
+                  buttonKey: const ValueKey('recipe-create-close'),
+                  onTap: _saving
                       ? null
                       : () {
                           if (_dirty) {
@@ -753,7 +751,6 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                             Navigator.pop(context);
                           }
                         },
-                  icon: Icon(Icons.close_rounded, size: 21, color: t.ink2),
                 ),
               ],
             ),

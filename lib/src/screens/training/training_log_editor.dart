@@ -554,7 +554,12 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
             // and footer would leave the fields no room at all.
             final compact = constraints.maxHeight < 400 * scale;
             final header = Padding(
-              padding: EdgeInsets.fromLTRB(compact ? 0 : 20, 14, 12, 10),
+              padding: EdgeInsets.fromLTRB(
+                compact ? 0 : 20,
+                14,
+                compact ? 0 : 18,
+                10,
+              ),
               child: _header(context),
             );
             final footer = _footer(context, hint: hint, ready: ready);
@@ -725,20 +730,16 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
               ],
               HeadingSemantics(
                 level: 1,
-                child: Text(
-                  title,
-                  style: AppType.display(24, color: t.ink, height: 1.15),
-                ),
+                child: Text(title, style: sheetTitleStyle(t)),
               ),
             ],
           ),
         ),
-        IconButton(
-          key: const ValueKey('training-log-close'),
-          onPressed: _busy ? null : _close,
+        const SizedBox(width: 8),
+        SheetCloseButton(
+          buttonKey: const ValueKey('training-log-close'),
+          onTap: _busy ? null : _close,
           tooltip: l10n.trainingPageClose,
-          style: IconButton.styleFrom(backgroundColor: context.t.surf2),
-          icon: Icon(Icons.close_rounded, color: context.t.ink2, size: 21),
         ),
       ],
     );

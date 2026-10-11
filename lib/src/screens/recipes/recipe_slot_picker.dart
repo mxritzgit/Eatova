@@ -72,20 +72,12 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                         level: 1,
                         child: Text(
                           l10n.recipesWhenToLogTitle,
-                          style: AppType.display(
-                            24,
-                            color: t.ink,
-                            height: 1.15,
-                          ),
+                          style: sheetTitleStyle(t),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    SquareIconButton(
-                      icon: Icons.close_rounded,
-                      semanticLabel: MaterialLocalizations.of(
-                        context,
-                      ).closeButtonTooltip,
+                    const SizedBox(width: 8),
+                    SheetCloseButton(
                       onTap: _saving ? null : () => Navigator.of(context).pop(),
                     ),
                   ],

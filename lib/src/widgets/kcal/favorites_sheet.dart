@@ -216,7 +216,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+          padding: const EdgeInsets.fromLTRB(20, 4, 18, 0),
           child: Row(
             children: [
               Expanded(
@@ -225,17 +225,15 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                   child: Text(
                     l10n.foodFavoritesSheetTitle(pinned.length),
                     key: const ValueKey('favorites-sheet-title'),
-                    style: AppType.display(24, color: t.ink, height: 1.15),
+                    style: sheetTitleStyle(t),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton(
-                key: const ValueKey('favorites-sheet-close'),
-                onPressed: () => Navigator.of(context).maybePop(),
+              SheetCloseButton(
+                buttonKey: const ValueKey('favorites-sheet-close'),
+                onTap: () => Navigator.of(context).maybePop(),
                 tooltip: l10n.commonClose,
-                style: IconButton.styleFrom(backgroundColor: t.surf2),
-                icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
               ),
             ],
           ),

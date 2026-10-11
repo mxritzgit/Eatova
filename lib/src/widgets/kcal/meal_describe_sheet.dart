@@ -1017,7 +1017,7 @@ class _Header extends StatelessWidget {
     final subtitle = subtitleFor(step, l10n);
     final large = MediaQuery.textScalerOf(context).scale(24) > 36;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 0, 18, 0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1054,12 +1054,10 @@ class _Header extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          IconButton(
-            key: const ValueKey('meal-describe-close'),
+          SheetCloseButton(
+            buttonKey: const ValueKey('meal-describe-close'),
             tooltip: l10n.commonClose,
-            onPressed: onClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
+            onTap: onClose,
           ),
         ],
       ),

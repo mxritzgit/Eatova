@@ -257,11 +257,13 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
         child: SizedBox(
           height: panelHeight,
           child: Container(
+            // The page ground plus the 1 px edge of every Eatova sheet.
             decoration: BoxDecoration(
               color: context.t.bg,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(rSheet),
               ),
+              border: Border.all(color: context.t.lineStrong),
             ),
             clipBehavior: Clip.antiAlias,
             child: Column(
@@ -271,7 +273,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                 ),
                 _HeaderRow(onClose: _schliessen),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  // The sheets' 20 px gutter, like title and close ring.
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: MealSlotPicker(
                     selected: _slot,
                     onSelected: _selectSlot,
@@ -280,7 +283,7 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                 ),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(rCard),
                       child: Stack(
@@ -613,7 +616,8 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
       key: const ValueKey('barcode-manual-layer'),
       color: t.bg,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        // The viewfinder already sits on the sheet's 20 px gutter.
+        padding: const EdgeInsets.symmetric(vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -704,28 +708,15 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return Padding(
-      // The close circle's edge lines up with the slot picker (14 px).
-      padding: const EdgeInsets.fromLTRB(20, 2, 10, 2),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              l10n.foodScanBarcodeTooltip,
-              style: AppType.display(17, color: t.ink),
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('barcode-close-button'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-          ),
-        ],
-      ),
+    // Compact title: the height belongs to the viewfinder.
+    return SheetHeader(
+      title: l10n.foodScanBarcodeTooltip,
+      compact: true,
+      onClose: onClose,
+      closeKey: const ValueKey('barcode-close-button'),
+      closeTooltip: l10n.commonClose,
+      padding: const EdgeInsets.fromLTRB(20, 2, 18, 6),
     );
   }
 }

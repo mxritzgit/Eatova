@@ -424,21 +424,15 @@ class _ExportHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
-    final title = HeadingSemantics(
-      level: 1,
-      child: Text(
-        largeText
-            ? context.l10n.settingsExportDataTitle
-            : context.l10n.exportSheetTitleFull,
-        style: AppType.display(largeText ? 22 : 26, color: context.t.ink),
-      ),
+    final title = SheetTitle(
+      largeText
+          ? context.l10n.settingsExportDataTitle
+          : context.l10n.exportSheetTitleFull,
+      compact: largeText,
     );
-    final t = context.t;
-    final close = IconButton(
+    final close = SheetCloseButton(
       tooltip: context.l10n.commonClose,
-      onPressed: () => Navigator.of(context).pop(),
-      style: IconButton.styleFrom(backgroundColor: t.surf2),
-      icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
+      onTap: () => Navigator.of(context).pop(),
     );
     return largeText
         ? Column(
@@ -452,6 +446,7 @@ class _ExportHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: title),
+              const SizedBox(width: 8),
               close,
             ],
           );
