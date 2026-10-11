@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../common/persistence_action.dart';
 import 'package:flutter/services.dart';
@@ -1208,10 +1209,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
           },
         ),
         Flexible(
-          // A ground-coloured fade under the pinned search bar, like the
-          // Food tab's status bar scrim: scrolled cards dissolve instead of
-          // being cut straight through their rounded edge.
+          // Scrolled cards dissolve under the pinned search bar instead of
+          // being cut straight through their rounded edge; the capsule's
+          // shadow is not masked.
           child: _TopFade(
+            controller: _scrollController,
             child: SingleChildScrollView(
               key: const ValueKey('add-meal-sheet-scroll'),
               controller: _scrollController,
@@ -1734,49 +1736,121 @@ class _SheetHeader extends StatelessWidget {
   }
 }
 
+/// Fades the top 14 px of [child] (the sheet's scroll view) to clear once
+/// [controller] has scrolled, so cards dissolve under the search capsule
+/// instead of being cut through their rounded edge. A `dstIn` mask touches
+/// only the scroll content, never the capsule's shadow above it. At rest the
+/// content sits below the band on the scroll view's top padding, so no mask
+/// (and no layer) is painted: the resting sheet paints as without a fade.
+class _TopFade extends SingleChildRenderObjectWidget {
+  const _TopFade({required this.controller, required super.child})
+    : super(key: const ValueKey('add-meal-sheet-scroll-fade'));
+
+  final ScrollController controller;
+
+  @override
+  _RenderTopFade createRenderObject(BuildContext context) =>
+      _RenderTopFade(controller, context.t.bg);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderTopFade renderObject) {
+    renderObject
+      ..controller = controller
+      ..ground = context.t.bg;
+  }
+}
+
+class _RenderTopFade extends RenderProxyBox {
+  _RenderTopFade(this._controller, this._ground);
+
+  static const double _kFade = 14;
+
+  ScrollController _controller;
+  set controller(ScrollController value) {
+    if (identical(value, _controller)) return;
+    if (!attached) {
+      _controller = value;
+      return;
+    }
+    _controller.removeListener(_onScroll);
+    _controller = value..addListener(_onScroll);
+    _onScroll();
+  }
+
+  /// Only its alpha matters for `dstIn`; any opaque token works.
+  Color _ground;
+  set ground(Color value) {
+    if (value == _ground) return;
+    _ground = value;
+    if (_masked) markNeedsPaint();
+  }
+
+  bool _masked = false;
+
+  bool get _scrolled {
+    if (!_controller.hasClients) return false;
+    final position = _controller.position;
+    return position.hasPixels && position.pixels > 0;
+  }
+
+  void _onScroll() {
+    final masked = _scrolled;
+    if (masked == _masked) return;
+    _masked = masked;
+    markNeedsCompositingBitsUpdate();
+    markNeedsPaint();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _controller.addListener(_onScroll);
+    _masked = _scrolled;
+  }
+
+  @override
+  void detach() {
+    _controller.removeListener(_onScroll);
+    super.detach();
+  }
+
+  @override
+  bool get alwaysNeedsCompositing => child != null && _masked;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    if (!_masked) {
+      layer = null;
+      context.paintChild(child, offset);
+      return;
+    }
+    final edge = size.height <= 0
+        ? 0.0
+        : (_kFade / size.height).clamp(0.0, 1.0);
+    final current = layer;
+    final mask = current is ShaderMaskLayer ? current : ShaderMaskLayer();
+    mask
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: <Color>[_ground.withValues(alpha: 0), _ground, _ground],
+        stops: <double>[0, edge, 1],
+      ).createShader(Offset.zero & size)
+      ..maskRect = offset & size
+      ..blendMode = BlendMode.dstIn;
+    layer = mask;
+    context.pushLayer(mask, super.paint, offset);
+  }
+}
+
 // ─── Search bar ─────────────────────────────────────────────────────────
 
 /// The Food tab's "Search food or meals" capsule, made real: 54 px pill on a
 /// [FieldCapsule] (rest `field`, focus `fieldFocus`, no hairline, no ring),
 /// the dock's search glyph in front and a round accent search button at the
 /// end. Focus also tints the glyph, a second cue next to the fill change.
-/// A 14 px fade from the sheet ground to clear over the top of [child]. It
-/// sits on the scroll view's top padding until the content scrolls under
-/// it, so the resting layout is unchanged. Paints only a gradient, no layer.
-class _TopFade extends StatelessWidget {
-  const _TopFade({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = context.t.bg;
-    return Stack(
-      children: [
-        child,
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: IgnorePointer(
-            child: Container(
-              key: const ValueKey('add-meal-sheet-scroll-fade'),
-              height: 14,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [bg, bg.withValues(alpha: 0)],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _SearchBar extends StatefulWidget {
   const _SearchBar({
     super.key,
