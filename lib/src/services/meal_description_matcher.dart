@@ -801,14 +801,16 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
   return grams == 100 ? null : (grams: grams, unit: null);
 }
 
-/// The portion `fromOpenFoodFacts` set for [serving], or 0 when the serving
-/// states less than a gram ("1 Stück (0,49 g)"): the portion is then the
-/// 100 g base, not a piece.
+/// The portion `fromOpenFoodFacts` set for [serving], or 0 when that portion
+/// is its 100 g base, not a piece: the serving states less than a gram
+/// ("1 Stück (0,49 g)"), or names no weight at all ("1 Scheibe" without
+/// `serving_quantity`). A 100 g the text does not state cannot be told
+/// apart from that fallback, so it gives no piece either.
 int _portionOfServing(MealAnalysisResult result, String? serving) {
   final stated = MealAnalysisResult.gramsInServingText(serving);
-  return stated != null && !isPlausiblePortionGrams(stated)
-      ? 0
-      : result.estimatedGrams;
+  if (stated != null && !isPlausiblePortionGrams(stated)) return 0;
+  if (result.estimatedGrams == 100 && stated != 100) return 0;
+  return result.estimatedGrams;
 }
 
 /// A stored macro text ("12,5 g", "-") per 100 g of [grams], or null.

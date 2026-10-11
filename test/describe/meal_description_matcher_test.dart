@@ -815,6 +815,76 @@ void main() {
       expect(thick.grams, 100);
     });
 
+    // Without serving_quantity and a weight in its text, fromOpenFoodFacts
+    // falls back to the 100 g base: that is no piece. Two eggs became 200 g,
+    // three slices of toast 150 g ("2 Scheiben" read as 50 g each).
+    test('eine Portion ohne Gewicht gibt keine Stueckgroesse vor', () async {
+      final products = _FakeProducts({
+        'Eier': _hits([
+          _product('1', 'Eier', kcal: 155, servingSize: '1 Stück'),
+        ]),
+        'Toastbrot': _hits([
+          _product('2', 'Toastbrot', kcal: 265, servingSize: '2 Scheiben'),
+        ]),
+        'Gouda': _hits([
+          _product('3', 'Gouda', kcal: 356, servingSize: '1 Scheibe'),
+        ]),
+      });
+      final draft = await _matcher(products).match(
+        _meal([
+          _food(
+            'Eier',
+            grams: 120,
+            kcal: 186,
+            amount: 'zwei Eier',
+            stated: true,
+          ),
+          _food(
+            'Toastbrot',
+            grams: 75,
+            kcal: 199,
+            amount: 'drei Scheiben',
+            stated: true,
+          ),
+          _food(
+            'Gouda',
+            grams: 50,
+            kcal: 180,
+            amount: '2 Scheiben',
+            stated: true,
+          ),
+        ]),
+      );
+      for (final (index, code, grams) in [
+        (0, '1', 120),
+        (1, '2', 75),
+        (2, '3', 50),
+      ]) {
+        final line = draft.items[index];
+        expect(line.selected.barcode, code, reason: 'Zeile $index');
+        expect(line.grams, grams, reason: 'Zeile $index: Modell-Gramm');
+        expect(line.selected.servingGrams, isNull, reason: 'Zeile $index');
+      }
+    });
+
+    test('ein Gewicht im Portionstext zaehlt auch bei 100 g', () async {
+      final products = _FakeProducts({
+        'Toastbrot': _hits([
+          _product(
+            '1',
+            'Toastbrot',
+            kcal: 255,
+            servingSize: '4 Scheiben (100 g)',
+          ),
+        ]),
+      });
+      final line = (await _matcher(
+        products,
+      ).match(_meal([twoSlices]))).items.single;
+      expect(line.selected.servingGrams, 25);
+      expect(line.grams, 50);
+    });
+
     test('eine Portion unter 1 g gibt keine Stueckgroesse vor', () async {
       final products = _FakeProducts({
         'Tic Tac': _hits([
