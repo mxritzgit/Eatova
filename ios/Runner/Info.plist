@@ -116,13 +116,13 @@
 	     .strings value wins on a German/English device, this one is the
 	     fallback for every other language and what a US reviewer reads. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Eatova needs camera access so you can photograph meals, scan product barcodes and send your coach a picture. The photos are analysed for nutrition values.</string>
+	<string>Eatova needs camera access so you can photograph meals, scan product barcodes, send your coach a picture and add a photo to your own recipes. Meal photos are analysed for nutrition values; recipe photos stay on your iPhone.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Eatova needs microphone access so you can dictate a question to your coach or describe a meal instead of typing. Audio is captured only while voice input in the coach chat or the meal description is active.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Eatova turns your dictated coach question or meal description into text. If your iPhone has the speech model for your language on device, the audio stays on the device; otherwise Apple processes it on its servers.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis.</string>
+	<string>Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis, or a photo for one of your own recipes.</string>
 	<!-- Die Health-Zwecktexte muessen exakt die Scopes abdecken, die
 	     `apple_health_service.dart:_types`/`_permissions` anfragen — nicht
 	     mehr und nicht weniger. Apple prueft im Review beides: einen Scope

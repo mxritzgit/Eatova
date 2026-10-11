@@ -232,6 +232,31 @@ void main() {
       expect(_purpose(german, key), contains('Coach'), reason: key);
     }
   });
+
+  // The recipe sheet takes its photo with the camera or from the library
+  // (recipe_create_sheet.dart); the photo stays on the device, so "the
+  // photos are analysed" must not cover it.
+  test('the camera and photo purpose strings name the recipe photo', () {
+    final sources = <String, String>{
+      'ios/Runner/Info.plist': 'recipe',
+      'ios/Runner/en.lproj/InfoPlist.strings': 'recipe',
+      'ios/Runner/de.lproj/InfoPlist.strings': 'Rezept',
+    };
+    for (final MapEntry(key: path, value: recipe) in sources.entries) {
+      final source = _read(path);
+      for (final key in <String>[
+        'NSCameraUsageDescription',
+        'NSPhotoLibraryUsageDescription',
+      ]) {
+        expect(_purpose(source, key), contains(recipe), reason: '$path $key');
+      }
+      expect(
+        _purpose(source, 'NSCameraUsageDescription'),
+        isNot(contains('The photos are analysed')),
+        reason: path,
+      );
+    }
+  });
 }
 
 /// The value for [key] in an Info.plist or an InfoPlist.strings file.

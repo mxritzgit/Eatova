@@ -4,9 +4,9 @@
    the scopes apple_health_service.dart requests: steps + weight read, weight
    write — no sleep. */
 
-"NSCameraUsageDescription" = "Eatova needs camera access so you can photograph meals, scan product barcodes and send your coach a picture. The photos are analysed for nutrition values.";
+"NSCameraUsageDescription" = "Eatova needs camera access so you can photograph meals, scan product barcodes, send your coach a picture and add a photo to your own recipes. Meal photos are analysed for nutrition values; recipe photos stay on your iPhone.";
 "NSMicrophoneUsageDescription" = "Eatova needs microphone access so you can dictate a question to your coach or describe a meal instead of typing. Audio is captured only while voice input in the coach chat or the meal description is active.";
 "NSSpeechRecognitionUsageDescription" = "Eatova turns your dictated coach question or meal description into text. If your iPhone has the speech model for your language on device, the audio stays on the device; otherwise Apple processes it on its servers.";
-"NSPhotoLibraryUsageDescription" = "Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis.";
+"NSPhotoLibraryUsageDescription" = "Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis, or a photo for one of your own recipes.";
 "NSHealthShareUsageDescription" = "Eatova reads your step count and your weight from Apple Health so your daily target and your weight history stay up to date automatically.";
 "NSHealthUpdateUsageDescription" = "Eatova optionally writes a weight you log back to Apple Health.";
