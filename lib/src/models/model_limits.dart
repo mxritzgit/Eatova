@@ -390,6 +390,12 @@ bool isValidFavoriteKey(String value) {
       laenge <= FavoriteMealLimits.favoriteKeyMaxChars;
 }
 
+/// Makes [value] writable as `display_name` (at most 80 code points). The
+/// signup trigger copies the auth metadata name unclamped, so a longer name
+/// fails the whole signup.
+String clampDisplayName(String value) =>
+    truncateToChars(value.trim(), ProfileLimits.displayNameMaxChars).trimRight();
+
 /// Truncates `brand` to 120 chars. `null` and blank values become `null`: the
 /// column is nullable and an empty brand carries no information.
 String? clampBrand(String? value) =>

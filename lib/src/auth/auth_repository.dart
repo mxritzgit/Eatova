@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../config/auth_email_purpose.dart';
 import '../l10n/l10n.dart';
+import '../models/model_limits.dart' show clampDisplayName;
 import '../services/crash_reporter.dart';
 import '../services/session_revocations.dart';
 import '../services/sync_execution_guard.dart';
@@ -345,7 +346,7 @@ class SupabaseAuthRepository
       (scoped) => scoped.signUp(
         email: email.trim(),
         password: password,
-        data: {'display_name': displayName.trim()},
+        data: {'display_name': clampDisplayName(displayName)},
       ),
       httpClient: _mutationHttpClient,
     );
