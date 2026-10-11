@@ -266,15 +266,16 @@ the device, before the photo is uploaded.
   synced entries, so the photo shows on your other devices too.
 - **Open Prices** (`prices.openfoodfacts.org`, run by the Open Food Facts
   association, France/EU) supplies community shop prices for the shopping
-  list's price estimate, only when your device's region is Germany and the
-  shopping list is open. The requests contain category identifiers from a list
-  built into the app (for example `en:milks`), never your own wording;
-  barcodes of products in your list; a fixed Germany-wide area and the date
-  window; and your device's IP address. No account identifier, amounts,
-  servings, recipe titles or location are sent. The answers stay in the app's
-  memory for the session (at most until midnight or 12 hours) and are stored
-  neither on your device nor on our servers. The price data is published
-  under the ODbL licence.
+  list's price estimate, only when one of your device's regions is Germany
+  (or, when your device names no region at all, the app language is German)
+  and the shopping list is open. The requests contain category identifiers
+  from a list built into the app (for example `en:milks`), never your own
+  wording; barcodes of products in your list; a fixed Germany-wide area and
+  the date window; and your device's IP address. No account identifier,
+  amounts, servings, recipe titles or location are sent. The answers stay in
+  the app's memory for the session (at most until midnight or 12 hours) and
+  are stored neither on your device nor on our servers. The price data is
+  published under the ODbL licence.
 - **Sentry** (`ingest.de.sentry.io`, EU region — reports are sent to and stored
   in the EU) receives the crash diagnostics described above. The SDK is
   configured to send no personal data by default (`sendDefaultPii = false`), to

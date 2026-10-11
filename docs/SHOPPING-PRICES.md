@@ -18,25 +18,35 @@ With prices active, every checkable row gets one price line under its name:
 
 | Outcome | Left | Right | Screen reader |
 | --- | --- | --- | --- |
-| Loading | – | `…` | "Preis wird geladen" |
-| Share of the amount | `Ø 4,76 €/kg` (or `/l`, `/Stk.`) | `≈ 1,19 €` | "etwa 1,19 €" |
-| No amount printed, pack known | `Ø 4,61 €/kg` | `≈ 2,31 €/Pck.` | "etwa 2,31 €" |
-| No amount, priced per piece | `Ø 0,89 €/Stk.` | `≈ 0,89 €/Stk.` | "etwa 0,89 €" |
+| Loading | – | `–,–– €` (ink3) | "Preis wird geladen" |
+| Share of the amount | `4,76 €/kg` (or `/l`, `/Stk.`) | `≈ 1,19 €` | "etwa 1,19 €" |
+| No amount printed, pack known | `4,61 €/kg · 1 Pck.` | `≈ 2,31 €` | "etwa 2,31 € für 1 Packung" |
+| No amount, priced per piece | `0,89 €/Stk. · 1 Stk.` | `≈ 0,89 €` | "etwa 0,89 € für 1 Stück" |
 | No match, too few prices, unconvertible amount, failure | – | `k. A.` (en: `n/a`) | "kein aktueller Preis" |
 | Salt, pepper, water, a pinch | – | `–` | "nicht geschätzt" |
 
-The line is always one line while prices are shown, so rows keep their height
-when prices arrive. Where unit price and value do not fit side by side (large
-text on a narrow phone) the unit price is left out; a value wider than the row
-shrinks instead of clipping. A checked row strikes its price through.
+The right column only ever holds a plain sum, so its decimals line up like a
+till's; what a line without an amount was priced for goes to the left. The
+unit price carries no "Ø": in DM Mono it reads like the slashed zero. The line
+is always one line while prices are shown, so rows keep their height when
+prices arrive. Where the left side does not fit beside the value (large text
+on a narrow phone) it shortens to `1 Pck.`, then steps back; a value wider
+than the row shrinks in the line's own height instead of clipping. When a
+long name pushes the amount below it, the amount moves to the right edge,
+above its price. A checked row strikes its price through.
 
-The totals add **SUMME**, or **TEILSUMME** while any row has no price, with
-the sum of the shown values (`…` while loading, `k. A.` when nothing is
-priced). A note under it reads "Preise werden geladen …", "Preise gerade nicht
-abrufbar", "N Positionen ohne Preis" or "Alle Positionen geschätzt". The fine
-print above the footer names the basis ("Ø-Preise der letzten 6 Wochen in
-Deutschland, anteilig für die Menge. Gemeinschaftsdaten, ohne Gewähr.") and
-links the source: "Quelle: Open Prices von Open Food Facts · ODbL", opening
+Under the counts a dashed rule separates the money: **SUMME**, or
+**TEILSUMME** while any row has no price, with the sum of the shown values in
+17 pt (`–,–– €` while loading, `k. A.` when nothing is priced, `–` when every
+line is seasoning). It covers every line, bought or not. The done stamp sits
+on the counts, never on the sum. A note under it reads "Preise werden geladen
+…", "Preise gerade nicht abrufbar", "N Positionen ohne Preis", "Alle
+Positionen geschätzt" or "Keine Position zu schätzen". The sum line and the
+note are laid out for the longest text they can show, so nothing below them
+moves between loading, loaded and failed, at any width and text size. The
+fine print above the footer names the basis ("Mittlere Preise der letzten 6
+Wochen in DE, anteilig. Ohne Gewähr.") and links the source: "Quelle: Open
+Prices · ODbL", with the name and the licence each kept on one line, opening
 `https://prices.openfoodfacts.org`.
 
 Without a price service (tests, preview) or outside Germany the receipt looks
@@ -93,7 +103,7 @@ One run per change of the shown lines, on the device:
 4. **One overlap request** for every missing entry
    (`type=PRODUCT&product__categories_tags__overlap=…`, at most 30 tags per
    chunk), pages one after another, at most 8 pages per run. A truncated
-   answer is still aggregated.
+   answer is still aggregated for the run, but never cached.
 
 Every request carries `currency=EUR&lat=51.1657&lon=10.4515&radius_km=470`
 `&date__gte=<window start>&duplicate_of__isnull=true&order_by=-id&size=100`.
@@ -103,10 +113,13 @@ Budgets: 2 requests in flight, 16 per run, 48 per rolling 10 minutes per
 session, 30 s per run, and per request the `HttpTimeoutPolicy.openPrices`
 (5 s connect, 8 s response, 10 s body, 15 s total) with a 2 MB page limit.
 One retry after 2 s on 5xx, 429, timeout or connection errors; none on other
-4xx or a changed answer shape. An entry is aggregated only when every request
-it depends on succeeded; otherwise its lines show `k. A.` and are asked again
-on the next visit, at most once a minute. Leaving the shopping tab, changing
-the week or closing the planner cancels the run and closes its socket.
+4xx or a changed answer shape; once the run budget is spent nothing more is
+sent. An entry is aggregated only when every request it depends on
+succeeded; otherwise its lines show `k. A.` and are asked again on the next
+visit, at most once a minute. Leaving the shopping tab, changing the week or
+closing the planner cancels the run and closes its socket. A run the service
+refuses (a planner outliving its session) shows its lines as unavailable
+instead of loading forever.
 
 Requests send the User-Agent `Eatova/1.0 (Open Prices shopping estimate;
 mxritzgit/eatova)`, no credentials and no cookies.
@@ -130,10 +143,12 @@ dropped.
 - **Per piece:** loose goods with `price_per=UNIT`, or a product whose piece
   count can be read from its printed size ("10 Stück", "10er", "6 x 50 g",
   "M 10", "10"). Bases are never mixed.
-- Duplicates (same product or tag, shop, date and price) count once. Take the
-  median, keep values within a third and three times of it, take the median
-  again. At least **3 distinct (product or tag, shop)** prices are required;
-  an exact barcode needs **1**.
+- Duplicates (same product or tag, shop, date and price) count once. Each
+  **(product or tag, shop)** is one independent price, at the median of its
+  own reports, so a shop reporting the same product again does not weigh
+  twice. Take the median of these, keep values within a third and three
+  times of it, take the median again. At least **3** such prices are
+  required; an exact barcode needs **1**. `samples` counts them.
 
 ## Cost of a line
 
@@ -155,7 +170,9 @@ oil, potatoes, salmon, bread, hazelnut spread, bread rolls, zucchini), German
 and English keys, blocked false friends and the matching rules:
 
 1. Fold decomposed and composed umlauts and ß, lower case, drop parentheses,
-   cut at the first `,`, `;`, `/`, "oder", "or", "bzw." or "z. B.".
+   cut at the first `,`, `;`, `/`, "oder", "or", "bzw." or "z. B.", and
+   before a trailing phrase ("mit", "ohne", "in", "im", "with", "without"):
+   "Hähnchenbrust mit Paprika" is chicken breast.
 2. Seasoning phrases ("nach Geschmack", "to taste"), a pinch, and a spice
    entry with a spoon or pinch ("1 TL Paprika") are skipped.
 3. Exact n-grams first (so "gehackte Tomaten" is blocked before "gehackte"
@@ -163,9 +180,20 @@ and English keys, blocked false friends and the matching rules:
    then for single German words a compound head ("Kirschtomaten" → tomatoes)
    or a cut ("Hähnchenbrustfilet" → chicken breast, "Knoblauchzehe" → garlic,
    one clove). English keys never match inside a word.
-4. The longest key wins, a tie goes to the rightmost word. A blocked winner
-   ("Kokosmilch", "Tomatenmark", "Paprikapulver", "Süßkartoffel") means no
-   price.
+4. A key followed by a noun that names another food ("rice vinegar",
+   "milk chocolate", "butter beans", "potato chips") prices nothing; a later
+   key still can ("garlic bread" is bread).
+5. The longest key wins, a tie goes to the rightmost word. A blocked winner
+   ("Kokosmilch", "Pflanzenmilch", "Tomatenmark", "Paprikapulver",
+   "Süßkartoffel") means no price.
+6. An entry's excluded words anywhere in the label, also after the comma or
+   in parentheses, mean no price: "Tomaten, passiert", "Tomaten (Dose)",
+   "Knoblauch, granuliert".
+
+Garlic counts fresh bulbs only (`en:fresh-vegetables`, no pickles or cans):
+granulated garlic and garlic in oil share its tags. A banana weighs 170 g
+unpeeled, as it is sold by the kilogram. "Skyr" reads as yogurt, whose rows
+include it.
 
 The name is read before a barcode's categories: Nutella's record carries
 `en:sweet-spreads`, not `en:hazelnut-spreads`.
@@ -201,14 +229,14 @@ shape is reported once per session without content. See
 
 | Suite | Covers |
 | --- | --- |
-| `test/shopping_prices/price_label_test.dart` | Catalog lines, English, umlauts, compounds and cuts, false friends, seasoning, tie rules, dictionary integrity |
+| `test/shopping_prices/price_label_test.dart` | Catalog lines, English, umlauts, compounds and cuts, false friends, modifier nouns, excluded words, trailing phrases, seasoning, tie rules, dictionary integrity |
 | `test/shopping_prices/price_amount_test.dart` | Every display unit (read from `shopping_list.dart`) through the parser; fractions, ranges, multiples, ambiguous numbers |
-| `test/shopping_prices/price_aggregation_test.dart` | Window cutoff (day 42 in, day 43 and future out), client filters, discounts, normalisation, sample rule, 3x band, exact barcode, line cost, totals, region rule |
+| `test/shopping_prices/price_aggregation_test.dart` | Window cutoff (day 42 in, day 43 and future out), client filters, fresh garlic, discounts, normalisation, sample rule, one price per shop, 3x band, exact barcode, line cost, totals, region rule |
 | `test/services/open_prices_wire_test.dart` | Loopback server with recorded answers: end to end, spec parameter allowlist and values, headers, paging, retry, timeout, 404, broken envelope, byte limit |
-| `test/services/shopping_price_service_test.dart` | Concurrency, lookup cap, budgets, cache and expiry, failures not cached, cancel, dispose, session limit, diagnostics |
-| `test/services/shopping_price_controller_test.dart` | One run per change, no synchronous notify, pause, late results, retry cooldown, midnight |
-| `test/meal_plan/shopping_prices_receipt_test.dart` | Receipt states, sum and note, no layout jump, checks, English, region, cancellation, link, semantics |
-| `test/design/meal_plan_capture_test.dart` | Receipt shots with prices, loading, and 320 px at 2x text |
+| `test/services/shopping_price_service_test.dart` | Concurrency, lookup cap, budgets, nothing sent past the run budget, cache and expiry, truncated and failed results not cached, cancel, dispose, session limit, diagnostics |
+| `test/services/shopping_price_controller_test.dart` | One run per change, no synchronous notify, pause, late results, retry cooldown, midnight, a refused run |
+| `test/meal_plan/shopping_prices_receipt_test.dart` | Receipt states, sum and note, no layout jump at 390 px and at 320 px with 2x text, stamp clear of the sum, seasoning only, checks, English, region, cancellation, link, semantics |
+| `test/design/meal_plan_capture_test.dart` | Receipt shots with prices: loading (rows and totals), loaded, ticks, every line priced, done with stamp, failed, and 320 px at 2x text (rows and totals) |
 
 Fixtures in `test/services/open_prices_fixtures/` are trimmed from a live
 capture of 2026-10-11 (see the wire test's header).
