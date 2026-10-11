@@ -914,9 +914,10 @@ extension LocalCacheMutations on LocalCache {
         };
       }
       if (shoppingChecks != null) {
+        // Pending ticks are projected again below, whatever is retained.
         state[_mealPlansKey] = {
           ...?state[_mealPlansKey],
-          'checks': shoppingChecks.entries
+          'checks': LocalCache._retainedShoppingChecks(shoppingChecks).entries
               .map((e) => ShoppingCheck(id: e.key, checked: e.value).toJson())
               .toList(),
         };

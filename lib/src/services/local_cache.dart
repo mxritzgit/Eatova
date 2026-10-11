@@ -4,6 +4,7 @@ import 'dart:developer' as dev;
 import 'dart:isolate';
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/favorite_meal.dart';
@@ -20,6 +21,7 @@ import '../models/weight_log.dart';
 import 'crash_reporter.dart';
 import 'durable_cache_store.dart';
 import 'key_value_store.dart';
+import 'local_day.dart';
 import 'secure_cache_store.dart';
 import 'sync_outbox.dart';
 import 'sync_operation_payload.dart';
@@ -395,10 +397,35 @@ class LocalCache {
         PlannedMeal.fromJson((row as Map).cast<String, dynamic>())).toList();
       final checks = ((json['checks'] as List?) ?? const <Object?>[]).map((row) =>
         ShoppingCheck.fromJson((row as Map).cast<String, dynamic>())).toList();
-      if (plans.length > 10000 || checks.length > 2000 ||
+      if (plans.length > 10000 ||
           plans.map((p) => p.id).toSet().length != plans.length) { return null; }
-      return (plans: plans, checks: {for (final c in checks) c.id: c.checked});
+      // Too many checks never cost the plans; the oldest weeks give way.
+      return (plans: plans, checks: _retainedShoppingChecks({
+        for (final c in checks) c.id: c.checked,
+      }));
     } catch (_) { return null; }
+  }
+
+  /// Weeks the server keeps (35 days back) plus a week of margin.
+  static const int _shoppingCheckRetentionDays = 42;
+
+  /// The server's 2000 rows plus a full outbox of pending ticks.
+  static const int _maxCachedShoppingChecks = 2000 + kOutboxMaxOps;
+
+  /// Drops checks of weeks the server has pruned, then the oldest weeks
+  /// beyond [_maxCachedShoppingChecks]. Ids start with their week's day key.
+  static Map<String, bool> _retainedShoppingChecks(Map<String, bool> checks) {
+    final now = clock.now();
+    final cutoff = localDayKey(
+      DateTime(now.year, now.month, now.day - _shoppingCheckRetentionDays),
+    );
+    final kept = checks.keys.where((id) => id.compareTo(cutoff) >= 0).toList();
+    if (kept.length > _maxCachedShoppingChecks) {
+      kept
+        ..sort()
+        ..removeRange(0, kept.length - _maxCachedShoppingChecks);
+    }
+    return {for (final id in kept) id: checks[id]!};
   }
 
   Future<void> writeTrainingHistory(List<TrainingHistoryEntry> entries) =>

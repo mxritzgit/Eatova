@@ -358,6 +358,27 @@ void main() {
     },
   );
 
+  test(
+    'offline cold start keeps planned meals beside more checks than the server cap',
+    () async {
+      await withClock(Clock.fixed(today), () async {
+        final f = _Fixture();
+        final p = plan();
+        await f.cache.commitStoreSnapshot(
+          expectedVersions: const {},
+          mealPlans: [p],
+          shoppingChecks: {
+            for (var i = 0; i <= 2000; i++)
+              '2026-09-07:${i.toRadixString(16).padLeft(64, '0')}': true,
+          },
+        );
+        await f.boot();
+        expect(f.store.plannedMeals.map((m) => m.id), [p.id]);
+        expect(f.store.shoppingChecks, hasLength(2001));
+      });
+    },
+  );
+
   test('storage failure does not publish an unacknowledged plan', () async {
     final raw = _BrokenStorage();
     final f = _Fixture(raw: raw);
