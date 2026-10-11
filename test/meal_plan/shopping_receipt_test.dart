@@ -475,11 +475,102 @@ void main() {
       spiced.pantry.map((r) => r.parts.single.key.id),
       unorderedEquals(['chili_spice', 'herbs|dried']),
     );
+    // Without an amount and among vegetables it stays in the main list, on
+    // a row of its own: it might be either.
     final vegetables = _receipt([_plan(_own('Frühlingszwiebel, Paprika'), 1)]);
     expect(
       vegetables.rows.map((r) => r.parts.single.key.id),
-      unorderedEquals(['spring_onion', 'bell_pepper']),
+      unorderedEquals(['spring_onion', 'paprika?']),
     );
+  });
+
+  test('was verschieden ist, bleibt getrennt; was dasselbe ist, nicht', () {
+    List<ShoppingRow> rows(List<String> recipes, {AppLocalizations? l10n}) =>
+        _all(
+          _receipt([
+            for (var i = 0; i < recipes.length; i++)
+              _plan(_own(recipes[i]), i + 1, day: i),
+          ], l10n: l10n ?? deL10n),
+        );
+    String describe(ShoppingRow row) =>
+        '${row.pantry ? 'pantry' : 'main'} ${row.label} '
+        '${row.total.join(' + ')} parts=${row.parts.length}';
+
+    // Grated ginger is the fresh root, ground ginger the spice.
+    var receipt = _receipt([
+      _plan(_own('1 tbsp grated ginger'), 1),
+      _plan(_own('1/2 tsp ground ginger'), 2, day: 1),
+      _plan(_own('1 TL Ingwer, gerieben'), 3, day: 2),
+    ], l10n: enL10n);
+    expect(_row(receipt, 'ginger').pantry, isFalse);
+    expect(_row(receipt, 'ginger').parts, hasLength(2));
+    expect(_row(receipt, 'ginger_ground').pantry, isTrue);
+    expect(_row(receipt, 'ginger_ground').total, [_a(ShoppingUnit.tsp, .5)]);
+    receipt = _receipt([
+      _plan(_own('1 TL geriebener Ingwer'), 1),
+      _plan(_own('1 TL Ingwerpulver'), 2, day: 1),
+    ], l10n: deL10n);
+    expect(receipt.rows.map((r) => r.label), ['Geriebener Ingwer']);
+    expect(receipt.pantry.map((r) => r.label), ['Ingwerpulver']);
+
+    // Two diced tomatoes are fresh; a can is a can.
+    expect(
+      rows(['2 diced tomatoes', '1 can diced tomatoes'], l10n: enL10n),
+      hasLength(2),
+    );
+    // Canned anyway: one row with both amounts.
+    final corn = rows(['80 g Mais', '1 Dose Mais']);
+    expect(corn.map(describe), [
+      'main Mais ${_a(ShoppingUnit.mass, 80)} + '
+          '${_a(ShoppingUnit.can, 1)} parts=2',
+    ]);
+
+    // Tuna or dried tomatoes in oil are bought, not oil from the cupboard.
+    receipt = _receipt([
+      _plan(_own('70 g Thunfisch in Öl\n30 g Olivenöl'), 1),
+      _plan(_own('50 g getrocknete Tomaten in Öl\n60 g Thunfisch'), 2, day: 1),
+    ]);
+    expect(receipt.rows.map((r) => r.label), [
+      'Getrocknete Tomaten in Öl',
+      'Thunfisch',
+      'Thunfisch in Öl',
+    ]);
+    expect(receipt.pantry.map((r) => r.label), ['Olivenöl']);
+
+    // Fat levels and flour types in brackets keep their products apart.
+    expect(
+      rows([
+        '200 g Griechischer Joghurt (10%)',
+        '200 g Griechischer Joghurt (0,2%)',
+      ]).map((r) => r.total),
+      [
+        [_a(ShoppingUnit.mass, 200)],
+        [_a(ShoppingUnit.mass, 200)],
+      ],
+    );
+    expect(rows(['500 g Mehl Type 405', '300 g Mehl Type 1050']), hasLength(2));
+
+    // A flavour after "mit" is another product.
+    expect(
+      rows(['200 g Frischkäse mit Kräutern', '200 g Frischkäse']),
+      hasLength(2),
+    );
+
+    // Paprika to garnish is the powder, never the bell pepper.
+    final garnish = rows([
+      '1/2 bell pepper',
+      '6 eggs\nPaprika, for garnish',
+    ], l10n: enL10n);
+    expect(
+      garnish.singleWhere((r) => r.label == 'Bell pepper').parts,
+      hasLength(1),
+    );
+    expect(
+      garnish.singleWhere((r) => r.label == 'Paprika, for garnish').pantry,
+      isTrue,
+    );
+    // A bare one stays apart from a counted bell pepper.
+    expect(rows(['1 Paprika', 'Paprika']).where((r) => r.merged), isEmpty);
   });
 
   test('Mengen werden je Zeile auf die geplanten Portionen gerechnet', () {

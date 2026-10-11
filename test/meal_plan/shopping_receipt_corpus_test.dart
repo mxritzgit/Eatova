@@ -140,6 +140,70 @@ void main() {
     );
   });
 
+  test('Chefkoch-Zeilen: erst der Name, dann die Zubereitung', () {
+    // Pasted the way Chefkoch lists ingredients: "Name, Attribut".
+    const recipes = [
+      '300 g Hähnchenbrustfilet(s), in mundgerechte Stücke geschnitten\n'
+          '1 TL Gemüsebrühe, gekörnte\nSalz, jodiert\nPfeffer, bunter\n'
+          '1 Dose Tomate(n), stückige\n2 EL Olivenöl, extra vergine',
+      '250 g Hähnchenbrustfilet(s), trocken getupft\n'
+          '100 g Feta-Käse, zerbröselt\n1 Avocado(s), entsteint\n'
+          '1 Bund Petersilie, glatte\n1 Zwiebel(n), gewürfelt\n'
+          'Salz und Pfeffer',
+      '200 g Hähnchenbrust, ohne Haut\n400 g Tomate(n), stückige\n'
+          '2 Stangen Lauch, Sellerie\n1 Prise Pfeffer, bunter\n'
+          '1/2 TL Brühe, gekörnte\n2 Zwiebel(n)\n1 Avocado',
+    ];
+    final plans = [
+      for (var i = 0; i < recipes.length; i++)
+        PlannedMeal.create(
+          recipe: recipeCatalogDe.first.copyWith(
+            slug: 'user_chefkoch_$i',
+            ingredients: recipes[i],
+            structuredIngredients: const [],
+          ),
+          day: DateTime(2026, 10, 5 + i),
+          slot: MealSlot.dinner,
+          id: '00000000-0000-4000-8000-${(i + 1).toString().padLeft(12, '0')}',
+        ),
+    ];
+    final receipt = buildShoppingReceipt(
+      plans,
+      _week,
+      decimalSeparator: ',',
+      l10n: deL10n,
+    );
+    ShoppingRow row(String key) => [
+      ...receipt.rows,
+      ...receipt.pantry,
+    ].singleWhere((r) => r.parts.first.key.id == key);
+
+    for (final main in receipt.rows) {
+      expect(main.label, isNot(matches(_staple)), reason: main.label);
+      expect(main.label, isNot(contains('brühe')), reason: main.label);
+    }
+    expect(row('salt').pantry, isTrue);
+    expect(row('pepper').pantry, isTrue);
+    expect(row('pepper').parts, hasLength(3));
+    expect(row('vegetable_broth').pantry, isTrue);
+    expect(row('olive_oil').pantry, isTrue);
+    expect(row('chicken_breast').total, [
+      const ShoppingAmount(ShoppingUnit.mass, 750),
+    ]);
+    expect(row('canned+tomato').total, [
+      const ShoppingAmount(ShoppingUnit.mass, 400),
+      const ShoppingAmount(ShoppingUnit.can, 1),
+    ]);
+    for (final key in ['feta', 'onion', 'parsley|fresh']) {
+      expect(row(key).pantry, isFalse, reason: key);
+    }
+    expect(row('avocado').total, [const ShoppingAmount(ShoppingUnit.piece, 2)]);
+    // Weighed and canned: the name keeps what makes them canned.
+    expect(row('canned+tomato').label, 'Tomate(n), stückige');
+    // An unknown second item is never folded into the first.
+    expect(row('~lauch sellerie').pantry, isFalse);
+  });
+
   test('beide Sprachen ergeben dieselbe Liste', () {
     // The catalogs are translations of each other; so are their receipts.
     final de = buildShoppingReceipt(_planned(recipeCatalogDe), _week);

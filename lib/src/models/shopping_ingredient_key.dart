@@ -78,8 +78,15 @@ ShoppingIngredientKey shoppingIngredientKey(
   }
   final products = {
     ...analysis.products,
-    // "1 Dose Tomaten" are not fresh tomatoes.
-    if (unit == ShoppingUnit.can || unit == ShoppingUnit.jar) "canned",
+    // "1 Dose Tomaten" are not fresh tomatoes; "400 g gehackte Tomaten" come
+    // in a can, two counted ones are diced at home.
+    if (unit == ShoppingUnit.can ||
+        unit == ShoppingUnit.jar ||
+        (analysis.cannedForm &&
+            (unit == null ||
+                unit == ShoppingUnit.mass ||
+                unit == ShoppingUnit.volume)))
+      "canned",
   };
   // The most product words a synonym names ("lean ground beef" is lean
   // "ground beef"); the rest stay in the key.
@@ -107,6 +114,14 @@ ShoppingIngredientKey shoppingIngredientKey(
       unit == ShoppingUnit.pinch;
   final dry = products.contains("ground") || products.contains("dried");
   final fresh = analysis.fresh || analysis.chopped;
+  // Without an amount or a list of seasonings around it, a bare "Paprika"
+  // names either; it stays apart from both rather than guess.
+  final undecided =
+      unit == null &&
+      !seasoning &&
+      !fresh &&
+      !dry &&
+      !products.any(const {"red", "yellow", "green", "smoked"}.contains);
   switch (entry.kind) {
     case _Kind.paprika:
       final spice =
@@ -114,10 +129,10 @@ ShoppingIngredientKey shoppingIngredientKey(
           (dry ||
               products.contains("smoked") ||
               spooned ||
-              (unit == null && seasoning));
+              (unit == null && (seasoning || analysis.garnish)));
       (id, staple) = spice
           ? ("paprika_powder", ShoppingStaple.always)
-          : ("bell_pepper", ShoppingStaple.none);
+          : (undecided ? "paprika?" : "bell_pepper", ShoppingStaple.none);
     case _Kind.pepper:
       final vegetable =
           !dry &&
@@ -126,19 +141,26 @@ ShoppingIngredientKey shoppingIngredientKey(
           unit != null &&
           !spooned;
       if (vegetable) {
-        (id, staple) = ("pepper_vegetable", ShoppingStaple.none);
+        // British "peppers" are bell peppers.
+        (id, staple) = ("bell_pepper", ShoppingStaple.none);
       } else {
         products.removeAll(const {"black", "ground"});
         (id, staple) = ("pepper", ShoppingStaple.always);
       }
     case _Kind.chili:
-      final spice = !fresh && (dry || spooned || (unit == null && seasoning));
+      final spice =
+          !fresh &&
+          (dry ||
+              spooned ||
+              (unit == null && (seasoning || analysis.sprinkled)));
       (id, staple) = spice
           ? ("chili_spice", ShoppingStaple.always)
-          : ("chili", ShoppingStaple.none);
+          : (undecided ? "chili?" : "chili", ShoppingStaple.none);
     case _Kind.ginger || _Kind.coriander:
-      final spice = !fresh && (dry || spooned);
       final ginger = entry.kind == _Kind.ginger;
+      // Grated or pressed ginger is the fresh root, also by the spoon.
+      final spice =
+          !fresh && (dry || (spooned && !(ginger && analysis.grated)));
       (id, staple) = spice
           ? (
               ginger ? "ginger_ground" : "coriander_ground",
@@ -160,7 +182,9 @@ ShoppingIngredientKey shoppingIngredientKey(
       id = '${entry.id}|${dried ? 'dried' : 'fresh'}';
       staple = dried ? ShoppingStaple.always : ShoppingStaple.none;
     case _Kind.plain:
-      break;
+      // Corn, chickpeas or coconut milk come in a can whether or not the
+      // line says so: "80 g Mais" and "1 Dose Mais" are one row.
+      if (_cannedAnyway.contains(id)) products.remove("canned");
   }
   // "gemahlener Kreuzkümmel" is Kreuzkümmel.
   if (staple == ShoppingStaple.always) products.remove("ground");
@@ -180,6 +204,11 @@ ShoppingIngredientKey shoppingIngredientKey(
     }.contains(entry.kind),
   );
 }
+
+const _cannedAnyway = {
+  "corn", "chickpeas", "kidney_beans", "beans", "coconut_milk", "passata", //
+  "lentils",
+};
 
 /// Subsets of [products], largest first; the empty set last.
 List<Set<String>> _subsets(Set<String> products) {
@@ -235,6 +264,10 @@ class _Analysis {
     required this.whole,
     this.fresh = false,
     this.chopped = false,
+    this.grated = false,
+    this.cannedForm = false,
+    this.garnish = false,
+    this.sprinkled = false,
     this.complex = false,
   });
 
@@ -251,6 +284,16 @@ class _Analysis {
   final String whole;
   final bool fresh, chopped;
 
+  /// Grated, pressed or crushed: fresh ginger root.
+  final bool grated;
+
+  /// Chopped, diced or peeled tomatoes: canned when weighed or measured.
+  final bool cannedForm;
+
+  /// For garnish or to serve ("Paprika, for garnish"); [sprinkled] only for
+  /// sprinkling or dusting ("Chili zum Bestreuen").
+  final bool garnish, sprinkled;
+
   /// The label lists more than one thing ("Sesam, Frühlingszwiebel").
   final bool complex;
 
@@ -265,7 +308,21 @@ bool isShoppingModifier(String label) {
 }
 
 _Analysis _analyze(String label, {bool modifierCheck = false}) {
-  final folded = foldShoppingText(label);
+  // Fat levels and flour types make another product, also in brackets
+  // ("Joghurt (3,5 %)", "Mehl Type 405", "00 flour").
+  final folded = foldShoppingText(label)
+      .replaceAllMapped(
+        RegExp(r'(\d+(?:[.,]\d+)?)\s*%'),
+        (m) => ' pct${m[1]!.replaceAll(',', 'x').replaceAll('.', 'x')} ',
+      )
+      .replaceAllMapped(
+        RegExp(r'\b(?:type|typ|tipo)\s*(\d+)\b'),
+        (m) => ' type${m[1]} ',
+      )
+      .replaceAll(
+        RegExp(r'(?<![\d.,])\b00\s+(?=(?:mehl|flour|farina)\b)'),
+        ' type00 ',
+      );
   // Brackets are notes ("ca. 200 g"), except for a product word ("(TK)").
   final bracketed = [
     for (final note in RegExp(r'\(([^)]*)\)|\[([^\]]*)\]').allMatches(folded))
@@ -274,12 +331,16 @@ _Analysis _analyze(String label, {bool modifierCheck = false}) {
   ];
   var text = folded
       .replaceAll(RegExp(r'\([^)]*\)|\[[^\]]*\]'), ' ')
-      .replaceAllMapped(
-        RegExp(r'(\d+(?:[.,]\d+)?)\s*%'),
-        (m) => ' pct${m[1]!.replaceAll(',', 'x').replaceAll('.', 'x')} ',
-      )
       .replaceAll(RegExp(r'whole[\s-]*(?:grain|wheat|meal)'), ' wholegrain ')
       .replaceAll(RegExp(r'(?:low|reduced)[\s-]*fat'), ' lowfat ')
+      // An example is an alternative: "Nudeln, z. B. Spaghetti" is pasta.
+      .replaceAll(
+        RegExp(
+          r'(?<=\S)\s+(?:(?:z\.?\s?b|e\.?\s?g|bspw)\.?|beispielsweise'
+          r'|such as)(?=\s|$)',
+        ),
+        ' oder ',
+      )
       .replaceAll(
         RegExp(r'(?:^|\s)(?:z\.?\s?b|e\.?\s?g|n\.?\s?b)\.?(?=\s|$)'),
         ' ',
@@ -287,21 +348,35 @@ _Analysis _analyze(String label, {bool modifierCheck = false}) {
   for (final phrase in _ignoredPhrases) {
     text = text.replaceAll(phrase, ' ');
   }
+  // "Thunfisch in Öl", "tuna in olive oil": a product of its own, not oil.
+  text = text.replaceAll(
+    RegExp(
+      r'(?:^|\s)in\s+(?:extra\s+virgin\s+)?(?:olive\s+)?[a-z]*(?:oel|oil)\b',
+    ),
+    ' inoil ',
+  );
+  final garnish = _garnish.hasMatch(text);
+  final sprinkled = _sprinkled.hasMatch(text);
   final whole = text.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
   var head = text;
   var tail = '';
   final cut = _separator.firstMatch(text);
   if (cut != null && !text.substring(0, cut.start).trimRight().endsWith('-')) {
     head = text.substring(0, cut.start);
-    // Only a list separator leaves a tail; "oder"/"für"/"to" drop the rest.
-    if (RegExp(r'^[,;:]$').hasMatch(cut[0]!)) tail = text.substring(cut.end);
+    // A list separator or "mit"/"with" leaves a tail to check ("Frischkäse
+    // mit Kräutern" is not plain cream cheese); "oder"/"für"/"to" drop the
+    // rest.
+    if (RegExp(r'^(?:[,;:]|\s(?:mit|with)\s)$').hasMatch(cut[0]!)) {
+      tail = text.substring(cut.end);
+    }
   }
   final products = <String>{...bracketed};
-  var fresh = false, chopped = false, complex = false;
+  var fresh = false, chopped = false, grated = false, complex = false;
 
   void mark(String word) {
     if (_freshWords.contains(word)) fresh = true;
     if (_choppedWords.contains(word)) chopped = true;
+    if (_gratedWords.contains(word)) grated = true;
   }
 
   // The tail may describe the head ("roh", "in Scheiben", "frisch oder TK",
@@ -349,11 +424,11 @@ _Analysis _analyze(String label, {bool modifierCheck = false}) {
       }
     }
   }
-  // Chopped or crushed tomatoes come in a can.
-  if (RegExp(r'^tomat(?:o|oes|e|en)?$').hasMatch(nouns.join()) &&
-      _words(head).any(_cannedTomato.contains)) {
-    products.add("canned");
-  }
+  // Chopped or crushed tomatoes by weight come in a can ("Tomaten, stückig"
+  // too); the caller decides by the unit.
+  final cannedForm =
+      RegExp(r'^tomat(?:o|oes|e|en)?$').hasMatch(nouns.join()) &&
+      _words('$head $tail').any(_cannedTomato.contains);
   // "minced beef" is ground beef; "minced garlic" is garlic.
   if (minced &&
       RegExp(
@@ -396,9 +471,23 @@ _Analysis _analyze(String label, {bool modifierCheck = false}) {
     whole: whole,
     fresh: fresh,
     chopped: chopped,
+    grated: grated,
+    cannedForm: cannedForm,
+    garnish: garnish,
+    sprinkled: sprinkled,
     complex: complex,
   );
 }
+
+final _garnish = RegExp(
+  r'(?:^|\s)(?:for|to)\s+(?:garnish|sprinkl|dust|serv|top)\w*'
+  r'|(?:^|\s)zum\s+(?:garnieren|bestreuen|bestaeuben|servieren|dekorieren)\b',
+);
+
+final _sprinkled = RegExp(
+  r'(?:^|\s)(?:for|to)\s+(?:sprinkl|dust)\w*'
+  r'|(?:^|\s)zum\s+(?:bestreuen|bestaeuben)\b',
+);
 
 /// The first list separator, or an alternative/purpose word after which the
 /// rest is no longer the ingredient ("oder", "für", "to taste").
@@ -409,7 +498,7 @@ final _separator = RegExp(
 
 String _cutAlternative(String segment) {
   final match = RegExp(
-    r'(?<!\d)/(?!\d)|(?:^|\s)(?:oder|or|zum|zur|fuer|for|to|nach|mit|with)(?:\s|$)',
+    r'(?<!\d)/(?!\d)|(?:^|\s)(?:oder|or|zum|zur|fuer|for|to|nach)(?:\s|$)',
   ).firstMatch(segment);
   return match == null ? segment : segment.substring(0, match.start);
 }
@@ -445,7 +534,7 @@ Iterable<String> _forms(String word) sync* {
 }
 
 String? _product(String word) {
-  if (RegExp(r'^pct\d').hasMatch(word)) return word;
+  if (RegExp(r'^(?:pct|type)\d').hasMatch(word)) return word;
   for (final form in _forms(word)) {
     final product = _products[form];
     if (product != null) return product;
@@ -531,6 +620,11 @@ const _ignoredPhrases = [
   "in water",
   "in brine",
   "naturell",
+  "trocken getupft",
+  "trocken tupfen",
+  "trockengetupft",
+  "patted dry",
+  "pat dry",
   "aus der muehle",
   "from the mill",
   "nach belieben",
@@ -549,6 +643,14 @@ const _freshWords = {
 const _choppedWords = {
   "gehackt", "gehackte", "gehackter", "gehackten", "gehacktes", //
   "chopped", "minced",
+};
+
+/// Ginger only: grated, pressed or crushed root, never the powder.
+const _gratedWords = {
+  "gerieben", "geriebene", "geriebener", "geriebenen", "geriebenes", //
+  "grated", "gepresst", "gepresste", "gepresster", "gepressten", //
+  "pressed", "zerdrueckt", "zerdrueckte", "zerdrueckter", "zerdrueckten", //
+  "crushed",
 };
 
 const _units = {
@@ -580,7 +682,8 @@ const _stopWords = {
   "needed", "bei", "bedarf", "more", "mehr", "zusaetzlich", "extra", //
   "additional", "weitere", "also", "auch", "garnish", "garnieren", //
   "deko", "dekoration", "decoration", "serving", "servieren", "choice", //
-  "wahl", "beliebig", "favorite", "favourite", "your", "nb",
+  "wahl", "beliebig", "favorite", "favourite", "your", "nb", "ohne", "on", //
+  "off",
 };
 
 /// Preparation and quality words that never make another product. German
@@ -605,7 +708,13 @@ const _descriptors = {
   "cubed", "scheiben", "ringe", "ringen", "rings", "baendern", "ribbons", //
   "roeschen", "florets", "stuecke", "stuecken", "chunks", "thin", //
   "thinly", "duenn", "geraspelt", "shredded", "aufgetaut", "thawed", //
-  "angetaut", "gekuehlt", "chilled", "into",
+  "angetaut", "gekuehlt", "chilled", "into", "stueckig", "gekoernt", //
+  "jodiert", "bunt", "glatt", "kraus", "zerbroeselt", "crumbled", //
+  "entsteint", "getupft", "vergine", "juiced", "zested", "pounded", //
+  "bitesized", "mundgerecht", "vorwiegend", "beaten", "verquirlt", //
+  "ausgepresst", "abgerieben", "gehobelt", "shaved", "gezupft", "torn", //
+  "cored", "haut", "knochen", "graeten", "skin", "skinned", "removed", //
+  "bone", "bones", "fett", "fat",
 };
 
 /// Words that make another product, normalised across languages.
@@ -632,7 +741,9 @@ const _products = {
   "starchy": "floury", "gesalzen": "salted", "salted": "salted", //
   "ungesalzen": "unsalted", "unsalted": "unsalted", //
   "geroestet": "roasted", "roasted": "roasted", "toasted": "roasted", //
-  "rosenscharf": "hot", "scharf": "hot",
+  "rosenscharf": "hot", "scharf": "hot", "inoil": "inoil", //
+  "griechisch": "greek", "greek": "greek", "instant": "instant", //
+  "eingelegt": "pickled", "pickled": "pickled",
 };
 
 // ---------------------------------------------------------------------------
@@ -721,6 +832,8 @@ const _synonyms = [
   "apple - | Apfel | apple",
   "berries - | Beeren | berries",
   "nuts - | Nüsse | nuts",
+  "pine_nuts - | Pinienkerne | pine nuts",
+  "eggplant - | Aubergine | eggplant, aubergine",
   "oats - | Haferflocken | oats, rolled oats, oat flakes, porridge oats",
   "rice - | Reis | rice",
   "brown_rice - | Naturreis, Vollkornreis, brauner Reis | brown rice, whole-grain rice",

@@ -657,7 +657,11 @@ String _baseLabel(ShoppingPart part) {
       .replaceFirst(_trailingOptional, '')
       .trim();
   if (base.isEmpty) return part.label;
-  final same = shoppingIngredientKey(base, unit: part._unit).id == part.key.id;
+  // The unit may say what the name then no longer does ("1 Dose" of
+  // "Tomaten, stückig" next to "400 g" of it): both must agree.
+  final same =
+      shoppingIngredientKey(base, unit: part._unit).id == part.key.id &&
+      shoppingIngredientKey(base).id == shoppingIngredientKey(part.label).id;
   return _capitalized(
     same ? base : part.label.replaceFirst(_trailingOptional, '').trim(),
   );
