@@ -269,14 +269,19 @@ class _WeekDayCell extends StatelessWidget {
             : null,
         child: Column(
           children: [
-            Text(
-              short,
-              maxLines: 1,
-              style: AppType.ui(
-                12,
-                weight: today ? FontWeight.w700 : FontWeight.w600,
-                color: today ? t.accentText : t.ink3,
-                height: kTrainingLine,
+            // A seventh of a 320 px card: at large text "We" wrapped and
+            // its second letter was clipped away; it shrinks to fit instead.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                short,
+                maxLines: 1,
+                style: AppType.ui(
+                  12,
+                  weight: today ? FontWeight.w700 : FontWeight.w600,
+                  color: today ? t.accentText : t.ink3,
+                  height: kTrainingLine,
+                ),
               ),
             ),
             const SizedBox(height: 6),

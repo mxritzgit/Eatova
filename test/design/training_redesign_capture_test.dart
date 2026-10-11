@@ -91,8 +91,8 @@ void main() {
 
   // At 320 px and 200 % text the round menu button squeezed the label to
   // "Start workou|t", the volume axis split "Au|g" and "No|w", "Recent"
-  // shared its row with the link ("Recen|t") and the PR badge cut the
-  // workout title to "Lowe|r Bo…".
+  // shared its row with the link ("Recen|t"), "We" lost its "e" and the PR
+  // badge cut the workout title to "Lowe|r Bo…".
   for (final locale in const [Locale('en'), Locale('de')]) {
     testWidgets('training: 320 px and 2x text keep words whole '
         '(${locale.languageCode})', (tester) async {
@@ -104,6 +104,8 @@ void main() {
         await settleFrames(tester);
         expect(tester.takeException(), isNull);
         final code = locale.languageCode;
+        // The weekday letters too: "We" lost its "e" to a clipped line.
+        expectAllWholeWords(tester, find.byType(TrainingWeekCard));
         expectAllWholeWords(tester, find.byKey(const ValueKey('training-start')));
         await captureDesignShot(tester, 'training-320-x2-$code-00');
         final volume = find.byType(TrainingVolumeCard);
