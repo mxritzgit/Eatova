@@ -148,30 +148,50 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 key: ValueKey('recipe-history-version-${version.revision}'),
                 version: version,
                 restoreEnabled: _restoring == null,
+                restoring: _restoring == version.revision,
                 onRestore: () => _restore(version),
               ),
               const SizedBox(height: 12),
             ],
-            if (_answered && _versions.isEmpty)
-              Text(
-                l10n.recipeHistoryEmpty,
-                style: AppType.ui(14, color: t.ink2),
+            // The first page: two version cards in outline.
+            if (_loading && _versions.isEmpty)
+              Semantics(
+                container: true,
+                label: l10n.recipeHistoryLoading,
+                child: const ExcludeSemantics(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SkeletonCard(rows: 1, tileSize: 36),
+                      SizedBox(height: 12),
+                      SkeletonCard(rows: 1, tileSize: 36),
+                    ],
+                  ),
+                ),
+              ),
+            if (_answered && _versions.isEmpty && _error == null)
+              CalmState(
+                key: const ValueKey('recipe-history-empty'),
+                card: true,
+                icon: Icons.history_rounded,
+                title: l10n.recipeHistoryEmptyTitle,
+                text: l10n.recipeHistoryEmptyBody,
               ),
             if (_error != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                directSyncErrorMessage(_error!, l10n),
-                style: AppType.ui(14, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: SoftPillButton(
-                  key: const ValueKey('recipe-history-retry'),
-                  label: l10n.commonBootUnansweredRetry,
-                  icon: Icons.refresh_rounded,
-                  onTap: _load,
-                ),
+              if (_versions.isNotEmpty) const SizedBox(height: 4),
+              CalmState(
+                key: const ValueKey('recipe-history-error'),
+                card: true,
+                icon: Icons.cloud_off_rounded,
+                text: directSyncErrorMessage(_error!, l10n),
+                actions: [
+                  SoftPillButton(
+                    key: const ValueKey('recipe-history-retry'),
+                    label: l10n.commonBootUnansweredRetry,
+                    icon: Icons.refresh_rounded,
+                    onTap: _load,
+                  ),
+                ],
               ),
             ] else if (!_loading && _next != null)
               Padding(
@@ -186,11 +206,13 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                   ),
                 ),
               ),
-            if (_loading || _restoring != null)
+            // Earlier versions on their way. A restore shows its progress on
+            // the tapped version's pill instead, next to where it started.
+            if (_loading && _versions.isNotEmpty)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: CircularProgressIndicator(),
+                  child: AppSpinner(),
                 ),
               ),
           ],
@@ -208,12 +230,16 @@ class _VersionCard extends StatefulWidget {
     required this.version,
     required this.restoreEnabled,
     required this.onRestore,
+    this.restoring = false,
   });
 
   final RecipeVersion version;
 
   /// False while any restore is in flight.
   final bool restoreEnabled;
+
+  /// True while THIS version is being restored: its pill says so.
+  final bool restoring;
   final VoidCallback onRestore;
 
   @override
@@ -314,7 +340,9 @@ class _VersionCardState extends State<_VersionCard> {
             const SizedBox(height: 16),
             SoftPillButton(
               key: ValueKey('recipe-history-restore-${version.revision}'),
-              label: l10n.recipeHistoryRestore,
+              label: widget.restoring
+                  ? l10n.recipeHistoryRestoring
+                  : l10n.recipeHistoryRestore,
               icon: Icons.restore_rounded,
               onTap: widget.restoreEnabled ? widget.onRestore : null,
             ),

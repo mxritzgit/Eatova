@@ -632,6 +632,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
     selectedFilter = filter;
   });
 
+  /// The way out of an empty result: a typed search is cleared (the section
+  /// stays); without one, the category had nothing, so all recipes show.
+  void _resetNoResult() {
+    if (query.trim().isNotEmpty) {
+      _searchController.clear();
+    } else {
+      _seeAll(recipeFilters.first);
+    }
+  }
+
   /// A "See all" link far down the page: the list it opens starts at the
   /// top, not at the offset the page had.
   void _seeAll(String filter) {
@@ -1231,11 +1241,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
       ];
     } else {
       final rows = visibleRecipes;
+      // No own recipe at all: one calm card with the import/create pair
+      // instead of the "Your recipes" card plus an empty list saying the
+      // same thing below it.
+      final ownEmpty = own && rows.isEmpty && query.trim().isEmpty;
+      final history =
+          widget.onLoadRecipeHistory != null && widget.onRestoreRecipe != null;
       body = [
-        if (own) ...[
-          yourRecipes,
-          if (widget.onLoadRecipeHistory != null &&
-              widget.onRestoreRecipe != null)
+        if (own && (!ownEmpty || history)) ...[
+          if (!ownEmpty) yourRecipes,
+          if (history)
             gutter(
               Align(
                 alignment: Alignment.centerLeft,
@@ -1267,8 +1282,23 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ),
         const SizedBox(height: 4),
         ...rowsOf(rows),
-        if (rows.isEmpty)
-          gutter(_RecipeEmptyState(own: own && query.trim().isEmpty)),
+        if (ownEmpty)
+          gutter(
+            _RecipeOwnEmptyState(
+              actions: _YourRecipesCard.pills(
+                context,
+                onCreate: _openCreateSheet,
+                onImport: widget.onImport,
+              ),
+            ),
+          )
+        else if (rows.isEmpty)
+          gutter(
+            _RecipeNoResultState(
+              hasQuery: query.trim().isNotEmpty,
+              onReset: _resetNoResult,
+            ),
+          ),
       ];
     }
 

@@ -999,12 +999,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (_saveError != null) ...[
-                    Text(
+                    SignalNote(
                       _saveError!,
                       key: const ValueKey('recipe-edit-save-error'),
-                      style: AppType.ui(14, color: t.danger, height: 1.4),
+                      tone: t.danger,
+                      icon: Icons.error_outline_rounded,
+                      boxed: true,
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                   ],
                   if (!compact && !widget.nutritionOnly) ...[
                     Text(

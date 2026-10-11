@@ -616,9 +616,11 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
               if (_error != null) ...[
                 Semantics(
                   liveRegion: true,
-                  child: Text(
+                  child: SignalNote(
                     _error!,
-                    style: AppType.ui(14, color: t.danger, height: 1.4),
+                    tone: t.danger,
+                    icon: Icons.error_outline_rounded,
+                    boxed: true,
                   ),
                 ),
                 const SizedBox(height: 10),

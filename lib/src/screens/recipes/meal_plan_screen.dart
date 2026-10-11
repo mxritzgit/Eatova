@@ -511,7 +511,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                     ),
             ),
             const SizedBox(height: 8),
-            if (entries.isEmpty)
+            // The cold load: an outline of a planned meal rather than seven
+            // "Plan a meal" rows that claim the week is empty.
+            if (entries.isEmpty &&
+                store.mealPlansLoading &&
+                store.plannedMeals.isEmpty)
+              const SkeletonCard(rows: 1, tileSize: 56, tileRadius: rThumb)
+            else if (entries.isEmpty)
               _PlanMealRow(
                 key: ValueKey('meal-plan-add-$key'),
                 label: l.mealPlanAdd,

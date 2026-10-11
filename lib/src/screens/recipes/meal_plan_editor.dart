@@ -325,7 +325,12 @@ class _PlanEditorState extends State<_PlanEditor> {
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(_error!, style: AppType.ui(14, color: t.danger)),
+                SignalNote(
+                  _error!,
+                  tone: t.danger,
+                  icon: Icons.error_outline_rounded,
+                  boxed: true,
+                ),
               ],
               const SizedBox(height: 22),
               PrimaryActionButton(

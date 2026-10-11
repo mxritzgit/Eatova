@@ -27,6 +27,7 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/user_recipe_reads.dart';
+import 'package:eatova/src/widgets/design/states.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
@@ -238,8 +239,6 @@ Future<void> _openRestoreDialog(WidgetTester tester, String prefix) async {
   expect(_key('recipe-history-restore-4'), findsOneWidget);
   expect(tester.takeException(), isNull);
   await captureDesignShot(tester, '$prefix-01');
-  // The restore keeps a progress indicator spinning behind the dialog, so
-  // this cannot settle.
   final restore = _key('recipe-history-restore-4');
   await tester.ensureVisible(restore);
   await tester.pumpAndSettle();
@@ -247,6 +246,13 @@ Future<void> _openRestoreDialog(WidgetTester tester, String prefix) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
   expect(_key('recipe-history-confirm'), findsOneWidget);
+  // The restore shows on the tapped pill, not as a spinner at the end of
+  // the list behind the dialog.
+  expect(find.byType(CircularProgressIndicator), findsNothing);
+  expect(
+    find.descendant(of: restore, matching: find.text('Restoring…')),
+    findsOneWidget,
+  );
   expect(tester.takeException(), isNull);
   await captureDesignShot(tester, '$prefix-dialog');
 }
@@ -355,6 +361,31 @@ void main() {
       await scrollDesignTabBy(tester, 3000);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-plan-shopping-receipt-done');
+    });
+  });
+
+  testWidgets('week while the plans load', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      _viewport(tester);
+      final store = _store()..mealPlansLoading = true;
+      await tester.pumpWidget(
+        designCaptureBoundary(
+          localizedApp(
+            MealPlanScreen(store: store),
+            locale: const Locale('en'),
+            safeArea: false,
+            scaffold: false,
+          ),
+        ),
+      );
+      // The progress bar never settles.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      // A cold load does not claim seven empty days.
+      expect(find.text('Plan a meal'), findsNothing);
+      expect(find.byType(SkeletonCard), findsWidgets);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-week-loading');
     });
   });
 

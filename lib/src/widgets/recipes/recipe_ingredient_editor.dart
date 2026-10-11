@@ -564,16 +564,16 @@ class _IngredientSheetState extends State<_IngredientSheet> {
               Semantics(
                 liveRegion: true,
                 label: t.ingredientSearching,
-                child: Center(
-                  child: CircularProgressIndicator(color: context.t.accent),
-                ),
+                child: const Center(child: AppSpinner()),
               ),
             ],
             if (_searchError) ...[
               const SizedBox(height: 16),
-              Text(
+              SignalNote(
                 t.ingredientSearchError,
-                style: AppType.ui(14, color: context.t.danger, height: 1.4),
+                tone: context.t.danger,
+                icon: Icons.error_outline_rounded,
+                boxed: true,
               ),
             ],
             if (_searched &&

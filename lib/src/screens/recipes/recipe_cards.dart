@@ -54,45 +54,58 @@ class _RecipeListTile extends StatelessWidget {
   }
 }
 
-/// Empty list. The own-recipes variant needs no button of its own: the
-/// "Your recipes" card above it offers import and create.
-class _RecipeEmptyState extends StatelessWidget {
-  const _RecipeEmptyState({this.own = false});
-  final bool own;
+/// No own recipe yet: the app's calm empty card, holding the import/create
+/// pair itself (the separate "Your recipes" card would say the same thing
+/// again right above it).
+class _RecipeOwnEmptyState extends StatelessWidget {
+  const _RecipeOwnEmptyState({required this.actions});
+
+  /// The "Your recipes" pills: import and create.
+  final Widget actions;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l = context.l10n;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: t.tile,
-        borderRadius: BorderRadius.circular(rSheet),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            own ? Icons.menu_book_rounded : Icons.search_rounded,
-            color: t.accent,
-            size: 30,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            own ? l.recipesOwnEmptyTitle : l.recipesEmptyStateMessage,
-            style: AppType.display(20, color: t.ink),
-          ),
-          if (own) ...[
-            const SizedBox(height: 8),
-            Text(
-              l.recipesOwnEmptyBody,
-              style: AppType.ui(14, color: t.ink2, height: 1.4),
-            ),
-          ],
-        ],
-      ),
+    return CalmState(
+      key: const ValueKey('recipes-own-empty'),
+      card: true,
+      icon: Icons.menu_book_rounded,
+      title: l.recipesOwnEmptyTitle,
+      text: l.recipesOwnEmptyBody,
+      actions: [actions],
+    );
+  }
+}
+
+/// A search or category with no match, and the way out of it: clear the
+/// search, or (with nothing typed) show all recipes.
+class _RecipeNoResultState extends StatelessWidget {
+  const _RecipeNoResultState({required this.hasQuery, required this.onReset});
+
+  final bool hasQuery;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    return CalmState(
+      key: const ValueKey('recipes-no-result'),
+      card: true,
+      icon: Icons.search_off_rounded,
+      title: l.recipesNoResultTitle,
+      text: l.recipesNoResultBody,
+      actions: [
+        SoftPillButton(
+          key: const ValueKey('recipes-no-result-reset'),
+          label: hasQuery
+              ? l.recipesSearchClearTooltip
+              : l.recipesNoResultShowAll,
+          icon: hasQuery
+              ? Icons.close_rounded
+              : Icons.restaurant_menu_rounded,
+          onTap: onReset,
+        ),
+      ],
     );
   }
 }

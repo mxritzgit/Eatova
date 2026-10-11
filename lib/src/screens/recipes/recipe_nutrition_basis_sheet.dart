@@ -139,10 +139,12 @@ class _RecipeNutritionBasisSheetState
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(
+                SignalNote(
                   _error!,
                   key: const ValueKey('recipe-nutrition-basis-error'),
-                  style: AppType.ui(14, color: t.danger, height: 1.5),
+                  tone: t.danger,
+                  icon: Icons.error_outline_rounded,
+                  boxed: true,
                 ),
               ],
               const SizedBox(height: 24),

@@ -927,7 +927,12 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             enabled: !_saving,
           ),
           if (_editError != null) ...[
-            Text(_editError!, style: AppType.ui(14, color: t.danger)),
+            SignalNote(
+              _editError!,
+              tone: t.danger,
+              icon: Icons.error_outline_rounded,
+              boxed: true,
+            ),
             const SizedBox(height: 12),
           ],
           Align(
