@@ -1165,13 +1165,19 @@ class MealAnalysisResult {
       'energy-kcal_100g',
       'energy_kcal_100g',
     ]);
-    if (proHundert != null && isPlausibleKcalPer100G(proHundert)) {
+    // A 0 against a positive energy field is a gap, not a value.
+    final energiePositiv = _offEnergiePositiv(nutriments);
+    if (proHundert != null &&
+        isPlausibleKcalPer100G(proHundert) &&
+        !(proHundert == 0 && energiePositiv)) {
       return proHundert;
     }
 
     if (_offBasisIst100G(product)) {
       final basisWert = _readDouble(nutriments, const ['energy-kcal_value']);
-      if (basisWert != null && isPlausibleKcalPer100G(basisWert)) {
+      if (basisWert != null &&
+          isPlausibleKcalPer100G(basisWert) &&
+          !(basisWert == 0 && energiePositiv)) {
         return basisWert;
       }
     }
@@ -1207,26 +1213,37 @@ class MealAnalysisResult {
   /// Candidates and precedence mirror [_offKcalPer100G]: the preferred field
   /// decides if present (a 0 in a lower-ranked field next to a filled kcal
   /// field is not a 0-kcal statement); `energy-kcal_value` counts only on a
-  /// 100 g base; kJ needs no conversion, 0 kJ is 0 kcal.
+  /// 100 g base; kJ needs no conversion, 0 kJ is 0 kcal. A 0 kcal next to a
+  /// positive energy field states nothing: the record contradicts itself.
   static bool offMeldetExplizitNullKcal(Map<String, dynamic> product) {
     final nutriments = product['nutriments'] is Map<String, dynamic>
         ? product['nutriments'] as Map<String, dynamic>
         : <String, dynamic>{};
+    final energiePositiv = _offEnergiePositiv(nutriments);
     final proHundert = _readDouble(nutriments, const [
       'energy-kcal_100g',
       'energy_kcal_100g',
     ]);
     if (proHundert != null) {
-      return proHundert == 0;
+      return proHundert == 0 && !energiePositiv;
     }
     if (_offBasisIst100G(product)) {
       final basisWert = _readDouble(nutriments, const ['energy-kcal_value']);
       if (basisWert != null) {
-        return basisWert == 0;
+        return basisWert == 0 && !energiePositiv;
       }
     }
     final kj = _readDouble(nutriments, const ['energy-kj_100g', 'energy_100g']);
     return kj != null && kj == 0;
+  }
+
+  /// Whether a kJ or unit-less energy field per 100 g holds more than 0.
+  static bool _offEnergiePositiv(Map<String, dynamic> nutriments) {
+    for (final key in const ['energy-kj_100g', 'energy_100g']) {
+      final wert = _readDouble(nutriments, <String>[key]);
+      if (wert != null && wert.isFinite && wert > 0) return true;
+    }
+    return false;
   }
 
   /// One macro per 100 g from the OFF nutriments, or `null` when it is

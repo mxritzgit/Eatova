@@ -370,6 +370,43 @@ void main() {
       expect(r.kcalPer100G, closeTo(521.0, 0.5));
     });
 
+    // Review 2026-10-11 (FOOD-5): a 0 in the kcal field next to a positive
+    // kJ value is a gap in the record (OFF flags the mismatch), not water.
+    // It was logged as a measured 0 kcal.
+    test('kcal 0 neben positivem kJ-Wert ist keine gemessene 0', () {
+      final product = <String, dynamic>{
+        'product_name': 'Haferkeks',
+        'nutrition_data_per': '100g',
+        'nutriments': <String, dynamic>{
+          'energy-kcal_100g': 0,
+          'energy-kcal_value': 0,
+          'energy-kj_100g': 1046,
+          'energy_100g': 1046,
+        },
+      };
+      final r = MealAnalysisResult.fromOpenFoodFacts(product, '119');
+      expect(MealAnalysisResult.offMeldetExplizitNullKcal(product), isFalse);
+      expect(r.explicitZeroKcal, isFalse);
+      expect(r.kcalPer100G, closeTo(250.0, 0.5));
+      expect(r.caloriesKcal, 250);
+    });
+
+    test('kcal 0 und kJ 0 bleiben die gemessene 0 (Wasser)', () {
+      final product = <String, dynamic>{
+        'product_name': 'Mineralwasser',
+        'serving_quantity': 250,
+        'nutriments': <String, dynamic>{
+          'energy-kcal_100g': 0,
+          'energy-kj_100g': 0,
+          'energy_100g': 0,
+        },
+      };
+      final r = MealAnalysisResult.fromOpenFoodFacts(product, '120');
+      expect(MealAnalysisResult.offMeldetExplizitNullKcal(product), isTrue);
+      expect(r.explicitZeroKcal, isTrue);
+      expect(r.caloriesKcal, 0);
+    });
+
     test('serving_quantity 0 faellt auf den 100-g-Default zurueck', () {
       final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
         'product_name': 'Quark',
