@@ -1237,6 +1237,7 @@
   "settingsAboutSourcesLabel": "Quellen",
   "settingsAboutSourcesDefault": "OpenFoodFacts · Eigener Suchindex",
   "settingsAboutSourcesWithAppleHealth": "OpenFoodFacts · Eigener Suchindex · Apple Health",
+  "settingsAboutSourcesWithHealthConnect": "OpenFoodFacts · Eigener Suchindex · Health Connect",
   "settingsPrivacyPolicyLinkLabel": "Datenschutzerklärung",
   "settingsDeleteAccountSheetSubtitle": "Das entfernt dein Profil, alle Mahlzeiten, deinen Gewichtsverlauf und den Coach-Verlauf. Es lässt sich nicht rückgängig machen.",
   "settingsDeleteAccountActionLabel": "Konto endgültig löschen",

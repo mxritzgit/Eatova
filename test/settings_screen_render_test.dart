@@ -9,6 +9,7 @@
 // thing under test. The four hand-written smokes (hell / dunkel / 2.0 hell /
 // 2.0 dunkel) are one `renderMatrix` now, which also covers `en`.
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -223,6 +224,26 @@ void main() {
 
     expect(overflows, isEmpty, reason: describeOverflows(overflows));
   });
+
+  // AUTH-5: Android reads steps from Health Connect, so the sources row names
+  // it just as iOS names Apple Health.
+  testWidgets('die Quellen nennen die Schrittquelle der Plattform',
+      (tester) async {
+    await _pump(tester, brightness: Brightness.light);
+    await _scrollTo(tester, const ValueKey('settings-about'), 400);
+    await tester.tap(find.byKey(const ValueKey('settings-about')));
+    await tester.pumpAndSettle();
+
+    final quelle = defaultTargetPlatform == TargetPlatform.iOS
+        ? 'Apple Health'
+        : 'Health Connect';
+    expect(
+      find.text('OpenFoodFacts · Eigener Suchindex · $quelle'),
+      findsOneWidget,
+    );
+  },
+      variant: const TargetPlatformVariant(
+          <TargetPlatform>{TargetPlatform.android, TargetPlatform.iOS}));
 
   testWidgets('der Seitenfuss der Einstellungen steht ohne vorheriges '
       'Scrollen im Baum', (tester) async {

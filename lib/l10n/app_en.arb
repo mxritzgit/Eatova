@@ -1186,6 +1186,7 @@
   "settingsAboutSourcesLabel": "Sources",
   "settingsAboutSourcesDefault": "OpenFoodFacts · Our own search index",
   "settingsAboutSourcesWithAppleHealth": "OpenFoodFacts · Our own search index · Apple Health",
+  "settingsAboutSourcesWithHealthConnect": "OpenFoodFacts · Our own search index · Health Connect",
   "settingsPrivacyPolicyLinkLabel": "Privacy policy",
   "settingsDeleteAccountSheetSubtitle": "This removes your profile, all meals, your weight history and your coach history. It cannot be undone.",
   "settingsDeleteAccountActionLabel": "Delete account permanently",
