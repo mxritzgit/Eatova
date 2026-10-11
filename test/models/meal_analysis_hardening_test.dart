@@ -392,6 +392,98 @@ void main() {
       expect(r.caloriesKcal, 340);
     });
 
+    MealAnalysisResult portion(String servingSize, {num? quantity}) =>
+        MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+          'product_name': 'Produkt',
+          'serving_quantity': ?quantity,
+          'serving_size': servingSize,
+          'nutriments': <String, dynamic>{'energy-kcal_100g': 390},
+        }, '121');
+
+    test('Portion unter 1 g im Text: 100-g-Bezug statt 49 g', () {
+      // One mint: serving_quantity 0.49 is rejected, and the text used to be
+      // read as "49 g", logging 191 kcal for a single Tic Tac.
+      final tictac = portion('1 Dragee (0,49 g)', quantity: 0.49);
+      expect(tictac.estimatedGrams, 100);
+      expect(tictac.caloriesKcal, 390);
+      expect(portion('1 Tablette (0,06 g)').estimatedGrams, 100);
+      expect(portion('0.49 g').estimatedGrams, 100);
+    });
+
+    test('Dezimalzahlen im Portionstext werden ganz gelesen', () {
+      expect(portion('1,25 g').estimatedGrams, 1, reason: 'nicht 25 g');
+      expect(portion('2,50 g').estimatedGrams, 3, reason: 'nicht 50 g');
+      expect(portion('1 Riegel (12,5 g)').estimatedGrams, 13);
+      expect(portion('5 g').estimatedGrams, 5);
+    });
+
+    test('Gramm-Angaben im Portionstext bleiben erkannt', () {
+      expect(portion('2 Scheiben (50 g)').estimatedGrams, 50);
+      expect(portion('30 g').estimatedGrams, 30);
+      expect(portion('50gr').estimatedGrams, 50);
+      expect(portion('50 Gramm').estimatedGrams, 50);
+      expect(portion('2 galettes (20 g)').estimatedGrams, 20);
+      // An item word starting with "g" is no gram unit.
+      expect(portion('1 glass (250 ml)').estimatedGrams, 100);
+    });
+
+    test('kleine Portion: die Dichte des Etiketts traegt die Skalierung', () {
+      // Chewing gum: 1.4 g -> 1 g, 1.53 kcal -> 2. Scaling that 2 showed
+      // 200 kcal / 100 g and logged 28 kcal for 14 g instead of 21.
+      final kaugummi = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+        'product_name': 'Kaugummi',
+        'serving_quantity': 1.4,
+        'nutriments': <String, dynamic>{'energy-kcal_100g': 153},
+      }, '4000000000000');
+      expect(kaugummi.estimatedGrams, 1);
+      expect(kaugummi.caloriesKcal, 2);
+      expect(kaugummi.adjustedToGrams(1).caloriesKcal, 2, reason: 'Invariante');
+      expect(kaugummi.adjustedToGrams(100).caloriesKcal, 153);
+      expect(kaugummi.adjustedToGrams(14).caloriesKcal, 21);
+      final zweimal = kaugummi.adjustedToGrams(50).adjustedToGrams(100);
+      expect(zweimal.caloriesKcal, 153, reason: 'keine Drift');
+      expect(zweimal.kcalPer100G, 153);
+      // The weight sheet previews the synthesized component; saving applies
+      // adjustedToGrams. Both must name the same number.
+      final vorschau = kaugummi.asSingleComponent.adjustedToGrams(14);
+      expect(vorschau.caloriesKcal, 21);
+      expect(vorschau.kcalPer100G, 153);
+    });
+
+    test('eine widersprechende Dichte skaliert weiterhin nicht', () {
+      // 850 kcal on 300 g next to 260 kcal/100 g (780 kcal): the calories win.
+      const bowl = MealAnalysisResult(
+        mealName: 'Bowl',
+        caloriesKcal: 850,
+        estimatedGrams: 300,
+        kcalPer100G: 260,
+        protein: '-',
+        carbs: '-',
+        fat: '-',
+        confidence: 'Mittel',
+        portionNotes: '',
+      );
+      expect(bowl.adjustedToGrams(150).caloriesKcal, 425);
+      expect(bowl.asSingleComponent.adjustedToGrams(150).caloriesKcal, 425);
+    });
+
+    test('Portion unter 1 kcal mit bekannter Dichte ist eine Messung', () {
+      final teebeutel = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+        'product_name': 'Kräutertee',
+        'serving_quantity': 2,
+        'nutriments': <String, dynamic>{'energy-kcal_100g': 1},
+      }, '122');
+      expect(teebeutel.caloriesKcal, 0);
+      expect(teebeutel.explicitZeroKcal, isTrue, reason: 'loggbar');
+      expect(teebeutel.adjustedToGrams(300).caloriesKcal, 3);
+      final ohne = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+        'product_name': 'Kräutertee',
+        'serving_quantity': 2,
+        'nutriments': <String, dynamic>{},
+      }, '123');
+      expect(ohne.explicitZeroKcal, isFalse, reason: 'unbekannt');
+    });
+
     test('unmoegliche Makros pro 100 g werden "-" statt hochgerechnet', () {
       // 100 g of food cannot hold more than 100 g of one macro, and none can
       // be negative: a unit slip in the crowd-sourced record is not a

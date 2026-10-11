@@ -8,6 +8,7 @@ import 'package:eatova/src/models/described_meal.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_description_matcher.dart';
+import 'package:eatova/src/services/meals_sync.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 typedef _Answer = Future<List<ProductSearchResult>> Function();
@@ -232,6 +233,41 @@ void main() {
       expect(draft.items.single.grams, 30);
     });
 
+    // A splash of milk as the recent: its rounded "0,3 g" protein per 10 g
+    // read back as 3 g per 100 g, not the label's 3,4.
+    test('ein Favorit aus kleiner Portion nimmt die Etikettwerte', () async {
+      final splash = mealResultFromJson(
+        mealResultToJson(
+          MealAnalysisResult.fromOpenFoodFacts(
+            _off(
+              '4000000000017',
+              'Milch',
+              kcal: 47,
+              protein: 3.4,
+              servingQuantity: 100,
+            ),
+            '4000000000017',
+          ).adjustedToGrams(10),
+        ),
+      );
+      expect(splash.protein, '0,3 g');
+      final milk = _food(
+        'Milch',
+        grams: 250,
+        kcal: 118,
+        amount: '250 ml',
+        stated: true,
+      );
+      final draft = await _matcher(
+        _FakeProducts({}),
+        favorites: () => [_favorite(splash, day: 9)],
+      ).match(_meal([milk]));
+      final line = draft.items.single;
+      expect(line.selected.origin, DraftItemOrigin.favorite);
+      expect(line.selected.proteinPer100G, closeTo(3.4, 1e-9));
+      expect(line.proteinG, closeTo(8.5, 1e-9));
+    });
+
     test('Favoriten werfen -> Abgleich laeuft ohne sie weiter', () async {
       final draft = await _matcher(
         _FakeProducts({}),
@@ -318,6 +354,32 @@ void main() {
       expect(line.candidates.map((c) => c.barcode), [null, '1', '2']);
     });
 
+    test(
+      'ein gemessenes 0 bleibt Alternative und behaelt die Markierung',
+      () async {
+        final products = _FakeProducts({
+          'Wasser': _hits([_product('1', 'Wasser', brand: 'Volvic', kcal: 0)]),
+        });
+        final saved = MealAnalysisResult.fromOpenFoodFacts(
+          _off('2', 'Wasser', brand: 'Gerolsteiner', kcal: 0),
+          '2',
+        );
+        expect(saved.explicitZeroKcal, isTrue);
+        final line = (await _matcher(
+          products,
+          favorites: () => [_favorite(saved, day: 9)],
+        ).match(_meal([_food('Wasser', grams: 250, kcal: 0)]))).items.single;
+
+        expect(line.isEstimate, isTrue, reason: 'nie automatisch gewaehlt');
+        expect(line.candidates.map((c) => c.barcode), [null, '2', '1']);
+        expect(line.candidates.map((c) => c.explicitZeroKcal), [
+          false,
+          true,
+          true,
+        ], reason: 'das 0 der Schaetzung ist unbekannt');
+      },
+    );
+
     test('der Titel muss die Hauptwoerter der Suche tragen', () async {
       final products = _FakeProducts({
         'Toastbrot': _hits([_product('1', 'Butterkekse', kcal: 450)]),
@@ -358,6 +420,79 @@ void main() {
       expect(candidates.last.origin, DraftItemOrigin.estimate);
       expect(candidates.map((c) => c.barcode).take(3), ['0', '1', '2']);
     });
+  });
+
+  // The model itemizes pasta and rice cooked (about 150 kcal/100 g); the
+  // products found are mostly dry (about 350). Such a product must never
+  // replace the estimate under a "Datenbank" badge.
+  group('Dichte', () {
+    test(
+      'trockene Nudeln und Reis ersetzen keine gekochte Schaetzung',
+      () async {
+        final products = _FakeProducts({
+          'Spaghetti': _hits([
+            _product('1', 'Spaghetti', brand: 'Barilla', kcal: 359),
+          ]),
+          'Basmati Reis': _hits([
+            _product('2', 'Basmati Reis', brand: 'Oryza', kcal: 350),
+          ]),
+        });
+        final draft = await _matcher(products).match(
+          _meal([
+            // 158 kcal/100 g: 2.27x.
+            _food('Spaghetti', grams: 250, kcal: 395),
+            // 140 kcal/100 g: 2.5x.
+            _food('Basmati Reis', grams: 250, kcal: 350),
+            _food(
+              'Spaghetti',
+              grams: 200,
+              kcal: 316,
+              amount: '200 g',
+              stated: true,
+            ),
+          ]),
+        );
+        for (final (index, kcal, barcode) in [
+          (0, 395, '1'),
+          (1, 350, '2'),
+          (2, 316, '1'),
+        ]) {
+          final line = draft.items[index];
+          expect(line.isEstimate, isTrue, reason: 'Zeile $index');
+          expect(line.caloriesKcal, kcal, reason: 'Zeile $index');
+          expect(line.candidates.map((c) => c.barcode), [
+            null,
+            barcode,
+          ], reason: 'Zeile $index: als Alternative gelistet');
+        }
+      },
+    );
+
+    // Estimate kcal/100 g, product kcal/100 g, chosen without the user.
+    const rows = <(String, int, int, bool)>[
+      ('Muesli', 200, 340, true), // 1.7x
+      ('Muesli', 200, 380, false), // 1.9x
+      ('Muesli', 200, 118, true), // 1.7x below
+      ('Muesli', 200, 105, false), // 1.9x below
+      ('Apfelschorle', 10, 24, true), // 2.4x, but within 20 kcal/100 g
+    ];
+    for (final (name, estimate, product, chosen) in rows) {
+      test('$name $estimate vs. $product kcal/100 g: '
+          '${chosen ? 'gewaehlt' : 'gelistet'}', () async {
+        final products = _FakeProducts({
+          name: _hits([_product('1', name, kcal: product.toDouble())]),
+        });
+        final line = (await _matcher(
+          products,
+        ).match(_meal([_food(name, grams: 100, kcal: estimate)]))).items.single;
+        expect(line.candidates.map((c) => c.barcode), [
+          if (chosen) '1',
+          null,
+          if (!chosen) '1',
+        ]);
+        expect(line.isEstimate, !chosen);
+      });
+    }
   });
 
   group('Fehler und Zeit', () {
@@ -562,6 +697,234 @@ void main() {
         expect(draft.items[1].selected.servingGrams, 40);
       },
     );
+
+    // A serving only says how much a counted amount weighs when it counts
+    // the same unit: "50 g" may be one slice or two, a "Portion" is the
+    // maker's, and no serving is a can or several packs.
+    test('eine Stueckzahl folgt nur einer Portion derselben Einheit', () async {
+      final products = _FakeProducts({
+        'Toastbrot': _hits([
+          _product(
+            '1',
+            'Toastbrot',
+            brand: 'Harry',
+            kcal: 255,
+            servingSize: '50 g',
+            servingQuantity: 50,
+          ),
+        ]),
+        'Cola': _hits([
+          _product(
+            '2',
+            'Cola',
+            brand: 'Coca-Cola',
+            kcal: 42,
+            servingSize: '250 ml',
+            servingQuantity: 250,
+          ),
+        ]),
+        'Gummibaerchen': _hits([
+          _product(
+            '3',
+            'Gummibaerchen',
+            brand: 'Haribo',
+            kcal: 343,
+            servingSize: '1 Portion (25 g)',
+            servingQuantity: 25,
+          ),
+        ]),
+        'Haferflocken': _hits([
+          _product(
+            '4',
+            'Haferflocken',
+            brand: 'Koelln',
+            kcal: 370,
+            servingSize: '1 Portion (40 g)',
+            servingQuantity: 40,
+          ),
+        ]),
+      });
+      final draft = await _matcher(products).match(
+        _meal([
+          twoSlices,
+          _food(
+            'Cola',
+            grams: 330,
+            kcal: 139,
+            amount: 'eine Dose',
+            stated: true,
+          ),
+          _food(
+            'Gummibaerchen',
+            grams: 400,
+            kcal: 1372,
+            amount: '2 Packungen',
+            stated: true,
+          ),
+          _food(
+            'Haferflocken',
+            grams: 60,
+            kcal: 222,
+            amount: 'eine Portion',
+            stated: true,
+          ),
+        ]),
+      );
+      for (final (index, barcode, grams) in [
+        (0, '1', 50),
+        (1, '2', 330),
+        (2, '3', 400),
+        (3, '4', 60),
+      ]) {
+        final line = draft.items[index];
+        expect(line.selected.barcode, barcode, reason: 'Zeile $index');
+        expect(line.grams, grams, reason: 'Zeile $index: Modell-Gramm');
+        expect(
+          line.withCandidate(line.selected).grams,
+          grams,
+          reason: 'Zeile $index: auch beim Wechsel',
+        );
+      }
+    });
+
+    test('eine Portion weit weg vom Modell gilt als falsch erfasst', () async {
+      Future<DraftFoodItem> lineWith(String servingSize, int grams) async {
+        final products = _FakeProducts({
+          'Toastbrot': _hits([
+            _product(
+              '1',
+              'Toastbrot',
+              brand: 'Harry',
+              kcal: 255,
+              servingSize: servingSize,
+              servingQuantity: grams,
+            ),
+          ]),
+        });
+        return (await _matcher(
+          products,
+        ).match(_meal([twoSlices]))).items.single;
+      }
+
+      // The loaf, not a slice: 500 g against the model's 50 g.
+      final loaf = await lineWith('1 Scheibe (250 g)', 250);
+      expect(loaf.selected.barcode, '1');
+      expect(loaf.grams, 50);
+      // Twice the model's reading is still a slice.
+      final thick = await lineWith('1 Scheibe (50 g)', 50);
+      expect(thick.grams, 100);
+    });
+
+    // Without serving_quantity and a weight in its text, fromOpenFoodFacts
+    // falls back to the 100 g base: that is no piece. Two eggs became 200 g,
+    // three slices of toast 150 g ("2 Scheiben" read as 50 g each).
+    test('eine Portion ohne Gewicht gibt keine Stueckgroesse vor', () async {
+      final products = _FakeProducts({
+        'Eier': _hits([
+          _product('1', 'Eier', kcal: 155, servingSize: '1 Stück'),
+        ]),
+        'Toastbrot': _hits([
+          _product('2', 'Toastbrot', kcal: 265, servingSize: '2 Scheiben'),
+        ]),
+        'Gouda': _hits([
+          _product('3', 'Gouda', kcal: 356, servingSize: '1 Scheibe'),
+        ]),
+      });
+      final draft = await _matcher(products).match(
+        _meal([
+          _food(
+            'Eier',
+            grams: 120,
+            kcal: 186,
+            amount: 'zwei Eier',
+            stated: true,
+          ),
+          _food(
+            'Toastbrot',
+            grams: 75,
+            kcal: 199,
+            amount: 'drei Scheiben',
+            stated: true,
+          ),
+          _food(
+            'Gouda',
+            grams: 50,
+            kcal: 180,
+            amount: '2 Scheiben',
+            stated: true,
+          ),
+        ]),
+      );
+      for (final (index, code, grams) in [
+        (0, '1', 120),
+        (1, '2', 75),
+        (2, '3', 50),
+      ]) {
+        final line = draft.items[index];
+        expect(line.selected.barcode, code, reason: 'Zeile $index');
+        expect(line.grams, grams, reason: 'Zeile $index: Modell-Gramm');
+        expect(line.selected.servingGrams, isNull, reason: 'Zeile $index');
+      }
+    });
+
+    test('ein Gewicht im Portionstext zaehlt auch bei 100 g', () async {
+      final products = _FakeProducts({
+        'Toastbrot': _hits([
+          _product(
+            '1',
+            'Toastbrot',
+            kcal: 255,
+            servingSize: '4 Scheiben (100 g)',
+          ),
+        ]),
+      });
+      final line = (await _matcher(
+        products,
+      ).match(_meal([twoSlices]))).items.single;
+      expect(line.selected.servingGrams, 25);
+      expect(line.grams, 50);
+    });
+
+    test('eine Portion unter 1 g gibt keine Stueckgroesse vor', () async {
+      final products = _FakeProducts({
+        'Tic Tac': _hits([
+          _product(
+            '1',
+            'Tic Tac',
+            kcal: 390,
+            servingSize: '1 Stück (0,49 g)',
+            servingQuantity: 0.49,
+          ),
+        ]),
+        'Süßstoff': _hits([
+          _product(
+            '2',
+            'Süßstoff',
+            kcal: 300,
+            servingSize: '1 Tablette (0,06 g)',
+            servingQuantity: 0.06,
+          ),
+        ]),
+      });
+      final draft = await _matcher(products).match(
+        _meal([
+          _food('Tic Tac', grams: 2, kcal: 8, amount: '2 Stück', stated: true),
+          _food('Süßstoff', grams: 1, kcal: 3, amount: '2 Stück', stated: true),
+        ]),
+      );
+      for (final (line, code) in [
+        (draft.items[0], '1'),
+        (draft.items[1], '2'),
+      ]) {
+        final product = line.candidates.firstWhere((c) => c.barcode == code);
+        expect(product.servingGrams, isNull, reason: 'keine 49 g pro Stück');
+        expect(
+          line.withCandidate(product).grams,
+          line.described.grams,
+          reason: 'Modell-Gramm statt 100 g pro Stück',
+        );
+      }
+    });
 
     test('Makros pro 100 g kommen vom Produkt', () async {
       final products = _FakeProducts({

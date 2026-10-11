@@ -53,6 +53,7 @@
   "recipeImportRateLimited": "You have reached the import limit. Please try again later.",
   "recipeImportUnavailable": "Recipe import is currently unavailable. Your text is still here. Please try again later.",
   "recipeImportTimeout": "Recognition took too long. Your text is still here. Please try again.",
+  "recipeImportSourceTooLong": "This text holds too much recipe content for one import. Your text is still here. Import the recipes one at a time.",
   "recipeHistoryDeletionOnlyTitle": "Deletion without an earlier version",
   "recipeHistoryDeletionOnlyDetail": "No recipe content was saved on the server for this deletion. There is no version to restore.",
   "recipeEditConflictSaved": "Your changes were saved as a separate conflict copy. The other version is preserved.",
@@ -198,8 +199,9 @@
   "foodAnalysisProviderErrorMessage": "The analysis couldn't be completed. Please try again in a moment.",
   "foodAnalysisServiceUnavailableMessage": "Analysis is currently unavailable. Please try again later.",
   "foodAnalysisImageUnusableMessage": "The photo couldn't be processed. Please take a new one.",
-  "foodAnalysisRateLimitUntilMessage": "Too many photo analyses. Available again from {time}.",
+  "foodAnalysisRateLimitUntilMessage": "Too many meal analyses. Available again from {time}.",
   "@foodAnalysisRateLimitUntilMessage": {
+    "description": "The analysis quota, shared by photo scans and meal descriptions, is used up until {time}.",
     "placeholders": {
       "time": { "type": "String" }
     }
@@ -1185,6 +1187,7 @@
   "settingsAboutSourcesLabel": "Sources",
   "settingsAboutSourcesDefault": "OpenFoodFacts · Our own search index",
   "settingsAboutSourcesWithAppleHealth": "OpenFoodFacts · Our own search index · Apple Health",
+  "settingsAboutSourcesWithHealthConnect": "OpenFoodFacts · Our own search index · Health Connect",
   "settingsPrivacyPolicyLinkLabel": "Privacy policy",
   "settingsDeleteAccountSheetSubtitle": "This removes your profile, all meals, your weight history and your coach history. It cannot be undone.",
   "settingsDeleteAccountActionLabel": "Delete account permanently",
@@ -1451,7 +1454,8 @@
   },
   "foodImageTooLargeError": "The photo is too large. Please choose a smaller one.",
   "foodReauthRequiredError": "Please sign in again before analyzing a photo.",
-  "foodAnalysisRateLimitError": "Too many photo analyses. Please try again later.",
+  "foodAnalysisRateLimitError": "Too many meal analyses. Please try again later.",
+  "@foodAnalysisRateLimitError": {"description": "The analysis quota, shared by photo scans and meal descriptions, is used up."},
   "foodProductImplausibleMessage": "{productName} found, but the nutrition value looks implausible ({kcal} kcal / 100 g). Please add it manually.",
   "@foodProductImplausibleMessage": {
     "placeholders": {
@@ -1587,6 +1591,7 @@
   "authCodeTooManyAttempts": "Too many incorrect codes. For security reasons, please request a new code.",
   "authSignupExistingAccountHint": "If an account already exists for this address, please sign in.",
   "authSessionExpired": "Your session has expired. Please sign in again.",
+  "authAccountDeleted": "Your account and all your data have been deleted.",
   "authBackSemanticLabel": "Back",
   "authHeadlineLogin": "Welcome back.",
   "authHeadlineRegister": "Make it yours.",
@@ -2212,6 +2217,7 @@
     }
   },
   "trainingTimerLogRest": "I did the remaining sets — log as shown",
+  "trainingTimerLogRestInvalid": "Correct the marked value to log the remaining sets as shown.",
   "trainingTimerKeepTraining": "Keep training",
   "trainingTimerNothingDone": "No set is completed yet, so there is nothing to save.",
   "trainingTimerNotStored": "Not stored: your plan changed. Finish still saves this workout.",
@@ -2345,6 +2351,13 @@
   "mealPlanSaved": "Saved.",
   "mealPlanSavedOffline": "Saved on this device. Will sync later.",
   "mealPlanSaveError": "Not saved. Check your connection or device storage and try again.",
+  "mealPlanLimitReached": "You already have {count} open planned meals. Remove some to plan more.",
+  "@mealPlanLimitReached": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "mealPlanAlreadyEaten": "This meal is already in your diary.",
   "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
   "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
   "mealPlanShoppingEmpty": "The list collects the ingredients of this week's planned meals that you have not eaten yet.",
@@ -3197,6 +3210,8 @@
   "foodDescribeTotal": "Total",
   "foodDescribeEdit": "Edit",
   "foodDescribeEmpty": "No foods left. Edit the text to start over.",
+  "foodDescribeZeroKcalHint": "Nothing can be logged without a calorie value. Tap a food and pick a database product, or change the portion.",
+  "@foodDescribeZeroKcalHint": {"description": "Under the draft totals and as the disabled Add button's screen reader hint: the lines add up to 0 kcal that is not a measured zero, so nothing can be logged."},
   "foodDescribeLineRemoved": "{name} removed",
   "@foodDescribeLineRemoved": {"placeholders": {"name": {"type": "String"}}},
   "foodDescribeLineSaid": "As described: “{amount}”",

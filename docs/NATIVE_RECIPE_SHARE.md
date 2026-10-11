@@ -11,6 +11,14 @@ itself. The Flutter import flow reviews extracted recipes before saving.
   receiver, with at most eight pending items. Sources remain in process memory;
   unfinished imports do not survive a process termination. The existing OAuth
   `ACTION_VIEW` intent filter and native plugin registration are preserved.
+  A share that starts a new `MainActivity` arrives before the bridge exists
+  (`FlutterFragmentActivity` configures the engine only in `onStart`), so the
+  activity holds the intent and hands it over in `configureFlutterEngine`. A
+  restored activity or a relaunch from Recents does not replay it. With
+  `launchMode="singleTop"`, a share from another app's task can start a second
+  `MainActivity` with its own engine in that task instead of reaching the
+  running one through `onNewIntent`; changing the launch mode needs a device
+  check of the OAuth callback, notification taps and Back.
 - **iOS:** the `RecipeShareExtension` target receives the source, writes it once
   to the protected local inbox and automatically attempts to open Eatova.
   There is no source-review/prepare step. Eatova displays the recipe review
@@ -97,9 +105,15 @@ Xcode with the Runner test target on a Mac.
 On a physical Android and iPhone, verify:
 
 1. Share a link from TikTok and plain recipe text from another app with Eatova
-   closed, then repeat with Eatova backgrounded.
+   closed, then repeat with Eatova backgrounded. On Android the closed case
+   can also be started with `adb shell am force-stop com.eatova.app`, then
+   `adb shell am start -W -a android.intent.action.SEND -t text/plain --es
+   android.intent.extra.TEXT 'https://vm.tiktok.com/ZMabc/' -n
+   com.eatova.app/.MainActivity`. `adb shell dumpsys activity activities`
+   shows whether a backgrounded share created a second `MainActivity`.
 2. On Android, check that the import sheet opens exactly once and Back returns
-   through the normal app stack. On iOS, selecting Eatova must automatically
+   through the normal app stack. Reopening the share's task from Recents must
+   not offer the import again. On iOS, selecting Eatova must automatically
    open the main app and offer the import exactly once, without a prepare button
    or manual app switch. Repeat with a denied launch and the retry action.
 3. Cancel the import and confirm that no recipe was saved. Share again and

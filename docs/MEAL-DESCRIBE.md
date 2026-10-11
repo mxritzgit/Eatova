@@ -160,21 +160,35 @@ The feature's Dart entry points:
   - **none:** another food; dropped. Words under four letters ("Ei") only
     match whole.
 - Auto-selection only for a close candidate with a loggable kcal/100 g
-  within 2.5× of the estimate; a named brand ranks first, then favorites,
-  then title closeness. Everything else stays a listed alternative, close
-  titles before loose ones.
+  within 1.8× of the estimate (or 20 kcal/100 g, for drinks); a named
+  brand ranks first, then favorites, then title closeness. Everything else
+  stays a listed alternative, close titles before loose ones. The window
+  keeps dry pasta or rice (about 350 kcal/100 g) from replacing the
+  model's cooked estimate (about 150).
 - A scan, recipe or manual favorite must name the same food both ways
   ("Toast Hawaii" is not "Toast"); product favorites fit like search hits.
-- A stated countable amount ("1 Scheibe") uses the candidate's serving size
-  from the product's serving text; a stated weight keeps the AI's grams.
+- A stated countable amount ("2 Scheiben") uses the candidate's serving
+  from the product's serving text only when it counts the same unit ("1
+  Scheibe (28 g)") and the result is within 2× of the AI's grams. A plain
+  weight ("50 g") may be one slice or two, and a "Portion" is the maker's,
+  so those keep the AI's grams, as does a stated weight.
 - The draft's source is Open Food Facts with confidence "database" only when
   every line is product-backed; otherwise it is an AI estimate.
+- The logged name is the model's meal name while every food it itemized is
+  still a line; after a removal it is the remaining lines' names.
+- The model's 0 kcal means unknown, as in a photo scan. A measured 0 (a
+  water product or favorite) is never chosen alone, but once the user picks
+  it for every line the 0 kcal draft logs, marked `explicitZeroKcal`. A
+  draft with lines but nothing loggable says why under the totals and in
+  Add's screen reader hint.
 
 ## Errors in the app
 
 - `no_food_in_text` and `invalid_meal_text` are a hint under the text field;
   the user edits the sentence.
-- Re-auth and quota have describe texts ("meal analyses", no photo).
+- Re-auth and quota have describe texts ("meal analyses", no photo). Both
+  modes share the quota, so the photo scan's quota text says "meal
+  analyses" too.
 - A function without describe mode answers `invalid_body` (or
   `missing_image`); the sheet shows "service unavailable", like a 413 or an
   image code, never a photo or connection text. `invalid_hint` falls back

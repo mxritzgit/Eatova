@@ -244,6 +244,10 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
       // small portion of a low-density food rounds to 0 kcal too. Without the
       // marker it read as the legacy "unknown" sentinel and was refused.
       explicitZeroKcal: basis.caloriesKcal == 0,
+      // Kept, so a reused portion rescales from the label, not the rounding.
+      proteinPer100G: _makroOderNull(_protein),
+      carbsPer100G: _makroOderNull(_carbs),
+      fatPer100G: _makroOderNull(_fat),
     );
   }
 

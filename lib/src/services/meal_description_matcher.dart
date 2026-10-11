@@ -29,7 +29,9 @@ class DraftCandidate {
     this.carbsPer100G,
     this.fatPer100G,
     this.servingGrams,
+    this.servingUnit,
     this.barcode,
+    this.explicitZeroKcal = false,
   });
 
   final DraftItemOrigin origin;
@@ -48,8 +50,17 @@ class DraftCandidate {
   /// One serving or piece in grams, when the source states it.
   final int? servingGrams;
 
+  /// What [servingGrams] counts ("1 Scheibe (28 g)": a slice); null for a
+  /// plain weight ("40 g"), which a counted amount cannot follow.
+  final CountUnit? servingUnit;
+
   /// Product barcode, for products and product favorites only.
   final String? barcode;
+
+  /// A 0 in [kcalPer100G] that is measured (water), as in
+  /// [MealAnalysisResult.explicitZeroKcal]. Never on the estimate: the
+  /// model's 0 means unknown.
+  final bool explicitZeroKcal;
 }
 
 /// One line of the draft: the described food, the chosen candidate and the
@@ -93,7 +104,8 @@ class DraftFoodItem {
   );
 
   /// The same line with another candidate. A stated countable amount ("1
-  /// Scheibe") follows the new candidate's serving size when it has one.
+  /// Scheibe") follows the new candidate's serving when it counts the same
+  /// unit (see [portionGramsFor]).
   DraftFoodItem withCandidate(DraftCandidate candidate) => DraftFoodItem(
     described: described,
     selected: candidate,
@@ -124,39 +136,114 @@ class DraftFoodItem {
 }
 
 /// Grams for [item] when it uses [candidate]: a stated countable amount
-/// times the candidate's serving size, else null (keep the current grams).
+/// times the candidate's serving, else null (keep the current grams). Only
+/// a serving of the same unit says what the amount weighs ("2 Scheiben"
+/// with "1 Scheibe (28 g)"): a plain weight may be one slice or two, and a
+/// "Portion" is the maker's, not the user's. A result more than
+/// [_maxServingDeviation] times off the model's grams is mis-filled data.
 /// The estimate's serving is the model's own reading of the amount, so it
 /// returns the model's grams.
 int? portionGramsFor(DescribedFoodItem item, DraftCandidate candidate) {
   if (item.gramsSource != DescribedGramsSource.stated) return null;
-  final count = countableAmount(item.amountText);
-  if (count == null) return null;
+  final amount = _countOf(item.amountText);
+  if (amount == null) return null;
   if (candidate.origin == DraftItemOrigin.estimate) return item.grams;
   final serving = candidate.servingGrams;
-  if (serving == null) return null;
-  return clampPortionGrams(serving * count);
+  if (serving == null ||
+      amount.unit == CountUnit.portion ||
+      candidate.servingUnit != amount.unit) {
+    return null;
+  }
+  final grams = clampPortionGrams(serving * amount.count);
+  final low = math.min(grams, item.grams);
+  final high = math.max(grams, item.grams);
+  return low > 0 && high <= low * _maxServingDeviation ? grams : null;
 }
+
+const double _maxServingDeviation = 2;
+
+/// What a countable amount counts. Words that name one piece of the food
+/// ("Ei", "Riegel", "Apfel") count pieces.
+enum CountUnit { slice, piece, glass, cup, can, pack, portion }
 
 /// The count of a countable amount ("1 Scheibe", "zwei Stück", "½ Portion"),
 /// or null for weights and volumes ("200 g", "300 ml").
-double? countableAmount(String? amountText) {
+double? countableAmount(String? amountText) => _countOf(amountText)?.count;
+
+({double count, CountUnit unit})? _countOf(String? amountText) {
   final text = amountText?.trim().toLowerCase();
   if (text == null || text.isEmpty) return null;
   final match = _countable.firstMatch(text);
   if (match == null) return null;
   final number = match.group(1)!.replaceAll(',', '.');
-  return _countWords[number] ?? double.tryParse(number);
+  final count = _countWords[number] ?? double.tryParse(number);
+  final unit = _countUnits[match.group(2)!];
+  return count == null || unit == null ? null : (count: count, unit: unit);
 }
 
 final RegExp _countable = RegExp(
   r'^(\d+(?:[.,]\d+)?|½|ein|eine|einen|einem|einer|zwei|drei|vier|fünf|'
   r'halbe?|a|an|one|two|three|four|five|half)\s+'
   r'(scheiben?|stücke?|stück|portionen?|gläser|glas|becher|riegel|tassen?|'
-  r'eier|ei|brötchen|äpfel|apfel|bananen?|dosen?|packungen?|'
+  r'eier|ei|brötchen|äpfel|apfel|bananen?|dosen?|packung(?:en)?|'
   r'slices?|pieces?|servings?|portions?|glass(?:es)?|cups?|bars?|eggs?|'
   r'rolls?|apples?|bananas?|cans?|packs?)(?=[\s.,;()]|$)',
   unicode: true,
 );
+
+/// Every unit word [_countable] matches, by what it counts. Double-quoted:
+/// matching data, not UI text.
+const Map<String, CountUnit> _countUnits = {
+  "scheibe": CountUnit.slice,
+  "scheiben": CountUnit.slice,
+  "slice": CountUnit.slice,
+  "slices": CountUnit.slice,
+  "stück": CountUnit.piece,
+  "stücke": CountUnit.piece,
+  "piece": CountUnit.piece,
+  "pieces": CountUnit.piece,
+  "ei": CountUnit.piece,
+  "eier": CountUnit.piece,
+  "egg": CountUnit.piece,
+  "eggs": CountUnit.piece,
+  "riegel": CountUnit.piece,
+  "bar": CountUnit.piece,
+  "bars": CountUnit.piece,
+  "brötchen": CountUnit.piece,
+  "roll": CountUnit.piece,
+  "rolls": CountUnit.piece,
+  "apfel": CountUnit.piece,
+  "äpfel": CountUnit.piece,
+  "apple": CountUnit.piece,
+  "apples": CountUnit.piece,
+  "banane": CountUnit.piece,
+  "bananen": CountUnit.piece,
+  "banana": CountUnit.piece,
+  "bananas": CountUnit.piece,
+  "glas": CountUnit.glass,
+  "gläser": CountUnit.glass,
+  "glass": CountUnit.glass,
+  "glasses": CountUnit.glass,
+  "becher": CountUnit.cup,
+  "tasse": CountUnit.cup,
+  "tassen": CountUnit.cup,
+  "cup": CountUnit.cup,
+  "cups": CountUnit.cup,
+  "dose": CountUnit.can,
+  "dosen": CountUnit.can,
+  "can": CountUnit.can,
+  "cans": CountUnit.can,
+  "packung": CountUnit.pack,
+  "packungen": CountUnit.pack,
+  "pack": CountUnit.pack,
+  "packs": CountUnit.pack,
+  "portion": CountUnit.portion,
+  "portione": CountUnit.portion,
+  "portionen": CountUnit.portion,
+  "portions": CountUnit.portion,
+  "serving": CountUnit.portion,
+  "servings": CountUnit.portion,
+};
 
 const Map<String, double> _countWords = {
   '½': .5,
@@ -230,9 +317,19 @@ class MealDescriptionDraft {
   int get caloriesKcal =>
       items.fold<int>(0, (sum, item) => sum + item.caloriesKcal);
 
-  /// Whether [toResult] passes the log guards (`caloriesKcal > 0`). A draft
-  /// of only zero-energy lines (water) is not loggable, like a scan of it.
-  bool get isLoggable => items.isNotEmpty && caloriesKcal > 0;
+  /// Every line a measured 0 (a water product or favorite): logs as 0 kcal,
+  /// like the same product from search or barcode. One estimate's 0 is
+  /// unknown and keeps the draft out.
+  bool get isMeasuredZero =>
+      items.isNotEmpty &&
+      caloriesKcal == 0 &&
+      items.every((item) => item.selected.explicitZeroKcal);
+
+  /// Whether [toResult] passes the log guards (`caloriesKcal > 0`, or a
+  /// measured 0). A draft whose 0 kcal is the model's (water it read) is not
+  /// loggable, like a scan of it.
+  bool get isLoggable =>
+      items.isNotEmpty && (caloriesKcal > 0 || isMeasuredZero);
 
   MealDescriptionDraft replaceItem(int index, DraftFoodItem item) =>
       MealDescriptionDraft(
@@ -264,14 +361,36 @@ class MealDescriptionDraft {
   ///   estimate, not the chosen products.
   /// * Not marked adjusted: a fresh description is not a change to an
   ///   earlier result, so the portion line reads "N items · X g".
+  /// * A 0 kcal total is marked measured only when [isMeasuredZero].
+  /// * The model's meal name only while every food it itemized is still a
+  ///   line; after a removal the remaining lines' names ("Toastbrot" for
+  ///   "Nutella-Toast" without the Nutella).
   MealAnalysisResult toResult() {
     final summed = meal.base.adjustedToItems([
       for (final item in items) item.toComponent(),
     ]);
     final productBacked =
         items.isNotEmpty && items.every((item) => _isProductBacked(item));
+    // Per 100 g of the whole meal where every line knows the macro, so a
+    // reuse of it rescales from the lines' values, not the rounded text.
+    double? per100(String text, double? Function(DraftFoodItem) macro) {
+      final grams = summed.estimatedGrams;
+      if (items.isEmpty || grams <= 0) return null;
+      var total = 0.0;
+      for (final item in items) {
+        final value = macro(item);
+        if (value == null) return null;
+        total += value;
+      }
+      return MealAnalysisResult.checkedMacroPer100G(
+        text,
+        grams,
+        total * 100 / grams,
+      );
+    }
+
     return MealAnalysisResult(
-      mealName: summed.mealName,
+      mealName: _mealName(summed.mealName),
       caloriesKcal: summed.caloriesKcal,
       estimatedGrams: summed.estimatedGrams,
       kcalPer100G: summed.kcalPer100G,
@@ -286,6 +405,19 @@ class MealDescriptionDraft {
       sourceLabel: productBacked
           ? MealResultSource.openFoodFacts.code
           : MealResultSource.aiEstimate.code,
+      explicitZeroKcal: isMeasuredZero,
+      proteinPer100G: per100(summed.protein, (item) => item.proteinG),
+      carbsPer100G: per100(summed.carbs, (item) => item.carbsG),
+      fatPer100G: per100(summed.fat, (item) => item.fatG),
+    );
+  }
+
+  /// Lines can only be removed, so fewer lines than items means a removal.
+  String _mealName(String modelName) {
+    if (items.isEmpty || items.length >= meal.items.length) return modelName;
+    return clampMealName(
+      items.map((item) => item.described.name.trim()).join(', '),
+      fallback: modelName,
     );
   }
 
@@ -325,8 +457,10 @@ class ProductMealDescriptionMatcher implements MealDescriptionMatcher {
 
   /// How far a product's kcal/100 g may sit from the estimate (either way)
   /// and still be picked without the user. Within [_densitySlack] kcal/100 g
-  /// counts as close whatever the ratio (water, tea, light drinks).
-  static const double maxDensityRatio = 2.5;
+  /// counts as close whatever the ratio (water, tea, light drinks). Narrow
+  /// enough that dry pasta or rice (about 350) never replaces the model's
+  /// cooked estimate (about 150); such products stay alternatives.
+  static const double maxDensityRatio = 1.8;
   static const double _densitySlack = 20;
 
   /// Hits checked for the named brand before a second, branded query.
@@ -596,16 +730,23 @@ DraftCandidate? _favoriteCandidate(MealAnalysisResult result) {
       (result.explicitZeroKcal && result.kcalPer100G == 0 ? 0.0 : null);
   if (density == null) return null;
   final grams = result.estimatedGrams;
+  final serving = _serving(result);
   return DraftCandidate(
     origin: DraftItemOrigin.favorite,
     title: result.mealName,
     brand: result.brand,
     kcalPer100G: density,
-    proteinPer100G: _per100FromText(result.protein, grams),
-    carbsPer100G: _per100FromText(result.carbs, grams),
-    fatPer100G: _per100FromText(result.fat, grams),
-    servingGrams: _servingGrams(result),
+    // The label's values where the favorite kept them: its rounded text
+    // drifts once divided back from a small portion.
+    proteinPer100G:
+        result.proteinPer100G ?? _per100FromText(result.protein, grams),
+    carbsPer100G: result.carbsPer100G ?? _per100FromText(result.carbs, grams),
+    fatPer100G: result.fatPer100G ?? _per100FromText(result.fat, grams),
+    servingGrams: serving?.grams,
+    servingUnit: serving?.unit,
     barcode: _nonEmpty(result.barcode),
+    // Only the measured-zero branch above yields a 0.
+    explicitZeroKcal: density == 0,
   );
 }
 
@@ -620,31 +761,56 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
   }
   final per100 = hit.ingredientNutritionPer100g;
   final grams = result.estimatedGrams;
+  final serving = _serving(result);
   return DraftCandidate(
     origin: DraftItemOrigin.product,
     title: hit.title,
     brand: result.brand,
     kcalPer100G: density,
-    proteinPer100G: per100?.proteinG ?? _per100FromText(result.protein, grams),
-    carbsPer100G: per100?.carbsG ?? _per100FromText(result.carbs, grams),
-    fatPer100G: per100?.fatG ?? _per100FromText(result.fat, grams),
-    servingGrams: _servingGrams(result),
+    proteinPer100G:
+        per100?.proteinG ??
+        result.proteinPer100G ??
+        _per100FromText(result.protein, grams),
+    carbsPer100G:
+        per100?.carbsG ??
+        result.carbsPer100G ??
+        _per100FromText(result.carbs, grams),
+    fatPer100G:
+        per100?.fatG ?? result.fatPer100G ?? _per100FromText(result.fat, grams),
+    servingGrams: serving?.grams,
+    servingUnit: serving?.unit,
     barcode: _nonEmpty(hit.code),
+    explicitZeroKcal: density == 0 && result.explicitZeroKcal,
   );
 }
 
-/// One piece or serving of an Open Food Facts product, from the serving its
-/// note records. `fromOpenFoodFacts` sets the portion to that serving, or to
-/// the 100 g base without one; a serving text with a count ("2 Scheiben
-/// (50 g)") is divided by it. A bare 100 g is the reference amount, not a
-/// piece, so it gives none.
-int? _servingGrams(MealAnalysisResult result) {
+/// One piece or serving of an Open Food Facts product and what it counts,
+/// from the serving its note records. `fromOpenFoodFacts` sets the portion
+/// to that serving, or to the 100 g base without one; a serving text with a
+/// count ("2 Scheiben (50 g)") is divided by it. A plain weight ("40 g")
+/// counts no unit. A bare 100 g is the reference amount, not a piece, so it
+/// gives none.
+({int grams, CountUnit? unit})? _serving(MealAnalysisResult result) {
   final serving = MealResultOffNote.resolve(result.portionNotes)?.serving;
-  final grams = result.estimatedGrams;
+  final grams = _portionOfServing(result, serving);
   if (serving == null || !isPlausiblePortionGrams(grams)) return null;
-  final count = countableAmount(serving);
-  if (count != null && count > 0) return clampPortionGrams(grams / count);
-  return grams == 100 ? null : grams;
+  final count = _countOf(serving);
+  if (count != null && count.count > 0) {
+    return (grams: clampPortionGrams(grams / count.count), unit: count.unit);
+  }
+  return grams == 100 ? null : (grams: grams, unit: null);
+}
+
+/// The portion `fromOpenFoodFacts` set for [serving], or 0 when that portion
+/// is its 100 g base, not a piece: the serving states less than a gram
+/// ("1 Stück (0,49 g)"), or names no weight at all ("1 Scheibe" without
+/// `serving_quantity`). A 100 g the text does not state cannot be told
+/// apart from that fallback, so it gives no piece either.
+int _portionOfServing(MealAnalysisResult result, String? serving) {
+  final stated = MealAnalysisResult.gramsInServingText(serving);
+  if (stated != null && !isPlausiblePortionGrams(stated)) return 0;
+  if (result.estimatedGrams == 100 && stated != 100) return 0;
+  return result.estimatedGrams;
 }
 
 /// A stored macro text ("12,5 g", "-") per 100 g of [grams], or null.

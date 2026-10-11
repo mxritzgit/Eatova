@@ -197,6 +197,34 @@ void main() {
       });
     });
 
+    // Descriptions spend the same analyze-meal quota as photo scans, so a
+    // 429 on a scan must not blame photos the user may never have taken.
+    test('429-Text spricht von Mahlzeit-Analysen, nicht von Fotos', () {
+      final now = DateTime(2026, 10, 10, 12);
+      withClock(Clock.fixed(now), () {
+        for (final (l10n, photoWords, mealWord) in [
+          (_de, RegExp('Foto|Bild', caseSensitive: false), 'Mahlzeit'),
+          (_en, RegExp('photo|image|picture', caseSensitive: false), 'meal'),
+        ]) {
+          final plain = mealAnalysisErrorMessage(
+            const MealAnalysisRateLimited(),
+            _fallback,
+            l10n,
+          );
+          final until = mealAnalysisErrorMessage(
+            MealAnalysisRateLimited(resetAt: DateTime(2026, 10, 10, 13, 30)),
+            _fallback,
+            l10n,
+          );
+          for (final text in [plain, until]) {
+            expect(text, isNot(contains(photoWords)), reason: text);
+            expect(text, contains(mealWord), reason: text);
+          }
+          expect(until, contains('13:30'));
+        }
+      });
+    });
+
     // F9-03: the server's `error` codes are mapped client-side; `message`
     // (German) is never shown.
     test('Server-Codes -> ARB-Keys, message bleibt Debug', () {
@@ -256,9 +284,20 @@ void main() {
       ]) {
         expect(map(code), _de.foodAnalysisImageUnusableMessage, reason: code);
       }
-      // Unknown code: the flow's fallback, never the raw server message.
-      expect(map('something_new'), _fallback);
+      // Unknown code on a 5xx: the server failed, not the connection.
+      expect(map('something_new'), _de.foodAnalysisServiceUnavailableMessage);
       expect(map('something_new'), isNot(contains('Analyse konnte')));
+      // On a 4xx: the flow's fallback, never the raw server message.
+      final unbekannt = mealAnalysisErrorMessage(
+        const MealAnalysisServerError(
+          statusCode: 400,
+          code: 'something_new',
+          debugMessage: 'Analyse konnte nicht abgeschlossen werden.',
+        ),
+        _fallback,
+        _de,
+      );
+      expect(unbekannt, _fallback);
     });
 
     test('remote 499 request_aborted stays visible and names service trouble',

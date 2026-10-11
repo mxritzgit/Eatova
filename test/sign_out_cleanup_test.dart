@@ -10,12 +10,15 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
+import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
+
+import 'fixlauf_a_helpers.dart' show fixlaufSetup;
 
 // Audit 2026-06-09, M-1: the local PII cache used to be cleared only on account
 // deletion, not on a normal sign-out, so health/profile data stayed in
@@ -100,6 +103,21 @@ class _SpyFotoStore extends RecipeImageStore {
 
   @override
   Future<void> clear({String? expectedUserId, String? expectedSessionId}) async => clearCalls++;
+}
+
+/// Atomic store whose commits fail once [broken] is set: a full disk or an
+/// SQLite IO error while the sign-out purges the cache.
+class _BrokenPurgeStore extends InMemoryKeyValueStore {
+  bool broken = false;
+
+  @override
+  Future<KeyValueCommit> writeBatch(
+    Map<String, String?> changes, {
+    Map<String, int> expectedVersions = const {},
+  }) async {
+    if (broken) throw StateError('synthetic purge failure');
+    return super.writeBatch(changes, expectedVersions: expectedVersions);
+  }
 }
 
 HomeStore _storeWith(
@@ -342,6 +360,35 @@ void main() {
 
       expect(IntentionalSignOut.consume(), isFalse);
     });
+  });
+
+  // AUTH-2: the repository journals the logout BEFORE this cleanup. A purge
+  // error that aborted here left a session that could no longer save or
+  // persist a refresh, and the server session was never revoked.
+  test(
+      'ein Speicherfehler beim Cache-Purge hält den Sign-Out nicht auf und '
+      'wird gemeldet', () async {
+    final reports = <String?>[];
+    CrashReporter.debugSentrySink = (error, stack, context) =>
+        reports.add(context);
+    addTearDown(() => CrashReporter.debugSentrySink = null);
+    addTearDown(IntentionalSignOut.clear);
+    final kv = _BrokenPurgeStore();
+    // Sync bound, so the atomic purge path with its session fence runs.
+    final store = fixlaufSetup(kv: kv).store;
+    kv.broken = true;
+    final start = DateTime(2026, 10, 11, 10);
+    var jetzt = start;
+
+    await withClock(Clock(() => jetzt), () async {
+      IntentionalSignOut.mark();
+      jetzt = start.add(const Duration(seconds: 25));
+      await expectLater(store.signOutCleanup(), completes);
+      jetzt = jetzt.add(const Duration(seconds: 25));
+      expect(IntentionalSignOut.consume(), isTrue,
+          reason: 'der Fehlerpfad muss die Absicht ebenfalls erneuern');
+    });
+    expect(reports, ['sign-out-cache-purge']);
   });
 
   test('signOutCleanup ist ohne Cache ein gefahrloses No-Op', () async {

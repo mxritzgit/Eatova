@@ -415,3 +415,10 @@ SystemUiOverlayStyle eatovaSystemUiOverlayStyle(ThemeData theme) {
     systemNavigationBarDividerColor: Colors.transparent,
   );
 }
+
+/// The page ground for native surfaces that paint themselves (the iOS
+/// snapshot cover). Picks a whole palette like [buildEatovaTheme], so a theme
+/// animation yields its two end tones and no in-between frames.
+Color eatovaNativePageColor(ThemeData theme) =>
+    (theme.brightness == Brightness.light ? AppTokens.light : AppTokens.dark)
+        .bg;

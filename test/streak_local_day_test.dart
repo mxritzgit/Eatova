@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/local_day.dart';
 
 import 'outbox/outbox_test_helpers.dart';
 
@@ -84,4 +85,71 @@ void main() {
       });
     },
   );
+
+  // R2-02: a sheet started on today and confirmed after midnight books onto
+  // its day, and that day still counts as tracked (at most one day late).
+  group('Sheet ueber Mitternacht (startedToday)', () {
+    Future<Map<dynamic, dynamic>> logLate({
+      required DateTime opened,
+      required DateTime confirmed,
+      required DateTime foodDate,
+      required String lastTracked,
+      required FakeServer server,
+    }) {
+      var now = opened;
+      return withClock(Clock(() => now), () async {
+        server
+          ..enforceTrackingDaySourceProof = true
+          ..trackedDay = lastTracked;
+        final s = setup(geteilterServer: server);
+        await boot(s.store);
+        now = confirmed;
+        await s.store.addResultToDailyTotal(
+          mealResult('Spaet-Bowl'),
+          foodDate: foodDate,
+          startedToday: true,
+        );
+        await s.store.syncPendingWrites();
+        expect(s.store.pendingOutbox, isEmpty);
+        return (jsonDecode(server.operations('mealInsert').single.body)
+                as Map)['p_payload']
+            as Map;
+      });
+    }
+
+    for (final (label, day) in [
+      ('11./12.10.', DateTime(2026, 10, 11)),
+      // The 25-hour day: Europe/Berlin falls back at 03:00.
+      ('25./26.10. (Zeitumstellung)', DateTime(2026, 10, 25)),
+    ]) {
+      test('$label: der begonnene Tag zaehlt noch als getrackt', () async {
+        final server = FakeServer();
+        final payload = await logLate(
+          opened: DateTime(day.year, day.month, day.day, 23, 59, 50),
+          confirmed: DateTime(day.year, day.month, day.day + 1, 0, 0, 5),
+          foodDate: day,
+          lastTracked: localDayKey(DateTime(day.year, day.month, day.day - 1)),
+          server: server,
+        );
+        expect((payload['row'] as Map)['local_day'], localDayKey(day));
+        expect(payload['track_day'], isTrue);
+        expect(server.trackedDay, localDayKey(day));
+        expect(server.trackingDayRejections, isEmpty);
+      });
+    }
+
+    test('zwei Tage spaeter zaehlt der Tag nicht mehr', () async {
+      final server = FakeServer();
+      final payload = await logLate(
+        opened: DateTime(2026, 10, 10, 23, 59, 50),
+        confirmed: DateTime(2026, 10, 12, 0, 0, 5),
+        foodDate: DateTime(2026, 10, 10),
+        lastTracked: '2026-10-09',
+        server: server,
+      );
+      expect((payload['row'] as Map)['local_day'], '2026-10-10');
+      expect(payload['track_day'], isFalse);
+      expect(server.trackedDay, '2026-10-09');
+    });
+  });
 }

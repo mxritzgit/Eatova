@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show AuthRetryableFetchException;
 
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/app/locale_controller.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
@@ -40,6 +43,23 @@ class _FailingCoordinatedLogout extends _FailingLogout
     }
     await cleanup();
     await signOut();
+  }
+}
+
+/// gotrue's order when only the server revocation fails (offline): the local
+/// session is gone and signedOut is published, then `admin.signOut` throws.
+class _RemoteRevokeFails extends InMemoryAuthRepository
+    implements CoordinatedSignOut {
+  _RemoteRevokeFails()
+    : super(
+        initialUser: const EatovaUser(id: 'logout-a', email: 'a@example.test'),
+      );
+
+  @override
+  Future<void> signOutWithCleanup(Future<void> Function() cleanup) async {
+    await cleanup();
+    await signOut();
+    throw AuthRetryableFetchException(message: 'Failed host lookup');
   }
 }
 
@@ -135,5 +155,51 @@ void main() {
         },
       );
     }
+
+    // AUTH-3: the sign-out took effect locally; only the server revocation
+    // failed. Neither "sign-out failed" nor "session expired" may follow.
+    testWidgets(
+      'failed server revocation after local sign-out stays silent ($language)',
+      (tester) async {
+        tester.view.physicalSize = const Size(1179, 2556);
+        tester.view.devicePixelRatio = 3;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        RecipeImageStore.instance = _ObservedImages();
+        addTearDown(RecipeImageStore.resetInstance);
+        addTearDown(IntentionalSignOut.clear);
+        final repository = _RemoteRevokeFails();
+        final locale = LocaleController(initial: Locale(language));
+        final theme = ThemeModeController(initial: ThemeMode.dark);
+        addTearDown(repository.dispose);
+        addTearDown(locale.dispose);
+        addTearDown(theme.dispose);
+        await tester.pumpWidget(
+          EatovaApp(
+            authRepository: repository,
+            localeController: locale,
+            themeModeController: theme,
+            syncBuilder: (_) => null,
+            productService: FakeProductLookupService(),
+          ),
+        );
+        await settleFrames(tester);
+        await _tapLogout(tester);
+
+        expect(tester.takeException(), isNull);
+        expect(repository.currentUser, isNull);
+        expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+        expect(find.text(message), findsNothing);
+        final l10n = lookupAppLocalizations(Locale(language));
+        expect(find.text(l10n.authSessionExpired), findsNothing);
+        expect(
+          IntentionalSignOut.consume(),
+          isFalse,
+          reason: 'AuthGate consumed the intent of this sign-out.',
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      },
+    );
   }
 }

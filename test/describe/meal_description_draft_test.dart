@@ -41,6 +41,7 @@ const DraftCandidate _harry = DraftCandidate(
   carbsPer100G: 48,
   fatPer100G: 3.5,
   servingGrams: 28,
+  servingUnit: CountUnit.slice,
   barcode: '4009249001119',
 );
 
@@ -107,6 +108,8 @@ void main() {
         'an apple': 1,
         'Ein Glas.': 1,
         '1 Scheibe (28 g)': 1,
+        '1 Packung': 1,
+        'zwei Packungen': 2,
         '200 g': null,
         '300 ml': null,
         'ein bisschen': null,
@@ -131,6 +134,13 @@ void main() {
       );
       expect(portionGramsFor(_toast, _nutellaProduct), isNull);
       expect(portionGramsFor(_nutella, _harry), isNull, reason: 'geschaetzt');
+      const plain = DraftCandidate(
+        origin: DraftItemOrigin.product,
+        title: 'Toastbrot',
+        kcalPer100G: 260,
+        servingGrams: 50,
+      );
+      expect(portionGramsFor(_toast, plain), isNull, reason: 'keine Einheit');
     });
   });
 
@@ -282,6 +292,45 @@ void main() {
       expect(result.caloriesKcal > 0 || result.explicitZeroKcal, isTrue);
     });
 
+    // The model names the whole meal ("Nutella-Toast"); once a line is
+    // removed that name speaks of food that is not logged.
+    test('toResult: der Name folgt den verbliebenen Zeilen', () {
+      const banana = DescribedFoodItem(
+        name: 'Banane',
+        searchQuery: 'Banane',
+        grams: 120,
+        gramsSource: DescribedGramsSource.estimated,
+        caloriesKcal: 107,
+      );
+      final draft = MealDescriptionDraft(
+        meal: _meal([_toast, _nutella]),
+        items: [_line(_toast), _line(_nutella)],
+      );
+      expect(draft.toResult().mealName, 'Nutella-Toast', reason: 'komplett');
+      expect(
+        draft
+            .replaceItem(0, draft.items[0].withCandidate(_harry))
+            .toResult()
+            .mealName,
+        'Nutella-Toast',
+        reason: 'ein anderes Produkt ist dasselbe Essen',
+      );
+      expect(draft.removeItem(1).toResult().mealName, 'Toastbrot');
+      expect(draft.removeItem(1).toResult().caloriesKcal, 130);
+      expect(draft.removeItem(0).toResult().mealName, 'Nutella');
+
+      final three = MealDescriptionDraft(
+        meal: _meal([_toast, _nutella, banana]),
+        items: [_line(_toast), _line(_nutella), _line(banana)],
+      );
+      expect(three.removeItem(1).toResult().mealName, 'Toastbrot, Banane');
+      expect(
+        three.removeItem(1).removeItem(0).removeItem(0).toResult().mealName,
+        'Nutella-Toast',
+        reason: 'leer: nicht loggbar, aber ohne Fehler',
+      );
+    });
+
     test('toResult: eine Zeile ohne Makros macht die Summe unbekannt', () {
       const noMacros = DraftCandidate(
         origin: DraftItemOrigin.product,
@@ -340,6 +389,68 @@ void main() {
       expect(back.caloriesKcal, result.caloriesKcal);
       expect(back.items.map((c) => c.name), result.items.map((c) => c.name));
       expect(back.sourceLabel, result.sourceLabel);
+    });
+
+    // The model's 0 means unknown (B7) and stays out of the diary; a 0 the
+    // database measured (water) logs, as from search or barcode.
+    test('ein gemessenes 0 ist loggbar, ein geschaetztes nicht', () {
+      const water = DescribedFoodItem(
+        name: 'Wasser',
+        searchQuery: 'Wasser',
+        grams: 250,
+        gramsSource: DescribedGramsSource.estimated,
+        caloriesKcal: 0,
+        kcalPer100G: 0,
+      );
+      const tea = DescribedFoodItem(
+        name: 'Tee',
+        searchQuery: 'Tee',
+        grams: 200,
+        gramsSource: DescribedGramsSource.estimated,
+        caloriesKcal: 0,
+      );
+      const volvic = DraftCandidate(
+        origin: DraftItemOrigin.product,
+        title: 'Mineralwasser · Volvic',
+        brand: 'Volvic',
+        kcalPer100G: 0,
+        proteinPer100G: 0,
+        carbsPer100G: 0,
+        fatPer100G: 0,
+        barcode: '3057640117008',
+        explicitZeroKcal: true,
+      );
+      MealDescriptionDraft draftOf(List<DraftFoodItem> lines) =>
+          MealDescriptionDraft(
+            meal: _meal([for (final line in lines) line.described]),
+            items: lines,
+          );
+
+      final measured = draftOf([_line(water, volvic)]);
+      expect(measured.caloriesKcal, 0);
+      expect(measured.isLoggable, isTrue);
+      final result = measured.toResult();
+      expect(result.caloriesKcal, 0);
+      expect(result.explicitZeroKcal, isTrue);
+      // The add sheet's and the review sheet's guard.
+      expect(result.caloriesKcal > 0 || result.explicitZeroKcal, isTrue);
+      expect(
+        mealResultFromJson(mealResultToJson(result)).explicitZeroKcal,
+        isTrue,
+      );
+
+      final estimated = draftOf([_line(water)]);
+      expect(estimated.isLoggable, isFalse);
+      expect(estimated.toResult().explicitZeroKcal, isFalse);
+
+      final unknownTea = draftOf([_line(water, volvic), _line(tea)]);
+      expect(unknownTea.isLoggable, isFalse, reason: 'ein unbekanntes 0');
+      expect(unknownTea.toResult().explicitZeroKcal, isFalse);
+
+      final withToast = draftOf([_line(water, volvic), _line(_toast)]);
+      expect(withToast.isLoggable, isTrue);
+      expect(withToast.toResult().caloriesKcal, 130);
+      expect(withToast.toResult().explicitZeroKcal, isFalse);
     });
   });
 }

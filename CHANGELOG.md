@@ -9,7 +9,7 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 ## [Unreleased]
 
 Updated 2026-09-16; the dark redesign entry was added 2026-10-01 and the October
-entries on 2026-10-03. Changes between
+entries on 2026-10-03, 2026-10-08 and 2026-10-11. Changes between
 those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
 repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
@@ -17,6 +17,44 @@ the complete current product.
 
 ### October 2026
 
+- **Audit fixes** (2026-10-11, #147):
+  - Privacy: the SQLite cache stays out of Android backup and device-to-device
+    transfer. Picker photos a dead process left in the cache (full gallery
+    copies with EXIF and GPS, `scaled_` copies, camera captures) are deleted
+    at cold start and on every session end. Sign-out finishes when the local
+    cache purge fails.
+  - Coach: a crisis reply the prompt-leak net cuts keeps the helpline, while
+    a recited prompt gets the leak text. A declined chat answer points to
+    help, and no text cap cuts through an emoji.
+  - Recipe import: the output cap is 4,500 tokens instead of 12,000 (about
+    37 s), and content that reaches it ends with the new 422 error
+    `source_too_long` instead of a paid timeout; the sheet offers no paid
+    retry of the same text. Caption nutrition reads thousands separators
+    (`2.450 kcal`, `1,050 calories`) and space-grouped digits. What remains
+    open is in [the backend notes](docs/BACKEND.md).
+  - Sync and planner: unsent shopping ticks of one line fold into one
+    operation; delivered ticks still use the permanent receipt budget (see
+    [offline sync](docs/OFFLINE_SYNC.md#capacity-and-recovery)). A full
+    planner or shopping list is reported as capacity at once, cached plans
+    stay readable beside many checks, and a write still on its way is no
+    longer reported as failed.
+  - Account, health and notifications: a completed account deletion is
+    confirmed on the login screen. Rest alerts are scheduled in UTC, so a
+    DST night no longer fires them early, and Android notification channels
+    follow the app language. Step reads continue past an empty interval, and
+    only recent Health weights newer than the last weigh-in are offered, logged
+    at their measurement time.
+  - Meals and describe: fixes for cooked and dry estimates, counted amounts,
+    0 kcal drafts, decimal and sub-gram servings, label density and reused
+    portions; the describe review and the meal-plan editor stay open while a
+    save is in flight; an expired session is refreshed before a scan; a
+    spent AI budget or gateway error reads as unavailable; an offline data
+    export ends at once.
+  - Platform: the iOS launch screen follows the OS mode and the snapshot
+    cover takes the app's page tone; an Android share that launches the app
+    is no longer dropped before the share bridge exists.
+  - Rollout: `coach-chat` and `recipe-import` need a redeploy, a separate
+    step; there is no migration.
 - **Claude for Coach, meal scan and recipe import** (2026-10-08): text and
   photo understanding moved from OpenRouter/Gemini to the Anthropic Messages
   API (`claude-sonnet-5-5`, adaptive thinking; effort `high` for Coach

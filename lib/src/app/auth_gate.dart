@@ -9,11 +9,15 @@ import '../screens/auth_screen.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
+import '../services/meal_photo_temp_file.dart';
 import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/rest_alerts.dart';
 import '../services/sync_execution_guard.dart';
 import '../widgets/common/app_snack.dart';
+
+/// Why a deliberate session end happens; decides what the gate tells the user.
+enum SignOutIntent { signOut, accountDeleted }
 
 /// Marker for a DELIBERATE sign-out.
 ///
@@ -30,10 +34,15 @@ abstract final class IntentionalSignOut {
   static const Duration gueltigkeit = Duration(seconds: 30);
 
   static DateTime? _markiertAm;
+  static SignOutIntent _grund = SignOutIntent.signOut;
 
   /// The logout path declares its intent BEFORE calling `signOut` — the auth
-  /// event can follow immediately.
-  static void mark() => _markiertAm = clock.now();
+  /// event can follow immediately. A completed account deletion declares
+  /// [SignOutIntent.accountDeleted] as soon as the server confirmed it.
+  static void mark({SignOutIntent reason = SignOutIntent.signOut}) {
+    _markiertAm = clock.now();
+    _grund = reason;
+  }
 
   /// Restarts the window at the end of a long sign-out step. NEVER creates an
   /// intent: an involuntary session end runs through the same cleanup, and one
@@ -54,11 +63,16 @@ abstract final class IntentionalSignOut {
   static void clear() => _markiertAm = null;
 
   /// Reads and CONSUMES the intent — each covers exactly one transition.
-  static bool consume() {
+  static bool consume() => consumeIntent() != null;
+
+  /// Like [consume], but tells which intent it was; null without a live one.
+  static SignOutIntent? consumeIntent() {
     final markiert = _markiertAm;
     _markiertAm = null;
-    return markiert != null &&
-        clock.now().difference(markiert) < gueltigkeit;
+    if (markiert == null || clock.now().difference(markiert) >= gueltigkeit) {
+      return null;
+    }
+    return _grund;
   }
 }
 
@@ -163,6 +177,7 @@ class AuthGate extends StatefulWidget {
     this.onUserChanged,
     this.notificationService,
     this.backgroundSyncScheduler,
+    this.discardPickerMedia = discardLostPickerMedia,
   });
 
   final AuthRepository authRepository;
@@ -171,6 +186,10 @@ class AuthGate extends StatefulWidget {
   /// Cancelled whenever a session ends, see [cancelDeviceSchedules].
   final NotificationService? notificationService;
   final BackgroundSyncScheduler? backgroundSyncScheduler;
+
+  /// Deletes photos a pick left in the cache when its process died; run at
+  /// cold start and on every session end, see [discardLostPickerMedia].
+  final Future<void> Function() discardPickerMedia;
 
   /// Test seam for [purgePersonalCacheFor] — `LocalCache.create` returns null
   /// in widget tests. Always null in production.
@@ -205,6 +224,9 @@ class _AuthGateState extends State<AuthGate> {
     // Finding 5: the recipe photo store is bound to the active user id. Cold
     // start binds the restored user; later transitions go via _onAuthEvent.
     unawaited(RecipeImageStore.instance.setActiveUser(initial?.id, sessionId: initial?.sessionId));
+    // Before any pick can start: drop the photos of a camera or gallery pick
+    // that died with the last process.
+    unawaited(widget.discardPickerMedia());
     // A cold start without a session: the session ended while the app was
     // not running, and what it scheduled with the OS is still there.
     if (initial == null) {
@@ -256,19 +278,28 @@ class _AuthGateState extends State<AuthGate> {
       // Consume logout intent on session exits, including same-user rotation.
       // An entry from the signed-out screen must leave that intent untouched.
       final gewollt = identityChanged || sessionChanged
-          ? IntentionalSignOut.consume()
-          : false;
+          ? IntentionalSignOut.consumeIntent()
+          : null;
       _popToRootRoute();
       // A new home takes over; any session end above was cancelled first.
       if (user != null) _openRestAlerts(user.id);
       // Only the gate knows "signed out" from "session lost", and
       // [IntentionalSignOut] draws that line. The snack runs through the
       // MaterialApp's ScaffoldMessenger and appears once AuthScreen is built.
-      if (!isLoggedIn && !gewollt) {
+      if (!isLoggedIn && gewollt == null) {
         showAppSnack(
           context,
           context.l10n.authSessionExpired,
           icon: Icons.lock_clock_rounded,
+          duration: kSnackError,
+        );
+      } else if (!isLoggedIn && gewollt == SignOutIntent.accountDeleted) {
+        // The deletion's sheet and settings are gone with the session; this
+        // is the only confirmation the irreversible step gets.
+        showAppSnack(
+          context,
+          context.l10n.authAccountDeleted,
+          icon: Icons.check_circle_outline_rounded,
           duration: kSnackError,
         );
       }
@@ -286,6 +317,7 @@ class _AuthGateState extends State<AuthGate> {
 
   void _purgePrevious(EatovaUser previous) {
     _cancelDeviceSchedules();
+    unawaited(widget.discardPickerMedia());
     final debugPurge = widget.debugPurgeCache;
     if (debugPurge != null) {
       unawaited(debugPurge(previous.id));

@@ -358,6 +358,27 @@ void main() {
     },
   );
 
+  test(
+    'offline cold start keeps planned meals beside more checks than the server cap',
+    () async {
+      await withClock(Clock.fixed(today), () async {
+        final f = _Fixture();
+        final p = plan();
+        await f.cache.commitStoreSnapshot(
+          expectedVersions: const {},
+          mealPlans: [p],
+          shoppingChecks: {
+            for (var i = 0; i <= 2000; i++)
+              '2026-09-07:${i.toRadixString(16).padLeft(64, '0')}': true,
+          },
+        );
+        await f.boot();
+        expect(f.store.plannedMeals.map((m) => m.id), [p.id]);
+        expect(f.store.shoppingChecks, hasLength(2001));
+      });
+    },
+  );
+
   test('storage failure does not publish an unacknowledged plan', () async {
     final raw = _BrokenStorage();
     final f = _Fixture(raw: raw);
@@ -391,6 +412,85 @@ void main() {
       });
     },
   );
+
+  test('plan limit and an eaten plan fail with typed errors', () async {
+    await withClock(Clock.fixed(today), () async {
+      final store = HomeStore(
+        sync: null,
+        health: const NoopHealthService(),
+        notificationService: const NoopNotificationService(),
+        initialUserName: 'Fixture',
+        emitSnack: h.SnackCapture().call,
+      );
+      addTearDown(store.dispose);
+      for (var i = 0; i < kMaxOpenPlannedMeals; i++) {
+        await store.savePlannedMeal(plan());
+      }
+      await expectLater(
+        store.savePlannedMeal(plan()),
+        throwsA(isA<MealPlanLimitReached>()),
+      );
+      // Editing a plan at the limit adds no open plan.
+      final first = store.plannedMeals.first;
+      await store.savePlannedMeal(first.copyWith(servings: 2));
+      expect(
+        store.plannedMeals.where((p) => p.id == first.id).single.servings,
+        2,
+      );
+
+      await store.eatPlannedMeal(first.id);
+      await expectLater(
+        store.savePlannedMeal(first),
+        throwsA(isA<MealPlanAlreadyEaten>()),
+      );
+    });
+  });
+
+  testWidgets('the editor names the plan limit, not a storage error', (
+    tester,
+  ) async {
+    final store = HomeStore(
+      sync: null,
+      health: const NoopHealthService(),
+      notificationService: const NoopNotificationService(),
+      initialUserName: 'Fixture',
+      emitSnack: h.SnackCapture().call,
+    );
+    addTearDown(store.dispose);
+    await withClock(Clock.fixed(today), () async {
+      // Open plans in a later week, so the shown week stays light.
+      for (var i = 0; i < kMaxOpenPlannedMeals; i++) {
+        await store.savePlannedMeal(
+          plan().copyWith(day: DateTime(2026, 10, 20)),
+        );
+      }
+      await pumpLocalized(
+        tester,
+        MealPlanScreen(store: store),
+        locale: const Locale('en'),
+        surfaceSize: const Size(390, 850),
+      );
+      await tester.tap(find.text('Plan a meal').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(recipeCatalogEn.first.title));
+      await tester.pumpAndSettle();
+      final save = find.byKey(const ValueKey('meal-plan-save'));
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          'You already have 500 open planned meals. '
+          'Remove some to plan more.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Not saved.'), findsNothing);
+      expect(store.plannedMeals, hasLength(kMaxOpenPlannedMeals));
+      expect(tester.takeException(), isNull);
+    });
+  });
 
   test(
     'remove stays removed after restart and account cleanup purges planner mirror',

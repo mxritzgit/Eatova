@@ -81,8 +81,13 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   bool _sourceOpen = false;
   String? _error;
   String? _editError;
+  // The text whose last import ended as source_too_long. Sending it unchanged
+  // would fail the same way and spend another paid import.
+  String? _tooLongText;
 
   bool get _busy => _loading || _saving || _reviewingNutrition;
+  bool get _textTooLong =>
+      _tooLongText != null && _text.text.trim() == _tooLongText;
   bool get _hasUserChanges =>
       _editedCandidates.isNotEmpty ||
       _text.text != (_savedText ?? widget.initialText) ||
@@ -147,16 +152,23 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   }
 
   Future<void> _extract() async {
-    if (_busy || _text.text.trim().isEmpty || !_checkSession()) return;
+    if (_busy ||
+        _text.text.trim().isEmpty ||
+        _textTooLong ||
+        !_checkSession()) {
+      return;
+    }
+    final text = _text.text.trim();
     FocusScope.of(context).unfocus();
     setState(() {
       _loading = true;
       _error = null;
+      _tooLongText = null;
       _showInput = false;
     });
     try {
       final result = await widget.service.extract(
-        _text.text.trim(),
+        text,
         locale: context.l10n.localeName,
       );
       if (!mounted || !_checkSession()) return;
@@ -184,6 +196,10 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       if (!mounted) return;
       setState(() {
         _error = _importError(error);
+        if (error is RecipeImportException &&
+            error.failure == RecipeImportFailure.sourceTooLong) {
+          _tooLongText = text;
+        }
         _showInput = true;
       });
       _scrollToTop();
@@ -225,6 +241,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     }
     return switch (error.failure) {
       RecipeImportFailure.invalidInput => l10n.recipeImportInvalidInput,
+      RecipeImportFailure.sourceTooLong => l10n.recipeImportSourceTooLong,
       RecipeImportFailure.reauthRequired => l10n.recipeImportReauth,
       RecipeImportFailure.rateLimited => l10n.recipeImportRateLimited,
       RecipeImportFailure.unavailable => l10n.recipeImportUnavailable,
@@ -613,11 +630,15 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         const SizedBox(height: 20),
         PrimaryActionButton(
           key: const ValueKey('recipe-import-analyze'),
-          label: _error == null
+          // Too much recipe content is final: no retry offer, and the same
+          // text cannot be sent again until it changes.
+          label: _error == null || _tooLongText != null
               ? l10n.recipeImportAnalyze
               : l10n.recipeImportRetry,
           icon: Icons.auto_awesome_outlined,
-          onTap: _busy || _text.text.trim().isEmpty ? null : _extract,
+          onTap: _busy || _text.text.trim().isEmpty || _textTooLong
+              ? null
+              : _extract,
         ),
       ],
     );

@@ -96,8 +96,8 @@ abstract class NotificationPermissionProbe {
 
 /// Extra seam on [NotificationService] (same pattern as
 /// [NotificationPermissionProbe]): passes the active locale in so the Android
-/// channel name/description is (re-)created in that language on the next
-/// `init()`.
+/// channel name/description is created in that language, or renamed when
+/// `init()` already created it in another.
 ///
 /// A separate interface keeps `init()`'s parameterless signature and existing
 /// test doubles valid. Callers probe via `is`; absence just means the channel
@@ -118,7 +118,14 @@ abstract class NotificationScopedCancel {
   /// left behind, but keeps the rest alert this process scheduled since the
   /// current account's session opened, which belongs to the session now
   /// running.
-  Future<void> cancelStaleSchedules();
+  ///
+  /// [restore] are the alerts of the workout checkpoint the current account
+  /// restored: the earlier process planned them, so they are planned again
+  /// (with the OS permission) unless this process already scheduled or
+  /// cancelled their ids, whose state is then newer than the checkpoint.
+  Future<void> cancelStaleSchedules({
+    List<PlannedRestAlert> restore = const [],
+  });
 }
 
 /// No-op implementation for platforms without local notifications (web/test)
@@ -344,8 +351,30 @@ class LocalNotificationService
   /// hardcoded string while nobody calls [setLocalizations].
   AppLocalizations _l10n = deL10n;
 
+  /// Android names the channels only when they are created, and [init] runs
+  /// once per process, often before the app's locale arrives (the signed-out
+  /// cancel, a permission read). A new locale therefore renames them.
   @override
-  void setLocalizations(AppLocalizations l10n) => _l10n = l10n;
+  void setLocalizations(AppLocalizations l10n) {
+    if (l10n.localeName == _l10n.localeName) return;
+    _l10n = l10n;
+    if (_platform != NotificationPlatform.android) return;
+    unawaited(
+      _enqueueMutation(() async {
+        // Not initialized yet: the next init() names them in this locale.
+        if (!_initialized) return;
+        try {
+          await _createAndroidChannels();
+        } catch (e, st) {
+          await CrashReporter.capture(
+            e,
+            st,
+            context: 'notification-channel-locale',
+          );
+        }
+      }),
+    );
+  }
 
   static const String _androidChannelId = 'eatova_nudges';
   String get _androidChannelName => _l10n.notifChannelName;
@@ -430,30 +459,41 @@ class LocalNotificationService
       await _setLocalTimezone();
       await _gateway.initialize(settings, onResponse: _onResponse);
       // Android 8+ needs an explicit channel or nudges are not shown.
-      // Idempotent — recreating it is a no-op.
       if (_platform == NotificationPlatform.android) {
-        await _gateway.createAndroidChannel(
-          AndroidNotificationChannel(
-            _androidChannelId,
-            _androidChannelName,
-            description: _androidChannelDescription,
-            importance: Importance.defaultImportance,
-          ),
-        );
-        await _gateway.createAndroidChannel(
-          AndroidNotificationChannel(
-            _restChannelId,
-            _l10n.trainingRestChannelName,
-            description: _l10n.trainingRestChannelDescription,
-            importance: Importance.defaultImportance,
-          ),
-        );
+        await _createAndroidChannels();
       }
       _initialized = true;
     } catch (e, st) {
       // Not available for now; the next init() retries. Reported, not
       // rethrown: a PlatformException here was a zone error per cold start.
       await CrashReporter.capture(e, st, context: 'notification-init');
+    }
+  }
+
+  /// Creates both channels in the current locale. Recreating an existing id
+  /// keeps the user's channel settings and only updates name and
+  /// description. A locale that arrives meanwhile names them again.
+  Future<void> _createAndroidChannels() async {
+    String? named;
+    while (named != _l10n.localeName) {
+      final l10n = _l10n;
+      named = l10n.localeName;
+      await _gateway.createAndroidChannel(
+        AndroidNotificationChannel(
+          _androidChannelId,
+          l10n.notifChannelName,
+          description: l10n.notifChannelDescription,
+          importance: Importance.defaultImportance,
+        ),
+      );
+      await _gateway.createAndroidChannel(
+        AndroidNotificationChannel(
+          _restChannelId,
+          l10n.trainingRestChannelName,
+          description: l10n.trainingRestChannelDescription,
+          importance: Importance.defaultImportance,
+        ),
+      );
     }
   }
 
@@ -612,10 +652,25 @@ class LocalNotificationService
   }
 
   @override
-  Future<void> cancelStaleSchedules() =>
-      _enqueueMutation(_cancelStaleSchedules);
+  Future<void> cancelStaleSchedules({
+    List<PlannedRestAlert> restore = const [],
+  }) {
+    // Only the open session restores, never an id an ended one saw.
+    final epoch = _restAlertEpoch;
+    final restorable = [
+      if (_restAlertsOpen)
+        for (final alert in restore)
+          if (isRestAlertId(alert.id) &&
+              !_endedRestAlertOwners.containsKey(alert.id))
+            alert,
+    ];
+    return _enqueueMutation(() => _cancelStaleSchedules(restorable, epoch));
+  }
 
-  Future<void> _cancelStaleSchedules() async {
+  Future<void> _cancelStaleSchedules(
+    List<PlannedRestAlert> restore,
+    int epoch,
+  ) async {
     if (!_supported) return;
     await init();
     if (!_initialized) return;
@@ -634,8 +689,35 @@ class LocalNotificationService
         await _scheduleRestAlertNow(
             id, alert.when, alert.title, alert.body, alert.epoch);
       }
+      await _restoreRestAlerts(restore, epoch);
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'notification-cancel');
+    }
+  }
+
+  /// Plans the restored checkpoint's alerts again (spec A5: a rest survives
+  /// a process death). Skips an id this process's player already took over,
+  /// and everything without the OS permission: iOS rejects such a request,
+  /// each time as a reported error.
+  Future<void> _restoreRestAlerts(
+    List<PlannedRestAlert> restore,
+    int epoch,
+  ) async {
+    bool open(PlannedRestAlert alert) =>
+        epoch == _restAlertEpoch &&
+        !_sessionRestAlertIds.contains(alert.id) &&
+        alert.at.isAfter(clock.now());
+    if (!restore.any(open) || !await hasPermission()) return;
+    for (final alert in restore) {
+      if (!open(alert)) continue;
+      _sessionRestAlertIds.add(alert.id);
+      await _scheduleRestAlertNow(
+        alert.id,
+        _restInstant(alert.at),
+        alert.title,
+        alert.body,
+        epoch,
+      );
     }
   }
 
@@ -693,7 +775,7 @@ class LocalNotificationService
     // The session ended while this request waited in the queue.
     if (!_initialized || epoch != _restAlertEpoch) return;
     try {
-      final when = tz.TZDateTime.from(at, tz.local);
+      final when = _restInstant(at);
       if (when.isAfter(clock.now())) {
         await _scheduleRestAlertNow(id, when, title, body, epoch);
       } else {
@@ -706,6 +788,12 @@ class LocalNotificationService
       await CrashReporter.capture(e, st, context: 'notification-rest-schedule');
     }
   }
+
+  /// A rest deadline for the plugin, in UTC. The Android plugin rebuilds it
+  /// from wall time and zone name and resolves the repeated DST hour to the
+  /// earlier offset, so a local zone fired it an hour early (at once).
+  static tz.TZDateTime _restInstant(DateTime at) =>
+      tz.TZDateTime.from(at, tz.UTC);
 
   Future<void> _scheduleRestAlertNow(
     int id,

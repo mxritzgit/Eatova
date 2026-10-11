@@ -39,6 +39,7 @@ import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
 import { loggableFinishReason } from "../_shared/provider_log.ts";
 import { pruneRateLimits } from "../_shared/rate_limit_prune.ts";
+import { clipUtf16 } from "../_shared/text_clip.ts";
 import {
   cachedSystem,
   CLAUDE_MAX_IMAGE_EDGE_PX,
@@ -555,12 +556,23 @@ const PROMPT_LEAK_RE = /system\s*prompt|deine\s*anweisungen\s*lauten/i;
 // a fixed raw-character streaming tail.
 const SHINGLE_WORDS = 7;
 
-/// Prompt sections that stay OUT of the table. Both list what the coach may
-/// talk about, and an honest answer to "what can you help me with" restates
-/// exactly those words ("calories, macros, portion sizes, meal timing,
-/// hydration"). They are also the least worth protecting: they say nothing the
-/// app does not advertise, and a full dump still trips on every other section.
-const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "VISUAL INPUT RULES"];
+/// Prompt sections that stay OUT of the table. The first two list what the
+/// coach may talk about, and an honest answer to "what can you help me with"
+/// restates exactly those words ("calories, macros, portion sizes, meal
+/// timing, hydration"). CRISIS RULE orders the "German helpline number 0800
+/// 111 0 111": an English crisis reply that copies that wording must never
+/// become the leak refusal (COACH-1). None of them says anything the app does
+/// not advertise, and a full dump still trips on every other section.
+const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "VISUAL INPUT RULES", "CRISIS RULE"];
+
+/// Single lines a legitimate refusal restates as its reason: an English
+/// off-topic refusal says it has "nothing to do with fitness, nutrition, or
+/// being a coach". The rest of their section stays in the table.
+const SHINGLE_EXEMPT_LINES = ["4. NO topics"];
+
+/// The crisis helpline in any spacing or separators. A reply the leak net cuts
+/// that carried it outside a recital of the prompt was (also) crisis guidance.
+const CRISIS_HELPLINE_RE = /0800[\s./-]*111[\s./-]*0[\s./-]*111/;
 
 /// A section header of the answer prompt: ALL-CAPS first word plus a trailing
 /// colon. Content lines start with "-", a digit or a normal word, so none of
@@ -593,6 +605,7 @@ function buildPromptShingles(): Set<string> {
     // correct behaviour — turning a crisis reply into a leak refusal would be
     // the worst false positive this net could produce.
     if (exempt || line.startsWith(REFUSAL_MARKER)) continue;
+    if (SHINGLE_EXEMPT_LINES.some((prefix) => line.startsWith(prefix))) continue;
     const words = leakWords(line);
     for (let i = 0; i + SHINGLE_WORDS <= words.length; i++) {
       shingles.add(words.slice(i, i + SHINGLE_WORDS).join(" "));
@@ -602,6 +615,52 @@ function buildPromptShingles(): Set<string> {
 }
 
 const PROMPT_SHINGLES = buildPromptShingles();
+
+/// Seven-word windows of the prompt lines that carry the helpline: the CRISIS
+/// RULE line that orders it and the reference reply, whose marker is dropped
+/// so a recital without it matches too. `order` keeps the ordering line's
+/// windows without a number: a crisis reply may copy "the German helpline
+/// number 0800 111 0 111", only a recital copies the instruction around it.
+function buildHelplineWindows(): { all: Set<string>; order: Set<string> } {
+  const all = new Set<string>();
+  const order = new Set<string>();
+  for (const raw of ANSWER_SYSTEM_PROMPT.split("\n")) {
+    const line = raw.trim();
+    if (!CRISIS_HELPLINE_RE.test(line)) continue;
+    const reference = line.startsWith(REFUSAL_MARKER);
+    const words = leakWords(reference ? line.slice(REFUSAL_MARKER.length) : line);
+    for (let i = 0; i + SHINGLE_WORDS <= words.length; i++) {
+      const window = words.slice(i, i + SHINGLE_WORDS);
+      all.add(window.join(" "));
+      if (!reference && !window.some((word) => /\d/.test(word))) order.add(window.join(" "));
+    }
+  }
+  return { all, order };
+}
+
+const HELPLINE_WINDOWS = buildHelplineWindows();
+
+/// Does a reply the leak net cut carry the helpline as crisis guidance of its
+/// own? A dump of the CRISIS RULE recites the number too, and someone who
+/// asked for the prompt gets the leak text, not crisis signposting (W1). Once
+/// a reply recites the line that orders the number, the recited helpline lines
+/// are struck before the test. Without that line, the reference wording IS the
+/// crisis reply the rule asks for and keeps its number.
+function carriesOwnHelpline(text: string): boolean {
+  const words = leakWords(text);
+  const windows: string[] = [];
+  for (let i = 0; i + SHINGLE_WORDS <= words.length; i++) {
+    windows.push(words.slice(i, i + SHINGLE_WORDS).join(" "));
+  }
+  if (windows.some((window) => HELPLINE_WINDOWS.order.has(window))) {
+    // "|" is no separator CRISIS_HELPLINE_RE accepts, so struck words cannot
+    // join two remaining fragments into a number.
+    windows.forEach((window, i) => {
+      if (HELPLINE_WINDOWS.all.has(window)) words.fill("|", i, i + SHINGLE_WORDS);
+    });
+  }
+  return CRISIS_HELPLINE_RE.test(words.join(" "));
+}
 
 /// Does any window of `words` from `from` on reproduce a run of the prompt?
 /// The offset is what keeps the streamed path linear: its text only grows, so
@@ -694,7 +753,10 @@ function finalizeAnswer(
   locale: CoachLocale,
 ): { reply: string; refusal: boolean } {
   if (finishReason === "content_filter") {
-    return { reply: refusalForReason("fallback", locale), refusal: true };
+    // The provider's safety system declined the answer. For a photo this is
+    // the only stage that saw the content, so it is treated like a declined
+    // classification: decline and point to help (COACH-2).
+    return { reply: refusalForReason("provider_refusal", locale), refusal: true };
   }
   if (!["stop", "length"].includes(finishReason)) {
     throw new ProviderError(502, `Provider completion failed (finish_reason=${finishReason})`);
@@ -714,7 +776,10 @@ function finalizeAnswer(
   // `done` event comes from here, so both wires carry the same verdict.
   if (leaksPrompt(reply)) {
     refusal = true;
-    reply = refusalForReason("prompt_leak", locale);
+    // The cut stays complete, so an appended helpline cannot carry a dump
+    // through; a cut crisis reply keeps the number via the crisis text, a
+    // recited CRISIS RULE does not count as one.
+    reply = refusalForReason(carriesOwnHelpline(reply) ? "self_harm" : "prompt_leak", locale);
   }
   if (reply.length === 0) {
     if (hadRefusalMarker) {
@@ -1697,8 +1762,9 @@ const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
     de: "Das konnte ich gerade nicht sicher einordnen - da ist bei mir etwas schiefgelaufen. Formulier es bitte nochmal, dann versuche ich es erneut.",
     en: "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.",
   },
-  // The provider's safety system declined to classify the message, so nothing
-  // is known about it. It may be a crisis: decline, and point to help gently.
+  // The provider's safety system declined to classify the message, or declined
+  // the chat answer, so nothing is known about it. It may be a crisis: decline,
+  // and point to help gently.
   provider_refusal: {
     de: "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.",
     en: "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists helplines for your country. I'm happy to help with training and nutrition.",
@@ -2236,7 +2302,8 @@ async function maybeAutoTitle(
 ): Promise<void> {
   const trimmed = firstUserMessage.trim().replace(/\s+/g, " ");
   if (trimmed.length === 0) return;
-  const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
+  // Never half an emoji: PostgREST rejects a lone surrogate in the body.
+  const title = trimmed.length > 40 ? `${clipUtf16(trimmed, 40)}…` : trimmed;
   // ONE conditional PATCH instead of the old GET+PATCH: the title=in. filter
   // makes the write a DB-side no-op while the session carries a custom title,
   // which saves a round-trip per message (the GET was pure overhead from the

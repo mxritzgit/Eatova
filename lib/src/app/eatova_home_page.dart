@@ -12,6 +12,7 @@ import '../models/training_history.dart';
 import '../models/training_log.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
+import '../services/crash_reporter.dart';
 import '../services/data_export.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
@@ -484,15 +485,21 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       throw const AuthUnavailableException();
     }
     if (!await ownerStore.deleteAccount(
-      deleteRemote: deleteRemote,
+      deleteRemote: () async {
+        await deleteRemote();
+        // Deleted server-side: a session end from here on (a refresh failing
+        // during local cleanup) belongs to the deletion, not to an expiry.
+        IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
+      },
       isCurrentSession: isCurrentSession,
     )) {
       throw StateError('Account deletion failed');
     }
     if (_isStoreSessionCurrent(ownerStore) && isCurrentSession()) {
       // An INTENTIONAL logout: without the flag [AuthGate] would report an
-      // expired session (Review 2026-08-19).
-      IntentionalSignOut.mark();
+      // expired session (Review 2026-08-19). Marked again: the local cleanup
+      // may outlast the intent's window.
+      IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
       await widget.onSignOut?.call();
     }
   }
@@ -500,15 +507,29 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// Prepare durable logout before clearing local data; cleanup still needs
   /// the signed-in user. The intent distinguishes logout from session loss.
   Future<void> _signOut() async {
+    // Captured first: AuthGate may already have switched when a failure lands.
+    final auth = widget.authRepository;
+    final signedIn = auth?.currentUser;
     IntentionalSignOut.mark();
     try {
-      if (widget.authRepository case final CoordinatedSignOut repository) {
+      if (auth case final CoordinatedSignOut repository) {
         await repository.signOutWithCleanup(_store.signOutCleanup);
       } else {
         await _store.signOutCleanup();
         await widget.onSignOut?.call();
       }
-    } catch (_) {
+    } catch (error, stack) {
+      final now = auth?.currentUser;
+      if (signedIn != null &&
+          (now == null ||
+              now.id != signedIn.id ||
+              now.sessionId != signedIn.sessionId)) {
+        // AUTH-3: the session already ended locally; only the server
+        // revocation failed (offline). Keep the intent for AuthGate.
+        unawaited(CrashReporter.captureSyncFailure(error, stack,
+            context: 'sign-out-server-revoke'));
+        return;
+      }
       // Sign-out failed, so no intent may explain a later auth event.
       IntentionalSignOut.clear();
       if (!mounted) return;
@@ -907,8 +928,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // notify, so these must answer with the store's state of THAT
         // moment. `favorites` hands out the store's own list instance —
         // the sheet uses its identity as the change fingerprint.
-        mealsOfSelectedDay: () =>
-            _store.mealsForFoodDate(_store.selectedFoodDate),
+        mealsForDay: (day) => _store.mealsForFoodDate(day),
         favorites: () => _store.favorites,
         favoriteUseCounts: () =>
             favoriteUseCounts(_store.loggedMeals, now: clock.now()),
@@ -929,8 +949,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             profile: _store.profile,
             favorites: _store.favorites,
             loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
-            onAddMeal: (result, slot) =>
-                _store.addResultToDailyTotal(result, slot: slot),
+            onAddMeal: (result, slot, bound) => _store.addResultToDailyTotal(
+              result,
+              slot: slot,
+              foodDate: bound.day,
+              startedToday: bound.startedToday,
+            ),
             onUpdateMeal: _store.updateLoggedMealResult,
             isFavorite: _store.isFavorite,
             onToggleFavorite: _store.toggleFavorite,

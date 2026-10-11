@@ -47,6 +47,9 @@ int _restAlertSlot(String sessionId, int offset) {
 /// Payload of every rest/interval alert; a tap carrying it opens Training.
 const String trainingRestNotificationPayload = 'training-rest';
 
+/// One alert of a running rest or timed set, as the player plans it.
+typedef PlannedRestAlert = ({int id, DateTime at, String title, String body});
+
 /// Schedules and cancels the alert for the current rest or timed interval.
 abstract class RestAlertScheduler {
   /// Schedules one alert at [at] under [id], replacing an earlier one with

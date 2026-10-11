@@ -129,7 +129,7 @@ void main() {
             dailyConsumedKcal: 0,
             selectedDate: _today,
             productService: _Catalog(),
-            onAddMeal: (result, slot) {
+            onAddMeal: (result, slot, _) {
               logged.add(result);
               return 'logged';
             },

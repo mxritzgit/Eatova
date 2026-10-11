@@ -173,13 +173,23 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 
   /// Cold-start backstop: everything an earlier session left goes, but not
-  /// a rest alert the player already resumed during this boot.
+  /// a rest alert the player already resumed during this boot, and the
+  /// restored workout's alerts are planned again: the backstop also clears
+  /// the ones the previous process planned, and only the player plans them
+  /// otherwise (spec A5: a running rest survives a process death).
   Future<void> _cancelStaleSchedules() {
     final Object service = notificationService;
     if (service is NotificationScopedCancel) {
-      return service.cancelStaleSchedules();
+      return service.cancelStaleSchedules(restore: _restoredRestAlerts());
     }
     return notificationService.cancelAll();
+  }
+
+  /// The alerts of this account's restored workout checkpoint.
+  List<PlannedRestAlert> _restoredRestAlerts() {
+    final snapshot = trainingSession;
+    if (snapshot == null || !_accountStillSignedIn) return const [];
+    return plannedRestAlertsFor(snapshot, _l10n);
   }
 
   /// Whether the OS currently delivers — three-valued, null means "not

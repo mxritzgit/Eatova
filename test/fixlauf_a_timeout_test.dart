@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/config/supabase_config.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_dispatcher.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
@@ -20,6 +21,8 @@ void main() {
 
   setUp(() => RecipeImageStore.instance = StummerFotoStore());
   tearDown(RecipeImageStore.resetInstance);
+
+  group('Zustellfenster', _slowWriteTests);
 
   test('Supabase.initialize bekommt ein PostgREST-Request-Timeout', () {
     expect(
@@ -183,6 +186,65 @@ void main() {
       }, initialTime: DateTime(2026, 9, 20, 12));
     },
   );
+}
+
+/// The queue hints of `_commitSyncIntents` among the captured snacks.
+List<String> _queueHints(FixlaufSetup s) => s.snacks.messages
+    .where(
+      (m) =>
+          m == deL10n.commonQueuedRetryGenericHint ||
+          m == deL10n.commonQueuedOfflineHint,
+    )
+    .toList();
+
+void _slowWriteTests() {
+  test('ein langsamer, aber erfolgreicher Write meldet keinen Fehlschlag', () {
+    fakeAsync((async) {
+      final s = _bootOnline(async);
+      s.server.holdWrites = true;
+      var saved = false;
+      s.store
+          .toggleFavorite(mealResult('Langsam'))
+          .then((_) => saved = true);
+      async.flushMicrotasks();
+      async.elapse(kSyncDeliveryWindow);
+      async.flushMicrotasks();
+      expect(saved, isTrue, reason: 'das Fenster beendet nur das Warten');
+      expect(
+        s.server.heldWrites,
+        1,
+        reason: 'Vorbedingung: der Write ist noch unterwegs',
+      );
+      // Before, the window's end read as a failure: "Änderung konnte nicht
+      // gespeichert werden" for a write that had not failed.
+      expect(_queueHints(s), isEmpty);
+
+      s.server.holdWrites = false;
+      s.server.releaseWrites();
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(s.store.pendingOutbox, isEmpty);
+      expect(_queueHints(s), isEmpty);
+    }, initialTime: DateTime(2026, 9, 20, 12));
+  });
+
+  test('scheitert der Write erst nach dem Fenster, kommt der Hinweis dann', () {
+    fakeAsync((async) {
+      final s = _bootOnline(async);
+      s.server.silentRpcs = true;
+      s.store.toggleFavorite(mealResult('Stumm'));
+      async.flushMicrotasks();
+      async.elapse(kSyncDeliveryWindow);
+      async.flushMicrotasks();
+      expect(_queueHints(s), isEmpty);
+
+      async.elapse(kSyncOperationTimeout);
+      async.flushMicrotasks();
+      expect(s.store.pendingOutbox, isNotEmpty);
+      expect(_queueHints(s), [deL10n.commonQueuedOfflineHint]);
+    }, initialTime: DateTime(2026, 9, 20, 12));
+  });
 }
 
 FixlaufSetup _bootOnline(FakeAsync async) {

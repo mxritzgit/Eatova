@@ -516,6 +516,9 @@ class MealAnalysisResult {
     this.brand,
     this.explicitZeroKcal = false,
     this.imageUrl,
+    this.proteinPer100G,
+    this.carbsPer100G,
+    this.fatPer100G,
   });
 
   final String mealName;
@@ -547,14 +550,24 @@ class MealAnalysisResult {
   final String? brand;
 
   /// `true` when the 0 in [caloriesKcal]/[kcalPer100G] is a MEASUREMENT (water,
-  /// zero drink — see [offMeldetExplizitNullKcal]) and not the "unknown"
-  /// sentinel. Only with this marker do the UI log guards let a 0 through.
+  /// zero drink — see [offMeldetExplizitNullKcal], or a product serving too
+  /// small to reach 1 kcal) and not the "unknown" sentinel. Only with this
+  /// marker do the UI log guards let a 0 through.
   /// Persisted in the payload; legacy rows read `false` and stay blocked.
   final bool explicitZeroKcal;
 
   /// The product photo of an Open Food Facts product, already checked by
   /// [sanitizeProductImageUrl]; null for scans, recipes and manual entries.
   final String? imageUrl;
+
+  /// Macros per 100 g where a label states them (a product, the manual
+  /// form), else null. [adjustedToGrams] scales from these instead of from
+  /// the rounded macro text: a stored 10 g splash of milk ("0,3 g" protein)
+  /// otherwise gave 7,5 g at 250 g instead of the label's 8,5 g. Each counts
+  /// only while it reproduces its text, see [checkedMacroPer100G].
+  final double? proteinPer100G;
+  final double? carbsPer100G;
+  final double? fatPer100G;
 
   /// This result with another photo (null removes it).
   MealAnalysisResult withImageUrl(String? url) => MealAnalysisResult(
@@ -574,6 +587,9 @@ class MealAnalysisResult {
     brand: brand,
     explicitZeroKcal: explicitZeroKcal,
     imageUrl: sanitizeProductImageUrl(url),
+    proteinPer100G: proteinPer100G,
+    carbsPer100G: carbsPer100G,
+    fatPer100G: fatPer100G,
   );
 
   /// Origin value in the language of [l10n]. Known raw values resolve via
@@ -729,27 +745,50 @@ class MealAnalysisResult {
   /// `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal`.
   ///
   /// The density becomes the reference only when calories and grams yield
-  /// nothing (source portion 0 g or 0 kcal).
+  /// nothing (source portion 0 g or 0 kcal), or when it reproduces the
+  /// calories and so only adds the precision rounding took away (a product's
+  /// 1 g serving); see [densityScalesPortion].
   MealAnalysisResult adjustedToGrams(int grams) {
     // Without a cooked mass/density there is no conversion factor. Retain the
     // snapshot instead of replacing its measured calories with the 0 sentinel.
     if (isRecipeWithoutCookedWeight) return this;
     final zielGramm = clampPortionGrams(grams);
     final dichte = effectiveKcalPer100G;
+    final ausDichte = densityScalesPortion(
+      dichte,
+      estimatedGrams,
+      caloriesKcal,
+    );
     final int neueKcal;
-    if (estimatedGrams > 0 && caloriesKcal > 0) {
+    if (ausDichte) {
+      neueKcal = clampMealCaloriesKcal(dichte! * zielGramm / 100);
+    } else if (estimatedGrams > 0 && caloriesKcal > 0) {
       neueKcal = clampMealCaloriesKcal(
         caloriesKcal * zielGramm / estimatedGrams,
       );
-    } else if (dichte != null) {
-      neueKcal = clampMealCaloriesKcal(dichte * zielGramm / 100);
     } else {
       neueKcal = 0;
     }
-    final neueDichte = neueKcal > 0
+    // A density that carried the scaling stays as it is: re-deriving it from
+    // the rounded calories would drift with every further adjustment.
+    final neueDichte = ausDichte
+        ? dichte!
+        : neueKcal > 0
         ? clampKcalPer100G(neueKcal * 100 / zielGramm)
         : (dichte ?? 0);
     final factor = estimatedGrams <= 0 ? 1.0 : zielGramm / estimatedGrams;
+    // The label's macros, like its density, are not re-derived from rounded
+    // text; without them the text scales as before.
+    final protein100 = checkedMacroPer100G(
+      protein,
+      estimatedGrams,
+      proteinPer100G,
+    );
+    final carbs100 = checkedMacroPer100G(carbs, estimatedGrams, carbsPer100G);
+    final fat100 = checkedMacroPer100G(fat, estimatedGrams, fatPer100G);
+    String macro(String text, double? per100G) => per100G == null
+        ? _scaleMacroText(text, factor)
+        : macroForGrams(per100G, zielGramm);
     final adjustedItems = hasItemizedBreakdown
         ? items
               .map(
@@ -763,9 +802,9 @@ class MealAnalysisResult {
       caloriesKcal: neueKcal,
       estimatedGrams: zielGramm,
       kcalPer100G: neueDichte,
-      protein: _scaleMacroText(protein, factor),
-      carbs: _scaleMacroText(carbs, factor),
-      fat: _scaleMacroText(fat, factor),
+      protein: macro(protein, protein100),
+      carbs: macro(carbs, carbs100),
+      fat: macro(fat, fat100),
       confidence: confidence,
       portionNotes: MealResultAdjustmentNote.grams(
         zielGramm,
@@ -778,6 +817,9 @@ class MealAnalysisResult {
       brand: brand,
       explicitZeroKcal: explicitZeroKcal,
       imageUrl: imageUrl,
+      proteinPer100G: protein100,
+      carbsPer100G: carbs100,
+      fatPer100G: fat100,
     );
   }
 
@@ -1028,9 +1070,15 @@ class MealAnalysisResult {
       brand: brand,
       // Only an EXPLICITLY reported 0 (water, zero drink) is a measurement; the
       // `?? 0` parser fallback above never satisfies this, because the detector
-      // reads the raw fields.
-      explicitZeroKcal: kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
+      // reads the raw fields. So is a known density whose serving rounds to
+      // 0 kcal (a 2 g tea bag): the label has numbers, the portion is tiny.
+      explicitZeroKcal:
+          calories == 0 &&
+          (kcalPer100G > 0 || offMeldetExplizitNullKcal(product)),
       imageUrl: _offImageUrl(product),
+      proteinPer100G: protein100,
+      carbsPer100G: carbs100,
+      fatPer100G: fat100,
     );
   }
 
@@ -1062,6 +1110,9 @@ class MealAnalysisResult {
       // An EXPLICITLY entered 0 (water, zero drink) is a measurement, not the
       // unknown sentinel — only it may pass the log guard.
       explicitZeroKcal: kcalPer100G == 0,
+      proteinPer100G: proteinPer100G?.toDouble(),
+      carbsPer100G: carbsPer100G?.toDouble(),
+      fatPer100G: fatPer100G?.toDouble(),
     );
   }
 
@@ -1212,9 +1263,11 @@ class MealAnalysisResult {
     if (menge != null && isPlausiblePortionGrams(menge)) {
       return clampPortionGrams(menge);
     }
-    final ausText = _estimateGramsFromText(product['serving_size']?.toString());
+    // The text names the same serving and gets the same check: a sub-gram
+    // serving (one mint, "0,49 g") also falls back to the 100 g base.
+    final ausText = gramsInServingText(product['serving_size']?.toString());
     if (ausText != null && isPlausiblePortionGrams(ausText)) {
-      return ausText;
+      return clampPortionGrams(ausText);
     }
     return 100;
   }
@@ -1380,6 +1433,22 @@ class MealAnalysisResult {
     return _formatMacroG(per100G * grams / 100);
   }
 
+  /// [per100G] as a macro per 100 g that still reproduces [text] at [grams],
+  /// else null. Raw on purpose: payloads from other devices are read through
+  /// it, so a non-number, an impossible amount or a value the text has moved
+  /// away from (a hand edit, an older build that rescaled the text alone)
+  /// leaves the text in charge.
+  static double? checkedMacroPer100G(String text, int grams, Object? per100G) {
+    if (per100G is! num) return null;
+    final value = per100G.toDouble();
+    if (!value.isFinite ||
+        value < 0 ||
+        value > PlausibilityLimits.macroPer100GMax) {
+      return null;
+    }
+    return macroForGrams(value, grams) == text ? value : null;
+  }
+
   /// Formats a macro value in grams, clamped to the DB limit (0..1000 g).
   /// Whole values without a decimal, otherwise one digit with a German comma:
   /// the stored format older builds read. Displays convert it with
@@ -1425,16 +1494,25 @@ class MealAnalysisResult {
     return match == null ? null : int.tryParse(match.group(0)!);
   }
 
-  /// First gram figure in a text. Only for OFF's `serving_size`, a field that
-  /// carries exactly ONE serving. For model explanation text see
-  /// [_unambiguousGramsFromText].
-  static int? _estimateGramsFromText(String? value) {
+  /// First gram figure in a text, decimals included ("0,49 g" is 0.49, not
+  /// 49). Only for OFF's `serving_size`, a field that carries exactly ONE
+  /// serving. For model explanation text see [_unambiguousGramsFromText].
+  static double? gramsInServingText(String? value) {
     if (value == null) {
       return null;
     }
-    final match = RegExp(r'(\d{2,4})\s*g').firstMatch(value.toLowerCase());
-    return match == null ? null : int.tryParse(match.group(1)!);
+    final match = _servingGramsPattern.firstMatch(value.toLowerCase());
+    return match == null
+        ? null
+        : double.tryParse(match.group(1)!.replaceAll(',', '.'));
   }
+
+  /// A number not started mid-number, then a gram unit ("g", "gr", "gramm",
+  /// "grams") not followed by a letter: "1 glass" holds no gram figure.
+  static final RegExp _servingGramsPattern = RegExp(
+    r'(?<![\d.,])(\d+(?:[.,]\d+)?)\s*g(?:r|rs|ramm|ramme|rammes|rams?)?'
+    r'(?![a-zäöüß])',
+  );
 
   /// Grams from model explanation text, but only when it carries EXACTLY ONE
   /// gram figure (Komplettreview 2026-08-19, finding 3).

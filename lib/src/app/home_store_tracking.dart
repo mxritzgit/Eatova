@@ -34,10 +34,15 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   /// In-memory dedup for the HealthKit weight offer: refreshHealthSteps()
   /// runs on cold start AND every resume, so without this the offer snack
-  /// would reappear each time. Deliberately not persisted — one fresh offer
-  /// per app start is fine.
-  double? _lastOfferedHealthWeightKg;
+  /// would reappear each time. Not persisted: an imported or older sample is
+  /// never newer than the latest weigh-in, so only an ignored offer returns
+  /// after a restart.
+  ({double kg, DateTime measuredAt})? _lastOfferedHealthWeight;
   bool _healthWeightImportInFlight = false;
+
+  /// A Health weight measured longer ago is not offered: "apply?" without a
+  /// date would pass an old reading off as a current one.
+  static const Duration _healthWeightOfferMaxAge = Duration(days: 7);
 
   // --- Health ---------------------------------------------------------------
 
@@ -125,7 +130,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (_disposed || generation != _healthGeneration) return;
     // Offer the snapshot weight for import (deduped) instead of discarding it.
     if (snapshot != null) {
-      _maybeOfferHealthWeight(snapshot.latestWeightKg);
+      _maybeOfferHealthWeight(
+        snapshot.latestWeightKg,
+        snapshot.latestWeightMeasuredAt,
+      );
     }
     // A midnight refresh may have hit the in-flight guard. Catch up once;
     // a failed or repeatedly delayed provider must not create a retry loop.
@@ -249,24 +257,27 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 
   /// Offers an Apple Health weight for import via snack. Requires a value in
-  /// the snapshot, a >= 0.1 kg deviation from the last logged weight (or no
-  /// weight at all), and that the same value was not offered before
-  /// ([_lastOfferedHealthWeightKg]). After an import the 0.1 kg threshold
-  /// suppresses the next offer on its own.
-  void _maybeOfferHealthWeight(double? kg) {
+  /// range with its measurement time, measured within
+  /// [_healthWeightOfferMaxAge] and after the latest weigh-in, a >= 0.1 kg
+  /// deviation from it, and that the same sample was not offered before
+  /// ([_lastOfferedHealthWeight]). An imported sample becomes the latest
+  /// weigh-in, which suppresses the next offer on its own; Eatova's own
+  /// write-back carries its weigh-in's time and is never newer either.
+  void _maybeOfferHealthWeight(double? kg, DateTime? measuredAt) {
     // Outside 20..400 kg the sample is a unit or sensor error; offering it
     // would only lead to a tap that [importHealthWeight] discards.
     if (_disposed ||
         _healthSessionEnded ||
         _healthWeightImportInFlight ||
         kg == null ||
-        !isValidWeightLogKg(kg)) {
+        measuredAt == null ||
+        !isValidWeightLogKg(kg) ||
+        !_healthWeightIsNew(kg, measuredAt)) {
       return;
     }
-    final lastLogged = weightLog.latest?.weightKg;
-    if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
-    if (_lastOfferedHealthWeightKg == kg) return;
-    _lastOfferedHealthWeightKg = kg;
+    final sample = (kg: kg, measuredAt: measuredAt);
+    if (_lastOfferedHealthWeight == sample) return;
+    _lastOfferedHealthWeight = sample;
     // Locale-aware via NumberFormat: comma under `de`, dot under `en`.
     final label = NumberFormat('0.0', _l10n.localeName).format(kg);
     _emitSnack(
@@ -278,25 +289,43 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       duration: const Duration(milliseconds: 3500),
       action: SnackBarAction(
         label: _l10n.commonHealthWeightOfferAction,
-        onPressed: () => unawaited(_importOfferedHealthWeight(kg)),
+        onPressed: () => unawaited(_importOfferedHealthWeight(kg, measuredAt)),
       ),
     );
   }
 
+  /// Whether a Health sample adds to the weight log: recent, newer than the
+  /// latest weigh-in (an older one is stale or Eatova's own write-back) and
+  /// not the same value.
+  bool _healthWeightIsNew(double kg, DateTime measuredAt) {
+    if (clock.now().difference(measuredAt) > _healthWeightOfferMaxAge) {
+      return false;
+    }
+    final latest = weightLog.latest;
+    return latest == null ||
+        (measuredAt.isAfter(latest.timestamp) &&
+            (kg - latest.weightKg).abs() >= 0.1);
+  }
+
   /// Snack actions have no awaiting caller. Keep their failure handling and
   /// duplicate-tap guard at the user-action boundary, not in the save API.
-  Future<void> _importOfferedHealthWeight(double kg) async {
+  Future<void> _importOfferedHealthWeight(
+    double kg,
+    DateTime measuredAt,
+  ) async {
     if (_disposed || _healthSessionEnded || _healthWeightImportInFlight) return;
-    final lastLogged = weightLog.latest?.weightKg;
-    if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
+    // A weigh-in may have landed since the offer.
+    if (!_healthWeightIsNew(kg, measuredAt)) return;
     final generation = _healthGeneration;
     _healthWeightImportInFlight = true;
     try {
-      await importHealthWeight(kg);
+      await importHealthWeight(kg, measuredAt: measuredAt);
     } catch (error, stack) {
       if (_disposed || generation != _healthGeneration) return;
       // A failed commit must not permanently consume the offer for this value.
-      if (_lastOfferedHealthWeightKg == kg) _lastOfferedHealthWeightKg = null;
+      if (_lastOfferedHealthWeight == (kg: kg, measuredAt: measuredAt)) {
+        _lastOfferedHealthWeight = null;
+      }
       _reportSyncError(
         'health-weight-import',
         error,
@@ -320,9 +349,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Out-of-range samples (20..400 kg) are DISCARDED, not clamped (review G
   /// M-4): a clamped 20 kg from a 7.55 lb/stone sample would be a fiction in
   /// the log. The clamp stays the last barrier for manual input only.
-  Future<void> importHealthWeight(double kg) async {
+  ///
+  /// The entry keeps the sample's [measuredAt] (a future one becomes now): a
+  /// Monday scale reading accepted on Thursday belongs to Monday's trend day.
+  Future<void> importHealthWeight(double kg, {DateTime? measuredAt}) async {
     if (!isValidWeightLogKg(kg)) return;
-    await _logWeightInternal(kg, writeToHealth: false);
+    await _logWeightInternal(kg, writeToHealth: false, recordedAt: measuredAt);
   }
 
   /// Shared core of [logWeight] and [importHealthWeight]. The haptic fires in
@@ -335,13 +367,15 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   Future<void> _logWeightInternal(
     double rawKg, {
     required bool writeToHealth,
+    DateTime? recordedAt,
   }) async {
     final kg = WeightLog.sanitizeKg(rawKg);
     if (kg == null) throw const FormatException('Invalid weight');
     // The re-anchored profile is derived from the PUBLISHED profile, so a
     // goals save still in flight must land first.
     await _settledLocalMutations();
-    final ts = clock.now();
+    final now = clock.now();
+    final ts = recordedAt == null || recordedAt.isAfter(now) ? now : recordedAt;
     final entry = WeightLogEntry(timestamp: ts, weightKg: kg);
     final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: ts);
     final before = profile;

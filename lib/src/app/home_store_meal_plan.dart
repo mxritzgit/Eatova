@@ -25,7 +25,7 @@ mixin _HomeStoreMealPlanPart
       final validated = PlannedMeal.fromJson(plan.toJson());
       final existing = _plannedMeals.where((p) => p.id == plan.id).firstOrNull;
       if (validated.isEaten || existing?.isEaten == true) {
-        throw StateError('Meal already eaten');
+        throw const MealPlanAlreadyEaten();
       }
       final activeSince = localDayKey(
         clock.now().subtract(const Duration(days: 35)),
@@ -39,8 +39,8 @@ mixin _HomeStoreMealPlanPart
                         p.day.compareTo(activeSince) >= 0,
                   )
                   .length >=
-              500) {
-        throw StateError('Meal plan limit reached');
+              kMaxOpenPlannedMeals) {
+        throw const MealPlanLimitReached();
       }
       return _commitSyncIntents(
         [SyncOp.mealPlanUpsert(validated)],
@@ -53,22 +53,22 @@ mixin _HomeStoreMealPlanPart
   Future<SyncDelivery> removePlannedMeal(PlannedMeal plan) =>
       savePlannedMeal(plan.copyWith(removed: true));
 
-  Future<SyncDelivery> setShoppingChecked(ShoppingCheck check) =>
-      _serializeMealPlan(() async {
-        _ensureMealPlanActive();
-        final validated = ShoppingCheck.fromJson(check.toJson());
-        return _commitSyncIntents(
-          [SyncOp.shoppingCheck(validated)],
-          notifyQueued: false,
-          publish: () {
-            _shoppingChecks = {
-              ..._shoppingChecks,
-              validated.id: validated.checked,
-            };
-            _mealPlansVersion++;
-          },
-        );
-      });
+  /// A tick reads no plan state, so it skips the plan queue, and it returns
+  /// once committed: the receipt shows no delivery feedback, and waiting for
+  /// one tick's delivery would hold back the next one.
+  Future<SyncDelivery> setShoppingChecked(ShoppingCheck check) async {
+    _ensureMealPlanActive();
+    final validated = ShoppingCheck.fromJson(check.toJson());
+    return _commitSyncIntents(
+      [SyncOp.shoppingCheck(validated)],
+      notifyQueued: false,
+      awaitDelivery: false,
+      publish: () {
+        _shoppingChecks = {..._shoppingChecks, validated.id: validated.checked};
+        _mealPlansVersion++;
+      },
+    );
+  }
 
   /// One outbox intent owns the recipe snapshot, conversion receipt, diary row
   /// and server counters. Subsequent diary changes follow this UUID in FIFO.

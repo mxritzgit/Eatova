@@ -109,15 +109,24 @@ mixin _HomeStoreMealsPart
 
   // --- Meals ----------------------------------------------------------------
 
+  /// Logs [result] on [foodDate], or on [selectedFoodDate] as read now.
+  ///
+  /// [startedToday]: the entry was started while [foodDate] was today, in a
+  /// sheet bound to that day. Confirmed just after midnight, it still tracks
+  /// that day (at most one day late), or the evening's last entry left its
+  /// day untracked and reset the streak.
   Future<String> addResultToDailyTotal(
     MealAnalysisResult result, {
     MealSlot? slot,
     DateTime? foodDate,
+    bool startedToday = false,
   }) {
     final targetDate = DateUtils.dateOnly(foodDate ?? selectedFoodDate);
     final loggedAt = _timestampForFoodDate(targetDate);
     final addedAt = clock.now();
-    final today = _isSameFoodDate(targetDate, addedAt);
+    final today =
+        _isSameFoodDate(targetDate, addedAt) ||
+        (startedToday && daysBetween(addedAt, targetDate) == 1);
     return _serializeFavoriteMutation(() async {
       final entry = LoggedMeal(
         id: uuidV4(),

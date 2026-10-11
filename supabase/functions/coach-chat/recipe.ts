@@ -4,6 +4,8 @@
 // Security principle: this module and the recipe branch RETURN DATA ONLY. No
 // tool calling, no writes — saving happens client-side after confirmation.
 
+import { clipUtf16 } from "../_shared/text_clip.ts";
+
 /// Limits for AI values, mirroring the manual recipe form. Values are CLAMPED
 /// rather than rejected: a rejected AI request is a paid slot with no result.
 export const RECIPE_LIMITS = {
@@ -99,7 +101,7 @@ export function parseRecipeRefusal(raw: string): string | null {
     const parsed = JSON.parse(match ? match[0] : raw);
     const refuse = parsed?.refuse;
     if (typeof refuse === "string" && refuse.trim().length > 0) {
-      return refuse.trim().slice(0, 300);
+      return clipUtf16(refuse.trim(), 300);
     }
   } catch {
     // No JSON -> no readable refusal; the draft parser decides.
@@ -124,7 +126,7 @@ function numberOrNull(value: unknown): number | null {
 
 function textOrEmpty(value: unknown, maxChars: number): string {
   if (typeof value !== "string") return "";
-  return value.trim().slice(0, maxChars);
+  return clipUtf16(value.trim(), maxChars);
 }
 
 /// The model answer as a clamped [RecipeDraft]. null = unreadable (no JSON,
@@ -182,7 +184,7 @@ export function parseRecipeDraft(raw: string): RecipeDraft | null {
 /// Prompt for the fixed image API, built from the bounded draft. Model-produced
 /// title/description remain untrusted text; clamping is not semantic validation.
 export function recipeImagePrompt(draft: RecipeDraft): string {
-  const description = draft.description.slice(0, 200);
+  const description = clipUtf16(draft.description, 200);
   return `Appetizing food photography of ${draft.title}. ${description} ` +
     "Single serving on a plate, overhead angle on a neutral table, soft " +
     "natural daylight, fresh ingredients, realistic. No text, no people, " +

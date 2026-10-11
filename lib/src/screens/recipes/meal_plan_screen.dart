@@ -21,6 +21,7 @@ import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
+import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/kcal/food_date_picker.dart';
 import '../../widgets/kcal/meal_slot_picker.dart';
@@ -90,11 +91,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             : context.l10n.mealPlanSavedOffline,
         icon: Icons.check_circle_outline_rounded,
       );
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         showAppSnack(
           context,
-          context.l10n.mealPlanSaveError,
+          _mealPlanErrorText(error, context.l10n),
           icon: Icons.error_outline_rounded,
           tone: SnackTone.error,
         );
@@ -104,10 +105,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     }
   }
 
+  // No route handle: a pull on it would bypass the editor's save guard. The
+  // editor draws a [SheetHandle] inside it.
   Future<void> _edit(DateTime day, {PlannedMeal? plan}) =>
       showEatovaSheet<void>(
         context,
         _PlanEditor(store: store, day: day, plan: plan),
+        dragHandle: false,
       );
 
   void _showWeek(int deltaDays) => setState(() {

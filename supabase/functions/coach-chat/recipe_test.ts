@@ -72,6 +72,35 @@ Deno.test("Titel wird auf titleMaxChars gekappt", () => {
   assertEquals(draft!.title.length, RECIPE_LIMITS.titleMaxChars, "Titel-Laenge");
 });
 
+Deno.test("SEC-1: Kappungen zerschneiden kein Emoji", () => {
+  // A lone surrogate makes PostgREST reject the chat_messages insert with the
+  // recipe jsonb, so the card would not be persisted.
+  const draft = parseRecipeDraft(JSON.stringify({
+    title: "x".repeat(159) + "🍝",
+    description: "d".repeat(599) + "🥗",
+    portion: "p".repeat(199) + "🍽️",
+    ingredients: "i".repeat(1_999) + "🧄",
+    preparation: "s".repeat(1_999) + "🔥",
+    calories_kcal: 500,
+  }));
+  assert(draft !== null, "Draft darf nicht null sein");
+  for (const [feld, wert, praefix] of [
+    ["title", draft!.title, "x".repeat(159)],
+    ["description", draft!.description, "d".repeat(599)],
+    ["portion", draft!.portion, "p".repeat(199)],
+    ["ingredients", draft!.ingredients, "i".repeat(1_999)],
+    ["preparation", draft!.preparation, "s".repeat(1_999)],
+  ]) {
+    assert(wert.isWellFormed(), `${feld}: halbes Emoji am Ende`);
+    assertEquals(wert, praefix, `${feld}: vor dem Emoji gekappt`);
+  }
+  const refusal = parseRecipeRefusal(JSON.stringify({ refuse: "x".repeat(299) + "🙂" }));
+  assert(refusal !== null && refusal.isWellFormed(), "Refusal: halbes Emoji am Ende");
+  assertEquals(refusal, "x".repeat(299), "Refusal vor dem Emoji gekappt");
+  const bild = recipeImagePrompt({ ...draft!, description: "b".repeat(199) + "🥗 und mehr" });
+  assert(bild.isWellFormed(), "Bild-Prompt: halbes Emoji im bezahlten Call");
+});
+
 Deno.test("JSON in Markdown-Fences wird extrahiert", () => {
   const draft = parseRecipeDraft("```json\n" + VALID + "\n```");
   assert(draft !== null, "Draft darf nicht null sein");

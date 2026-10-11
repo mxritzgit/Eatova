@@ -11,6 +11,8 @@ import 'package:eatova/src/services/eatova_http.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_describer.dart';
 
+import '../support/expired_session.dart';
+
 // EdgeFunctionMealDescriber against a loopback HttpServer, like the photo
 // analyzer's wire test (F4-05): same endpoint, headers, error family and
 // cancellation, with the describe-mode body.
@@ -59,6 +61,19 @@ class _Loopback {
         ..statusCode = status
         ..headers.contentType = ContentType.html
         ..write('<html><body><h1>$status</h1></body></html>');
+      await request.response.close();
+    };
+  }
+
+  /// 401 unless the request carries [token], else [body] with 200, like the
+  /// gateway's JWT check in front of the function.
+  void onlyFor(String token, Object body) {
+    handler = (request) async {
+      final ok = request.headers.value('authorization') == 'Bearer $token';
+      request.response
+        ..statusCode = ok ? 200 : 401
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode(ok ? body : {'error': 'invalid_user_token'}));
       await request.response.close();
     };
   }
@@ -196,6 +211,44 @@ void main() {
       _describer(loopback).describe('Ein Apfel', language: 'de'),
       throwsA(isA<MealAnalysisReauthRequired>()),
     );
+  });
+
+  test(
+    'abgelaufene Session wird vor dem Senden erneuert statt 401 zu ernten',
+    () async {
+      // Back from a long background period, the SDK's own refresh has not
+      // landed yet. The expired token would read as a lost login.
+      final session = await expiredSession();
+      loopback.onlyFor(session.fresh, <String, Object?>{'result': _okResult});
+
+      final meal = await EdgeFunctionMealDescriber(
+        baseUrl: loopback.baseUrl,
+        anonKey: 'anon-key',
+        auth: session.client.auth,
+      ).describe('Toast mit Nutella', language: 'de');
+
+      expect(meal.base.mealName, 'Nutella-Toast');
+      expect(session.refreshes, hasLength(1));
+      expect(
+        loopback.seen.single.headers.value('authorization'),
+        'Bearer ${session.fresh}',
+      );
+    },
+  );
+
+  test('Refresh liefert ein anderes Konto -> Reauth ohne Request', () async {
+    final session = await expiredSession(refreshedUser: 'user-b');
+    loopback.onlyFor(session.fresh, <String, Object?>{'result': _okResult});
+
+    await expectLater(
+      EdgeFunctionMealDescriber(
+        baseUrl: loopback.baseUrl,
+        anonKey: 'anon-key',
+        auth: session.client.auth,
+      ).describe('Toast mit Nutella', language: 'de'),
+      throwsA(isA<MealAnalysisReauthRequired>()),
+    );
+    expect(loopback.seen, isEmpty);
   });
 
   test('429 JSON -> MealAnalysisRateLimited mit resetAt', () async {

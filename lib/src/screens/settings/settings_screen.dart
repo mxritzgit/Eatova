@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -749,13 +749,15 @@ class _AboutSheet extends StatelessWidget {
   const _AboutSheet();
 
   /// Data sources, per platform: product data from OpenFoodFacts and the own
-  /// search index; steps from Apple Health on iOS only, since the health path
-  /// is a no-op on Android.
+  /// search index; steps from Apple Health on iOS and Health Connect on
+  /// Android, mirroring `createPlatformHealthService`.
   static String _sources(AppLocalizations l10n) {
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return l10n.settingsAboutSourcesWithAppleHealth;
-    }
-    return l10n.settingsAboutSourcesDefault;
+    if (kIsWeb) return l10n.settingsAboutSourcesDefault;
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => l10n.settingsAboutSourcesWithAppleHealth,
+      TargetPlatform.android => l10n.settingsAboutSourcesWithHealthConnect,
+      _ => l10n.settingsAboutSourcesDefault,
+    };
   }
 
   @override
@@ -1082,7 +1084,10 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
       });
       return;
     }
-    if (!mounted) return;
+    // AuthGate pops every route when the deleted account's session ends, and
+    // this sheet stays mounted for its exit animation. A second pop would
+    // remove the gate's own route and leave an empty navigator.
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
     Navigator.of(context).pop(true);
   }
 

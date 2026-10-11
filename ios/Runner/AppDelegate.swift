@@ -52,9 +52,14 @@ import workmanager_apple
 // iOS has no FLAG_SECURE. The target is the app-switcher preview snapshot:
 // while a sensitive screen is active, an opaque cover goes over the window on
 // resign-active and is removed on become-active, so the snapshot shows only it.
+// The cover takes the page tone Dart reports (setCoverColor {color: ARGB}),
+// i.e. the in-app theme, which can differ from the system setting.
 // ---------------------------------------------------------------------------
 public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
   private var secure = false
+  /// Dart reports the tone before it first enables the cover; the system
+  /// background is only the fallback.
+  private var coverColor = UIColor.systemBackground
   private var coverView: UIView?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
@@ -87,6 +92,19 @@ public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
       secure = false
       removeCover()
       result(nil)
+    case "setCoverColor":
+      guard let argb = (call.arguments as? [String: Any])?["color"] as? Int else {
+        result(FlutterError(code: "invalid_args", message: "setCoverColor expects {color: Int}.", details: nil))
+        return
+      }
+      // Alpha is ignored: the cover hides the screen, so it stays opaque.
+      coverColor = UIColor(
+        red: CGFloat((argb >> 16) & 0xFF) / 255,
+        green: CGFloat((argb >> 8) & 0xFF) / 255,
+        blue: CGFloat(argb & 0xFF) / 255,
+        alpha: 1
+      )
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -95,13 +113,9 @@ public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
   @objc private func willResignActive() {
     guard secure, let window = activeWindow() else { return }
     let cover = UIView(frame: window.bounds)
-    // Eatova base tone #0B0D11 so the cover does not read as an error.
-    cover.backgroundColor = UIColor(red: 0.043, green: 0.051, blue: 0.067, alpha: 1)
+    // The app's own page tone, so the cover does not read as an error.
+    cover.backgroundColor = coverColor
     cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    let blur = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
-    blur.frame = cover.bounds
-    blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    cover.addSubview(blur)
     window.addSubview(cover)
     coverView = cover
   }

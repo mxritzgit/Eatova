@@ -1,6 +1,19 @@
 import 'model_limits.dart';
 import 'persisted_labels.dart';
 
+/// Whether a portion of [grams] with [caloriesKcal] rescales by [density]
+/// (kcal/100 g, already checked for plausibility) instead of by its calories.
+///
+/// Yes when calories and grams give nothing, or when the density reproduces
+/// the calories: it is then the same figure before rounding. A 1 g serving of
+/// a 153 kcal/100 g product stores 2 kcal; scaling that 2 showed 200 kcal per
+/// 100 g. A density that contradicts the calories never wins (B1).
+bool densityScalesPortion(double? density, int grams, int caloriesKcal) =>
+    density != null &&
+    (grams <= 0 ||
+        caloriesKcal <= 0 ||
+        clampMealCaloriesKcal(density * grams / 100) == caloriesKcal);
+
 class MealComponent {
   const MealComponent({
     required this.name,
@@ -46,20 +59,23 @@ class MealComponent {
   /// Rescales this item to [adjustedGrams].
   ///
   /// `caloriesKcal` is authoritative — the number the user saw and confirmed.
-  /// Density is only used when calories and grams yield nothing, which keeps
+  /// Density is only used where [densityScalesPortion] allows it, which keeps
   /// the invariant that `adjustedToGrams(grams)` does not change the calories.
   MealComponent adjustedToGrams(int adjustedGrams) {
     final zielGramm = clampPortionGrams(adjustedGrams);
     final dichte = effectiveKcalPer100G;
+    final ausDichte = densityScalesPortion(dichte, grams, caloriesKcal);
     final int neueKcal;
-    if (grams > 0 && caloriesKcal > 0) {
+    if (ausDichte) {
+      neueKcal = clampMealCaloriesKcal(dichte! * zielGramm / 100);
+    } else if (grams > 0 && caloriesKcal > 0) {
       neueKcal = clampMealCaloriesKcal(caloriesKcal * zielGramm / grams);
-    } else if (dichte != null) {
-      neueKcal = clampMealCaloriesKcal(dichte * zielGramm / 100);
     } else {
       neueKcal = 0;
     }
-    final neueDichte = neueKcal > 0 ? neueKcal * 100 / zielGramm : dichte;
+    final neueDichte = ausDichte
+        ? dichte
+        : (neueKcal > 0 ? neueKcal * 100 / zielGramm : dichte);
     final faktor = grams > 0 ? zielGramm / grams : 1.0;
 
     return MealComponent(

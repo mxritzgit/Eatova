@@ -230,7 +230,7 @@ void main() {
           analyzer: _ZweiterVersuchAnalyzer(),
           cameraLauncher: _Kamera(),
           productService: _StummerProduktdienst(),
-          onAddMeal: (result, slot) {
+          onAddMeal: (result, slot, _) {
             geloggt.add((result, slot));
             return 'id-1';
           },

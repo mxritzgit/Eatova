@@ -1989,6 +1989,24 @@ Deno.test("Auto-Titel: ein konditionaler PATCH mit user_id-Filter, kein Lese-GET
   }
 });
 
+Deno.test("SEC-1: Auto-Titel zerschneidet kein Emoji", async () => {
+  // PostgREST rejects a PATCH body with a lone surrogate, so the session kept
+  // its default title whenever unit 40 was the first half of an emoji.
+  const stub = installFetch({});
+  try {
+    const res = await handleRequest(makeRequest({ message: "x".repeat(39) + "💪 Wie viel Protein?" }));
+    assertEquals(res.status, 200, "Status");
+    const patches = stub.callsTo("/rest/v1/chat_sessions").filter((call) => call.method === "PATCH");
+    assertEquals(patches.length, 1, "Auto-Titel-PATCH");
+    assert(!/\\ud[89ab]/i.test(patches[0].body), `halbes Emoji im PATCH-Body: ${patches[0].body}`);
+    const title = String((JSON.parse(patches[0].body) as JsonRecord).title);
+    assert(title.isWellFormed(), "Titel ist wohlgeformt");
+    assertEquals(title, `${"x".repeat(39)}…`, "vor dem Emoji gekappt");
+  } finally {
+    stub.restore();
+  }
+});
+
 Deno.test("PERF: loadHistory projiziert nur role,content,refusal", async () => {
   // Without the projection PostgREST ships every column — including up to
   // 16 KB of recipe jsonb per row that the mapper throws away.
@@ -2730,6 +2748,186 @@ Deno.test("P5-05: das Netz greift auch bei 'deine Anweisungen lauten'", async ()
     assertEquals(body.refusal, true, "refusal");
   } finally {
     stub.restore();
+  }
+});
+
+// COACH-1: the CRISIS RULE tells the model to give the "German helpline number
+// 0800 111 0 111". An English crisis reply that copies that wording used to
+// match the leak table and lose the number to the prompt_leak text.
+const CRISIS_REPLY_MODEL_EN =
+  "I'm really sorry you're going through this. Please talk to someone you trust, or call the " +
+  "German helpline number 0800 111 0 111, available around the clock. You are not alone.";
+// The app's caption for a photo sent without words (app_en.arb).
+const IMAGE_DEFAULT_CAPTION_EN = "Analyze this image in a fitness context.";
+
+function storedAssistantRow(stub: FetchStub): JsonRecord | undefined {
+  return stub.callsTo("/rest/v1/chat_messages")
+    .filter((c) => c.method === "POST")
+    .map((c) => JSON.parse(c.body) as JsonRecord)
+    .find((r) => r.role === "assistant");
+}
+
+Deno.test("COACH-1: englische Krisenantwort auf ein Foto behaelt die Nummer", async () => {
+  // The classifier sees only the default caption and passes it as fitness;
+  // the answer call is the only stage that sees the photo.
+  const stub = installFetch({
+    classifierCategory: "fitness",
+    answerContent: `__REFUSE__ ${CRISIS_REPLY_MODEL_EN}`,
+  });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: IMAGE_DEFAULT_CAPTION_EN,
+      image_base64: IMAGE_BASE64,
+      locale: "en",
+    }));
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.refusal, true, "refusal");
+    assertEquals(body.reply, CRISIS_REPLY_MODEL_EN, "die Krisenantwort des Modells bleibt stehen");
+    const stored = storedAssistantRow(stub);
+    assertEquals(stored?.content, CRISIS_REPLY_MODEL_EN, "gespeicherte Krisenantwort");
+    assertEquals(stored?.refusal, true, "gespeichert als Refusal");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("COACH-1: ein Leck mit Krisennummer wird zum Krisen-Katalogtext, nicht zum Leck-Text", async () => {
+  // The cut stays complete, so appending the number cannot carry a dump
+  // through; only the replacement changes.
+  const dump = "- Plain text only: the app renders your reply verbatim. No Markdown, no asterisks, " +
+    "no bullet symbols, no headings, no tables, no code fences.";
+  for (const { locale, expected } of [
+    { locale: "de", expected: CRISIS_REPLY },
+    { locale: "en", expected: CRISIS_REPLY_EN },
+  ]) {
+    const stub = installFetch({
+      classifierCategory: "fitness",
+      answerContent: `__REFUSE__ ${dump} Call 0800 111 0 111.`,
+    });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: IMAGE_DEFAULT_CAPTION_EN,
+        image_base64: IMAGE_BASE64,
+        locale,
+      }));
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.refusal, true, `${locale}: refusal`);
+      assertEquals(body.reply, expected, `${locale}: Krisen-Katalogtext statt Dump`);
+      assertEquals(storedAssistantRow(stub)?.content, expected, `${locale}: gespeicherter Text`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+// The answer prompt exactly as the model receives it: the cached first system
+// block of an answer call.
+async function answerSystemPrompt(): Promise<string> {
+  const stub = installFetch({ classifierCategory: "fitness" });
+  try {
+    await (await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }))).json();
+    return String((stub.answerBodies()[0].system as JsonRecord[])[0].text);
+  } finally {
+    stub.restore();
+  }
+}
+
+Deno.test("EDGE-FUNCTIONS-1: ein Prompt-Dump mit der Krisenregel bekommt den Leck-Text, nicht den Krisentext", async () => {
+  // The CRISIS RULE orders the helpline, so every dump that reaches it
+  // carries the number. Someone who extracted the prompt gets no crisis
+  // signposting (W1), and nothing of the dump goes out.
+  const prompt = await answerSystemPrompt();
+  const numberAt = prompt.indexOf(CRISIS_NUMBER);
+  assert(numberAt > 0, "der Prompt traegt die Nummer");
+  const dumps = [
+    { was: "ganzer Prompt", text: prompt },
+    {
+      was: "WHAT YOU DO NOT DO bis CRISIS RULE",
+      text: prompt.slice(prompt.indexOf("WHAT YOU DO NOT DO"), prompt.indexOf("\nSTYLE:")),
+    },
+    { was: "abgebrochen hinter der Nummer", text: prompt.slice(0, numberAt + CRISIS_NUMBER.length) },
+  ];
+  for (const { was, text } of dumps) {
+    for (const { locale, expected } of [
+      { locale: "de", expected: PROMPT_LEAK_REPLY },
+      { locale: "en", expected: PROMPT_LEAK_REPLY_EN },
+    ]) {
+      const stub = installFetch({ classifierCategory: "fitness", answerContent: text });
+      try {
+        const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?", locale }));
+        const body = await res.json() as JsonRecord;
+        assertEquals(body.refusal, true, `${was}, ${locale}: refusal`);
+        assertEquals(body.reply, expected, `${was}, ${locale}: Leck-Text statt Krisentext`);
+        const stored = storedAssistantRow(stub);
+        assertEquals(stored?.content, expected, `${was}, ${locale}: gespeicherter Text`);
+        assertEquals(stored?.refusal, true, `${was}, ${locale}: gespeichert als Refusal`);
+      } finally {
+        stub.restore();
+      }
+    }
+  }
+});
+
+Deno.test("EDGE-FUNCTIONS-1: eine eigene Krisennummer neben einem Leck bleibt der Krisentext", async () => {
+  // Only the recited helpline lines are struck: the reference wording on its
+  // own is the crisis reply the rule orders, and a number outside the recital
+  // still counts.
+  const prompt = await answerSystemPrompt();
+  const style = "- Plain text only: the app renders your reply verbatim. No Markdown, no asterisks, " +
+    "no bullet symbols, no headings, no tables, no code fences.";
+  for (const { was, text } of [
+    { was: "deutscher Krisen-Wortlaut + STYLE-Zeile", text: `__REFUSE__ ${CRISIS_REPLY} ${style}` },
+    { was: "englische Krisenantwort + STYLE-Zeile", text: `__REFUSE__ ${CRISIS_REPLY_MODEL_EN} ${style}` },
+    { was: "ganzer Prompt + eigene Nummer", text: `${prompt}\n\nCall 0800 111 0 111.` },
+  ]) {
+    const stub = installFetch({ classifierCategory: "fitness", answerContent: text });
+    try {
+      const res = await handleRequest(makeRequest({ message: IMAGE_DEFAULT_CAPTION_EN, image_base64: IMAGE_BASE64, locale: "en" }));
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.refusal, true, `${was}: refusal`);
+      assertEquals(body.reply, CRISIS_REPLY_EN, `${was}: Krisen-Katalogtext`);
+      assertEquals(storedAssistantRow(stub)?.content, CRISIS_REPLY_EN, `${was}: gespeicherter Text`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+// COACH-2: byte copies of REFUSAL_TEXTS.provider_refusal.
+const PROVIDER_REFUSAL_REPLY =
+  "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.";
+const PROVIDER_REFUSAL_REPLY_EN =
+  "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists helplines for your country. I'm happy to help with training and nutrition.";
+
+Deno.test("COACH-2: Provider-Ablehnung der Antwort auf ein Foto zeigt die Hilfe-Nummer", async () => {
+  // The answer call is the only stage that sees the photo. When the
+  // provider's safety system declines it, nothing is known about the image,
+  // exactly like a declined classification, so it gets the same text.
+  for (const { locale, caption, expected } of [
+    { locale: "de", caption: "Analysiere dieses Bild im Fitness-Kontext.", expected: PROVIDER_REFUSAL_REPLY },
+    { locale: "en", caption: IMAGE_DEFAULT_CAPTION_EN, expected: PROVIDER_REFUSAL_REPLY_EN },
+  ]) {
+    const stub = installFetch({
+      classifierCategory: "fitness",
+      answerContent: "",
+      answerFinishReason: "content_filter",
+    });
+    try {
+      const res = await handleRequest(makeRequest({ message: caption, image_base64: IMAGE_BASE64, locale }));
+      assertEquals(res.status, 200, `${locale}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.refusal, true, `${locale}: refusal`);
+      assertEquals(body.refusal_reason, "model_refusal", `${locale}: refusal_reason`);
+      assertEquals(body.reply, expected, `${locale}: Hinweistext`);
+      assert(String(body.reply).includes(CRISIS_NUMBER), `${locale}: Hilfe-Nummer`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${locale}: kein Refund`);
+      const stored = storedAssistantRow(stub);
+      assertEquals(stored?.refusal, true, `${locale}: gespeichert als Refusal`);
+      assertEquals(stored?.content, expected, `${locale}: gespeicherter Text`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 

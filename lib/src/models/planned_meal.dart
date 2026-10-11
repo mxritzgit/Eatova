@@ -167,6 +167,20 @@ class PlannedMeal {
   }
 }
 
+/// Most open plans (not eaten or removed, from 35 days back on) per account;
+/// the server enforces the same cap.
+const int kMaxOpenPlannedMeals = 500;
+
+/// A new plan would exceed [kMaxOpenPlannedMeals].
+final class MealPlanLimitReached implements Exception {
+  const MealPlanLimitReached();
+}
+
+/// The plan is already eaten; its diary entry owns it from then on.
+final class MealPlanAlreadyEaten implements Exception {
+  const MealPlanAlreadyEaten();
+}
+
 /// Check identity includes the week and shopping requirement fingerprint.
 /// Quantity/source changes create a fresh unchecked requirement.
 class ShoppingCheck {

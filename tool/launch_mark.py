@@ -1,16 +1,20 @@
 """Generates the native launch marks from the focus-ring geometry.
 
 The Flutter welcome screen's first frame shows the focus ring alone, 80
-logical px, centred on the full screen, in the dark accent on the dark page
-ground (`WelcomeScreen`, `paintFocusRing`). The native launch screens draw the
-identical mark, so the hand-off from native splash to Flutter shows no change.
+logical px, centred on the full screen, in the accent on the page ground of
+the OS mode (`WelcomeScreen`, `paintFocusRing`). The native launch screens draw
+the identical mark, so the hand-off from native splash to Flutter shows no
+change.
 
 Writes (run from the project root, needs Pillow):
   android/app/src/main/res/drawable/launch_mark.xml         80 dp vector
   android/app/src/main/res/drawable/launch_splash_icon.xml  288 dp vector for
       the Android 12+ splash API (icon without background: 288 dp canvas,
       content inside the 192 dp circle, drawn 1:1 in dp)
-  ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage{,@2x,@3x}.png
+  ios/Runner/Assets.xcassets/LaunchImage.imageset/
+      LaunchImage-light{,@2x,@3x}.png  light accent, the "Any" appearance
+      LaunchImage{,@2x,@3x}.png        dark accent, the "Dark" appearance
+  (the Android vectors take their colour per mode from @color/launch_mark)
 
 Ratios mirror `paintFocusRing` in lib/src/widgets/shared/eatova_wordmark.dart;
 change both together.
@@ -21,8 +25,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 BOX = 80.0  # logical px / dp / pt
-COLOR = "#B9A5FF"  # AppTokens.dark.accent
-RGB = (0xB9, 0xA5, 0xFF)
+LIGHT_RGB = (0x5C, 0x42, 0xD2)  # AppTokens.light.accent
+DARK_RGB = (0xB9, 0xA5, 0xFF)  # AppTokens.dark.accent
 
 
 def geometry(box):
@@ -78,7 +82,7 @@ def vector(size, comment):
 """
 
 
-def png(scale):
+def png(scale, rgb):
     ss = 8  # supersampling
     px = int(BOX * scale)
     big = px * ss
@@ -99,7 +103,7 @@ def png(scale):
     d.rectangle((c - b, c - h, c - a, c + h), fill=255)
     d.rectangle((c + a, c - h, c + b, c + h), fill=255)
     mask = mask.resize((px, px), Image.LANCZOS)
-    img = Image.new("RGBA", (px, px), RGB + (0,))
+    img = Image.new("RGBA", (px, px), rgb + (0,))
     img.putalpha(mask)
     return img
 
@@ -118,9 +122,10 @@ def main():
         newline="\n",
     )
     ios = Path("ios/Runner/Assets.xcassets/LaunchImage.imageset")
-    for scale, name in ((1, "LaunchImage.png"), (2, "LaunchImage@2x.png"),
-                        (3, "LaunchImage@3x.png")):
-        png(scale).save(ios / name, optimize=True)
+    for prefix, rgb in (("LaunchImage-light", LIGHT_RGB),
+                        ("LaunchImage", DARK_RGB)):
+        for scale, suffix in ((1, ""), (2, "@2x"), (3, "@3x")):
+            png(scale, rgb).save(ios / f"{prefix}{suffix}.png", optimize=True)
 
 
 if __name__ == "__main__":

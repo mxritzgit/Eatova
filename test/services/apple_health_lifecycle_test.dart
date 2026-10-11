@@ -323,6 +323,33 @@ void main() {
     },
   );
 
+  test('the newest weight keeps its measurement time', () async {
+    await withClock(Clock.fixed(_now), () async {
+      final measuredAt = _now.subtract(const Duration(days: 21));
+      HealthDataPoint weight(DateTime at, double kg) => HealthDataPoint(
+        uuid: 'weight-${at.millisecondsSinceEpoch}',
+        value: NumericHealthValue(numericValue: kg),
+        type: HealthDataType.WEIGHT,
+        unit: HealthDataUnit.KILOGRAM,
+        dateFrom: at,
+        dateTo: at,
+        sourcePlatform: HealthPlatformType.appleHealth,
+        sourceDeviceId: 'device',
+        sourceId: 'com.example.scale',
+        sourceName: 'Scale',
+      );
+      plugin.onWeight = () async => [
+        weight(measuredAt, 82),
+        weight(measuredAt.subtract(const Duration(days: 30)), 84),
+      ];
+
+      final snapshot = await service.readSnapshot();
+
+      expect(snapshot?.latestWeightKg, 82);
+      expect(snapshot?.latestWeightMeasuredAt, measuredAt);
+    });
+  });
+
   test(
     'null step result preserves the last value; a measured zero is valid',
     () async {

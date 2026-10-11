@@ -278,8 +278,9 @@ void main() {
       // maybeAutoTitle cuts at N and appends an ellipsis, so N + 1 is the
       // longest title the server ever writes.
       final handler = _lies(_handlerTsPfad);
-      final treffer =
-          RegExp(r'trimmed\.slice\(0,\s*(\d+)\)').firstMatch(handler);
+      final treffer = RegExp(
+        r'(?:trimmed\.slice\(0,|clipUtf16\(trimmed,)\s*(\d+)\)',
+      ).firstMatch(handler);
       expect(
         treffer,
         isNotNull,

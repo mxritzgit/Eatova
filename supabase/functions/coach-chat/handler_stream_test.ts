@@ -46,9 +46,17 @@ const DAILY_LIMIT = 5;
 // in handler_test.ts: eine Aenderung dort muss hier rot werden.
 const FALLBACK_REPLY =
   "Das geht ueber meinen Bereich hinaus - ich bin nur fuer Training und Ernaehrung da.";
-const FALLBACK_REPLY_EN = "That's outside my area - I'm only here for training and nutrition.";
+const PROVIDER_REFUSAL_REPLY =
+  "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr " +
+  "unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.";
+const PROVIDER_REFUSAL_REPLY_EN =
+  "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available " +
+  "around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists " +
+  "helplines for your country. I'm happy to help with training and nutrition.";
 const PROMPT_LEAK_REPLY =
   "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
+const PROMPT_LEAK_REPLY_EN =
+  "That's not something I should share. Ask me about your next workout or about nutrition instead.";
 
 const RECIPE_JSON = JSON.stringify({
   title: "Huehnchenauflauf",
@@ -1140,6 +1148,22 @@ const PROMPT_ZEILE_1 =
   "The app's primary user-language is German but you must adapt.";
 const PROMPT_ZEILE_2 =
   "- Detect the user's message language and ALWAYS reply in that same language.";
+const PROMPT_STIL_ZEILE =
+  "- Plain text only: the app renders your reply verbatim. No Markdown, no asterisks, " +
+  "no bullet symbols, no headings, no tables, no code fences.";
+
+// COACH-1: an English crisis reply that copies the CRISIS RULE wording
+// ("German helpline number 0800 111 0 111"). The rule ORDERS the number, so
+// this is no leak.
+const KRISE_EN = "I'm really sorry you're going through this. Please talk to someone you trust, " +
+  "or call the German helpline number 0800 111 0 111, available around the clock. You are not alone.";
+// Byte copy of REFUSAL_TEXTS.self_harm.en.
+const SELF_HARM_REPLY_EN =
+  "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock " +
+  "at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines " +
+  "for your country. You are not alone.";
+// The app's caption for a photo sent without words (app_en.arb).
+const BILD_STANDARD_EN = "Analyze this image in a fitness context.";
 
 Deno.test("F1: Prompt-Inhalt zuerst, Trigger-Phrase zuletzt — nichts davon geht raus", async () => {
   // Der Angriff aus dem Review: das Modell zitiert erst den Prompt und benennt
@@ -1250,6 +1274,32 @@ Deno.test("F1: das Netz trennt Prompt-Wortlaut von echten Coach-Antworten", () =
       leck: false,
       was: "das Refusal-Beispiel aus dem Prompt",
     },
+    {
+      text: KRISE_EN,
+      leck: false,
+      was: "englische Krisenantwort mit der Formulierung aus der CRISIS RULE",
+    },
+    {
+      text: "I will not analyze, rate or comment on the image. " + KRISE_EN,
+      leck: false,
+      was: "Krisenantwort, die die Bildregel der CRISIS RULE wiederholt",
+    },
+    {
+      text: "That has nothing to do with fitness, nutrition, or being a coach, so I can't help with it.",
+      leck: false,
+      was: "englische Off-Topic-Ablehnung mit der Begruendung aus Punkt 4",
+    },
+    {
+      text: PROMPT_STIL_ZEILE,
+      leck: true,
+      was: "eine STYLE-Zeile bleibt in der Tabelle",
+    },
+    {
+      text: "1. NO medical diagnoses, medication- or steroid recommendations. If they describe " +
+        "symptoms, point them to a doctor / physio.",
+      leck: true,
+      was: "der Rest von WHAT YOU DO NOT DO bleibt in der Tabelle",
+    },
   ];
   for (const fall of faelle) {
     assertEquals(PROMPT_LEAK_GUARD.leaks(fall.text), fall.leck, fall.was);
@@ -1293,6 +1343,92 @@ Deno.test("F1: die Krisen-Antwort im woertlichen Wortlaut ist kein Leck", async 
     assertEquals(done.refusal, true, "als Refusal markiert");
   } finally {
     stub.restore();
+  }
+});
+
+Deno.test("COACH-1: die englische Krisenantwort auf ein Foto behaelt die Nummer, auch im Stream", async () => {
+  // A photo without words carries only the default caption; the classifier
+  // never sees the image and passes it as fitness. Only the CRISIS RULE
+  // catches it, and its reply must not become the leak catalogue text.
+  const stub = installFetch({ answerDeltas: [`__REFUSE__ ${KRISE_EN}`] });
+  try {
+    const res = await handleRequest(
+      makeRequest({ message: BILD_STANDARD_EN, image_base64: FOTO, locale: "en" }, true),
+    );
+    const events = parseSse(await res.text());
+    assertEquals(deltaTexte(events).length, 0, "eine Refusal kommt ohne delta");
+    const done = events[events.length - 1].data;
+    assertEquals(done.reply, KRISE_EN, "die Krisenantwort des Modells bleibt stehen");
+    assertEquals(done.refusal, true, "als Refusal markiert");
+    const rows = stub.assistantRows();
+    assertEquals(rows.length, 1, "eine Assistant-Zeile");
+    assertEquals(rows[0].content, KRISE_EN, "gespeichert wird die Krisenantwort");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("COACH-1: ein Leck mit der Krisennummer wird zum Krisen-Katalogtext, nie zum Leck-Text", async () => {
+  // Second safeguard: a leak is still replaced completely (otherwise an
+  // appended 0800 111 0 111 would carry any dump through), but the
+  // replacement keeps the helpline.
+  for (const nummer of ["0800 111 0 111", "0800-111-0-111"]) {
+    const stub = installFetch({ answerDeltas: [`__REFUSE__ ${PROMPT_STIL_ZEILE} Call ${nummer}.`] });
+    try {
+      const res = await handleRequest(
+        makeRequest({ message: BILD_STANDARD_EN, image_base64: FOTO, locale: "en" }, true),
+      );
+      const events = parseSse(await res.text());
+      assertEquals(deltaTexte(events).length, 0, `${nummer}: kein delta`);
+      const done = events[events.length - 1].data;
+      assertEquals(done.reply, SELF_HARM_REPLY_EN, `${nummer}: Krisen-Katalogtext statt Dump`);
+      assertEquals(done.refusal, true, `${nummer}: refusal`);
+      assertEquals(stub.assistantRows()[0].content, SELF_HARM_REPLY_EN, `${nummer}: gespeicherter Text`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("EDGE-FUNCTIONS-1: ein gestreamter Prompt-Dump mit der Krisenregel bekommt den Leck-Text", async () => {
+  // The CRISIS RULE carries the helpline, so a dump that reaches it used to
+  // end as crisis signposting for someone who asked for the prompt (W1).
+  const erfasst = installFetch();
+  let prompt: string;
+  try {
+    await (await handleRequest(makeRequest({ message: FRAGE }, true))).text();
+    prompt = String((erfasst.answerBodies()[0].system as JsonRecord[])[0].text);
+  } finally {
+    erfasst.restore();
+  }
+  assert(prompt.includes("0800 111 0 111"), "der Prompt traegt die Nummer");
+  const dumps = [
+    { was: "ganzer Prompt", text: prompt },
+    {
+      was: "WHAT YOU DO NOT DO bis CRISIS RULE",
+      text: prompt.slice(prompt.indexOf("WHAT YOU DO NOT DO"), prompt.indexOf("\nSTYLE:")),
+    },
+  ];
+  for (const { was, text } of dumps) {
+    for (const { locale, expected } of [
+      { locale: "de", expected: PROMPT_LEAK_REPLY },
+      { locale: "en", expected: PROMPT_LEAK_REPLY_EN },
+    ]) {
+      // Line by line, the way a model recites.
+      const stub = installFetch({ answerDeltas: text.split("\n").map((zeile) => `${zeile}\n`) });
+      try {
+        const res = await handleRequest(makeRequest({ message: FRAGE, locale }, true));
+        const events = parseSse(await res.text());
+        assertEquals(deltaTexte(events).length, 0, `${was}, ${locale}: kein delta`);
+        const done = events[events.length - 1].data;
+        assertEquals(done.reply, expected, `${was}, ${locale}: Leck-Text statt Krisentext`);
+        assertEquals(done.refusal, true, `${was}, ${locale}: refusal`);
+        assertEquals(stub.assistantRows()[0].content, expected, `${was}, ${locale}: gespeicherter Text`);
+      } finally {
+        stub.restore();
+      }
+    }
   }
 });
 
@@ -1591,6 +1727,7 @@ Deno.test("Security S01: filtered answers never leave JSON or SSE and never ente
         const events = stream ? parseSse(await response.text()) : [];
         const result = stream ? events[events.length - 1].data : await response.json();
         assertEquals(result.refusal, true, "provider safety refusal preserved");
+        assertEquals(result.reply, PROVIDER_REFUSAL_REPLY, "signposting catalogue text");
         assertEquals(deltaTexte(events).length, 0, "no rejected text leaves as deltas");
         assertEquals(stub.assistantRows().filter(row => row.refusal === false).length, 0, "no accepted assistant row");
         assertEquals(stub.callsTo("refund_chat_quota").length, 0, "paid safety refusal is not refunded");
@@ -1824,31 +1961,42 @@ Deno.test("Claude: Denk- und Signatur-Deltas erreichen weder delta noch done noc
 Deno.test("Claude: stop_reason refusal liefert den lokalisierten Katalogtext ohne ein delta", async () => {
   // Die Sicherheitsklassifikatoren des Anbieters lehnen per stop_reason ab,
   // mitunter nach Text. Nichts davon darf raus, der Slot bleibt bezahlt.
-  for (const [locale, katalog] of [["de", FALLBACK_REPLY], ["en", FALLBACK_REPLY_EN]] as const) {
+  // COACH-2: nothing is known about the declined content, so the text is the
+  // classifier's provider_refusal text with the helpline. For a photo the
+  // answer call is the only stage that saw it.
+  const faelle = [
+    { locale: "de", katalog: PROVIDER_REFUSAL_REPLY, bild: "Analysiere dieses Bild im Fitness-Kontext." },
+    { locale: "en", katalog: PROVIDER_REFUSAL_REPLY_EN, bild: BILD_STANDARD_EN },
+  ];
+  for (const { locale, katalog, bild } of faelle) {
     for (const mitText of [false, true]) {
-      const was = `${locale}, ${mitText ? "nach Text" : "ohne Text"}`;
-      const stub = installFetch({
-        answerChunks: [...KOPF, ...(mitText ? [textDelta(LANGER_TEXT_A)] : []), ...abschluss("content_filter")],
-      });
-      try {
-        const res = await handleRequest(makeRequest({ message: FRAGE, locale }, true));
-        assertEquals(res.status, 200, `${was}: Status`);
-        const roh = await res.text();
-        const events = parseSse(roh);
-        assertEquals(events.map((e) => e.event).join(","), "meta,done", `${was}: nur meta und done`);
-        const done = events[1].data;
-        assertEquals(done.reply, katalog, `${was}: Katalogtext`);
-        assertEquals(done.refusal, true, `${was}: refusal`);
-        assertEquals(done.refusal_reason, "model_refusal", `${was}: refusal_reason`);
-        assert(!roh.includes("Muskulatur"), `${was}: abgelehnter Text auf der Leitung`);
-        const rows = stub.assistantRows();
-        assertEquals(rows.length, 1, `${was}: eine Zeile`);
-        assertEquals(rows[0].content, katalog, `${was}: gespeicherter Katalogtext`);
-        assertEquals(rows[0].refusal, true, `${was}: gespeicherte Refusal`);
-        assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${was}: kein Refund`);
-        assertEquals(stub.quotaUsed(), 1, `${was}: Slot bleibt verbraucht`);
-      } finally {
-        stub.restore();
+      for (const mitFoto of [false, true]) {
+        const was = `${locale}, ${mitText ? "nach Text" : "ohne Text"}, ${mitFoto ? "Foto" : "nur Text"}`;
+        const stub = installFetch({
+          answerChunks: [...KOPF, ...(mitText ? [textDelta(LANGER_TEXT_A)] : []), ...abschluss("content_filter")],
+        });
+        try {
+          const payload = mitFoto ? { message: bild, image_base64: FOTO, locale } : { message: FRAGE, locale };
+          const res = await handleRequest(makeRequest(payload, true));
+          assertEquals(res.status, 200, `${was}: Status`);
+          const roh = await res.text();
+          const events = parseSse(roh);
+          assertEquals(events.map((e) => e.event).join(","), "meta,done", `${was}: nur meta und done`);
+          const done = events[1].data;
+          assertEquals(done.reply, katalog, `${was}: Katalogtext`);
+          assert(String(done.reply).includes("0800 111 0 111"), `${was}: Hilfe-Nummer`);
+          assertEquals(done.refusal, true, `${was}: refusal`);
+          assertEquals(done.refusal_reason, "model_refusal", `${was}: refusal_reason`);
+          assert(!roh.includes("Muskulatur"), `${was}: abgelehnter Text auf der Leitung`);
+          const rows = stub.assistantRows();
+          assertEquals(rows.length, 1, `${was}: eine Zeile`);
+          assertEquals(rows[0].content, katalog, `${was}: gespeicherter Katalogtext`);
+          assertEquals(rows[0].refusal, true, `${was}: gespeicherte Refusal`);
+          assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${was}: kein Refund`);
+          assertEquals(stub.quotaUsed(), 1, `${was}: Slot bleibt verbraucht`);
+        } finally {
+          stub.restore();
+        }
       }
     }
   }

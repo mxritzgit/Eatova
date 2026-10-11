@@ -255,6 +255,14 @@ new persistence behavior; editing this repository does not publish that page.
 The local queue accepts at most 500 pending operations per account. A single
 save may create several operations. Exceeding that limit rejects the entire new
 transaction while preserving all previously confirmed entities and intents.
+Shopping checks are the one exception to appending: a new tick replaces its
+line's tick that has not started delivery, and a tick that reverses it cancels
+both. However often a line is toggled behind a busy queue, it holds at most one
+tick whose delivery has started plus one unsent tick. A tick whose delivery has
+started is never folded. Cancelling assumes the server still holds the value
+the reversal returns to: if another device changed the line in the meantime,
+the cancelled pair does not re-assert this device's value, and the other
+device's change stands.
 
 History and operation receipts are permanent. There is no age-based pruning:
 removing a receipt would let an old offline request run again. Each account has
@@ -266,6 +274,24 @@ Training source heads are bounded at 100,000 per account and retain only the
 source, stable ID, incarnation and deletion state. They cascade on account
 erasure and cannot be pruned while old offline operations may return.
 
+Every delivered operation records one of these receipts, shopping checks
+included: `apply_sync_operation` counts every kind against the 100,000 limit
+before it dispatches. Folding reduces how many ticks reach the server; it does not
+stop each delivered tick from using up the account's lifetime receipt budget,
+and at the limit `PT507` blocks all sync, the diary included. Whether shopping
+checks should stop doing so is an open owner decision (SYNC-3 of the
+2026-10-11 audit); no migration has been written. The options are:
+
+- (a) skip the `receipt_count` increment for `shoppingCheck` and let the 32 MiB
+  receipt allowance bound storage;
+- (b) record no receipt for `shoppingCheck`, accepting that a retry after a lost
+  response can re-apply a stale value over another device's later change;
+- (c) prune shopping receipts together with the 35-day check retention, which
+  needs the protocol/installation fence described below.
+
+A migration for (a) or (b) should assert in `offline_sync_receipts.sql` that a
+delivered `shoppingCheck` leaves `recipe_sync_heads.receipt_count` unchanged.
+
 Exhausting the new history/receipt budgets rolls back both the effect and
 receipt and returns `PT507`, mapped to
 `SyncCapacityException`. The client retains the draft/operation and presents a
@@ -273,6 +299,11 @@ blocked storage-limit state requiring support; it must not drop the operation,
 claim success, or endlessly describe the problem as temporary offline delivery.
 The existing 5,000-active-recipe cap instead returns `22023` and is displayed as
 a rejected server operation, with the local draft and intent still retained.
+The planner caps (500 open planned meals, 2,000 shopping checks) raise
+`EX_PLAN_LIMIT` and `EX_SHOPPING_LIMIT` with `P0001`. The client maps them to
+the same blocked capacity state on the first answer instead of spending counted
+retries; a manual retry delivers once room frees up, for example when old weeks
+leave the 35-day shopping window.
 An operator can raise an account's history byte budget after reviewing storage
 capacity. Raising the other fixed limits requires a reviewed backend migration.
 Any future compaction needs a protocol/installation fence proving older requests

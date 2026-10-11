@@ -26,13 +26,19 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 //  * 0.1 kg threshold against the last logged weight,
 //  * importHealthWeight does not write back to HealthKit (no echo
 //    duplicate), logWeight does,
-//  * the import updates weightLog and thereby suppresses further offers.
+//  * the import updates weightLog and thereby suppresses further offers,
+//  * a sample older than the latest weigh-in or than a week is not offered,
+//    and an accepted sample keeps its measurement time.
 
 /// Fake HealthService: controllable snapshot (steps + optional weight) and a
 /// writeWeight call counter.
 class _FakeHealthService implements HealthService {
   int steps = 4200;
   double? nextWeightKg;
+
+  /// When [nextWeightKg] was measured; fixed, so a resume re-reads the same
+  /// sample.
+  DateTime weightMeasuredAt = clock.now();
   int writeWeightCalls = 0;
 
   @override
@@ -50,6 +56,7 @@ class _FakeHealthService implements HealthService {
     stepsToday: steps,
     fetchedAt: clock.now(),
     latestWeightKg: nextWeightKg,
+    latestWeightMeasuredAt: nextWeightKg == null ? null : weightMeasuredAt,
   );
 
   @override
@@ -223,15 +230,55 @@ void main() {
 
   test(
     'Abweichung < 0.1 kg vom letzten geloggten Gewicht -> kein Angebot',
-    () async {
+    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
       final s = _setup();
       await s.store.logWeight(80.0);
-      s.health.nextWeightKg = 80.05;
+      s.health
+        ..nextWeightKg = 80.05
+        ..weightMeasuredAt = DateTime(2026, 10, 11, 12, 1);
 
       await s.store.refreshHealthSteps();
 
       expect(s.snacks.messages, isEmpty);
-    },
+    }),
+  );
+
+  test(
+    'ein Health-Gewicht vor dem letzten Eintrag wird nicht angeboten',
+    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
+      final s = _setup();
+      // Today's weigh-in, written back to Health only partly or not at all.
+      await withClock(
+        Clock.fixed(DateTime(2026, 10, 11, 8)),
+        () => s.store.logWeight(80.0),
+      );
+      s.health
+        ..nextWeightKg = 82.0
+        ..weightMeasuredAt = DateTime(2026, 10, 9, 7);
+
+      await s.store.refreshHealthSteps();
+
+      expect(
+        s.snacks.messages,
+        isEmpty,
+        reason: 'the older reading would replace today in the trend',
+      );
+      expect(s.store.weightLog.latest?.weightKg, 80.0);
+    }),
+  );
+
+  test(
+    'ein Health-Gewicht aelter als eine Woche wird nicht angeboten',
+    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
+      final s = _setup();
+      s.health
+        ..nextWeightKg = 82.0
+        ..weightMeasuredAt = DateTime(2026, 9, 20, 7);
+
+      await s.store.refreshHealthSteps();
+
+      expect(s.snacks.messages, isEmpty);
+    }),
   );
 
   test('Snapshot ohne Gewicht -> kein Angebot, Steps laufen normal', () async {
@@ -383,6 +430,48 @@ void main() {
       }),
     );
   }
+
+  test(
+    'ein uebernommenes Health-Gewicht behaelt seine Messzeit',
+    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
+      final kv = _WeightCommitStore();
+      final s = await _setupDurable(kv);
+      await withClock(
+        Clock.fixed(DateTime(2026, 10, 6, 8)),
+        () => s.store.logWeight(80.0),
+      );
+      final measuredAt = DateTime(2026, 10, 9, 7, 30);
+      s.health
+        ..nextWeightKg = 79.0
+        ..weightMeasuredAt = measuredAt;
+      // The weigh-in above may raise the offline sync hint.
+      s.snacks.messages.clear();
+      s.snacks.actions.clear();
+
+      await s.store.refreshHealthSteps();
+      expect(s.snacks.messages, ['Apple Health: 79,0 kg übernehmen?']);
+      s.snacks.actions.single!.onPressed();
+      await pumpUntil(() => s.store.weightLog.entries.length == 2);
+
+      expect(s.store.weightLog.latest?.weightKg, 79.0);
+      expect(
+        s.store.weightLog.latest?.timestamp,
+        measuredAt,
+        reason: 'a Thursday tap must not move a Monday reading to Thursday',
+      );
+      final insert = s.store.pendingOutbox.lastWhere(
+        (op) => op.kind == SyncOpKind.weightInsert,
+      );
+      expect(
+        insert.payload['recorded_at'],
+        measuredAt.toUtc().toIso8601String(),
+      );
+
+      // Imported, the sample is the latest weigh-in: no further offer.
+      await s.store.refreshHealthSteps();
+      expect(s.snacks.actions.whereType<SnackBarAction>(), hasLength(1));
+    }),
+  );
 
   test(
     'Health-Snack: doppelte Taps waehrend und nach Commit erzeugen nur ein Log',

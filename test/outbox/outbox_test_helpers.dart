@@ -186,6 +186,11 @@ class FakeServer {
   /// (user_id, slug).
   final Map<String, Map<String, dynamic>> recipeRows =
       <String, Map<String, dynamic>>{};
+
+  /// Plan id -> row of public.training_plans, so a restored workout
+  /// checkpoint still matches its source after an online boot.
+  final Map<String, Map<String, dynamic>> trainingPlanRows =
+      <String, Map<String, dynamic>>{};
   int mealsCounted = 0;
   int weightLogsCounted = 0;
 
@@ -409,6 +414,9 @@ class FakeServer {
             )
             .toList(),
       );
+    }
+    if (path.contains('/training_plans') && req.method == 'GET') {
+      return ok(trainingPlanRows.values.toList());
     }
     // Remaining reads: empty, which _safeLoad treats as "nothing there".
     if (req.method == 'GET') return ok(const <dynamic>[]);

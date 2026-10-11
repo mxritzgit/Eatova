@@ -95,6 +95,12 @@ Deno.test('import extraction retains three dishes, caps six and flags truncation
   check(seven?.candidates.length === 6 && seven.warnings.includes('truncated'), 'Bounded candidate response');
 });
 
+Deno.test('import extraction caps a candidate title without splitting an emoji', async () => {
+  const result = await extract([draft({ title: 'x'.repeat(159) + '🍝 Feta-Pasta' })]);
+  const title = result?.candidates[0].title ?? '';
+  check(title.isWellFormed() && title === 'x'.repeat(159), `Title cut before the emoji: ${JSON.stringify(title.slice(-3))}`);
+});
+
 Deno.test('import extraction omits invented dietary variant labels', async () => {
   const result = await extract([draft({ variant_label: 'Gluten-free' })]);
   check(result?.status === 'ready' && result.candidates[0].variant_label === undefined, 'Dietary suitability needs source evidence');

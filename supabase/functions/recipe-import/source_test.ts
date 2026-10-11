@@ -178,6 +178,45 @@ Deno.test('import source attribution carries no control characters', async () =>
   } finally { globalThis.fetch = original; }
 });
 
+Deno.test('import source caps attribution without splitting an emoji', async () => {
+  const original = globalThis.fetch;
+  // A cut through a surrogate pair leaves a lone surrogate, which the app
+  // renders as U+FFFD for the whole source details text.
+  const caption = 'x'.repeat(159) + '🍝' + 'y'.repeat(40);
+  const author = 'a'.repeat(159) + '👩‍🍳';
+  globalThis.fetch = (() => Promise.resolve(Response.json({ title: caption, author_name: author }))) as typeof fetch;
+  try {
+    const result = await loadSource(VIDEO, AbortSignal.timeout(1000));
+    const title = result.source.title ?? '';
+    check(title.isWellFormed() && title === 'x'.repeat(159), `Title cut before the emoji: ${JSON.stringify(title.slice(-3))}`);
+    check(result.source.author?.isWellFormed() && result.source.author === 'a'.repeat(159), 'Author cut before the emoji');
+    check(result.text === caption, 'Source text keeps the whole caption');
+  } finally { globalThis.fetch = original; }
+});
+
+Deno.test('import source text cap never splits an emoji', async () => {
+  const original = globalThis.fetch;
+  const caption = 'x'.repeat(19_999) + '🍝' + 'y'.repeat(10);
+  globalThis.fetch = (() => Promise.resolve(Response.json({ title: caption }))) as typeof fetch;
+  try {
+    const result = await loadSource(VIDEO, AbortSignal.timeout(1000));
+    check(result.text.isWellFormed() && result.text === 'x'.repeat(19_999), 'Model input cut before the emoji');
+    check(result.truncated, 'Cut text is marked truncated');
+  } finally { globalThis.fetch = original; }
+});
+
+Deno.test('import source repairs ill-formed upstream metadata', async () => {
+  const original = globalThis.fetch;
+  // oEmbed can truncate a caption itself; JSON then carries a lone surrogate.
+  globalThis.fetch = (() => Promise.resolve(new Response('{"title":"Pasta \\ud83c","author_name":"Cook \\udf5d"}'))) as typeof fetch;
+  try {
+    const result = await loadSource(VIDEO, AbortSignal.timeout(1000));
+    check(result.source.title?.isWellFormed() && result.source.title.startsWith('Pasta '), 'Title well-formed');
+    check(result.source.author?.isWellFormed() && result.source.author.startsWith('Cook '), 'Author well-formed');
+    check(result.text.isWellFormed(), 'Model input well-formed');
+  } finally { globalThis.fetch = original; }
+});
+
 Deno.test('import source treats private posts and malformed metadata as text-needed', async () => {
   const original = globalThis.fetch;
   try {

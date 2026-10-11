@@ -15,6 +15,7 @@ import 'package:eatova/src/screens/training/training_history_screen.dart';
 import 'package:eatova/src/screens/training/training_screen.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/secure_screen.dart';
+import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
 import 'fixlauf_a_helpers.dart';
@@ -25,10 +26,11 @@ const _user = EatovaUser(id: 'private-screen-a', email: 'a@example.test');
 
 Future<void> _pumpApp(
   WidgetTester tester,
-  InMemoryAuthRepository repository,
-) async {
+  InMemoryAuthRepository repository, {
+  ThemeModeController? themeController,
+}) async {
   final locale = LocaleController(initial: const Locale('en'));
-  final theme = ThemeModeController(initial: ThemeMode.dark);
+  final theme = themeController ?? ThemeModeController(initial: ThemeMode.dark);
   addTearDown(locale.dispose);
   addTearDown(theme.dispose);
   await tester.pumpWidget(
@@ -55,13 +57,19 @@ Future<void> _openHistory(WidgetTester tester) async {
 
 void main() {
   final calls = <String>[];
+  final coverColors = <Object?>[];
 
   setUp(() {
     expect(SecureScreen.instance.activeCount, 0);
     calls.clear();
+    coverColors.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_channel, (call) async {
-          calls.add(call.method);
+          if (call.method == 'setCoverColor') {
+            coverColors.add(call.arguments);
+          } else {
+            calls.add(call.method);
+          }
           return null;
         });
     RecipeImageStore.instance = StummerFotoStore();
@@ -178,4 +186,42 @@ void main() {
       expect(calls, ['enable', 'disable']);
     },
   );
+
+  // The iOS snapshot cover is painted natively. It must show the page tone of
+  // the theme on screen; an in-app choice can differ from the system one.
+  testWidgetsRobust('the snapshot cover takes the page tone of the app theme', (
+    tester,
+  ) async {
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    final repository = InMemoryAuthRepository(initialUser: _user);
+    addTearDown(repository.dispose);
+    final theme = ThemeModeController(initial: ThemeMode.light);
+    await _pumpApp(tester, repository, themeController: theme);
+    final light = {'color': AppTokens.light.bg.toARGB32()};
+    final dark = {'color': AppTokens.dark.bg.toARGB32()};
+
+    expect(calls, ['enable']);
+    expect(coverColors, [light], reason: 'light in the app on a dark system');
+
+    theme.setModeSync(ThemeMode.dark);
+    await settleFrames(tester);
+    expect(coverColors, [light, dark]);
+
+    theme.setModeSync(ThemeMode.system);
+    await settleFrames(tester);
+    expect(coverColors, [
+      light,
+      dark,
+    ], reason: 'system mode on a dark system stays dark: no second send');
+
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    await settleFrames(tester);
+    expect(coverColors, [light, dark, light], reason: 'system mode follows');
+    expect(calls, ['enable'], reason: 'the cover tone never touches the guard');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(calls, ['enable', 'disable']);
+  });
 }

@@ -72,7 +72,7 @@ class FoodStoreScope extends InheritedWidget {
   const FoodStoreScope({
     super.key,
     required this.store,
-    required this.mealsOfSelectedDay,
+    required this.mealsForDay,
     required this.favorites,
     this.favoriteUseCounts,
     required super.child,
@@ -83,9 +83,10 @@ class FoodStoreScope extends InheritedWidget {
   /// learns the store's type.
   final Listenable store;
 
-  /// Logged meals of the day the food tab shows, bucketed the DATA-6 way
-  /// (`mealsForFoodDate`) — the same list the opener passes as a value.
-  final List<LoggedMeal> Function() mealsOfSelectedDay;
+  /// Logged meals of [day], bucketed the DATA-6 way (`mealsForFoodDate`).
+  /// The sheet asks for the day it opened on: the food tab's selected day
+  /// follows today at midnight, also under an open sheet.
+  final List<LoggedMeal> Function(DateTime day) mealsForDay;
 
   /// The full favorites list (pinned + auto recents) in store order.
   ///
@@ -181,7 +182,8 @@ Future<void> showAddMealSheet(
       // time and both suppliers are O(1) reads plus one day filter.
       return ListenableBuilder(
         listenable: live.store,
-        builder: (_, __) => sheet(live.mealsOfSelectedDay(), live.favorites()),
+        builder: (_, __) =>
+            sheet(live.mealsForDay(foodDate ?? clock.now()), live.favorites()),
       );
     },
   );
@@ -297,9 +299,10 @@ class AddMealSheet extends StatefulWidget {
   final PersistValueChanged<MealAnalysisResult>? onToggleFavorite;
   final List<LoggedMeal> existingMeals;
 
-  /// The diary day the sheet logs into (null = today). Only the mirror rows
-  /// need it: the store books an archive-day log on that day, and the sheet's
-  /// copy must say the same or an edit would drop the row as "moved".
+  /// The diary day the sheet logs into (null = today); the opener binds
+  /// [onAdd] to it. The mirror rows carry it too: the store books the log on
+  /// that day, and the sheet's copy must say the same or an edit would drop
+  /// the row as "moved".
   final DateTime? foodDate;
   final PersistValueChanged<String>? onRemoveMeal;
 

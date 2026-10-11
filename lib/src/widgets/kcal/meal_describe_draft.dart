@@ -269,6 +269,7 @@ class _EmptyDraft extends StatelessWidget {
 }
 
 /// Totals of exactly what Add logs (the draft's result), then Edit and Add.
+/// Lines that add up to nothing loggable say why, on screen and on Add.
 class _DraftFooter extends StatelessWidget {
   const _DraftFooter({
     required this.draft,
@@ -289,6 +290,8 @@ class _DraftFooter extends StatelessWidget {
     final result = draft.toResult();
     final empty = draft.items.isEmpty;
     final loggable = draft.isLoggable;
+    // The empty draft has its own card ([_EmptyDraft]).
+    final zeroHint = empty || loggable ? null : l10n.foodDescribeZeroKcalHint;
     final large = MediaQuery.textScalerOf(context).scale(14) > 18;
     final kcal = Text.rich(
       TextSpan(
@@ -348,17 +351,34 @@ class _DraftFooter extends StatelessWidget {
       onTap: empty || adding ? null : onEdit,
       expand: large,
     );
-    final add = PrimaryActionButton(
-      key: const ValueKey('meal-describe-add'),
-      label: l10n.commonAdd,
-      icon: Icons.add_rounded,
-      onTap: loggable && !adding ? onAdd : null,
+    final add = Semantics(
+      hint: zeroHint,
+      child: PrimaryActionButton(
+        key: const ValueKey('meal-describe-add'),
+        label: l10n.commonAdd,
+        icon: Icons.add_rounded,
+        onTap: loggable && !adding ? onAdd : null,
+      ),
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
         totals,
+        if (zeroHint != null) ...[
+          const SizedBox(height: 10),
+          // Read in order too: VoiceOver users may have hints turned off.
+          Text(
+            zeroHint,
+            key: const ValueKey('meal-describe-zero-hint'),
+            style: AppType.ui(
+              12.5,
+              weight: FontWeight.w600,
+              color: t.warning,
+              height: 1.4,
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         if (large) ...[
           edit,

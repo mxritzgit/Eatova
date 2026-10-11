@@ -44,6 +44,10 @@ import 'barcode_scanner_sheet.dart';
 import '../widgets/recipes/recipe_pick_actions.dart';
 import 'trends_screen.dart';
 
+/// The day a capture flow logs into, bound when the flow starts, and whether
+/// it was today then (see `HomeStore.addResultToDailyTotal`).
+typedef BoundFoodDay = ({DateTime day, bool startedToday});
+
 /// The Food diary (dark redesign): title with calendar, day switcher, day
 /// summary, one card per meal slot and a floating capture dock above the tab
 /// bar that the diary scrolls under.
@@ -61,7 +65,8 @@ class MealAnalysisScreen extends StatelessWidget {
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
     this.dayLoading = false,
-    FutureOr<String> Function(MealAnalysisResult, MealSlot)? onAddMeal,
+    FutureOr<String> Function(MealAnalysisResult, MealSlot, BoundFoodDay)?
+    onAddMeal,
     FutureOr<void> Function(String id, MealAnalysisResult scaled)? onUpdateMeal,
     this.isFavorite,
     this.onToggleFavorite,
@@ -99,7 +104,8 @@ class MealAnalysisScreen extends StatelessWidget {
 
   // Default onAddMeal returns an empty id (preview/test without persistence);
   // a later re-portioning then hits the no-op update.
-  static String _noopAdd(MealAnalysisResult _, MealSlot __) => '';
+  static String _noopAdd(MealAnalysisResult _, MealSlot __, BoundFoodDay ___) =>
+      '';
   static void _noopDate(DateTime _) {}
   static void _noopUpdate(String _, MealAnalysisResult __) {}
   static void _noopString(String _) {}
@@ -127,7 +133,10 @@ class MealAnalysisScreen extends StatelessWidget {
   /// True while a calendar-picked day outside the 35-day window loads; the
   /// diary then shows a spinner instead of a falsely empty day.
   final bool dayLoading;
-  final FutureOr<String> Function(MealAnalysisResult, MealSlot) onAddMeal;
+
+  /// Logs a meal on the day its flow started on (see [_addToShownDay]).
+  final FutureOr<String> Function(MealAnalysisResult, MealSlot, BoundFoodDay)
+  onAddMeal;
   final FutureOr<void> Function(String id, MealAnalysisResult scaled)
   onUpdateMeal;
 
@@ -160,6 +169,17 @@ class MealAnalysisScreen extends StatelessWidget {
   /// Opens the meal plan: where a planned pick is eaten.
   final VoidCallback? onOpenMealPlan;
 
+  /// [onAddMeal] bound to the day on screen when a flow starts. The store's
+  /// selected day follows today at midnight, also under an open sheet that
+  /// still names this day (header, context label, "already added").
+  FutureOr<String> Function(MealAnalysisResult, MealSlot) _addToShownDay() {
+    final BoundFoodDay day = (
+      day: selectedDate,
+      startedToday: DateUtils.isSameDay(selectedDate, clock.now()),
+    );
+    return (result, slot) => onAddMeal(result, slot, day);
+  }
+
   void _openAddSheet(
     BuildContext context,
     MealSlot slot, {
@@ -179,10 +199,10 @@ class MealAnalysisScreen extends StatelessWidget {
       photoInput: photoInput,
       favorites: favorites,
       existingMeals: existingForDay,
-      // The sheet mirrors its own adds; on an archive day the mirror must
-      // carry THAT day, like the store does.
+      // Header, mirror and stored entry all name this day, also after a
+      // midnight rollover while the sheet is open.
       foodDate: selectedDate,
-      onAdd: onAddMeal,
+      onAdd: _addToShownDay(),
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
@@ -195,6 +215,7 @@ class MealAnalysisScreen extends StatelessWidget {
   // sheet in the chosen slot.
   Future<void> _scanWithCamera(BuildContext context) async {
     final identity = MealScanIdentity();
+    final add = _addToShownDay();
     final capture = await cameraLauncher.launch(
       context,
       initialSlot: currentMealSlot(),
@@ -224,14 +245,14 @@ class MealAnalysisScreen extends StatelessWidget {
           : Future.error(const MealAnalysisReauthRequired()),
       cancellation: request.cancellation,
       previewImage: capture.previewBytes,
-      onAdd: onAddMeal,
+      onAdd: add,
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
       failureMessage: context.l10n.foodAnalysisFailedMessage,
     );
     if (outcome == MealAnalysisSheetOutcome.manualEntry && context.mounted) {
-      await _manualEntryFor(context, capture.slot);
+      await _manualEntryFor(context, capture.slot, add: add);
     }
   }
 
@@ -241,8 +262,10 @@ class MealAnalysisScreen extends StatelessWidget {
     BuildContext context,
     MealSlot slot, {
     bool chooseSlot = false,
+    FutureOr<String> Function(MealAnalysisResult, MealSlot)? add,
   }) async {
     final identity = MealScanIdentity();
+    final addToDay = add ?? _addToShownDay();
     var selectedSlot = slot;
     final result = await showManualMealSheet(
       context,
@@ -250,7 +273,7 @@ class MealAnalysisScreen extends StatelessWidget {
       onSlotChanged: (slot) => selectedSlot = slot,
       onSave: (result) async {
         if (!identity.isCurrent) throw StateError('Meal owner changed');
-        await onAddMeal(result, selectedSlot);
+        await addToDay(result, selectedSlot);
       },
       contextLabel: foodHeaderDateLabel(selectedDate, context.l10n),
     );
@@ -275,6 +298,7 @@ class MealAnalysisScreen extends StatelessWidget {
 
   // Barcode: in-app scanner as a bottom panel -> OFF lookup -> result sheet.
   Future<void> _scanBarcode(BuildContext context) async {
+    final add = _addToShownDay();
     // The clock slot only preselects the scanner's chips; the choice there
     // decides where the product goes (finding 2026-08-22: the slot was not
     // selectable from this button before).
@@ -292,14 +316,14 @@ class MealAnalysisScreen extends StatelessWidget {
       slot: scan.slot,
       resultFuture: lookup,
       previewImage: null,
-      onAdd: onAddMeal,
+      onAdd: add,
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
     );
     if (outcome == MealAnalysisSheetOutcome.manualEntry && context.mounted) {
-      await _manualEntryFor(context, scan.slot);
+      await _manualEntryFor(context, scan.slot, add: add);
     }
   }
 
@@ -388,7 +412,7 @@ class MealAnalysisScreen extends StatelessWidget {
     openRecipePick(
       context,
       pick,
-      addMeal: onAddMeal,
+      addMeal: _addToShownDay(),
       openMealPlan: onOpenMealPlan ?? () {},
       isSessionCurrent: () => identity.isCurrent,
       photoInput: photoInput,

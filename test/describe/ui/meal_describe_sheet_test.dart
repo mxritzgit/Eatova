@@ -10,8 +10,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/described_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
+import 'package:eatova/src/services/meal_description_matcher.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/meal_describe_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
@@ -39,6 +42,61 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
   await tester.tap(finder);
 }
+
+const _water = DescribedFoodItem(
+  name: 'Wasser',
+  searchQuery: 'Wasser',
+  grams: 250,
+  gramsSource: DescribedGramsSource.estimated,
+  caloriesKcal: 0,
+  kcalPer100G: 0,
+);
+
+/// The model's 0: unknown, never logged.
+const _waterEstimate = DraftCandidate(
+  origin: DraftItemOrigin.estimate,
+  title: 'Wasser',
+  kcalPer100G: 0,
+);
+
+/// The database's 0: measured.
+const _waterProduct = DraftCandidate(
+  origin: DraftItemOrigin.product,
+  title: 'Mineralwasser · Volvic',
+  brand: 'Volvic',
+  kcalPer100G: 0,
+  proteinPer100G: 0,
+  carbsPer100G: 0,
+  fatPer100G: 0,
+  barcode: '3057640117008',
+  explicitZeroKcal: true,
+);
+
+/// "Ein Glas Wasser": one line on the model's 0 kcal.
+MealDescriptionDraft _waterDraft() => const MealDescriptionDraft(
+  meal: DescribedMeal(
+    base: MealAnalysisResult(
+      mealName: 'Wasser',
+      caloriesKcal: 0,
+      estimatedGrams: 250,
+      kcalPer100G: 0,
+      protein: '0 g',
+      carbs: '0 g',
+      fat: '0 g',
+      confidence: 'high',
+      portionNotes: '',
+    ),
+    items: [_water],
+  ),
+  items: [
+    DraftFoodItem(
+      described: _water,
+      selected: _waterEstimate,
+      candidates: [_waterEstimate, _waterProduct],
+      grams: 250,
+    ),
+  ],
+);
 
 void main() {
   group('input', () {
@@ -373,6 +431,66 @@ void main() {
       );
     });
 
+    testWidgets('after removing a line Add logs the remaining food by name', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _openLine(tester, 0);
+      await _tapVisible(tester, key('describe-line-remove'));
+      await tester.pumpAndSettle();
+      await _tapVisible(tester, key('meal-describe-add'));
+      await tester.pumpAndSettle();
+      expect(h.logged.single.result.mealName, 'Toastbrot');
+      expect(h.logged.single.result.caloriesKcal, 65);
+    });
+
+    testWidgets('a 0 kcal draft says why Add is off; a measured 0 logs', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final h = DescribeHost();
+      h.matcher.draft = _waterDraft();
+      await openDescribe(tester, host: h);
+      await describe(tester, 'Ein Glas Wasser');
+      final l10n = l10nOf(tester);
+
+      expect(_plain(tester, key('meal-describe-total-kcal')), '0 kcal');
+      expect(enabled(tester, key('meal-describe-add')), isFalse);
+      expect(
+        tester.widget<Text>(key('meal-describe-zero-hint')).data,
+        l10n.foodDescribeZeroKcalHint,
+      );
+      expect(
+        tester.getSemantics(key('meal-describe-add')),
+        isSemantics(
+          isButton: true,
+          isEnabled: false,
+          hint: l10n.foodDescribeZeroKcalHint,
+        ),
+      );
+
+      // The database's measured 0 is a value: Add logs it.
+      await _openLine(tester, 0);
+      await tester.tap(key('describe-candidate-1'));
+      await tester.pump();
+      await _tapVisible(tester, key('describe-line-apply'));
+      await tester.pumpAndSettle();
+      expect(key('meal-describe-zero-hint'), findsNothing);
+      expect(enabled(tester, key('meal-describe-add')), isTrue);
+      expect(
+        tester.getSemantics(key('meal-describe-add')),
+        isNot(isSemantics(hint: l10n.foodDescribeZeroKcalHint)),
+      );
+
+      await _tapVisible(tester, key('meal-describe-add'));
+      await tester.pumpAndSettle();
+      expect(h.logged, hasLength(1));
+      expect(h.logged.single.result.caloriesKcal, 0);
+      expect(h.logged.single.result.explicitZeroKcal, isTrue);
+      semantics.dispose();
+    });
+
     testWidgets('Add logs once with the chosen slot, also on a double tap', (
       tester,
     ) async {
@@ -437,6 +555,92 @@ void main() {
       expect(h.outcome!.result, isNull, reason: 'confirmed by the review');
       expect(h.outcome!.slot, MealSlot.lunch);
       expect(h.logged, hasLength(1));
+    });
+
+    // The review's Add commits, then waits up to the delivery window. A close
+    // in that wait used to leave this sheet on its draft with Add enabled, so
+    // the meal was logged a second time.
+    testWidgets('the review cannot be closed while its Add saves', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _tapVisible(tester, key('meal-describe-edit'));
+      await tester.pumpAndSettle();
+      h.addGate = Completer<void>();
+      await _tapVisible(tester, key('analyse-add-daily-button'));
+      await tester.pump();
+      expect(h.logged, hasLength(1));
+
+      final close = tester.widget<IconButton>(key('analyse-sheet-close'));
+      expect(close.onPressed, isNull);
+      await tester.tap(key('analyse-sheet-close'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'close button');
+      await tester.tapAt(const Offset(20, 20));
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'scrim');
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'back');
+      await tester.fling(key('analyse-sheet'), const Offset(0, 500), 1500);
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'drag');
+
+      h.addGate!.complete();
+      await tester.pumpAndSettle();
+      await tester.tap(key('analyse-sheet-close'));
+      await tester.pumpAndSettle();
+      expect(h.closed, isTrue);
+      expect(h.outcome!.result, isNull, reason: 'confirmed by the review');
+      expect(h.logged, hasLength(1));
+    });
+
+    // Should the review route go anyway (popped from outside its guard), the
+    // describe sheet still owns that Add: it waits for it, then closes as
+    // logged instead of offering the draft again.
+    testWidgets('an Add still saving when the review goes closes the sheet', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _tapVisible(tester, key('meal-describe-edit'));
+      await tester.pumpAndSettle();
+      h.addGate = Completer<void>();
+      await _tapVisible(tester, key('analyse-add-daily-button'));
+      await tester.pump();
+      Navigator.of(tester.element(key('analyse-sheet'))).pop();
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsNothing);
+      expect(enabled(tester, key('meal-describe-add')), isFalse);
+
+      h.addGate!.complete();
+      await tester.pumpAndSettle();
+      expect(h.closed, isTrue);
+      expect(h.outcome!.result, isNull, reason: 'confirmed by the review');
+      expect(h.outcome!.slot, MealSlot.lunch);
+      expect(h.logged, hasLength(1));
+    });
+
+    testWidgets('a failed Add after the review went keeps the draft', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _tapVisible(tester, key('meal-describe-edit'));
+      await tester.pumpAndSettle();
+      h.addGate = Completer<void>();
+      h.addError = StateError('disk full');
+      await _tapVisible(tester, key('analyse-add-daily-button'));
+      await tester.pump();
+      Navigator.of(tester.element(key('analyse-sheet'))).pop();
+      await tester.pumpAndSettle();
+
+      h.addGate!.complete();
+      await tester.pumpAndSettle();
+      expect(h.closed, isFalse);
+      expect(key('meal-describe-line-0'), findsOneWidget);
+      expect(enabled(tester, key('meal-describe-add')), isTrue);
     });
 
     testWidgets('Edit closed without adding keeps the draft', (tester) async {

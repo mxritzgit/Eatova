@@ -1,5 +1,12 @@
 part of 'meal_plan_screen.dart';
 
+/// Names the planner's own refusals; anything else is a storage failure.
+String _mealPlanErrorText(Object error, AppLocalizations l) => switch (error) {
+  MealPlanLimitReached() => l.mealPlanLimitReached(kMaxOpenPlannedMeals),
+  MealPlanAlreadyEaten() => l.mealPlanAlreadyEaten,
+  _ => l.mealPlanSaveError,
+};
+
 class _PlanEditor extends StatefulWidget {
   const _PlanEditor({required this.store, required this.day, this.plan});
   final HomeStore store;
@@ -107,15 +114,31 @@ class _PlanEditorState extends State<_PlanEditor> {
         icon: Icons.check_circle_outline,
       );
       Navigator.pop(context);
-    } catch (_) {
-      if (mounted) setState(() => _error = context.l10n.mealPlanSaveError);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = _mealPlanErrorText(error, context.l10n));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
+  /// A save waits behind other plan writes and for its delivery window; a
+  /// close in that time hid its outcome, refusals and errors included.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CommitDismissGuard(
+    pending: _saving,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Outside the scroll area, so a pull on it moves the sheet.
+        const SheetHandle(padding: EdgeInsets.only(top: 10, bottom: 12)),
+        Flexible(child: _buildForm(context)),
+      ],
+    ),
+  );
+
+  Widget _buildForm(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
     final recipes =
@@ -129,8 +152,8 @@ class _PlanEditorState extends State<_PlanEditor> {
               ).contains(foldRecipeSearchText(_query)),
             )
             .toList();
-    // showEatovaSheet supplies the handle, the keyboard inset and the height
-    // cap; the editor only keeps clear of the home indicator.
+    // showEatovaSheet supplies the keyboard inset and the height cap; the
+    // form only keeps clear of the home indicator.
     return SafeArea(
       top: false,
       child: SingleChildScrollView(

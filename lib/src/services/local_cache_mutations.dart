@@ -263,6 +263,25 @@ extension LocalCacheMutations on LocalCache {
             )) {
           throw StateError('Training adoption must be reviewed');
         }
+        if (op.kind == SyncOpKind.shoppingCheck) {
+          // A line's unsent tick never reached the server, so a newer tick
+          // replaces it. One that reverses it cancels both: the server still
+          // holds the state the reversal returns to.
+          final unsent = queue
+              .where((old) => old.entityKey == op.entityKey)
+              .lastOrNull;
+          if (unsent != null &&
+              !unsent.deliveryStarted &&
+              unsent.wirePayload == null) {
+            queue.removeWhere((old) => old.operationId == unsent.operationId);
+            final previous = unsent.shoppingCheckValue?.checked;
+            if (previous != null &&
+                previous != op.shoppingCheckValue?.checked) {
+              _projectOperation(state, op);
+              continue;
+            }
+          }
+        }
         if (queue.length >= kOutboxMaxOps) {
           throw StateError('Pending changes must sync before saving more');
         }
@@ -895,9 +914,10 @@ extension LocalCacheMutations on LocalCache {
         };
       }
       if (shoppingChecks != null) {
+        // Pending ticks are projected again below, whatever is retained.
         state[_mealPlansKey] = {
           ...?state[_mealPlansKey],
-          'checks': shoppingChecks.entries
+          'checks': LocalCache._retainedShoppingChecks(shoppingChecks).entries
               .map((e) => ShoppingCheck(id: e.key, checked: e.value).toJson())
               .toList(),
         };

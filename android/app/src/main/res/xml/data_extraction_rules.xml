@@ -12,12 +12,14 @@
      (such as Google Drive backups) but doesn't disable device-to-device
      transfers for the app."
 
-  In a D2D transfer the SharedPreferences files would travel to the new device
-  — the non-exportable AndroidKeyStore key would not. Every cache slot would be
-  undecryptable there, and the outbox (which the server CANNOT reconstruct)
-  would be destroyed. So we want that state cleanly ABSENT instead of broken:
-  after a transfer the app starts like a fresh install, loads from the server
-  and creates a new DEK.
+  In a D2D transfer the cache database and the preferences would travel to the
+  new device — the non-exportable AndroidKeyStore key would not. Every cache
+  slot would be undecryptable there, and the outbox (which the server CANNOT
+  reconstruct) would be destroyed; the DEK sentinel in the database would even
+  make the new phone report a vanished key and, after a few starts, show a
+  "local data was reset" notice. So we want that state cleanly ABSENT instead
+  of broken: after a transfer the app starts like a fresh install, loads from
+  the server and creates a new DEK.
 
   Also from the docs, which is why BOTH sections are spelled out:
 
@@ -26,9 +28,17 @@
      content except for no-backup and cache directories"
 
   What is excluded:
+    * domain="file" path="eatova-cache.sqlite" plus its -wal, -shm and
+      -journal files
+        - the SQLite store of DurableCacheStore (getApplicationSupportDirectory()
+          is getFilesDir() on Android): the encrypted cache slots, the outbox
+          and the DEK sentinel/strike metadata. Since PR #98 the cache lives
+          here, not in SharedPreferences. The name is
+          DurableCacheStore.databaseFileName; WAL mode keeps the -wal/-shm
+          files, -journal covers a rollback journal.
     * domain="sharedpref" path="."
-        - shared_prefs/FlutterSharedPreferences.xml  (shared_preferences, i.e.
-          LocalCache plus the gotrue session)
+        - shared_prefs/FlutterSharedPreferences.xml  (shared_preferences: the
+          gotrue session and builds before #98 also the cache slots)
         - shared_prefs/FlutterSecureStorage.xml      (flutter_secure_storage,
           the wrapped DEK — worthless without the KeyStore key anyway)
     * domain="file" path="datastore"
@@ -69,10 +79,18 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="file" path="eatova-cache.sqlite" />
+        <exclude domain="file" path="eatova-cache.sqlite-wal" />
+        <exclude domain="file" path="eatova-cache.sqlite-shm" />
+        <exclude domain="file" path="eatova-cache.sqlite-journal" />
         <exclude domain="sharedpref" path="." />
         <exclude domain="file" path="datastore" />
     </cloud-backup>
     <device-transfer>
+        <exclude domain="file" path="eatova-cache.sqlite" />
+        <exclude domain="file" path="eatova-cache.sqlite-wal" />
+        <exclude domain="file" path="eatova-cache.sqlite-shm" />
+        <exclude domain="file" path="eatova-cache.sqlite-journal" />
         <exclude domain="sharedpref" path="." />
         <exclude domain="file" path="datastore" />
     </device-transfer>

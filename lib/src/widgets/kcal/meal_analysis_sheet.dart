@@ -74,13 +74,15 @@ String _mealAnalysisExceptionMessage(
               mealAnalysisClockLabel(resetAt),
             )
           : l10n.foodAnalysisRateLimitError,
-    MealAnalysisServerError(:final code) => switch (code) {
+    MealAnalysisServerError(:final code, :final statusCode) => switch (code) {
       'invalid_hint' => l10n.foodScanContextInvalid,
       // `request_timeout` (408) is the server giving up on a body that
       // trickles in; from the user's side that is the same situation as the
-      // provider taking too long, so it gets the same text.
+      // provider taking too long, so it gets the same text. So does a
+      // gateway 504 without a code of the function.
       'provider_timeout' ||
-      'request_timeout' => l10n.foodAnalysisTimeoutMessage,
+      'request_timeout' ||
+      'http_504' => l10n.foodAnalysisTimeoutMessage,
       'provider_error' ||
       'provider_response_too_large' ||
       'provider_invalid_response' ||
@@ -107,6 +109,10 @@ String _mealAnalysisExceptionMessage(
       'missing_image' ||
       'invalid_image_base64' ||
       'image_too_small' => l10n.foodAnalysisImageUnusableMessage,
+      // Any other 5xx was answered by a failing server, e.g. a gateway
+      // BOOT_ERROR or WORKER_LIMIT that carries no code of the function:
+      // the fallback would blame the connection that delivered it.
+      _ when statusCode >= 500 => l10n.foodAnalysisServiceUnavailableMessage,
       // Deliberately unmapped: unsupported_content_type, invalid_json,
       // invalid_body, method_not_allowed are client bugs, not user
       // situations — the flow's fallback is the honest text for them.
@@ -525,7 +531,10 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const SheetHandle(),
-        _Header(slot: widget.slot, onClose: () => Navigator.of(context).pop()),
+        _Header(
+          slot: widget.slot,
+          onClose: _saving ? null : () => Navigator.of(context).pop(),
+        ),
         Flexible(
           child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(
@@ -595,18 +604,25 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     // after add, re-portion and the 0-kcal guard, so their toasts must land
     // above the scrim in a strip the host reserves below the content — not
     // under it on the root messenger, where they read as dead.
-    return Padding(
-      padding: EdgeInsets.only(bottom: keyboardInset),
-      child: Container(
-        key: const ValueKey('analyse-sheet'),
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        decoration: BoxDecoration(
-          color: t.bg,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(rSheet),
+    //
+    // A save in flight (Add waits for its delivery window) holds the sheet:
+    // closed then, a caller such as the describe sheet saw no add and
+    // offered its own Add again.
+    return CommitDismissGuard(
+      pending: _saving,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: keyboardInset),
+        child: Container(
+          key: const ValueKey('analyse-sheet'),
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          decoration: BoxDecoration(
+            color: t.bg,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(rSheet),
+            ),
           ),
+          child: SnackHost(measureToast: true, child: body),
         ),
-        child: SnackHost(measureToast: true, child: body),
       ),
     );
   }
@@ -715,7 +731,9 @@ class _Header extends StatelessWidget {
   const _Header({required this.slot, required this.onClose});
 
   final MealSlot slot;
-  final VoidCallback onClose;
+
+  /// Null while a save is in flight.
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {

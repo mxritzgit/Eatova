@@ -6,6 +6,7 @@ import 'package:health/health.dart';
 
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
+import 'package:eatova/src/services/health_service.dart';
 
 // Sentry 2026-10-04, STEPS_ERROR (the plugin wraps every HealthKit error of
 // the step query in it and keeps the reason only in the message):
@@ -38,6 +39,19 @@ HealthDataPoint _stepSample(DateTime at) => HealthDataPoint(
   sourceName: 'iPhone',
 );
 
+HealthDataPoint _weightSample(DateTime at, double kg) => HealthDataPoint(
+  uuid: 'weight-${at.millisecondsSinceEpoch}',
+  value: NumericHealthValue(numericValue: kg),
+  type: HealthDataType.WEIGHT,
+  unit: HealthDataUnit.KILOGRAM,
+  dateFrom: at,
+  dateTo: at,
+  sourcePlatform: HealthPlatformType.appleHealth,
+  sourceDeviceId: 'device',
+  sourceId: 'com.example.scale',
+  sourceName: 'Scale',
+);
+
 class _Health extends Health {
   final calls = <String>[];
   final List<Object> stepResults = [];
@@ -46,11 +60,23 @@ class _Health extends Health {
   /// Raw step samples HealthKit holds for the queried interval.
   List<HealthDataPoint> stepSamples = const [];
 
+  /// Weight samples HealthKit returns when [weightResult] is no error.
+  List<HealthDataPoint> weightSamples = const [];
+
   Object _next(List<Object> results) =>
       results.length > 1 ? results.removeAt(0) : results.first;
 
   @override
   Future<void> configure() async => calls.add('configure');
+
+  @override
+  Future<bool> requestAuthorization(
+    List<HealthDataType> types, {
+    List<HealthDataAccess>? permissions,
+  }) async {
+    calls.add('authorize');
+    return true;
+  }
 
   @override
   Future<bool?> hasPermissions(
@@ -88,7 +114,7 @@ class _Health extends Health {
     calls.add('weight');
     final result = weightResult;
     if (result is Exception) throw result;
-    return const [];
+    return weightSamples;
   }
 }
 
@@ -121,6 +147,7 @@ void main() {
         () async {
       await withClock(Clock.fixed(_now), () async {
         plugin.stepResults.addAll([stepsError(), 4200]);
+        plugin.stepSamples = [_stepSample(DateTime(2026, 10, 4, 1))];
 
         expect((await service.readSnapshot())?.stepsToday, 4200);
         expect(plugin.calls.where((c) => c == 'steps'), hasLength(2));
@@ -137,6 +164,26 @@ void main() {
         expect(await service.readSnapshot(), isNull);
         expect(plugin.calls, contains('stepSamples'));
         expect(reports, isEmpty);
+      });
+    });
+
+    // A confirmed empty interval is a measured 0, not a failed read: the
+    // weight is still read and proves the grant on its own.
+    test('no step samples since midnight still reads the weight and '
+        'verifies the grant', () async {
+      await withClock(Clock.fixed(_now), () async {
+        plugin.stepResults.add(stepsError());
+        plugin.weightSamples = [_weightSample(DateTime(2026, 10, 4, 4), 80)];
+
+        expect(await service.requestAuthorization(), HealthAuthState.granted);
+        expect(plugin.calls, contains('weight'));
+        expect(waits, isEmpty, reason: 'an empty interval needs no retry');
+        expect(reports, isEmpty);
+
+        final snapshot = await service.readSnapshot();
+        expect(snapshot?.stepsToday, 0);
+        expect(snapshot?.latestWeightKg, 80);
+        expect(service.authState, HealthAuthState.granted);
       });
     });
 

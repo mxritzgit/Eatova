@@ -25,6 +25,10 @@ const REQUEST_BUDGET_MS = 55_000;
 // fetching. `retryMin`: a second attempt shorter than this would only time out
 // after being paid for. Mutable only so offline tests can shorten them.
 export const PROVIDER_TIMINGS_MS = { window: 40_000, retryMin: 15_000 };
+// Output grows with the quoted recipe content (the ingredient list twice).
+// Sonnet writes about 120 tokens/s, so 4,500 tokens take about 37 s: the cap,
+// not the 40 s window, ends an oversized extraction, quickly and finally.
+const MAX_TOKENS = 4500;
 const MAX_BODY_BYTES = 90_000;
 const MAX_TEXT_CHARS = 20_000;
 type Secrets = { supabaseUrl: string; anonKey: string; serviceKey: string; providerKey: string };
@@ -204,7 +208,7 @@ export async function handleRequest(request: Request): Promise<Response> {
           body: JSON.stringify(claudeRequestBody({
             system: cachedSystem(extractionPrompt(input.locale)),
             messages: [{ role: 'user', content: JSON.stringify({ source_text: source.text }) }],
-            maxTokens: 12_000, effort: RECIPE_IMPORT_EFFORT, schema: extractionSchema,
+            maxTokens: MAX_TOKENS, effort: RECIPE_IMPORT_EFFORT, schema: extractionSchema,
           })),
         });
         if (!response.ok) {
@@ -225,11 +229,14 @@ export async function handleRequest(request: Request): Promise<Response> {
         throw lastError;
       }
       const stop = record(provider) ? finishReasonFromStop(provider.stop_reason) : undefined;
+      // Too much recipe content for one answer: the same text would be cut
+      // again, so the user is asked for fewer recipes, not for a retry.
+      if (stop === 'length') throw new ImportError(422, 'source_too_long');
       const result = stop === 'stop' ? await parseExtraction(claudeText(provider), source, input.version) : null;
       if (result) return json(request, result);
       lastError = new ImportError(502, 'provider_invalid_response');
-      // A safety decline or a cut-off answer would repeat; only a malformed
-      // complete answer may come out differently.
+      // A safety decline would repeat; only a malformed complete answer may
+      // come out differently.
       if (stop !== 'stop' || !retryPossible()) break;
     }
     throw lastError;

@@ -353,6 +353,7 @@ void main() {
             open: open,
             total: completed + open,
             valuesValid: true,
+            activeValid: true,
             note: note,
             onNoteChanged: () {},
           ),

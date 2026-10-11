@@ -2988,7 +2988,9 @@ orchestrator read every diff and visual capture before cherry-picking.
   card-coloured pill; bars used to cover it in both modes.
 
 **Open:**
-- the iOS light launch screen (needs Xcode);
+- the iOS light launch screen (needs Xcode): done in
+  [PR #147](https://github.com/mxritzgit/Eatova/pull/147) on 2026-10-11 (named
+  colour set and light launch images), a device check is still open;
 - the device check of hold-to-repeat and the transitions in the onboarding;
 - small light-mode polish candidates L3 listed: the grey "My recipes"
   empty well, grey field capsules on the active set row, and the white
@@ -3310,7 +3312,8 @@ data, UI, review) with an orchestrator; contract in
   behind the discard dialog; a dismissed Android dialog said "nothing
   heard". Open (minor): a 0 kcal draft disables Add without a reason; the
   photo path's quota text still says "Foto-Analysen" although descriptions
-  share that quota.
+  share that quota. Both fixed in the 2026-10-11 audit
+  ([PR #147](https://github.com/mxritzgit/Eatova/pull/147), with tests).
 - **Verification (review branch, CI method):** strict analyzer clean; full
   suite 7,154 tests in 685 files green; coverage 97.08%; Deno lint, check
   and 1,035 tests green (also per file); eval harness 19/19; debug APK
@@ -3325,11 +3328,12 @@ data, UI, review) with an orchestrator; contract in
   "service unavailable". `PRIVACY.md` names the meal description and the
   Android recognizer; the live privacy page at eatova.de needs the same
   update with the release.
-- **Found on the way, not changed:** `MainActivity.onCreate` hands a share
-  intent to `recipeShareBridge` before `configureFlutterEngine` has created
-  it (`FlutterFragmentActivity` builds the engine later), so a TikTok share
-  that cold-starts the app may be dropped. Fix idea: keep the launch intent
-  and pass it once the bridge exists.
+- **Found on the way:** `MainActivity.onCreate` hands a share intent to
+  `recipeShareBridge` before `configureFlutterEngine` has created it
+  (`FlutterFragmentActivity` builds the engine later), so a TikTok share
+  that cold-starts the app may be dropped. Fixed in the 2026-10-11 audit
+  ([PR #147](https://github.com/mxritzgit/Eatova/pull/147)): the share is
+  held until the bridge exists; a device check is still open.
 
 ### Rollout, 2026-10-10 (owner: "Freigabe zum Mergen von #146 und #145 und zum Deployen von analyze-meal")
 
@@ -3346,3 +3350,124 @@ data, UI, review) with an orchestrator; contract in
 - This closes gap E2 of the [feature-gap review](FEATURE-REVIEW-2026-10-10.md)
   in code and backend. Still open: a device build with the sheet, a first
   real description on iOS and Android, and the eatova.de privacy page.
+
+## Overnight audit, design polish and shopping prices, 2026-10-11
+
+The owner handed over three tasks before going to sleep:
+- audit the app (security, bugs, meal scan, describe, Coach) and fix what is
+  found without asking first;
+- remove the generic-looking design outliers. The owner's example was a red
+  "Discard" text that opens a generic window;
+- show Open Prices prices on the shopping receipt. Only recent prices count,
+  and a line without one shows "keine Angabe".
+
+The owner also gave standing approval to commit, push, merge after green CI
+and deploy functions.
+
+The work ran as Claude Code workflows:
+- finders read the code without changing it;
+- each finding had an adversarial skeptic;
+- fixers worked in worktrees and wrote regression tests;
+- each workstream had a review;
+- the orchestrator integrated the results and ran the full suite.
+
+**Three stacked PRs.** Merge them in this order:
+1. **[PR #147](https://github.com/mxritzgit/Eatova/pull/147), audit fixes.**
+   - **Round 1:** nine area reviewers. All 33 reports were confirmed, which
+     is 26 distinct bugs.
+   - **Round 2:** six cross-cutting lenses found 15 more.
+   - **Final review:** a six-dimension review found 15 more across the three
+     branches. The part that belongs to the audit branch is fixed here.
+   - **Highlights:**
+     - Android dropped every share that started a new `MainActivity`.
+     - Android backup and device transfer copied the encrypted SQLite cache
+       without its key.
+     - The iOS cover and launch screen were always dark.
+     - The describe matcher picked dry pasta for cooked amounts and mixed
+       serving units.
+     - Open Food Facts sub-gram servings were read 100x too large.
+     - The Coach prompt-leak guard cut the English crisis helpline.
+     - Text caps split emoji into lone surrogates.
+     - Shopping ticks waited behind delivery, and more than 2,000 checks
+       made the plan cache unreadable.
+     - Sign-out, account deletion and Health weight offers had bugs.
+     - On the DST night of 2026-10-25, Android rest alerts in the repeated
+       hour fired at once; they are now scheduled in UTC.
+     - A sheet left open across midnight booked to the wrong day.
+     - recipe-import now has a token cap with `source_too_long`, and reads
+       thousands separators.
+   - The full list is in the PR body and the "Audit fixes" entry of
+     `CHANGELOG.md`.
+2. **[PR #148](https://github.com/mxritzgit/Eatova/pull/148), design
+   polish.** Four auditors found 72 outliers.
+   - **Wave 1, shared components:**
+     - a bottom-anchored decision card replaces the centred Material dialog;
+     - `confirmDiscardChanges`;
+     - `MenuRow` menus with no red text;
+     - one sheet header and close button;
+     - the `softFill` token for light mode;
+     - `SignalNote`, `CalmState` and skeletons;
+     - flat gutter toasts.
+   - **Wave 2:** polish per area (Food, Recipes and Coach, Training and
+     Profile).
+3. **[PR #149](https://github.com/mxritzgit/Eatova/pull/149), Open Prices
+   estimates on the receipt.**
+   - Contract: `docs/SHOPPING-PRICES.md` (added by #149).
+   - Client only, Germany only, with a hard 42-day window.
+   - Labels map to Open Food Facts categories through a dictionary. A price
+     is the median of at least 3 prices from different shops.
+   - The receipt shows the pro-rata cost, "k. A.", SUMME or TEILSUMME, and
+     ODbL attribution.
+   - The live check on 2026-10-11 priced 8 of 12 breakfast lines and 0 of 13
+     pizza lines. German data is thin: about 800 prices in 6 weeks.
+
+**State at hand-off**
+- All three PRs were green, including iOS.
+- The auto-mode classifier blocked the merge of #147 despite the owner's
+  general approval, as in earlier sessions. Each merge needs the owner's
+  explicit line, for example "Ich gebe dir Freigabe zum Mergen von #147", or
+  the GitHub button.
+- #148 and #149 target `main`, so CI checks the combined result. After #147
+  merges, rebase #148 onto `main`; after #148 merges, rebase #149.
+
+**Deploy after #147**
+- `coach-chat` and `recipe-import`, from the merged `main`.
+- `analyze-meal` and `search-key` are unchanged. No migration.
+- An app build ships the client fixes, the design and the prices.
+
+**Owner decisions and open items**
+- **SYNC-3:** every delivered shopping tick still uses one of the account's
+  permanent 100,000 sync receipts. The client folds unsent ticks. The server
+  options are in [OFFLINE_SYNC.md](OFFLINE_SYNC.md#capacity-and-recovery).
+- **recipe-import R2-1:**
+  - The 4,500-token cap has not been measured live.
+  - Text that is too long still costs one paid call before the 422.
+  - The 20,000-character input limit is unchanged.
+  - Details are in [BACKEND.md](BACKEND.md).
+- **Android shares from another app's task** may start a second
+  `MainActivity` (`singleTop`, `taskAffinity=""`). The share now arrives
+  there. Changing the launch mode is the owner's call.
+- **Open Prices:**
+  - The eatova.de privacy page must name Open Prices before the release that
+    ships it.
+  - The dictionary needs more verified tags (Brokkoli, Magerquark, herbs).
+  - The minimum of 3 prices and the 42-day window are constants.
+- **Behaviour changes to confirm:**
+  - A provider refusal in Coach chat now shows the helpline text.
+  - With a verified Health grant, the Today steps card shows 0 after midnight.
+  - The describe matcher's choices for counted units and serving sizes
+    (DESC-2).
+- **Device checks:**
+  - Android cold-start share;
+  - device-to-device transfer;
+  - iOS light launch screen and cover;
+  - a rest alert across a process kill and on the DST night;
+  - the receipt prices on a German device.
+
+**Verification**
+- The full Flutter suite passed locally on each stacked branch:
+  - #147 before the final fixes: 7,277 tests, 97.11 % line coverage;
+  - the #149 stack: 7,500 tests, 97.02 %.
+- Deno: 1,052 tests, also run per file. The eval harness passed 19/19.
+- The capture suites were rendered in dark and light and reviewed.
+- Numbers after the final restack are in the PR bodies.

@@ -237,6 +237,32 @@ void main() {
       expect(kopie.existsSync(), isFalse);
       expect(ordner.existsSync(), isFalse);
     });
+
+    test('eine skalierte Kamera-Aufnahme nimmt ihr Original mit', () async {
+      // A camera capture recovered after the process died: the plugin
+      // resizes <cache>/<uuid><digits>.jpg into scaled_<same name> and keeps
+      // the full-size original, EXIF included, at the top of the cache.
+      String imCache(String name) =>
+          '${cache.path}${Platform.pathSeparator}$name';
+      const aufnahme = '1c9e2f4a-7b3d-4e5f-8a6c-0d2e4f6a8b1c4471893001.jpg';
+      final original = File(imCache(aufnahme))
+        ..writeAsBytesSync(_jpegMitGps(width: 1600, height: 1200));
+      final skaliert = File(imCache('scaled_$aufnahme'))
+        ..writeAsBytesSync(_jpegMitGps());
+      final fremd = File(imCache('IMG_0412.jpg'))
+        ..writeAsBytesSync(const <int>[1]);
+      final fremdSkaliert = File(imCache('scaled_IMG_0412.jpg'))
+        ..writeAsBytesSync(const <int>[2]);
+
+      await deleteMealPhotoTempFile(skaliert.path);
+      await deleteMealPhotoTempFile(fremdSkaliert.path);
+
+      expect(skaliert.existsSync(), isFalse);
+      expect(original.existsSync(), isFalse,
+          reason: 'das volle Kamerabild samt EXIF bliebe sonst im Cache');
+      expect(fremd.existsSync(), isTrue,
+          reason: 'nur der Name einer Kamera-Aufnahme gilt als ihr Original');
+    });
   });
 
   group('DeviceMealPhotoInput', () {
