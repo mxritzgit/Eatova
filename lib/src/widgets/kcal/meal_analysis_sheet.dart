@@ -533,7 +533,8 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
         const SheetHandle(),
         _Header(
           slot: widget.slot,
-          onClose: _saving ? null : () => Navigator.of(context).pop(),
+          onClose: () => Navigator.of(context).pop(),
+          closeEnabled: !_saving,
         ),
         Flexible(
           child: SingleChildScrollView(
@@ -731,12 +732,18 @@ class _SlowHint extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.slot, required this.onClose});
+  const _Header({
+    required this.slot,
+    required this.onClose,
+    required this.closeEnabled,
+  });
 
   final MealSlot slot;
+  final VoidCallback onClose;
 
-  /// Null while a save is in flight.
-  final VoidCallback? onClose;
+  /// False while a save is in flight: the X stays in place, disabled. A null
+  /// [SheetHeader.onClose] would hide it instead.
+  final bool closeEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -751,6 +758,7 @@ class _Header extends StatelessWidget {
       ),
       title: l10n.foodReviewAnalysisSubtitle,
       onClose: onClose,
+      closeEnabled: closeEnabled,
       closeKey: const ValueKey('analyse-sheet-close'),
       closeTooltip: l10n.commonClose,
       padding: const EdgeInsets.fromLTRB(20, 4, 18, 12),
