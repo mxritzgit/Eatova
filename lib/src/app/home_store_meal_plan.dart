@@ -25,7 +25,7 @@ mixin _HomeStoreMealPlanPart
       final validated = PlannedMeal.fromJson(plan.toJson());
       final existing = _plannedMeals.where((p) => p.id == plan.id).firstOrNull;
       if (validated.isEaten || existing?.isEaten == true) {
-        throw StateError('Meal already eaten');
+        throw const MealPlanAlreadyEaten();
       }
       final activeSince = localDayKey(
         clock.now().subtract(const Duration(days: 35)),
@@ -39,8 +39,8 @@ mixin _HomeStoreMealPlanPart
                         p.day.compareTo(activeSince) >= 0,
                   )
                   .length >=
-              500) {
-        throw StateError('Meal plan limit reached');
+              kMaxOpenPlannedMeals) {
+        throw const MealPlanLimitReached();
       }
       return _commitSyncIntents(
         [SyncOp.mealPlanUpsert(validated)],

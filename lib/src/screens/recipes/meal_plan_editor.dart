@@ -1,5 +1,12 @@
 part of 'meal_plan_screen.dart';
 
+/// Names the planner's own refusals; anything else is a storage failure.
+String _mealPlanErrorText(Object error, AppLocalizations l) => switch (error) {
+  MealPlanLimitReached() => l.mealPlanLimitReached(kMaxOpenPlannedMeals),
+  MealPlanAlreadyEaten() => l.mealPlanAlreadyEaten,
+  _ => l.mealPlanSaveError,
+};
+
 class _PlanEditor extends StatefulWidget {
   const _PlanEditor({required this.store, required this.day, this.plan});
   final HomeStore store;
@@ -107,8 +114,10 @@ class _PlanEditorState extends State<_PlanEditor> {
         icon: Icons.check_circle_outline,
       );
       Navigator.pop(context);
-    } catch (_) {
-      if (mounted) setState(() => _error = context.l10n.mealPlanSaveError);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = _mealPlanErrorText(error, context.l10n));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }

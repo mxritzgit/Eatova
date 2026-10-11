@@ -90,11 +90,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             : context.l10n.mealPlanSavedOffline,
         icon: Icons.check_circle_outline_rounded,
       );
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         showAppSnack(
           context,
-          context.l10n.mealPlanSaveError,
+          _mealPlanErrorText(error, context.l10n),
           icon: Icons.error_outline_rounded,
           tone: SnackTone.error,
         );

@@ -2347,6 +2347,13 @@
   "mealPlanSaved": "Saved.",
   "mealPlanSavedOffline": "Saved on this device. Will sync later.",
   "mealPlanSaveError": "Not saved. Check your connection or device storage and try again.",
+  "mealPlanLimitReached": "You already have {count} open planned meals. Remove some to plan more.",
+  "@mealPlanLimitReached": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "mealPlanAlreadyEaten": "This meal is already in your diary.",
   "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
   "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
   "mealPlanShoppingEmpty": "The list collects the ingredients of this week's planned meals that you have not eaten yet.",

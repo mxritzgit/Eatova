@@ -2400,6 +2400,13 @@
   "mealPlanSaved": "Gespeichert.",
   "mealPlanSavedOffline": "Auf diesem Gerät gespeichert. Wird später synchronisiert.",
   "mealPlanSaveError": "Nicht gespeichert. Prüfe deine Verbindung oder den Gerätespeicher und versuche es erneut.",
+  "mealPlanLimitReached": "Du hast schon {count} offene geplante Mahlzeiten. Entferne einige, um weitere zu planen.",
+  "@mealPlanLimitReached": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "mealPlanAlreadyEaten": "Diese Mahlzeit steht schon in deinem Tagebuch.",
   "mealPlanLoadError": "Der aktuelle Serverstand konnte nicht geladen werden. Gespeicherte Planungen bleiben sichtbar.",
   "mealPlanShoppingIntro": "Zutaten für noch nicht gegessene Mahlzeiten dieser Woche. Geänderte Mengen werden wieder abgewählt.",
   "mealPlanShoppingEmpty": "Die Liste sammelt die Zutaten der geplanten Mahlzeiten dieser Woche, die du noch nicht gegessen hast.",
