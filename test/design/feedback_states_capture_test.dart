@@ -165,7 +165,9 @@ void main() {
           .state<ScrollableState>(designMainScrollable())
           .position;
       position.jumpTo(position.maxScrollExtent);
-      // Far enough into the spin that the arc reads as one.
+      // The busy button's spinner is built by this jump and starts on the
+      // next frame; then far enough into the spin that the arc reads as one.
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 450));
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'feedback-gallery-01$suffix');
