@@ -9,6 +9,7 @@ import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/recipe_pick.dart';
 import '../models/training_history.dart';
+import '../models/training_insights.dart' show personalRecordCounts;
 import '../models/training_log.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
@@ -1183,11 +1184,19 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       return ownerStore.deleteTrainingHistory(id);
     }
 
+    // The same count as the Recent row's badge.
+    final records = entry == null
+        ? 0
+        : personalRecordCounts(ownerStore.trainingHistory)[entry.id] ?? 0;
     try {
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => entry != null
-              ? TrainingHistoryDetail(entry: entry, onDelete: delete)
+              ? TrainingHistoryDetail(
+                  entry: entry,
+                  onDelete: delete,
+                  personalRecords: records,
+                )
               : StoreSelector(
                   store: ownerStore,
                   selector: () => (

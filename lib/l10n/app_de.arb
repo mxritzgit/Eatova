@@ -2563,6 +2563,33 @@
       }
     }
   },
+  "trainingHistorySetLabel": "Satz {set}",
+  "@trainingHistorySetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistorySetRepsWeight": "{reps} × {weight} kg",
+  "@trainingHistorySetRepsWeight": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      },
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistorySetSeconds": "{seconds} s",
+  "@trainingHistorySetSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "trainingHistoryStarted": "Aufzeichnung ab: {date}",
   "@trainingHistoryStarted": {
     "placeholders": {
@@ -2585,6 +2612,7 @@
   "trainingHistorySourceChanged": "Dein Plan wurde geändert. Dieses Training wurde nicht gespeichert.",
   "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
   "trainingHistoryDeleteAction": "Training löschen",
+  "trainingHistoryDeleting": "Training wird gelöscht …",
   "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht.",
   "trainingHistoryLogged": "Nachgetragen",
   "trainingHistoryDeleteLogBody": "Dieses nachgetragene Training und seine Satzwerte werden aus deinem Verlauf entfernt.",
