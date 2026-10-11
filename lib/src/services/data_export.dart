@@ -3,6 +3,7 @@ import 'dart:developer' as dev;
 
 import 'package:supabase/supabase.dart';
 
+import 'sync_error_messages.dart' show isNetworkSyncError;
 import 'user_recipe_reads.dart';
 
 /// Builds the full GDPR Art. 15/20 data export from the server tables (the
@@ -17,6 +18,11 @@ import 'user_recipe_reads.dart';
 ///
 /// Because every section error is caught, [buildExportJson] never throws
 /// offline; how much actually arrived is what [exportUmfangAus] reports.
+///
+/// The sheet waits on the whole export, so reads fail fast: no client-side
+/// retry backoff, and a network error before the first section arrived skips
+/// the rest, which would only wait for the same failure. The user exports
+/// again once online.
 class DataExportService {
   DataExportService(this._client, this._userId, {this.pageSize = 1000});
 
@@ -82,16 +88,24 @@ class DataExportService {
     final ungeprueft = <String>[];
     // Section -> rows the server really holds; `null` if it did not count.
     final gekappt = <String, int?>{};
+    var angekommen = false;
+    var offline = false;
 
     Future<void> sektion(
       String name,
       Future<List<Map<String, dynamic>>> Function() laden,
     ) async {
+      if (offline) {
+        unvollstaendig.add(name);
+        return;
+      }
       try {
         export[name] = await laden();
+        angekommen = true;
       } catch (e, st) {
         // No silent empty section: it is missing and says so.
         unvollstaendig.add(name);
+        if (!angekommen && isNetworkSyncError(e)) offline = true;
         dev.log('DataExport: $name nicht lesbar',
             error: e, stackTrace: st, name: 'data_export');
       }
@@ -153,7 +167,8 @@ class DataExportService {
   /// `Prefer: count=exact` makes the server count in the same request
   /// (`Content-Range`). If it counts more than arrived, something truncated —
   /// our cap or PostgREST's silent `db-max-rows`, which an over-fetch-by-one
-  /// probe would miss entirely.
+  /// probe would miss entirely. Reads skip the client's retry backoff (see
+  /// the class comment).
   Future<List<Map<String, dynamic>>> _rows(
     String tabelle, {
     required Map<String, int?> gekappt,
@@ -195,19 +210,24 @@ class DataExportService {
           .select('*')
           .eq(keySpalte, _userId)
           .limit(einSeitenLimit)
-          .count(CountOption.exact);
+          .count(CountOption.exact)
+          .retry(enabled: false);
       return (
         antwort.data.map((r) => Map<String, dynamic>.of(r)).toList(),
         antwort.count,
       );
     } catch (e, st) {
+      // No answer means no missing count: a second request would only wait
+      // for the same network failure.
+      if (isNetworkSyncError(e)) rethrow;
       dev.log('DataExport: $tabelle ohne Server-Zaehler',
           error: e, stackTrace: st, name: 'data_export');
       final rows = await _client
           .from(tabelle)
           .select('*')
           .eq(keySpalte, _userId)
-          .limit(einSeitenLimit + 1);
+          .limit(einSeitenLimit + 1)
+          .retry(enabled: false);
       return (rows.map((r) => Map<String, dynamic>.of(r)).toList(), null);
     }
   }
@@ -234,7 +254,8 @@ class DataExportService {
       final seite = await query
           .order('logged_at', ascending: false)
           .order('id', ascending: false)
-          .limit(pageSize);
+          .limit(pageSize)
+          .retry(enabled: false);
       if (seite.isEmpty) break;
       final vorher = rows.length;
       for (final row in seite) {

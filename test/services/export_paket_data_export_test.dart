@@ -13,10 +13,12 @@
 // than `db-max-rows` allows.
 
 import 'dart:convert';
+import 'dart:io';
 
 import '../support/recipe_read_fake.dart';
 import 'dart:math' as math;
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -266,6 +268,89 @@ void main() {
         reason: 'ein zweiter Request pro Tabelle waere der Rueckfallweg — der '
             'darf nur greifen, wenn der Server gar nicht mitzaehlt',
       );
+    });
+  });
+
+  group('ohne Netz', () {
+    /// A client whose requests fail at once like a phone in airplane mode,
+    /// except [antwortet] (path -> rows as a counted 200).
+    (SupabaseClient, Map<String, int>) netzlos({
+      Map<String, int> antwortet = const <String, int>{},
+    }) {
+      final anfragen = <String, int>{};
+      final client = SupabaseClient(
+        'https://example.supabase.co',
+        'test-anon-key',
+        httpClient: MockClient((req) async {
+          final tabelle = req.url.path.split('/').last;
+          anfragen[tabelle] = (anfragen[tabelle] ?? 0) + 1;
+          final zeilen = antwortet[tabelle];
+          if (zeilen == null) {
+            throw const SocketException('Failed host lookup');
+          }
+          return http.Response(
+            jsonEncode(<Object>[]),
+            200,
+            headers: <String, String>{
+              'Content-Type': 'application/json',
+              'content-range': '*/$zeilen',
+            },
+            request: req,
+          );
+        }),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      addTearDown(client.dispose);
+      return (client, anfragen);
+    }
+
+    test('offline endet der Export sofort, jede Sektion fehlt ausgewiesen', () {
+      // Built outside the fake zone, so the teardown's dispose can finish.
+      final (client, anfragen) = netzlos();
+      fakeAsync((async) {
+        String? roh;
+        DataExportService(client, 'user-export')
+            .buildExportJson()
+            .then((json) => roh = json);
+        async.elapse(const Duration(seconds: 1));
+
+        // Before, every GET waited out the client's 1 + 2 + 4 s backoff and
+        // the counted read sent a second GET: about 189 s of spinner.
+        expect(roh, isNotNull, reason: 'der Export wartet noch auf Backoff');
+        final json = jsonDecode(roh!) as Map<String, dynamic>;
+        expect(json['unvollstaendig'], DataExportService.alleExportTabellen);
+        expect(exportUmfangAus(roh!), ExportUmfang.nichtsGeladen);
+        expect(
+          anfragen,
+          <String, int>{'profiles': 1},
+          reason: 'die erste Netzantwort zeigt: das Geraet ist offline',
+        );
+      });
+    });
+
+    test('faellt das Netz nach der ersten Sektion, kommt jede Sektion noch '
+        'genau einmal dran', () {
+      final (client, anfragen) = netzlos(
+        antwortet: const <String, int>{'profiles': 0},
+      );
+      fakeAsync((async) {
+        String? roh;
+        DataExportService(client, 'user-export')
+            .buildExportJson()
+            .then((json) => roh = json);
+        async.elapse(const Duration(seconds: 1));
+
+        expect(roh, isNotNull);
+        final json = jsonDecode(roh!) as Map<String, dynamic>;
+        expect(
+          json['unvollstaendig'],
+          DataExportService.alleExportTabellen.skip(1),
+        );
+        expect(exportUmfangAus(roh!), ExportUmfang.teilweise);
+        for (final tabelle in <String>['logged_meals', 'weight_log']) {
+          expect(anfragen[tabelle], 1, reason: tabelle);
+        }
+      });
     });
   });
 
