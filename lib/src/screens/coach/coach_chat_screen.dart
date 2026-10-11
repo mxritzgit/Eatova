@@ -48,6 +48,8 @@ import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/recipes/recipe_photo.dart' show RecipeArt;
+import '../../widgets/recipes/recipe_sections.dart';
 import '../today/today_texts.dart' show greetingForHour;
 import '../training/training_log_editor.dart';
 import '../training/training_plan_editor.dart';
@@ -3167,7 +3169,11 @@ class _UnsentNotice extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Icon(Icons.refresh_rounded, size: 14, color: t.accent),
+                      Icon(
+                        Icons.refresh_rounded,
+                        size: 14,
+                        color: t.accentText,
+                      ),
                       const SizedBox(width: 5),
                       Flexible(
                         child: Text(
@@ -3175,7 +3181,7 @@ class _UnsentNotice extends StatelessWidget {
                           style: AppType.ui(
                             11.5,
                             weight: FontWeight.w700,
-                            color: t.accent,
+                            color: t.accentText,
                           ),
                         ),
                       ),

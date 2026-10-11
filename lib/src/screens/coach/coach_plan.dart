@@ -44,24 +44,12 @@ class _TrainingPlanProposalCard extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Icon(Icons.fitness_center_rounded, size: 18, color: t.accent),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                added ? l10n.coachPlanAddedLabel : l10n.coachPlanCardEyebrow,
-                style: AppType.ui(12, weight: FontWeight.w600, color: t.accent),
-              ),
-            ),
-          ],
+        _ProposalEyebrow(
+          icon: _CoachCommand.plan.icon,
+          label: added ? l10n.coachPlanAddedLabel : l10n.coachPlanCardEyebrow,
         ),
         const SizedBox(height: 12),
-        Text(
-          proposal.title,
-          style: AppType.display(20, color: t.ink, height: 1.15),
-        ),
+        Text(proposal.title, style: _proposalTitleStyle(t)),
         if (proposal.description.isNotEmpty) ...<Widget>[
           const SizedBox(height: 8),
           Text(

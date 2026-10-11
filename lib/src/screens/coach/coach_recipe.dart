@@ -33,23 +33,21 @@ class _RecipeProposalCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // The redesign's eyebrow (as on the start card); the ARB text is
-        // already in capitals.
-        Text(
-          l10n.coachRecipeCardEyebrow,
-          style: AppType.sectionEyebrow(t.accentText),
+        _ProposalEyebrow(
+          icon: _CoachCommand.recipe.icon,
+          label: l10n.coachRecipeCardEyebrow,
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         ClipRRect(
           borderRadius: BorderRadius.circular(rCard),
           child: SizedBox(
             height: 150,
             width: double.infinity,
+            // Without a generated photo (failed or still to come): the
+            // recipes' glowing bowl, never a wireframe stripe. A proposal has
+            // no categories, so the bowl is the motif.
             child: bytes == null
-                ? ImagePlaceholder(
-                    radius: 0,
-                    label: l10n.recipesImagePlaceholderLabel,
-                  )
+                ? const RecipeArt()
                 : Stack(
                     // expand, not the default loose fit: the image below has
                     // no intrinsic box of its own here, it fills the 150 px
@@ -76,51 +74,112 @@ class _RecipeProposalCard extends StatelessWidget {
                   ),
           ),
         ),
-        const SizedBox(height: 10),
-        Text(
-          proposal.title,
-          style: AppType.display(18, color: t.ink, height: 1.15),
-        ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 12),
+        Text(proposal.title, style: _proposalTitleStyle(t)),
+        const SizedBox(height: 6),
         Text(
           l10n.recipesKcalProteinSummary(
             proposal.caloriesKcal,
             proposal.proteinG,
           ),
-          style: AppType.ui(12.5, color: t.ink2),
+          style: AppType.ui(14, color: t.ink2, height: 1.4),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         if (added)
           // Live region like the plan card's: the button turns into this
           // state after the sheet closes, without focus moving to it.
           Semantics(
             container: true,
             liveRegion: true,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.check_rounded, size: 16, color: t.accent),
-                const SizedBox(width: 6),
-                Text(
-                  l10n.coachRecipeAddedLabel,
-                  style: AppType.ui(
-                    13,
-                    weight: FontWeight.w600,
-                    color: t.accent,
-                  ),
-                ),
-              ],
-            ),
+            child: _ProposalDone(label: l10n.coachRecipeAddedLabel),
           )
         else
           PrimaryActionButton(
             key: const ValueKey('coach-recipe-add'),
             label: l10n.coachRecipeAddButton,
             icon: Icons.bookmark_add_outlined,
-            height: 46,
             onTap: enabled ? onAdd : null,
           ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The shared language of the proposal cards (recipe, training plan, workout
+// log): one eyebrow, one title size, the default primary button and one
+// done state, so three cards in one chat read as one family.
+// ---------------------------------------------------------------------------
+
+/// Title of a proposal card.
+TextStyle _proposalTitleStyle(AppTokens t) =>
+    AppType.display(20, color: t.ink, height: 1.15);
+
+/// A proposal card's eyebrow: the command's glyph and the tracked uppercase
+/// label in `accentText`; screen readers hear the label as written.
+class _ProposalEyebrow extends StatelessWidget {
+  const _ProposalEyebrow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Row(
+      children: <Widget>[
+        ExcludeSemantics(child: Icon(icon, size: 16, color: t.accentText)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label.toUpperCase(),
+            semanticsLabel: label,
+            style: AppType.sectionEyebrow(t.accentText),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The done state of a proposal without a way onward: the soft pill's
+/// capsule with a check, as a status rather than a button.
+class _ProposalDone extends StatelessWidget {
+  const _ProposalDone({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 40),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: ShapeDecoration(
+        color: t.accentTint,
+        shape: const StadiumBorder(),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            Icons.check_circle_outline_rounded,
+            size: 18,
+            color: t.accentText,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              style: AppType.ui(
+                14,
+                weight: FontWeight.w700,
+                color: t.accentText,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -217,12 +276,9 @@ class _RecipeAddSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Text(
-                l10n.coachRecipeSheetTitle,
-                textAlign: TextAlign.center,
-                style: AppType.display(20, color: t.ink),
-              ),
-              const SizedBox(height: 14),
+              // Left-aligned 24 px level-1 title, like every other sheet.
+              SheetTitle(l10n.coachRecipeSheetTitle),
+              const SizedBox(height: 16),
               Flexible(
                 child: SingleChildScrollView(
                   key: const ValueKey('coach-recipe-sheet'),
@@ -280,21 +336,46 @@ class _RecipeAddSheet extends StatelessWidget {
                         const SizedBox(height: 8),
                         Text(
                           proposal.description,
-                          style: AppType.ui(13, color: t.ink, height: 1.5),
+                          style: AppType.ui(14, color: t.ink, height: 1.5),
                         ),
                       ],
-                      _SheetSection(
-                        title: l10n.recipesSectionPortion,
-                        body: proposal.portion,
-                      ),
-                      _SheetSection(
-                        title: l10n.recipesSectionIngredients,
-                        body: proposal.ingredients,
-                      ),
-                      _SheetSection(
-                        title: l10n.recipesSectionPreparation,
-                        body: proposal.preparation,
-                      ),
+                      // The recipe's own section cards (as in the import
+                      // preview and the detail view). The model's "- " and
+                      // "1." markers give way to the dots and step badges.
+                      // Empty sections are dropped entirely, unlike the
+                      // detail view which always shows every section.
+                      if (proposal.portion.trim().isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 12),
+                        RecipeSectionCard(
+                          icon: Icons.restaurant_rounded,
+                          title: l10n.recipesSectionPortion,
+                          child: RecipeParagraph(
+                            text: proposal.portion,
+                            empty: l10n.recipesNoDataProvided,
+                          ),
+                        ),
+                      ],
+                      if (proposal.ingredients.trim().isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 12),
+                        RecipeSectionCard(
+                          icon: Icons.shopping_basket_outlined,
+                          title: l10n.recipesSectionIngredients,
+                          child: RecipeIngredientLines(
+                            text: proposal.ingredients,
+                          ),
+                        ),
+                      ],
+                      if (proposal.preparation.trim().isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 12),
+                        RecipeSectionCard(
+                          icon: Icons.soup_kitchen_outlined,
+                          title: l10n.recipesSectionPreparation,
+                          child: RecipePreparationSteps(
+                            text: proposal.preparation,
+                            empty: l10n.recipesNoDataProvided,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -435,7 +516,7 @@ class _CommandSuggestion extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Icon(icon, size: 20, color: t.accent),
+                Icon(icon, size: 20, color: t.accentText),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -449,7 +530,7 @@ class _CommandSuggestion extends StatelessWidget {
                         style: AppType.ui(
                           13.5,
                           weight: FontWeight.w700,
-                          color: t.accent,
+                          color: t.accentText,
                         ),
                       ),
                       if (!compact) ...<Widget>[
@@ -466,32 +547,6 @@ class _CommandSuggestion extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Section of the sheet preview; empty bodies are dropped entirely, unlike the
-/// detail view which always shows every section.
-class _SheetSection extends StatelessWidget {
-  const _SheetSection({required this.title, required this.body});
-
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    if (body.trim().isEmpty) return const SizedBox.shrink();
-    final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.only(top: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(title, style: AppType.eyebrow(t.ink2)),
-          const SizedBox(height: 5),
-          Text(body, style: AppType.ui(13, color: t.ink, height: 1.55)),
-        ],
       ),
     );
   }

@@ -78,30 +78,14 @@ class _WorkoutLogProposalCard extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Icon(
-              added ? Icons.check_circle_rounded : _CoachCommand.log.icon,
-              size: 18,
-              color: t.accent,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                added
-                    ? l10n.coachWorkoutLogAddedLabel
-                    : l10n.coachWorkoutLogCardEyebrow,
-                style: AppType.ui(12, weight: FontWeight.w600, color: t.accent),
-              ),
-            ),
-          ],
+        _ProposalEyebrow(
+          icon: added ? Icons.check_circle_rounded : _CoachCommand.log.icon,
+          label: added
+              ? l10n.coachWorkoutLogAddedLabel
+              : l10n.coachWorkoutLogCardEyebrow,
         ),
         const SizedBox(height: 12),
-        Text(
-          proposal.title,
-          style: AppType.display(20, color: t.ink, height: 1.15),
-        ),
+        Text(proposal.title, style: _proposalTitleStyle(t)),
         const SizedBox(height: 6),
         Text(
           day == null

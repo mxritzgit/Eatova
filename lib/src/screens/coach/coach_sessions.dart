@@ -20,7 +20,6 @@ class _SessionsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
     return ConstrainedBox(
@@ -33,48 +32,19 @@ class _SessionsSheet extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              // On the 20 px gutter with the 24 px level-1 title of every
+              // sheet; "New" is the app's accent soft pill.
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
                   children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        l10n.coachSessionsTitle,
-                        style: AppType.display(
-                          19,
-                          weight: FontWeight.w700,
-                          color: t.ink,
-                        ),
-                      ),
-                    ),
+                    Expanded(child: SheetTitle(l10n.coachSessionsTitle)),
                     const SizedBox(width: 10),
-                    Material(
-                      color: t.forest,
-                      borderRadius: BorderRadius.circular(rPill),
-                      child: InkWell(
-                        key: const ValueKey('coach-sessions-new'),
-                        onTap: onNew,
-                        borderRadius: BorderRadius.circular(rPill),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              Icon(Icons.add_rounded, size: 18, color: t.lime),
-                              const SizedBox(width: 6),
-                              Text(
-                                l10n.coachSessionsNewLabel,
-                                style: AppType.ui(
-                                  13.5,
-                                  weight: FontWeight.w700,
-                                  color: t.onForest,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    SoftPillButton(
+                      key: const ValueKey('coach-sessions-new'),
+                      icon: Icons.add_rounded,
+                      label: l10n.coachSessionsNewLabel,
+                      onTap: onNew,
                     ),
                   ],
                 ),
@@ -82,15 +52,16 @@ class _SessionsSheet extends StatelessWidget {
               const SizedBox(height: 14),
               Flexible(
                 child: sessions.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
-                        child: Text(
-                          l10n.coachSessionsEmpty,
-                          style: AppType.ui(13.5, color: t.ink2, height: 1.4),
+                    ? SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                        child: CalmState(
+                          key: const ValueKey('coach-sessions-empty'),
+                          icon: Icons.chat_bubble_outline_rounded,
+                          text: l10n.coachSessionsEmpty,
                         ),
                       )
                     : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                         shrinkWrap: true,
                         itemCount: sessions.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 6),
@@ -226,8 +197,9 @@ String _humanizeTimestamp(DateTime ts, AppLocalizations l10n) {
   if (diff.inMinutes < 60) return l10n.coachTimeMinutesAgo(diff.inMinutes);
   if (diff.inHours < 24) return l10n.coachTimeHoursAgo(diff.inHours);
   if (diff.inDays < 7) return l10n.coachTimeDaysAgo(diff.inDays);
-  // The SAME numeric pattern on purpose for 'en': day.month.year stays
-  // unambiguous, whereas 'MM/dd' reads differently to US and GB/DE readers.
+  // The month as a word ("Sep 28, 2026", "28. Sept. 2026"): unambiguous in
+  // both languages, unlike '09/28' vs '28.09', and the date style of the
+  // rest of the app.
   _ensureCoachDateSymbols();
-  return DateFormat('dd.MM.yyyy', l10n.localeName).format(ts);
+  return DateFormat.yMMMd(l10n.localeName).format(ts);
 }

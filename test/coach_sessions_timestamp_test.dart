@@ -12,8 +12,8 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'support/harness.dart';
 
 // Covers `_humanizeTimestamp`'s >=7-day date fallback, reachable only through
-// the rendered `_SessionTile`: 'de' stays byte-identical to 'dd.MM.yyyy' and
-// 'en' renders the same pattern without throwing.
+// the rendered `_SessionTile`: the month is spelled out in the app language
+// (yMMMd), unambiguous in both and the date style of the rest of the app.
 
 const Size _usableSize = Size(402, 781);
 
@@ -78,20 +78,20 @@ Future<void> _pumpCoach(WidgetTester tester, {required Locale locale}) async {
 }
 
 void main() {
-  testWidgets('Sessions-Sheet: Alt-Datum bleibt unter de byte-gleich dd.MM.yyyy',
+  testWidgets('Sessions-Sheet: Alt-Datum unter de mit ausgeschriebenem Monat',
       (tester) async {
     await _pumpCoach(tester, locale: const Locale('de'));
 
-    expect(find.text('05.03.2020'), findsOneWidget);
+    expect(find.text('5. März 2020'), findsOneWidget);
+    expect(find.text('05.03.2020'), findsNothing);
   });
 
-  testWidgets('Sessions-Sheet: dasselbe Zahlenformat unter en, kein Crash',
-      (tester) async {
+  testWidgets('Sessions-Sheet: unter en ebenso, kein Crash', (tester) async {
     await _pumpCoach(tester, locale: const Locale('en'));
 
-    // Same pattern as 'de' on purpose ('MM/dd' would be ambiguous); the point
-    // is that DateFormat(..., 'en') resolves at all.
-    expect(find.text('05.03.2020'), findsOneWidget);
+    // The month as a word: '03/05' would read differently to US and GB/DE
+    // readers; the point is also that DateFormat(..., 'en') resolves at all.
+    expect(find.text('Mar 5, 2020'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
