@@ -5,7 +5,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 /// Shared dart:io HTTP layer for all services on a raw [HttpClient]
-/// (Meilisearch mirror, OpenFoodFacts, analyze-meal Edge Function).
+/// (Meilisearch mirror, OpenFoodFacts, Open Prices, analyze-meal Edge
+/// Function).
 ///
 /// Deliberately no package:http. It centralizes three things: a timeout on
 /// every phase (`connectionTimeout` only covers the TCP handshake, so a server
@@ -55,6 +56,17 @@ class HttpTimeoutPolicy {
     response: Duration(seconds: 12),
     body: Duration(seconds: 12),
     total: Duration(seconds: 20),
+  );
+
+  /// Open Prices (shopping list estimate): a community server without an
+  /// SLA. A page holds up to 100 rows (about 340 KB before gzip), so the
+  /// body phase gets room on a slow link; the estimate is optional and fails
+  /// to "n/a" well before a user waits on it.
+  static const HttpTimeoutPolicy openPrices = HttpTimeoutPolicy(
+    connect: Duration(seconds: 5),
+    response: Duration(seconds: 8),
+    body: Duration(seconds: 10),
+    total: Duration(seconds: 15),
   );
 
   /// analyze-meal Edge Function: `close()` covers the image upload plus LLM
