@@ -526,4 +526,47 @@ void main() {
       }
     },
   );
+
+  // Review 2026-10-11 (COACH-3): a conversation whose history failed to load
+  // was left blank. A tab return cleared the banner although nothing was
+  // retried, so neither the hero nor a hint explained the empty area, and
+  // picking the same conversation in the sheet did nothing at all.
+  testWidgets('a tab return keeps the history error of the open chat', (
+    tester,
+  ) async {
+    final coach = _Coach.create();
+    final visible = ValueNotifier<bool>(true);
+    await _mount(tester, coach, visible: visible);
+    coach.historyFails = true;
+    await _switch(tester, 'b');
+    expect(find.text(deL10n.coachErrorHistoryUnavailable), findsOneWidget);
+
+    visible.value = false;
+    await _frames(tester);
+    visible.value = true;
+    await _frames(tester);
+
+    expect(find.byKey(const ValueKey('coach-empty')), findsNothing);
+    expect(
+      find.text(deL10n.coachErrorHistoryUnavailable),
+      findsOneWidget,
+      reason: 'nothing was reloaded, so the empty area still needs its cause',
+    );
+  });
+
+  testWidgets('picking the failed chat again retries its history', (
+    tester,
+  ) async {
+    final coach = _Coach.create();
+    await _mount(tester, coach);
+    coach.historyFails = true;
+    await _switch(tester, 'b');
+    expect(find.text(deL10n.coachErrorHistoryUnavailable), findsOneWidget);
+
+    coach.historyFails = false;
+    await _switch(tester, 'b');
+
+    expect(find.text(deL10n.coachErrorHistoryUnavailable), findsNothing);
+    expect(find.byKey(const ValueKey('coach-empty')), findsOneWidget);
+  });
 }

@@ -1258,6 +1258,24 @@ void main() {
     },
   );
 
+  // Review 2026-10-11 (COACH-3): the banner of the conversation just left
+  // stayed on top of the next one, so B claimed A's failure.
+  testWidgets('a send error of A does not follow the user into B',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question in A');
+    svc.offen.single.completeError(
+      const CoachChatException('Send failed in A.'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Send failed in A.'), findsOneWidget);
+
+    await _wechsleAufSitzung(tester, 'Chat B');
+    expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
+    expect(find.text('Send failed in A.'), findsNothing);
+  });
+
   // Review 2026-10-11 (COACH-2): the open conversation was marked by colour
   // alone, so a screen reader could not tell which one was open.
   testWidgets('the sessions sheet announces the open conversation',

@@ -475,8 +475,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       await _bootstrap();
       return;
     }
-    // The error banner is feedback on an action, not a permanent state.
-    if (mounted && identical(widget.service, svc) && _error != null) {
+    // The error banner is feedback on an action, not a permanent state. A
+    // failed history load is the exception: nothing here reloads it, and
+    // without its banner the conversation is just blank.
+    if (mounted &&
+        identical(widget.service, svc) &&
+        _error != null &&
+        !_historyUnavailable) {
       setState(() => _error = null);
     }
     await _refreshQuota(svc);
@@ -684,19 +689,31 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   ///
   /// A visit revision fences slow loads, including an A→B→A return to the same
   /// session id. The screen stays mounted across switches.
-  Future<void> _switchToSession(String sessionId) async {
+  ///
+  /// [keepNotice] keeps the banner that explains the switch itself.
+  Future<void> _switchToSession(
+    String sessionId, {
+    bool keepNotice = false,
+  }) async {
     final svc = widget.service;
     if (svc == null) return;
-    if (_activeSessionId == sessionId) return;
+    // Picking the open conversation again is the retry for a history that
+    // failed to load; otherwise there is nothing to do.
+    final retry = _activeSessionId == sessionId;
+    if (retry && !_historyUnavailable) return;
     final revision = ++_conversationRevision;
     _streamVorschau.value = '';
     setState(() {
       _loading = true;
       _activeSessionId = sessionId;
-      _messages = const <ChatMessage>[];
-      // The undelivered question belongs to the session being left; its retry
-      // job would otherwise land in the new one.
-      _fehlgeschlagen = null;
+      // A retry keeps what is on screen until the reload answers.
+      if (!retry) {
+        _messages = const <ChatMessage>[];
+        // The undelivered question and the banner belong to the session
+        // being left; the retry job would otherwise land in the new one.
+        _fehlgeschlagen = null;
+        if (!keepNotice) _error = null;
+      }
       // So does a cue still waiting behind the sessions sheet.
       _dropAnswerCue();
     });
@@ -722,6 +739,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
     setState(() {
       _messages = history;
+      // A successful retry answers the history banner.
+      if (retry) _error = null;
       _historyUnavailable = false;
       _loading = false;
     });
@@ -1377,7 +1396,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (!_matchesConversation(svc, angefragt, revision)) return;
     // [_switchToSession] does the full load; the history it fetches already
     // contains both the question and the answer.
-    await _switchToSession(benutzt);
+    await _switchToSession(benutzt, keepNotice: true);
   }
 
   /// Asks the server for the counter after a request that named none: one
