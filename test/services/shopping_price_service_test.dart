@@ -1,0 +1,347 @@
+// The estimate's orchestration (docs/SHOPPING-PRICES.md) over a scripted
+// Open Prices connection: concurrency, budgets, the session cache and its
+// expiry, failures that are never cached, cancellation, and diagnostics.
+// Answers come from the recorded fixtures; no network.
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
+
+import 'package:clock/clock.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:eatova/src/models/shopping_price.dart';
+import 'package:eatova/src/services/crash_reporter.dart';
+import 'package:eatova/src/services/open_prices_api.dart';
+import 'package:eatova/src/services/shopping_price_service.dart';
+
+OpenPricesPage _page(String name) => OpenPricesPage.fromJson(
+  jsonDecode(
+    File('test/services/open_prices_fixtures/$name').readAsStringSync(),
+  ),
+);
+
+final _category = _page('category_page.json');
+final _barcodes = _page('barcodes.json');
+final _tags = [_page('tags_page1.json'), _page('tags_page2.json')];
+const _yogurt = [
+  'en:dairies',
+  'en:fermented-dairy-desserts',
+  'en:yogurts',
+  'en:fruit-yogurts',
+];
+
+/// The recorded answer for [query].
+OpenPricesPage _answer(Map<String, String> query) {
+  if (query['type'] == 'CATEGORY') return _category;
+  if (query.containsKey('product_code__in')) return _barcodes;
+  return _tags[int.parse(query['page']!) - 1];
+}
+
+class _FakeSource implements OpenPricesSource {
+  _FakeSource({this.prices, this.product, this.delay});
+
+  Future<OpenPricesPage> Function(Map<String, String> query)? prices;
+  Future<List<String>?> Function(String code)? product;
+
+  /// Every answer waits this long, so requests overlap.
+  Duration? delay;
+
+  final List<_FakeConnection> connections = [];
+  final List<Map<String, String>> queries = [];
+  final List<String> products = [];
+  int _inFlight = 0;
+  int peak = 0;
+
+  int get requests => queries.length + products.length;
+
+  @override
+  OpenPricesConnection connect() {
+    final connection = _FakeConnection(this);
+    connections.add(connection);
+    return connection;
+  }
+
+  Future<T> _track<T>(Future<T> Function() answer) async {
+    _inFlight++;
+    peak = math.max(peak, _inFlight);
+    try {
+      if (delay case final wait?) await Future<void>.delayed(wait);
+      return await answer();
+    } finally {
+      _inFlight--;
+    }
+  }
+}
+
+class _FakeConnection implements OpenPricesConnection {
+  _FakeConnection(this._source);
+
+  final _FakeSource _source;
+  bool closed = false;
+
+  @override
+  Future<OpenPricesPage> prices(Map<String, String> query) {
+    _source.queries.add(query);
+    return _source._track(
+      () => _source.prices?.call(query) ?? Future.value(_answer(query)),
+    );
+  }
+
+  @override
+  Future<List<String>?> productCategories(String code) {
+    _source.products.add(code);
+    return _source._track(
+      () => _source.product?.call(code) ?? Future.value(_yogurt),
+    );
+  }
+
+  @override
+  void close() => closed = true;
+}
+
+const _list = [
+  PriceRequestLine(
+    id: 'nutella',
+    label: 'Nutella',
+    grams: 30,
+    productCode: '4008400401621',
+  ),
+  PriceRequestLine(
+    id: 'almighurt',
+    label: 'Almighurt Kirsche',
+    grams: 150,
+    productCode: '4002971840209',
+  ),
+  PriceRequestLine(id: 'milch', label: 'Milch', amount: '500 ml'),
+  PriceRequestLine(id: 'bananen', label: 'Bananen', amount: '6'),
+  PriceRequestLine(id: 'salami', label: 'Salami', amount: '200 g'),
+  PriceRequestLine(id: 'salz', label: 'Salz', amount: '1 Prise'),
+];
+
+var _now = DateTime(2026, 10, 11, 8);
+
+Future<T> _at<T>(Future<T> Function() body) =>
+    withClock(Clock(() => _now), body);
+
+Future<Map<String, LinePrice>> _run(
+  ShoppingPriceService service, [
+  List<PriceRequestLine> lines = _list,
+]) => _at(() => service.estimate(lines, region: PriceRegion.germany).result);
+
+OpenPricesShoppingPriceService _service(
+  _FakeSource source, {
+  int maxRequestsPerRun = 16,
+  int sessionLimit = 48,
+}) => OpenPricesShoppingPriceService(
+  source,
+  retryDelay: const Duration(milliseconds: 1),
+  maxRequestsPerRun: maxRequestsPerRun,
+  sessionLimit: sessionLimit,
+);
+
+void main() {
+  setUp(() => _now = DateTime(2026, 10, 11, 8));
+
+  test('at most two requests in flight; at most six product lookups, the '
+      'heaviest first', () async {
+    final source = _FakeSource(
+      delay: const Duration(milliseconds: 5),
+      product: (_) async => null,
+    );
+    final unknown = [
+      for (var i = 1; i <= 8; i++)
+        PriceRequestLine(
+          id: 'x$i',
+          label: 'Produkt $i',
+          grams: i * 10,
+          productCode: '400000000000$i',
+        ),
+    ];
+    final prices = await _run(_service(source), [..._list, ...unknown]);
+    expect(source.peak, 2);
+    expect(source.products, hasLength(6));
+    expect(source.products, isNot(contains('4000000000001')));
+    expect(source.products, isNot(contains('4000000000002')));
+    for (final line in unknown) {
+      expect(prices[line.id], isA<LinePriceNoData>(), reason: line.id);
+    }
+    expect(prices['milch'], isA<LinePriceEstimate>());
+  });
+
+  test('every missing entry goes into one overlap request', () async {
+    final source = _FakeSource();
+    await _run(_service(source));
+    final overlaps = source.queries
+        .where((q) => q.containsKey('product__categories_tags__overlap'))
+        .map((q) => q['product__categories_tags__overlap'])
+        .toSet();
+    expect(overlaps, hasLength(1));
+    expect(
+      overlaps.single!.split(','),
+      unorderedEquals(['en:yogurts', 'en:milks', 'en:bananas', 'en:salami']),
+    );
+    expect(source.requests, 5);
+    expect(source.connections.single.closed, isTrue);
+  });
+
+  test('the per-run budget stops further requests; what it misses is '
+      'unavailable', () async {
+    final source = _FakeSource();
+    final prices = await _run(_service(source, maxRequestsPerRun: 2));
+    expect(source.requests, 2);
+    expect(prices['nutella'], isA<LinePriceEstimate>());
+    expect(prices['almighurt'], isA<LinePriceUnavailable>());
+    expect(prices['milch'], isA<LinePriceUnavailable>());
+    expect(prices['salz'], isA<LinePriceSkipped>());
+  });
+
+  test('the same list again costs nothing, no-data results included', () async {
+    final source = _FakeSource();
+    final service = _service(source);
+    final first = await _run(service);
+    expect(first['salami'], isA<LinePriceNoData>());
+    final requests = source.requests;
+    final run = _at(
+      () async => service.estimate(_list, region: PriceRegion.germany),
+    );
+    final second = await run;
+    expect(second.initial.keys, unorderedEquals(_list.map((l) => l.id)));
+    expect(await second.result, first);
+    expect(source.requests, requests);
+    expect(source.connections, hasLength(1));
+  });
+
+  test('the cache holds for one day and under twelve hours', () async {
+    final source = _FakeSource();
+    final service = _service(source);
+    await _run(service);
+    final requests = source.requests;
+
+    _now = DateTime(2026, 10, 11, 19, 59);
+    await _run(service);
+    expect(source.requests, requests);
+
+    _now = DateTime(2026, 10, 11, 20);
+    await _run(service);
+    expect(source.requests, greaterThan(requests));
+
+    // Written at 23:00, stale after midnight.
+    final late = source.requests;
+    _now = DateTime(2026, 10, 12, 0, 30);
+    await _run(service);
+    expect(source.requests, greaterThan(late));
+    expect(
+      source.queries.last['date__gte'],
+      '2026-08-31',
+      reason: 'the window moves with the day',
+    );
+  });
+
+  test('failures are never cached', () async {
+    var fail = true;
+    final source = _FakeSource(
+      prices: (query) async {
+        if (fail) throw OpenPricesHttpException(503);
+        return _answer(query);
+      },
+    );
+    final service = _service(source);
+    final first = await _run(service);
+    expect(first['milch'], isA<LinePriceUnavailable>());
+    // Two attempts per request: the retry.
+    expect(source.queries.where((q) => q['type'] == 'CATEGORY'), hasLength(2));
+    fail = false;
+    final second = await _run(service);
+    expect(second['milch'], isA<LinePriceEstimate>());
+  });
+
+  test(
+    'a FormatException is not retried and reported once per session',
+    () async {
+      final reports = <String?>[];
+      CrashReporter.debugSentrySink = (_, _, context) => reports.add(context);
+      addTearDown(() => CrashReporter.debugSentrySink = null);
+      final source = _FakeSource(
+        prices: (_) async => throw const OpenPricesFormatException(),
+      );
+      final service = _service(source);
+      final prices = await _run(service);
+      expect(prices['bananen'], isA<LinePriceUnavailable>());
+      expect(
+        source.queries.where((q) => q['type'] == 'CATEGORY'),
+        hasLength(1),
+      );
+      await _run(service);
+      expect(reports, ['open_prices']);
+    },
+  );
+
+  test('cancel closes the connection and ends the run as cancelled', () async {
+    final hang = Completer<OpenPricesPage>();
+    final source = _FakeSource(prices: (_) => hang.future);
+    final run = await _at(
+      () async => _service(source).estimate(_list, region: PriceRegion.germany),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(source.connections.single.closed, isFalse);
+    run.cancel();
+    expect(source.connections.single.closed, isTrue);
+    await expectLater(run.result, throwsA(isA<ShoppingPriceCancelled>()));
+    // A late answer changes nothing.
+    hang.complete(_category);
+    run.cancel();
+  });
+
+  test('dispose cancels the run in flight', () async {
+    final source = _FakeSource(
+      prices: (_) => Completer<OpenPricesPage>().future,
+    );
+    final service = _service(source);
+    final run = await _at(
+      () async => service.estimate(_list, region: PriceRegion.germany),
+    );
+    service.dispose();
+    await expectLater(run.result, throwsA(isA<ShoppingPriceCancelled>()));
+    expect(source.connections.single.closed, isTrue);
+  });
+
+  test('the session limit caps requests across runs', () async {
+    final source = _FakeSource();
+    final service = _service(source, sessionLimit: 3);
+    final prices = await _run(service);
+    expect(source.requests, 3);
+    expect(prices.values.whereType<LinePriceUnavailable>(), isNotEmpty);
+    await _run(service);
+    expect(source.requests, 3);
+    // Ten minutes later the window has room again.
+    _now = _now.add(const Duration(minutes: 10));
+    await _run(service);
+    expect(source.requests, greaterThan(3));
+  });
+
+  test('lines settled locally open no connection', () async {
+    final source = _FakeSource();
+    final run = await _at(
+      () async => _service(source).estimate(const [
+        PriceRequestLine(id: 'a', label: 'Salz', amount: '1 Prise'),
+        PriceRequestLine(id: 'b', label: 'Brokkoli'),
+        PriceRequestLine(id: 'c', label: 'Spinat', amount: '1 Handvoll'),
+        PriceRequestLine(id: 'd', label: 'Kokosmilch', amount: '1 Dose'),
+        // A barcode Open Prices cannot know.
+        PriceRequestLine(
+          id: 'e',
+          label: 'Hausmischung',
+          grams: 50,
+          productCode: 'manual-1',
+        ),
+      ], region: PriceRegion.germany),
+    );
+    expect(run.initial, hasLength(5));
+    expect(run.initial['a'], isA<LinePriceSkipped>());
+    expect(run.initial['b'], isA<LinePriceNoData>());
+    expect(await run.result, run.initial);
+    expect(source.connections, isEmpty);
+  });
+}
