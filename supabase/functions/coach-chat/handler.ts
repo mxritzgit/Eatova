@@ -571,7 +571,7 @@ const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "VISUAL INPUT RULES", "CRISIS RUL
 const SHINGLE_EXEMPT_LINES = ["4. NO topics"];
 
 /// The crisis helpline in any spacing or separators. A reply the leak net cuts
-/// that carried it was (also) crisis guidance.
+/// that carried it outside a recital of the prompt was (also) crisis guidance.
 const CRISIS_HELPLINE_RE = /0800[\s./-]*111[\s./-]*0[\s./-]*111/;
 
 /// A section header of the answer prompt: ALL-CAPS first word plus a trailing
@@ -615,6 +615,52 @@ function buildPromptShingles(): Set<string> {
 }
 
 const PROMPT_SHINGLES = buildPromptShingles();
+
+/// Seven-word windows of the prompt lines that carry the helpline: the CRISIS
+/// RULE line that orders it and the reference reply, whose marker is dropped
+/// so a recital without it matches too. `order` keeps the ordering line's
+/// windows without a number: a crisis reply may copy "the German helpline
+/// number 0800 111 0 111", only a recital copies the instruction around it.
+function buildHelplineWindows(): { all: Set<string>; order: Set<string> } {
+  const all = new Set<string>();
+  const order = new Set<string>();
+  for (const raw of ANSWER_SYSTEM_PROMPT.split("\n")) {
+    const line = raw.trim();
+    if (!CRISIS_HELPLINE_RE.test(line)) continue;
+    const reference = line.startsWith(REFUSAL_MARKER);
+    const words = leakWords(reference ? line.slice(REFUSAL_MARKER.length) : line);
+    for (let i = 0; i + SHINGLE_WORDS <= words.length; i++) {
+      const window = words.slice(i, i + SHINGLE_WORDS);
+      all.add(window.join(" "));
+      if (!reference && !window.some((word) => /\d/.test(word))) order.add(window.join(" "));
+    }
+  }
+  return { all, order };
+}
+
+const HELPLINE_WINDOWS = buildHelplineWindows();
+
+/// Does a reply the leak net cut carry the helpline as crisis guidance of its
+/// own? A dump of the CRISIS RULE recites the number too, and someone who
+/// asked for the prompt gets the leak text, not crisis signposting (W1). Once
+/// a reply recites the line that orders the number, the recited helpline lines
+/// are struck before the test. Without that line, the reference wording IS the
+/// crisis reply the rule asks for and keeps its number.
+function carriesOwnHelpline(text: string): boolean {
+  const words = leakWords(text);
+  const windows: string[] = [];
+  for (let i = 0; i + SHINGLE_WORDS <= words.length; i++) {
+    windows.push(words.slice(i, i + SHINGLE_WORDS).join(" "));
+  }
+  if (windows.some((window) => HELPLINE_WINDOWS.order.has(window))) {
+    // "|" is no separator CRISIS_HELPLINE_RE accepts, so struck words cannot
+    // join two remaining fragments into a number.
+    windows.forEach((window, i) => {
+      if (HELPLINE_WINDOWS.all.has(window)) words.fill("|", i, i + SHINGLE_WORDS);
+    });
+  }
+  return CRISIS_HELPLINE_RE.test(words.join(" "));
+}
 
 /// Does any window of `words` from `from` on reproduce a run of the prompt?
 /// The offset is what keeps the streamed path linear: its text only grows, so
@@ -731,8 +777,9 @@ function finalizeAnswer(
   if (leaksPrompt(reply)) {
     refusal = true;
     // The cut stays complete, so an appended helpline cannot carry a dump
-    // through; a cut crisis reply keeps the number via the crisis text.
-    reply = refusalForReason(CRISIS_HELPLINE_RE.test(reply) ? "self_harm" : "prompt_leak", locale);
+    // through; a cut crisis reply keeps the number via the crisis text, a
+    // recited CRISIS RULE does not count as one.
+    reply = refusalForReason(carriesOwnHelpline(reply) ? "self_harm" : "prompt_leak", locale);
   }
   if (reply.length === 0) {
     if (hadRefusalMarker) {

@@ -55,6 +55,8 @@ const PROVIDER_REFUSAL_REPLY_EN =
   "helplines for your country. I'm happy to help with training and nutrition.";
 const PROMPT_LEAK_REPLY =
   "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
+const PROMPT_LEAK_REPLY_EN =
+  "That's not something I should share. Ask me about your next workout or about nutrition instead.";
 
 const RECIPE_JSON = JSON.stringify({
   title: "Huehnchenauflauf",
@@ -1385,6 +1387,47 @@ Deno.test("COACH-1: ein Leck mit der Krisennummer wird zum Krisen-Katalogtext, n
       assertEquals(stub.assistantRows()[0].content, SELF_HARM_REPLY_EN, `${nummer}: gespeicherter Text`);
     } finally {
       stub.restore();
+    }
+  }
+});
+
+Deno.test("EDGE-FUNCTIONS-1: ein gestreamter Prompt-Dump mit der Krisenregel bekommt den Leck-Text", async () => {
+  // The CRISIS RULE carries the helpline, so a dump that reaches it used to
+  // end as crisis signposting for someone who asked for the prompt (W1).
+  const erfasst = installFetch();
+  let prompt: string;
+  try {
+    await (await handleRequest(makeRequest({ message: FRAGE }, true))).text();
+    prompt = String((erfasst.answerBodies()[0].system as JsonRecord[])[0].text);
+  } finally {
+    erfasst.restore();
+  }
+  assert(prompt.includes("0800 111 0 111"), "der Prompt traegt die Nummer");
+  const dumps = [
+    { was: "ganzer Prompt", text: prompt },
+    {
+      was: "WHAT YOU DO NOT DO bis CRISIS RULE",
+      text: prompt.slice(prompt.indexOf("WHAT YOU DO NOT DO"), prompt.indexOf("\nSTYLE:")),
+    },
+  ];
+  for (const { was, text } of dumps) {
+    for (const { locale, expected } of [
+      { locale: "de", expected: PROMPT_LEAK_REPLY },
+      { locale: "en", expected: PROMPT_LEAK_REPLY_EN },
+    ]) {
+      // Line by line, the way a model recites.
+      const stub = installFetch({ answerDeltas: text.split("\n").map((zeile) => `${zeile}\n`) });
+      try {
+        const res = await handleRequest(makeRequest({ message: FRAGE, locale }, true));
+        const events = parseSse(await res.text());
+        assertEquals(deltaTexte(events).length, 0, `${was}, ${locale}: kein delta`);
+        const done = events[events.length - 1].data;
+        assertEquals(done.reply, expected, `${was}, ${locale}: Leck-Text statt Krisentext`);
+        assertEquals(done.refusal, true, `${was}, ${locale}: refusal`);
+        assertEquals(stub.assistantRows()[0].content, expected, `${was}, ${locale}: gespeicherter Text`);
+      } finally {
+        stub.restore();
+      }
     }
   }
 });
