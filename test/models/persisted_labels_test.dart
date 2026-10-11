@@ -372,6 +372,66 @@ void main() {
       );
     });
 
+    test('eine berechnete Portion steht im Singular, in beiden Sprachen', () {
+      final recipe = _ownRecipe(
+        title: 'Linsensuppe',
+        structured: <RecipeIngredient>[
+          RecipeIngredient(
+            name: 'Linsen',
+            grams: 200,
+            per100g: const RecipeNutrition(
+              caloriesKcal: 120,
+              proteinG: 9,
+              carbsG: 20,
+              fatG: 1,
+            ),
+          ),
+        ],
+      );
+      expect(note(recipe, 1, enL10n), startsWith('1 serving · '));
+      expect(note(recipe, 1, deL10n), startsWith('1 Portion · '));
+      expect(note(recipe, 2, enL10n), startsWith('2 servings · '));
+      expect(note(recipe, 1.5, deL10n), startsWith('1,5 Portionen · '));
+      // The new English singular resolves into German and back.
+      final english = recipe.toMealResultForServings(1, enL10n);
+      expect(
+        english.resolvedPortionNotes(deL10n),
+        note(recipe, 1, deL10n),
+      );
+      expect(english.resolvedPortionNotes(enL10n), english.portionNotes);
+    });
+
+    test('alte Plural-Notizen fuer eine Portion lesen sich im Singular', () {
+      // Written before the plural form and still stored on server/device.
+      const oldDe =
+          '1 Portionen · Eigenes Rezept Selbst angelegt. Werte beruhen auf '
+          'deinen Angaben.';
+      const oldEn =
+          '1 servings · Your recipe Self-added. Values are based on what you '
+          'entered.';
+      const newDe =
+          '1 Portion · Eigenes Rezept Selbst angelegt. Werte beruhen auf '
+          'deinen Angaben.';
+      const newEn =
+          '1 serving · Your recipe Self-added. Values are based on what you '
+          'entered.';
+      for (final raw in const <String>[oldDe, oldEn]) {
+        expect(_meal(notes: raw, source: 'recipe').resolvedPortionNotes(enL10n),
+            newEn, reason: raw);
+        expect(_meal(notes: raw, source: 'recipe').resolvedPortionNotes(deL10n),
+            newDe, reason: raw);
+      }
+      expect(
+        _meal(
+          notes: '2 Portionen · Eigenes Rezept Selbst angelegt. Werte beruhen '
+              'auf deinen Angaben.',
+          source: 'recipe',
+        ).resolvedPortionNotes(enL10n),
+        '2 servings · Your recipe Self-added. Values are based on what you '
+        'entered.',
+      );
+    });
+
     test('Rezepttext des Nutzers und des Katalogs bleibt', () {
       final own = _ownRecipe(title: 'Suppe').copyWith(
         portion: '1 Teller',

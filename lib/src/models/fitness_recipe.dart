@@ -668,7 +668,7 @@ class FitnessRecipe {
         ? '${servings.round()}' : '$servings')
         .replaceAll('.', sprache.localeName == 'de' ? ',' : '.');
     final portionNote = hasStructuredIngredients || servings != 1
-        ? sprache.recipeCalcServingsCount(servingText)
+        ? sprache.recipeCalcServingsCount(servings, servingText)
         : displayPortion(sprache);
     // Structured recipes have no measured cooked yield in this version.
     final grams = hasStructuredIngredients ? 0 : estimatedGrams * servings;

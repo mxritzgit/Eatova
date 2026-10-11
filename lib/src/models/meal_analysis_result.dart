@@ -438,12 +438,14 @@ abstract final class MealResultRecipeNote {
       text = '${l10n.foodPortionFallback} · ${text.substring(portion.length)}';
       matched = true;
     } else if (servings != null) {
-      final count = servings[1]!.replaceAll(
+      final number = servings[1] ?? '1';
+      final count = number.replaceAll(
         RegExp('[.,]'),
         l10n.localeName == 'de' ? ',' : '.',
       );
+      final value = double.parse(number.replaceAll(',', '.'));
       text =
-          '${l10n.recipeCalcServingsCount(count)} · '
+          '${l10n.recipeCalcServingsCount(value, count)} · '
           '${text.substring(servings.end)}';
       matched = true;
     }
@@ -464,12 +466,16 @@ abstract final class MealResultRecipeNote {
     return matched ? text : null;
   }
 
-  /// `<count> Portionen · ` / `<count> servings · ` from the ARB template.
+  /// `<count> Portionen · ` / `<count> servings · ` from the ARB template, or
+  /// its singular (no group 1). Notes logged before the singular existed read
+  /// `1 Portionen` / `1 servings` and match the plural. The German singular
+  /// equals [AppLocalizations.foodPortionFallback] and resolves as that.
   static RegExp _servingsPrefix(AppLocalizations source) {
-    final parts = source.recipeCalcServingsCount('\u0000').split('\u0000');
+    final parts = source.recipeCalcServingsCount(2, '\u0000').split('\u0000');
+    final one = source.recipeCalcServingsCount(1, '1');
     return RegExp(
-      '^${RegExp.escape(parts.first)}(\\d+(?:[.,]\\d+)?)'
-      '${RegExp.escape(parts.last)} · ',
+      '^(?:${RegExp.escape(parts.first)}(\\d+(?:[.,]\\d+)?)'
+      '${RegExp.escape(parts.last)}|${RegExp.escape(one)}) · ',
     );
   }
 }
