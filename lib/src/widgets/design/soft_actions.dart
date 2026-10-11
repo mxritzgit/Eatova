@@ -12,7 +12,9 @@ enum SoftPillTone {
   /// Accent tint with accent text: "do something here" (adjust, edit, paste).
   accent,
 
-  /// Quiet field fill with muted ink: an alternative path (change text).
+  /// Quiet [AppTokens.softFill] with muted ink: an alternative path (change
+  /// text). That fill holds on the sheet ground too; `surf2` vanished there
+  /// in light mode (1.05:1).
   neutral,
 
   /// Danger tint with danger text: delete. Never filled, so it cannot be
@@ -49,7 +51,7 @@ class SoftPillButton extends StatelessWidget {
     final t = context.t;
     final (fill, ink) = switch (tone) {
       SoftPillTone.accent => (t.accentTint, t.accentText),
-      SoftPillTone.neutral => (t.surf2, t.inkMuted),
+      SoftPillTone.neutral => (t.softFill, t.inkMuted),
       SoftPillTone.danger => (t.danger.withValues(alpha: 0.12), t.danger),
     };
     final enabled = onTap != null;

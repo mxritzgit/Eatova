@@ -353,4 +353,153 @@ void main() {
       ),
     );
   });
+
+  // Design review 2026-10-11: one close control and one title for every
+  // sheet header. The old `surf2` disc measured 1.05:1 on the light sheet
+  // ground and read as a bare glyph.
+  group('SheetCloseButton', () {
+    for (final brightness in Brightness.values) {
+      testWidgets('surf disc with lineStrong ring, 44 in 48 ($brightness)', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          designHarness(
+            Align(
+              alignment: Alignment.topLeft,
+              child: SheetCloseButton(
+                buttonKey: const ValueKey('close'),
+                onTap: () {},
+              ),
+            ),
+            brightness: brightness,
+          ),
+        );
+        final t = brightness == Brightness.light
+            ? AppTokens.light
+            : AppTokens.dark;
+        final button = find.byKey(const ValueKey('close'));
+        expect(tester.widget(button), isA<IconButton>());
+        expect(tester.getSize(button), const Size(48, 48));
+        final style = tester.widget<IconButton>(button).style!;
+        expect(style.backgroundColor!.resolve(<WidgetState>{}), t.surf);
+        expect(style.foregroundColor!.resolve(<WidgetState>{}), t.inkMuted);
+        expect(style.fixedSize!.resolve(<WidgetState>{}), const Size(44, 44));
+        final shape = style.shape!.resolve(<WidgetState>{})! as CircleBorder;
+        expect(shape.side.color, t.lineStrong);
+        // The disc itself must differ from the sheet ground (bg).
+        expect(t.surf, isNot(t.bg));
+      });
+    }
+
+    testWidgets('null onTap is disabled; the default tooltip is Close', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        designHarness(
+          const SheetCloseButton(buttonKey: ValueKey('close'), onTap: null),
+          locale: const Locale('en'),
+        ),
+      );
+      final button = tester.widget<IconButton>(
+        find.byKey(const ValueKey('close')),
+      );
+      expect(button.onPressed, isNull);
+      expect(button.tooltip, 'Close');
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('close'))),
+        isSemantics(
+          tooltip: 'Close',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: false,
+        ),
+      );
+      semantics.dispose();
+    });
+  });
+
+  group('SheetHeader', () {
+    testWidgets('title is a level-1 heading at 24 (compact 20)', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      for (final compact in <bool>[false, true]) {
+        await tester.pumpWidget(
+          designHarness(
+            SheetHeader(
+              title: 'Tag waehlen',
+              subtitle: 'Fuer das Ernaehrungstagebuch',
+              titleKey: const ValueKey('title'),
+              compact: compact,
+              onClose: () {},
+            ),
+          ),
+        );
+        final title = tester.widget<Text>(find.byKey(const ValueKey('title')));
+        expect(title.style!.fontSize, compact ? 20 : 24);
+        final node = tester.getSemantics(find.byKey(const ValueKey('title')));
+        expect(node, isSemantics(label: 'Tag waehlen', isHeader: true));
+        expect(node.headingLevel, 1);
+      }
+      semantics.dispose();
+    });
+
+    testWidgets('close: tap, disabled while busy, hidden without onClose', (
+      tester,
+    ) async {
+      var closed = 0;
+      Future<void> pump({bool enabled = true, bool withClose = true}) =>
+          tester.pumpWidget(
+            designHarness(
+              SheetHeader(
+                title: 'Titel',
+                closeKey: const ValueKey('close'),
+                closeEnabled: enabled,
+                onClose: withClose ? () => closed++ : null,
+              ),
+            ),
+          );
+      await pump();
+      await tester.tap(find.byKey(const ValueKey('close')));
+      expect(closed, 1);
+
+      await pump(enabled: false);
+      expect(
+        tester.widget<IconButton>(find.byKey(const ValueKey('close'))).onPressed,
+        isNull,
+      );
+      expect(find.byType(SheetCloseButton), findsOneWidget);
+
+      await pump(withClose: false);
+      expect(find.byType(SheetCloseButton), findsNothing);
+    });
+
+    testWidgets('a wrapping title keeps the close button at the top', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320 * 3, 700 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        designHarness(
+          SheetHeader(
+            title: 'Mahlzeit mit einem sehr langen Namen bearbeiten',
+            subtitle: 'Haehnchen mit Reis und Brokkoli',
+            leading: const SizedBox.square(dimension: 40),
+            closeKey: const ValueKey('close'),
+            onClose: () {},
+            padding: EdgeInsets.zero,
+          ),
+          textScaler: const TextScaler.linear(2),
+          scrollable: true,
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      final header = tester.getRect(find.byType(SheetHeader));
+      final close = tester.getRect(find.byKey(const ValueKey('close')));
+      expect(close.top, header.top);
+      expect(header.height, greaterThan(close.height * 2));
+    });
+  });
 }

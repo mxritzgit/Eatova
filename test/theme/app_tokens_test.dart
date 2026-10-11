@@ -208,6 +208,9 @@ void main() {
       expect(t.surf, const Color(0xFF131318));
       expect(t.surfRaised, const Color(0xFF1B1A22));
       expect(t.surf2, const Color(0xFF1F1E27));
+      // The neutral pill / step-track fill keeps the dark look it had as
+      // surf2; only light got a deeper tone.
+      expect(t.softFill, t.surf2);
       expect(t.surfWell, const Color(0xFF16151C));
       // A translucent tint (the settings pill track relies on that), which
       // lands on the design's track tone on a card.
@@ -480,6 +483,22 @@ void main() {
             greaterThanOrEqualTo(4.5));
         expect(_contrast(t.onAccentMuted, t.accentFill),
             greaterThanOrEqualTo(4.5));
+      });
+
+      // Neutral soft pills and step tracks sit on the sheet ground as often
+      // as on a card. `surf2` measured 1.05:1 on the light `bg` and vanished
+      // (design review 2026-10-11); dark keeps its value unchanged.
+      test('$modus: softFill hebt sich von Grund und Karte ab', () {
+        // The sheet ground is the case that failed; on a card dark keeps
+        // its old surf2 step (1.12:1).
+        expect(_contrast(t.softFill, t.bg), greaterThanOrEqualTo(1.2),
+            reason: '$modus: softFill auf bg');
+        expect(_contrast(t.softFill, t.surf), greaterThanOrEqualTo(1.1),
+            reason: '$modus: softFill auf surf');
+        expect(_contrast(t.inkMuted, t.softFill), greaterThanOrEqualTo(4.5),
+            reason: '$modus: Pillen-Label auf softFill');
+        expect(_contrast(t.ink2, t.softFill), greaterThanOrEqualTo(4.5),
+            reason: '$modus: ink2 auf softFill');
       });
 
       test('$modus: die inaktiven Nav-Items bleiben auf dem Glas lesbar', () {

@@ -4,15 +4,246 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/app_tokens.dart';
+import '../common/lively.dart';
 import '../common/motion.dart';
 import 'controls.dart';
 import 'surfaces.dart';
 
 // ---------------------------------------------------------------------------
-// SHEETS — scaffold, input field, handle and the opener.
+// SHEETS — header, scaffold, input field, handle and the opener.
 //
 // Geometry 1:1 from the design mock; colors from [AppTokens].
 // ---------------------------------------------------------------------------
+
+/// The ONE close control of a sheet header: a 44 px [AppTokens.surf] disc
+/// with a 1 px [AppTokens.lineStrong] ring and an [AppTokens.inkMuted] glyph,
+/// drawn inside Material's 48 px touch target — the Food tab's round header
+/// button. The ring keeps it visible on the sheet ground in light mode,
+/// where the old `surf2` disc measured 1.05:1.
+///
+/// A null [onTap] renders the disabled state (e.g. while saving).
+class SheetCloseButton extends StatelessWidget {
+  const SheetCloseButton({
+    super.key,
+    required this.onTap,
+    this.buttonKey,
+    this.tooltip,
+    this.icon = Icons.close_rounded,
+  });
+
+  /// Visible diameter; the touch target is Material's 48 px.
+  static const double size = 44;
+
+  final VoidCallback? onTap;
+
+  /// Goes on the inner [IconButton], so a test can read `onPressed` by key.
+  final Key? buttonKey;
+
+  /// Tooltip and spoken name; null is Material's localized "Close".
+  final String? tooltip;
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return PressScale(
+      enabled: onTap != null,
+      child: IconButton(
+        key: buttonKey,
+        onPressed: onTap,
+        tooltip:
+            tooltip ?? MaterialLocalizations.of(context).closeButtonTooltip,
+        style: IconButton.styleFrom(
+          backgroundColor: t.surf,
+          foregroundColor: t.inkMuted,
+          disabledBackgroundColor: t.surf,
+          disabledForegroundColor: t.inkDisabled,
+          fixedSize: const Size.square(size),
+          minimumSize: const Size.square(size),
+          padding: EdgeInsets.zero,
+          shape: CircleBorder(side: BorderSide(color: t.lineStrong)),
+        ),
+        icon: Icon(icon, size: 20),
+      ),
+    );
+  }
+}
+
+/// Size of a sheet's level-1 title; [kSheetTitleCompactSize] where the
+/// height belongs to the content (camera and scanner viewfinders).
+const double kSheetTitleSize = 24;
+const double kSheetTitleCompactSize = 20;
+
+/// The style of a sheet's level-1 title, for headers that lay it out
+/// themselves; [SheetTitle] wraps it with the heading semantics.
+TextStyle sheetTitleStyle(AppTokens t, {bool compact = false}) =>
+    AppType.display(
+      compact ? kSheetTitleCompactSize : kSheetTitleSize,
+      color: t.ink,
+      height: 1.15,
+    );
+
+/// A sheet's title: [sheetTitleStyle], announced as a level-1 heading.
+class SheetTitle extends StatelessWidget {
+  const SheetTitle(
+    this.text, {
+    super.key,
+    this.compact = false,
+    this.textKey,
+    this.textScaler,
+  });
+
+  final String text;
+  final bool compact;
+
+  /// Goes on the inner [Text] (tests read its style by key).
+  final Key? textKey;
+
+  /// A clamp for long single words at large text, e.g.
+  /// [AppType.pageTitleScaler].
+  final TextScaler? textScaler;
+
+  @override
+  Widget build(BuildContext context) => HeadingSemantics(
+    level: 1,
+    child: Text(
+      text,
+      key: textKey,
+      textScaler: textScaler,
+      style: sheetTitleStyle(context.t, compact: compact),
+    ),
+  );
+}
+
+/// The header row of a sheet: optional [leading] tile, an optional
+/// [eyebrow] line, the [SheetTitle], an optional [subtitle] and the
+/// [SheetCloseButton].
+///
+/// Top-aligned, so a title that wraps at large text never pushes the close
+/// button down; a short block is centred on the 48 px button. The default
+/// right padding is 2 px short of the 20 px gutter because the 44 px ring
+/// sits inside its 48 px target, so the ring lines up with the content.
+class SheetHeader extends StatelessWidget {
+  const SheetHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.subtitleMaxLines,
+    this.eyebrow,
+    this.leading,
+    this.onClose,
+    this.closeEnabled = true,
+    this.closeKey,
+    this.closeTooltip,
+    this.titleKey,
+    this.titleScaler,
+    this.compact = false,
+    this.padding = defaultPadding,
+  });
+
+  /// [SheetHeader]'s default padding.
+  static const EdgeInsets defaultPadding = EdgeInsets.fromLTRB(
+    20,
+    4,
+    18,
+    14,
+  );
+
+  final String title;
+  final String? subtitle;
+
+  /// Caps the subtitle (ellipsis), e.g. a meal name under "Edit meal".
+  final int? subtitleMaxLines;
+
+  /// A small line above the title (the slot of a review sheet).
+  final Widget? eyebrow;
+
+  /// A tile in front of the text, centred on the first 48 px.
+  final Widget? leading;
+
+  /// Null hides the close button.
+  final VoidCallback? onClose;
+
+  /// False keeps the button visible but disabled (e.g. while saving).
+  final bool closeEnabled;
+
+  /// Goes on the close button's [IconButton].
+  final Key? closeKey;
+  final String? closeTooltip;
+  final Key? titleKey;
+  final TextScaler? titleScaler;
+  final bool compact;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final close = onClose;
+    return Padding(
+      padding: padding,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (leading != null) ...[
+            SizedBox(
+              height: kMinInteractiveDimension,
+              child: Center(child: leading),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: kMinInteractiveDimension,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (eyebrow != null) ...[
+                    eyebrow!,
+                    const SizedBox(height: 2),
+                  ],
+                  SheetTitle(
+                    title,
+                    compact: compact,
+                    textKey: titleKey,
+                    textScaler: titleScaler,
+                  ),
+                  if (subtitle != null && subtitle!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle!,
+                      maxLines: subtitleMaxLines,
+                      overflow: subtitleMaxLines == null
+                          ? null
+                          : TextOverflow.ellipsis,
+                      style: AppType.ui(
+                        13,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (close != null) ...[
+            const SizedBox(width: 8),
+            SheetCloseButton(
+              buttonKey: closeKey,
+              tooltip: closeTooltip,
+              onTap: closeEnabled ? close : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 /// A bottom sheet's inside: title, line, fields, one action at the foot.
 class SheetScaffold extends StatelessWidget {
