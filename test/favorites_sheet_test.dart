@@ -63,6 +63,23 @@ String _titel(WidgetTester tester) =>
     tester.widget<Text>(find.byKey(const ValueKey('favorites-sheet-title')))
         .data!;
 
+/// The header: "Favoriten" and, under it, how many are pinned (the add
+/// sheet's Favorites row says it the same way). An empty sheet has no count
+/// line; its empty state says it.
+void _expectKopf(WidgetTester tester, int gepinnt, {String? reason}) {
+  expect(_titel(tester), 'Favoriten');
+  for (var n = 0; n <= 5; n++) {
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('favorites-sheet')),
+        matching: find.text('$n gespeichert'),
+      ),
+      n == gepinnt && n > 0 ? findsOneWidget : findsNothing,
+      reason: reason,
+    );
+  }
+}
+
 Finder _zeile(int index) => find.byKey(ValueKey('favorites-sheet-item-$index'));
 
 Finder _textInZeile(int index, String text) =>
@@ -95,7 +112,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('favorites-sheet')), findsOneWidget);
-    expect(_titel(tester), 'Favoriten (3)');
+    _expectKopf(tester, 3);
     expect(_textInZeile(0, 'Haferdrink'), findsOneWidget);
     expect(_textInZeile(1, 'Skyr'), findsOneWidget);
     expect(_textInZeile(2, 'Apfel'), findsOneWidget);
@@ -124,8 +141,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(_textInZeile(0, 'Haferdrink'), findsOneWidget);
     expect(find.text('Skyr'), findsNothing);
-    expect(_titel(tester), 'Favoriten (2)',
-        reason: 'der Zähler zählt gepinnte, nicht Treffer');
+    _expectKopf(tester, 2, reason: 'der Zähler zählt gepinnte, nicht Treffer');
 
     await tester.enterText(suche, 'xyz');
     await tester.pumpAndSettle();
@@ -153,7 +169,7 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
-    expect(_titel(tester), 'Favoriten (0)');
+    _expectKopf(tester, 0);
     expect(find.byKey(const ValueKey('favorites-sheet-empty')), findsOneWidget);
     expect(find.textContaining('Noch keine Favoriten'), findsOneWidget);
     expect(_zeile(0), findsNothing);
@@ -231,7 +247,7 @@ void main() {
       onUnpin: entpinnt.add,
     )));
     await tester.pumpAndSettle();
-    expect(_titel(tester), 'Favoriten (2)');
+    _expectKopf(tester, 2);
 
     await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
     await tester.pump();
@@ -241,7 +257,7 @@ void main() {
     expect(find.text('Favorit entfernt'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 300));
-    expect(_titel(tester), 'Favoriten (1)');
+    _expectKopf(tester, 1);
     expect(find.text('Haferdrink'), findsNothing);
     expect(_textInZeile(0, 'Skyr'), findsOneWidget);
     expect(_zeile(1), findsNothing);
@@ -251,7 +267,7 @@ void main() {
     expect(find.text('Favorit entfernt'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(_titel(tester), 'Favoriten (0)');
+    _expectKopf(tester, 0);
     expect(find.byKey(const ValueKey('favorites-sheet-empty')), findsOneWidget);
 
     await _timerAblaufen(tester);

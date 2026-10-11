@@ -37,6 +37,7 @@ class MealSuggestionItem extends StatefulWidget {
     this.productPresentation = false,
     this.quickAddSlotLabel,
     this.quickAddKey,
+    this.removeButtonKey,
   });
 
   final MealAnalysisResult result;
@@ -45,8 +46,14 @@ class MealSuggestionItem extends StatefulWidget {
   final ValueChanged<MealAnalysisResult> onAdd;
 
   final bool justAdded;
+
+  /// Drops a recent or a favorite; offered in the open panel, so the row's
+  /// one trailing X stays the "already added" rows' diary delete.
   final VoidCallback? onRemove;
   final Key? addButtonKey;
+
+  /// Goes on the panel's remove action.
+  final Key? removeButtonKey;
 
   /// Whether this item is currently favorited (filled heart).
   final bool isFavorite;
@@ -225,13 +232,13 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
         expanded: widget.expanded,
         justAdded: widget.justAdded,
         onTap: widget.onTap,
-        onRemove: widget.onRemove,
       );
     }
 
-    // Secondary actions live in the open panel, so the row keeps ONE icon:
-    // a recent keeps its X in the row and pins from here; a pinned favorite
-    // unpins with its heart and is removed from here.
+    // Secondary actions live in the open panel. A recent's row has no icon
+    // at all: its X looked exactly like "delete diary entry" on the rows
+    // above, so forgetting it and pinning it both happen here. A pinned
+    // favorite unpins with its heart and is removed from here.
     final panelActions = <Widget>[
       if (!widget.savedPresentation &&
           !widget.productPresentation &&
@@ -249,8 +256,18 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
         ),
       if (widget.savedPresentation && widget.onRemove != null)
         _PanelAction(
+          key: widget.removeButtonKey,
           icon: Icons.delete_outline_rounded,
           label: l10n.foodRemoveTooltip,
+          onTap: widget.onRemove!,
+        ),
+      if (!widget.savedPresentation &&
+          !widget.productPresentation &&
+          widget.onRemove != null)
+        _PanelAction(
+          key: widget.removeButtonKey,
+          icon: Icons.history_toggle_off_rounded,
+          label: l10n.foodRemoveFromRecents,
           onTap: widget.onRemove!,
         ),
     ];
@@ -308,7 +325,8 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
   }
 }
 
-/// A recent: name, diary amount, kcal, and the X that drops it from recents.
+/// A recent: name, diary amount and kcal. Dropping it from recents lives in
+/// the open panel.
 class _RecentHeader extends StatelessWidget {
   const _RecentHeader({
     required this.result,
@@ -316,7 +334,6 @@ class _RecentHeader extends StatelessWidget {
     required this.expanded,
     required this.justAdded,
     required this.onTap,
-    required this.onRemove,
   });
 
   final MealAnalysisResult result;
@@ -324,11 +341,9 @@ class _RecentHeader extends StatelessWidget {
   final bool expanded;
   final bool justAdded;
   final VoidCallback onTap;
-  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     final (title, brand) = mealTitleAndBrand(result, l10n);
     final amount = mealAmountLabel(result, l10n);
@@ -343,15 +358,6 @@ class _RecentHeader extends StatelessWidget {
       value: mealKcalOrUnknown(context, result),
       onTap: onTap,
       expanded: expanded,
-      actions: [
-        if (onRemove != null)
-          IconButton(
-            onPressed: onRemove,
-            tooltip: l10n.foodRemoveTooltip,
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-            icon: Icon(Icons.close_rounded, color: t.ink3, size: 18),
-          ),
-      ],
     );
   }
 }

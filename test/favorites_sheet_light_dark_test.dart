@@ -89,7 +89,8 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('favorites-sheet')), findsOneWidget);
-      expect(find.text(c.l10n.foodFavoritesSheetTitle(2)), findsOneWidget);
+      expect(find.text(c.l10n.foodSectionFavorites), findsOneWidget);
+      expect(find.text(c.l10n.foodFavoritesEntryCount(2)), findsOneWidget);
       expect(find.text(c.l10n.foodFavoritesSortRecent), findsOneWidget);
       expect(find.text('Haferdrink'), findsOneWidget);
       expect(find.text('Skyr'), findsOneWidget);
@@ -115,7 +116,9 @@ void main() {
       await c.pump(tester, _sheet(_nurRecents), settle: true);
 
       expect(tester.takeException(), isNull);
-      expect(find.text(c.l10n.foodFavoritesSheetTitle(0)), findsOneWidget);
+      expect(find.text(c.l10n.foodSectionFavorites), findsOneWidget);
+      // No count line over the empty state: it would only say "0".
+      expect(find.text(c.l10n.foodFavoritesEntryCount(0)), findsNothing);
       expect(
           find.byKey(const ValueKey('favorites-sheet-empty')), findsOneWidget);
       final hinweis = find.text(c.l10n.foodFavoritesEmptyHint);
@@ -160,8 +163,9 @@ void main() {
     await pumpLocalized(tester, _sheet(_zwei),
         locale: const Locale('en'), settle: true);
 
-    expect(find.text('Favorites (2)'), findsOneWidget);
-    expect(find.text('Favoriten (2)'), findsNothing);
+    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.text('2 saved'), findsOneWidget);
+    expect(find.text('Favoriten'), findsNothing);
     expect(find.text('Search favorites'), findsOneWidget);
   });
 

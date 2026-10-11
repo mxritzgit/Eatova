@@ -156,6 +156,7 @@
   },
   "foodAlreadyAddedEyebrow": "Schon hinzugefügt",
   "foodRemoveTooltip": "Entfernen",
+  "foodRemoveFromRecents": "Aus letzten Mahlzeiten entfernen",
   "commonClose": "Schließen",
   "commonSave": "Speichern",
   "commonCancel": "Abbrechen",
@@ -1832,12 +1833,6 @@
   "commonFavoriteRemoved": "Favorit entfernt",
   "foodFavoritesEntryCount": "{count, plural, =1{1 gespeichert} other{{count} gespeichert}}",
   "@foodFavoritesEntryCount": {
-    "placeholders": {
-      "count": { "type": "int" }
-    }
-  },
-  "foodFavoritesSheetTitle": "Favoriten ({count})",
-  "@foodFavoritesSheetTitle": {
     "placeholders": {
       "count": { "type": "int" }
     }

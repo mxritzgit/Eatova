@@ -227,7 +227,13 @@ void main() {
     await _pumpe(tester, favoriten: _fuenfGepinnt);
 
     await _oeffneFavoritenSheet(tester);
-    expect(find.text('Favoriten (5)'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('favorites-sheet')),
+        matching: find.text('5 gespeichert'),
+      ),
+      findsOneWidget,
+    );
     for (var i = 0; i < 5; i++) {
       expect(
         find.byKey(ValueKey('favorites-sheet-item-$i')),

@@ -174,7 +174,7 @@ void main() {
     handle.dispose();
     expect(
       knoten,
-      isSemantics(label: 'Favoriten (2)', isHeader: true),
+      isSemantics(label: 'Favoriten', isHeader: true),
       reason: 'favorites_sheet.dart: der Titel-Text trägt kein '
           'Semantics(header: true); ein Screenreader kann nicht zum '
           'Sheet-Kopf springen',
@@ -187,7 +187,7 @@ void main() {
     );
     expect(
       marken,
-      ['Favoriten (2) (1)'],
+      ['Favoriten (1)'],
       reason: 'die Favoriten-Zeilen sind keine Überschriften',
     );
     // Gegenprobe: die Aktionen darunter behalten ihre Tipp-Aktion.

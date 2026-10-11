@@ -1208,75 +1208,80 @@ class _AddMealSheetState extends State<AddMealSheet> {
           },
         ),
         Flexible(
-          child: SingleChildScrollView(
-            key: const ValueKey('add-meal-sheet-scroll'),
-            controller: _scrollController,
-            padding: EdgeInsets.fromLTRB(
-              20,
-              14,
-              20,
-              28 + mediaQuery.viewPadding.bottom,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  key: const ValueKey('add-meal-slot-select'),
-                  padding: const EdgeInsets.only(bottom: _kBlockGap),
-                  child: MealSlotPicker(
-                    selected: _selectedSlot,
-                    onSelected: _selectSlot,
-                  ),
-                ),
-                // Standing entry point for manual entry while no search is
-                // active; after that the contextual CTA under "nothing
-                // found" takes over (_buildSearchResults).
-                if (!searchActive) ...[
-                  // Manual entry joins the entry-method card; the search
-                  // mode has no method card, so it keeps its own row.
-                  if (widget.searchMode)
-                    _ManualEntryRow(onTap: () => _openManualEntry())
-                  else
-                    MealEntryMethods(
-                      onCamera: () => _pickAndAnalyze(ImageSource.camera),
-                      onGallery: () => _pickAndAnalyze(ImageSource.gallery),
-                      onBarcode: _scanBarcode,
-                      onDescribe: _openDescribe,
-                      onManual: () => _openManualEntry(),
+          // A ground-coloured fade under the pinned search bar, like the
+          // Food tab's status bar scrim: scrolled cards dissolve instead of
+          // being cut straight through their rounded edge.
+          child: _TopFade(
+            child: SingleChildScrollView(
+              key: const ValueKey('add-meal-sheet-scroll'),
+              controller: _scrollController,
+              padding: EdgeInsets.fromLTRB(
+                20,
+                14,
+                20,
+                28 + mediaQuery.viewPadding.bottom,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    key: const ValueKey('add-meal-slot-select'),
+                    padding: const EdgeInsets.only(bottom: _kBlockGap),
+                    child: MealSlotPicker(
+                      selected: _selectedSlot,
+                      onSelected: _selectSlot,
                     ),
-                  const SizedBox(height: _kSectionGap),
-                ],
-                if (_slotMeals.isNotEmpty) ...[
-                  ExistingMealsList(
-                    meals: _slotMeals,
-                    slot: _selectedSlot,
-                    onRemove: widget.onRemoveMeal == null
-                        ? null
-                        : (id) => tryPersistChange(
-                            context,
-                            () => _removeExisting(id),
-                          ),
-                    onEdit: widget.onUpdateMealDetails == null
-                        ? null
-                        : _editExisting,
                   ),
-                  const SizedBox(height: _kSectionGap),
+                  // Standing entry point for manual entry while no search is
+                  // active; after that the contextual CTA under "nothing
+                  // found" takes over (_buildSearchResults).
+                  if (!searchActive) ...[
+                    // Manual entry joins the entry-method card; the search
+                    // mode has no method card, so it keeps its own row.
+                    if (widget.searchMode)
+                      _ManualEntryRow(onTap: () => _openManualEntry())
+                    else
+                      MealEntryMethods(
+                        onCamera: () => _pickAndAnalyze(ImageSource.camera),
+                        onGallery: () => _pickAndAnalyze(ImageSource.gallery),
+                        onBarcode: _scanBarcode,
+                        onDescribe: _openDescribe,
+                        onManual: () => _openManualEntry(),
+                      ),
+                    const SizedBox(height: _kSectionGap),
+                  ],
+                  if (_slotMeals.isNotEmpty) ...[
+                    ExistingMealsList(
+                      meals: _slotMeals,
+                      slot: _selectedSlot,
+                      onRemove: widget.onRemoveMeal == null
+                          ? null
+                          : (id) => tryPersistChange(
+                              context,
+                              () => _removeExisting(id),
+                            ),
+                      onEdit: widget.onUpdateMealDetails == null
+                          ? null
+                          : _editExisting,
+                    ),
+                    const SizedBox(height: _kSectionGap),
+                  ],
+                  KeyedSubtree(
+                    key: _belowAddedKey,
+                    child: searchActive
+                        ? _buildSearchResults()
+                        // Removing a favorite collapses the list smoothly
+                        // instead of jumping.
+                        : maybeAnimatedSize(
+                            context,
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeInOut,
+                            alignment: Alignment.topCenter,
+                            child: _buildFavorites(),
+                          ),
+                  ),
                 ],
-                KeyedSubtree(
-                  key: _belowAddedKey,
-                  child: searchActive
-                      ? _buildSearchResults()
-                      // Removing a favorite collapses the list smoothly
-                      // instead of jumping.
-                      : maybeAnimatedSize(
-                          context,
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeInOut,
-                          alignment: Alignment.topCenter,
-                          child: _buildFavorites(),
-                        ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1395,6 +1400,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _SectionLabel(l10n.foodSectionSearchResults),
         const SizedBox(height: _kLabelGap),
         SavedMealCollection(
+          expandedIndex: _productSuggestions.indexWhere(
+            (s) => _expandedItemKey == 'product:${s.code}',
+          ),
           children: [
             for (var i = 0; i < _productSuggestions.length; i++)
               _suggestionItem(i),
@@ -1481,6 +1489,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
           _SectionLabel(context.l10n.foodSectionRecentMeals),
           const SizedBox(height: _kLabelGap),
           SavedMealCollection(
+            expandedIndex: recents.indexWhere(
+              (f) => _expandedItemKey == 'favorite:${f.id}',
+            ),
             children: [
               for (var i = 0; i < recents.length; i++)
                 _recentItem(recents[i], i),
@@ -1503,6 +1514,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       onTap: () => _toggleExpanded(key),
       onAdd: (result) => _handleAdd(key, result),
       onRemove: () => _removeFavorite(favorite.id),
+      removeButtonKey: ValueKey('$tileKey-remove'),
       addButtonKey: ValueKey('favorite-tile-add-$index'),
       isFavorite: favorite.pinned,
       onToggleFavorite: widget.onToggleFavorite == null
@@ -1728,6 +1740,43 @@ class _SheetHeader extends StatelessWidget {
 /// [FieldCapsule] (rest `field`, focus `fieldFocus`, no hairline, no ring),
 /// the dock's search glyph in front and a round accent search button at the
 /// end. Focus also tints the glyph, a second cue next to the fill change.
+/// A 14 px fade from the sheet ground to clear over the top of [child]. It
+/// sits on the scroll view's top padding until the content scrolls under
+/// it, so the resting layout is unchanged. Paints only a gradient, no layer.
+class _TopFade extends StatelessWidget {
+  const _TopFade({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = context.t.bg;
+    return Stack(
+      children: [
+        child,
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: Container(
+              key: const ValueKey('add-meal-sheet-scroll-fade'),
+              height: 14,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [bg, bg.withValues(alpha: 0)],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SearchBar extends StatefulWidget {
   const _SearchBar({
     super.key,
