@@ -67,6 +67,10 @@ Future<void> runAccountDeletionCode(
     autoRefreshToken: false,
     flowType: AuthFlowType.implicit,
   );
+  // The recovery session is privileged (fresh `recovery` AMR). Unless the
+  // account is gone, it is revoked once this flow ends, like a recovery flow.
+  Session? minted;
+  var deleted = false;
   try {
     requireCurrent();
     final response = await scoped
@@ -76,6 +80,7 @@ Future<void> runAccountDeletionCode(
           token: code.trim(),
         )
         .timeout(deadline);
+    minted = response.session;
     requireCurrent();
     final verified = response.session;
     if (verified == null || verified.user.id != userId) {
@@ -110,6 +115,7 @@ Future<void> runAccountDeletionCode(
             retryEnabled: false,
             requestTimeout: deadline,
           );
+          deleted = true;
           return;
         } catch (error) {
           if (attempt > 0 || !isStaleAuthError(error)) rethrow;
@@ -124,8 +130,25 @@ Future<void> runAccountDeletionCode(
   } finally {
     active = false;
     await subscription.cancel();
-    scoped.dispose();
-    if (httpClient == null) transport.close();
+    final unused = deleted ? null : minted;
+    void release() {
+      scoped.dispose();
+      if (httpClient == null) transport.close();
+    }
+
+    if (unused == null) {
+      release();
+    } else {
+      // Local scope only: never the app login. Bounded and not awaited, so a
+      // stalled network cannot hold the error the sheet is about to show.
+      unawaited(
+        scoped.admin
+            .signOut(unused.accessToken, scope: SignOutScope.local)
+            .timeout(deadline)
+            .then<void>((_) {}, onError: (Object _, StackTrace __) {})
+            .whenComplete(release),
+      );
+    }
   }
 }
 

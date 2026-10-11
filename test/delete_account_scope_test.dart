@@ -73,6 +73,9 @@ class _Fixture {
               )
             : http.Response('', 204, request: request);
       }
+      if (request.url.path.endsWith('/logout')) {
+        return http.Response('', 204, request: request);
+      }
       throw StateError('Unexpected request ${request.url.path}');
     });
     client = SupabaseClient(
@@ -100,6 +103,8 @@ class _Fixture {
   bool rejectDeletion = false;
   Iterable<http.Request> get deletes =>
       requests.where((r) => r.url.path.endsWith('/rpc/delete_account'));
+  Iterable<http.Request> get logouts =>
+      requests.where((r) => r.url.path.endsWith('/logout'));
   Future<void> login(String sid, {String owner = 'owner'}) =>
       client.auth.setInitialSession(_session(sid, owner: owner));
   Future<void> delete(ScopedAccountDeleteAction action) =>
@@ -447,4 +452,47 @@ void main() {
       expect(f.deletes, hasLength(1));
     },
   );
+
+  group('the minted recovery session', () {
+    final recoveryBearer = 'Bearer ${_token('owner', 'recovery', recovery: true)}';
+
+    test('is revoked when the server rejects the deletion', () async {
+      final f = _Fixture()..rejectDeletion = true;
+      await f.login('initial');
+      await expectLater(
+        f.delete((request, _) => request()),
+        throwsA(isA<PostgrestException>()),
+      );
+      await pumpEventQueue();
+      expect(f.logouts, hasLength(1));
+      expect(f.logouts.single.headers['authorization'], recoveryBearer);
+      expect(f.logouts.single.url.queryParameters['scope'], 'local');
+      expect(f.repo.currentUser?.sessionId, 'initial');
+    });
+
+    test('is revoked when the login changes before the delete', () async {
+      final f = _Fixture();
+      await f.login('initial');
+      await expectLater(
+        f.delete((request, _) async {
+          await f.login('replacement', owner: 'other');
+          await request();
+        }),
+        throwsA(isA<AuthException>()),
+      );
+      await pumpEventQueue();
+      expect(f.deletes, isEmpty);
+      expect(f.logouts, hasLength(1));
+      expect(f.logouts.single.headers['authorization'], recoveryBearer);
+    });
+
+    test('is left alone once the account is deleted', () async {
+      final f = _Fixture();
+      await f.login('initial');
+      await f.delete((request, _) => request());
+      await pumpEventQueue();
+      expect(f.deletes, hasLength(1));
+      expect(f.logouts, isEmpty);
+    });
+  });
 }
