@@ -3,6 +3,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:supabase_flutter/supabase_flutter.dart' show GoTrueClient;
+
 import '../config/supabase_config.dart';
 import '../models/described_meal.dart';
 import '../models/meal_analysis_request.dart';
@@ -86,26 +88,30 @@ DescribedMeal parseDescribeMealResponse(int statusCode, String body) {
 /// mapping as `EdgeFunctionMealAnalyzer`, through [AnalyzeMealTransport].
 class EdgeFunctionMealDescriber implements MealDescriber {
   /// Seams for the loopback wire test; production uses the defaults.
-  /// [tokenProvider] null = current Supabase session; [clientFactory] null =
-  /// [createHttpClient] with [policy]. The photo policy fits: the upload is
-  /// tiny, but the answer waits on the same provider call and function budget.
+  /// [tokenProvider] null = the session of [auth] (null = the app's);
+  /// [clientFactory] null = [createHttpClient] with [policy]. The photo
+  /// policy fits: the upload is tiny, but the answer waits on the same
+  /// provider call and function budget.
   const EdgeFunctionMealDescriber({
     String baseUrl = EatovaSupabaseConfig.url,
     String anonKey = EatovaSupabaseConfig.anonKey,
     String? Function()? tokenProvider,
     HttpClient Function()? clientFactory,
     HttpTimeoutPolicy policy = HttpTimeoutPolicy.mealAnalysis,
+    GoTrueClient? auth,
   }) : _baseUrl = baseUrl,
        _anonKey = anonKey,
        _tokenProvider = tokenProvider,
        _clientFactory = clientFactory,
-       _policy = policy;
+       _policy = policy,
+       _auth = auth;
 
   final String _baseUrl;
   final String _anonKey;
   final String? Function()? _tokenProvider;
   final HttpClient Function()? _clientFactory;
   final HttpTimeoutPolicy _policy;
+  final GoTrueClient? _auth;
 
   @override
   Future<DescribedMeal> describe(
@@ -119,6 +125,7 @@ class EdgeFunctionMealDescriber implements MealDescriber {
       tokenProvider: _tokenProvider,
       clientFactory: _clientFactory,
       policy: _policy,
+      auth: _auth,
     );
     return transport.post(
       cancellation: cancellation,

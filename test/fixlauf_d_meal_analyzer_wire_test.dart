@@ -10,6 +10,8 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/eatova_http.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 
+import 'support/expired_session.dart';
+
 // Fix run 2026-08-27, F4-05 / F4-01 / F9-03: EdgeFunctionMealAnalyzer.analyze
 // against a loopback HttpServer. Before, URL/anon key were static consts and
 // the token came straight from Supabase.instance, so the HTTP path had no
@@ -166,6 +168,35 @@ void main() {
       _analyzer(loopback).analyze(_request()),
       throwsA(isA<MealAnalysisReauthRequired>()),
     );
+  });
+
+  test('abgelaufene Session wird vor dem Upload erneuert statt 401 zu ernten',
+      () async {
+    // Back from a long background period, the SDK's own refresh has not
+    // landed yet. The expired token would read as a lost login.
+    final session = await expiredSession();
+    loopback.handler = (request) async {
+      final ok = request.headers.value('authorization') ==
+          'Bearer ${session.fresh}';
+      request.response
+        ..statusCode = ok ? 200 : 401
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode(ok
+            ? <String, Object?>{'result': _okResult}
+            : <String, Object?>{'error': 'invalid_user_token'}));
+      await request.response.close();
+    };
+
+    final result = await EdgeFunctionMealAnalyzer(
+      baseUrl: loopback.baseUrl,
+      anonKey: 'anon-key',
+      auth: session.client.auth,
+    ).analyze(_request());
+
+    expect(result.mealName, 'Spaghetti Bolognese');
+    expect(session.refreshes, hasLength(1));
+    expect(loopback.seen.single.headers.value('authorization'),
+        'Bearer ${session.fresh}');
   });
 
   test('429 JSON -> MealAnalysisRateLimited mit resetAt', () async {

@@ -190,25 +190,28 @@ DateTime? _readResetAt(Map<String, dynamic> decoded) {
 
 class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   /// Seams for the loopback wire test (F4-05); production uses the defaults.
-  /// [tokenProvider] null = current Supabase session; [clientFactory] null =
-  /// [createHttpClient] with [policy].
+  /// [tokenProvider] null = the session of [auth] (null = the app's);
+  /// [clientFactory] null = [createHttpClient] with [policy].
   const EdgeFunctionMealAnalyzer({
     String baseUrl = EatovaSupabaseConfig.url,
     String anonKey = EatovaSupabaseConfig.anonKey,
     String? Function()? tokenProvider,
     HttpClient Function()? clientFactory,
     HttpTimeoutPolicy policy = HttpTimeoutPolicy.mealAnalysis,
+    GoTrueClient? auth,
   })  : _baseUrl = baseUrl,
         _anonKey = anonKey,
         _tokenProvider = tokenProvider,
         _clientFactory = clientFactory,
-        _policy = policy;
+        _policy = policy,
+        _auth = auth;
 
   final String _baseUrl;
   final String _anonKey;
   final String? Function()? _tokenProvider;
   final HttpClient Function()? _clientFactory;
   final HttpTimeoutPolicy _policy;
+  final GoTrueClient? _auth;
 
   static const int _maxImageBytes = 5 * 1000 * 1000;
 
@@ -223,6 +226,7 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
     tokenProvider: _tokenProvider,
     clientFactory: _clientFactory,
     policy: _policy,
+    auth: _auth,
   );
 
   @override
@@ -278,24 +282,43 @@ class AnalyzeMealTransport {
     required this.policy,
     this.tokenProvider,
     this.clientFactory,
+    this.auth,
   });
 
   final String baseUrl;
   final String anonKey;
   final HttpTimeoutPolicy policy;
 
-  /// Null = the current Supabase session.
+  /// Null = the session of [auth].
   final String? Function()? tokenProvider;
 
   /// Null = [createHttpClient] with [policy].
   final HttpClient Function()? clientFactory;
 
+  /// The session source when no [tokenProvider] is given; null is the app's.
+  final GoTrueClient? auth;
+
   static const String functionPath = '/functions/v1/analyze-meal';
 
-  String? _accessToken() {
+  /// After a long background period the SDK's token refresh only starts on
+  /// resume, and the gateway answers an expired token with 401, which reads
+  /// as a lost login. An expired session is refreshed first; if that fails,
+  /// the request itself reports offline or reauthentication.
+  Future<String?> _accessToken() async {
     final provider = tokenProvider;
     if (provider != null) return provider();
-    return Supabase.instance.client.auth.currentSession?.accessToken;
+    final client = auth ?? Supabase.instance.client.auth;
+    final session = client.currentSession;
+    if (session == null || !session.isExpired) return session?.accessToken;
+    try {
+      await client.refreshSession();
+    } on Object {
+      // Keep the current token; the response maps the actual failure.
+    }
+    final current = client.currentSession;
+    // Another account signed in meanwhile: never send its token.
+    if (current?.user.id != session.user.id) return null;
+    return current?.accessToken;
   }
 
   /// Checks cancellation and session, runs [validate], then POSTs the body of
@@ -313,7 +336,10 @@ class AnalyzeMealTransport {
       throw const MealAnalysisCancelled();
     }
 
-    final accessToken = _accessToken();
+    final accessToken = await _accessToken();
+    if (cancellation?.isCancelled ?? false) {
+      throw const MealAnalysisCancelled();
+    }
     if (accessToken == null || accessToken.isEmpty) {
       throw const MealAnalysisReauthRequired();
     }
