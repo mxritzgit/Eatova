@@ -974,3 +974,4 @@ select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;
 \ir offline_sync_versions.sql
 \ir offline_sync_receipts.sql
 \ir training_incarnations.sql
+\ir profile_signup_names.sql
