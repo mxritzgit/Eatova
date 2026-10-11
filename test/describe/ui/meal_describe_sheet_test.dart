@@ -431,6 +431,20 @@ void main() {
       );
     });
 
+    testWidgets('after removing a line Add logs the remaining food by name', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _openLine(tester, 0);
+      await _tapVisible(tester, key('describe-line-remove'));
+      await tester.pumpAndSettle();
+      await _tapVisible(tester, key('meal-describe-add'));
+      await tester.pumpAndSettle();
+      expect(h.logged.single.result.mealName, 'Toastbrot');
+      expect(h.logged.single.result.caloriesKcal, 65);
+    });
+
     testWidgets('a 0 kcal draft says why Add is off; a measured 0 logs', (
       tester,
     ) async {

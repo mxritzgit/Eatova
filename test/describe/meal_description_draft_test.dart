@@ -292,6 +292,45 @@ void main() {
       expect(result.caloriesKcal > 0 || result.explicitZeroKcal, isTrue);
     });
 
+    // The model names the whole meal ("Nutella-Toast"); once a line is
+    // removed that name speaks of food that is not logged.
+    test('toResult: der Name folgt den verbliebenen Zeilen', () {
+      const banana = DescribedFoodItem(
+        name: 'Banane',
+        searchQuery: 'Banane',
+        grams: 120,
+        gramsSource: DescribedGramsSource.estimated,
+        caloriesKcal: 107,
+      );
+      final draft = MealDescriptionDraft(
+        meal: _meal([_toast, _nutella]),
+        items: [_line(_toast), _line(_nutella)],
+      );
+      expect(draft.toResult().mealName, 'Nutella-Toast', reason: 'komplett');
+      expect(
+        draft
+            .replaceItem(0, draft.items[0].withCandidate(_harry))
+            .toResult()
+            .mealName,
+        'Nutella-Toast',
+        reason: 'ein anderes Produkt ist dasselbe Essen',
+      );
+      expect(draft.removeItem(1).toResult().mealName, 'Toastbrot');
+      expect(draft.removeItem(1).toResult().caloriesKcal, 130);
+      expect(draft.removeItem(0).toResult().mealName, 'Nutella');
+
+      final three = MealDescriptionDraft(
+        meal: _meal([_toast, _nutella, banana]),
+        items: [_line(_toast), _line(_nutella), _line(banana)],
+      );
+      expect(three.removeItem(1).toResult().mealName, 'Toastbrot, Banane');
+      expect(
+        three.removeItem(1).removeItem(0).removeItem(0).toResult().mealName,
+        'Nutella-Toast',
+        reason: 'leer: nicht loggbar, aber ohne Fehler',
+      );
+    });
+
     test('toResult: eine Zeile ohne Makros macht die Summe unbekannt', () {
       const noMacros = DraftCandidate(
         origin: DraftItemOrigin.product,

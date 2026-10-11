@@ -174,6 +174,8 @@ The feature's Dart entry points:
   so those keep the AI's grams, as does a stated weight.
 - The draft's source is Open Food Facts with confidence "database" only when
   every line is product-backed; otherwise it is an AI estimate.
+- The logged name is the model's meal name while every food it itemized is
+  still a line; after a removal it is the remaining lines' names.
 - The model's 0 kcal means unknown, as in a photo scan. A measured 0 (a
   water product or favorite) is never chosen alone, but once the user picks
   it for every line the 0 kcal draft logs, marked `explicitZeroKcal`. A

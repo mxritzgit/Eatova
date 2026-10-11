@@ -362,6 +362,9 @@ class MealDescriptionDraft {
   /// * Not marked adjusted: a fresh description is not a change to an
   ///   earlier result, so the portion line reads "N items · X g".
   /// * A 0 kcal total is marked measured only when [isMeasuredZero].
+  /// * The model's meal name only while every food it itemized is still a
+  ///   line; after a removal the remaining lines' names ("Toastbrot" for
+  ///   "Nutella-Toast" without the Nutella).
   MealAnalysisResult toResult() {
     final summed = meal.base.adjustedToItems([
       for (final item in items) item.toComponent(),
@@ -369,7 +372,7 @@ class MealDescriptionDraft {
     final productBacked =
         items.isNotEmpty && items.every((item) => _isProductBacked(item));
     return MealAnalysisResult(
-      mealName: summed.mealName,
+      mealName: _mealName(summed.mealName),
       caloriesKcal: summed.caloriesKcal,
       estimatedGrams: summed.estimatedGrams,
       kcalPer100G: summed.kcalPer100G,
@@ -385,6 +388,15 @@ class MealDescriptionDraft {
           ? MealResultSource.openFoodFacts.code
           : MealResultSource.aiEstimate.code,
       explicitZeroKcal: isMeasuredZero,
+    );
+  }
+
+  /// Lines can only be removed, so fewer lines than items means a removal.
+  String _mealName(String modelName) {
+    if (items.isEmpty || items.length >= meal.items.length) return modelName;
+    return clampMealName(
+      items.map((item) => item.described.name.trim()).join(', '),
+      fallback: modelName,
     );
   }
 
