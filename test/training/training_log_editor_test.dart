@@ -738,6 +738,32 @@ void main() {
       });
     });
 
+    testWidgets('only a changed weight carries, the latest earlier one (A2)', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        await _open(
+          tester,
+          request: request(),
+          history: [_planSession(_otherId, DateTime(2026, 10, 1), [60, 65, 70])],
+        );
+        // Retyping set 1's own Last-time weight ("6", then "60") leaves the
+        // later sets on their own Last-time weights.
+        await _type(tester, 'training-log-planned-0-0-weight', '6');
+        await _type(tester, 'training-log-planned-0-0-weight', '60');
+        expect(_text(tester, 'training-log-planned-0-1-weight'), '65');
+        expect(_text(tester, 'training-log-planned-0-2-weight'), '70');
+        // Set 2 changed: it carries into set 3.
+        await _type(tester, 'training-log-planned-0-1-weight', '66');
+        expect(_text(tester, 'training-log-planned-0-2-weight'), '66');
+        // A change to set 1 stops at set 2, typed by hand, whose weight is
+        // the latest earlier one for set 3.
+        await _type(tester, 'training-log-planned-0-0-weight', '62');
+        expect(_text(tester, 'training-log-planned-0-1-weight'), '66');
+        expect(_text(tester, 'training-log-planned-0-2-weight'), '66');
+      });
+    });
+
     testWidgets('Last time skips a newer session without weights', (
       tester,
     ) async {
