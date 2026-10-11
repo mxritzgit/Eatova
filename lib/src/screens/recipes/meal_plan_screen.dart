@@ -769,13 +769,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     Map<String, bool> checks,
   ) {
     final l = context.l10n;
-    final detail = _receiptDetail(row, l, stacked: _largeText(context));
     return _ReceiptRow(
       key: ValueKey('shopping-item-${row.id}'),
       label: row.label,
       amount: _receiptAmount(row, l),
-      detail: detail?.text,
-      detailLabel: detail?.label,
+      detail: _receiptDetail(row, l),
       checked: row.isChecked(checks),
       onTap: _toggleRow(row),
     );

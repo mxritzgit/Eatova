@@ -333,7 +333,6 @@ class _ReceiptRow extends StatelessWidget {
     required this.checked,
     required this.onTap,
     this.detail,
-    this.detailLabel,
   });
 
   final String label;
@@ -341,8 +340,8 @@ class _ReceiptRow extends StatelessWidget {
   final bool checked;
   final VoidCallback? onTap;
 
-  /// "Mo 300 g · Do 250 g"; [detailLabel] is what a screen reader hears.
-  final String? detail, detailLabel;
+  /// The meals behind the row: "Mo 300 g · Do 250 g".
+  final List<_DetailEntry>? detail;
 
   @override
   Widget build(BuildContext context) {
@@ -408,11 +407,7 @@ class _ReceiptRow extends StatelessWidget {
                             leaderColor: t.inkFaint,
                           ),
                           if (detail case final detail?)
-                            _ReceiptDetail(
-                              text: detail,
-                              semanticsLabel: detailLabel,
-                              checked: checked,
-                            ),
+                            _ReceiptDetail(entries: detail, checked: checked),
                         ],
                       ),
                     ),
@@ -428,32 +423,105 @@ class _ReceiptRow extends StatelessWidget {
 }
 
 /// A row's detail line, like a till's line under an article: the meals
-/// behind it, small and quiet, struck through with the row.
+/// behind it, small and quiet, struck through with the row. A meal stays on
+/// one line ("Do Abend 180 g") where it fits; with large text, or when one
+/// does not fit, each meal gets a line of its own and what wraps hangs under
+/// its text, never broken inside a word. Days alone stay one line ("Mo · Di
+/// · Do"). A screen reader hears full weekdays.
 class _ReceiptDetail extends StatelessWidget {
-  const _ReceiptDetail({
-    required this.text,
-    required this.semanticsLabel,
-    required this.checked,
-  });
+  const _ReceiptDetail({required this.entries, required this.checked});
 
-  final String text;
-  final String? semanticsLabel;
+  final List<_DetailEntry> entries;
   final bool checked;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final style = AppType.receipt(12, color: t.ink3, height: 1.45).copyWith(
+      decoration: checked ? TextDecoration.lineThrough : null,
+      decorationColor: t.ink3,
+    );
+    final label = entries.map((e) => e.spoken).join(', ');
+    final large = _largeText(context);
     return Padding(
       padding: const EdgeInsets.only(top: 2),
-      child: Text(
-        text,
-        semanticsLabel: semanticsLabel,
-        style: AppType.receipt(12, color: t.ink3, height: 1.45).copyWith(
-          decoration: checked ? TextDecoration.lineThrough : null,
-          decorationColor: t.ink3,
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          double width(String text) => _lineWidth(context, text, style);
+          final heads = [for (final e in entries) _keepTogether(e.head)];
+          final stacked =
+              entries.any((e) => e.amounts.isNotEmpty) &&
+              (large || heads.any((h) => width(h) > constraints.maxWidth));
+          if (!stacked) {
+            // The dot stays at the end of a line, never starts one.
+            return Text(
+              [
+                for (var i = 0; i < entries.length; i++)
+                  [heads[i], ?entries[i].note].join(' '),
+              ].join('\u00A0· '),
+              semanticsLabel: label,
+              style: style,
+            );
+          }
+          const gap = 6.0;
+          final marker = Text(
+            '·',
+            style: style.copyWith(decoration: TextDecoration.none),
+          );
+          final room = constraints.maxWidth - width('·') - gap;
+          // Whole where it fits the line, else at its spaces.
+          String keep(String text) =>
+              width(_keepTogether(text)) <= room ? _keepTogether(text) : text;
+          return Semantics(
+            label: label,
+            child: ExcludeSemantics(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final entry in entries)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        marker,
+                        const SizedBox(width: gap),
+                        Expanded(
+                          child: Text(
+                            [
+                              keep(entry.day),
+                              if (entry.amounts.isNotEmpty)
+                                entry.amounts.map(keep).join('\u00A0+ '),
+                              ?entry.note,
+                            ].join(' '),
+                            style: style,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
+  }
+}
+
+/// The width of [text] on one line in [style] as [context] scales it.
+double _lineWidth(BuildContext context, String text, TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: DefaultTextStyle.of(context).style.merge(style),
+    ),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+    maxLines: 1,
+  )..layout();
+  try {
+    return painter.width;
+  } finally {
+    painter.dispose();
   }
 }
 
@@ -485,27 +553,49 @@ class _ReceiptPantry extends StatelessWidget {
       decoration: TextDecoration.lineThrough,
       decorationColor: t.ink3,
     );
+    final style = AppType.receipt(13, color: t.ink2, height: 1.55);
     final summary = Padding(
       padding: const EdgeInsets.fromLTRB(_kReceiptInset, 2, _kReceiptInset, 0),
-      child: Text.rich(
-        key: const ValueKey('shopping-pantry-summary'),
-        TextSpan(
-          children: [
-            for (var i = 0; i < names.length; i++) ...[
-              // The dot stays at the end of a line, never starts one.
-              if (i > 0) const TextSpan(text: '\u00A0· '),
-              TextSpan(
-                // A short name stays whole ("Öl zum Braten").
-                text: names[i].label.length <= 20
-                    ? _keepTogether(names[i].label)
-                    : names[i].label,
-                style: names[i].checked ? bought : null,
-              ),
-            ],
-          ],
+      // A node of its own: read after the heading and its count, not with
+      // the receipt's header.
+      child: Semantics(
+        container: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Text.rich(
+            key: const ValueKey('shopping-pantry-summary'),
+            TextSpan(
+              children: [
+                for (var i = 0; i < names.length; i++) ...[
+                  // The dot stays at the end of a line, never starts one.
+                  if (i > 0) const TextSpan(text: '\u00A0· '),
+                  TextSpan(
+                    // A name stays whole where it fits a line ("Öl zum
+                    // Braten"); a longer one wraps at its spaces.
+                    text:
+                        _lineWidth(
+                              context,
+                              '${_keepTogether(names[i].label)}\u00A0·',
+                              style,
+                            ) <=
+                            constraints.maxWidth
+                        ? _keepTogether(names[i].label)
+                        : names[i].label,
+                    style: names[i].checked ? bought : null,
+                  ),
+                ],
+              ],
+            ),
+            // One name per line, so a comma in a name is not a new item.
+            semanticsLabel: names
+                .map(
+                  (n) => n.checked
+                      ? l.mealPlanPantryCheckedName(n.label)
+                      : n.label,
+                )
+                .join('\n'),
+            style: style,
+          ),
         ),
-        semanticsLabel: names.map((n) => n.label).join(', '),
-        style: AppType.receipt(13, color: t.ink2, height: 1.55),
       ),
     );
     return Column(
@@ -682,14 +772,30 @@ class _ReceiptHeading extends StatelessWidget {
               ),
             ),
           ),
-          if (meta != null) ...[
-            const SizedBox(height: 3),
-            Text(meta!, style: AppType.receipt(12, color: t.ink2, height: 1.4)),
-          ],
-          if (note != null) ...[
-            const SizedBox(height: 4),
-            Text(note!, style: AppType.ui(12.5, color: t.ink3, height: 1.4)),
-          ],
+          // A node of its own, read right after the heading.
+          if (meta != null || note != null)
+            Semantics(
+              container: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (meta != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      meta!,
+                      style: AppType.receipt(12, color: t.ink2, height: 1.4),
+                    ),
+                  ],
+                  if (note != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      note!,
+                      style: AppType.ui(12.5, color: t.ink3, height: 1.4),
+                    ),
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -989,7 +1095,7 @@ String _amountText(
 }
 
 /// A count the way recipes write it: whole or with a common fraction ("1
-/// 1/2", "1/4"), else with up to two decimals.
+/// 1/2", "1/4", "5/8"), else with up to two decimals.
 String _countNumber(double value, String locale) {
   final whole = value.floor();
   final rest = value - whole;
@@ -1004,23 +1110,51 @@ String _countNumber(double value, String locale) {
 }
 
 const _kCountFractions = [
+  (1 / 8, '1/8'),
   (1 / 4, '1/4'),
   (1 / 3, '1/3'),
+  (3 / 8, '3/8'),
   (1 / 2, '1/2'),
+  (5 / 8, '5/8'),
   (2 / 3, '2/3'),
   (3 / 4, '3/4'),
+  (7 / 8, '7/8'),
 ];
 
-/// The meals behind [row], one entry per planned meal by day: "Mo 300 g ·
-/// Do 250 g", with the slot when a day has two of them, and an amount the
-/// recipe gives unconverted marked as such; [stacked] puts each entry on a
-/// line of its own (large text). [label] names the weekdays in full. Null
-/// when the row is one meal's planned amount.
-({String text, String label})? _receiptDetail(
-  ShoppingRow row,
-  AppLocalizations l, {
-  bool stacked = false,
-}) {
+/// One planned meal behind a row: its day and amounts, as shown and as a
+/// screen reader hears them.
+class _DetailEntry {
+  const _DetailEntry({
+    required this.day,
+    required this.spokenDay,
+    required this.amounts,
+    this.note,
+    this.spokenNote,
+  });
+
+  /// "Do Abend"; [spokenDay] "Donnerstag Abend".
+  final String day, spokenDay;
+  final List<String> amounts;
+
+  /// "(Rezept für 4 Port.)"; [spokenNote] without the abbreviation.
+  final String? note, spokenNote;
+
+  /// "Do Abend 180 g".
+  String get head =>
+      [day, if (amounts.isNotEmpty) amounts.join(' + ')].join(' ');
+
+  String get spoken => [
+    spokenDay,
+    if (amounts.isNotEmpty) amounts.join(' + '),
+    ?spokenNote,
+  ].join(' ');
+}
+
+/// The meals behind [row], one entry per planned meal by day: "Mo 300 g",
+/// "Do 250 g", with the slot when a day has two of them, and an amount the
+/// recipe gives unconverted marked as such. Null when the row is one meal's
+/// planned amount.
+List<_DetailEntry>? _receiptDetail(ShoppingRow row, AppLocalizations l) {
   if (!row.showsDetail) return null;
   final meals = <String, List<ShoppingUse>>{};
   for (final use in row.uses) {
@@ -1034,60 +1168,61 @@ const _kCountFractions = [
   }
   final fullDay = DateFormat.EEEE(l.localeName);
   final cloves = _namesCloves(row.label);
-  final shown = <String>[], spoken = <String>[];
-  for (final uses in meals.values) {
-    final first = uses.first;
-    final date = DateTime.parse(first.day);
-    final slot = perDay[first.day]! > 1 ? ' ${first.slot.shortLabel(l)}' : '';
-    final planned = [
-      for (final amount in sumShoppingAmounts([
-        for (final use in uses)
-          if (use.amount case final amount?) amount,
-      ]))
-        _amountText(amount, l, cloves: cloves),
+  return [
+    for (final uses in meals.values)
+      _detailEntry(
+        uses,
+        l,
+        fullDay: fullDay,
+        cloves: cloves,
+        slot: perDay[uses.first.day]! > 1,
+      ),
+  ];
+}
+
+_DetailEntry _detailEntry(
+  List<ShoppingUse> uses,
+  AppLocalizations l, {
+  required DateFormat fullDay,
+  required bool cloves,
+  required bool slot,
+}) {
+  final first = uses.first;
+  final date = DateTime.parse(first.day);
+  final slotLabel = slot ? ' ${first.slot.shortLabel(l)}' : '';
+  final planned = [
+    for (final amount in sumShoppingAmounts([
       for (final use in uses)
-        if (use.amount == null && use.text != null && !use.unscaled) use.text!,
-    ];
-    final original = [
-      for (final use in uses)
-        if (use.unscaled && use.text != null) use.text!,
-    ];
-    final amounts = [...planned, ...original];
-    // One recipe has one serving basis: one note for its amounts, also for
-    // one left in the name ("Reis (300 g gekocht)").
-    final note = !uses.any((u) => u.unscaled)
-        ? null
-        : switch (uses.firstWhere((u) => u.unscaled)) {
-            ShoppingUse(scale: ShoppingScale.batch, :final batchServings?) =>
-              l.mealPlanReceiptBatchNote(
-                NumberFormat('0.##', l.localeName).format(batchServings),
-              ),
-            _ => l.mealPlanReceiptOriginalNote,
-          };
-    // A meal stays on one line ("Do Abend 180 g"); with large text only its
-    // day and each amount do. The note may wrap.
-    final day = todayWeekdayShort(date, l) + slot;
-    final head = stacked
-        ? [
-            _keepTogether(day),
-            if (amounts.isNotEmpty) amounts.map(_keepTogether).join(' + '),
-          ].join(' ')
-        : _keepTogether(
-            [day, if (amounts.isNotEmpty) amounts.join(' + ')].join(' '),
-          );
-    shown.add([head, ?note].join(' '));
-    spoken.add(
-      [
-        fullDay.format(date) + slot,
-        if (amounts.isNotEmpty) amounts.join(' + '),
-        ?note,
-      ].join(' '),
-    );
-  }
-  // The dot stays at the end of a line, never starts one.
-  return (
-    text: shown.join(stacked ? '\n' : '\u00A0· '),
-    label: spoken.join(', '),
+        if (use.amount case final amount?) amount,
+    ]))
+      _amountText(amount, l, cloves: cloves),
+    for (final use in uses)
+      if (use.amount == null && use.text != null && !use.unscaled) use.text!,
+  ];
+  final original = [
+    for (final use in uses)
+      if (use.unscaled && use.text != null) use.text!,
+  ];
+  // One recipe has one serving basis: one note for its amounts, also for
+  // one left in the name ("Reis (300 g gekocht)").
+  final (note, spokenNote) = switch (uses
+      .where((u) => u.unscaled)
+      .firstOrNull) {
+    null => (null, null),
+    ShoppingUse(scale: ShoppingScale.batch, :final batchServings?) => (
+      l.mealPlanReceiptBatchNote(
+        NumberFormat('0.##', l.localeName).format(batchServings),
+      ),
+      l.mealPlanReceiptBatchNoteSpoken(batchServings),
+    ),
+    _ => (l.mealPlanReceiptOriginalNote, l.mealPlanReceiptOriginalNote),
+  };
+  return _DetailEntry(
+    day: todayWeekdayShort(date, l) + slotLabel,
+    spokenDay: fullDay.format(date) + slotLabel,
+    amounts: [...planned, ...original],
+    note: note,
+    spokenNote: spokenNote,
   );
 }
 

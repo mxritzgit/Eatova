@@ -566,12 +566,13 @@ void main() {
       ).rows;
       final chicken = rows.singleWhere((r) => r.label == 'Hähnchenbrustfilet');
       // Large text puts each meal on a line of its own.
-      expect(
-        find.text(
-          'Di 180\u00A0g\nDo\u00A0Mittag 180\u00A0g\nDo\u00A0Abend 180\u00A0g',
-        ),
-        findsOneWidget,
-      );
+      for (final meal in [
+        'Di 180\u00A0g',
+        'Do\u00A0Mittag 180\u00A0g',
+        'Do\u00A0Abend 180\u00A0g',
+      ]) {
+        expect(find.text(meal), findsOneWidget, reason: meal);
+      }
       await _scrollToTop(tester, _key('shopping-item-${chicken.id}'));
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'meal-plan-narrow-receipt-de');

@@ -123,6 +123,14 @@ Future<String> _progress(WidgetTester tester) async {
   return tester.widget<Text>(_key('shopping-progress-label')).data!;
 }
 
+/// The footnote on merged rows and amounts read from text, at the end of
+/// the list.
+Future<Finder> _footnote(WidgetTester tester, AppLocalizations l10n) async {
+  await tester.drag(find.byType(Scrollable).first, const Offset(0, -6000));
+  await tester.pumpAndSettle();
+  return find.text(l10n.mealPlanUnquantifiedHint);
+}
+
 /// The receipt's text with every space but the one after a dot unbreakable,
 /// the way a detail line keeps each meal on one line.
 String _kept(String text) => text
@@ -286,6 +294,25 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Olivenöl\u00A0· Pfeffer\u00A0· Salz'), findsOneWidget);
+      // Read under its own heading, not with the receipt's header.
+      final summaryNode = tester.getSemantics(_key('shopping-pantry-summary'));
+      expect(summaryNode.label, 'Olivenöl\nPfeffer\nSalz');
+      expect(summaryNode.label, isNot(contains('Einkaufsliste')));
+      final receiptNode = tester.getSemantics(_key('shopping-receipt'));
+      expect(receiptNode.label, contains('Einkaufsliste'));
+      expect(receiptNode.label, isNot(contains('0 von 3 abgehakt')));
+      expect(receiptNode.label, isNot(contains('Olivenöl')));
+      expect(
+        tester
+            .getSemantics(
+              find.descendant(
+                of: pantry,
+                matching: find.text('0 von 3 abgehakt'),
+              ),
+            )
+            .label,
+        '0 von 3 abgehakt\nMeist schon im Schrank. Hake ab, was du noch hast.',
+      );
       for (final row in receipt.pantry) {
         expect(_key('shopping-item-${row.id}'), findsNothing);
       }
@@ -337,6 +364,11 @@ void main() {
       final saltSpan = spans.singleWhere((s) => s.text == 'Salz');
       expect(saltSpan.style!.decoration, TextDecoration.lineThrough);
       expect(spans.singleWhere((s) => s.text == 'Pfeffer').style, isNull);
+      // A screen reader hears it too.
+      expect(
+        tester.getSemantics(_key('shopping-pantry-summary')).label,
+        'Olivenöl\nPfeffer\nSalz (abgehakt)',
+      );
 
       // Every main row bought: done and stamped, with the pantry still open.
       for (final row in receipt.rows) {
@@ -456,6 +488,13 @@ void main() {
         ),
         findsOneWidget,
       );
+      // Heard without the abbreviation.
+      expect(
+        tester.getSemantics(leek),
+        isSemantics(
+          label: 'Lauch\nMittwoch 2 Stangen (Rezept für 4 Portionen)',
+        ),
+      );
       // The converted potatoes need no detail.
       final potatoes = _key(
         'shopping-item-${_row(receipt.rows, 'Kartoffeln').id}',
@@ -482,6 +521,89 @@ void main() {
         tester.getSemantics(beans),
         isSemantics(label: 'Kidneybohnen\nFreitag 2 Dosen (Originalrezept)'),
       );
+      expect(await _footnote(tester, deL10n), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('englische Hinweise und der Hinweis zu zusammengelegten Zeilen', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_today), () async {
+      final store = _store();
+      await _plan(
+        store,
+        recipeCatalogDe.first.copyWith(
+          slug: 'user_import_soup',
+          title: 'Leek soup',
+          ingredients: '2 stalks leek\n800 g potatoes\napprox. 4 carrots',
+          structuredIngredients: const [],
+          categories: ['Eigene', '${recipeIngredientsBasisPrefix}per_recipe'],
+          batchServings: 4,
+        ),
+        2,
+        MealSlot.dinner,
+        servings: 2,
+      );
+      await _plan(
+        store,
+        _own('Chili', '2 cans kidney beans'),
+        4,
+        MealSlot.dinner,
+        servings: 3,
+      );
+      await _pump(tester, store, locale: const Locale('en'));
+      final rows = _receipt(store, l10n: enL10n).rows;
+      expect(
+        find.descendant(
+          of: _key('shopping-item-${_row(rows, 'Leek').id}'),
+          matching: find.text('We\u00A02\u00A0stalks (recipe serves 4)'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: _key('shopping-item-${_row(rows, 'Kidney beans').id}'),
+          matching: find.text('Fr\u00A02\u00A0cans (original recipe)'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: _key('shopping-item-${_row(rows, 'Carrots').id}'),
+          matching: find.text('approx. 2'),
+        ),
+        findsOneWidget,
+      );
+      expect(await _footnote(tester, enL10n), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Weighed ingredients only: nothing merged, nothing read from text.
+    await withClock(Clock.fixed(_today), () async {
+      final store = _store();
+      await _plan(
+        store,
+        _own('Bowl', '').copyWith(
+          structuredIngredients: [
+            RecipeIngredient(
+              name: 'Haferflocken',
+              grams: 80,
+              per100g: const RecipeNutrition(
+                caloriesKcal: 370,
+                proteinG: 13,
+                carbsG: 60,
+                fatG: 7,
+              ),
+            ),
+          ],
+        ),
+        0,
+        MealSlot.breakfast,
+      );
+      await _pump(tester, store);
+      expect(find.text('80 g'), findsOneWidget);
+      expect(await _footnote(tester, deL10n), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
@@ -558,6 +680,76 @@ void main() {
       expect(find.text(_kept('Mo 1 can · Tu 1 can')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    // Cloves next to a name that does not count them, centimetres,
+    // pinches (in the pantry), eighths and decimals.
+    await withClock(Clock.fixed(_today), () async {
+      final store = _store();
+      await _plan(
+        store,
+        _own(
+          'Würze',
+          '2 Zehen Knoblauch\n1 cm Ingwer\n1 Prise Muskat\n'
+              '1/8 Tasse Mandeln',
+        ),
+        0,
+        MealSlot.dinner,
+      );
+      // An import for six, planned for one: a sixth of an onion, a third of
+      // about two carrots; one for four planned for two halves a quarter.
+      await _plan(
+        store,
+        recipeCatalogDe.first.copyWith(
+          slug: 'user_import_salad',
+          title: 'Salat',
+          ingredients: '1 Zwiebel\nca. 2 Möhren\n3/4 Gurke',
+          structuredIngredients: const [],
+          categories: ['Eigene', '${recipeIngredientsBasisPrefix}per_recipe'],
+          batchServings: 6,
+        ),
+        1,
+        MealSlot.dinner,
+      );
+      await _plan(
+        store,
+        recipeCatalogDe.first.copyWith(
+          slug: 'user_import_bowl',
+          title: 'Bowl',
+          ingredients: '1/4 Tasse Feta\n1 1/4 rote Zwiebeln',
+          structuredIngredients: const [],
+          categories: ['Eigene', '${recipeIngredientsBasisPrefix}per_recipe'],
+          batchServings: 4,
+        ),
+        2,
+        MealSlot.dinner,
+        servings: 2,
+      );
+      await _pump(tester, store);
+      final receipt = _receipt(store);
+      String amountOf(String label) {
+        final row = _key(
+          'shopping-item-${_row([...receipt.rows, ...receipt.pantry], label).id}',
+        );
+        return tester
+            .widgetList<Text>(
+              find.descendant(of: row, matching: find.byType(Text)),
+            )
+            .map((t) => t.data)
+            .elementAt(1)!;
+      }
+
+      expect(amountOf('Knoblauch'), '2 Zehen');
+      expect(amountOf('Ingwer'), '1 cm');
+      expect(amountOf('Mandeln'), '1/8 Tasse');
+      expect(amountOf('Zwiebel'), '0,17');
+      expect(amountOf('Möhren'), 'ca. 1/3');
+      expect(amountOf('Gurke'), '1/8');
+      expect(amountOf('Feta'), '1/8 Tasse');
+      expect(amountOf('Rote Zwiebeln'), '5/8');
+      await _tap(tester, _key('shopping-pantry-toggle'));
+      expect(amountOf('Muskat'), '1 Prise');
+      expect(tester.takeException(), isNull);
+    });
   });
 
   for (final locale in ['de', 'en']) {
@@ -595,16 +787,24 @@ void main() {
         await tester.ensureVisible(row);
         await tester.pumpAndSettle();
         // Large text: one meal per line, each amount whole.
+        for (final entry in [
+          'Mo 180\u00A0g',
+          locale == 'de' ? 'Do 250\u00A0g' : 'Th 250\u00A0g',
+        ]) {
+          expect(
+            find.descendant(of: row, matching: find.text(entry)),
+            findsOneWidget,
+            reason: entry,
+          );
+        }
+        // Read as before: full weekdays.
         expect(
-          find.descendant(
-            of: row,
-            matching: find.text(
-              locale == 'de'
-                  ? 'Mo 180\u00A0g\nDo 250\u00A0g'
-                  : 'Mo 180\u00A0g\nTh 250\u00A0g',
-            ),
+          tester.getSemantics(row).label,
+          endsWith(
+            locale == 'de'
+                ? 'Montag 180 g, Donnerstag 250 g'
+                : 'Monday 180 g, Thursday 250 g',
           ),
-          findsOneWidget,
         );
         expect(tester.takeException(), isNull);
         await _tap(tester, _key('shopping-pantry-toggle'));
