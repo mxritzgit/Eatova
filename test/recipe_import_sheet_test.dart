@@ -987,6 +987,49 @@ void main() {
     expect(service.inputs, [_source]);
   });
 
+  // The service and the Edge Function count UTF-16 code units; a grapheme
+  // cap would let emoji-heavy text through that the request then refuses.
+  testWidgets('paste caps at 20000 UTF-16 units without splitting a pair', (
+    tester,
+  ) async {
+    mockClipboard(
+      tester,
+      () async => <String, Object?>{'text': 'a${'\u{1F600}' * 15000}'},
+    );
+    final service = _Service((_) async => _ready);
+    await _open(
+      tester,
+      service: service,
+      initialText: '',
+      save: (_) async => SyncDelivery.delivered,
+    );
+    await _tap(tester, 'recipe-import-paste');
+    final text = tester
+        .widget<TextField>(find.byKey(const ValueKey('recipe-import-input')))
+        .controller!
+        .text;
+    // 'a' plus 9999 emoji; the 10000th would need units 20000 and 20001.
+    expect(text.length, 19999);
+    expect(text, 'a${'\u{1F600}' * 9999}');
+    await _tap(tester, 'recipe-import-analyze');
+    expect(service.inputs.single.length, lessThanOrEqualTo(20000));
+  });
+
+  testWidgets('typed input caps at 20000 UTF-16 units', (tester) async {
+    await _open(
+      tester,
+      service: _Service((_) async => _ready),
+      initialText: '',
+      save: (_) async => SyncDelivery.delivered,
+    );
+    await _enter(tester, 'recipe-import-input', '\u{1F600}' * 10001);
+    final text = tester
+        .widget<TextField>(find.byKey(const ValueKey('recipe-import-input')))
+        .controller!
+        .text;
+    expect(text, '\u{1F600}' * 10000);
+  });
+
   testWidgets('text typed while the clipboard is read is kept', (
     tester,
   ) async {

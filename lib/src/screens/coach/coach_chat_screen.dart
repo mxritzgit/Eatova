@@ -47,6 +47,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/motion.dart';
+import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_photo.dart' show RecipeArt;
 import '../../widgets/recipes/recipe_sections.dart';
@@ -2729,7 +2730,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final draft = _withDictation(_speechDraft, _speechShown);
     _setDraft(draft);
     // Draft and dictation share the composer cap: stop there, never cut.
-    if (!_speechCapReached && _CoachInputLimit.overflow(draft) >= 0) {
+    if (!_speechCapReached && _coachInputLimit.overflow(draft) >= 0) {
       _speechCapReached = true;
       _stopSpeechGracefully();
     }
