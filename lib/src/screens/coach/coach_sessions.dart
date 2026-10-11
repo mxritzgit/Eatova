@@ -121,55 +121,62 @@ class _SessionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Material(
-      color: isActive ? t.surf : Colors.transparent,
-      borderRadius: BorderRadius.circular(rCard),
-      child: InkWell(
-        onTap: onTap,
+    // The open conversation is marked by fill and icon colour only; a screen
+    // reader learns it from the selected state.
+    return Semantics(
+      key: ValueKey('coach-session-${session.id}'),
+      container: true,
+      selected: isActive,
+      child: Material(
+        color: isActive ? t.surf : Colors.transparent,
         borderRadius: BorderRadius.circular(rCard),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-          child: Row(
-            children: <Widget>[
-              IconTile(
-                icon: Icons.chat_bubble_outline_rounded,
-                color: isActive ? t.accent : null,
-                size: 32,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      _sessionTitle(session, l10n),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.ui(
-                        14,
-                        weight: FontWeight.w600,
-                        color: t.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _humanizeTimestamp(session.lastMessageAt, l10n),
-                      style: AppType.ui(11.5, color: t.ink2),
-                    ),
-                  ],
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(rCard),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            child: Row(
+              children: <Widget>[
+                IconTile(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  color: isActive ? t.accent : null,
+                  size: 32,
                 ),
-              ),
-              // Default density: compact shrank the target to 40 dp, below
-              // the 48 dp minimum for a destructive action.
-              IconButton(
-                tooltip: l10n.commonDelete,
-                onPressed: onDelete,
-                icon: Icon(Icons.delete_outline_rounded,
-                    size: 18, color: t.ink2),
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        _sessionTitle(session, l10n),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.ui(
+                          14,
+                          weight: FontWeight.w600,
+                          color: t.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _humanizeTimestamp(session.lastMessageAt, l10n),
+                        style: AppType.ui(11.5, color: t.ink2),
+                      ),
+                    ],
+                  ),
+                ),
+                // Default density: compact shrank the target to 40 dp, below
+                // the 48 dp minimum for a destructive action.
+                IconButton(
+                  tooltip: l10n.commonDelete,
+                  onPressed: onDelete,
+                  icon: Icon(Icons.delete_outline_rounded,
+                      size: 18, color: t.ink2),
+                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                ),
+              ],
+            ),
           ),
         ),
       ),

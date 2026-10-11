@@ -1258,6 +1258,27 @@ void main() {
     },
   );
 
+  // Review 2026-10-11 (COACH-2): the open conversation was marked by colour
+  // alone, so a screen reader could not tell which one was open.
+  testWidgets('the sessions sheet announces the open conversation',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('coach-session-s1'))),
+      isSemantics(isSelected: true, hasTapAction: true),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('coach-session-s2'))),
+      isSemantics(isSelected: false, hasTapAction: true),
+    );
+    semantics.dispose();
+  });
+
   // Review 2026-10-11 (COACH-1): a request that FAILS after its session was
   // left and opened again used to vanish without a word. The thinking row
   // went away, no banner and no marker appeared, and a question the server
