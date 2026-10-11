@@ -30,6 +30,11 @@ const double kTrainingLine = AppType.normalHeight;
 TextScaler trainingHeadingScaler(BuildContext context) =>
     MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.4);
 
+/// From 150 % text on, rows that share their width with a trailing control
+/// stack it instead, or their words break mid-way ("workou|t").
+bool trainingLargeText(BuildContext context) =>
+    MediaQuery.textScalerOf(context).scale(16) > 24;
+
 /// The workout card's surface: a hero card with an accent hairline and a
 /// violet glow in its top right corner. A [Material], so rows ripple on it.
 class TrainingHeroCard extends StatelessWidget {
@@ -977,12 +982,11 @@ class _TrainingVolumeCardState extends State<TrainingVolumeCard> {
                         for (var i = 0; i < weeks.length; i++) ...[
                           if (i > 0) const SizedBox(width: 10),
                           Expanded(
-                            child: Text(
+                            child: _VolumeAxisLabel(
                               weeks[i].isCurrent
                                   ? l10n.trainingVolumeNow
                                   : dates.format(weeks[i].start),
-                              textAlign: TextAlign.center,
-                              maxLines: 2,
+                              textScaler: chartScaler,
                               style: AppType.ui(
                                 11,
                                 weight: i == highlight
@@ -1033,6 +1037,61 @@ class _TrainingVolumeCardState extends State<TrainingVolumeCard> {
 
 /// "Recent": the newest workouts with date, duration and PR badge; a row
 /// opens that workout, "All workouts" the history.
+/// A week's label under its bar: up to two lines, wrapping between words.
+/// Grows with the text like the value label (up to 1.3x); when a single word
+/// is still wider than the column, one word per line, scaled to fit, rather
+/// than splitting "Au|g" or "No|w".
+class _VolumeAxisLabel extends StatelessWidget {
+  const _VolumeAxisLabel(
+    this.text, {
+    required this.style,
+    required this.textScaler,
+  });
+
+  final String text;
+  final TextStyle style;
+  final TextScaler textScaler;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final words = text.split(' ');
+        final painter = TextPainter(
+          textDirection: Directionality.of(context),
+          textScaler: textScaler,
+        );
+        var widest = 0.0;
+        for (final word in words) {
+          painter
+            ..text = TextSpan(text: word, style: style)
+            ..layout();
+          widest = math.max(widest, painter.width);
+        }
+        painter.dispose();
+        if (widest <= constraints.maxWidth) {
+          return Text(
+            text,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            textScaler: textScaler,
+            style: style,
+          );
+        }
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            words.join('\n'),
+            textAlign: TextAlign.center,
+            textScaler: textScaler,
+            style: style,
+          ),
+        );
+      },
+    );
+  }
+}
+
 class TrainingRecentSection extends StatelessWidget {
   const TrainingRecentSection({
     super.key,
@@ -1052,48 +1111,44 @@ class TrainingRecentSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
+        // Spread like a row; when title and link no longer fit side by side
+        // (large text) the link wraps under the title instead of halving
+        // both into "Recen|t".
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: HeadingSemantics(
-                  level: 2,
-                  child: Text(
-                    l10n.trainingRecentTitle,
-                    style: AppType.display(
-                      20,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                      letterSpacing: -0.2,
-                      height: kTrainingLine,
-                    ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: HeadingSemantics(
+                level: 2,
+                child: Text(
+                  l10n.trainingRecentTitle,
+                  style: AppType.display(
+                    20,
+                    weight: FontWeight.w700,
+                    color: t.ink,
+                    letterSpacing: -0.2,
+                    height: kTrainingLine,
                   ),
                 ),
               ),
             ),
             if (onOpenAll != null)
-              Flexible(
-                // Flexible keeps the title safe on narrow phones; Align
-                // pins the link to the right edge of its share.
-                child: Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: TextButton(
-                    key: const ValueKey('training-recent-all'),
-                    onPressed: onOpenAll,
-                    style: TextButton.styleFrom(
-                      foregroundColor: t.accentText,
-                      minimumSize: const Size(44, 44),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      textStyle: AppType.ui(
-                        14,
-                        weight: FontWeight.w700,
-                        height: kTrainingLine,
-                      ),
-                    ),
-                    child: Text(l10n.trainingRecentAll),
+              TextButton(
+                key: const ValueKey('training-recent-all'),
+                onPressed: onOpenAll,
+                style: TextButton.styleFrom(
+                  foregroundColor: t.accentText,
+                  minimumSize: const Size(44, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  textStyle: AppType.ui(
+                    14,
+                    weight: FontWeight.w700,
+                    height: kTrainingLine,
                   ),
                 ),
+                child: Text(l10n.trainingRecentAll),
               ),
           ],
         ),
@@ -1130,6 +1185,15 @@ class _RecentRow extends StatelessWidget {
     final records = summary.personalRecords;
     final badge = records > 0 ? l10n.trainingRecentPrs(records) : null;
     final open = onOpen;
+    // At large text the badge takes half the row and cut the title to
+    // "Lowe|r Bo…"; it moves under the date there.
+    final badgeBelow = badge != null && trainingLargeText(context);
+    final badgeWidget = badge == null
+        ? null
+        : TrainingRecordBadge(
+            key: ValueKey('training-recent-pr-${summary.entry.id}'),
+            count: records,
+          );
     return Semantics(
       container: true,
       button: open != null,
@@ -1170,15 +1234,16 @@ class _RecentRow extends StatelessWidget {
                           height: kTrainingLine,
                         ),
                       ),
+                      if (badgeBelow) ...[
+                        const SizedBox(height: 6),
+                        badgeWidget!,
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (badge != null)
-                  TrainingRecordBadge(
-                    key: ValueKey('training-recent-pr-${summary.entry.id}'),
-                    count: records,
-                  )
+                if (badgeWidget != null && !badgeBelow)
+                  badgeWidget
                 else
                   Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
               ],
@@ -1248,7 +1313,13 @@ class TrainingRecordBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return Container(
-      constraints: const BoxConstraints(minHeight: 28, maxWidth: 120),
+      // The cap keeps a trailing badge from taking the row; from 1.5x text
+      // the rows put it under the title, where the cap only split
+      // "2 Rekor|de".
+      constraints: BoxConstraints(
+        minHeight: 28,
+        maxWidth: trainingLargeText(context) ? double.infinity : 120,
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
         color: t.fatSurface,

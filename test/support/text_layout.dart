@@ -40,6 +40,11 @@ void expectWholeWords(RenderParagraph paragraph, {String? reason}) {
   }
 }
 
+/// [expectWholeWords] for every paragraph below [scope]; fails when there is
+/// none.
+void expectAllWholeWords(WidgetTester tester, Finder scope) =>
+    expectWholeWordsIn(tester, scope, '');
+
 /// [expectWholeWords] for every paragraph below [scope] containing [text];
 /// fails when there is none.
 void expectWholeWordsIn(WidgetTester tester, Finder scope, String text) {
