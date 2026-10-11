@@ -128,9 +128,12 @@ like the buffered path, without sending further bytes and without a refund.
 A provider failure after the disconnect stores nothing and refunds nothing (a
 client abort never refunds). The handler and the stream pump are registered
 with `EdgeRuntime.waitUntil` so the worker outlives the request for that work.
-The app's straggler lookup finds the answer once it is stored; a lookup that
-runs earlier still sees only the question. /recipe, /plan and /log are buffered
-and already finish and persist after a disconnect.
+/recipe, /plan and /log are buffered and already finish and persist after a
+disconnect. After a lost connection the app checks the transcript; if the
+question is stored without an answer, it keeps its thinking state and checks
+again every 3 s (none while backgrounded) until the request's own deadline
+from the send (chat 95 s, /recipe 165 s, /plan and /log 105 s), then shows the
+answer or the usual error with retry. No second request is sent meanwhile.
 
 The classifier requests structured categories; benign approvals require an
 explicit `stop` completion. Malformed ordinary-chat or image-plus-text
