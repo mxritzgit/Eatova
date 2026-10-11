@@ -10,6 +10,7 @@ import '../../models/training_plan.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
+import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../training/training_exercise_list.dart';
 
@@ -451,7 +452,8 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
         hint: l10n.coachBriefWishHint,
         controller: _wish,
         focus: _wishFocus,
-        maximum: 1000,
+        // The wish is sent as the chat message: the coach input cap.
+        limit: const TextLengthLimit(1000),
       ),
     ];
   }
@@ -511,7 +513,11 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
                     hint: l10n.coachBriefGoalHint,
                     controller: _goal,
                     focus: _goalFocus,
-                    maximum: 200,
+                    // TrainingJson.text and coach-chat count code points.
+                    limit: const TextLengthLimit(
+                      200,
+                      unit: TextLengthUnit.codePoints,
+                    ),
                     error: _goalRequiredError
                         ? l10n.trainingPageRequired
                         : null,
@@ -530,7 +536,7 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
     required String hint,
     required TextEditingController controller,
     required FocusNode focus,
-    required int maximum,
+    required TextLengthLimit limit,
     String? error,
   }) {
     final t = context.t;
@@ -548,8 +554,8 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
               focusNode: focus,
               minLines: 1,
               maxLines: 4,
-              maxLength: maximum,
-              inputFormatters: [LengthLimitingTextInputFormatter(maximum)],
+              maxLength: limit.maximum,
+              inputFormatters: [limit],
               textCapitalization: TextCapitalization.sentences,
               cursorColor: t.accent,
               style: AppType.ui(15, color: t.ink),

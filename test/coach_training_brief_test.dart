@@ -350,4 +350,37 @@ void main() {
       expect(outcome.submission!.wish, isNotEmpty);
     });
   });
+
+  // The fields count the way the request is checked, not in graphemes: a
+  // thumbs-up with a skin tone is one grapheme but two code points (the
+  // goal's unit) and four UTF-16 units (the wish's unit, the chat cap).
+  group('length caps', () {
+    const thumbs = '\u{1F44D}\u{1F3FD}';
+
+    testWidgets('an emoji-heavy own goal is cut to 200 code points and sends', (
+      tester,
+    ) async {
+      final outcome = await _open(tester);
+      await _tap(tester, 'coach-brief-goal-own');
+      await tester.enterText(_key('coach-brief-goal'), thumbs * 150);
+      await tester.pumpAndSettle();
+      final goal = tester.widget<TextField>(_key('coach-brief-goal'));
+      expect(goal.controller!.text.runes.length, 200);
+      expect((await _send(tester, outcome)).goal.runes.length, 200);
+    });
+
+    testWidgets('an emoji-heavy wish is cut to 1000 UTF-16 units and sends', (
+      tester,
+    ) async {
+      final outcome = await _open(tester);
+      await tester.ensureVisible(_key('coach-brief-wish'));
+      await tester.pumpAndSettle();
+      await tester.enterText(_key('coach-brief-wish'), thumbs * 300);
+      await tester.pumpAndSettle();
+      final wish = tester.widget<TextField>(_key('coach-brief-wish'));
+      expect(wish.controller!.text.length, 1000);
+      await _send(tester, outcome);
+      expect(outcome.submission!.wish.length, 1000);
+    });
+  });
 }
