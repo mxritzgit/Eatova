@@ -284,9 +284,20 @@ void main() {
       ]) {
         expect(map(code), _de.foodAnalysisImageUnusableMessage, reason: code);
       }
-      // Unknown code: the flow's fallback, never the raw server message.
-      expect(map('something_new'), _fallback);
+      // Unknown code on a 5xx: the server failed, not the connection.
+      expect(map('something_new'), _de.foodAnalysisServiceUnavailableMessage);
       expect(map('something_new'), isNot(contains('Analyse konnte')));
+      // On a 4xx: the flow's fallback, never the raw server message.
+      final unbekannt = mealAnalysisErrorMessage(
+        const MealAnalysisServerError(
+          statusCode: 400,
+          code: 'something_new',
+          debugMessage: 'Analyse konnte nicht abgeschlossen werden.',
+        ),
+        _fallback,
+        _de,
+      );
+      expect(unbekannt, _fallback);
     });
 
     test('remote 499 request_aborted stays visible and names service trouble',

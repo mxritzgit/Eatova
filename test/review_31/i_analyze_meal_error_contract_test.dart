@@ -483,14 +483,15 @@ void main() {
     test('ein wirklich unbekannter Servercode faellt auf den Ausweichtext', () {
       // The counter-check to the rule above: the fix must not turn into a
       // catch-all that hands every unknown code a soothing text. An unknown
-      // code is unknown, and the flow's own message is the honest answer.
+      // code on a 4xx is unknown, and the flow's own message is the honest
+      // answer. A 5xx is the server's own failure (group below).
       for (final code in const <String>[
         'brandneu_2027',
-        'http_599',
+        'http_499',
         'auth_unavailable_x',
       ]) {
         final fehler = MealAnalysisServerError(
-          statusCode: 500,
+          statusCode: 400,
           code: code,
           debugMessage: _serverDetail,
         );
@@ -511,6 +512,77 @@ void main() {
         final eintrag = codes[code]!;
         expect(_clientText(eintrag, _de), _ausweichtext, reason: code);
       }
+    });
+  });
+
+  group('Gateway-5xx ohne Code der Funktion', () {
+    // The gateway answers a function that failed to boot (503 BOOT_ERROR),
+    // hit its worker limit (546 WORKER_LIMIT) or sits behind a failing proxy
+    // (502 HTML) with a body without `error`. The server was reached and
+    // failed, so the flows' fallback ("check your connection") would mislead.
+    const antworten = <(int, String)>[
+      (502, '<html><body><h1>502 Bad Gateway</h1></body></html>'),
+      (503, '{"code":"BOOT_ERROR","message":"Function failed to start"}'),
+      (546, '{"code":"WORKER_LIMIT","message":"Worker limit reached"}'),
+      (500, ''),
+    ];
+
+    Object fehlerAus(Object? Function() parse) {
+      try {
+        parse();
+      } on Object catch (fehler) {
+        return fehler;
+      }
+      fail('die Antwort hat keinen Fehler geworfen');
+    }
+
+    test('der Foto-Scan meldet die Analyse als nicht verfuegbar', () {
+      for (final (status, body) in antworten) {
+        final fehler = fehlerAus(() => parseAnalyzeMealResponse(status, body));
+        for (final l10n in <AppLocalizations>[_de, _en]) {
+          expect(
+            mealAnalysisErrorMessage(
+              fehler,
+              l10n.foodAnalysisFailedMessage,
+              l10n,
+            ),
+            l10n.foodAnalysisServiceUnavailableMessage,
+            reason: '$status ${l10n.localeName}',
+          );
+        }
+      }
+    });
+
+    test('das Beschreiben ebenso', () {
+      for (final (status, body) in antworten) {
+        final fehler = fehlerAus(() => parseDescribeMealResponse(status, body));
+        for (final l10n in <AppLocalizations>[_de, _en]) {
+          expect(
+            mealDescribeErrorMessage(fehler, l10n),
+            l10n.foodAnalysisServiceUnavailableMessage,
+            reason: '$status ${l10n.localeName}',
+          );
+        }
+      }
+    });
+
+    test('ein Gateway-504 ist eine zu lange Antwort', () {
+      final foto = fehlerAus(
+        () => parseAnalyzeMealResponse(504, '<html>Gateway Timeout</html>'),
+      );
+      expect(mealAnalysisErrorMessage(foto, _ausweichtext, _de),
+          _de.foodAnalysisTimeoutMessage);
+      final beschreibung = fehlerAus(() => parseDescribeMealResponse(504, ''));
+      expect(mealDescribeErrorMessage(beschreibung, _en),
+          _en.foodAnalysisTimeoutMessage);
+    });
+
+    test('ein 4xx-Clientfehler bleibt beim Ausweichtext', () {
+      final fehler = fehlerAus(
+        () => parseAnalyzeMealResponse(400, '{"error":"invalid_json"}'),
+      );
+      expect(mealAnalysisErrorMessage(fehler, _ausweichtext, _de),
+          _ausweichtext);
     });
   });
 

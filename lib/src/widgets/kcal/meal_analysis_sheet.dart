@@ -74,13 +74,15 @@ String _mealAnalysisExceptionMessage(
               mealAnalysisClockLabel(resetAt),
             )
           : l10n.foodAnalysisRateLimitError,
-    MealAnalysisServerError(:final code) => switch (code) {
+    MealAnalysisServerError(:final code, :final statusCode) => switch (code) {
       'invalid_hint' => l10n.foodScanContextInvalid,
       // `request_timeout` (408) is the server giving up on a body that
       // trickles in; from the user's side that is the same situation as the
-      // provider taking too long, so it gets the same text.
+      // provider taking too long, so it gets the same text. So does a
+      // gateway 504 without a code of the function.
       'provider_timeout' ||
-      'request_timeout' => l10n.foodAnalysisTimeoutMessage,
+      'request_timeout' ||
+      'http_504' => l10n.foodAnalysisTimeoutMessage,
       'provider_error' ||
       'provider_response_too_large' ||
       'provider_invalid_response' ||
@@ -107,6 +109,10 @@ String _mealAnalysisExceptionMessage(
       'missing_image' ||
       'invalid_image_base64' ||
       'image_too_small' => l10n.foodAnalysisImageUnusableMessage,
+      // Any other 5xx was answered by a failing server, e.g. a gateway
+      // BOOT_ERROR or WORKER_LIMIT that carries no code of the function:
+      // the fallback would blame the connection that delivered it.
+      _ when statusCode >= 500 => l10n.foodAnalysisServiceUnavailableMessage,
       // Deliberately unmapped: unsupported_content_type, invalid_json,
       // invalid_body, method_not_allowed are client bugs, not user
       // situations — the flow's fallback is the honest text for them.
