@@ -24,6 +24,7 @@ import 'package:eatova/src/services/android_health_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/services/open_prices_api.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
@@ -148,6 +149,18 @@ void main() {
 
       expect(ohne.notificationService, isNull);
       expect(ohne.healthService, isNull);
+    });
+
+    test('the shopping receipt gets the real Open Prices source', () {
+      // Dropping the argument would silently remove every price estimate;
+      // without it (tests, preview) the receipt makes no request at all.
+      expect(buildEatovaApp().openPrices, isA<HttpOpenPricesSource>());
+      expect(
+        (buildEatovaApp().openPrices! as HttpOpenPricesSource).baseUrl,
+        HttpOpenPricesSource.defaultBaseUrl,
+      );
+      const EatovaApp ohne = EatovaApp();
+      expect(ohne.openPrices, isNull);
     });
 
     test('buildEatovaApp hat keine Seiteneffekte und ist mehrfach aufrufbar',

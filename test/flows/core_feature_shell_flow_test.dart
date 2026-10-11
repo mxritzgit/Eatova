@@ -6,6 +6,8 @@ import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/screens/training/training_history_screen.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/open_prices_api.dart';
+import 'package:eatova/src/services/shopping_price_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,6 +15,14 @@ import '../fixlauf_a_helpers.dart';
 import 'flow_test_helpers.dart';
 
 final _now = DateTime(2026, 9, 10, 12);
+
+/// A price source the flow never reaches: the planner stays on its week.
+class _UnusedPrices implements OpenPricesSource {
+  const _UnusedPrices();
+
+  @override
+  OpenPricesConnection connect() => fail('no price request expected');
+}
 
 TrainingPlan _plan() => TrainingPlan(
   id: 'core-feature-plan',
@@ -65,11 +75,50 @@ void main() {
           find.byType(MealPlanScreen),
         );
         expect(identical(planner.store, store), isTrue);
+        // No Open Prices source wired: no price estimate.
+        expect(planner.prices, isNull);
         expect(store.selectedTab, 2);
         expect(store.dailyConsumedKcal, 0);
         await _tap(tester, 'meal-plan-back');
         await settleFrames(tester);
         expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await settleFrames(tester);
+      });
+    },
+  );
+
+  testWidgets(
+    'the planner shares the session price service on every open',
+    (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        final server = FixlaufServer()
+          ..profileRow = serverProfileRow(completedProfile);
+        final store = await pumpSignedIn(
+          tester,
+          server,
+          openPrices: const _UnusedPrices(),
+        );
+        store.setTab(2);
+        await settleFrames(tester);
+        await _tap(tester, 'recipe-meal-plan-button');
+        final first = tester
+            .widget<MealPlanScreen>(find.byType(MealPlanScreen))
+            .prices;
+        expect(first, isA<OpenPricesShoppingPriceService>());
+        await _tap(tester, 'meal-plan-back');
+        await settleFrames(tester);
+        await _tap(tester, 'recipe-meal-plan-button');
+        // One cache per signed-in session, not per visit.
+        expect(
+          identical(
+            tester.widget<MealPlanScreen>(find.byType(MealPlanScreen)).prices,
+            first,
+          ),
+          isTrue,
+        );
+        await _tap(tester, 'meal-plan-back');
+        await settleFrames(tester);
         await tester.pumpWidget(const SizedBox.shrink());
         await settleFrames(tester);
       });
