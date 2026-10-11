@@ -691,27 +691,43 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
 
   /// The existing analysis sheet with the draft's result: components,
   /// weight, favorite. A meal added there closes this sheet too.
+  ///
+  /// The review's latest Add is kept as a future, not as a flag set after
+  /// it: should the review close while that Add still saves, this sheet
+  /// waits for it instead of offering its own Add for the logged meal.
   Future<void> _review() async {
     final draft = _draft;
     if (draft == null || draft.items.isEmpty || _adding || _added) return;
-    MealSlot? loggedSlot;
+    Future<String>? reviewAdd;
+    MealSlot? reviewSlot;
     await showMealAnalysisSheet(
       context,
       slot: _slot,
       resultFuture: Future<MealAnalysisResult>.value(draft.toResult()),
       previewImage: null,
-      onAdd: (result, slot) async {
-        final id = await widget.onAdd(result, slot);
-        loggedSlot = slot;
-        return id;
+      onAdd: (result, slot) {
+        reviewSlot = slot;
+        return reviewAdd = Future<String>.sync(
+          () => widget.onAdd(result, slot),
+        );
       },
       onUpdateMeal: widget.onUpdateMeal,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
       failureMessage: context.l10n.foodAnalysisFailedMessage,
     );
-    final slot = loggedSlot;
-    if (!mounted || slot == null) return;
+    final add = reviewAdd;
+    final slot = reviewSlot;
+    if (!mounted || add == null || slot == null) return;
+    setState(() => _adding = true);
+    try {
+      await add;
+    } catch (_) {
+      // Reported by the review while it was open; the draft stays to retry.
+      if (mounted) setState(() => _adding = false);
+      return;
+    }
+    if (!mounted) return;
     _added = true;
     Navigator.of(context).pop(MealDescribeOutcome.addedInReview(slot));
   }

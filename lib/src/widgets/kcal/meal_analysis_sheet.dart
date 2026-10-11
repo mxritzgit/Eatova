@@ -531,7 +531,10 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const SheetHandle(),
-        _Header(slot: widget.slot, onClose: () => Navigator.of(context).pop()),
+        _Header(
+          slot: widget.slot,
+          onClose: _saving ? null : () => Navigator.of(context).pop(),
+        ),
         Flexible(
           child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(
@@ -601,18 +604,25 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     // after add, re-portion and the 0-kcal guard, so their toasts must land
     // above the scrim in a strip the host reserves below the content — not
     // under it on the root messenger, where they read as dead.
-    return Padding(
-      padding: EdgeInsets.only(bottom: keyboardInset),
-      child: Container(
-        key: const ValueKey('analyse-sheet'),
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        decoration: BoxDecoration(
-          color: t.bg,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(rSheet),
+    //
+    // A save in flight (Add waits for its delivery window) holds the sheet:
+    // closed then, a caller such as the describe sheet saw no add and
+    // offered its own Add again.
+    return CommitDismissGuard(
+      pending: _saving,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: keyboardInset),
+        child: Container(
+          key: const ValueKey('analyse-sheet'),
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          decoration: BoxDecoration(
+            color: t.bg,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(rSheet),
+            ),
           ),
+          child: SnackHost(measureToast: true, child: body),
         ),
-        child: SnackHost(measureToast: true, child: body),
       ),
     );
   }
@@ -721,7 +731,9 @@ class _Header extends StatelessWidget {
   const _Header({required this.slot, required this.onClose});
 
   final MealSlot slot;
-  final VoidCallback onClose;
+
+  /// Null while a save is in flight.
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {

@@ -557,6 +557,92 @@ void main() {
       expect(h.logged, hasLength(1));
     });
 
+    // The review's Add commits, then waits up to the delivery window. A close
+    // in that wait used to leave this sheet on its draft with Add enabled, so
+    // the meal was logged a second time.
+    testWidgets('the review cannot be closed while its Add saves', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _tapVisible(tester, key('meal-describe-edit'));
+      await tester.pumpAndSettle();
+      h.addGate = Completer<void>();
+      await _tapVisible(tester, key('analyse-add-daily-button'));
+      await tester.pump();
+      expect(h.logged, hasLength(1));
+
+      final close = tester.widget<IconButton>(key('analyse-sheet-close'));
+      expect(close.onPressed, isNull);
+      await tester.tap(key('analyse-sheet-close'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'close button');
+      await tester.tapAt(const Offset(20, 20));
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'scrim');
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'back');
+      await tester.fling(key('analyse-sheet'), const Offset(0, 500), 1500);
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsOneWidget, reason: 'drag');
+
+      h.addGate!.complete();
+      await tester.pumpAndSettle();
+      await tester.tap(key('analyse-sheet-close'));
+      await tester.pumpAndSettle();
+      expect(h.closed, isTrue);
+      expect(h.outcome!.result, isNull, reason: 'confirmed by the review');
+      expect(h.logged, hasLength(1));
+    });
+
+    // Should the review route go anyway (popped from outside its guard), the
+    // describe sheet still owns that Add: it waits for it, then closes as
+    // logged instead of offering the draft again.
+    testWidgets('an Add still saving when the review goes closes the sheet', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _tapVisible(tester, key('meal-describe-edit'));
+      await tester.pumpAndSettle();
+      h.addGate = Completer<void>();
+      await _tapVisible(tester, key('analyse-add-daily-button'));
+      await tester.pump();
+      Navigator.of(tester.element(key('analyse-sheet'))).pop();
+      await tester.pumpAndSettle();
+      expect(key('analyse-sheet'), findsNothing);
+      expect(enabled(tester, key('meal-describe-add')), isFalse);
+
+      h.addGate!.complete();
+      await tester.pumpAndSettle();
+      expect(h.closed, isTrue);
+      expect(h.outcome!.result, isNull, reason: 'confirmed by the review');
+      expect(h.outcome!.slot, MealSlot.lunch);
+      expect(h.logged, hasLength(1));
+    });
+
+    testWidgets('a failed Add after the review went keeps the draft', (
+      tester,
+    ) async {
+      final h = await openDescribe(tester);
+      await describe(tester, 'Nutella auf Toast');
+      await _tapVisible(tester, key('meal-describe-edit'));
+      await tester.pumpAndSettle();
+      h.addGate = Completer<void>();
+      h.addError = StateError('disk full');
+      await _tapVisible(tester, key('analyse-add-daily-button'));
+      await tester.pump();
+      Navigator.of(tester.element(key('analyse-sheet'))).pop();
+      await tester.pumpAndSettle();
+
+      h.addGate!.complete();
+      await tester.pumpAndSettle();
+      expect(h.closed, isFalse);
+      expect(key('meal-describe-line-0'), findsOneWidget);
+      expect(enabled(tester, key('meal-describe-add')), isTrue);
+    });
+
     testWidgets('Edit closed without adding keeps the draft', (tester) async {
       final h = await openDescribe(tester);
       await describe(tester, 'Nutella auf Toast');
