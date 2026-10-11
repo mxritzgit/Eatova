@@ -157,7 +157,9 @@ class _EatenPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
         color: t.accentTint,
-        borderRadius: BorderRadius.circular(13),
+        // Fully round at any height: a fixed 13 left a rounded box once
+        // large text made the pill taller than 26 px.
+        borderRadius: BorderRadius.circular(rPill),
       ),
       // Hugs the text (an `alignment` would stretch the pill across the
       // header's Wrap and push it onto a line of its own).
