@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
@@ -167,25 +165,13 @@ class PageHeader extends StatelessWidget {
     String label,
     TextStyle style,
     double maxWidth,
-  ) {
-    final scaler = AppType.pageTitleScaler(context);
-    if (!maxWidth.isFinite || maxWidth <= 0) return scaler;
-    var widest = 0.0;
-    for (final word in label.split(RegExp(r'\s+'))) {
-      if (word.isEmpty) continue;
-      final painter = TextPainter(
-        text: TextSpan(text: word, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: scaler,
-        maxLines: 1,
-      )..layout();
-      widest = math.max(widest, painter.width);
-      painter.dispose();
-    }
-    if (widest <= maxWidth) return scaler;
-    final size = style.fontSize ?? 36;
-    return TextScaler.linear(scaler.scale(size) / size * maxWidth / widest);
-  }
+  ) => AppType.wholeWordScaler(
+    context,
+    text: label,
+    style: style,
+    scaler: AppType.pageTitleScaler(context),
+    maxWidth: maxWidth,
+  );
 }
 
 /// Card with an all-caps label above it; children separated by hairlines.

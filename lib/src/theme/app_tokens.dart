@@ -835,6 +835,41 @@ class AppType {
   static TextScaler pageTitleScaler(BuildContext context) =>
       MediaQuery.textScalerOf(context).clamp(maxScaleFactor: pageTitleMaxScale);
 
+  /// [scaler], lowered just enough that the widest word of [text] in [style]
+  /// still fits [maxWidth] on one line, so a title wraps between words and
+  /// never splits one ("Revie/w" at 2x on a 320 px phone).
+  ///
+  /// It never goes below [minScaleFactor] (nor raises a smaller [scaler]):
+  /// a word too wide even there wraps as it would at that size.
+  static TextScaler wholeWordScaler(
+    BuildContext context, {
+    required String text,
+    required TextStyle style,
+    required TextScaler scaler,
+    required double maxWidth,
+    double minScaleFactor = 0,
+  }) {
+    if (!maxWidth.isFinite || maxWidth <= 0) return scaler;
+    var widest = 0.0;
+    for (final word in text.split(RegExp(r'\s+'))) {
+      if (word.isEmpty) continue;
+      final painter = TextPainter(
+        text: TextSpan(text: word, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      if (painter.width > widest) widest = painter.width;
+      painter.dispose();
+    }
+    if (widest <= maxWidth) return scaler;
+    final size = style.fontSize ?? 14;
+    final base = scaler.scale(size) / size;
+    final fit = base * maxWidth / widest;
+    final floor = base < minScaleFactor ? base : minScaleFactor;
+    return TextScaler.linear(fit > floor ? fit : floor);
+  }
+
   /// Numbers and headings.
   static TextStyle display(
     double size, {

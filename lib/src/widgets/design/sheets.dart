@@ -85,6 +85,13 @@ TextStyle sheetTitleStyle(AppTokens t, {bool compact = false}) =>
     );
 
 /// A sheet's title: [sheetTitleStyle], announced as a level-1 heading.
+///
+/// Large text never splits a word: where the widest word would not fit the
+/// column at the current text scale, the scale drops just enough that it
+/// does, but never below the title's own size. Next to a slot tile and the
+/// close ring, "Review analysis" broke into "Revie/w/analysi/s" at 2x on a
+/// 320 px phone. Titles that fit keep the full scale, so they stay above
+/// the sheet's section headings.
 class SheetTitle extends StatelessWidget {
   const SheetTitle(
     this.text, {
@@ -100,20 +107,33 @@ class SheetTitle extends StatelessWidget {
   /// Goes on the inner [Text] (tests read its style by key).
   final Key? textKey;
 
-  /// A clamp for long single words at large text, e.g.
-  /// [AppType.pageTitleScaler].
+  /// The scale before the whole-word fit, e.g. [AppType.pageTitleScaler];
+  /// null follows the text scale of the context.
   final TextScaler? textScaler;
 
   @override
-  Widget build(BuildContext context) => HeadingSemantics(
-    level: 1,
-    child: Text(
-      text,
-      key: textKey,
-      textScaler: textScaler,
-      style: sheetTitleStyle(context.t, compact: compact),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final style = sheetTitleStyle(context.t, compact: compact);
+    final scaler = textScaler ?? MediaQuery.textScalerOf(context);
+    return HeadingSemantics(
+      level: 1,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Text(
+          text,
+          key: textKey,
+          textScaler: AppType.wholeWordScaler(
+            context,
+            text: text,
+            style: style,
+            scaler: scaler,
+            maxWidth: constraints.maxWidth,
+            minScaleFactor: 1,
+          ),
+          style: style,
+        ),
+      ),
+    );
+  }
 }
 
 /// The header row of a sheet: optional [leading] tile, an optional
@@ -172,6 +192,8 @@ class SheetHeader extends StatelessWidget {
   final Key? closeKey;
   final String? closeTooltip;
   final Key? titleKey;
+
+  /// See [SheetTitle.textScaler]; the whole-word fit applies either way.
   final TextScaler? titleScaler;
   final bool compact;
   final EdgeInsets padding;

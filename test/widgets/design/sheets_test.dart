@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
 import 'package:eatova/src/widgets/design/sheets.dart';
 
+import '../../support/design_capture.dart' show loadDesignFonts;
 import 'design_harness.dart';
 
 void main() {
@@ -500,6 +502,82 @@ void main() {
       final close = tester.getRect(find.byKey(const ValueKey('close')));
       expect(close.top, header.top);
       expect(header.height, greaterThan(close.height * 2));
+    });
+  });
+
+  // Design review 2026-10-11, round 2: beside a slot tile and the close
+  // ring, "Review analysis" broke into "Revie/w/analysi/s" at 2x on a
+  // 320 px phone. Measured with the bundled fonts, not the test glyphs.
+  group('SheetHeader title at 320 px and 2x text', () {
+    setUpAll(loadDesignFonts);
+
+    /// The analysis sheet's header column: the harness pads 20 a side.
+    Future<Text> pumpHeader(WidgetTester tester, String title) async {
+      tester.view.physicalSize = const Size(320 * 3, 700 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        designHarness(
+          SheetHeader(
+            title: title,
+            eyebrow: const Text('Lunch'),
+            leading: const SizedBox.square(dimension: 44),
+            titleKey: const ValueKey('title'),
+            onClose: () {},
+            padding: EdgeInsets.zero,
+          ),
+          textScaler: const TextScaler.linear(2),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      return tester.widget<Text>(find.byKey(const ValueKey('title')));
+    }
+
+    for (final title in <String>[
+      'Review analysis',
+      'Analyse prüfen',
+      'Mahlzeit bearbeiten',
+      'Rezept importieren',
+    ]) {
+      testWidgets('"$title" wraps between words, never inside one', (
+        tester,
+      ) async {
+        final text = await pumpHeader(tester, title);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.byKey(const ValueKey('title')),
+        );
+        var start = 0;
+        for (final word in title.split(' ')) {
+          final lines = paragraph
+              .getBoxesForSelection(
+                TextSelection(
+                  baseOffset: start,
+                  extentOffset: start + word.length,
+                ),
+              )
+              .map((box) => box.top.round())
+              .toSet();
+          expect(lines, hasLength(1), reason: '"$word" split across lines');
+          start += word.length + 1;
+        }
+        // Still large text: the fit lowers the scale only as far as needed.
+        expect(
+          text.textScaler!.scale(kSheetTitleSize),
+          greaterThan(kSheetTitleSize),
+        );
+      });
+    }
+
+    // No blanket cap: the title stays above the 17 px section headings,
+    // which follow the full scale too.
+    testWidgets('a title that fits keeps the full text scale', (tester) async {
+      final text = await pumpHeader(tester, 'Edit meal');
+      expect(text.textScaler!.scale(kSheetTitleSize), kSheetTitleSize * 2);
+    });
+
+    testWidgets('the fit stops at the title size itself', (tester) async {
+      final text = await pumpHeader(tester, 'Ernährungstagebuchauswertung');
+      expect(text.textScaler!.scale(kSheetTitleSize), kSheetTitleSize);
     });
   });
 }
