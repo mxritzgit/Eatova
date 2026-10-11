@@ -18,6 +18,7 @@ class HealthAuthEvidence {
     required this.writeGrant,
     this.steps,
     this.latestWeightKg,
+    this.latestWeightMeasuredAt,
   });
 
   /// Truthful WRITE status for weight.
@@ -37,6 +38,9 @@ class HealthAuthEvidence {
 
   /// Most recent weight read (kg), if any.
   final double? latestWeightKg;
+
+  /// When [latestWeightKg] was measured.
+  final DateTime? latestWeightMeasuredAt;
 
   /// Positive READ signal: some datum actually arrived.
   ///
@@ -134,6 +138,7 @@ class HealthAuthVerifier {
       stepsToday: e.steps!,
       fetchedAt: now,
       latestWeightKg: e.latestWeightKg,
+      latestWeightMeasuredAt: e.latestWeightMeasuredAt,
     );
   }
 
@@ -354,7 +359,7 @@ class AppleHealthService implements HealthService {
       empty: (confirm: () => _noStepSamples(startOfDay, now), value: 0),
     );
 
-    double? latestWeight;
+    WeightSample? latestWeight;
     try {
       final weights = await _query(
         session,
@@ -365,7 +370,7 @@ class AppleHealthService implements HealthService {
         ),
         optional: true,
       );
-      if (weights.isNotEmpty) latestWeight = weights.last.kg;
+      if (weights.isNotEmpty) latestWeight = weights.last;
     } on _HealthReadDeferred {
       // Weight is optional, but a lifecycle/account change invalidates the
       // entire snapshot, including the previously returned step count.
@@ -375,7 +380,8 @@ class AppleHealthService implements HealthService {
     return HealthAuthEvidence(
       writeGrant: writeGrant,
       steps: steps,
-      latestWeightKg: latestWeight,
+      latestWeightKg: latestWeight?.kg,
+      latestWeightMeasuredAt: latestWeight?.measuredAt,
     );
   }
 

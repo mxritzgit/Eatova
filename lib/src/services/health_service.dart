@@ -46,6 +46,7 @@ class HealthSnapshot {
     required this.stepsToday,
     required this.fetchedAt,
     this.latestWeightKg,
+    this.latestWeightMeasuredAt,
   });
 
   final int stepsToday;
@@ -53,6 +54,10 @@ class HealthSnapshot {
 
   /// Last known body weight (kg) from the health store, null if unavailable.
   final double? latestWeightKg;
+
+  /// When [latestWeightKg] was measured. Without it the weight is not
+  /// offered for import: its age and order against the log are unknown.
+  final DateTime? latestWeightMeasuredAt;
 }
 
 abstract class HealthService {
