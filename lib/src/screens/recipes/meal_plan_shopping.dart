@@ -196,7 +196,8 @@ class _LeaderPainter extends CustomPainter {
 
 /// A name and its amount the way a receipt prints them: on one line joined
 /// by a dot leader; a name too long for that wraps with the amount at its
-/// last line, a wide amount (large text) moves below it.
+/// last line, a wide amount (large text) moves below it, at the right edge
+/// with [stackEnd] (so it lines up with a price under it).
 class _LeaderLine extends StatelessWidget {
   const _LeaderLine({
     required this.label,
@@ -204,12 +205,14 @@ class _LeaderLine extends StatelessWidget {
     required this.labelStyle,
     required this.amountStyle,
     required this.leaderColor,
+    this.stackEnd = false,
   });
 
   final String label;
   final String? amount;
   final TextStyle labelStyle, amountStyle;
   final Color leaderColor;
+  final bool stackEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -274,7 +277,13 @@ class _LeaderLine extends StatelessWidget {
             children: [
               Text(label, style: labelStyle),
               const SizedBox(height: 2),
-              amountText,
+              if (stackEnd)
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: amountText,
+                )
+              else
+                amountText,
             ],
           );
         }
@@ -371,6 +380,7 @@ class _ReceiptRow extends StatelessWidget {
         height: 1.4,
       ).copyWith(decoration: strike, decorationColor: t.ink3),
       leaderColor: t.inkFaint,
+      stackEnd: this.price != null,
     );
     final price = this.price;
     return MergeSemantics(
@@ -432,11 +442,49 @@ NumberFormat _euroFormat(AppLocalizations l) => NumberFormat.currency(
   decimalDigits: 2,
 );
 
+/// A sum still loading, in the shape of one: "–,–– €" or "€–.––", so the
+/// amount column stands before the prices arrive.
+String _pricePlaceholder(AppLocalizations l) =>
+    _euroFormat(l).format(0).replaceAll(RegExp('[0-9]'), '–');
+
+/// [text] laid out in [style] the way a [Text] in [context] would be, at
+/// most [maxWidth] wide.
+({double width, double height, double baseline}) _measureText(
+  BuildContext context,
+  String text,
+  TextStyle style, {
+  double maxWidth = double.infinity,
+  int? maxLines = 1,
+}) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: DefaultTextStyle.of(context).style.merge(style),
+    ),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+    maxLines: maxLines,
+  )..layout(maxWidth: maxWidth);
+  try {
+    return (
+      width: painter.width,
+      height: painter.height,
+      baseline: painter.computeDistanceToActualBaseline(
+        TextBaseline.alphabetic,
+      ),
+    );
+  } finally {
+    painter.dispose();
+  }
+}
+
 /// A row's estimate, printed like a till's detail line under a weighed
-/// item: the average price per kilogram, litre or piece on the left, the
-/// row's share in the amount column. The line is always one line while
-/// prices are shown, so loading, a price and "n/a" take the same height;
-/// where both do not fit (large text) the unit price steps back.
+/// item: the price per kilogram, litre or piece on the left (with "1 Pck."
+/// when the line printed no amount), the row's sum in the amount column.
+/// The right column only ever holds a plain sum, so its decimals line up.
+/// The line is always one line while prices are shown, so loading, a price
+/// and "n/a" take the same height; where both do not fit (large text) the
+/// left side shortens, then steps back.
 class _ReceiptPriceLine extends StatelessWidget {
   const _ReceiptPriceLine({
     required this.price,
@@ -448,45 +496,53 @@ class _ReceiptPriceLine extends StatelessWidget {
   final String priceId;
   final bool checked;
 
+  /// The left side's variants, longest first, the value and what a screen
+  /// reader hears instead.
+  (List<String>, String, String) _texts(AppLocalizations l) {
+    final euro = _euroFormat(l);
+    switch (price) {
+      case LinePriceLoading():
+        return (const [], _pricePlaceholder(l), l.mealPlanPriceLoadingSpoken);
+      case LinePriceEstimate(:final cents, :final aggregate, :final kind):
+        final median = euro.format(aggregate.median);
+        final unit = switch (aggregate.basis) {
+          PriceBasis.mass => l.mealPlanPriceUnitKg(median),
+          PriceBasis.volume => l.mealPlanPriceUnitLiter(median),
+          PriceBasis.piece => l.mealPlanPriceUnitPiece(median),
+        };
+        final sum = euro.format(cents / 100);
+        final value = l.mealPlanPriceApprox(sum);
+        return switch (kind) {
+          LinePriceKind.amount => ([unit], value, l.mealPlanPriceSpoken(sum)),
+          LinePriceKind.pack => (
+            [
+              l.mealPlanPriceUnitFor(unit, l.mealPlanPriceOnePack),
+              l.mealPlanPriceOnePack,
+            ],
+            value,
+            l.mealPlanPricePackSpoken(sum),
+          ),
+          LinePriceKind.piece => (
+            [
+              l.mealPlanPriceUnitFor(unit, l.mealPlanPriceOnePiece),
+              l.mealPlanPriceOnePiece,
+            ],
+            value,
+            l.mealPlanPricePieceSpoken(sum),
+          ),
+        };
+      case LinePriceNoData() || LinePriceUnavailable():
+        return (const [], l.mealPlanPriceNone, l.mealPlanPriceNoneSpoken);
+      case LinePriceSkipped():
+        return (const [], '–', l.mealPlanPriceSkippedSpoken);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
-    final euro = _euroFormat(l);
-    final (String? unit, String value, String spoken) = switch (price) {
-      LinePriceLoading() => (null, '…', l.mealPlanPriceLoadingSpoken),
-      LinePriceEstimate(:final cents, :final aggregate, :final kind) => (
-        switch (aggregate.basis) {
-          PriceBasis.mass => l.mealPlanPriceUnitKg(
-            euro.format(aggregate.median),
-          ),
-          PriceBasis.volume => l.mealPlanPriceUnitLiter(
-            euro.format(aggregate.median),
-          ),
-          PriceBasis.piece => l.mealPlanPriceUnitPiece(
-            euro.format(aggregate.median),
-          ),
-        },
-        switch (kind) {
-          LinePriceKind.amount => l.mealPlanPriceApprox(
-            euro.format(cents / 100),
-          ),
-          LinePriceKind.pack => l.mealPlanPricePerPack(
-            euro.format(cents / 100),
-          ),
-          LinePriceKind.piece => l.mealPlanPricePerPiece(
-            euro.format(cents / 100),
-          ),
-        },
-        l.mealPlanPriceSpoken(euro.format(cents / 100)),
-      ),
-      LinePriceNoData() || LinePriceUnavailable() => (
-        null,
-        l.mealPlanPriceNone,
-        l.mealPlanPriceNoneSpoken,
-      ),
-      LinePriceSkipped() => (null, '–', l.mealPlanPriceSkippedSpoken),
-    };
+    final (details, value, spoken) = _texts(l);
     final strike = checked ? TextDecoration.lineThrough : null;
     final unitStyle = AppType.receipt(
       12,
@@ -494,9 +550,9 @@ class _ReceiptPriceLine extends StatelessWidget {
       letterSpacing: -.2,
       height: 1.4,
     ).copyWith(decoration: strike, decorationColor: t.ink3);
+    // Regular weight: the amount above stays the line's primary fact.
     final valueStyle = AppType.receipt(
       13,
-      weight: FontWeight.w500,
       color: price is LinePriceEstimate && !checked ? t.ink2 : t.ink3,
       letterSpacing: -.2,
       height: 1.4,
@@ -511,52 +567,40 @@ class _ReceiptPriceLine extends StatelessWidget {
     );
     return LayoutBuilder(
       builder: (context, constraints) {
-        final base = DefaultTextStyle.of(context).style;
-        final scaler = MediaQuery.textScalerOf(context);
-        final direction = Directionality.of(context);
-        double width(String text, TextStyle style) {
-          final painter = TextPainter(
-            text: TextSpan(text: text, style: base.merge(style)),
-            textDirection: direction,
-            textScaler: scaler,
-            maxLines: 1,
-          )..layout();
-          try {
-            return painter.width;
-          } finally {
-            painter.dispose();
-          }
-        }
-
         const gap = 12.0;
-        final valueWidth = width(value, valueStyle);
-        if (valueWidth > constraints.maxWidth) {
-          // Extreme text sizes: the value shrinks rather than clips.
-          return Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: FittedBox(fit: BoxFit.scaleDown, child: valueText),
+        final valueSize = _measureText(context, value, valueStyle);
+        if (valueSize.width > constraints.maxWidth) {
+          // Extreme text sizes: the value shrinks rather than clips, in
+          // the line's own height.
+          return SizedBox(
+            height: valueSize.height,
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: FittedBox(fit: BoxFit.scaleDown, child: valueText),
+            ),
           );
         }
-        // The unit price only where it fits beside the value, so the line
-        // never grows a second row when prices arrive.
-        final showUnit =
-            unit != null &&
-            width(unit, unitStyle) + gap + valueWidth <= constraints.maxWidth;
+        // The longest detail that fits beside the value, so the line never
+        // grows a second row when prices arrive.
+        final room = constraints.maxWidth - gap - valueSize.width;
+        final detail = details
+            .where((d) => _measureText(context, d, unitStyle).width <= room)
+            .firstOrNull;
         return Row(
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
             Expanded(
-              child: showUnit
-                  ? ExcludeSemantics(
+              child: detail == null
+                  ? const SizedBox.shrink()
+                  : ExcludeSemantics(
                       child: Text(
-                        unit,
+                        detail,
                         style: unitStyle,
                         maxLines: 1,
                         softWrap: false,
                       ),
-                    )
-                  : const SizedBox.shrink(),
+                    ),
             ),
             const SizedBox(width: gap),
             valueText,
@@ -684,8 +728,9 @@ class _ReceiptHeader extends StatelessWidget {
 }
 
 /// The totals under the double rule, stamped once everything is bought.
-/// With a [price] they add the estimate's sum ("Teilsumme" while lines lack
-/// a price) and a note on what it covers.
+/// With a [price], a dashed rule and the estimate's sum follow ("Teilsumme"
+/// while lines lack a price) with a note on what it covers; the stamp stays
+/// on the counts, so the sum is always readable.
 class _ReceiptTotals extends StatelessWidget {
   const _ReceiptTotals({
     required this.done,
@@ -722,7 +767,7 @@ class _ReceiptTotals extends StatelessWidget {
           leaderColor: t.inkFaint,
         );
     final motion = motionDuration(context, kMotionEnter * 2);
-    return Padding(
+    final counts = Padding(
       padding: const EdgeInsets.symmetric(horizontal: _kReceiptInset),
       child: Stack(
         clipBehavior: Clip.none,
@@ -733,38 +778,6 @@ class _ReceiptTotals extends StatelessWidget {
               row(l.mealPlanReceiptItems, '$total', strong: false),
               const SizedBox(height: 2),
               row(l.mealPlanReceiptOpen, '${total - done}', strong: true),
-              if (price != null) ...[
-                // The money apart from the counts above it.
-                const SizedBox(height: 8),
-                KeyedSubtree(
-                  key: const ValueKey('shopping-price-total'),
-                  child: row(
-                    price.unpriced > 0
-                        ? l.mealPlanReceiptSubtotal
-                        : l.mealPlanReceiptSum,
-                    price.pending > 0
-                        ? '…'
-                        : price.priced == 0
-                        ? l.mealPlanPriceNone
-                        : l.mealPlanPriceApprox(
-                            _euroFormat(l).format(price.cents / 100),
-                          ),
-                    strong: true,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  price.pending > 0
-                      ? l.mealPlanReceiptPricesLoading
-                      : price.failed
-                      ? l.mealPlanReceiptPricesFailed
-                      : price.unpriced > 0
-                      ? l.mealPlanReceiptUnpriced(price.unpriced)
-                      : l.mealPlanReceiptAllPriced,
-                  key: const ValueKey('shopping-price-note'),
-                  style: AppType.receipt(12, color: t.ink3, height: 1.4),
-                ),
-              ],
             ],
           ),
           // The progress above already announces the done state.
@@ -798,6 +811,180 @@ class _ReceiptTotals extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (price == null) return counts;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        counts,
+        // The money apart from the counts: it covers every line, bought or
+        // not.
+        const _ReceiptRule(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: _kReceiptInset),
+          child: _ReceiptSum(price: price),
+        ),
+      ],
+    );
+  }
+}
+
+/// The estimate's sum, the loudest line of the slip, and the note on what
+/// it covers. Both are laid out for the longest text they can show, so
+/// nothing below them moves while prices arrive or fail, at any width and
+/// text size.
+class _ReceiptSum extends StatelessWidget {
+  const _ReceiptSum({required this.price});
+
+  final ShoppingPriceTotal price;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final t = context.t;
+    final euro = _euroFormat(l);
+    final price = this.price;
+    final label = price.unpriced > 0
+        ? l.mealPlanReceiptSubtotal
+        : l.mealPlanReceiptSum;
+    final sum = euro.format(price.cents / 100);
+    final (String value, String spoken) = price.pending > 0
+        ? (_pricePlaceholder(l), l.mealPlanPriceLoadingSpoken)
+        : price.priced > 0
+        ? (l.mealPlanPriceApprox(sum), l.mealPlanPriceSpoken(sum))
+        : price.nothingToPrice
+        ? ('–', l.mealPlanPriceSkippedSpoken)
+        : (l.mealPlanPriceNone, l.mealPlanPriceNoneSpoken);
+    final note = price.pending > 0
+        ? l.mealPlanReceiptPricesLoading
+        : price.failed
+        ? l.mealPlanReceiptPricesFailed
+        : price.unpriced > 0
+        ? l.mealPlanReceiptUnpriced(price.unpriced)
+        : price.priced > 0
+        ? l.mealPlanReceiptAllPriced
+        : l.mealPlanReceiptNothingPriced;
+    final labelStyle = AppType.receipt(
+      13,
+      weight: FontWeight.w500,
+      color: t.ink,
+      letterSpacing: .8,
+      height: 1.5,
+    );
+    final valueStyle = AppType.receipt(
+      17,
+      weight: FontWeight.w500,
+      color: price.priced > 0 && price.pending == 0 ? t.ink : t.ink3,
+      height: 1.5,
+    );
+    final noteStyle = AppType.receipt(12, color: t.ink3, height: 1.4);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        double widest(Iterable<String> texts, TextStyle style) => texts
+            .map((text) => _measureText(context, text, style).width)
+            .reduce(math.max);
+        double tallest(Iterable<String> texts, TextStyle style) => texts
+            .map(
+              (text) => _measureText(
+                context,
+                text,
+                style,
+                maxWidth: width,
+                maxLines: null,
+              ).height,
+            )
+            .reduce(math.max);
+        final labels = [
+          l.mealPlanReceiptSum.toUpperCase(),
+          l.mealPlanReceiptSubtotal.toUpperCase(),
+        ];
+        // A week's list stays under a thousand euros.
+        final valueWidth = widest([
+          value,
+          l.mealPlanPriceApprox(euro.format(999.99)),
+        ], valueStyle);
+        final valueSize = _measureText(context, value, valueStyle);
+        final labelText = Text(
+          label.toUpperCase(),
+          semanticsLabel: label,
+          style: labelStyle,
+        );
+        final valueText = Text(
+          value,
+          semanticsLabel: spoken,
+          style: valueStyle,
+          maxLines: 1,
+          softWrap: false,
+        );
+        const gap = 8.0, minLeader = 14.0;
+        final Widget sumLine;
+        if (widest(labels, labelStyle) + valueWidth + 2 * gap + minLeader <=
+            width) {
+          sumLine = Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              labelText,
+              const SizedBox(width: gap),
+              Expanded(
+                child: CustomPaint(
+                  size: Size.fromHeight(valueSize.height),
+                  painter: _LeaderPainter(t.inkFaint, valueSize.baseline),
+                ),
+              ),
+              const SizedBox(width: gap),
+              valueText,
+            ],
+          );
+        } else {
+          // Large text: the sum below its label, at the amount column.
+          sumLine = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: tallest(labels, labelStyle),
+                ),
+                child: labelText,
+              ),
+              SizedBox(
+                height: valueSize.height,
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: FittedBox(fit: BoxFit.scaleDown, child: valueText),
+                ),
+              ),
+            ],
+          );
+        }
+        final notes = [
+          l.mealPlanReceiptPricesLoading,
+          l.mealPlanReceiptPricesFailed,
+          l.mealPlanReceiptUnpriced(math.max(price.lines, 2)),
+          l.mealPlanReceiptUnpriced(1),
+          l.mealPlanReceiptAllPriced,
+          l.mealPlanReceiptNothingPriced,
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            KeyedSubtree(
+              key: const ValueKey('shopping-price-total'),
+              child: sumLine,
+            ),
+            const SizedBox(height: 4),
+            ConstrainedBox(
+              constraints: BoxConstraints(minHeight: tallest(notes, noteStyle)),
+              child: Text(
+                note,
+                key: const ValueKey('shopping-price-note'),
+                style: noteStyle,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -875,14 +1062,14 @@ class _ReceiptPriceSource extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: style,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     l.mealPlanPriceSource,
                     textAlign: TextAlign.center,
                     style: style.copyWith(
                       color: t.ink2,
                       decoration: TextDecoration.underline,
-                      decorationColor: t.inkFaint,
+                      decorationColor: t.ink3,
                     ),
                   ),
                 ],

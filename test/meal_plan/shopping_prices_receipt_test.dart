@@ -1,8 +1,9 @@
 // The receipt with Open Prices estimates (docs/SHOPPING-PRICES.md): the
 // price line under each row in every state, the sum and its note, no layout
-// jump while prices arrive, checks unchanged, the region rule, cancellation
-// when the receipt goes away, the attribution link and what a screen reader
-// hears. Prices come from a scripted service.
+// jump while prices arrive (also at 320 px with 2x text), the stamp clear
+// of the sum, checks unchanged, the region rule, cancellation when the
+// receipt goes away, the attribution link and what a screen reader hears.
+// Prices come from a scripted service.
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart';
@@ -68,6 +69,9 @@ Future<HomeStore> _pump(
   FakeShoppingPriceService? prices,
   Locale locale = const Locale('de'),
   List<Locale> device = const [Locale('de', 'DE')],
+  Size surface = const Size(390, 3000),
+  double textScale = 1,
+  FitnessRecipe? recipe,
 }) async {
   tester.platformDispatcher.localesTestValue = device;
   addTearDown(tester.platformDispatcher.clearLocalesTestValue);
@@ -80,20 +84,27 @@ Future<HomeStore> _pump(
   );
   addTearDown(store.dispose);
   await store.savePlannedMeal(
-    PlannedMeal.create(recipe: _pizza, day: _now, slot: MealSlot.dinner),
-  );
-  await store.savePlannedMeal(
     PlannedMeal.create(
-      recipe: _bowl,
-      day: _now.add(const Duration(days: 2)),
-      slot: MealSlot.lunch,
+      recipe: recipe ?? _pizza,
+      day: _now,
+      slot: MealSlot.dinner,
     ),
   );
+  if (recipe == null) {
+    await store.savePlannedMeal(
+      PlannedMeal.create(
+        recipe: _bowl,
+        day: _now.add(const Duration(days: 2)),
+        slot: MealSlot.lunch,
+      ),
+    );
+  }
   await pumpLocalized(
     tester,
     MealPlanScreen(store: store, prices: prices),
     locale: locale,
-    surfaceSize: const Size(390, 3000),
+    surfaceSize: surface,
+    textScale: textScale,
   );
   await tester.pumpAndSettle();
   await tester.tap(_key('meal-plan-tab-shopping'));
@@ -136,10 +147,11 @@ void main() {
         unorderedEquals(ids.values),
       );
 
+      // A sum's shape while loading, so the amount column stands.
       for (final id in ids.values) {
-        expect(_text(tester, _key('shopping-price-$id')), '…');
+        expect(_text(tester, _key('shopping-price-$id')), '–,––$_nb€');
       }
-      expect(_total(tester), 'SUMME | …');
+      expect(_total(tester), 'SUMME | –,––$_nb€');
       expect(
         _text(tester, _key('shopping-price-note')),
         'Preise werden geladen …',
@@ -151,11 +163,16 @@ void main() {
           _text(tester, _key('shopping-price-${ids[label]}'));
       expect(price('Mozzarella'), '≈${_nb}0,53$_nb€');
       expect(price('Butter'), '≈${_nb}1,19$_nb€');
-      expect(price('Basilikum'), '≈${_nb}1,29$_nb€/Pck.');
+      // The right column only holds sums; the pack goes to the left.
+      expect(price('Basilikum'), '≈${_nb}1,29$_nb€');
+      // "2,58 €/kg · 1 Pck." where it fits (the test font is wide).
+      expect(find.textContaining('1${_nb}Pck.'), findsOneWidget);
       expect(price('Salz'), '–');
       expect(price('Pizzateig'), 'k.${_nb}A.');
       expect(price('Rice'), '≈${_nb}0,60$_nb€');
-      expect(find.text('Ø${_nb}4,25$_nb€/kg'), findsOneWidget);
+      // No "Ø": in DM Mono it reads like the slashed zero.
+      expect(find.text('4,25$_nb€/kg'), findsOneWidget);
+      expect(find.textContaining('Ø'), findsNothing);
       // 0.53 + 1.19 + 1.29 + 0.60, without the dough.
       expect(_total(tester), 'TEILSUMME | ≈${_nb}3,61$_nb€');
       expect(
@@ -170,7 +187,7 @@ void main() {
             matching: find.textContaining('6 Wochen'),
           ),
         ),
-        startsWith('Ø-Preise der letzten 6 Wochen in Deutschland'),
+        'Mittlere Preise der letzten 6 Wochen in DE, anteilig. Ohne Gewähr.',
       );
       expect(tester.takeException(), isNull);
     });
@@ -211,36 +228,101 @@ void main() {
     });
   });
 
-  testWidgets('rows and totals keep their height while prices arrive', (
+  for (final (surface, textScale) in const [
+    (Size(390, 3000), 1.0),
+    (Size(320, 9000), 2.0),
+  ]) {
+    testWidgets('rows, sum and note keep their height while prices arrive '
+        '(${surface.width.round()} px, ${textScale}x text)', (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        /// Every row's size in receipt order, then the sum's and the
+        /// note's, and where the footnote starts.
+        Future<List<Object>> layout() async {
+          await tester.pumpAndSettle();
+          final rows = find.byWidgetPredicate(
+            (w) =>
+                w.key is ValueKey<String> &&
+                (w.key! as ValueKey<String>).value.startsWith('shopping-item-'),
+          );
+          return [
+            for (final element in rows.evaluate()) element.size!,
+            tester.getSize(_key('shopping-price-total')),
+            tester.getSize(_key('shopping-price-note')),
+            tester.getTopLeft(_key('shopping-price-source')).dy,
+          ];
+        }
+
+        Future<FakeShoppingPriceService> pump(
+          LinePrice Function(PriceRequestLine) outcome,
+        ) async {
+          final prices = FakeShoppingPriceService(priceOf: outcome);
+          await _pump(
+            tester,
+            prices: prices,
+            surface: surface,
+            textScale: textScale,
+          );
+          return prices;
+        }
+
+        final loaded = await pump(_outcome);
+        final loading = await layout();
+        expect(loading.length, greaterThan(7));
+        expect(tester.takeException(), isNull);
+        loaded.lastRun.complete();
+        expect(await layout(), loading, reason: 'a mix of prices');
+
+        final failing = await pump(_outcome);
+        expect(await layout(), loading);
+        failing.lastRun.fail();
+        expect(await layout(), loading, reason: 'failed');
+
+        // Every line priced, also with a wide (four-digit) value.
+        final all = await pump((_) => fakeEstimate(99999));
+        all.lastRun.complete();
+        expect(await layout(), loading, reason: 'every line priced');
+        expect(tester.takeException(), isNull);
+      });
+    });
+  }
+
+  testWidgets('the done stamp sits on the counts, never on the sum', (
     tester,
   ) async {
     await withClock(Clock.fixed(_now), () async {
-      /// Every row's size in receipt order, then the sum's.
-      Future<List<Size>> sizes() async {
-        await tester.pumpAndSettle();
-        final rows = find.byWidgetPredicate(
-          (w) =>
-              w.key is ValueKey<String> &&
-              (w.key! as ValueKey<String>).value.startsWith('shopping-item-'),
-        );
-        return [
-          for (final element in rows.evaluate()) element.size!,
-          tester.getSize(_key('shopping-price-total')),
-        ];
+      final prices = FakeShoppingPriceService(priceOf: _outcome);
+      final store = await _pump(tester, prices: prices);
+      prices.lastRun.complete();
+      for (final id in _ids(store).values) {
+        await store.setShoppingChecked(ShoppingCheck(id: id, checked: true));
       }
+      await tester.pumpAndSettle();
+      final stamp = tester.getRect(_key('shopping-receipt-stamp'));
+      final sum = tester.getRect(_key('shopping-price-total'));
+      expect(stamp.bottom, lessThan(sum.top));
+      expect(_total(tester), 'TEILSUMME | ≈${_nb}3,61$_nb€');
+    });
+  });
 
-      final loaded = FakeShoppingPriceService(priceOf: _outcome);
-      await _pump(tester, prices: loaded);
-      final loading = await sizes();
-      expect(loading.length, greaterThan(5));
-      loaded.lastRun.complete();
-      expect(await sizes(), loading);
-
-      final failing = FakeShoppingPriceService();
-      await _pump(tester, prices: failing);
-      expect(await sizes(), loading);
-      failing.lastRun.fail();
-      expect(await sizes(), loading);
+  testWidgets('a list of seasoning only has nothing to add up', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final prices = FakeShoppingPriceService(priceOf: _outcome);
+      await _pump(
+        tester,
+        prices: prices,
+        recipe: recipeCatalogDe.first.copyWith(
+          title: 'Salzwasser',
+          ingredients: '1 Prise Salz\n1 l Wasser',
+          structuredIngredients: const [],
+        ),
+      );
+      prices.lastRun.complete((_) => const LinePriceSkipped());
+      await tester.pumpAndSettle();
+      expect(_total(tester), 'SUMME | –');
+      expect(
+        _text(tester, _key('shopping-price-note')),
+        'Keine Position zu schätzen',
+      );
     });
   });
 
@@ -281,7 +363,8 @@ void main() {
         '≈$_nb€0.53',
       );
       expect(_text(tester, _key('shopping-price-${ids['Pizzateig']}')), 'n/a');
-      expect(find.text('avg$_nb€4.25/kg'), findsOneWidget);
+      expect(find.text('€4.25/kg'), findsOneWidget);
+      expect(find.textContaining('1${_nb}pack'), findsOneWidget);
       expect(_total(tester), 'SUBTOTAL | ≈$_nb€3.61');
       expect(
         _text(tester, _key('shopping-price-note')),
@@ -424,7 +507,8 @@ void main() {
       String label(String name) =>
           tester.getSemantics(_key('shopping-item-${ids[name]}')).label;
       expect(label('Mozzarella'), contains('etwa 0,53$_nb€'));
-      expect(label('Mozzarella'), isNot(contains('Ø')));
+      expect(label('Mozzarella'), isNot(contains('/kg')));
+      expect(label('Basilikum'), contains('etwa 1,29$_nb€ für 1 Packung'));
       expect(label('Pizzateig'), contains('kein aktueller Preis'));
       expect(label('Salz'), contains('nicht geschätzt'));
       expect(
