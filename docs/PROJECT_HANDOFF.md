@@ -3310,7 +3310,8 @@ data, UI, review) with an orchestrator; contract in
   behind the discard dialog; a dismissed Android dialog said "nothing
   heard". Open (minor): a 0 kcal draft disables Add without a reason; the
   photo path's quota text still says "Foto-Analysen" although descriptions
-  share that quota.
+  share that quota. Both fixed in the 2026-10-11 audit (branch
+  `audit/describe-scan`, with tests).
 - **Verification (review branch, CI method):** strict analyzer clean; full
   suite 7,154 tests in 685 files green; coverage 97.08%; Deno lint, check
   and 1,035 tests green (also per file); eval harness 19/19; debug APK
