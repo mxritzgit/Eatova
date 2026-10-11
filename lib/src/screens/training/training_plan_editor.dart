@@ -512,29 +512,45 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       key: ObjectKey(workout),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 18),
-        CreationSectionHeading(
-          number: index + 1,
-          title: l10n.trainingPageWorkoutNumber(index + 1),
-          note: l10n.trainingWorkoutIntro,
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              // 8 px down, so the menu's 48 px target (fully inside the row)
+              // centres on the 32 px number tile.
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: CreationSectionHeading(
+                  number: index + 1,
+                  title: l10n.trainingPageWorkoutNumber(index + 1),
+                  note: l10n.trainingWorkoutIntro,
+                ),
+              ),
+            ),
+            if (_workouts.length > 1)
+              Padding(
+                padding: const EdgeInsetsDirectional.only(start: 8),
+                child: _orderMenu(
+                  keyPrefix: 'training-editor-workout-$index',
+                  title: l10n.trainingPageWorkoutNumber(index + 1),
+                  removeLabel: l10n.trainingPageRemoveWorkout,
+                  index: index,
+                  count: _workouts.length,
+                  move: (target) {
+                    _workouts.removeAt(index);
+                    _workouts.insert(target, workout);
+                    _changed();
+                  },
+                  remove: () {
+                    _workouts.removeAt(index);
+                    workout.dispose();
+                    _changed();
+                  },
+                ),
+              ),
+          ],
         ),
-        if (_workouts.length > 1)
-          _orderButtons(
-            keyPrefix: 'training-editor-workout-$index',
-            removeLabel: l10n.trainingPageRemoveWorkout,
-            index: index,
-            count: _workouts.length,
-            move: (target) {
-              _workouts.removeAt(index);
-              _workouts.insert(target, workout);
-              _changed();
-            },
-            remove: () {
-              _workouts.removeAt(index);
-              workout.dispose();
-              _changed();
-            },
-          ),
         _field(
           workout.title,
           l10n.trainingPageWorkoutName,
@@ -561,7 +577,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
                 },
           label: l10n.trainingPageAddExercise,
         ),
-        Divider(color: context.t.line, height: 28),
+        const SizedBox(height: 22),
       ],
     );
   }
@@ -571,33 +587,36 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
     final exercise = exercises[index];
     final l10n = context.l10n;
     final prefix = 'training-editor-exercise-$workoutIndex-$index';
+    final title = exercise.name.controller.text.trim().isEmpty
+        ? l10n.trainingPageExerciseNumber(index + 1)
+        : exercise.name.controller.text;
     return Padding(
       key: ObjectKey(exercise),
       padding: const EdgeInsets.only(bottom: 14),
       child: _ExerciseCard(
         toggleKey: ValueKey('$prefix-toggle'),
         number: index + 1,
-        title: exercise.name.controller.text.trim().isEmpty
-            ? l10n.trainingPageExerciseNumber(index + 1)
-            : exercise.name.controller.text,
+        title: title,
+        menu: exercises.length > 1
+            ? _orderMenu(
+                keyPrefix: prefix,
+                title: title,
+                removeLabel: l10n.trainingPageRemoveExercise,
+                index: index,
+                count: exercises.length,
+                move: (target) {
+                  exercises.removeAt(index);
+                  exercises.insert(target, exercise);
+                  _changed();
+                },
+                remove: () {
+                  exercises.removeAt(index);
+                  exercise.dispose();
+                  _changed();
+                },
+              )
+            : null,
         children: [
-          if (exercises.length > 1)
-            _orderButtons(
-              keyPrefix: prefix,
-              removeLabel: l10n.trainingPageRemoveExercise,
-              index: index,
-              count: exercises.length,
-              move: (target) {
-                exercises.removeAt(index);
-                exercises.insert(target, exercise);
-                _changed();
-              },
-              remove: () {
-                exercises.removeAt(index);
-                exercise.dispose();
-                _changed();
-              },
-            ),
           _field(
             exercise.name,
             l10n.trainingPageExerciseName,
@@ -659,52 +678,87 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
     );
   }
 
-  Widget _orderButtons({
+  /// The ⋯ menu of a workout or exercise (the app's MenuRow entries): move
+  /// up or down where there is room, and remove; only shown while there are
+  /// at least two.
+  Widget _orderMenu({
     required String keyPrefix,
+    required String title,
     required String removeLabel,
     required int index,
     required int count,
     required ValueChanged<int> move,
     required VoidCallback remove,
-  }) => Wrap(
-    alignment: WrapAlignment.end,
-    children: [
-      IconButton(
-        key: ValueKey('$keyPrefix-up'),
-        tooltip: context.l10n.trainingPageMoveUp,
-        onPressed: _busy || index == 0 ? null : () => move(index - 1),
-        icon: const Icon(Icons.arrow_upward_rounded),
-      ),
-      IconButton(
-        key: ValueKey('$keyPrefix-down'),
-        tooltip: context.l10n.trainingPageMoveDown,
-        onPressed: _busy || index == count - 1 ? null : () => move(index + 1),
-        icon: const Icon(Icons.arrow_downward_rounded),
-      ),
-      IconButton(
-        key: ValueKey('$keyPrefix-remove'),
-        tooltip: removeLabel,
-        onPressed: _busy || count == 1 ? null : remove,
-        icon: const Icon(Icons.delete_outline_rounded),
-      ),
-    ],
-  );
+  }) {
+    final l10n = context.l10n;
+    return PopupMenuButton<String>(
+      key: ValueKey('$keyPrefix-menu'),
+      tooltip: l10n.trainingTimerExerciseOptions(title),
+      enabled: !_busy,
+      icon: const Icon(Icons.more_horiz_rounded),
+      iconColor: context.t.ink2,
+      onSelected: (value) {
+        if (_busy) return;
+        switch (value) {
+          case 'up':
+            move(index - 1);
+          case 'down':
+            move(index + 1);
+          default:
+            remove();
+        }
+      },
+      itemBuilder: (context) => [
+        if (index > 0)
+          eatovaMenuItem(
+            key: ValueKey('$keyPrefix-up'),
+            value: 'up',
+            icon: Icons.arrow_upward_rounded,
+            label: l10n.trainingPageMoveUp,
+          ),
+        if (index < count - 1)
+          eatovaMenuItem(
+            key: ValueKey('$keyPrefix-down'),
+            value: 'down',
+            icon: Icons.arrow_downward_rounded,
+            label: l10n.trainingPageMoveDown,
+          ),
+        eatovaMenuItem(
+          key: ValueKey('$keyPrefix-remove'),
+          value: 'remove',
+          icon: Icons.delete_outline_rounded,
+          label: removeLabel,
+          destructive: true,
+        ),
+      ],
+    );
+  }
 }
 
-/// One exercise of the editor: a card whose header row (number, name and a
-/// chevron) folds its fields away. It starts open.
+/// One exercise of the editor: a card whose header row (number, name, the
+/// optional [menu] and a chevron) folds its fields away. It starts open.
 class _ExerciseCard extends StatefulWidget {
   const _ExerciseCard({
     required this.toggleKey,
     required this.number,
     required this.title,
     required this.children,
+    this.menu,
   });
 
   final Key toggleKey;
   final int number;
   final String title;
   final List<Widget> children;
+
+  /// The card's ⋯ menu, just before the chevron.
+  final Widget? menu;
+
+  /// Room the menu's 48 px button takes in the header row.
+  static const double _menuSlot = 48;
+
+  /// The header's end padding plus the chevron, i.e. where the slot ends.
+  static const double _menuEnd = 12 + 22;
 
   @override
   State<_ExerciseCard> createState() => _ExerciseCardState();
@@ -747,6 +801,8 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  if (widget.menu != null)
+                    const SizedBox(width: _ExerciseCard._menuSlot),
                   AnimatedRotation(
                     turns: _open ? 0.5 : 0,
                     duration: motionDuration(context, motion),
@@ -764,6 +820,23 @@ class _ExerciseCardState extends State<_ExerciseCard> {
         ),
       ),
     );
+    final menu = widget.menu;
+    // The menu sits over its slot in the toggle row: its own button, next
+    // to the fold toggle rather than inside it.
+    final head = menu == null
+        ? header
+        : Stack(
+            children: [
+              header,
+              PositionedDirectional(
+                top: 0,
+                bottom: 0,
+                end: _ExerciseCard._menuEnd,
+                width: _ExerciseCard._menuSlot,
+                child: Center(child: menu),
+              ),
+            ],
+          );
     return AppCard(
       clip: true,
       // Own ink layer: the card's fill would hide the sheet's ripples.
@@ -772,7 +845,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            header,
+            head,
             maybeAnimatedSize(
               context,
               duration: motion,

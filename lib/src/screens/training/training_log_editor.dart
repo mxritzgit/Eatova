@@ -969,15 +969,22 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
             spacing: 8,
             runSpacing: 8,
             children: [
+              // A quiet capsule, not a third mode next to the type chips.
+              // While saving it dims and keeps its 44 px.
               for (var i = 0; i < suggestions.length; i++)
-                SoftPillButton(
-                  key: ValueKey('$prefix-suggestion-$i'),
-                  icon: Icons.history_rounded,
-                  label: suggestions[i].name,
-                  tone: SoftPillTone.neutral,
-                  onTap: _busy
-                      ? null
-                      : () => _pickName(exercise, suggestions[i]),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  child: Opacity(
+                    opacity: _busy ? 0.45 : 1,
+                    child: SourcePill(
+                      key: ValueKey('$prefix-suggestion-$i'),
+                      icon: Icons.history_rounded,
+                      label: suggestions[i].name,
+                      onTap: _busy
+                          ? null
+                          : () => _pickName(exercise, suggestions[i]),
+                    ),
+                  ),
                 ),
             ],
           ),

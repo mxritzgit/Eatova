@@ -169,7 +169,7 @@ class _PlanCardState extends State<_PlanCard> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rCard),
           side: BorderSide(
-            color: selected ? t.lime.withValues(alpha: 0.65) : t.line,
+            color: selected ? t.accent.withValues(alpha: 0.65) : t.line,
           ),
         ),
         clipBehavior: Clip.antiAlias,
@@ -205,7 +205,7 @@ class _PlanCardState extends State<_PlanCard> {
                             style: AppType.ui(
                               12,
                               weight: FontWeight.w700,
-                              color: selected ? t.lime : t.ink2,
+                              color: selected ? t.accentText : t.ink2,
                             ),
                           ),
                         ),
@@ -214,7 +214,7 @@ class _PlanCardState extends State<_PlanCard> {
                               ? Icons.check_circle_rounded
                               : Icons.arrow_outward_rounded,
                           size: 21,
-                          color: selected ? t.lime : t.ink2,
+                          color: selected ? t.accent : t.ink2,
                         ),
                       ],
                     ),
@@ -254,7 +254,7 @@ class _PlanCardState extends State<_PlanCard> {
                                 style: AppType.ui(
                                   13,
                                   weight: FontWeight.w700,
-                                  color: t.lime,
+                                  color: t.accentText,
                                 ),
                               ),
                             ),

@@ -4,6 +4,8 @@
 // cards, the plan row and its preview, goal chips, segments, steppers and the
 // pinned action); the plan editor's review and its foldable exercise cards;
 // the history rows. Each surface also renders on a 320 px phone at 2x text.
+// training-editors-history-pr / -history-detail-pr[-01]: a played workout
+// with a personal record, a skipped set, a timed exercise and a note.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/training-editors-*.png; without it the suite still
@@ -104,6 +106,56 @@ TrainingHistoryEntry _planLog() => buildPlanAttachedLog(
   ],
   performedOn: DateTime(2026, 9, 30),
   durationMinutes: 52,
+  now: _now,
+);
+
+/// Upper Body Push a week before [_now]: the baseline of its records.
+TrainingHistoryEntry _pushBaseline() => buildPlanAttachedLog(
+  historyId: '7a1e2c3d-4b5f-4a6e-9c8d-1b2a3c4d5e6f',
+  plan: _plan(),
+  workoutIndex: 0,
+  sets: [
+    [
+      for (var s = 0; s < 4; s++)
+        const PlanAttachedSet(done: true, reps: 8, weightKg: 70),
+    ],
+    [
+      for (var s = 0; s < 3; s++)
+        const PlanAttachedSet(done: true, reps: 10, weightKg: 24),
+    ],
+    [for (var s = 0; s < 3; s++) const PlanAttachedSet(done: true)],
+  ],
+  performedOn: DateTime(2026, 9, 26),
+  durationMinutes: 50,
+  now: _now,
+);
+
+/// Upper Body Push yesterday: a heavier bench (one record), the last plank
+/// skipped and a note.
+TrainingHistoryEntry _pushRecord() => buildPlanAttachedLog(
+  historyId: '9c8b7a6f-5e4d-4c3b-8a2f-1e0d9c8b7a6f',
+  plan: _plan(),
+  workoutIndex: 0,
+  sets: [
+    [
+      const PlanAttachedSet(done: true, reps: 8, weightKg: 75),
+      const PlanAttachedSet(done: true, reps: 8, weightKg: 75),
+      const PlanAttachedSet(done: true, reps: 7, weightKg: 75),
+      const PlanAttachedSet(done: true, reps: 6, weightKg: 72.5),
+    ],
+    [
+      for (var s = 0; s < 3; s++)
+        const PlanAttachedSet(done: true, reps: 10, weightKg: 24),
+    ],
+    [
+      const PlanAttachedSet(done: true),
+      const PlanAttachedSet(done: true),
+      const PlanAttachedSet(done: false),
+    ],
+  ],
+  performedOn: DateTime(2026, 10, 2),
+  durationMinutes: 54,
+  note: 'Bench felt light. Next time 77.5 kg for the first set.',
   now: _now,
 );
 
@@ -259,7 +311,7 @@ void main() {
         await tester.enterText(_key('training-log-exercise-0-name'), 'Be');
         await tester.pumpAndSettle();
         final suggestion = _key('training-log-exercise-0-suggestion-0');
-        expect(tester.widget<SoftPillButton>(suggestion).label, 'Bench press');
+        expect(tester.widget<SourcePill>(suggestion).label, 'Bench press');
         expect(tester.getSize(suggestion).height, greaterThanOrEqualTo(44));
         await _reveal(tester, _key('training-log-exercise-0-add-set'));
         expect(
@@ -461,6 +513,22 @@ void main() {
         'training-editors-plan-01${geometry.suffix}',
       );
 
+      // Order and removal sit in the card's ⋯ menu (MenuRow entries).
+      final menu = _key('$prefix-menu');
+      expect(tester.getSize(menu).height, greaterThanOrEqualTo(44));
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      expect(_key('$prefix-up'), findsNothing);
+      expect(_key('$prefix-down'), findsOneWidget);
+      expect(_key('$prefix-remove'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(
+        tester,
+        'training-editors-plan-menu${geometry.suffix}',
+      );
+      await tester.tapAt(const Offset(20, 120));
+      await tester.pumpAndSettle();
+
       // Folded: the fields leave, the head stays.
       await tester.tap(toggle);
       await tester.pumpAndSettle();
@@ -477,7 +545,68 @@ void main() {
       await tester.tap(toggle);
       await tester.pumpAndSettle();
       expect(_key('$prefix-name'), findsOneWidget);
+
+      // The second workout's ⋯ on its numbered heading; no divider above.
+      final workoutMenu = _key('training-editor-workout-1-menu');
+      await _reveal(tester, workoutMenu);
+      expect(tester.getSize(workoutMenu).height, greaterThanOrEqualTo(44));
+      expect(workoutMenu.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(
+        tester,
+        'training-editors-plan-workout${geometry.suffix}',
+      );
       handle.dispose();
+    });
+
+    testWidgets('history with a record and a skipped set${geometry.suffix}', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        final record = _pushRecord();
+        await _host(
+          tester,
+          geometry,
+          (context) => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => TrainingHistoryScreen(
+                entries: [record, _pushBaseline(), _benchLog()],
+                onDelete: (_) async => SyncDelivery.delivered,
+              ),
+            ),
+          ),
+        );
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(
+          tester,
+          'training-editors-history-pr${geometry.suffix}',
+        );
+        await _reveal(tester, _key('training-history-${record.id}'));
+        await tester.tap(_key('training-history-${record.id}'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(
+          tester,
+          'training-editors-history-detail-pr${geometry.suffix}',
+        );
+        await tester.scrollUntilVisible(
+          _key('training-history-delete'),
+          400,
+          scrollable: find
+              .descendant(
+                of: find.byType(TrainingHistoryDetail),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(
+          tester,
+          'training-editors-history-detail-pr-01${geometry.suffix}',
+        );
+      });
     });
 
     testWidgets('history rows${geometry.suffix}', (tester) async {
