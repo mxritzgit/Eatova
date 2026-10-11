@@ -1257,4 +1257,127 @@ void main() {
       );
     },
   );
+
+  // Review 2026-10-11 (COACH-3): the banner of the conversation just left
+  // stayed on top of the next one, so B claimed A's failure.
+  testWidgets('a send error of A does not follow the user into B',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question in A');
+    svc.offen.single.completeError(
+      const CoachChatException('Send failed in A.'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Send failed in A.'), findsOneWidget);
+
+    await _wechsleAufSitzung(tester, 'Chat B');
+    expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
+    expect(find.text('Send failed in A.'), findsNothing);
+  });
+
+  // Review 2026-10-11 (COACH-2): the open conversation was marked by colour
+  // alone, so a screen reader could not tell which one was open.
+  testWidgets('the sessions sheet announces the open conversation',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('coach-session-s1'))),
+      isSemantics(isSelected: true, hasTapAction: true),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('coach-session-s2'))),
+      isSemantics(isSelected: false, hasTapAction: true),
+    );
+    semantics.dispose();
+  });
+
+  // Review 2026-10-11 (COACH-1): a request that FAILS after its session was
+  // left and opened again used to vanish without a word. The thinking row
+  // went away, no banner and no marker appeared, and a question the server
+  // never stored was gone with the cleared composer.
+  testWidgets('A -> B -> A: a failed question comes back with its marker',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question lost on the way');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    expect(find.text('Question lost on the way'), findsNothing,
+        reason: 'the server never stored it, so the reload cannot show it');
+
+    svc.offen.single.completeError(
+      const CoachChatException('Connection lost.'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connection lost.'), findsOneWidget);
+    expect(find.text('Question lost on the way'), findsOneWidget);
+    expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('coach-unsent-retry')));
+    await tester.pumpAndSettle();
+    expect(svc.gesendeteSessions, <String>['s1', 's1']);
+    expect(find.text('Question lost on the way'), findsOneWidget,
+        reason: 'the retry replaces the bubble instead of adding one');
+  });
+
+  testWidgets('A -> B -> A: a stored question gets the marker, no copy',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Stored, then the provider failed');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    svc.historyA = [
+      ChatMessage(
+        id: 'srv-question',
+        role: ChatRole.user,
+        content: 'Stored, then the provider failed',
+        createdAt: DateTime(2026, 8, 13),
+      ),
+    ];
+    await _wechsleAufSitzung(tester, 'Chat A');
+
+    svc.offen.single.completeError(
+      const CoachChatException('Coach unreachable.'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Coach unreachable.'), findsOneWidget);
+    expect(find.text('Stored, then the provider failed'), findsOneWidget);
+    expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
+  });
+
+  testWidgets('A -> B -> A: a failed /recipe and /plan say so as well',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, '/recipe Pasta');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    svc.offeneRezepte.single.completeError(
+      const CoachChatException('Recipe failed.'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Recipe failed.'), findsOneWidget);
+    expect(find.text('/recipe Pasta'), findsOneWidget);
+    expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
+
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), '');
+    await _tippenUndSenden(tester, '/plan Two days');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    svc.offenePlaene.single.completeError(
+      const CoachChatException('Plan failed.'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Plan failed.'), findsOneWidget);
+    expect(find.text('/plan Two days'), findsOneWidget);
+    expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
+  });
 }

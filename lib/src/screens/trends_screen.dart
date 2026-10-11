@@ -18,6 +18,11 @@ import '../widgets/design/design.dart';
 /// No step bonus: the trend goal is the base goal on every day.
 int noTrendStepBonus(DateTime _) => 0;
 
+/// From 150 % text on, side-by-side tiles break words and numbers mid-way,
+/// so the page stacks them instead.
+bool _largeText(BuildContext context) =>
+    MediaQuery.textScalerOf(context).scale(14) > 21;
+
 /// Long-term trend view: daily calorie bars with target line and corridor, a
 /// 7/30/90-day range switch, and metrics. Data comes from the injected
 /// [TrendTotalsLoader], INDEPENDENT of HomeStore's 35-day window.
@@ -170,38 +175,27 @@ class _TrendsScreenState extends State<TrendsScreen> {
         firstDay: firstDay,
       ),
       const SizedBox(height: 14),
-      // IntrinsicHeight: height is unbounded here, so stretch means Infinity.
-      IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: _StatCard(
-                key: const ValueKey('trends-avg-kcal'),
-                label: l10n.trendsStatAvgKcalLabel,
-                value: avgKcal == null
-                    ? '–'
-                    : '${formatThousands(avgKcal.round(), l10n.localeName)} kcal',
-                sub: avgKcal == null
-                    ? l10n.trendsNoCompletedDay
-                    : l10n.trendsStatAvgKcalSub,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _StatCard(
-                key: const ValueKey('trends-goal-rate'),
-                label: l10n.trendsStatGoalRateLabel,
-                // tracked == 0 is the only 0/0 route; keeps NaN out.
-                value: hits.tracked == 0
-                    ? '–'
-                    : '${(hits.hit / hits.tracked * 100).round()} %',
-                sub: hits.tracked == 0
-                    ? l10n.trendsNoCompletedDay
-                    : l10n.trendsStatGoalRateSub(hits.hit, hits.tracked),
-              ),
-            ),
-          ],
+      _StatPair(
+        first: _StatCard(
+          key: const ValueKey('trends-avg-kcal'),
+          label: l10n.trendsStatAvgKcalLabel,
+          value: avgKcal == null
+              ? '–'
+              : '${formatThousands(avgKcal.round(), l10n.localeName)} kcal',
+          sub: avgKcal == null
+              ? l10n.trendsNoCompletedDay
+              : l10n.trendsStatAvgKcalSub,
+        ),
+        second: _StatCard(
+          key: const ValueKey('trends-goal-rate'),
+          label: l10n.trendsStatGoalRateLabel,
+          // tracked == 0 is the only 0/0 route; keeps NaN out.
+          value: hits.tracked == 0
+              ? '–'
+              : '${(hits.hit / hits.tracked * 100).round()} %',
+          sub: hits.tracked == 0
+              ? l10n.trendsNoCompletedDay
+              : l10n.trendsStatGoalRateSub(hits.hit, hits.tracked),
         ),
       ),
       const SizedBox(height: 12),
@@ -267,25 +261,34 @@ class _RangeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final large = _largeText(context);
+    // Key on the Semantics wrapper so tests keep their finder and the
+    // screen reader its descriptive name.
+    Widget pill(int days) => Semantics(
+      key: ValueKey('trends-range-$days'),
+      button: true,
+      selected: days == selected,
+      label: l10n.trendsRangeSemanticsLabel(days),
+      child: FilterChipPill(
+        label: l10n.trendsRangeDaysLabel(days),
+        selected: days == selected,
+        onTap: () => onSelected(days),
+        expand: !large,
+      ),
+    );
+    // Equal thirds break "Tage" mid-word at large text; the pills keep their
+    // natural width and wrap instead.
+    if (large) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [for (final days in ranges) pill(days)],
+      );
+    }
     return Row(
       children: [
         for (var i = 0; i < ranges.length; i++) ...[
-          Expanded(
-            // Key on the Semantics wrapper so tests keep their finder and
-            // the screen reader its descriptive name.
-            child: Semantics(
-              key: ValueKey('trends-range-${ranges[i]}'),
-              button: true,
-              selected: ranges[i] == selected,
-              label: l10n.trendsRangeSemanticsLabel(ranges[i]),
-              child: FilterChipPill(
-                label: l10n.trendsRangeDaysLabel(ranges[i]),
-                selected: ranges[i] == selected,
-                onTap: () => onSelected(ranges[i]),
-                expand: true,
-              ),
-            ),
-          ),
+          Expanded(child: pill(ranges[i])),
           if (i != ranges.length - 1) const SizedBox(width: 8),
         ],
       ],
@@ -364,43 +367,51 @@ class _ChartCardState extends State<_ChartCard> {
             avg.round(),
             spokenGoal,
           );
+    final title = Text(
+      l10n.trendsChartTitle,
+      style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
+    );
+    final legend = legendGoal > 0
+        ? _GoalLegend(
+            label: l10n.trendsChartGoalLabel(
+              formatThousands(legendGoal, l10n.localeName),
+            ),
+            lineColor: t.ink.withValues(alpha: 0.6),
+          )
+        : null;
     return AppCard(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // The range is already the selected pill above the card; the
-          // trailing slot carries the goal line's legend instead.
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  l10n.trendsChartTitle,
-                  style: AppType.display(
-                    17,
-                    weight: FontWeight.w700,
-                    color: t.ink,
-                  ),
-                ),
-              ),
-              if (legendGoal > 0)
-                Flexible(
-                  child: Padding(
-                    padding: const EdgeInsetsDirectional.only(start: 10),
-                    child: Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      heightFactor: 1,
-                      child: _GoalLegend(
-                        label: l10n.trendsChartGoalLabel(
-                          formatThousands(legendGoal, l10n.localeName),
-                        ),
-                        lineColor: t.ink.withValues(alpha: 0.6),
+          // trailing slot carries the goal line's legend instead. At large
+          // text the legend moves under the title so neither splits words.
+          if (_largeText(context))
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                title,
+                if (legend != null) ...[const SizedBox(height: 6), legend],
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(child: title),
+                if (legend != null)
+                  Flexible(
+                    child: Padding(
+                      padding: const EdgeInsetsDirectional.only(start: 10),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        heightFactor: 1,
+                        child: legend,
                       ),
                     ),
                   ),
-                ),
-            ],
-          ),
+              ],
+            ),
           const SizedBox(height: 10),
           SizedBox(
             height: 200,
@@ -518,6 +529,36 @@ class _Caption extends StatelessWidget {
   }
 }
 
+/// The two stat cards: side by side at equal height, stacked from 150 % text
+/// on, where half the width split "2.214" and "Kalorien" mid-way.
+class _StatPair extends StatelessWidget {
+  const _StatPair({required this.first, required this.second});
+
+  final Widget first;
+  final Widget second;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_largeText(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [first, const SizedBox(height: 12), second],
+      );
+    }
+    // IntrinsicHeight: height is unbounded here, so stretch means Infinity.
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: first),
+          const SizedBox(width: 12),
+          Expanded(child: second),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatCard extends StatelessWidget {
   const _StatCard({
     super.key,
@@ -562,6 +603,23 @@ class _MacroAveragesCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final m = macros;
+    final cells = <Widget>[
+      _MacroAvg(
+        color: t.protein,
+        label: l10n.todayMacroProtein,
+        value: m == null ? '–' : '${m.proteinG.round()} g',
+      ),
+      _MacroAvg(
+        color: t.carbs,
+        label: l10n.todayMacroCarbs,
+        value: m == null ? '–' : '${m.carbsG.round()} g',
+      ),
+      _MacroAvg(
+        color: t.fat,
+        label: l10n.todayMacroFat,
+        value: m == null ? '–' : '${m.fatG.round()} g',
+      ),
+    ];
     return AppCard(
       key: const ValueKey('trends-avg-macros'),
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -570,31 +628,19 @@ class _MacroAveragesCard extends StatelessWidget {
         children: [
           Text(l10n.trendsMacroAvgTitle, style: AppType.eyebrow(t.ink2)),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _MacroAvg(
-                  color: t.protein,
-                  label: l10n.todayMacroProtein,
-                  value: m == null ? '–' : '${m.proteinG.round()} g',
-                ),
-              ),
-              Expanded(
-                child: _MacroAvg(
-                  color: t.carbs,
-                  label: l10n.todayMacroCarbs,
-                  value: m == null ? '–' : '${m.carbsG.round()} g',
-                ),
-              ),
-              Expanded(
-                child: _MacroAvg(
-                  color: t.fat,
-                  label: l10n.todayMacroFat,
-                  value: m == null ? '–' : '${m.fatG.round()} g',
-                ),
-              ),
-            ],
-          ),
+          // Thirds at large text cut the values to "12…"; one per line then.
+          if (_largeText(context))
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final (i, cell) in cells.indexed) ...[
+                  if (i > 0) const SizedBox(height: 10),
+                  cell,
+                ],
+              ],
+            )
+          else
+            Row(children: [for (final cell in cells) Expanded(child: cell)]),
         ],
       ),
     );

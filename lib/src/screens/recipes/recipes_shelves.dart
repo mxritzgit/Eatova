@@ -38,6 +38,12 @@ class _ShelfHeading extends StatelessWidget {
       level: 2,
       child: Text(
         title,
+        // Large text already: capped at 28 px, like the Training headings,
+        // so "recommendations" or "Empfehlungen" fits a 320 px phone at
+        // 200 % instead of breaking mid-word.
+        textScaler: MediaQuery.textScalerOf(
+          context,
+        ).clamp(maxScaleFactor: 1.4),
         style: AppType.display(
           20,
           weight: FontWeight.w700,

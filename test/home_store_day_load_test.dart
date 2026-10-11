@@ -452,6 +452,50 @@ void main() {
   });
 
   test(
+      'FOOD-8: a failed day load marks the day failed until a retry or a '
+      'window load succeeds', () async {
+    await withClock(Clock.fixed(DateTime(2026, 9, 25, 12)), () async {
+      final s = _setup();
+      final oldDay = DateTime(2026, 8, 1);
+      s.server.mealRows['old-1'] =
+          _serverMealRow('old-1', oldDay.add(const Duration(hours: 9)));
+      await _boot(s.store);
+
+      s.server.offline = true;
+      s.store.setFoodDate(oldDay);
+      await _settle();
+
+      // Empty in memory, but known NOT to be the server state.
+      expect(s.store.mealsForFoodDate(oldDay), isEmpty);
+      expect(s.store.foodDayLoadFailed(oldDay), isTrue);
+      expect(s.store.foodDayLoadFailed(DateTime(2026, 9, 25)), isFalse);
+
+      // A retry while still offline keeps the mark.
+      await s.store.retryFoodDayLoad(oldDay);
+      await _settle();
+      expect(s.store.foodDayLoadFailed(oldDay), isTrue);
+
+      s.server.offline = false;
+      await s.store.retryFoodDayLoad(oldDay);
+      await _settle();
+      expect(s.store.foodDayLoadFailed(oldDay), isFalse);
+      expect(s.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1']);
+
+      // A successful window load clears a mark it supersedes.
+      final otherDay = DateTime(2026, 7, 20);
+      s.server.offline = true;
+      s.store.setFoodDate(otherDay);
+      await _settle();
+      expect(s.store.foodDayLoadFailed(otherDay), isTrue);
+      s.store.setFoodDate(DateTime(2026, 9, 25));
+      s.server.offline = false;
+      await s.store.retryBoot();
+      await _settle();
+      expect(s.store.foodDayLoadFailed(otherDay), isFalse);
+    });
+  });
+
+  test(
       'Outbox-sicher: pendender Insert bleibt sichtbar, pendender Delete '
       'belebt die frisch geladene Server-Zeile NICHT wieder', () async {
     final s = _setup();

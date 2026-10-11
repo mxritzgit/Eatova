@@ -1427,6 +1427,52 @@ Deno.test("CWE-400-Fix: exakt 1000 Zeichen (auch multi-byte) bleiben erlaubt", a
   }
 });
 
+// BE-1 (review 2026-10-11): Postgres text holds neither NUL nor a lone
+// surrogate, so storing such a message fails. That failure came after the
+// paid classifier and refunded the slot: unlimited classifier calls for free.
+for (const [label, message] of [["NUL", "Hallo\u0000Coach"], ["lone surrogate", "Hallo \ud83d"]] as const) {
+  Deno.test(`BE-1: message with ${label} -> 400 before session, quota and provider`, async () => {
+    for (const extra of [{}, { mode: "recipe" }, { mode: "plan" }, logMode()]) {
+      const stub = installFetch({ classifierCategory: "fitness" });
+      // PostgREST answers such an insert with 400 (22P05), like the database.
+      const stubbed = globalThis.fetch;
+      globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (String(input).includes("/rest/v1/chat_messages") && init?.method === "POST" &&
+          (body.includes("\\u0000") || /\\ud[89ab][0-9a-f]{2}(?!\\ud[c-f])/i.test(body))) {
+          return Promise.resolve(jsonRes({ code: "22P05", message: "unsupported Unicode escape sequence" }, 400));
+        }
+        return stubbed(input, init);
+      }) as typeof globalThis.fetch;
+      try {
+        const res = await handleRequest(makeRequest({ message, ...extra }));
+        const paid = `${stub.providerCalls().length} provider, ${stub.callsTo("refund_chat_quota").length} refund`;
+        assertEquals(res.status, 400, `Status (${JSON.stringify(extra)}, ${paid})`);
+        assertEquals((await res.json() as JsonRecord).error, "invalid_message", "error");
+        assertEquals(stub.callsTo("claim_chat_quota").length, 0, "Quota unangetastet");
+        assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+        assertEquals(stub.callsTo("ensure_default_chat_session").length, 0, "keine Session-Erzeugung");
+        assertEquals(stub.callsTo("/rest/v1/chat_messages").length, 0, "kein storeMessage");
+        assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "kein Providerbudget");
+        assertEquals(stub.providerCalls().length, 0, "kein Provider-Call");
+      } finally {
+        stub.restore();
+      }
+    }
+  });
+}
+
+Deno.test("BE-1: emoji, tab and newline stay allowed", async () => {
+  const stub = installFetch({ classifierCategory: "fitness", answerContent: "Passt." });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Hallo 💪\tCoach\nwie geht's?" }));
+    assertEquals(res.status, 200, "Status");
+    assertEquals((await res.json() as JsonRecord).reply, "Passt.", "Antwort");
+  } finally {
+    stub.restore();
+  }
+});
+
 Deno.test("CWE-400-Fix: oversized History-Row wird im Provider-Payload auf 4000 Zeichen gekappt", async () => {
   // Legacy quarantine: a 9000-character row persisted before the fix must no
   // longer reach the answer call at full length. Its question comes first,

@@ -438,12 +438,14 @@ abstract final class MealResultRecipeNote {
       text = '${l10n.foodPortionFallback} · ${text.substring(portion.length)}';
       matched = true;
     } else if (servings != null) {
-      final count = servings[1]!.replaceAll(
+      final number = servings[1] ?? '1';
+      final count = number.replaceAll(
         RegExp('[.,]'),
         l10n.localeName == 'de' ? ',' : '.',
       );
+      final value = double.parse(number.replaceAll(',', '.'));
       text =
-          '${l10n.recipeCalcServingsCount(count)} · '
+          '${l10n.recipeCalcServingsCount(value, count)} · '
           '${text.substring(servings.end)}';
       matched = true;
     }
@@ -464,12 +466,16 @@ abstract final class MealResultRecipeNote {
     return matched ? text : null;
   }
 
-  /// `<count> Portionen · ` / `<count> servings · ` from the ARB template.
+  /// `<count> Portionen · ` / `<count> servings · ` from the ARB template, or
+  /// its singular (no group 1). Notes logged before the singular existed read
+  /// `1 Portionen` / `1 servings` and match the plural. The German singular
+  /// equals [AppLocalizations.foodPortionFallback] and resolves as that.
   static RegExp _servingsPrefix(AppLocalizations source) {
-    final parts = source.recipeCalcServingsCount('\u0000').split('\u0000');
+    final parts = source.recipeCalcServingsCount(2, '\u0000').split('\u0000');
+    final one = source.recipeCalcServingsCount(1, '1');
     return RegExp(
-      '^${RegExp.escape(parts.first)}(\\d+(?:[.,]\\d+)?)'
-      '${RegExp.escape(parts.last)} · ',
+      '^(?:${RegExp.escape(parts.first)}(\\d+(?:[.,]\\d+)?)'
+      '${RegExp.escape(parts.last)}|${RegExp.escape(one)}) · ',
     );
   }
 }
@@ -792,7 +798,9 @@ class MealAnalysisResult {
     final adjustedItems = hasItemizedBreakdown
         ? items
               .map(
-                (item) => item.adjustedToGrams((item.grams * factor).round()),
+                (item) => item.grams <= 0
+                    ? item.scaledBy(factor)
+                    : item.adjustedToGrams((item.grams * factor).round()),
               )
               .toList(growable: false)
         : items;
@@ -1165,19 +1173,25 @@ class MealAnalysisResult {
       'energy-kcal_100g',
       'energy_kcal_100g',
     ]);
-    if (proHundert != null && isPlausibleKcalPer100G(proHundert)) {
+    // A 0 against a positive energy field is a gap, not a value.
+    final energiePositiv = _offEnergiePositiv(nutriments);
+    if (proHundert != null &&
+        isPlausibleKcalPer100G(proHundert) &&
+        !(proHundert == 0 && energiePositiv)) {
       return proHundert;
     }
 
     if (_offBasisIst100G(product)) {
       final basisWert = _readDouble(nutriments, const ['energy-kcal_value']);
-      if (basisWert != null && isPlausibleKcalPer100G(basisWert)) {
+      if (basisWert != null &&
+          isPlausibleKcalPer100G(basisWert) &&
+          !(basisWert == 0 && energiePositiv)) {
         return basisWert;
       }
     }
 
     final kj = _readDouble(nutriments, const ['energy-kj_100g']);
-    if (kj != null) {
+    if (kj != null && !(kj == 0 && energiePositiv)) {
       final umgerechnet = kj / PlausibilityLimits.kjPerKcal;
       if (isPlausibleKcalPer100G(umgerechnet)) {
         return umgerechnet;
@@ -1207,26 +1221,37 @@ class MealAnalysisResult {
   /// Candidates and precedence mirror [_offKcalPer100G]: the preferred field
   /// decides if present (a 0 in a lower-ranked field next to a filled kcal
   /// field is not a 0-kcal statement); `energy-kcal_value` counts only on a
-  /// 100 g base; kJ needs no conversion, 0 kJ is 0 kcal.
+  /// 100 g base; kJ needs no conversion, 0 kJ is 0 kcal. A 0 kcal next to a
+  /// positive energy field states nothing: the record contradicts itself.
   static bool offMeldetExplizitNullKcal(Map<String, dynamic> product) {
     final nutriments = product['nutriments'] is Map<String, dynamic>
         ? product['nutriments'] as Map<String, dynamic>
         : <String, dynamic>{};
+    final energiePositiv = _offEnergiePositiv(nutriments);
     final proHundert = _readDouble(nutriments, const [
       'energy-kcal_100g',
       'energy_kcal_100g',
     ]);
     if (proHundert != null) {
-      return proHundert == 0;
+      return proHundert == 0 && !energiePositiv;
     }
     if (_offBasisIst100G(product)) {
       final basisWert = _readDouble(nutriments, const ['energy-kcal_value']);
       if (basisWert != null) {
-        return basisWert == 0;
+        return basisWert == 0 && !energiePositiv;
       }
     }
     final kj = _readDouble(nutriments, const ['energy-kj_100g', 'energy_100g']);
-    return kj != null && kj == 0;
+    return kj != null && kj == 0 && !energiePositiv;
+  }
+
+  /// Whether a kJ or unit-less energy field per 100 g holds more than 0.
+  static bool _offEnergiePositiv(Map<String, dynamic> nutriments) {
+    for (final key in const ['energy-kj_100g', 'energy_100g']) {
+      final wert = _readDouble(nutriments, <String>[key]);
+      if (wert != null && wert.isFinite && wert > 0) return true;
+    }
+    return false;
   }
 
   /// One macro per 100 g from the OFF nutriments, or `null` when it is

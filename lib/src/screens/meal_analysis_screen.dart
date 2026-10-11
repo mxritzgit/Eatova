@@ -65,6 +65,8 @@ class MealAnalysisScreen extends StatelessWidget {
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
     this.dayLoading = false,
+    this.dayLoadFailed = false,
+    this.onRetryDayLoad,
     FutureOr<String> Function(MealAnalysisResult, MealSlot, BoundFoodDay)?
     onAddMeal,
     FutureOr<void> Function(String id, MealAnalysisResult scaled)? onUpdateMeal,
@@ -133,6 +135,11 @@ class MealAnalysisScreen extends StatelessWidget {
   /// True while a calendar-picked day outside the 35-day window loads; the
   /// diary then shows a spinner instead of a falsely empty day.
   final bool dayLoading;
+
+  /// True when that load failed: the diary says the day is not loaded
+  /// instead of calling it empty, and offers [onRetryDayLoad].
+  final bool dayLoadFailed;
+  final VoidCallback? onRetryDayLoad;
 
   /// Logs a meal on the day its flow started on (see [_addToShownDay]).
   final FutureOr<String> Function(MealAnalysisResult, MealSlot, BoundFoodDay)
@@ -453,7 +460,9 @@ class MealAnalysisScreen extends StatelessWidget {
     final summary = _summary();
     final today = DateUtils.dateOnly(clock.now());
     final showsToday = DateUtils.isSameDay(selectedDate, today);
-    final pick = showsToday ? recipePick : null;
+    // Loading wins: a retry in flight shows the skeleton again.
+    final loadFailed = dayLoadFailed && !dayLoading;
+    final pick = showsToday && !loadFailed ? recipePick : null;
     final chrome = <Widget>[
       FoodPageHeader(
         key: TabChrome.headerKey,
@@ -481,6 +490,10 @@ class MealAnalysisScreen extends StatelessWidget {
               key: const ValueKey('kcal-meals-today-card'),
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (loadFailed) ...[
+                  _DayLoadFailedCard(onRetry: onRetryDayLoad),
+                  const SizedBox(height: _gap),
+                ],
                 Column(
                   key: const ValueKey('food-history'),
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -495,8 +508,10 @@ class MealAnalysisScreen extends StatelessWidget {
                         slot: slot,
                         entries: bySlot[slot]!,
                         // A guide for today's open slots, sized by what is
-                        // left; past days just say nothing was logged.
-                        suggestedRange: showsToday
+                        // left; past days just say nothing was logged. An
+                        // unloaded day claims neither.
+                        emptyText: loadFailed ? l10n.foodSlotNotLoaded : null,
+                        suggestedRange: showsToday && !loadFailed
                             ? summary.suggestedKcalRange(
                                 slot,
                                 emptySlots: [
@@ -731,6 +746,37 @@ String foodDateSelectedLabel(
 /// Loading state of the diary while an older day loads on demand: the four
 /// slot cards as silhouettes (slot tile, name and meta bars), so the real
 /// cards replace them without a jump. One label for screen readers.
+/// An archive day whose load failed: what the diary holds for it may be
+/// incomplete, so it says so and offers a retry. The dock stays usable (a
+/// late entry is legitimate and lands in the outbox), with this card as the
+/// warning against logging a meal twice.
+class _DayLoadFailedCard extends StatelessWidget {
+  const _DayLoadFailedCard({required this.onRetry});
+
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return CalmState(
+      key: const ValueKey('food-day-load-failed'),
+      card: true,
+      icon: Icons.cloud_off_rounded,
+      title: l10n.foodDayLoadFailedTitle,
+      text: l10n.foodDayLoadFailedBody,
+      actions: [
+        if (onRetry != null)
+          SoftPillButton(
+            key: const ValueKey('food-day-load-retry'),
+            label: l10n.foodDayLoadRetry,
+            icon: Icons.refresh_rounded,
+            onTap: onRetry,
+          ),
+      ],
+    );
+  }
+}
+
 class _DayLoadingCard extends StatelessWidget {
   const _DayLoadingCard();
 

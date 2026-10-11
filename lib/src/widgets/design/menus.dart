@@ -73,5 +73,11 @@ PopupMenuItem<T> eatovaMenuItem<T>({
   key: key,
   value: value,
   enabled: enabled,
-  child: MenuRow(icon: icon, label: label, destructive: destructive),
+  // MenuRow paints its own colours, so a locked row dims as a whole.
+  child: enabled
+      ? MenuRow(icon: icon, label: label, destructive: destructive)
+      : Opacity(
+          opacity: 0.4,
+          child: MenuRow(icon: icon, label: label, destructive: destructive),
+        ),
 );

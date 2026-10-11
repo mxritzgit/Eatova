@@ -100,6 +100,10 @@ const _profile = UserProfile(
 );
 
 void main() {
+  // The Health backfill asks the widgets binding for the app's lifecycle
+  // state, as it does in the app.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('nutrition summary reads profile, diary and the activity credit', () {
     withClock(Clock.fixed(_now), () {
       final store = _store()

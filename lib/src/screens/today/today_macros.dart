@@ -175,6 +175,8 @@ class TodayMacroTile extends StatelessWidget {
     final number = CountingText(
       value: value.toDouble(),
       format: (v) => '${v.round()}',
+      maxLines: 1,
+      softWrap: false,
       style: TodayMacros._valueStyle(t),
     );
     // No wrap: the parent only keeps it inline when it fits, so a sub-pixel
@@ -234,7 +236,16 @@ class TodayMacroTile extends StatelessWidget {
               if (stackValue)
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[number, goalText],
+                  children: <Widget>[
+                    // A 2x number wider than a third of a small phone
+                    // scales down instead of splitting its digits ("11/1").
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: number,
+                    ),
+                    goalText,
+                  ],
                 )
               else
                 Row(

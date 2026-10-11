@@ -8,12 +8,19 @@ import '../../services/recipe_import_service.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
+import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_sections.dart';
 import 'recipe_import_nutrition.dart';
 import 'recipes_screen.dart' show showRecipeNutritionDraftEditor;
+
+/// The service's and the Edge Function's cap, in UTF-16 code units.
+const _inputLimit = TextLengthLimit(
+  EdgeFunctionRecipeImportService.maxTextLength,
+);
 
 /// Reviewing, selecting and editing a shared recipe never writes user data.
 Future<FitnessRecipe?> showRecipeImportSheet({
@@ -227,8 +234,8 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         pasted.trim().isEmpty) {
       return;
     }
-    // Same cap as the field's maxLength, which only limits typed input.
-    final text = pasted.characters.take(20000).toString();
+    // Same cap as the field's formatter, which only limits typed input.
+    final text = _inputLimit.clip(pasted);
     _text.value = TextEditingValue(
       text: text,
       selection: TextSelection.collapsed(offset: text.length),
@@ -607,7 +614,8 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           hint: l10n.recipeImportInputPlaceholder,
           controller: _text,
           maxLines: 6,
-          maxLength: 20000,
+          maxLength: EdgeFunctionRecipeImportService.maxTextLength,
+          inputFormatters: const [_inputLimit],
           enabled: !_busy,
           keyboardType: TextInputType.multiline,
         ),
@@ -866,7 +874,8 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     final portion = candidate.portion.isNotEmpty
         ? candidate.portion
         : candidate.servings != null
-        ? '${l10n.recipeEditBatchServings}: ${candidate.servings == candidate.servings!.roundToDouble() ? candidate.servings!.round() : candidate.servings}'
+        ? '${l10n.recipeEditBatchServings}: '
+              '${formatDecimal(candidate.servings!, l10n, maxFractionDigits: 3)}'
         : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

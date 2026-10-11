@@ -221,7 +221,7 @@ void main() {
         'settings-weight-goal-${rechnerProfil.weightGoal.name}');
 
     // The plan hero already shows the live calculation, before saving.
-    expect(find.text('${rechnerZiel.kcal}'), findsOneWidget);
+    expect(find.text(_erwartet(rechnerZiel.kcal)), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-validation-note')), findsNothing);
 
     await _speichernUndSchliessen(tester);
@@ -277,7 +277,7 @@ void main() {
     await settleFrames(tester);
     // Selbst auf der Seite bleibt das Ziel stehen, obwohl der Rechner laenger
     // etwas anderes ausrechnen wuerde.
-    expect(find.text('${leichteresZiel.kcal}'), findsNothing);
+    expect(find.text(_erwartet(leichteresZiel.kcal)), findsNothing);
 
     await _speichernUndSchliessen(tester);
 

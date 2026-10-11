@@ -250,6 +250,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Undo'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      // At 1x the count shares the total's line, at the card's inner edge
+      // (1 px border, 14 px padding).
+      final total = tester.getRect(
+        find.byKey(const ValueKey('analyse-adjusted-total')),
+      );
+      final count = tester.getRect(
+        find.byKey(const ValueKey('analyse-adjusted-count')),
+      );
+      final card = tester.getRect(
+        find.byKey(const ValueKey('analyse-adjusted-kcal-preview')),
+      );
+      expect(count.center.dy, closeTo(total.center.dy, 0.5));
+      expect(count.right, closeTo(card.right - 15, 0.5));
       await captureDesignShot(tester, 'meal-sheets-adjust-removed');
 
       // Back with a change asks on the shared decision card; keeping goes
@@ -368,6 +381,17 @@ void main() {
       await captureDesignShot(tester, 'meal-sheets-adjust-removed-320-x2');
       await _reveal(tester, 'analyse-save-weight-button');
       expect(tester.takeException(), isNull);
+      // The count leaves the total's line instead of squeezing the total
+      // into a word per line.
+      final total = tester.getRect(
+        find.byKey(const ValueKey('analyse-adjusted-total')),
+      );
+      final count = tester.getRect(
+        find.byKey(const ValueKey('analyse-adjusted-count')),
+      );
+      expect(count.top, greaterThanOrEqualTo(total.bottom));
+      // Two lines of the 36 px (2x) total, not three.
+      expect(total.height, lessThan(2.5 * 18 * 2 * 1.4));
       await captureDesignShot(tester, 'meal-sheets-adjust-320-x2');
     });
   });
@@ -428,9 +452,13 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(info);
         await tester.pumpAndSettle();
+        // The bowl has no confidence and no note: no bare "Confidence"
+        // label and no empty note block, the source row stays.
+        expect(find.text('Source'), findsOneWidget);
+        expect(find.text('Confidence'), findsNothing);
         expect(
           find.byKey(const ValueKey('analyse-portion-notes')),
-          findsOneWidget,
+          findsNothing,
         );
         expect(tester.takeException(), isNull);
         await captureDesignShot(tester, 'meal-sheets-analysis-info$suffix');

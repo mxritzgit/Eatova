@@ -17,6 +17,7 @@ import '../theme/app_theme.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/design/sheets.dart';
+import '../widgets/design/spinner.dart';
 import '../widgets/design/soft_actions.dart';
 import '../widgets/design/states.dart';
 import '../widgets/kcal/meal_slot_picker.dart';
@@ -443,13 +444,7 @@ class _CameraLoadingLayer extends StatelessWidget {
     // EXACTLY ONE spinner: meal_camera_sheet_test pins the count per state.
     return ColoredBox(
       color: t.bg,
-      child: Center(
-        child: SizedBox(
-          width: 26,
-          height: 26,
-          child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
-        ),
-      ),
+      child: const Center(child: AppSpinner(size: 26, strokeWidth: 2)),
     );
   }
 }

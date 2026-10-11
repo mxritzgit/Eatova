@@ -87,6 +87,8 @@ void main() {
         reason: 'Der 1-%-Deckel laesst nur 825 statt 1100 kcal Defizit zu');
     expect(find.text('−1 kg/Woche'), findsNothing,
         reason: 'Das gewaehlte Tempo ist ein Wunsch, kein Plan');
+    expect(find.text('1.350 kcal'), findsOneWidget,
+        reason: 'Tagesziel mit Tausendertrennzeichen wie im Rest der App');
   });
 
   testWidgets('Die Zeit-Prognose bleibt an derselben effektiven Rate haengen',
@@ -139,7 +141,7 @@ void main() {
     expect(find.text('−0,35 kg/Woche'), findsOneWidget);
     expect(
       find.byTooltip(
-        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1.200 kcal statt '
         '950 kcal. Dein tatsächliches Tempo ist damit −0,35 kg/Woche statt '
         '−1 kg/Woche.',
       ),
@@ -167,8 +169,8 @@ void main() {
     expect(find.text('stabil'), findsNothing);
     expect(
       find.byTooltip(
-        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
-        '1050 kcal. Dein tatsächliches Tempo ist damit +0,15 kg/Woche statt '
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1.200 kcal statt '
+        '1.050 kcal. Dein tatsächliches Tempo ist damit +0,15 kg/Woche statt '
         'Gewicht stabil.',
       ),
       findsOneWidget,

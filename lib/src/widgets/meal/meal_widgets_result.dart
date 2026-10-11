@@ -214,6 +214,11 @@ class _MealResultCardState extends State<MealResultCard> {
     final t = context.t;
     final l10n = context.l10n;
     final result = widget.result;
+    // Blank values (legacy rows, previews) drop their row or block instead
+    // of showing a bare label or an empty gap.
+    final source = result.resolvedSourceLabel(l10n).trim();
+    final confidence = result.resolvedConfidence(l10n).trim();
+    final notes = result.resolvedPortionNotes(l10n).trim();
     showEatovaSheet<void>(
       context,
       Builder(
@@ -242,25 +247,25 @@ class _MealResultCardState extends State<MealResultCard> {
                     (l10n.foodInfoBrandLabel, result.brand!),
                   if (result.barcode != null && result.barcode!.isNotEmpty)
                     (l10n.foodInfoBarcodeLabel, result.barcode!),
-                  (l10n.foodInfoSourceLabel, result.resolvedSourceLabel(l10n)),
-                  (
-                    l10n.foodInfoConfidenceLabel,
-                    result.resolvedConfidence(l10n),
-                  ),
+                  if (source.isNotEmpty) (l10n.foodInfoSourceLabel, source),
+                  if (confidence.isNotEmpty)
+                    (l10n.foodInfoConfidenceLabel, confidence),
                 ],
               ),
               const SizedBox(height: 12),
-              Text(
-                result.resolvedPortionNotes(l10n),
-                key: const ValueKey('analyse-portion-notes'),
-                style: AppType.ui(
-                  13,
-                  weight: FontWeight.w500,
-                  color: t.ink,
-                  height: 1.45,
+              if (notes.isNotEmpty) ...[
+                Text(
+                  notes,
+                  key: const ValueKey('analyse-portion-notes'),
+                  style: AppType.ui(
+                    13,
+                    weight: FontWeight.w500,
+                    color: t.ink,
+                    height: 1.45,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
+              ],
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(

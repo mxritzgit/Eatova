@@ -32,6 +32,7 @@ class GoalsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    String kcalText(int n) => formatThousands(n, l10n.localeName);
     final protein = profile.proteinGoalG;
     final carbs = profile.carbsGoalG;
     final fat = profile.fatGoalG;
@@ -51,8 +52,8 @@ class GoalsCard extends StatelessWidget {
             // Exactly this text ('<actual>/<goal>', no spaces) is what
             // profile_route_refresh_test asserts; one Text.rich keeps it
             // findable while the goal part steps back.
-            actual: '$dailyKcal',
-            goal: '/${profile.dailyKcalGoal}',
+            actual: kcalText(dailyKcal),
+            goal: '/${kcalText(profile.dailyKcalGoal)}',
             fraction: _fraction(dailyKcal, profile.dailyKcalGoal),
             color: t.progressAccent,
           ),

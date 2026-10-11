@@ -1060,6 +1060,9 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
       _fehler = null;
       _codeFehler = null;
     });
+    // The action only runs once GoTrue accepted (and thereby spent) the code.
+    var codeSpent = false;
+    var remoteDeleted = false;
     try {
       final repo = widget.authRepository;
       if (repo is! ScopedAccountDeletion ||
@@ -1073,10 +1076,28 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
         sessionId: _sessionId,
         email: widget.email,
         code: code,
-        performDeletion: widget.onDeleteAccount,
+        performDeletion: (deleteRemote, isCurrentSession) {
+          codeSpent = true;
+          return widget.onDeleteAccount(() async {
+            await deleteRemote();
+            remoteDeleted = true;
+          }, isCurrentSession);
+        },
       );
     } catch (error) {
       if (!mounted) return;
+      if (codeSpent && !remoteDeleted) {
+        // Retrying the spent code could only fail as "wrong or expired".
+        // Step 1 keeps the typed word, so one tap requests a new code; the
+        // store's toast still names the cause.
+        _code.clear();
+        setState(() {
+          _busy = false;
+          _schritt = _LoeschSchritt.wort;
+          _fehler = context.l10n.settingsDeleteAccountNotDeletedNewCode;
+        });
+        return;
+      }
       // Do not clear the field: a typo should be correctable, not restarted.
       setState(() {
         _busy = false;

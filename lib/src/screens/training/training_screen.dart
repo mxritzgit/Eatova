@@ -668,6 +668,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
             label: l10n.trainingPageStart,
             onPressed: () => widget.onStartWorkout(plan, shown.workoutIndex),
           );
+    final stackAction = trainingLargeText(context);
     return TrainingHeroCard(
       key: _cardKey,
       child: Column(
@@ -751,10 +752,16 @@ class _TrainingScreenState extends State<TrainingScreen> {
           ),
           // The 44 px names line already ends in the design's 14 px gap.
           SizedBox(height: shown.exercises.length > 3 ? 0 : 14),
-          Row(
+          // At large text the round menu button would squeeze the label
+          // to "Start workou|t"; it moves under the full-width action.
+          Flex(
+            direction: stackAction ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: stackAction
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.center,
             children: [
-              Expanded(child: action),
-              const SizedBox(width: 10),
+              if (stackAction) action else Expanded(child: action),
+              const SizedBox(width: 10, height: 10),
               Builder(
                 builder: (anchor) => TrainingRoundButton(
                   key: const ValueKey('training-plan-menu'),

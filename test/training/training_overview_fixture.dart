@@ -213,6 +213,7 @@ pumpTrainingDesignHome(
   Locale locale = const Locale('en'),
   FixlaufServer? server,
   InMemoryKeyValueStore? storage,
+  double textScale = 1.0,
 }) async {
   pinDesignViewport(tester);
   final plan = trainingDesignPlan();
@@ -244,6 +245,7 @@ pumpTrainingDesignHome(
         locale: locale,
         safeArea: false,
         scaffold: false,
+        textScale: textScale,
       ),
     ),
   );

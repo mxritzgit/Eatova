@@ -157,7 +157,9 @@ class _EatenPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
         color: t.accentTint,
-        borderRadius: BorderRadius.circular(13),
+        // Fully round at any height: a fixed 13 left a rounded box once
+        // large text made the pill taller than 26 px.
+        borderRadius: BorderRadius.circular(rPill),
       ),
       // Hugs the text (an `alignment` would stretch the pill across the
       // header's Wrap and push it onto a line of its own).
@@ -208,6 +210,37 @@ class _ArcWithCentre extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final scale = width / TodayCalorieArc.designWidth;
+    final eyebrowStyle = AppType.ui(
+      12,
+      weight: FontWeight.w700,
+      color: t.ink2,
+      letterSpacing: 12 * 0.08,
+      height: todayLineHeight,
+    );
+    final numberStyle = AppType.display(
+      58,
+      color: t.ink,
+      letterSpacing: -58 * 0.04,
+      height: 1.05,
+    );
+    final budgetStyle = AppType.ui(
+      14,
+      weight: FontWeight.w500,
+      color: t.ink2,
+      height: todayLineHeight,
+    );
+    final fit = _centreFit(
+      context,
+      lines: <(String, TextStyle)>[
+        (eyebrow.toUpperCase(), eyebrowStyle),
+        (kcalThousands(remaining, l10n), numberStyle),
+        (budgetLine, budgetStyle),
+      ],
+      maxWidth: 168 * scale,
+      maxHeight: 150 * scale,
+      // The ring's inner edge (r 100 - stroke 18 / 2) less a 4 px margin.
+      radius: (91 - 4) * scale,
+    );
     return SizedBox(
       key: const ValueKey('today-kcal-ring'),
       width: width,
@@ -234,10 +267,7 @@ class _ArcWithCentre extends StatelessWidget {
             height: width,
             child: Center(
               child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 168 * scale,
-                  maxHeight: 150 * scale,
-                ),
+                constraints: BoxConstraints.loose(fit),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Column(
@@ -246,35 +276,19 @@ class _ArcWithCentre extends StatelessWidget {
                       Text(
                         eyebrow.toUpperCase(),
                         semanticsLabel: eyebrow,
-                        style: AppType.ui(
-                          12,
-                          weight: FontWeight.w700,
-                          color: t.ink2,
-                          letterSpacing: 12 * 0.08,
-                          height: todayLineHeight,
-                        ),
+                        style: eyebrowStyle,
                       ),
                       CountingText(
                         value: remaining.toDouble(),
                         from: remainingFrom.toDouble(),
                         format: (v) => kcalThousands(v.round(), l10n),
                         textKey: const ValueKey('today-kcal-remaining'),
-                        style: AppType.display(
-                          58,
-                          color: t.ink,
-                          letterSpacing: -58 * 0.04,
-                          height: 1.05,
-                        ),
+                        style: numberStyle,
                       ),
                       Text(
                         budgetLine,
                         key: const ValueKey('today-kcal-budget'),
-                        style: AppType.ui(
-                          14,
-                          weight: FontWeight.w500,
-                          color: t.ink2,
-                          height: todayLineHeight,
-                        ),
+                        style: budgetStyle,
                       ),
                     ],
                   ),
@@ -286,6 +300,49 @@ class _ArcWithCentre extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The box the arc's centre block may fill: its natural size scaled down
+/// until it fits [maxWidth] x [maxHeight] AND every line's outer corners stay
+/// inside a circle of [radius] around the box centre. A plain box let the
+/// wide bottom line of 2x text cut into the ring's lower strokes.
+Size _centreFit(
+  BuildContext context, {
+  required List<(String, TextStyle)> lines,
+  required double maxWidth,
+  required double maxHeight,
+  required double radius,
+}) {
+  final scaler = MediaQuery.textScalerOf(context);
+  final sizes = <Size>[
+    for (final (text, style) in lines)
+      () {
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: style),
+          textDirection: Directionality.of(context),
+          textScaler: scaler,
+          maxLines: 1,
+        )..layout();
+        final size = painter.size;
+        painter.dispose();
+        return size;
+      }(),
+  ];
+  final width = sizes.fold<double>(0, (w, s) => math.max(w, s.width));
+  final height = sizes.fold<double>(0, (h, s) => h + s.height);
+  if (width <= 0 || height <= 0) return Size(maxWidth, maxHeight);
+  var factor = math.min(1.0, math.min(maxWidth / width, maxHeight / height));
+  // Lines are centred, so each one's corners sit at (w / 2, top or bottom)
+  // relative to the centre of the block.
+  var top = -height / 2;
+  for (final size in sizes) {
+    final bottom = top + size.height;
+    final dy = math.max(top.abs(), bottom.abs());
+    final corner = math.sqrt(size.width * size.width / 4 + dy * dy);
+    if (corner > 0) factor = math.min(factor, radius / corner);
+    top = bottom;
+  }
+  return Size(width * factor, height * factor);
 }
 
 /// Eaten / Goal / Activity. Side by side like the design while every value

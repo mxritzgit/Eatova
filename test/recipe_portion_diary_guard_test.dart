@@ -96,7 +96,7 @@ void main() {
             findsNothing,
           );
           expect(find.text(t.recipeCalcNoCookedWeight), findsOneWidget);
-          expect(find.textContaining('175 kcal'), findsOneWidget);
+          expect(find.textContaining('175\u00a0kcal'), findsOneWidget);
           await tester.ensureVisible(
             find.byKey(const ValueKey('edit-slot-select-dinner')),
           );

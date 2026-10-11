@@ -462,6 +462,12 @@ class LocalNotificationService
       if (_platform == NotificationPlatform.android) {
         await _createAndroidChannels();
       }
+      // A session end that found the plugin down: the ended account's
+      // schedules go before anything new can be planned.
+      if (_sessionEndCancelPending) {
+        await _gateway.cancelAll();
+        _sessionEndCancelPending = false;
+      }
       _initialized = true;
     } catch (e, st) {
       // Not available for now; the next init() retries. Reported, not
@@ -572,6 +578,11 @@ class LocalNotificationService
     if (!_supported) return;
     await init();
     if (!_initialized) return;
+    // Every resume and every meal logged today re-plans. An identical plan
+    // is already pending, so skip the 28 cancels and up to 10 schedules,
+    // each a platform call (Android rewrites its stored schedule list).
+    if (listEquals(_scheduledNudges, specs)) return;
+    _scheduledNudges = null;
 
     try {
       // Clear first, then reschedule — avoids duplicates and orphans when a
@@ -604,10 +615,15 @@ class LocalNotificationService
           details: details,
         );
       }
+      _scheduledNudges = specs;
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'notification-schedule');
     }
   }
+
+  /// The plan the plugin holds since the last complete [scheduleAll]; null
+  /// once any path cancels nudges or a schedule failed.
+  List<NotificationSpec>? _scheduledNudges;
 
   @override
   Future<void> cancelAll() {
@@ -617,11 +633,19 @@ class LocalNotificationService
     return _enqueueMutation(_cancelAll);
   }
 
+  /// A session-end cancel that could not reach the plugin; the next
+  /// successful [init] runs it.
+  bool _sessionEndCancelPending = false;
+
   Future<void> _cancelAll() async {
     _liveRestAlerts.clear();
+    _scheduledNudges = null;
     if (!_supported) return;
     await init();
-    if (!_initialized) return;
+    if (!_initialized) {
+      _sessionEndCancelPending = true;
+      return;
+    }
     try {
       await _gateway.cancelAll();
     } catch (e, st) {
@@ -631,6 +655,7 @@ class LocalNotificationService
 
   @override
   Future<void> cancelNudges() => _enqueueMutation(() async {
+        _scheduledNudges = null;
         if (!_supported) return;
         await init();
         if (!_initialized) return;
@@ -671,6 +696,7 @@ class LocalNotificationService
     List<PlannedRestAlert> restore,
     int epoch,
   ) async {
+    _scheduledNudges = null;
     if (!_supported) return;
     await init();
     if (!_initialized) return;

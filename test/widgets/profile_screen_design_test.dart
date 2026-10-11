@@ -154,8 +154,9 @@ void main() {
     // profile_route_refresh_test relies on.
     expect(find.text('1000/8000'), findsOneWidget);
     expect(find.text('1000 / 8000'), findsNothing);
-    // The calories row beside it uses the same notation.
-    expect(find.text('900/2200'), findsOneWidget);
+    // The calories row beside it uses the same notation, with the kcal
+    // thousands separator of the rest of the app.
+    expect(find.text('900/2.200'), findsOneWidget);
   });
 
   testWidgets('die Identitaetskarte erfindet keine Daten', (tester) async {

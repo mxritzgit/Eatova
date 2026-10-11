@@ -213,12 +213,14 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
       planId: planId,
       exercise: exercise,
     );
+    _PlannedSet planned(double? kg) => _PlannedSet(
+      reps: exercise.isTimed ? '' : '${exercise.reps}',
+      weight: _weightText(kg, l10n),
+      prefillKg: kg,
+    );
     return [
       for (var s = 0; s < exercise.sets; s++)
-        _PlannedSet(
-          reps: exercise.isTimed ? '' : '${exercise.reps}',
-          weight: _weightText(lastTimeWeightForSet(last, s), l10n),
-        ),
+        planned(lastTimeWeightForSet(last, s)),
     ];
   }
 
@@ -518,11 +520,23 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     ].take(4).toList();
   }
 
+  /// Spec A2, as in the player: once an earlier weight differs from its
+  /// Last-time prefill, the latest earlier weight carries into a set not
+  /// typed by hand; otherwise that set keeps its own prefill.
   void _plannedWeightChanged(List<_PlannedSet> sets, int index) {
     sets[index].weightEdited = true;
-    final text = sets[index].weight.controller.text;
-    for (var s = index + 1; s < sets.length; s++) {
-      if (!sets[s].weightEdited) sets[s].weight.controller.text = text;
+    var changed = false;
+    var carried = '';
+    for (var s = 0; s < sets.length; s++) {
+      final set = sets[s];
+      if (s > index && !set.weightEdited) {
+        final text = changed ? carried : set.prefillText;
+        if (set.weight.controller.text != text) {
+          set.weight.controller.text = text;
+        }
+      }
+      if (set.weight.value?.toDouble() != set.prefillKg) changed = true;
+      carried = set.weight.controller.text;
     }
     _changed();
   }

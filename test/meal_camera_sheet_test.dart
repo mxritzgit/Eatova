@@ -587,10 +587,15 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('meal-camera-gallery')));
       // Recompression runs through compute() in a real isolate, which needs the
-      // real event loop — pump()'s fake time is not enough.
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 400)),
-      );
+      // real event loop — pump()'s fake time is not enough. Polled, not one
+      // fixed 400 ms: on a loaded machine the isolate took longer and the
+      // spinner kept pumpAndSettle from settling.
+      for (var i = 0; i < 100 && captured == null; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       await tester.pumpAndSettle();
 
       expect(picker.calls, 1);

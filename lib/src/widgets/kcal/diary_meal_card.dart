@@ -54,6 +54,7 @@ class DiaryMealCard extends StatefulWidget {
     required this.slot,
     required this.entries,
     this.suggestedRange,
+    this.emptyText,
     this.pick,
     this.onOpenPick,
     this.onAddToSlot,
@@ -68,6 +69,10 @@ class DiaryMealCard extends StatefulWidget {
 
   /// "Suggested 550–700 kcal" for an empty slot; null shows the empty text.
   final KcalRange? suggestedRange;
+
+  /// Replaces the empty text when the slot's emptiness is not known (a day
+  /// whose load failed).
+  final String? emptyText;
 
   /// The day's recipe pick, only passed to the slot it targets.
   final RecipePick? pick;
@@ -113,7 +118,7 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
     final String meta;
     if (empty) {
       meta = range == null
-          ? l10n.todayMealSlotEmpty
+          ? widget.emptyText ?? l10n.todayMealSlotEmpty
           : l10n.foodSlotSuggested(
               formatThousands(range.minKcal, l10n.localeName),
               formatThousands(range.maxKcal, l10n.localeName),

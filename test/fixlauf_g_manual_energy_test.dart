@@ -9,6 +9,7 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
+import 'package:eatova/src/services/kcal_format.dart';
 import 'package:eatova/src/services/profile_sync.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/shared/settings_sheet.dart';
@@ -152,8 +153,8 @@ void main() {
           reason: '2000 != 2150 darf NICHT mehr „manuell" bedeuten');
       expect(find.byKey(const ValueKey('settings-kcal')), findsNothing);
       // The hero shows the calculator, not the stale stored number.
-      expect(find.text('${rechner.kcal}'), findsOneWidget);
-      expect(find.text('2000'), findsNothing);
+      expect(find.text(formatThousands(rechner.kcal, 'de')), findsOneWidget);
+      expect(find.text('2.000'), findsNothing);
     });
 
     testWidgets('Speichern im Live-Modus schreibt Rechnerwerte und false',

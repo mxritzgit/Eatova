@@ -298,6 +298,36 @@ void main() {
     });
   }
 
+  test(
+    'a grant made in the Health Connect settings after a denial survives '
+    'a cold start',
+    () async {
+      final raw = InMemoryKeyValueStore();
+      store.dispose();
+      store = _store(service, cache: LocalCache(raw, 'health-a'));
+      // The prompt is denied (Android stops showing it after two denials).
+      adapter.permission = false;
+      await withClock(Clock.fixed(now), store.connectHealth);
+      expect(store.healthAuthState, HealthAuthState.denied);
+      // "Open Health Connect", allow steps there, return: the resume refresh.
+      await store.openHealthSettings();
+      adapter.permission = true;
+      await withClock(Clock.fixed(now), store.refreshHealthSteps);
+      expect(store.healthAuthState, HealthAuthState.granted);
+      store.dispose();
+
+      // Next process, same account.
+      service = AndroidHealthService(adapter: adapter);
+      store = _store(service, cache: LocalCache(raw, 'health-a'));
+      await withClock(Clock.fixed(now), store.restoreHealthConnection);
+      expect(store.healthAuthState, HealthAuthState.granted);
+      expect(
+        withClock(Clock.fixed(now), () => store.stepsForFoodDate(now)),
+        8400,
+      );
+    },
+  );
+
   test('duplicate taps during permission request are coalesced', () async {
     adapter.permission = false;
     final opened = Completer<void>();

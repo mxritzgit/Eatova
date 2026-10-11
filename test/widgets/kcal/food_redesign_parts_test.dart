@@ -237,6 +237,42 @@ void main() {
         expect(find.text('ZU VIEL'), findsOneWidget);
       }
     });
+
+    // Stacked under "logged" at large text, the "left" eyebrow starts where
+    // its number starts instead of hanging right-aligned over it.
+    testWidgets('stacked "left" block is left-aligned at 2x', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 900);
+      addTearDown(tester.view.reset);
+      await pumpLocalized(
+        tester,
+        FoodDaySummaryCard(
+          summary: DayNutritionSummary(
+            profile: const UserProfile(dailyKcalGoal: 2123),
+            burnedKcal: 0,
+            consumed: const MacroProgress(
+              proteinG: 111,
+              carbsG: 144,
+              fatG: 20,
+              kcal: 1221,
+            ),
+          ),
+          loading: false,
+          onTap: () {},
+        ),
+        textScale: 2,
+        locale: const Locale('de'),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+      );
+      final logged = tester.getRect(find.text('ERFASST'));
+      final eyebrow = tester.getRect(find.text('ÜBRIG'));
+      final number = tester.getRect(
+        find.byKey(const ValueKey('food-day-left')),
+      );
+      expect(eyebrow.top, greaterThan(logged.bottom), reason: 'stacked');
+      expect(eyebrow.left, closeTo(logged.left, 0.5));
+      expect(number.left, closeTo(logged.left, 0.5));
+    });
   });
 
   group('Food screen text scale', () {

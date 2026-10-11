@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/account_change_messages.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/widgets/design/controls.dart' show PrimaryActionButton;
@@ -47,6 +48,7 @@ void main() {
     WidgetTester tester, {
     AuthRepository? repo,
     Future<void> Function()? onDeleteAccount,
+    ScopedAccountDeleteAction? deleteAction,
     String? email = 'jonas@eatova.de',
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
@@ -65,7 +67,8 @@ void main() {
                 builder: (_) => SettingsScreen(
                   email: email,
                   authRepository: repo,
-                  onDeleteAccount: onDeleteAccount == null ? null : (deleteRemote, _) async { await deleteRemote(); await onDeleteAccount(); },
+                  onDeleteAccount: deleteAction ??
+                      (onDeleteAccount == null ? null : (deleteRemote, _) async { await deleteRemote(); await onDeleteAccount(); }),
                 ),
               ),
             ),
@@ -265,6 +268,59 @@ void main() {
     expect(find.byKey(const ValueKey('delete-account-sheet')), findsOneWidget);
     expect(find.text('00000000'), findsOneWidget);
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
+  });
+
+  // --- (d) A failure after verification spends the code (AUTH-2) ----------
+
+  /// Up to a failed deletion whose code GoTrue already accepted.
+  Future<void> scheitereNachPruefung(
+    WidgetTester tester,
+    InMemoryAuthRepository repo,
+    ScopedAccountDeleteAction deleteAction,
+  ) async {
+    await pump(tester, repo: repo, deleteAction: deleteAction);
+    await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
+    await schreibe(tester, 'settings-delete-confirm-field', 'LÖSCHEN');
+    await tippe(tester, find.text('Code anfordern'));
+    await schreibe(tester, 'settings-delete-code-field', '12345678');
+    await tippe(tester, find.text('Konto endgültig löschen'));
+    expect(repo.verifiedCodes, ['jonas@eatova.de:12345678']);
+  }
+
+  testWidgets('a failed deletion after the code was verified asks for a new code',
+      (tester) async {
+    final repo = baueRepo();
+    // The remote step fails (offline, 5xx) like `HomeStore.deleteAccount`.
+    await scheitereNachPruefung(tester, repo, (_, _) async {
+      throw StateError('Account deletion failed');
+    });
+
+    // Back on step 1: the spent code is gone and the word still stands, so one
+    // tap requests a fresh code.
+    expect(find.byKey(const ValueKey('delete-account-sheet')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-delete-code-field')), findsNothing);
+    expect(find.text(deL10n.settingsDeleteAccountNotDeletedNewCode), findsOneWidget);
+
+    await tippe(tester, find.text('Code anfordern'));
+    expect(repo.accountDeletionCodes, hasLength(2));
+    final codeField = find.descendant(
+      of: find.byKey(const ValueKey('settings-delete-code-field')),
+      matching: find.byType(TextField),
+    );
+    expect(tester.widget<TextField>(codeField).controller!.text, isEmpty);
+    expect(find.text(deL10n.settingsDeleteAccountNotDeletedNewCode), findsNothing);
+  });
+
+  testWidgets('a failure after the remote deletion never claims it was kept',
+      (tester) async {
+    final repo = baueRepo();
+    await scheitereNachPruefung(tester, repo, (deleteRemote, _) async {
+      await deleteRemote();
+      throw StateError('Sign-out failed');
+    });
+
+    expect(find.text(deL10n.settingsDeleteAccountNotDeletedNewCode), findsNothing);
+    expect(find.byKey(const ValueKey('settings-delete-error')), findsOneWidget);
   });
 
   // --- Latch and visibility -------------------------------------------------

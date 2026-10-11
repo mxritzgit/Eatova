@@ -197,6 +197,21 @@ void main() {
       }
     });
 
+    test(
+        'nach 20:00, gestern zuletzt getrackt: morgen ist die Kette gerissen '
+        '-> Start-Text statt "rette deine Serie"', () {
+      // Planned tonight (resume or cold start after the reminder): the first
+      // slot is tomorrow, when yesterday's 5-day chain no longer exists.
+      final stats = statsWithStreak(
+        lastTracked: DateTime(2026, 7, 14),
+        days: 5,
+      );
+      final specs = planStreakReminders(wedEvening, stats);
+      expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 20));
+      expect(specs.first.title, 'Streak starten');
+      expect(specs.first.body, 'Ein Log genügt, um deine Serie zu starten.');
+    });
+
     test('nie getrackt -> Start-Text', () {
       final specs = planStreakReminders(wedMorning, LifetimeStats());
       expect(specs.first.body, 'Ein Log genügt, um deine Serie zu starten.');

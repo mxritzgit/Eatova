@@ -430,12 +430,15 @@ extension LocalCacheMutations on LocalCache {
   );
 
   /// Locks the exact wire request before HTTP; retries may not change it.
+  /// [onCommitted] observes the commit, so its owner can treat the new outbox
+  /// version as its own write.
   Future<SyncOp?> startSyncOperation(
     String operationId, {
     Map<String, int> guards = const {},
+    void Function(LocalMutationReceipt receipt)? onCommitted,
   }) async {
     SyncOp? started;
-    await _atomicMutation((state, queue) {
+    final receipt = await _atomicMutation((state, queue) {
       started = null;
       final at = queue.indexWhere((op) => op.operationId == operationId);
       if (at < 0) return;
@@ -454,6 +457,7 @@ extension LocalCacheMutations on LocalCache {
         queue[at] = op.withBlockedReason(SyncBlockedReason.rejected);
       }
     }, guards: guards);
+    onCommitted?.call(receipt);
     return started;
   }
 
@@ -470,8 +474,8 @@ extension LocalCacheMutations on LocalCache {
     }
   }, guards: guards);
 
-  Future<void> retryBlockedSyncOperations() async {
-    await _atomicMutation((state, queue) {
+  Future<LocalMutationReceipt> retryBlockedSyncOperations() {
+    return _atomicMutation((state, queue) {
       for (var i = 0; i < queue.length; i++) {
         if (queue[i].blockedReason == SyncBlockedReason.trainingHeadConflict) {
           continue;
@@ -684,18 +688,16 @@ extension LocalCacheMutations on LocalCache {
         _ => _keysForOperation(op),
       };
 
-  Future<void> commitTrainingSelection(
+  Future<LocalMutationReceipt> commitTrainingSelection(
     String? id, {
     Map<String, int> guards = const {},
-  }) async {
-    await _atomicMutation(
-      (state, queue) {
-        state[_trainingSelectionKey] = {'id': id};
-      },
-      keys: {_trainingSelectionKey},
-      guards: guards,
-    );
-  }
+  }) => _atomicMutation(
+    (state, queue) {
+      state[_trainingSelectionKey] = {'id': id};
+    },
+    keys: {_trainingSelectionKey},
+    guards: guards,
+  );
 
   /// Hydration snapshot in which a v1 checkpoint is already pinned durably, so
   /// the store never holds a legacy decode that storage does not contain. If
@@ -836,6 +838,17 @@ extension LocalCacheMutations on LocalCache {
     retryConflicts: false,
   );
 
+  /// Preference slots are written outside the store snapshot (a step refresh,
+  /// an opt-in) and are neither read nor written by it. Guarding them made
+  /// every such write during a boot load look like a conflicting commit.
+  Map<String, int> _storeSnapshotGuards(Map<String, int> expectedVersions) => {
+    for (final entry in expectedVersions.entries)
+      if (entry.key != _dailyActivityKey &&
+          entry.key != _notificationsKey &&
+          entry.key != _healthConnectKey)
+        entry.key: entry.value,
+  };
+
   /// Network hydration updates mirrors without separating them from the
   /// currently durable queue. Newer local intents always overlay the snapshot.
   Future<LocalMutationReceipt> commitStoreSnapshot({
@@ -931,7 +944,14 @@ extension LocalCacheMutations on LocalCache {
         );
       }
     },
-    guards: expectedVersions,
+    guards: _storeSnapshotGuards(expectedVersions),
+    // Guarded slots this commit neither writes nor projects into are only
+    // version-checked. Decoding and re-encoding them cost the UI isolate
+    // ~35 ms per boot commit at 300 workouts in the history, ~200 ms at 2000.
+    fenceOnly: (queue) =>
+        _storeSnapshotGuards(expectedVersions).keys.toSet().difference({
+          for (final op in queue) ..._keysForOperation(op),
+        }),
     keys: {
       if (profile != null) _profileKey,
       if (stats != null) _statsKey,
@@ -955,6 +975,7 @@ extension LocalCacheMutations on LocalCache {
     Set<String> tolerateUnreadable = const {},
     bool retryConflicts = true,
     Set<String> readOnlyKeys = const {},
+    Set<String> Function(List<SyncOp> queue)? fenceOnly,
     bool strictWrites = false,
   }) {
     assert(
@@ -993,11 +1014,22 @@ extension LocalCacheMutations on LocalCache {
             throw const KeyValueConflict();
           }
         }
+        final queue = _operations(snapshot.values);
+        // Fenced by version only; [change] never sees them, so nothing is
+        // written to them. The stats slot stays decoded for the bundle below.
+        final unread = {...?fenceOnly?.call(queue)}
+          ..removeAll({
+            _outboxKey,
+            _pendingStatsKey,
+            _statsKey,
+            ...keys,
+            ...?keysForQueue?.call(initialQueue),
+          });
         final state = <String, Map<String, dynamic>?>{
           for (final key in selectedKeys.where(snapshot.values.containsKey))
-            if (_mutationKeys.contains(key)) key: _decodeMutationSlot(key, snapshot.values[key]),
+            if (_mutationKeys.contains(key) && !unread.contains(key))
+              key: _decodeMutationSlot(key, snapshot.values[key]),
         };
-        final queue = _operations(snapshot.values);
         final pending = state[_pendingStatsKey];
         final meals = pending?['meals'] as int? ?? 0;
         final weights = pending?['weight_logs'] as int? ?? 0;
@@ -1026,11 +1058,17 @@ extension LocalCacheMutations on LocalCache {
           'Mutation changed unselected slots: '
           '${state.keys.where((key) => !selectedKeys.contains(key)).toList()}',
         );
+        assert(
+          !state.keys.any(unread.contains),
+          'Mutation changed fence-only slots: '
+          '${state.keys.where(unread.contains).toList()}',
+        );
         state[_outboxKey] = {'items': queue.map((op) => op.toJson()).toList()};
         final changes = <String, String?>{};
         for (final entry in state.entries) {
           if (!selectedKeys.contains(entry.key) ||
-              !snapshot.values.containsKey(entry.key)) {
+              !snapshot.values.containsKey(entry.key) ||
+              unread.contains(entry.key)) {
             continue;
           }
           // Still read and version-guarded, but [change] promised not to

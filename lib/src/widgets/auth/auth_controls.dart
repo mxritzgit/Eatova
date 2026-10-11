@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
@@ -152,6 +153,7 @@ class AuthField extends StatefulWidget {
     this.textCapitalization = TextCapitalization.none,
     this.onSubmitted,
     this.trailing,
+    this.inputFormatters,
   });
 
   /// Goes on the [TextField] (tests enter text by it).
@@ -176,6 +178,7 @@ class AuthField extends StatefulWidget {
   final TextCapitalization textCapitalization;
   final ValueChanged<String>? onSubmitted;
   final Widget? trailing;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   State<AuthField> createState() => _AuthFieldState();
@@ -246,6 +249,7 @@ class _AuthFieldState extends State<AuthField> {
                 enableSuggestions: widget.enableSuggestions,
                 textCapitalization: widget.textCapitalization,
                 onSubmitted: widget.onSubmitted,
+                inputFormatters: widget.inputFormatters,
                 cursorColor: t.accent,
                 cursorOpacityAnimates: false,
                 style: AppType.ui(15.5, weight: FontWeight.w600, color: t.ink),

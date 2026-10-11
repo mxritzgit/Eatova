@@ -226,6 +226,11 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   bool _trainingHistoryDeletionsHydrated = false;
   bool _trainingHistoryDeletionReadFailed = false;
   bool _trainingHistoryKnown = false;
+
+  /// The history slot's entries and version as the last hydration read them.
+  /// History rows never change after insert, so the same entry instances at
+  /// the same slot version mean the slot needs no rewrite.
+  ({List<TrainingHistoryEntry> entries, int? version})? _trainingHistoryCached;
   List<TrainingHistoryEntry> get trainingHistory =>
       _trainingHistoryDeletionReadFailed ? const [] : _trainingHistoryState;
   set _trainingHistory(List<TrainingHistoryEntry> value) {
@@ -710,6 +715,9 @@ class HomeStore extends _HomeStoreBase
   bool get _serverAnsweredProfileAndWeightLog =>
       _serverProfileLoaded && _serverWeightLogLoaded;
 
+  @override
+  bool get _serverAnsweredWeightLog => _serverWeightLogLoaded;
+
   /// The meal load answered in this session — the weekly check's third
   /// source (docs/WEIGHT-TREND.md); same lifecycle as the two above.
   @override
@@ -1032,6 +1040,7 @@ class HomeStore extends _HomeStoreBase
       return;
     }
     _cacheObservedVersions = Map.of(durable.snapshot.versions);
+    _trainingHistoryCached = null;
     _adoptTrainingHeads(durable);
     _trainingHistoryDeletedIds.addAll(cachedTrainingDeletions ?? <String>{});
     _trainingHistoryDeletionReadFailed = trainingDeletionReadFailed;
@@ -1121,6 +1130,11 @@ class HomeStore extends _HomeStoreBase
       if (cachedTrainingHistory != null &&
           historyVersion == _trainingHistoryVersion) {
         _trainingHistory = cachedTrainingHistory;
+        _trainingHistoryCached = (
+          entries: cachedTrainingHistory,
+          version: durable.snapshot.versions[
+              'eatova.v1.training_history.${persistedCache.userId}'],
+        );
       }
       if (cachedTrainingPlans != null &&
           trainingVersion == _trainingPlansVersion) {
@@ -1284,8 +1298,11 @@ class HomeStore extends _HomeStoreBase
         // The fresh window load REPLACES the list, so previously fetched
         // archive days are gone and must be reloaded on re-selection. Without
         // this reset the session cache would call the day "loaded" and show it
-        // empty. Ghost duplicates cannot happen (merge dedups by id).
+        // empty. Ghost duplicates cannot happen (merge dedups by id). Failed
+        // marks go too: a day the window now covers is complete, an older
+        // one is reloaded (and re-marked on failure) when selected.
         _loadedArchiveDays.clear();
+        _failedArchiveDays.clear();
       }
 
       final loadedFavorites = results[2] as List<FavoriteMeal>?;
@@ -1404,6 +1421,8 @@ class HomeStore extends _HomeStoreBase
     }
     final conflict = await _writeCacheSnapshot(cacheVersionsBeforeLoad);
     _completeProfileReady();
+    // A Health weight read during the boot is judged against the loaded log.
+    if (_serverWeightLogLoaded) _offerDeferredHealthWeight();
     // The profile follows the weight trend (docs/WEIGHT-TREND.md), once the
     // server answered both profile and weight log in this session: a full
     // row written from a cached profile could overwrite a newer one. After

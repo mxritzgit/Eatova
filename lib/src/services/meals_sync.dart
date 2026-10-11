@@ -181,17 +181,29 @@ class MealsSync {
           .eq('user_id', _userId)
           .order('added_at', ascending: false)
           .limit(favoritesLimit);
-      return rows.map<FavoriteMeal>((row) {
-        return FavoriteMeal(
-          id: row['favorite_key'] as String,
-          addedAt: DateTime.parse(row['added_at'] as String).toLocal(),
-          // Older rows without the column / null -> false (auto-recent).
-          pinned: (row['pinned'] as bool?) ?? false,
-          result: mealResultFromJson(
-            (row['payload'] as Map).cast<String, dynamic>(),
-          ),
-        );
-      }).toList();
+      // Skipped one by one like the meals (S1): one unreadable row used to
+      // fail the whole load, so no favorite ever reached a new device.
+      final favorites = <FavoriteMeal>[];
+      for (final row in rows) {
+        try {
+          favorites.add(FavoriteMeal(
+            id: row['favorite_key'] as String,
+            addedAt: DateTime.parse(row['added_at'] as String).toLocal(),
+            // Older rows without the column / null -> false (auto-recent).
+            pinned: (row['pinned'] as bool?) ?? false,
+            result: mealResultFromJson(
+              (row['payload'] as Map).cast<String, dynamic>(),
+            ),
+          ));
+        } catch (e, stack) {
+          dev.log('MealsSync: corrupt favorite row skipped',
+              error: e, stackTrace: stack, name: 'meals_sync');
+          unawaited(
+            CrashReporter.capture(e, stack, context: 'favorites.row-corrupt'),
+          );
+        }
+      }
+      return favorites;
     } catch (e, stack) {
       dev.log('MealsSync.loadFavorites failed',
           error: e, stackTrace: stack, name: 'meals_sync');

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
 import '../l10n/l10n.dart';
+import '../models/model_limits.dart' show ProfileLimits;
 import '../services/secure_screen.dart';
 import '../services/sync_error_messages.dart'
     show isAuthNetworkError, isAuthServerFaultError;
@@ -14,6 +15,7 @@ import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/auth/auth_entry_header.dart';
 import '../widgets/common/app_snack.dart';
+import '../widgets/common/text_length_limit.dart';
 import '../widgets/common/motion.dart';
 import 'auth_code_screen.dart';
 import 'settings/account_change_messages.dart'
@@ -608,6 +610,14 @@ class _EmailForm extends StatelessWidget {
                     textInputAction: TextInputAction.next,
                     textCapitalization: TextCapitalization.words,
                     autofillHints: const [AutofillHints.name],
+                    // `profiles_display_name_length_check`: a longer name
+                    // fails the signup with a GoTrue 500.
+                    inputFormatters: const [
+                      TextLengthLimit(
+                        ProfileLimits.displayNameMaxChars,
+                        unit: TextLengthUnit.codePoints,
+                      ),
+                    ],
                   ),
                 )
               : const SizedBox.shrink(key: ValueKey('no-name-field')),

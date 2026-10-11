@@ -1240,8 +1240,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
                   if (!searchActive) ...[
                     // Manual entry joins the entry-method card; the search
                     // mode has no method card, so it keeps its own row.
+                    // A button to a screen reader, like the method rows it
+                    // stands in for: the InkWell carries the tap, not the role.
                     if (widget.searchMode)
-                      _ManualEntryRow(onTap: () => _openManualEntry())
+                      Semantics(
+                        button: true,
+                        child: _ManualEntryRow(onTap: () => _openManualEntry()),
+                      )
                     else
                       MealEntryMethods(
                         onCamera: () => _pickAndAnalyze(ImageSource.camera),
@@ -1325,14 +1330,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
         children: [
           _SectionLabel(
             l10n.ingredientSearching,
-            trailing: SizedBox(
-              key: const ValueKey('product-search-spinner'),
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: context.t.accent,
-              ),
+            trailing: const AppSpinner(
+              key: ValueKey('product-search-spinner'),
+              size: 16,
+              strokeWidth: 2,
             ),
           ),
           const SizedBox(height: _kLabelGap),
@@ -1583,6 +1584,15 @@ class _AddMealSheetState extends State<AddMealSheet> {
     await _toggleAndMirror(result);
   }
 
+  /// Undo of [_unpinFavorite]: pins the row again, also when the unpin
+  /// dropped it from the store (recents cap). Already pinned stays as it is.
+  Future<void> _repinFavorite(MealAnalysisResult result) async {
+    final id = FavoriteMeal.idFor(result);
+    final idx = _favorites.indexWhere((f) => f.id == id);
+    if (idx != -1 && _favorites[idx].pinned) return;
+    await _toggleAndMirror(result);
+  }
+
   /// Opens the favorites sheet on top of this one. Adds go through
   /// [_logAndMirror] with the slot chosen here; the tile check lives in the
   /// favorites sheet itself. The rebuild after closing refreshes count and
@@ -1594,6 +1604,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       slot: _selectedSlot,
       onAdd: _logAndMirror,
       onUnpin: _unpinFavorite,
+      onRepin: widget.onToggleFavorite == null ? null : _repinFavorite,
       useCounts: widget.favoriteUseCounts?.call() ?? const <String, int>{},
     );
     if (!mounted) return;

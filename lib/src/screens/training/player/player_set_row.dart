@@ -70,6 +70,7 @@ class PlayerSetRow extends StatelessWidget {
     this.enabled = true,
     this.buttonEnabled = true,
     this.onConfirmLegacy,
+    this.replaceRevision,
   });
 
   final TrainingSetReference reference;
@@ -87,6 +88,10 @@ class PlayerSetRow extends StatelessWidget {
   /// A timed set completed by a #70 build has no values yet; confirming it
   /// records them (the save needs one per completed set).
   final VoidCallback? onConfirmLegacy;
+
+  /// Bumped by Copy last time on the active row; see
+  /// [TrainingSetValueField.replaceRevision].
+  final int? replaceRevision;
 
   String get _id => '${reference.exerciseIndex}-${reference.setIndex}';
   int get _number => reference.setIndex + 1;
@@ -132,6 +137,7 @@ class PlayerSetRow extends StatelessWidget {
         decimal: true,
         muted: active,
         enabled: enabled,
+        replaceRevision: replaceRevision,
         semanticLabel: l.trainingTimerWeightField(_number),
         onValidityChanged: (valid) =>
             actions.validity(reference, 'weight', valid),
@@ -169,6 +175,7 @@ class PlayerSetRow extends StatelessWidget {
         decimal: false,
         muted: active,
         enabled: enabled,
+        replaceRevision: replaceRevision,
         semanticLabel: l.trainingTimerRepsField(_number),
         onValidityChanged: (valid) =>
             actions.validity(reference, 'reps', valid),

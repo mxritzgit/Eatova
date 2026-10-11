@@ -120,6 +120,10 @@
     }
   },
   "todayDayLoading": "Tag wird geladen…",
+  "foodDayLoadFailedTitle": "Dieser Tag konnte nicht geladen werden",
+  "foodDayLoadFailedBody": "Bereits geloggte Mahlzeiten dieses Tages fehlen hier vielleicht. Versuch es erneut, sobald du online bist, damit nichts doppelt landet.",
+  "foodDayLoadRetry": "Erneut versuchen",
+  "foodSlotNotLoaded": "Nicht geladen",
   "todaySemanticsDatePrev": "Tag zurück",
   "todaySemanticsDateNext": "Tag vor",
   "foodAnalysisFailedMessage": "Die Analyse hat nicht geklappt. Prüfe deine Internetverbindung und versuch es nochmal.",
@@ -1028,7 +1032,7 @@
   "commonKcalOutcomeLabel": "Ergibt {kcal} kcal/Tag · {paceLabel}",
   "@commonKcalOutcomeLabel": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },
@@ -1042,8 +1046,8 @@
   "commonPaceWarningFloor": "Aus Sicherheitsgründen liegt dein Tagesziel bei {floor} kcal statt {uncapped} kcal. Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
   "@commonPaceWarningFloor": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1051,8 +1055,8 @@
   "commonPaceWarningCeiling": "Dein Tagesziel ist bei {ceiling} kcal gedeckelt (rechnerisch wären es {uncapped} kcal). Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
   "@commonPaceWarningCeiling": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1060,7 +1064,7 @@
   "commonPaceWarningDeficitCap": "Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir nicht: Dein Defizit ist auf {cap} kcal/Tag begrenzt. Dein tatsächliches Tempo ist damit {effectivePace} statt {promisedPace}.",
   "@commonPaceWarningDeficitCap": {
     "placeholders": {
-      "cap": { "type": "int" },
+      "cap": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1068,16 +1072,16 @@
   "commonPaceWarningFloorStable": "Aus Sicherheitsgründen liegt dein Tagesziel bei {floor} kcal statt {uncapped} kcal. Damit bleibt dein Gewicht praktisch stabil, statt {promisedPace} zu erreichen.",
   "@commonPaceWarningFloorStable": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
   "commonPaceWarningCeilingStable": "Dein Tagesziel ist bei {ceiling} kcal gedeckelt (rechnerisch wären es {uncapped} kcal). Damit bleibt dein Gewicht praktisch stabil, statt {promisedPace} zu erreichen.",
   "@commonPaceWarningCeilingStable": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
@@ -1279,7 +1283,7 @@
   "settingsPlanHeroMaintenance": "Erhaltung {kcal} · {paceLabel}",
   "@settingsPlanHeroMaintenance": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },
@@ -1784,6 +1788,7 @@
   },
   "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 8-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
   "settingsDeleteAccountReauthExpired": "Die Bestätigung ist abgelaufen. Bitte starte die Kontolöschung neu und fordere einen neuen Code an.",
+  "settingsDeleteAccountNotDeletedNewCode": "Dein Konto wurde nicht gelöscht. Der Code ist damit verbraucht — fordere einen neuen an, um es noch einmal zu versuchen.",
   "settingsDeleteAccountRequestCta": "Code anfordern",
   "settingsDeleteAccountRequestingCta": "Code wird angefordert…",
   "mealUpdated": "Mahlzeit aktualisiert.",
@@ -1846,6 +1851,7 @@
   "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
   "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal.",
   "commonFavoriteRemoved": "Favorit entfernt",
+  "commonRecentRemoved": "Aus letzten Mahlzeiten entfernt",
   "foodFavoritesEntryCount": "{count, plural, =1{1 gespeichert} other{{count} gespeichert}}",
   "@foodFavoritesEntryCount": {
     "placeholders": {
@@ -2374,8 +2380,8 @@
   "@ingredientNumberError": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
   "recipeCalcServings": "Portionen zum Eintragen",
   "recipeCalcServingsError": "Gib zwischen 0,1 und 100 Portionen ein, zum Beispiel 0,5.",
-  "recipeCalcServingsCount": "{count} Portionen",
-  "@recipeCalcServingsCount": {"placeholders": {"count": {"type": "String"}}},
+  "recipeCalcServingsCount": "{servings, plural, =1{1 Portion} other{{count} Portionen}}",
+  "@recipeCalcServingsCount": {"description": "Servings of a logged recipe in its meal note. servings picks the form, count is the same number already formatted for the locale.", "placeholders": {"servings": {"type": "num"}, "count": {"type": "String"}}},
   "recipePortionPresetLabel": "{count, plural, =1{1 Portion} other{{count} Portionen}}",
   "@recipePortionPresetLabel": {"description": "Preset chip under a servings field, e.g. 0.5, 1 or 2 servings.", "placeholders": {"count": {"type": "num", "format": "decimalPattern"}}},
   "recipeEditTitle": "Rezept bearbeiten",

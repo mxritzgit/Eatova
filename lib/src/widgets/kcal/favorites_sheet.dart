@@ -37,6 +37,7 @@ Future<bool?> showFavoritesSheet(
   required FutureOr<String> Function(MealAnalysisResult result, MealSlot slot)
   onAdd,
   required PersistValueChanged<MealAnalysisResult> onUnpin,
+  PersistValueChanged<MealAnalysisResult>? onRepin,
   Map<String, int> useCounts = const <String, int>{},
 }) {
   return showEatovaSheet<bool>(
@@ -46,6 +47,7 @@ Future<bool?> showFavoritesSheet(
       slot: slot,
       onAdd: onAdd,
       onUnpin: onUnpin,
+      onRepin: onRepin,
       useCounts: useCounts,
     ),
   );
@@ -58,6 +60,7 @@ class FavoritesSheet extends StatefulWidget {
     required this.slot,
     required this.onAdd,
     required this.onUnpin,
+    this.onRepin,
     this.useCounts = const <String, int>{},
   });
 
@@ -73,6 +76,11 @@ class FavoritesSheet extends StatefulWidget {
 
   /// The parent toggles the store; the row disappears here locally.
   final PersistValueChanged<MealAnalysisResult> onUnpin;
+
+  /// Pins the result again: the undo of an unpin. An unpin can drop the row
+  /// from the store entirely (the recents cap), and a scan or manual
+  /// favorite cannot be found again. Null shows no undo.
+  final PersistValueChanged<MealAnalysisResult>? onRepin;
 
   /// Logs per favorite id for the "Frequent" order ([favoriteUseCounts]).
   final Map<String, int> useCounts;
@@ -179,12 +187,36 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       _justAddedKeys.remove(key);
       if (_expandedItemKey == key) _expandedItemKey = null;
     });
+    final onRepin = widget.onRepin;
     showAppSnack(
       context,
       context.l10n.commonFavoriteRemoved,
       icon: Icons.favorite_outline_rounded,
       tone: SnackTone.neutral,
+      action: onRepin == null
+          ? null
+          : SnackBarAction(
+              label: context.l10n.commonUndo,
+              onPressed: () => unawaited(_undoUnpin(favorite, onRepin)),
+            ),
     );
+  }
+
+  /// Pins [favorite] again and brings its row back.
+  Future<void> _undoUnpin(
+    FavoriteMeal favorite,
+    PersistValueChanged<MealAnalysisResult> onRepin,
+  ) async {
+    if (!mounted) return;
+    final savingKey = 'unpin:${favorite.id}';
+    if (!_savingItems.add(savingKey)) return;
+    final saved = await tryPersistChange(
+      context,
+      () => onRepin(favorite.result),
+    );
+    _savingItems.remove(savingKey);
+    if (!saved || !mounted) return;
+    setState(() => _unpinnedIds.remove(favorite.id));
   }
 
   void _onQueryChanged(String value) => setState(() => _query = value);

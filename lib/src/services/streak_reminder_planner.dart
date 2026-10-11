@@ -73,7 +73,9 @@ List<NotificationSpec> planStreakReminders(
   // any DST edge (see day_math.dart).
   final firstSlot = addDays(slotToday, skipToday ? 1 : 0);
 
-  final streak = stats.effectiveStreakOn(now);
+  // The streak as it stands when the first slot fires, not now: after 20:00
+  // without a log today, tomorrow's slot finds yesterday's chain broken.
+  final streak = stats.effectiveStreakOn(firstSlot);
 
   final specs = <NotificationSpec>[];
   for (var i = 0; i < streakReminderDayOffsets.length; i++) {

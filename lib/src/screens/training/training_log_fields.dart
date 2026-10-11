@@ -132,9 +132,17 @@ class _FreeExercise {
 }
 
 class _PlannedSet {
-  _PlannedSet({required String reps, required String weight})
-    : reps = _NumberField(0, TrainingLogLimits.repsMax, digits: 4, text: reps),
-      weight = _weightField(weight);
+  _PlannedSet({
+    required String reps,
+    required String weight,
+    this.prefillKg,
+  }) : prefillText = weight,
+       reps = _NumberField(0, TrainingLogLimits.repsMax, digits: 4, text: reps),
+       weight = _weightField(weight);
+
+  /// The Last-time weight this set opened with, and its text (spec A2).
+  final double? prefillKg;
+  final String prefillText;
 
   bool done = true;
 

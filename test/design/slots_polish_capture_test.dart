@@ -14,6 +14,7 @@ import 'dart:async';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
@@ -375,6 +376,47 @@ void main() {
       textScale: 2,
       width: 320,
     );
+  });
+
+  // DSA-11: the wrapped summary figure breaks after the "·", never inside
+  // "158 kcal" or "250 g".
+  testWidgets('edit sheet summary keeps number and unit together, 320 px and '
+      '2x text', (tester) async {
+    await withClock(Clock.fixed(_day), () async {
+      await _host(
+        tester,
+        (context) => showEditMealSheet(
+          context,
+          meal: _logged(),
+          onUpdateMeal: (id, {result, slot, day}) => null,
+        ),
+        textScale: 2,
+        width: 320,
+      );
+    });
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.byKey(const ValueKey('edit-meal-summary-figure')),
+    );
+    final text = paragraph.text.toPlainText();
+    List<int> linesOf(int start, int end) => paragraph
+        .getBoxesForSelection(
+          TextSelection(baseOffset: start, extentOffset: end),
+        )
+        .map((box) => box.top.round())
+        .toSet()
+        .toList();
+    // The figure does wrap here, so there is a break to place.
+    expect(linesOf(0, text.length).length, greaterThan(1));
+    final tokens = RegExp(r'\d+\s(kcal|g)').allMatches(text).toList();
+    expect(tokens, hasLength(2));
+    for (final token in tokens) {
+      expect(
+        linesOf(token.start, token.end),
+        hasLength(1),
+        reason: '"${token[0]}" breaks in "$text"',
+      );
+    }
+    _expectClean(tester);
   });
 
   // As the add sheet wires it: the manual row joins the methods card.

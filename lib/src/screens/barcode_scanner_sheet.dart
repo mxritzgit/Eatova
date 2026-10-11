@@ -492,13 +492,7 @@ class _ScannerLoadingLayer extends StatelessWidget {
     final t = context.t;
     return ColoredBox(
       color: t.bg,
-      child: Center(
-        child: SizedBox(
-          width: 26,
-          height: 26,
-          child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
-        ),
-      ),
+      child: const Center(child: AppSpinner(size: 26, strokeWidth: 2)),
     );
   }
 }

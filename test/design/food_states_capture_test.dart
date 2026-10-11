@@ -176,6 +176,27 @@ void main() {
       await captureDesignShot(tester, 'food-states-food-loading$suffix');
     });
 
+    testWidgets('Food: the day did not load$suffix', (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        await _mount(
+          tester,
+          SizedBox.expand(
+            child: MealAnalysisScreen(
+              dailyConsumedKcal: 0,
+              selectedDate: DateTime(2026, 7, 20),
+              dayLoadFailed: true,
+              onRetryDayLoad: () {},
+            ),
+          ),
+          width: width,
+          textScale: scale,
+        );
+      });
+      expect(find.byKey(const ValueKey('food-day-load-failed')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'food-states-food-load-failed$suffix');
+    });
+
     testWidgets('Choose day: another day, then the month before$suffix', (
       tester,
     ) async {

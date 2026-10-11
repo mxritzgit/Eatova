@@ -122,4 +122,55 @@ void main() {
     expect(mixed.carbsPer100G, isNull);
     expect(mixed.fatPer100G, isNull);
   });
+
+  test(
+    'FOOD-9: a 0 g item scales its kcal and macros with the portion and '
+    'keeps 0 g',
+    () {
+      const scan = MealAnalysisResult(
+        mealName: 'Salat mit Dressing',
+        caloriesKcal: 200,
+        estimatedGrams: 200,
+        kcalPer100G: 100,
+        protein: '4 g',
+        carbs: '10 g',
+        fat: '14 g',
+        confidence: 'Hoch',
+        portionNotes: '',
+        sourceLabel: 'Foto-KI',
+        items: <MealComponent>[
+          MealComponent(
+            name: 'Salat',
+            grams: 200,
+            caloriesKcal: 40,
+            proteinG: 2,
+            carbsG: 6,
+            fatG: 0,
+          ),
+          // The model gave the dressing calories but no mass.
+          MealComponent(
+            name: 'Dressing',
+            grams: 0,
+            caloriesKcal: 160,
+            proteinG: 2,
+            carbsG: 4,
+            fatG: 14,
+          ),
+        ],
+      );
+
+      final half = scan.adjustedToGrams(100);
+      final dressing = half.items.last;
+      expect(dressing.grams, 0);
+      expect(dressing.caloriesKcal, 80);
+      expect(dressing.proteinG, 1);
+      expect(dressing.carbsG, 2);
+      expect(dressing.fatG, 7);
+      // The components sheet's sum matches the meal it belongs to.
+      expect(
+        half.items.fold<int>(0, (sum, item) => sum + item.caloriesKcal),
+        half.caloriesKcal,
+      );
+    },
+  );
 }

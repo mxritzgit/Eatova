@@ -102,6 +102,7 @@ Future<HomeStore> pumpDesignRecipes(
   bool ownRecipes = true,
   HealthService? health,
   Brightness brightness = Brightness.dark,
+  double textScale = 1.0,
 }) async {
   pinDesignViewport(tester);
   await tester.pumpWidget(
@@ -112,6 +113,7 @@ Future<HomeStore> pumpDesignRecipes(
         brightness: brightness,
         safeArea: false,
         scaffold: false,
+        textScale: textScale,
       ),
     ),
   );

@@ -30,39 +30,18 @@ const int kCoachMaxInputBytes = 4000;
 const int _lengthHintFrom = kCoachMaxInputChars - 100;
 
 /// Keeps the draft inside the server's input cap instead of letting the user
-/// discover it as a 413 with an emptied field.
-///
-/// Deliberately NOT [LengthLimitingTextInputFormatter]: it counts GRAPHEME
-/// CLUSTERS, while the server counts UTF-16 code units (`String.length` in JS
-/// is Dart's `String.length`). A family emoji is one grapheme but up to eleven
-/// code units, so a 1000-grapheme cap would still walk into the 413.
+/// discover it as a 413 with an emptied field. Counts UTF-16 units and bytes
+/// like the server, not graphemes (see [TextLengthLimit]).
 ///
 /// Rejects instead of truncating, like the gram fields: a silently cut
 /// question is sent as half a sentence, and the tail is gone either way. An
-/// edit that REDUCES the overflow always passes, or a field filled past the cap
-/// from code (dictation writes the controller directly, bypassing formatters)
-/// could not even be shortened again.
-class _CoachInputLimit extends TextInputFormatter {
-  const _CoachInputLimit();
-
-  /// By how much [text] breaks the cap; <= 0 means it fits.
-  static int overflow(String text) => math.max(
-        text.length - kCoachMaxInputChars,
-        utf8.encode(text).length - kCoachMaxInputBytes,
-      );
-
-  static bool fits(String text) => overflow(text) <= 0;
-
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    final neu = overflow(newValue.text);
-    if (neu <= 0 || neu < overflow(oldValue.text)) return newValue;
-    return oldValue;
-  }
-}
+/// edit that reduces the overflow still passes, so a draft filled past the cap
+/// by dictation (which writes the controller directly) can be shortened.
+const TextLengthLimit _coachInputLimit = TextLengthLimit(
+  kCoachMaxInputChars,
+  maxUtf8Bytes: kCoachMaxInputBytes,
+  truncate: false,
+);
 
 class _Composer extends StatefulWidget {
   const _Composer({
@@ -139,7 +118,7 @@ class _ComposerState extends State<_Composer> {
     final limitReached = widget.remaining <= 0 && !widget.enabled;
     // P5-03: the draft is over the server's cap. Reachable only from code
     // (dictation writes the controller directly); typing stops at the cap.
-    final overLimit = !_CoachInputLimit.fits(widget.draft);
+    final overLimit = !_coachInputLimit.fits(widget.draft);
     final showLengthHint = widget.draft.length >= _lengthHintFrom || overLimit;
     // With the floating tab bar below, the capsule sits right on the bar's
     // band (the design's dock line); on the keyboard it keeps a small gap.
@@ -200,7 +179,7 @@ class _ComposerState extends State<_Composer> {
                       // under the capsule AND enforce the cap in grapheme
                       // clusters, which is not how the server counts.
                       inputFormatters: const <TextInputFormatter>[
-                        _CoachInputLimit(),
+                        _coachInputLimit,
                       ],
                       textInputAction: TextInputAction.newline,
                       textCapitalization: TextCapitalization.sentences,
@@ -339,7 +318,7 @@ class _QuotaHint extends StatelessWidget {
 /// does not arrive.
 ///
 /// Shows only near the cap (see [_lengthHintFrom]) and switches to a warning
-/// wording once the cap is reached: at that point [_CoachInputLimit] starts
+/// wording once the cap is reached: at that point [_coachInputLimit] starts
 /// refusing input and the send tile goes quiet, which without a stated reason
 /// looks like a broken field. The state is in the WORDING, not only in the
 /// colour, so it survives colour blindness and a screen reader.
@@ -780,7 +759,8 @@ class _CoachInfoSheet extends StatelessWidget {
   }
 }
 
-/// Section heading in the info sheet.
+/// Section heading in the info sheet, announced as a level-2 heading under
+/// the sheet's title.
 class _InfoLabel extends StatelessWidget {
   const _InfoLabel(this.text);
 
@@ -789,9 +769,12 @@ class _InfoLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Text(
-      text,
-      style: AppType.ui(13.5, weight: FontWeight.w700, color: t.ink),
+    return HeadingSemantics(
+      level: 2,
+      child: Text(
+        text,
+        style: AppType.ui(13.5, weight: FontWeight.w700, color: t.ink),
+      ),
     );
   }
 }

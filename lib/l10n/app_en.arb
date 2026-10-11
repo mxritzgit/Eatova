@@ -120,6 +120,10 @@
     }
   },
   "todayDayLoading": "Loading day…",
+  "foodDayLoadFailedTitle": "This day couldn't be loaded",
+  "foodDayLoadFailedBody": "Meals already logged on this day may be missing here. Try again once you're online, so nothing gets logged twice.",
+  "foodDayLoadRetry": "Try again",
+  "foodSlotNotLoaded": "Not loaded",
   "todaySemanticsDatePrev": "Previous day",
   "todaySemanticsDateNext": "Next day",
   "foodAnalysisFailedMessage": "The analysis didn't work. Check your internet connection and try again.",
@@ -991,7 +995,7 @@
   "commonKcalOutcomeLabel": "Results in {kcal} kcal/day · {paceLabel}",
   "@commonKcalOutcomeLabel": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },
@@ -1005,8 +1009,8 @@
   "commonPaceWarningFloor": "For safety, your daily goal is {floor} kcal instead of {uncapped} kcal. Your actual pace is {effectivePace} instead of {promisedPace}.",
   "@commonPaceWarningFloor": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1014,8 +1018,8 @@
   "commonPaceWarningCeiling": "Your daily goal is capped at {ceiling} kcal (the calculation would give {uncapped} kcal). Your actual pace is {effectivePace} instead of {promisedPace}.",
   "@commonPaceWarningCeiling": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1023,7 +1027,7 @@
   "commonPaceWarningDeficitCap": "We do not recommend losing more than 1% of your body weight per week: your deficit is limited to {cap} kcal/day. Your actual pace is {effectivePace} instead of {promisedPace}.",
   "@commonPaceWarningDeficitCap": {
     "placeholders": {
-      "cap": { "type": "int" },
+      "cap": { "type": "int", "format": "decimalPattern" },
       "effectivePace": { "type": "String" },
       "promisedPace": { "type": "String" }
     }
@@ -1031,16 +1035,16 @@
   "commonPaceWarningFloorStable": "For safety, your daily goal is {floor} kcal instead of {uncapped} kcal. That keeps your weight roughly stable instead of reaching {promisedPace}.",
   "@commonPaceWarningFloorStable": {
     "placeholders": {
-      "floor": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "floor": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
   "commonPaceWarningCeilingStable": "Your daily goal is capped at {ceiling} kcal (the calculation would give {uncapped} kcal). That keeps your weight roughly stable instead of reaching {promisedPace}.",
   "@commonPaceWarningCeilingStable": {
     "placeholders": {
-      "ceiling": { "type": "int" },
-      "uncapped": { "type": "int" },
+      "ceiling": { "type": "int", "format": "decimalPattern" },
+      "uncapped": { "type": "int", "format": "decimalPattern" },
       "promisedPace": { "type": "String" }
     }
   },
@@ -1228,7 +1232,7 @@
   "settingsPlanHeroMaintenance": "Maintenance {kcal} · {paceLabel}",
   "@settingsPlanHeroMaintenance": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "paceLabel": { "type": "String" }
     }
   },
@@ -1732,6 +1736,7 @@
   },
   "settingsDeleteAccountPromptSuffixCode": " and then to confirm an 8-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
   "settingsDeleteAccountReauthExpired": "Your confirmation has expired. Please restart the account deletion and request a new code.",
+  "settingsDeleteAccountNotDeletedNewCode": "Your account was not deleted. That code is now used up — request a new one to try again.",
   "settingsDeleteAccountRequestCta": "Request code",
   "settingsDeleteAccountRequestingCta": "Requesting code…",
   "mealUpdated": "Meal updated.",
@@ -1794,6 +1799,7 @@
   "exportNothingLoaded": "Not a single section could be loaded. Are you online?",
   "searchRateLimited": "Too many searches — try again in a moment.",
   "commonFavoriteRemoved": "Favorite removed",
+  "commonRecentRemoved": "Removed from recent meals",
   "foodFavoritesEntryCount": "{count, plural, =1{1 saved} other{{count} saved}}",
   "@foodFavoritesEntryCount": {
     "placeholders": {
@@ -2323,8 +2329,8 @@
   "@ingredientNumberError": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
   "recipeCalcServings": "Servings to log",
   "recipeCalcServingsError": "Enter between 0.1 and 100 servings, for example 0.5.",
-  "recipeCalcServingsCount": "{count} servings",
-  "@recipeCalcServingsCount": {"placeholders": {"count": {"type": "String"}}},
+  "recipeCalcServingsCount": "{servings, plural, =1{1 serving} other{{count} servings}}",
+  "@recipeCalcServingsCount": {"description": "Servings of a logged recipe in its meal note. servings picks the form, count is the same number already formatted for the locale.", "placeholders": {"servings": {"type": "num"}, "count": {"type": "String"}}},
   "recipePortionPresetLabel": "{count, plural, =1{1 serving} other{{count} servings}}",
   "recipeEditTitle": "Edit recipe",
   "recipeEditIntro": "Update your recipe. Previously logged meals stay unchanged.",

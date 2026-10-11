@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/design/design.dart';
@@ -193,7 +194,8 @@ class _PlanHero extends StatelessWidget {
                       CountingText(
                         value: targets.kcal.toDouble(),
                         from: countFrom.toDouble(),
-                        format: (v) => '${v.round()}',
+                        format: (v) =>
+                            formatThousands(v.round(), l10n.localeName),
                         textKey: const ValueKey('onboarding-summary-kcal'),
                         maxLines: 1,
                         textScaler: numberScaler,
@@ -603,6 +605,7 @@ class _Breakdown extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final unit = l10n.commonKcalUnit;
+    String kcal(int n) => formatThousands(n, l10n.localeName);
     Widget divider() => Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Divider(height: 1, thickness: 1, color: t.line),
@@ -619,14 +622,14 @@ class _Breakdown extends StatelessWidget {
             children: <Widget>[
               _BreakdownRow(
                 label: l10n.onboardingSummaryBmrLabel,
-                value: '${targets.bmr} $unit',
+                value: '${kcal(targets.bmr)} $unit',
               ),
               divider(),
               _BreakdownRow(
                 label: l10n.onboardingSummaryMaintenanceLabel(
                   profile.activityLevel.label(l10n),
                 ),
-                value: '${targets.maintenanceKcal} $unit',
+                value: '${kcal(targets.maintenanceKcal)} $unit',
                 valueKey: const ValueKey('onboarding-summary-maintenance'),
               ),
               divider(),
@@ -635,7 +638,7 @@ class _Breakdown extends StatelessWidget {
                 label: l10n.onboardingSummaryGoalLabel(
                   targets.effectivePaceLabel(l10n),
                 ),
-                value: _signedKcalLabel(targets.effectiveKcalDelta, unit),
+                value: _signedKcalLabel(targets.effectiveKcalDelta, unit, l10n),
                 highlight: targets.effectiveKcalDelta != 0,
               ),
             ],
@@ -648,10 +651,10 @@ class _Breakdown extends StatelessWidget {
 
 /// Signed kcal label for a COMPUTED difference ([KcalTargets
 /// .effectiveKcalDelta]), e.g. "−797 kcal" / "±0", with the real minus sign.
-String _signedKcalLabel(int kcal, String unit) {
+String _signedKcalLabel(int kcal, String unit, AppLocalizations l10n) {
   if (kcal == 0) return '±0';
   final sign = kcal > 0 ? '+' : '−';
-  return '$sign${kcal.abs()} $unit';
+  return '$sign${formatThousands(kcal.abs(), l10n.localeName)} $unit';
 }
 
 /// One breakdown row: EXACTLY two [Text] children — onboarding_screen_test
@@ -691,11 +694,11 @@ class _BreakdownRow extends StatelessWidget {
     return MergeSemantics(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Side by side while "−1100 kcal" (~80 px at 1.0) needs at most
+          // Side by side while "−1.100 kcal" (~85 px at 1.0) needs at most
           // 40 % of the row; beyond that (2x text) both would wrap into
           // slivers, so the value moves under its label.
           final side =
-              MediaQuery.textScalerOf(context).scale(80) <=
+              MediaQuery.textScalerOf(context).scale(85) <=
               constraints.maxWidth * 0.4;
           if (!side) {
             return Column(

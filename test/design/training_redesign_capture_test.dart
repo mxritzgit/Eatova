@@ -13,12 +13,14 @@
 // screen and that the end of the page clears the floating bar.
 
 import 'package:clock/clock.dart';
+import 'package:eatova/src/screens/training/training_overview_widgets.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../flows/flow_test_helpers.dart' show settleFrames;
 import '../support/design_capture.dart';
+import '../support/text_layout.dart';
 import '../training/training_overview_fixture.dart';
 
 void main() {
@@ -86,6 +88,43 @@ void main() {
       await settleFrames(tester);
     });
   });
+
+  // At 320 px and 200 % text the round menu button squeezed the label to
+  // "Start workou|t", the volume axis split "Au|g" and "No|w", "Recent"
+  // shared its row with the link ("Recen|t"), "We" lost its "e" and the PR
+  // badge cut the workout title to "Lowe|r Bo…".
+  for (final locale in const [Locale('en'), Locale('de')]) {
+    testWidgets('training: 320 px and 2x text keep words whole '
+        '(${locale.languageCode})', (tester) async {
+      await withClock(Clock.fixed(kTrainingDesignNow), () async {
+        await pumpTrainingDesignHome(tester, textScale: 2, locale: locale);
+        tester.view.physicalSize =
+            Size(320, kDesignViewport.height) * kDesignPixelRatio;
+        await tester.tap(find.byKey(const ValueKey('nav-Training')));
+        await settleFrames(tester);
+        expect(tester.takeException(), isNull);
+        final code = locale.languageCode;
+        // The weekday letters too: "We" lost its "e" to a clipped line.
+        expectAllWholeWords(tester, find.byType(TrainingWeekCard));
+        expectAllWholeWords(tester, find.byKey(const ValueKey('training-start')));
+        await captureDesignShot(tester, 'training-320-x2-$code-00');
+        final volume = find.byType(TrainingVolumeCard);
+        await tester.ensureVisible(volume);
+        await settleFrames(tester);
+        expectAllWholeWords(tester, volume);
+        await captureDesignShot(tester, 'training-320-x2-$code-01');
+        final all = find.byKey(const ValueKey('training-recent-all'));
+        await tester.ensureVisible(all);
+        await settleFrames(tester);
+        expectAllWholeWords(tester, find.byType(TrainingRecentSection));
+        await scrollDesignTabBy(tester, 400);
+        await captureDesignShot(tester, 'training-320-x2-$code-02');
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await settleFrames(tester);
+      });
+    });
+  }
 
   testWidgets('training-empty-00: no plan, no history (not in the design)', (
     tester,

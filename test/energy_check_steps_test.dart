@@ -3,6 +3,7 @@
 // with a step source only days with their own value count.
 
 import 'package:clock/clock.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase/supabase.dart';
 
@@ -24,6 +25,9 @@ class _StepsHealth implements HealthService {
   final Map<String, int> fullDay = <String, int>{};
   final List<String> dayReads = <String>[];
 
+  /// Mimics Health Connect: a read outside the foreground fails.
+  bool foregroundOnly = false;
+
   @override
   HealthAuthState get authState => HealthAuthState.granted;
 
@@ -41,6 +45,10 @@ class _StepsHealth implements HealthService {
   @override
   Future<int?> readStepsOnDay(DateTime day) async {
     dayReads.add(localDayKey(day));
+    if (foregroundOnly &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return null;
+    }
     return fullDay[localDayKey(day)];
   }
 
@@ -176,5 +184,73 @@ void main() {
     expect(store.stepsForFoodDate(clock.now()), 4000, reason: 'precondition');
     expect(store.energyCheckProposal, isNull,
         reason: 'a step source, but no window day has a step value');
+  }));
+
+  test('a backfill read in the background is read again on the next resume',
+      () async {
+    // Android: the midnight timer runs while the app sits in the background,
+    // where Health Connect reads fail (HealthKit skips them).
+    final binding = TestWidgetsFlutterBinding.instance;
+    addTearDown(
+      () => binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed),
+    );
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    var now = DateTime(2026, 10, 3, 12);
+    await withClock(Clock(() => now), () async {
+      final health = _StepsHealth()..foregroundOnly = true;
+      for (var n = 1; n <= 22; n++) {
+        health.fullDay[localDayKey(DateTime(2026, 10, 4 - n))] = 8000;
+      }
+      final store = _store(
+        _server(),
+        health,
+        LocalCache(InMemoryKeyValueStore(), 'user-outbox'),
+      );
+
+      await boot(store);
+      health.stepsToday = 3000;
+      await store.refreshHealthSteps();
+      await settle();
+      expect(store.dailyActivity['2026-10-03']!.steps, 3000);
+
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      now = DateTime(2026, 10, 4, 0, 0, 5);
+      store.maybeRollOverToToday();
+      await settle();
+      expect(health.dayReads, contains('2026-10-03'), reason: 'precondition');
+      expect(store.dailyActivity['2026-10-03']!.steps, 3000);
+      expect(store.energyCheckStepsReady, isFalse,
+          reason: 'the ended day still holds its lunch-time snapshot');
+
+      now = DateTime(2026, 10, 4, 8);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await store.refreshHealthSteps();
+      await settle();
+      expect(store.dailyActivity['2026-10-03']!.steps, 8000,
+          reason: 'the resume reads the deferred day again');
+      expect(store.energyCheckStepsReady, isTrue);
+    });
+  });
+
+  test('a foreground read without a value is not repeated on resume',
+      () => withClock(Clock.fixed(DateTime(2026, 10, 4, 12)), () async {
+    final binding = TestWidgetsFlutterBinding.instance;
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    // No history at all: every window day reads null in the foreground.
+    final health = _StepsHealth();
+    final store = _store(
+      _server(),
+      health,
+      LocalCache(InMemoryKeyValueStore(), 'user-outbox'),
+    );
+    await boot(store);
+    await store.refreshHealthSteps();
+    await settle();
+    final reads = health.dayReads.length;
+    expect(store.energyCheckStepsReady, isTrue);
+
+    await store.refreshHealthSteps();
+    await settle();
+    expect(health.dayReads, hasLength(reads));
   }));
 }

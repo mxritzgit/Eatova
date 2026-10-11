@@ -460,7 +460,9 @@ class GoalPlanCard extends StatelessWidget {
                   dailyGoal: _PlanFigure(
                     icon: Icons.local_fire_department_rounded,
                     label: l10n.profilePlanChipDailyGoal,
-                    value: '${plan.dailyKcalGoal} kcal',
+                    value:
+                        '${formatThousands(plan.dailyKcalGoal, l10n.localeName)}'
+                        ' kcal',
                     valueColor: t.ink,
                   ),
                 ),
@@ -551,10 +553,16 @@ class _WeightPole extends StatelessWidget {
     return Column(
       crossAxisAlignment: alignment,
       children: <Widget>[
-        Text(
-          label.toUpperCase(),
-          semanticsLabel: label,
-          style: AppType.eyebrow(t.ink2, size: 10.5),
+        // Like the number: at large text on a 320 px phone the half width
+        // broke "TARGE|T"; one line, shrunk to fit.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label.toUpperCase(),
+            semanticsLabel: label,
+            maxLines: 1,
+            style: AppType.eyebrow(t.ink2, size: 10.5),
+          ),
         ),
         const SizedBox(height: 6),
         // FittedBox: the big number grows with the system font, the half card

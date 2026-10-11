@@ -47,6 +47,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/motion.dart';
+import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_photo.dart' show RecipeArt;
 import '../../widgets/recipes/recipe_sections.dart';
@@ -475,8 +476,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       await _bootstrap();
       return;
     }
-    // The error banner is feedback on an action, not a permanent state.
-    if (mounted && identical(widget.service, svc) && _error != null) {
+    // The error banner is feedback on an action, not a permanent state. A
+    // failed history load is the exception: nothing here reloads it, and
+    // without its banner the conversation is just blank.
+    if (mounted &&
+        identical(widget.service, svc) &&
+        _error != null &&
+        !_historyUnavailable) {
       setState(() => _error = null);
     }
     await _refreshQuota(svc);
@@ -684,19 +690,31 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   ///
   /// A visit revision fences slow loads, including an A→B→A return to the same
   /// session id. The screen stays mounted across switches.
-  Future<void> _switchToSession(String sessionId) async {
+  ///
+  /// [keepNotice] keeps the banner that explains the switch itself.
+  Future<void> _switchToSession(
+    String sessionId, {
+    bool keepNotice = false,
+  }) async {
     final svc = widget.service;
     if (svc == null) return;
-    if (_activeSessionId == sessionId) return;
+    // Picking the open conversation again is the retry for a history that
+    // failed to load; otherwise there is nothing to do.
+    final retry = _activeSessionId == sessionId;
+    if (retry && !_historyUnavailable) return;
     final revision = ++_conversationRevision;
     _streamVorschau.value = '';
     setState(() {
       _loading = true;
       _activeSessionId = sessionId;
-      _messages = const <ChatMessage>[];
-      // The undelivered question belongs to the session being left; its retry
-      // job would otherwise land in the new one.
-      _fehlgeschlagen = null;
+      // A retry keeps what is on screen until the reload answers.
+      if (!retry) {
+        _messages = const <ChatMessage>[];
+        // The undelivered question and the banner belong to the session
+        // being left; the retry job would otherwise land in the new one.
+        _fehlgeschlagen = null;
+        if (!keepNotice) _error = null;
+      }
       // So does a cue still waiting behind the sessions sheet.
       _dropAnswerCue();
     });
@@ -722,6 +740,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
     setState(() {
       _messages = history;
+      // A successful retry answers the history banner.
+      if (retry) _error = null;
       _historyUnavailable = false;
       _loading = false;
     });
@@ -1242,7 +1262,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           dailyLimit: e.dailyLimit,
         );
       });
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: displayText,
+        );
+        return;
+      }
       // Marked here too: the slot was gone, the question did not go out. The
       // retry button hangs on [_canInteract] and stays off, but the marker
       // remains — otherwise the bubble would look sent.
@@ -1252,7 +1282,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
     } on CoachChatException catch (e) {
       _quotaNachfragen(svc);
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: displayText,
+        );
+        return;
+      }
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -1272,6 +1312,49 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   bool _wiederholtFehlschlag(String text) {
     final alt = _fehlgeschlagen;
     return alt != null && alt.text.trim() == text.trim();
+  }
+
+  /// A request failed after its session was left and opened again. The visit
+  /// that sent it is gone, but the conversation is on screen: dropping the
+  /// outcome made the thinking row vanish without a word, and a question the
+  /// server never stored was lost with the cleared composer. [stored] is the
+  /// text the server keeps for it (the wish, without the command).
+  void _fehlschlagNachRueckkehr({
+    required CoachChatService svc,
+    required String sessionId,
+    required String message,
+    required _FehlgeschlageneSendung auftrag,
+    required ChatMessage frage,
+    required String stored,
+  }) {
+    if (!mounted ||
+        !identical(widget.service, svc) ||
+        _activeSessionId != sessionId) {
+      return;
+    }
+    final letzte = _messages.isEmpty ? null : _messages.last;
+    final gespeichert = letzte != null &&
+        letzte.role == ChatRole.user &&
+        letzte.content.trim() == stored.trim();
+    setState(() {
+      _error = message;
+      if (gespeichert) {
+        // The reload shows the stored question: the marker belongs to it.
+        _fehlgeschlagen = _FehlgeschlageneSendung(
+          messageId: letzte.id,
+          text: auftrag.text,
+          imageBytes: auftrag.imageBytes,
+          imageMimeType: auftrag.imageMimeType,
+          trainingContext: auftrag.trainingContext,
+        );
+        return;
+      }
+      _fehlgeschlagen = auftrag;
+      // A reload still in flight replaces the list anyway.
+      if (!_loading && !_messages.any((m) => m.id == frage.id)) {
+        _messages = [..._messages, frage];
+      }
+    });
   }
 
   /// History without the previous failure's bubble when the new attempt
@@ -1314,7 +1397,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (!_matchesConversation(svc, angefragt, revision)) return;
     // [_switchToSession] does the full load; the history it fetches already
     // contains both the question and the answer.
-    await _switchToSession(benutzt);
+    await _switchToSession(benutzt, keepNotice: true);
   }
 
   /// Asks the server for the counter after a request that named none: one
@@ -1808,14 +1891,34 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           dailyLimit: e.dailyLimit,
         );
       });
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: wish,
+        );
+        return;
+      }
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
       });
     } on CoachChatException catch (e) {
       _quotaNachfragen(svc);
-      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: e.message,
+          auftrag: auftrag,
+          frage: userMsg,
+          stored: wish,
+        );
+        return;
+      }
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -1837,6 +1940,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     svc: svc,
     sessionId: sessionId,
     displayText: displayText,
+    stored: wish,
     l10n: l10n,
     trainingContext: trainingContext,
     request: () async {
@@ -1874,6 +1978,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     svc: svc,
     sessionId: sessionId,
     displayText: displayText,
+    stored: wish,
     l10n: l10n,
     request: () async {
       final reply = await svc.requestWorkoutLog(
@@ -1914,6 +2019,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     required CoachChatService svc,
     required String sessionId,
     required String displayText,
+    required String stored,
     required AppLocalizations l10n,
     required Future<_ProposalAnswer> Function() request,
     CoachTrainingContext? trainingContext,
@@ -1997,7 +2103,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     } on CoachQuotaExceeded catch (error) {
       if (!isCurrentAccount()) return;
       _quotaUebernehmen(remaining: 0, dailyLimit: error.dailyLimit);
-      if (!isCurrentConversation()) return;
+      if (!isCurrentConversation()) {
+        _fehlschlagNachRueckkehr(
+          svc: svc,
+          sessionId: sessionId,
+          message: error.message,
+          auftrag: retry,
+          frage: userMsg,
+          stored: stored,
+        );
+        return;
+      }
       setState(() {
         _error = error.message;
         _fehlgeschlagen = retry;
@@ -2015,7 +2131,19 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _entwurfZurueck(displayText);
     } on CoachChatException catch (error) {
       if (isCurrentAccount()) _quotaNachfragen(svc);
-      if (!isCurrentConversation()) return;
+      if (!isCurrentConversation()) {
+        if (isCurrentAccount()) {
+          _fehlschlagNachRueckkehr(
+            svc: svc,
+            sessionId: sessionId,
+            message: error.message,
+            auftrag: retry,
+            frage: userMsg,
+            stored: stored,
+          );
+        }
+        return;
+      }
       setState(() {
         _error = error.message;
         _fehlgeschlagen = retry;
@@ -2602,7 +2730,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final draft = _withDictation(_speechDraft, _speechShown);
     _setDraft(draft);
     // Draft and dictation share the composer cap: stop there, never cut.
-    if (!_speechCapReached && _CoachInputLimit.overflow(draft) >= 0) {
+    if (!_speechCapReached && _coachInputLimit.overflow(draft) >= 0) {
       _speechCapReached = true;
       _stopSpeechGracefully();
     }
@@ -2883,14 +3011,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                       child: _loading
                           ? const Center(
                               key: ValueKey('coach-loading'),
-                              child: SizedBox(
-                                width: 22,
-                                height: 22,
-                                // Color comes from progressIndicatorTheme (t.accent).
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
+                              child: AppSpinner(strokeWidth: 2),
                             )
                           : isHero
                           ? _CoachHero(

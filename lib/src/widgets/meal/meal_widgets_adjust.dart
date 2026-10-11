@@ -385,11 +385,19 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // OUTSIDE the scroll area: a drag on a scrollable belongs to it.
-              // Drawn inside [_DiscardDragGuard] rather than on the route;
-              // its dismiss action goes through `maybePop` and the guard.
-              SheetHandle(
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                onDismiss: () => Navigator.of(context).maybePop(),
+              // Drawn inside [_DiscardDragGuard] rather than on the route.
+              const SheetHandle(
+                padding: EdgeInsets.symmetric(vertical: 11),
+              ),
+              // The shared header like every food sheet: a level-1 title and
+              // the close ring. The ring is also the screen reader's way out
+              // (the handle no longer needs a dismiss node of its own); it
+              // goes through `maybePop`, so the discard guard asks.
+              SheetHeader(
+                title: l10n.foodAdjustItemsTitle,
+                subtitle: _statusLine(addedCount, l10n),
+                closeKey: const ValueKey('analyse-adjust-close'),
+                onClose: () => Navigator.of(context).maybePop(),
               ),
               Flexible(
                 child: SingleChildScrollView(
@@ -398,21 +406,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        l10n.foodAdjustItemsTitle,
-                        style: AppType.display(20, color: t.ink),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _statusLine(addedCount, l10n),
-                        style: AppType.ui(
-                          13,
-                          weight: FontWeight.w500,
-                          color: t.ink2,
-                          height: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 4),
                       for (var index = 0; index < _posten.length; index++) ...[
                         if (_removed.contains(index))
                           _RemovedItemCard(
@@ -456,22 +450,41 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                               size: 18,
                             ),
                             const SizedBox(width: 10),
+                            // The count moves under the total when both do
+                            // not fit one line (large text), instead of
+                            // squeezing the total into a word per line.
                             Expanded(
-                              child: Text(
-                                l10n.foodAdjustedTotalApprox(
-                                    totalGrams, totalKcal),
-                                style: AppType.display(18, color: t.ink),
+                              child: Wrap(
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 8,
+                                runSpacing: 2,
+                                children: [
+                                  Text(
+                                    l10n.foodAdjustedTotalApprox(
+                                        totalGrams, totalKcal),
+                                    key: const ValueKey(
+                                      'analyse-adjusted-total',
+                                    ),
+                                    style: AppType.display(18, color: t.ink),
+                                  ),
+                                  if (adjustedItems.isNotEmpty)
+                                    Text(
+                                      l10n.foodItemsCountLabel(
+                                        adjustedItems.length,
+                                      ),
+                                      key: const ValueKey(
+                                        'analyse-adjusted-count',
+                                      ),
+                                      style: AppType.display(
+                                        11,
+                                        weight: FontWeight.w500,
+                                        color: t.ink2,
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
-                            if (adjustedItems.isNotEmpty)
-                              Text(
-                                l10n.foodItemsCountLabel(adjustedItems.length),
-                                style: AppType.display(
-                                  11,
-                                  weight: FontWeight.w500,
-                                  color: t.ink2,
-                                ),
-                              ),
                           ],
                         ),
                       ),
