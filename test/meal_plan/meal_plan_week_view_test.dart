@@ -2,7 +2,8 @@
 // empty day is one "Plan a meal" row, a meal row names its kcal and turns
 // its eaten toggle into the eaten state, free-text ingredients lose their
 // list markers, and the empty shopping list plans a meal for the shown week.
-// Since the receipt (2026-10-10) every free-text line is checked on its own.
+// Since the receipt (2026-10-10) every free-text line is checked on its own;
+// since the weekly receipt (2026-10-11) salt sits in "Spices & pantry".
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart';
@@ -11,6 +12,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/shopping_list.dart';
+import 'package:eatova/src/models/shopping_receipt.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -320,15 +322,25 @@ void main() {
       await _pump(tester, store);
       await _tap(tester, _key('meal-plan-tab-shopping'));
 
-      for (final text in ['Beef', '200 g', 'Onion', '1', 'Salt']) {
+      for (final text in ['Beef', '200 g', 'Onion', '1']) {
         expect(find.text(text), findsOneWidget, reason: text);
       }
+      // Salt waits, collapsed, in the pantry section.
+      expect(
+        tester
+            .widget<Text>(_key('shopping-pantry-summary'))
+            .textSpan!
+            .toPlainText(),
+        'Salt',
+      );
       expect(find.textContaining('- 200'), findsNothing);
       expect(find.textContaining('•'), findsNothing);
       // The receipt's header: ISO week of Monday Sep 7, 2026.
       expect(find.text('Week 37 · 1 meal'), findsOneWidget);
 
-      // One tap checks one ingredient, nothing else.
+      // One tap checks one ingredient, nothing else; a single line keeps
+      // its id from the per-recipe receipt.
+      await _tap(tester, _key('shopping-pantry-toggle'));
       final saltRow = _key('shopping-item-${salt.id}');
       await _tap(tester, saltRow);
       expect(store.shoppingChecks, {salt.id: true});
@@ -344,19 +356,27 @@ void main() {
           label: 'Beef\n200 g',
         ),
       );
-      expect(find.text('1 of 3 checked off'), findsOneWidget);
+      // The pantry stays out of the progress.
+      expect(find.text('1 of 1 checked off'), findsOneWidget);
       expect(_key('shopping-receipt-stamp'), findsNothing);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
+      await tester.pumpAndSettle();
+      expect(find.text('0 of 2 checked off'), findsOneWidget);
 
       await _tap(tester, _key('shopping-item-${beef.id}'));
       await _tap(tester, _key('shopping-item-${onion.id}'));
-      expect(find.text('All shopping done'), findsOneWidget);
       expect(_key('shopping-receipt-stamp'), findsOneWidget);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
+      await tester.pumpAndSettle();
+      expect(find.text('All shopping done'), findsOneWidget);
 
       // Unchecking one line reopens the list.
       await _tap(tester, _key('shopping-item-${onion.id}'));
       expect(store.shoppingChecks[onion.id], isFalse);
       expect(store.shoppingChecks[beef.id], isTrue);
-      expect(find.text('2 of 3 checked off'), findsOneWidget);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
+      await tester.pumpAndSettle();
+      expect(find.text('1 of 2 checked off'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
@@ -376,9 +396,15 @@ void main() {
       await _saveFirstRecipe(tester);
       expect(store.plannedMeals.single.day, '2026-09-07');
       expect(_key('shopping-empty-plan'), findsNothing);
-      final items = buildShoppingList(store.plannedMeals, _today);
-      final (:done, :total) = shoppingProgress(items, store.shoppingChecks);
-      expect(find.text('$done of $total checked off'), findsOneWidget);
+      final (:done, :total) = buildShoppingReceipt(
+        store.plannedMeals,
+        _today,
+        l10n: enL10n,
+      ).progress(store.shoppingChecks);
+      expect(
+        tester.widget<Text>(_key('shopping-progress-label')).data,
+        '$done of $total checked off',
+      );
       expect(total, greaterThan(1));
 
       // Next week: its Monday.

@@ -5,9 +5,15 @@
 // strip, the meal menu and its remove decision card (2026-10-11), the
 // shopping list (filled and empty), and the recipe
 // history with its restore dialog. The receipt (2026-10-10) also renders a
-// German import with section labels and its done stamp.
+// German week and its done stamp.
 // Own recipes without a photo (2026-10-11) show the glowing recipe art in
 // the week rows, the editor's list and its chosen card (meal-plan-art-*).
+// The weekly receipt (2026-10-11) merges the same ingredient from several
+// meals into one row with a detail line of days, marks an amount it could
+// not convert, names a recipe without ingredients, and gathers spices and
+// staples in "Gewürze & Vorrat", collapsed and expanded
+// (meal-plan-shopping-receipt-de*, meal-plan-shopping-pantry-*,
+// meal-plan-narrow-receipt-*).
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/meal-plan-*.png; without it the suite still checks that
@@ -19,10 +25,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
-import 'package:eatova/src/models/shopping_list.dart';
+import 'package:eatova/src/models/shopping_receipt.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/screens/recipes/recipe_history_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
@@ -92,6 +99,87 @@ FitnessRecipe get _pizza => recipeCatalogDe.first.copyWith(
       '• 25 g geriebener Light-Käse',
   structuredIngredients: const [],
 );
+
+/// An own recipe planned twice: its chicken merges with the bowl's.
+FitnessRecipe get _chicken => recipeCatalogDe.first.copyWith(
+  slug: 'user_chicken_broccoli',
+  title: 'Hähnchen mit Brokkoli',
+  ingredients:
+      '180 g Hähnchenbrustfilet\n1 Zwiebel\n2 Knoblauchzehen\n'
+      '1 TL Paprikapulver, edelsüß\nSalz, Pfeffer\n1 EL Olivenöl\n'
+      '250 g Brokkoli',
+  structuredIngredients: const [],
+);
+
+/// An import for four, planned for two: its leek ("2 Stangen") cannot be
+/// converted and keeps the recipe's amount.
+FitnessRecipe get _soup => recipeCatalogDe.first.copyWith(
+  slug: 'user_import_soup',
+  title: 'Kartoffel-Lauch-Suppe',
+  ingredients:
+      '2 Stangen Lauch\n800 g Kartoffeln\n1 Zwiebel\n1 l Gemüsebrühe\n'
+      'Öl zum Braten',
+  structuredIngredients: const [],
+  categories: ['Eigene', '${recipeIngredientsBasisPrefix}per_recipe'],
+  batchServings: 4,
+);
+
+/// A recipe without an ingredient list.
+FitnessRecipe get _leftovers => recipeCatalogDe.first.copyWith(
+  slug: 'user_leftovers',
+  title: 'Resteessen',
+  ingredients: '',
+  structuredIngredients: const [],
+);
+
+/// The German week of the weekly receipt: Monday's pizza, chicken on Tuesday
+/// and Thursday, the soup for two on Wednesday, the bowl on Thursday and
+/// leftovers on Friday.
+Future<void> _seedGermanWeek(HomeStore store) async {
+  for (final (recipe, day, slot, servings) in [
+    (_pizza, 0, MealSlot.dinner, 1.0),
+    (_chicken, 1, MealSlot.lunch, 1.0),
+    (_soup, 2, MealSlot.dinner, 2.0),
+    (_bowl, 3, MealSlot.lunch, 1.0),
+    (_chicken, 3, MealSlot.dinner, 1.0),
+    (_leftovers, 4, MealSlot.dinner, 1.0),
+  ]) {
+    await store.savePlannedMeal(
+      PlannedMeal.create(
+        recipe: recipe,
+        day: _now.add(Duration(days: day)),
+        slot: slot,
+        servings: servings,
+      ),
+    );
+  }
+}
+
+/// Mounts the planner in German on [store].
+Future<void> _pumpGerman(WidgetTester tester, HomeStore store) async {
+  await tester.pumpWidget(
+    designCaptureBoundary(
+      localizedApp(
+        MealPlanScreen(store: store),
+        locale: const Locale('de'),
+        safeArea: false,
+        scaffold: false,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+/// Scrolls the main list so [finder] sits [offset] px below the top.
+Future<void> _scrollToTop(
+  WidgetTester tester,
+  Finder finder, {
+  double offset = 60,
+}) async {
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await scrollDesignTabBy(tester, tester.getTopLeft(finder).dy - offset);
+}
 
 /// An own recipe without a photo (imageAsset ''): every thumb shows the
 /// glowing recipe art, its motif from [categories].
@@ -366,27 +454,103 @@ void main() {
     });
   });
 
-  testWidgets('German receipt with sections, ticked off to its stamp', (
-    tester,
-  ) async {
+  testWidgets('German weekly receipt: merged rows, pantry collapsed and '
+      'expanded, ticked off to its stamp', (tester) async {
     await withClock(Clock.fixed(_now), () async {
       _viewport(tester);
       final store = _store();
-      await store.savePlannedMeal(
-        PlannedMeal.create(recipe: _pizza, day: _now, slot: MealSlot.dinner),
+      await _seedGermanWeek(store);
+      await _pumpGerman(tester, store);
+      await _tapVisible(tester, _key('meal-plan-tab-shopping'));
+      final receipt = buildShoppingReceipt(
+        store.plannedMeals,
+        _now,
+        decimalSeparator: ',',
+        l10n: deL10n,
       );
-      await store.savePlannedMeal(
-        PlannedMeal.create(
-          recipe: _bowl,
-          day: _now.add(const Duration(days: 2)),
-          slot: MealSlot.lunch,
+      // No recipe headings: one row per ingredient, the chicken of three
+      // meals (the bowl's in English) summed, with its days below.
+      expect(find.text('FÜR DEN PIZZABODEN:'), findsNothing);
+      final chicken = receipt.rows.singleWhere(
+        (r) => r.label == 'Hähnchenbrustfilet',
+      );
+      expect(chicken.parts, hasLength(3));
+      expect(find.text('540 g'), findsOneWidget);
+      expect(
+        find.text(
+          'Di\u00A0180\u00A0g\u00A0· Do\u00A0Mittag\u00A0180\u00A0g\u00A0· '
+          'Do\u00A0Abend\u00A0180\u00A0g',
         ),
+        findsOneWidget,
       );
+      expect(find.text('2 1/2'), findsOneWidget);
+      await _scrollToTop(tester, _key('shopping-receipt'), offset: 110);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-de');
+
+      // The leek keeps the recipe's amount, marked as such; the leftovers
+      // have no list to merge.
+      expect(
+        find.text('Mi\u00A02\u00A0Stangen (Rezept für 4 Port.)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Ohne Zutatenliste: Resteessen (Fr). Rezept vor dem Einkauf prüfen.',
+        ),
+        findsOneWidget,
+      );
+      await _scrollToTop(tester, _key('shopping-item-${chicken.id}'));
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-de-01');
+
+      // Spices and staples: one line of names until opened.
+      final pantry = _key('shopping-pantry');
+      expect(_key('shopping-pantry-summary'), findsOneWidget);
+      for (final row in receipt.pantry) {
+        expect(_key('shopping-item-${row.id}'), findsNothing);
+      }
+      await _scrollToTop(tester, _key('shopping-empty-recipes'), offset: 160);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-pantry-collapsed');
+
+      await _tapVisible(tester, _key('shopping-pantry-toggle'));
+      expect(_key('shopping-pantry-summary'), findsNothing);
+      for (final row in receipt.pantry) {
+        expect(_key('shopping-item-${row.id}'), findsOneWidget);
+      }
+      await _scrollToTop(tester, pantry, offset: 110);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-pantry-expanded');
+
+      // Every main row ticked off stamps the receipt; the pantry does not
+      // count.
+      for (final row in receipt.rows) {
+        await store.setShoppingChecked(row.toggle(store.shoppingChecks));
+      }
+      final salt = receipt.pantry.singleWhere((r) => r.label == 'Salz');
+      await store.setShoppingChecked(salt.toggle(store.shoppingChecks));
+      await tester.pumpAndSettle();
+      expect(_key('shopping-receipt-stamp'), findsOneWidget);
+      await scrollDesignTabBy(tester, -260);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-done');
+      await scrollDesignTabBy(tester, 3000);
+      await captureDesignShot(tester, 'meal-plan-shopping-receipt-done-01');
+    });
+  });
+
+  testWidgets('German weekly receipt at 320 px with 2x text', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      _viewport(tester, narrow: true);
+      final store = _store();
+      await _seedGermanWeek(store);
       await tester.pumpWidget(
         designCaptureBoundary(
           localizedApp(
             MealPlanScreen(store: store),
             locale: const Locale('de'),
+            textScale: 2,
             safeArea: false,
             scaffold: false,
           ),
@@ -394,30 +558,36 @@ void main() {
       );
       await tester.pumpAndSettle();
       await _tapVisible(tester, _key('meal-plan-tab-shopping'));
-      expect(find.text('FÜR DEN PIZZABODEN:'), findsOneWidget);
-      expect(find.text('1 1/2 EL'), findsOneWidget);
-      expect(find.text('Thunfisch im eigenen Saft'), findsOneWidget);
-      await scrollDesignTabBy(tester, 420);
-      await captureDesignShot(tester, 'meal-plan-shopping-receipt-de');
-
-      final items = buildShoppingList(store.plannedMeals, _now);
-      for (final item in items) {
-        if (item.grams != null) {
-          await store.setShoppingChecked(
-            ShoppingCheck(id: item.id, checked: true),
-          );
-        }
-        for (final line in item.lines.where((l) => !l.heading)) {
-          await store.setShoppingChecked(
-            ShoppingCheck(id: line.id, checked: true),
-          );
-        }
-      }
-      await tester.pumpAndSettle();
-      expect(_key('shopping-receipt-stamp'), findsOneWidget);
-      await scrollDesignTabBy(tester, 3000);
+      final rows = buildShoppingReceipt(
+        store.plannedMeals,
+        _now,
+        decimalSeparator: ',',
+        l10n: deL10n,
+      ).rows;
+      final chicken = rows.singleWhere((r) => r.label == 'Hähnchenbrustfilet');
+      // Large text puts each meal on a line of its own.
+      expect(
+        find.text(
+          'Di 180\u00A0g\nDo\u00A0Mittag 180\u00A0g\nDo\u00A0Abend 180\u00A0g',
+        ),
+        findsOneWidget,
+      );
+      await _scrollToTop(tester, _key('shopping-item-${chicken.id}'));
       expect(tester.takeException(), isNull);
-      await captureDesignShot(tester, 'meal-plan-shopping-receipt-done');
+      await captureDesignShot(tester, 'meal-plan-narrow-receipt-de');
+      final leek = rows.singleWhere((r) => r.label == 'Lauch');
+      await _scrollToTop(tester, _key('shopping-item-${leek.id}'));
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-narrow-receipt-de-01');
+
+      await _scrollToTop(tester, _key('shopping-pantry'), offset: 110);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-narrow-receipt-pantry');
+      await _tapVisible(tester, _key('shopping-pantry-toggle'));
+      await _scrollToTop(tester, _key('shopping-pantry'), offset: 110);
+      await scrollDesignTabBy(tester, 500);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'meal-plan-narrow-receipt-pantry-open');
     });
   });
 
