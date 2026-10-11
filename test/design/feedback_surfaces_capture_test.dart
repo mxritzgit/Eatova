@@ -146,6 +146,11 @@ Future<void> _frames(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
+/// Moves a spinner that started about 1.2 s ago into the long part of its
+/// 1.33 s cycle, so the shot shows an arc rather than the cycle's dot.
+Future<void> _spin(WidgetTester tester) =>
+    tester.pump(const Duration(milliseconds: 500));
+
 Future<void> _reveal(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
@@ -541,6 +546,7 @@ void main() {
         expect(spinner, findsOneWidget);
         await tester.ensureVisible(spinner);
         await _frames(tester);
+        await _spin(tester);
         expect(tester.takeException(), isNull);
         await captureDesignShot(tester, 'feedback-ingredient-searching$suffix');
 
@@ -652,8 +658,11 @@ void main() {
       );
       // At 2x text the spinner sits below the fold of the lazy list.
       final spinner = find.byType(CircularProgressIndicator);
-      await tester.scrollUntilVisible(spinner, 120);
+      if (spinner.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(spinner, 120);
+      }
       await _frames(tester);
+      await _spin(tester);
       expect(spinner, findsOneWidget);
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'feedback-export-loading$suffix');
@@ -676,7 +685,10 @@ void main() {
       );
       await _tapVisible(tester, _key('recipe-history-version-4'));
       final pill = _key('recipe-history-restore-4');
-      await _tapVisible(tester, pill);
+      await _reveal(tester, pill);
+      // No settling from here on: the old screen spun behind the dialog.
+      await tester.tap(pill);
+      await _frames(tester);
       await tester.tap(_key('recipe-history-confirm'));
       await _frames(tester);
       expect(_key('recipe-history-confirm'), findsNothing);
