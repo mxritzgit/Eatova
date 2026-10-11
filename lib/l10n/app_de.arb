@@ -1846,6 +1846,7 @@
   "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
   "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal.",
   "commonFavoriteRemoved": "Favorit entfernt",
+  "commonRecentRemoved": "Aus letzten Mahlzeiten entfernt",
   "foodFavoritesEntryCount": "{count, plural, =1{1 gespeichert} other{{count} gespeichert}}",
   "@foodFavoritesEntryCount": {
     "placeholders": {

@@ -415,8 +415,11 @@ mixin _HomeStoreMealsPart
             favorites = favorites.where((f) => f.id != id).toList();
           },
         );
+        // The add sheet forgets recents through here, not only favorites.
         _showUndoSnackBar(
-          _l10n.commonFavoriteRemoved,
+          removed.pinned
+              ? _l10n.commonFavoriteRemoved
+              : _l10n.commonRecentRemoved,
           () => _undoMutation(() => _restoreFavorite(removed)),
         );
       });
