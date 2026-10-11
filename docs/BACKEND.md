@@ -97,6 +97,22 @@ uses more of it, so content that fits at `medium` can end as
 `source_too_long`. Measure a 4-6 recipe paste before raising
 `RECIPE_IMPORT_EFFORT` or changing the cap.
 
+This settles R2-1 of the 2026-10-11 audit only in part. The 422 replaced a
+paid 504 that invited a paid retry, and the import sheet does not resend the
+same text, but the first attempt on content that cannot fit is still paid: the
+cap shows only in the provider's answer, so such a request spends one
+`recipe-import:user-day` slot, one `coach_recipe` reservation and up to about
+37 s of paid output before the 422. Until a 4-6 recipe paste is measured at
+`medium`, the text limits stay at 20,000 characters: `MAX_TEXT_CHARS` in
+`recipe-import/handler.ts` and `MAX_SOURCE_CHARS` for fetched pages in
+`source.ts`, `EdgeFunctionRecipeImportService.maxTextLength`, the import
+sheet's field, `RecipeShareReceiver.maxTextLength`, iOS
+`RecipeShareInbox.maxTextLength` with its `share.invalid` strings, Android
+`RecipeShareBridge.MAX_TEXT_LENGTH`, and `recipeImportInvalidInput` in both ARB
+files. After that measurement, a character check after `loadSource` and before
+the user-day gate can answer `source_too_long` without spending the gate or the
+reservation, and those limits and texts drop to match.
+
 The OpenRouter-era secrets `OPENROUTER_MODEL`, `COACH_MODEL_ANSWER`,
 `COACH_MODEL_CLASSIFIER`, `COACH_MODEL_LOG` and `RECIPE_IMPORT_MODEL` are no
 longer read and can be removed after the rollout.
