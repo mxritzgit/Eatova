@@ -244,8 +244,12 @@ class FoodDaySummaryCard extends StatelessWidget {
         ),
       ],
     );
-    final left = Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    // Right-aligned beside "logged"; left-aligned when stacked under it, so
+    // the eyebrow does not hang indented over the number.
+    Widget left({required bool stacked}) => Column(
+      crossAxisAlignment: stacked
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
         eyebrow(over ? l10n.foodSummaryOver : l10n.foodSummaryLeft),
@@ -263,7 +267,7 @@ class FoodDaySummaryCard extends StatelessWidget {
           ),
           13,
           4,
-          Alignment.centerRight,
+          stacked ? Alignment.centerLeft : Alignment.centerRight,
         ),
       ],
     );
@@ -303,7 +307,10 @@ class FoodDaySummaryCard extends StatelessWidget {
                           children: [
                             logged,
                             const SizedBox(height: 12),
-                            Align(alignment: Alignment.centerLeft, child: left),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: left(stacked: true),
+                            ),
                           ],
                         );
                       }
@@ -312,7 +319,7 @@ class FoodDaySummaryCard extends StatelessWidget {
                         children: [
                           Expanded(child: logged),
                           const SizedBox(width: 12),
-                          left,
+                          left(stacked: false),
                         ],
                       );
                     },
