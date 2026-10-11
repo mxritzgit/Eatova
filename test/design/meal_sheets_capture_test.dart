@@ -452,9 +452,13 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(info);
         await tester.pumpAndSettle();
+        // The bowl has no confidence and no note: no bare "Confidence"
+        // label and no empty note block, the source row stays.
+        expect(find.text('Source'), findsOneWidget);
+        expect(find.text('Confidence'), findsNothing);
         expect(
           find.byKey(const ValueKey('analyse-portion-notes')),
-          findsOneWidget,
+          findsNothing,
         );
         expect(tester.takeException(), isNull);
         await captureDesignShot(tester, 'meal-sheets-analysis-info$suffix');
