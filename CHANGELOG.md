@@ -74,16 +74,6 @@ the complete current product.
   Recent rows, locked rest controls read as unavailable, the onboarding
   pace-cap warning quotes the deficit the plan runs, and the boot error
   screen matches the boot screens.
-- **Shopping list prices** (2026-10-11): in Germany the shopping receipt
-  shows a community price estimate from Open Prices (Open Food Facts, ODbL)
-  under each row: the average per kilogram, litre or piece from the last six
-  weeks and the share of the printed amount, a pack price without an amount,
-  "k. A." without enough recent prices and "–" for seasoning, plus a
-  (sub)total with the number of unpriced lines and an attribution link. The
-  lookup runs on the device in a few batched requests with an in-memory
-  session cache; nothing is stored and no check id, sync or schema changes.
-  Outside Germany nothing changes. See [shopping prices](docs/SHOPPING-PRICES.md).
-  The website privacy policy needs a separate update.
 - **Claude for Coach, meal scan and recipe import** (2026-10-08): text and
   photo understanding moved from OpenRouter/Gemini to the Anthropic Messages
   API (`claude-sonnet-5-5`, adaptive thinking; effort `high` for Coach

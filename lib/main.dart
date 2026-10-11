@@ -14,7 +14,6 @@ import 'src/services/platform_health_service.dart';
 import 'src/services/crash_reporter.dart';
 import 'src/services/background_sync_scheduler.dart';
 import 'src/services/notification_service.dart';
-import 'src/services/open_prices_api.dart';
 import 'src/services/sync_connectivity.dart';
 import 'src/theme/app_theme.dart';
 import 'src/theme/app_tokens.dart';
@@ -113,7 +112,6 @@ EatovaApp buildEatovaApp({ThemeModeController? themeModeController}) =>
           ? PlatformBackgroundSyncScheduler()
           : null,
       themeModeController: themeModeController,
-      openPrices: const HttpOpenPricesSource(),
     );
 
 /// Installs the global error handlers, independently of the Sentry DSN.

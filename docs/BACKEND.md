@@ -14,7 +14,6 @@ and deployment are separate from editing this documentation.
 | `coach-chat` | Authenticated chat/stream, recipe, training-plan and workout-log proposals; quotas, validation and guardrails |
 | `search-key` | Authenticated product-index URL and limited search credentials |
 | Meilisearch / Open Food Facts | Public product data lookup; OFF fallback |
-| Open Prices (Open Food Facts) | Public community prices for the shopping-list estimate; read-only from the app, no Eatova backend involvement ([contract](SHOPPING-PRICES.md)) |
 
 Apply the source migrations in version order to a new project. The generated
 [schema access map](../supabase/SCHEMA_STATE.md) records the current migration count and

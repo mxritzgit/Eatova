@@ -2,19 +2,12 @@
 
 _Repository data-flow update: 2026-09-14; Coach `/log`, workout logging and
 rest alerts: 2026-10-03; text and photo AI moved to Anthropic Claude:
-2026-10-08; describing a meal by text or voice: 2026-10-10; shopping list
-price estimate from Open Prices: 2026-10-11_
+2026-10-08; describing a meal by text or voice: 2026-10-10_
 
 > **Pending publication (2026-10-08):** the source now sends coach, meal-scan
 > and recipe-import requests to Anthropic instead of OpenRouter/Google. The
 > published policy at eatova.de still names OpenRouter/Google until it is
 > updated; that update belongs before or with the backend rollout.
-
-> **Pending publication (2026-10-11):** the shopping list's price estimate
-> queries Open Prices (see "Where it is stored and who processes it"). The
-> published policy at eatova.de is built outside this repository and does not
-> name Open Prices yet; that update belongs before or with the app release
-> that ships the estimate.
 
 > The published German policy for the app and website lives at
 > **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This repository
@@ -69,9 +62,7 @@ You enter and the app stores the following, tied to your account:
   excluded even there. See "Retention" for when it is deleted.
 - **Meal planning and shopping:** planned dates, meal slots, recipe snapshots,
   servings, consumption links and weekly shopping-item check states. Scheduling
-  a meal alone does not add it to your eaten-food diary. The shopping list's
-  price estimate (Germany only) is computed on your device from public
-  community prices and is not stored (see "Open Prices" below).
+  a meal alone does not add it to your eaten-food diary.
 - **Training:** saved plans/workouts/exercises and completed workout snapshots,
   including actual repetitions, weight or duration where recorded. Workouts
   you log afterwards, by hand or confirmed from a coach `/log` card, are
@@ -264,18 +255,6 @@ the device, before the photo is uploaded.
   your device's IP address and the photo requested, never your account. Meals
   and favorites logged from such a product keep the photo's address in their
   synced entries, so the photo shows on your other devices too.
-- **Open Prices** (`prices.openfoodfacts.org`, run by the Open Food Facts
-  association, France/EU) supplies community shop prices for the shopping
-  list's price estimate, only when one of your device's regions is Germany
-  (or, when your device names no region at all, the app language is German)
-  and the shopping list is open. The requests contain category identifiers
-  from a list built into the app (for example `en:milks`), never your own
-  wording; barcodes of products in your list; a fixed Germany-wide area and
-  the date window; and your device's IP address. No account identifier,
-  amounts, servings, recipe titles or location are sent. The answers stay in
-  the app's memory for the session (at most until midnight or 12 hours) and
-  are stored neither on your device nor on our servers. The price data is
-  published under the ODbL licence.
 - **Sentry** (`ingest.de.sentry.io`, EU region — reports are sent to and stored
   in the EU) receives the crash diagnostics described above. The SDK is
   configured to send no personal data by default (`sendDefaultPii = false`), to
@@ -336,8 +315,7 @@ recognition app may process it on its provider's servers (see above).
 ## Why (legal basis)
 
 We process this data to provide the tracking features you ask for — i.e. to perform
-the service you signed up for (GDPR Art. 6(1)(b)); the shopping list's price
-lookup is part of that requested feature — and, for optional Apple Health
+the service you signed up for (GDPR Art. 6(1)(b)), and, for optional Apple Health
 read/write, Health Connect steps, voice input and AI features, on the basis of the permission you
 grant in-app (Art. 6(1)(a), Art. 9 for health data).
 
