@@ -20,6 +20,11 @@
 //   training-player-unstored-dialog (-320-x2)
 //                       leaving when the store refused the place: Finish,
 //                       the soft-danger "Leave without saving" and Stay
+//   training-player-01 / -02 with -de, -320-x2, -de-320-x2
+//                       the rest bar and rest view in German (the long
+//                       "Pause überspringen") and on a 320 px phone at 2x
+//   training-player-01-paused
+//                       a paused rest: Resume joins the controls
 //
 // Shots are written only with DARK_REDESIGN_CAPTURE or
 // DESIGN_CAPTURE_BRIGHTNESS; the normal pass checks that each surface shows.
@@ -44,12 +49,15 @@ final class _NoAwake implements ScreenAwake {
   Future<void> setKeepAwake(bool on, {String owner = 'default'}) async {}
 }
 
-/// The list player alone, with a store that refuses every checkpoint (the
-/// source plan changed), so leaving after a set asks on the unstored card.
-Future<void> _pumpRefusingPlayer(
+/// The list player alone. With [refuse] the store refuses every checkpoint
+/// (the source plan changed), so leaving after a set asks on the unstored
+/// card.
+Future<void> _pumpPlayer(
   WidgetTester tester, {
   double width = 390,
   double textScale = 1,
+  Locale locale = const Locale('en'),
+  bool refuse = false,
 }) async {
   pinDesignViewport(tester);
   tester.view.physicalSize =
@@ -59,12 +67,12 @@ Future<void> _pumpRefusingPlayer(
       localizedApp(
         TrainingPlayerScreen(
           plan: trainingDesignPlan(),
-          onPersist: (_) async => false,
+          onPersist: (_) async => !refuse,
           onComplete: (_) async {},
           screenAwake: const _NoAwake(),
           monotonicNow: () => Duration.zero,
         ),
-        locale: const Locale('en'),
+        locale: locale,
         textScale: textScale,
         safeArea: false,
         scaffold: false,
@@ -188,7 +196,12 @@ void main() {
       tester,
     ) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        await _pumpRefusingPlayer(tester, width: width, textScale: scale);
+        await _pumpPlayer(
+          tester,
+          width: width,
+          textScale: scale,
+          refuse: true,
+        );
         await _tap(tester, 'training-set-check-0-0');
         await _tap(tester, 'training-timer-back');
         // A done set can still be finished: all three actions show.
@@ -209,4 +222,81 @@ void main() {
       });
     });
   }
+
+  for (final (suffix, width, scale, locale) in const [
+    ('-de', 390.0, 1.0, Locale('de')),
+    ('-320-x2', 320.0, 2.0, Locale('en')),
+    ('-de-320-x2', 320.0, 2.0, Locale('de')),
+  ]) {
+    testWidgets('rest bar and rest view$suffix', (tester) async {
+      await withClock(Clock.fixed(kTrainingDesignNow), () async {
+        await _pumpPlayer(
+          tester,
+          width: width,
+          textScale: scale,
+          locale: locale,
+        );
+        await _tap(tester, 'training-set-check-0-0');
+        expect(_key('training-rest-bar'), findsOneWidget);
+        // At 2x text the bar scrolls: its controls sit at its end.
+        await tester.ensureVisible(_key('training-timer-skip-rest'));
+        await settleFrames(tester, rounds: 4);
+        const controls = [
+          'training-timer-rest-minus',
+          'training-timer-rest-plus',
+          'training-timer-skip-rest',
+        ];
+        for (final id in controls) {
+          final rect = tester.getRect(_key(id));
+          expect(rect.left, greaterThanOrEqualTo(0), reason: id);
+          expect(rect.right, lessThanOrEqualTo(width), reason: id);
+          expect(rect.height, greaterThanOrEqualTo(48), reason: id);
+        }
+        if (scale == 1) {
+          // One row of one height, and every label on one line: the
+          // 15 px "Pause überspringen" wrapped inside its pill.
+          expect({
+            for (final id in controls) tester.getRect(_key(id)).top,
+          }, hasLength(1));
+          expect({
+            for (final id in controls) tester.getSize(_key(id)).height,
+          }, {48.0});
+          for (final id in controls) {
+            final label = find.descendant(
+              of: _key(id),
+              matching: find.byType(Text),
+            );
+            expect(
+              tester.getSize(label).height,
+              lessThan(30),
+              reason: '$id: one line',
+            );
+          }
+        }
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(tester, 'training-player-01$suffix');
+
+        await _tap(tester, 'training-timer-rest-expand');
+        expect(_key('training-rest-view'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(tester, 'training-player-02$suffix');
+        await tester.pumpWidget(const SizedBox.shrink());
+        await settleFrames(tester);
+      });
+    });
+  }
+
+  testWidgets('paused rest: Resume joins the controls', (tester) async {
+    await withClock(Clock.fixed(kTrainingDesignNow), () async {
+      await _pumpPlayer(tester);
+      await _tap(tester, 'training-set-check-0-0');
+      await _tap(tester, 'training-timer-menu');
+      await _tap(tester, 'training-timer-pause');
+      expect(_key('training-timer-rest-resume'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'training-player-01-paused');
+      await tester.pumpWidget(const SizedBox.shrink());
+      await settleFrames(tester);
+    });
+  });
 }
