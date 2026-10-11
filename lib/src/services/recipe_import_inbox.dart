@@ -34,6 +34,9 @@ class RecipeImportInbox extends ChangeNotifier {
     _subscription = receiver.shares.listen((source) {
       if (_disposed || !_userBound || _clearing || _blocked) return;
       if (_pending.length == 8) return;
+      // A share resent while the first still waits would run a second paid
+      // import of the same text.
+      if (_pending.any((queued) => queued.text == source.text)) return;
       _pending.add(source);
       notifyListeners();
     });

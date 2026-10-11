@@ -131,6 +131,30 @@ void main() {
   );
 
   test(
+    'a repeated share of the same text waits once, not twice',
+    () async {
+      // A share that seems to do nothing (welcome screen, onboarding) is
+      // often sent again; each queued copy would run its own paid import.
+      final receiver = _Receiver();
+      final inbox = RecipeImportInbox(receiver);
+      addTearDown(inbox.dispose);
+      await inbox.start();
+      inbox.bindUser(alice);
+      const caption = 'https://vm.tiktok.com/ZMabc123/';
+      receiver.events
+        ..add(const SharedRecipeSource(id: 'first', text: caption))
+        ..add(const SharedRecipeSource(id: 'again', text: caption))
+        ..add(const SharedRecipeSource(id: 'other', text: 'another recipe'));
+      expect(inbox.take()?.id, 'first');
+      expect(inbox.take()?.id, 'other');
+      expect(inbox.take(), isNull);
+      // Once taken, the same text may be shared again deliberately.
+      receiver.events.add(const SharedRecipeSource(id: 'later', text: caption));
+      expect(inbox.take()?.id, 'later');
+    },
+  );
+
+  test(
     'failed native clear blocks subsequent sources for that owner',
     () async {
       final receiver = _Receiver()..clear = Completer<void>();
