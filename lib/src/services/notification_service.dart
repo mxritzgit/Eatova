@@ -713,7 +713,7 @@ class LocalNotificationService
       _sessionRestAlertIds.add(alert.id);
       await _scheduleRestAlertNow(
         alert.id,
-        tz.TZDateTime.from(alert.at, tz.local),
+        _restInstant(alert.at),
         alert.title,
         alert.body,
         epoch,
@@ -775,7 +775,7 @@ class LocalNotificationService
     // The session ended while this request waited in the queue.
     if (!_initialized || epoch != _restAlertEpoch) return;
     try {
-      final when = tz.TZDateTime.from(at, tz.local);
+      final when = _restInstant(at);
       if (when.isAfter(clock.now())) {
         await _scheduleRestAlertNow(id, when, title, body, epoch);
       } else {
@@ -788,6 +788,12 @@ class LocalNotificationService
       await CrashReporter.capture(e, st, context: 'notification-rest-schedule');
     }
   }
+
+  /// A rest deadline for the plugin, in UTC. The Android plugin rebuilds it
+  /// from wall time and zone name and resolves the repeated DST hour to the
+  /// earlier offset, so a local zone fired it an hour early (at once).
+  static tz.TZDateTime _restInstant(DateTime at) =>
+      tz.TZDateTime.from(at, tz.UTC);
 
   Future<void> _scheduleRestAlertNow(
     int id,

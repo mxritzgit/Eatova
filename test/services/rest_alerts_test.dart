@@ -200,6 +200,27 @@ Future<void> _scheduleRest(LocalNotificationService service, [int? id]) =>
       body: 'Time for your next set.',
     );
 
+/// The instant Android's alarm gets for [scheduled]. The plugin (22.3.0)
+/// sends the wall time without offset plus the zone name, and
+/// `ZonedDateTime.of` takes the earlier offset in a repeated hour.
+DateTime _androidFiresAt(tz.TZDateTime scheduled) {
+  final wall = scheduled.toIso8601String().split('.').first;
+  final location = tz.getLocation(scheduled.location.name);
+  final asUtc = DateTime.parse('${wall}Z');
+  final offsets = {
+    for (final days in const [-1, 0, 1])
+      location
+          .timeZone(asUtc.add(Duration(days: days)).millisecondsSinceEpoch)
+          .offset,
+  }.toList()..sort((a, b) => b.compareTo(a));
+  for (final offset in offsets) {
+    final candidate = asUtc.subtract(offset);
+    final back = tz.TZDateTime.from(candidate, location);
+    if (back.toIso8601String().split('.').first == wall) return candidate;
+  }
+  throw StateError('no instant for $wall in ${location.name}');
+}
+
 List<NotificationSpec> _nudges() =>
     planStreakReminders(clock.now(), LifetimeStats(), enL10n);
 
@@ -458,6 +479,77 @@ void main() {
         await service.cancelRestAlert(_restId);
         expect(gateway.calls, isEmpty);
       }),
+    );
+  });
+
+  // R2-01: on 2026-10-25 Berlin repeats 02:00-03:00 (CEST, then CET). A
+  // deadline in the second pass reached Android as an ambiguous wall time
+  // and fired an hour early, i.e. at once.
+  group('Rest-Alert in der doppelten Herbst-Stunde (R2-01)', () {
+    LocalNotificationService berlin(_FakeGateway gateway) =>
+        LocalNotificationService(
+          gateway: gateway,
+          platform: NotificationPlatform.android,
+          localTimezoneName: () async => 'Europe/Berlin',
+        )..openRestAlerts('user-a');
+
+    final deadlines = <String, DateTime>{
+      'erstes 02:31:30 (CEST)': DateTime.utc(2026, 10, 25, 0, 31, 30),
+      'zweites 02:11:30 (CET)': DateTime.utc(2026, 10, 25, 1, 11, 30),
+      'zweites 02:59:59 (CET)': DateTime.utc(2026, 10, 25, 1, 59, 59),
+    };
+    for (final MapEntry(key: label, value: at) in deadlines.entries) {
+      test(
+        '$label: Android stellt genau zur Frist zu',
+        () => withClock(Clock.fixed(at.subtract(_rest)), () async {
+          final gateway = _FakeGateway();
+          final service = berlin(gateway);
+
+          await _scheduleRest(service);
+
+          final when = gateway.pending[_restId]!.when;
+          expect(when.millisecondsSinceEpoch, at.millisecondsSinceEpoch);
+          expect(
+            _androidFiresAt(when),
+            at,
+            reason: 'Europe/Berlin wall time resolved to the summer offset',
+          );
+        }),
+      );
+    }
+
+    test(
+      'Kaltstart: Restore und Wiederholung des Backstops treffen die Frist',
+      () {
+        final at = DateTime.utc(2026, 10, 25, 1, 11, 30);
+        final followUpAt = at.add(const Duration(minutes: 1));
+        final followUpId = restAlertFollowUpIdForSession(
+          '0b7c9f0e-4d2a-4f53-9a51-3c1e2d4b5a69',
+        );
+        return withClock(Clock.fixed(at.subtract(_rest)), () async {
+          final gateway = _FakeGateway();
+          final service = berlin(gateway);
+          await _scheduleRest(service);
+
+          await service.cancelStaleSchedules(
+            restore: [
+              (
+                id: followUpId,
+                at: followUpAt,
+                title: 'Rest over',
+                body: 'Time for your next set.',
+              ),
+            ],
+          );
+
+          expect(gateway.calls, contains('cancelAll'));
+          expect(_androidFiresAt(gateway.pending[_restId]!.when), at);
+          expect(
+            _androidFiresAt(gateway.pending[followUpId]!.when),
+            followUpAt,
+          );
+        });
+      },
     );
   });
 
