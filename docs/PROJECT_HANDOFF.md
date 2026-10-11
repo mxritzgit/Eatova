@@ -3515,3 +3515,20 @@ The owner's lines were "Ich gebe dir Freigabe zum Mergen von #147, #148 und
 - **Still open:**
   - an app build with the client fixes, the design and the prices;
   - the device checks and owner decisions listed above.
+
+## Open Prices removed, 2026-10-11
+
+- The owner decided against the price estimate after seeing the live
+  coverage: "wenn so wenig angezeigt wird, dann will ich das gar nicht
+  benutzen". The live check had priced 8 of 12 breakfast lines and 0 of 13
+  pizza lines.
+- The removal reverts [PR #149](https://github.com/mxritzgit/Eatova/pull/149)
+  completely: the Open Prices client, the dictionary, the receipt's price
+  lines and sum, the attribution, the settings source row, the privacy text,
+  `docs/SHOPPING-PRICES.md` and their tests. Only the rollout record above
+  stays, as history.
+- No app build had shipped the estimate, and nothing on the server changes.
+  The open item about naming Open Prices on the eatova.de privacy page is
+  void.
+- The implementation is still in the history (squash commit `1848263`) if
+  the data ever gets dense enough.

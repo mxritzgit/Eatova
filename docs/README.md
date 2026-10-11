@@ -16,7 +16,6 @@ but their old feature gaps, branch snapshots and test counts are not live state.
 | [Offline sync](OFFLINE_SYNC.md) | Transactional local storage, conflict policy, background delivery, limits and rollout |
 | [Weight trend](WEIGHT-TREND.md) | How weigh-ins re-anchor the profile weight, live goals and forecast; the planned adaptive check |
 | [Meal description](MEAL-DESCRIBE.md) | Describing a meal by text or voice: wire contract of analyze-meal's describe mode, matching rules and speech on iOS/Android |
-| [Shopping prices](SHOPPING-PRICES.md) | Open Prices estimates on the shopping receipt: region, 6-week window, requests and budgets, dictionary maintenance, aggregation and privacy |
 | [Contributing](../CONTRIBUTING.md) | Local validation, CI gates and protected PR workflow |
 | [Changelog](../CHANGELOG.md) | Merged changes and dated release history |
 | [Privacy data flows](../PRIVACY.md) | Current app data processing and the separate published-policy follow-up |

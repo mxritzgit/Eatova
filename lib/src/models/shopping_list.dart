@@ -5,7 +5,6 @@ import 'package:crypto/crypto.dart';
 import '../l10n/l10n.dart';
 import '../services/local_day.dart';
 import 'planned_meal.dart';
-import 'recipe_ingredient.dart' show IngredientSource;
 import 'recipe_ingredient_projection.dart';
 
 class ShoppingItem {
@@ -19,15 +18,10 @@ class ShoppingItem {
     this.originalBatchServings,
     this.planId,
     this.lines = const [],
-    this.productCode,
   });
   final String id, name;
   final double? grams;
   final String? recipeTitle;
-
-  /// Barcode of a weighed Open Food Facts ingredient; price lookup only,
-  /// never part of [id].
-  final String? productCode;
 
   /// The planned meal behind a free-text item (its day and slot); display
   /// only, not part of [id].
@@ -123,7 +117,7 @@ List<ShoppingItem> buildShoppingList(
   AppLocalizations? l10n,
 }) {
   final start = localDayKey(weekStart);
-  final groups = <String, ({String name, double grams, String? code})>{};
+  final groups = <String, ({String name, double grams})>{};
   final sources = <String, Set<String>>{};
   final unquantified = <ShoppingItem>[];
   String identity(Object value) =>
@@ -169,11 +163,6 @@ List<ShoppingItem> buildShoppingList(
         grams:
             (previous?.grams ?? 0) +
             ingredient.grams * plan.servings / recipe.batchServings,
-        code:
-            previous?.code ??
-            (ingredient.source == IngredientSource.openFoodFacts
-                ? ingredient.productCode
-                : null),
       );
     }
   }
@@ -189,7 +178,6 @@ List<ShoppingItem> buildShoppingList(
               ]),
               name: e.value.name,
               grams: e.value.grams,
-              productCode: e.value.code,
             ),
           )
           .toList()

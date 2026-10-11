@@ -213,17 +213,10 @@ void main() {
     // i.e. a field that could never fire. Every policy's ceiling now really is
     // one.
     expect(HttpTimeoutPolicy.mealAnalysis.total, const Duration(seconds: 75));
-    // Open Prices: optional estimate, so it gives up well before the user
-    // would wait on it.
-    expect(HttpTimeoutPolicy.openPrices.connect, const Duration(seconds: 5));
-    expect(HttpTimeoutPolicy.openPrices.response, const Duration(seconds: 8));
-    expect(HttpTimeoutPolicy.openPrices.body, const Duration(seconds: 10));
-    expect(HttpTimeoutPolicy.openPrices.total, const Duration(seconds: 15));
     for (final policy in const <HttpTimeoutPolicy>[
       HttpTimeoutPolicy.mirror,
       HttpTimeoutPolicy.openFoodFacts,
       HttpTimeoutPolicy.mealAnalysis,
-      HttpTimeoutPolicy.openPrices,
     ]) {
       expect(policy.total, isNotNull);
       expect(policy.total!, lessThan(policy.connect + policy.response +

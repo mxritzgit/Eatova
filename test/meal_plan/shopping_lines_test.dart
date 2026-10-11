@@ -184,62 +184,6 @@ void main() {
     expect(shoppingProgress(items, reopened), (done: 1, total: 3));
   });
 
-  test('a weighed product keeps its barcode for prices; no check id '
-      'changes (2026-10-11)', () {
-    final recipe = _recipe('- 200 g Salami\n- 1 Prise Salz').copyWith(
-      structuredIngredients: [
-        RecipeIngredient(
-          name: 'Nutella',
-          grams: 30,
-          source: IngredientSource.openFoodFacts,
-          productCode: '4008400401621',
-          per100g: const RecipeNutrition(
-            caloriesKcal: 539,
-            proteinG: 6.3,
-            carbsG: 57.5,
-            fatG: 30.9,
-          ),
-        ),
-        RecipeIngredient(
-          name: 'Oats',
-          grams: 100,
-          per100g: const RecipeNutrition(
-            caloriesKcal: 370,
-            proteinG: 13,
-            carbsG: 60,
-            fatG: 7,
-          ),
-        ),
-      ],
-    );
-    final items = buildShoppingList([
-      PlannedMeal.create(
-        recipe: recipe,
-        day: _day,
-        slot: MealSlot.breakfast,
-        id: '00000000-0000-4000-8000-00000000000c',
-      ),
-    ], _day);
-    final [nutella, oats, text] = items;
-    expect(nutella.productCode, '4008400401621');
-    expect(oats.productCode, isNull);
-    expect(text.productCode, isNull);
-    // Captured from the code before the barcode was added: the barcode is
-    // never part of an id, so every existing check stays where it was.
-    expect(
-      nutella.id,
-      '2026-10-05:3f9bb8b5a0da64d92c4e3cb9aae25bf412c814f48fda1d1a66ce6a369ea8790e',
-    );
-    expect(
-      oats.id,
-      '2026-10-05:c9eb2bb1bf582ab8926b0535aa78c75617ccb9b78fcc1ae99fc178db878ab6f7',
-    );
-    expect(text.lines.map((l) => l.id), [
-      '2026-10-05:6638ca7d09e93e5d8155ff89747fbc1eec687d19652db9e377d66e909ea3b411',
-      '2026-10-05:00767aeb100a10874a6e4ebe9cc76cfbc2aa17a64035195a3805f44f657dd2ee',
-    ]);
-  });
-
   test('a recipe without ingredient text offers nothing to check', () {
     final item = buildShoppingList([_plan('')], _day).single;
     expect(item.lines, isEmpty);
