@@ -1,5 +1,9 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+
 /// Deletes the temp file camera or gallery picker leaves in the app cache —
 /// call once its bytes are read and scrubbed via `compressMealPhoto`.
 ///
@@ -36,6 +40,14 @@ final RegExp _pickerCopyDirName = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
 );
 
+/// `File.createTempFile(uuid, ".jpg", cacheDir)`: the system camera writes
+/// its full-size capture, EXIF included, to this name at the top of the
+/// cache. A normal pick deletes it after resizing; a pick recovered after
+/// the process died (see [discardLostPickerMedia]) does not.
+final RegExp _cameraCaptureName = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-?\d+\.jpg$',
+);
+
 final RegExp _separator = RegExp(r'[/\\]');
 
 String _baseName(String path) =>
@@ -55,6 +67,12 @@ Future<void> _deletePickerSourceCopy(String path) async {
     }
     if (!name.startsWith(_scaledPrefix) || name == _scaledPrefix) return;
     final sourceName = name.substring(_scaledPrefix.length);
+    if (_cameraCaptureName.hasMatch(sourceName)) {
+      await _deleteQuietly(
+        File('${parent.path}${Platform.pathSeparator}$sourceName'),
+      );
+      return;
+    }
     await for (final entry in parent.list(followLinks: false)) {
       if (entry is! Directory ||
           !_pickerCopyDirName.hasMatch(_baseName(entry.path))) {
@@ -71,5 +89,87 @@ Future<void> _deletePickerSourceCopy(String path) async {
     }
   } catch (_) {
     // Unlistable cache or not empty: never an error for the scan.
+  }
+}
+
+/// Android: deletes the picker files of a pick whose process died while the
+/// system camera or gallery was in front.
+///
+/// The plugin finishes such a pick in the next process with nobody waiting:
+/// it keeps the full-size photo, EXIF included, and stores its path for
+/// `retrieveLostData`. The Dart code that would have deleted it died with
+/// the old process, and the next pick clears only the stored path, so the
+/// photo stayed in the cache through sign-out and account deletion. Called
+/// at cold start, before any pick, and on every session end by the auth
+/// gate.
+///
+/// The recovered photo is only deleted, never analysed or sent: the account
+/// that took it may be gone. The lost result is read first (reading it
+/// writes a resized copy), then the cache is swept for what older losses
+/// left after a later pick cleared their stored path.
+///
+/// Best effort, never throws. [onAndroid] null means the running platform;
+/// tests force it and pass their own [cacheDirectory].
+Future<void> discardLostPickerMedia({
+  bool? onAndroid,
+  Future<Directory> Function() cacheDirectory = getTemporaryDirectory,
+}) async {
+  if (!(onAndroid ?? (!kIsWeb && Platform.isAndroid))) return;
+  try {
+    final lost = await ImagePicker().retrieveLostData();
+    final paths = {
+      for (final file in lost.files ?? const <XFile>[]) file.path,
+      if (lost.file != null) lost.file!.path,
+    };
+    for (final path in paths) {
+      await deleteMealPhotoTempFile(path);
+    }
+  } catch (_) {
+    // No plugin or nothing readable: the sweep still runs.
+  }
+  try {
+    await _sweepPickerFiles(await cacheDirectory());
+  } catch (_) {
+    // No cache directory: nothing to sweep.
+  }
+}
+
+/// The image files the picker writes to the cache: camera captures,
+/// `scaled_` copies and full gallery copies in UUID directories, which go
+/// once empty. Narrow on purpose, so other plugins' cache files stay.
+Future<void> _sweepPickerFiles(Directory cache) async {
+  await for (final entry in cache.list(followLinks: false)) {
+    final name = _baseName(entry.path);
+    if (entry is File) {
+      if (_cameraCaptureName.hasMatch(name) ||
+          (name.startsWith(_scaledPrefix) && _imageFileName.hasMatch(name))) {
+        await _deleteQuietly(entry);
+      }
+    } else if (entry is Directory && _pickerCopyDirName.hasMatch(name)) {
+      try {
+        await for (final child in entry.list(followLinks: false)) {
+          if (child is File && _imageFileName.hasMatch(_baseName(child.path))) {
+            await _deleteQuietly(child);
+          }
+        }
+        // Non-recursive: a directory with anything else in it stays.
+        await entry.delete();
+      } catch (_) {
+        // Not empty or unlistable: left as it is.
+      }
+    }
+  }
+}
+
+final RegExp _imageFileName = RegExp(
+  r'\.(jpe?g|png|webp|heic|heif|gif|bmp)$',
+  caseSensitive: false,
+);
+
+Future<void> _deleteQuietly(File file) async {
+  try {
+    await file.delete();
+  } catch (_) {
+    // Already gone or not ours to delete.
   }
 }

@@ -9,6 +9,7 @@ import '../screens/auth_screen.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
+import '../services/meal_photo_temp_file.dart';
 import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/rest_alerts.dart';
@@ -176,6 +177,7 @@ class AuthGate extends StatefulWidget {
     this.onUserChanged,
     this.notificationService,
     this.backgroundSyncScheduler,
+    this.discardPickerMedia = discardLostPickerMedia,
   });
 
   final AuthRepository authRepository;
@@ -184,6 +186,10 @@ class AuthGate extends StatefulWidget {
   /// Cancelled whenever a session ends, see [cancelDeviceSchedules].
   final NotificationService? notificationService;
   final BackgroundSyncScheduler? backgroundSyncScheduler;
+
+  /// Deletes photos a pick left in the cache when its process died; run at
+  /// cold start and on every session end, see [discardLostPickerMedia].
+  final Future<void> Function() discardPickerMedia;
 
   /// Test seam for [purgePersonalCacheFor] — `LocalCache.create` returns null
   /// in widget tests. Always null in production.
@@ -218,6 +224,9 @@ class _AuthGateState extends State<AuthGate> {
     // Finding 5: the recipe photo store is bound to the active user id. Cold
     // start binds the restored user; later transitions go via _onAuthEvent.
     unawaited(RecipeImageStore.instance.setActiveUser(initial?.id, sessionId: initial?.sessionId));
+    // Before any pick can start: drop the photos of a camera or gallery pick
+    // that died with the last process.
+    unawaited(widget.discardPickerMedia());
     // A cold start without a session: the session ended while the app was
     // not running, and what it scheduled with the OS is still there.
     if (initial == null) {
@@ -308,6 +317,7 @@ class _AuthGateState extends State<AuthGate> {
 
   void _purgePrevious(EatovaUser previous) {
     _cancelDeviceSchedules();
+    unawaited(widget.discardPickerMedia());
     final debugPurge = widget.debugPurgeCache;
     if (debugPurge != null) {
       unawaited(debugPurge(previous.id));
