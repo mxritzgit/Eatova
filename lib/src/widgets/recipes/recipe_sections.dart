@@ -96,17 +96,26 @@ class _SectionHint extends StatelessWidget {
 }
 
 /// Body text of a section; [empty] shows muted when [text] is empty.
+///
+/// A number keeps its short unit or word ("420 g", "2 EL") on its line, so
+/// large text never strands the unit below the value.
 class RecipeParagraph extends StatelessWidget {
   const RecipeParagraph({super.key, required this.text, required this.empty});
 
   final String text;
   final String empty;
 
+  // The space after a digit, before a token of up to five letters.
+  static final RegExp _amountGap = RegExp(
+    r'(?<=\d)[ \t](?=[\p{L}%µ°]{1,5}(?!\p{L}))',
+    unicode: true,
+  );
+
   @override
   Widget build(BuildContext context) {
     final value = text.trim();
     return Text(
-      value.isEmpty ? empty : value,
+      value.isEmpty ? empty : value.replaceAll(_amountGap, '\u00A0'),
       style: _bodyStyle(context.t, muted: value.isEmpty),
     );
   }

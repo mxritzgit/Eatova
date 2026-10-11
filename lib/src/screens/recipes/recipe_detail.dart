@@ -332,7 +332,13 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     children: [
                       AspectRatio(
                         aspectRatio: 1.35,
-                        child: RecipePhoto(recipe: recipe),
+                        child: RecipePhoto(
+                          recipe: recipe,
+                          // The default clamps at 56 px, small in a 260 px
+                          // hero; 72 is the Recipes hero's share (56 of 200).
+                          placeholder: (_) =>
+                              RecipeArt.of(recipe, iconSize: 72),
+                        ),
                       ),
                       Padding(
                         padding: const EdgeInsets.all(20),

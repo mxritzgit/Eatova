@@ -1583,8 +1583,8 @@ class _RecipePhotoPicker extends StatelessWidget {
 /// Side of the photo slot in the photo group.
 const double _photoSide = 60;
 
-/// The empty photo slot: the quiet well with an accent "add photo" tile.
-/// Decorative; Camera and Gallery below are the ways to add one.
+/// The empty photo slot: the soft fill of the Camera and Gallery pills with an
+/// accent "add photo" tile. Decorative; those pills are the ways to add one.
 class _AddPhotoTile extends StatelessWidget {
   const _AddPhotoTile();
 
@@ -1594,7 +1594,8 @@ class _AddPhotoTile extends StatelessWidget {
     return ExcludeSemantics(
       child: ColoredBox(
         key: const ValueKey('recipe-create-photo-empty'),
-        color: t.surfWell,
+        // softFill, not surfWell: the well vanished on the white light card.
+        color: t.softFill,
         child: Center(
           child: IconTile(
             icon: Icons.add_a_photo_outlined,
@@ -1609,13 +1610,14 @@ class _AddPhotoTile extends StatelessWidget {
   }
 }
 
-/// Round remove badge in the photo's top-right corner: a 28 px [surf] disc
-/// with a [lineStrong] ring and an [ink2] cross, inside a 44 px target.
+/// Round remove badge in the photo's top-right corner: a 24 px [surf] disc
+/// with a [lineStrong] ring and an [ink2] cross, inside a 44 px target. Small
+/// enough to leave most of the 60 px preview visible.
 class _PhotoRemoveBadge extends StatelessWidget {
   const _PhotoRemoveBadge({required this.onTap});
 
   static const double _target = 44;
-  static const double _disc = 28;
+  static const double _disc = 24;
 
   final VoidCallback? onTap;
 
@@ -1657,7 +1659,7 @@ class _PhotoRemoveBadge extends StatelessWidget {
                     ),
                     child: Icon(
                       Icons.close_rounded,
-                      size: 16,
+                      size: 14,
                       color: enabled ? t.ink2 : t.inkDisabled,
                     ),
                   ),
