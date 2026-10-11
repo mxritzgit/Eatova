@@ -511,7 +511,7 @@
   "recipesKcalProteinSummary": "{kcal} kcal · {protein} g Protein",
   "@recipesKcalProteinSummary": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "protein": { "type": "int" }
     }
   },
@@ -570,6 +570,7 @@
   "recipesPortionHint": "1 Teller",
   "recipesGroupNutrition": "Nährwerte",
   "recipesPerPortion": "pro Portion",
+  "recipesNutritionPerPortionHeading": "Nährwerte pro Portion",
   "recipesOptionalLabel": "optional",
   "recipesIngredientsHint": "Eine Zutat pro Zeile",
   "recipesSaveButtonLabel": "Rezept speichern",

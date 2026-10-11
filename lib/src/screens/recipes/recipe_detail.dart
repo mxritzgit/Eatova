@@ -431,7 +431,11 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   ),
                 ],
                 const SizedBox(height: 24),
-                SectionHeading(title: recipe.hasUnclearNutritionBasis ? l10n.recipeImportNutritionSource : l10n.recipesPerPortion),
+                SectionHeading(
+                  title: recipe.hasUnclearNutritionBasis
+                      ? l10n.recipeImportNutritionSource
+                      : l10n.recipesNutritionPerPortionHeading,
+                ),
                 const SizedBox(height: 12),
                 _NutritionGrid(recipe: recipe),
                 if (recipe.hasPendingNutrition ||
@@ -453,32 +457,56 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
                   ),
                 const SizedBox(height: 18),
-                _RecipeInfoSection(
+                // The import preview's section cards: one recipe reads the
+                // same before and after it is saved.
+                RecipeSectionCard(
+                  key: const ValueKey('recipe-detail-portion'),
+                  icon: Icons.restaurant_rounded,
                   title: l10n.recipesSectionPortion,
-                  body: recipe.hasStructuredIngredients
-                      ? '${l10n.recipeEditBatchServings}: ${_nutritionNumber(recipe.batchServings, l10n)}\n${recipe.displayPortion(l10n)}'
-                      : recipe.displayPortion(l10n),
+                  child: RecipeParagraph(
+                    text: recipe.hasStructuredIngredients
+                        ? '${l10n.recipeEditBatchServings}: ${_nutritionNumber(recipe.batchServings, l10n)}\n${recipe.displayPortion(l10n)}'
+                        : recipe.displayPortion(l10n),
+                    empty: l10n.recipesNoDataProvided,
+                  ),
                 ),
-                _RecipeInfoSection(
+                const SizedBox(height: 12),
+                RecipeSectionCard(
+                  key: const ValueKey('recipe-detail-ingredients'),
+                  icon: Icons.shopping_basket_outlined,
                   title: l10n.recipesSectionIngredients,
-                  hint: recipe.hasImportedIngredientContext &&
-                          !recipe.hasStructuredIngredients
-                      ? recipe.ingredientQuantityHint(l10n)
-                      : l10n.recipeDetailIngredientsHint,
-                  body: recipe.hasStructuredIngredients
-                      ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
-                      : recipe.displayIngredients(l10n),
+                  child: RecipeIngredientLines(
+                    hint:
+                        recipe.hasImportedIngredientContext &&
+                            !recipe.hasStructuredIngredients
+                        ? recipe.ingredientQuantityHint(l10n)
+                        : l10n.recipeDetailIngredientsHint,
+                    text: recipe.hasStructuredIngredients
+                        ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n${recipe.ingredients}'}'
+                        : recipe.displayIngredients(l10n),
+                  ),
                 ),
-                _RecipeInfoSection(
+                const SizedBox(height: 12),
+                RecipeSectionCard(
+                  key: const ValueKey('recipe-detail-preparation'),
+                  icon: Icons.soup_kitchen_outlined,
                   title: l10n.recipesSectionPreparation,
-                  hint: l10n.recipeDetailPreparationHint,
-                  numbered: true,
-                  body: recipe.displayPreparation(l10n),
+                  child: RecipePreparationSteps(
+                    hint: l10n.recipeDetailPreparationHint,
+                    text: recipe.displayPreparation(l10n),
+                    empty: l10n.recipesNoDataProvided,
+                  ),
                 ),
-                _RecipeInfoSection(
+                const SizedBox(height: 12),
+                RecipeSectionCard(
+                  key: const ValueKey('recipe-detail-pro-hint'),
+                  icon: Icons.lightbulb_outline_rounded,
                   title: l10n.recipesSectionProHint,
-                  body: recipe.displayProfessionalHint(l10n),
                   highlight: true,
+                  child: RecipeParagraph(
+                    text: recipe.displayProfessionalHint(l10n),
+                    empty: l10n.recipesNoDataProvided,
+                  ),
                 ),
               ],
             ),
@@ -558,7 +586,7 @@ class _NutritionGrid extends StatelessWidget {
     final tiles = [
       _NutritionTile(
         label: l10n.recipesNutritionKcalLabel,
-        value: _nutritionNumber(n.caloriesKcal, l10n),
+        value: _kcalNumber(n.caloriesKcal, l10n),
         color: t.accent,
         surface: t.brandSurface,
       ),
@@ -674,98 +702,6 @@ class _NutritionTile extends StatelessWidget {
             label.toUpperCase(),
             textAlign: TextAlign.center,
             style: labelStyle(t),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RecipeInfoSection extends StatelessWidget {
-  const _RecipeInfoSection({
-    required this.title,
-    required this.body,
-    this.highlight = false,
-    this.numbered = false,
-    this.hint,
-  });
-  final String title, body;
-  final String? hint;
-  final bool highlight, numbered;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final lines = body
-        .split(RegExp(r'\n+'))
-        .where((line) => line.trim().isNotEmpty)
-        .toList();
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SectionHeading(title: title),
-          if (hint != null) ...[
-            const SizedBox(height: 6),
-            Text(hint!, style: AppType.ui(13, color: t.ink2, height: 1.4)),
-          ],
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(highlight ? 20 : 0),
-            decoration: BoxDecoration(
-              color: highlight ? t.brandSurface : Colors.transparent,
-              borderRadius: BorderRadius.circular(rSheet),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < lines.length; i++) ...[
-                  if (numbered && lines.length > 1)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          constraints: const BoxConstraints(
-                            minWidth: 30,
-                            minHeight: 30,
-                          ),
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: t.brandSurface,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '${i + 1}',
-                            textAlign: TextAlign.center,
-                            style: AppType.ui(
-                              13,
-                              color: t.accent,
-                              weight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            lines[i].replaceFirst(RegExp(r'^\d+[.)]\s*'), ''),
-                            style: AppType.ui(15, color: t.ink, height: 1.6),
-                          ),
-                        ),
-                      ],
-                    )
-                  else
-                    Text(
-                      lines[i],
-                      style: AppType.ui(15, color: t.ink, height: 1.6),
-                    ),
-                  // Spacing, not hairlines, between lines.
-                  if (i < lines.length - 1)
-                    SizedBox(height: numbered ? 24 : 12),
-                ],
-              ],
-            ),
           ),
         ],
       ),

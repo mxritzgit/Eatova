@@ -23,6 +23,7 @@ import '../../models/number_input.dart';
 import '../../models/recipe_pick.dart';
 import '../../models/recipe_shelf.dart';
 import '../../models/user_profile.dart';
+import '../../services/kcal_format.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/recipe_image_store.dart';
 import '../../services/recipe_save_result.dart';
@@ -41,6 +42,7 @@ import '../../widgets/recipes/recipe_ingredient_editor.dart';
 import '../../widgets/recipes/recipe_portion_selector.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_pick_actions.dart';
+import '../../widgets/recipes/recipe_sections.dart';
 
 import 'recipe_history_screen.dart';
 

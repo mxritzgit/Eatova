@@ -94,6 +94,58 @@ void main() {
   );
 
   testWidgets(
+    'calculated kcal read whole and grouped, the summary never splits',
+    (tester) async {
+      pinPhoneViewport(tester);
+      // 282 g at 372 kcal: 1,049.04 kcal and 38.07 g protein per serving.
+      final recipe = FitnessRecipe(
+        slug: 'user_oats_batch',
+        title: 'Oats',
+        description: '',
+        portion: '',
+        ingredients: '',
+        preparation: '',
+        professionalHint: '',
+        imageAsset: '',
+        caloriesKcal: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+        estimatedGrams: 0,
+        categories: const ['Eigene'],
+        userCreated: true,
+        structuredIngredients: [
+          RecipeIngredient(
+            name: 'Oats',
+            grams: 282,
+            per100g: const RecipeNutrition(
+              caloriesKcal: 372,
+              proteinG: 13.5,
+              carbsG: 58.7,
+              fatG: 7,
+            ),
+          ),
+        ],
+      );
+      await pumpLocalized(
+        tester,
+        RecipeDetailScreen(recipe: recipe, onAddMeal: (_, _) {}),
+        locale: const Locale('en'),
+        safeArea: false,
+      );
+      // The kcal tile and the add card: whole kcal with the separator, as
+      // everywhere else, instead of "1049".
+      expect(find.text('1,049'), findsOneWidget);
+      expect(
+        find.text('1,049\u00A0kcal · 38\u00A0g\u00A0protein'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('1049'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'half serving logs one eighth of the batch and snapshot stays unchanged',
     (tester) async {
       pinPhoneViewport(tester);

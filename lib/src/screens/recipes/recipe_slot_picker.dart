@@ -15,6 +15,14 @@ class _MealSlotPickerSheet extends StatefulWidget {
   State<_MealSlotPickerSheet> createState() => _MealSlotPickerSheetState();
 }
 
+/// What the chosen servings log, in the recipe summary's wording
+/// ("480 kcal · 36 g protein").
+String _resultSummary(MealAnalysisResult result, AppLocalizations l10n) =>
+    _keepFiguresTogether(
+      '${_kcalNumber(result.caloriesKcal.toDouble(), l10n)} kcal · '
+      '${result.resolvedProtein(l10n)} ${l10n.recipesHeroProteinUnit}',
+    );
+
 class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
   double? _servings = 1;
   bool _saving = false;
@@ -103,7 +111,7 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                         Text(
                           result == null
                               ? _recipeSummary(recipe, l10n)
-                              : '${result.caloriesKcal} kcal · ${result.resolvedProtein(l10n)} ${l10n.todayMacroProtein}',
+                              : _resultSummary(result, l10n),
                           style: AppType.ui(13, color: t.ink2, height: 1.4),
                         ),
                       ],

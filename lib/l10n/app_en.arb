@@ -506,7 +506,7 @@
   "recipesKcalProteinSummary": "{kcal} kcal · {protein} g protein",
   "@recipesKcalProteinSummary": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "protein": { "type": "int" }
     }
   },
@@ -565,6 +565,7 @@
   "recipesPortionHint": "1 plate",
   "recipesGroupNutrition": "Nutrition",
   "recipesPerPortion": "per portion",
+  "recipesNutritionPerPortionHeading": "Nutrition per portion",
   "recipesOptionalLabel": "optional",
   "recipesIngredientsHint": "One ingredient per line",
   "recipesSaveButtonLabel": "Save recipe",

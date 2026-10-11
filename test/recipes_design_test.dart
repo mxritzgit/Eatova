@@ -535,10 +535,15 @@ void main() {
       const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli'),
     );
     await _scrollTo(tester, tile);
-    expect(find.descendant(of: tile,
-        matching: find.textContaining('590 kcal')), findsOneWidget);
-    expect(find.descendant(of: tile,
-        matching: find.textContaining('55')), findsOneWidget);
+    // The shelves' wording, with number and unit held together by no-break
+    // spaces: at 2x text the line broke inside "55 g / Protein".
+    expect(
+      find.descendant(
+        of: tile,
+        matching: find.text('590\u00A0kcal · 55\u00A0g\u00A0Protein'),
+      ),
+      findsOneWidget,
+    );
     await tester.tap(tile);
     await tester.pumpAndSettle();
     for (final value in ['590', '55 g', '62 g', '12 g']) {
