@@ -1053,8 +1053,9 @@ const _kCountFractions = [
         if (use.unscaled && use.text != null) use.text!,
     ];
     final amounts = [...planned, ...original];
-    // One recipe has one serving basis: one note for its amounts.
-    final note = original.isEmpty
+    // One recipe has one serving basis: one note for its amounts, also for
+    // one left in the name ("Reis (300 g gekocht)").
+    final note = !uses.any((u) => u.unscaled)
         ? null
         : switch (uses.firstWhere((u) => u.unscaled)) {
             ShoppingUse(scale: ShoppingScale.batch, :final batchServings?) =>

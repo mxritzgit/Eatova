@@ -14,6 +14,7 @@ import '../l10n/l10n.dart';
 import '../services/local_day.dart';
 import 'fitness_recipe.dart';
 import 'logged_meal.dart';
+import 'persisted_labels.dart';
 import 'planned_meal.dart';
 import 'shopping_amount.dart';
 import 'shopping_ingredient_key.dart';
@@ -274,7 +275,7 @@ ShoppingReceipt buildShoppingReceipt(
         id: item.id,
         legacyIds: [if (open != null && open != item.id) open],
         label: item.name,
-        key: shoppingIngredientKey(item.name, unit: ShoppingUnit.mass),
+        key: _weighedKey(item),
         unit: ShoppingUnit.mass,
         uses: [
           for (final MapEntry(key: planId, value: grams)
@@ -305,9 +306,11 @@ ShoppingReceipt buildShoppingReceipt(
     final scaling = _Scaling.of(plan, item, decimalSeparator);
     final first = parts.length;
     for (final line in lines) {
-      final text = line.amount == null
+      final written = line.amount == null
           ? line.label
           : '${line.amount} ${line.label}';
+      // A caption's bullet ("✅ 150 g Hähnchenbrust") is not the name.
+      final text = written.replaceFirst(_bullet, '');
       final components = _components(text);
       if (components == null) {
         final split = splitShoppingAmount(text);
@@ -315,7 +318,7 @@ ShoppingReceipt buildShoppingReceipt(
           _linePart(
             id: line.id,
             legacyIds: [item.id],
-            label: split.amount == line.amount
+            label: split.amount == line.amount && text == written
                 ? line.label
                 : _capitalized(split.label),
             amount: split.amount,
@@ -349,8 +352,12 @@ ShoppingReceipt buildShoppingReceipt(
   for (final part in parts) {
     var key = part.key.id;
     // A listed line that could not be split merges only with itself, and
-    // not at all if it carries more amounts ("1 Zwiebel, 1 Zehe, Xyz").
-    if (key.startsWith('~') && RegExp(r'\d').hasMatch(part.label)) {
+    // not at all if it carries more amounts ("1 Zwiebel, 1 Zehe, Xyz"). A
+    // name holding an amount the receipt could not read merges with
+    // nothing: its amount would go missing from the total.
+    if ((key.startsWith('~') && RegExp(r'\d').hasMatch(part.label)) ||
+        (part.uses.every((u) => u.amount == null && u.text == null) &&
+            _hasUnreadAmount(part.label))) {
       key = '$key#${part.id}';
     }
     (groups[key] ??= []).add(part);
@@ -455,6 +462,14 @@ class _Scaling {
 
   bool get unknown => factor == null && fallback == ShoppingScale.unknown;
 
+  /// What an amount kept as written is ("Reis (300 g gekocht)"); null when
+  /// it is for the planned servings anyway.
+  ShoppingScale? get asWritten => switch (factor) {
+    null => unknown ? ShoppingScale.unknown : null,
+    final factor when (factor - 1).abs() < 1e-9 => null,
+    _ => fallback,
+  };
+
   static _Scaling of(PlannedMeal plan, ShoppingItem item, String separator) {
     final recipe = plan.recipe;
     final servings = plan.servings;
@@ -511,13 +526,28 @@ ShoppingPart _linePart({
   required _Scaling scaling,
   bool seasoning = false,
 }) {
+  // "Hähnchenbrust 150g", "Skyr: 150 g": the amount after the name.
+  if (amount == null) {
+    if (splitTrailingShoppingAmount(label) case final trailing?) {
+      amount = trailing.amount;
+      label = _capitalized(trailing.label.replaceFirst(RegExp(r'[,;]$'), ''));
+    }
+  }
+  // "Ein Schuss", "A splash": the capital was the line's, not the word's.
+  amount = amount?.replaceAllMapped(
+    RegExp(r'\b\p{Lu}\p{Ll}*\b', unicode: true),
+    (m) => _lowerAmountWords.contains(m[0]!.toLowerCase())
+        ? m[0]!.toLowerCase()
+        : m[0]!,
+  );
   var parsed = amount == null
       ? null
       : parseShoppingAmount(amount, decimalSeparator: scaling.decimalSeparator);
-  // "2 Knoblauchzehen" counts cloves.
+  // "2 Knoblauchzehen" counts cloves; "2 Tomaten mit Knoblauchzehe" counts
+  // tomatoes.
   if (parsed != null &&
       parsed.unit == ShoppingUnit.piece &&
-      _cloveNoun.hasMatch(foldShoppingText(label))) {
+      _cloveNoun.hasMatch(foldShoppingText(label).split(_headEnd).first)) {
     parsed = ShoppingAmount(
       ShoppingUnit.clove,
       parsed.low,
@@ -527,7 +557,11 @@ ShoppingPart _linePart({
   }
   final ShoppingUse use;
   if (amount == null) {
-    use = _use(plan);
+    // An amount left in the name is as the recipe writes it.
+    final scale = _hasUnreadAmount(label) ? scaling.asWritten : null;
+    use = scale == null
+        ? _use(plan)
+        : _use(plan, scale: scale, batchServings: scaling.batch);
   } else if (scaling.unknown) {
     use = _use(
       plan,
@@ -565,6 +599,50 @@ final _cloveNoun = RegExp(
   r'(?:^|\s)(?:knoblauchzehen?|zehen?|garlic cloves?|cloves? of garlic)\b',
 );
 
+/// Where a name's head ends: the rest describes it or names another item.
+final _headEnd = RegExp(r'[,;(]|\s(?:mit|with|und|and|oder|or)\s');
+
+/// Written numbers and English unit words that a line's capital turned into
+/// a capital ("A splash", "1 Dash"); German nouns keep theirs.
+const _lowerAmountWords = {
+  "ein", "eine", "einen", "einem", "einer", "a", "an", "one", "two", //
+  "three", "four", "five", "six", "seven", "eight", "nine", "ten", //
+  "twelve", "half", "dash", "dashes", "splash", "splashes", "drizzle", //
+  "drizzles", "drop", "drops", "pinch", "pinches", "handful", "handfuls", //
+  "cup", "cups", "bunch", "bunches", "sprig", "sprigs", "clove", "cloves", //
+  "slice", "slices", "can", "cans", "jar", "jars", "pack", "packs", //
+  "packet", "packets", "bag", "bags", "stalk", "stalks", "stick", "sticks", //
+  "head", "heads", "bulb", "bulbs", "bottle", "bottles", "sheet", "sheets", //
+  "tablespoon", "tablespoons", "teaspoon", "teaspoons", "piece", "pieces",
+};
+
+/// A caption's bullet or emoji before the line ("✅", "🔸", "▪️").
+final _bullet = RegExp(r'^[^\p{L}\p{N}~(]+', unicode: true);
+
+/// Digits in a name besides a fat level or flour type: an amount the
+/// receipt could not read ("Reis (300 g gekocht)").
+bool _hasUnreadAmount(String label) => RegExp(r'\d').hasMatch(
+  foldShoppingText(label)
+      .replaceAll(RegExp(r'\d+(?:[.,]\d+)?\s*%'), '')
+      .replaceAll(RegExp(r'\b(?:type|typ|tipo)\s*\d+'), '')
+      .replaceAll(RegExp(r'\b00\s+(?=(?:mehl|flour|farina)\b)'), ''),
+);
+
+/// The key of a weighed item, from its stored name so it does not follow
+/// the app language. A product without a name is only itself.
+ShoppingIngredientKey _weighedKey(ShoppingItem item) {
+  final stored = item.storedName ?? item.name;
+  final key = item.shoppingKey;
+  const product = 'openFoodFacts:';
+  if (key != null && key.startsWith(product)) {
+    final fallback = PersistedLabels.productName(key.substring(product.length));
+    if (stored == fallback || stored.startsWith('$fallback · ')) {
+      return ShoppingIngredientKey(id: '#$key', staple: ShoppingStaple.none);
+    }
+  }
+  return shoppingIngredientKey(stored, unit: ShoppingUnit.mass);
+}
+
 class _Component {
   const _Component(this.amount, this.label);
   final String? amount;
@@ -584,7 +662,12 @@ List<_Component>? _components(String text) {
   final components = <_Component>[];
   for (final piece in pieces) {
     final split = splitShoppingAmount(piece);
-    if (split.amount != null && !isShoppingModifier(split.label)) {
+    // "z. B. Spaghetti", "oder Quinoa": the item before, described.
+    if (_alternative.hasMatch(foldShoppingText(piece))) {
+      if (components.isEmpty) return null;
+      final last = components.removeLast();
+      components.add(_Component(last.amount, '${last.label}, $piece'));
+    } else if (split.amount != null && !isShoppingModifier(split.label)) {
       components.add(_Component(split.amount, split.label));
     } else if (isShoppingModifier(piece) ||
         parseShoppingAmount(piece) != null) {
@@ -599,6 +682,11 @@ List<_Component>? _components(String text) {
   }
   return components.length >= 2 ? components : null;
 }
+
+final _alternative = RegExp(
+  r'^(?:z\.?\s?b\.?|zb|e\.?\s?g\.?|bspw\.?|beispielsweise|such as|like|wie'
+  r'|oder|or|bzw\.?|alternativ\w*|ersatzweise|statt|instead)(?=\s|$)',
+);
 
 /// [text] split at commas and semicolons outside parentheses; a line
 /// without an amount also at "und", "and", "&" and "sowie".
@@ -633,13 +721,19 @@ List<String> _topLevelSplit(String text, bool hasAmount) {
 /// or parenthesis unless that drops what makes the product ("Kartoffeln,
 /// festkochend").
 String _mergedLabel(List<ShoppingPart> parts, String? language) {
-  int rank(ShoppingPart part) =>
-      (language != null && part.key.languages.contains(language) ? 0 : 2) +
-      (part.key.ambiguous ? 1 : 0);
+  final bases = {for (final part in parts) part: _baseLabel(part)};
+  // The language of the name as written ("Sesam" is German, "sesame"
+  // English), else of the synonym it matched.
+  int rank(ShoppingPart part) {
+    final languages = shoppingNameLanguages(bases[part]!) ?? part.key.languages;
+    return (language != null && languages.contains(language) ? 0 : 2) +
+        (part.key.ambiguous ? 1 : 0);
+  }
+
   final best = parts.map(rank).reduce((a, b) => a < b ? a : b);
   final names = <String>{
     for (final part in parts)
-      if (rank(part) == best) _baseLabel(part),
+      if (rank(part) == best) bases[part]!,
   }.toList();
   names.sort((a, b) {
     final byLength = a.length.compareTo(b.length);
@@ -651,8 +745,15 @@ String _mergedLabel(List<ShoppingPart> parts, String? language) {
 }
 
 String _baseLabel(ShoppingPart part) {
+  // Also before an alternative another part may not have ("Cilantro or
+  // parsley").
   final base = part.label
-      .split(RegExp(r'(?<!\d),|,(?!\d)|\('))
+      .split(
+        RegExp(
+          r'(?<!\d),|,(?!\d)|\(|(?<!\d)/(?!\d)|\s(?:oder|or)\s',
+          caseSensitive: false,
+        ),
+      )
       .first
       .replaceFirst(_trailingOptional, '')
       .trim();
@@ -686,8 +787,11 @@ bool _isPantry(ShoppingStaple staple, List<ShoppingPart> parts) {
         for (final use in part.uses) {
           final amount = use.amount ?? use._original;
           if (amount == null) {
-            // Unparsed: could be a kilo.
-            if (use.text != null) return false;
+            // Unparsed: could be a kilo; a splash is not.
+            if (use.text case final text? when !_smallMeasure.hasMatch(text)) {
+              return false;
+            }
+            if (use.text == null && _hasUnreadAmount(part.label)) return false;
             continue;
           }
           switch (amount.unit) {
@@ -705,6 +809,16 @@ bool _isPantry(ShoppingStaple staple, List<ShoppingPart> parts) {
       return mass <= limit && volume <= limit;
   }
 }
+
+/// "1 Schuss", "ein Spritzer", "a splash": measured like a spoon.
+final _smallMeasure = RegExp(
+  r'^(?:(?:ca\.?|etwa|about)\s*)?'
+  r'(?:\d+(?:[.,]\d+)?|ein(?:e[nmr]?)?|an?|one|two|three|zwei|drei'
+  r'|einige[nr]?|ein paar|a few|some|etwas)?'
+  r'\s*(?:schuss|spritzer|tropfen|dash(?:es)?|splash(?:es)?|drops?'
+  r'|drizzles?)\.?$',
+  caseSensitive: false,
+);
 
 /// Only a single-letter capital: "ß" would grow into "SS".
 String _capitalized(String text) {

@@ -141,6 +141,26 @@ ShoppingAmount? parseShoppingAmount(String text, {String? decimalSeparator}) {
   return (amount: amount.trim(), label: label);
 }
 
+/// An amount after the name, the way captions write it: "Hähnchenbrust
+/// 150g", "Skyr: 150 g", "Haferflocken – 40 g", "Hähnchenbrust (ca. 150
+/// g)". Without a colon, dash or brackets it needs a unit, so "Mehl Type
+/// 405" has none. Null when [text] does not end in an amount that parses.
+({String amount, String label})? splitTrailingShoppingAmount(String text) {
+  final match = _trailingAmount.firstMatch(_plain(text).trim());
+  if (match == null) return null;
+  final mark = match.namedGroup('mark')?.trim();
+  final closed = match.namedGroup('close') != null;
+  if ((mark == '(') != closed) return null;
+  if (mark == null && match.namedGroup('unit') == null) return null;
+  final amount = match.namedGroup('amount')!.replaceAll(RegExp(r'\s+'), ' ');
+  final label = match.namedGroup('label')!.trim();
+  if (parseShoppingAmount(amount) == null ||
+      !RegExp(r'\p{L}', unicode: true).hasMatch(label)) {
+    return null;
+  }
+  return (amount: amount, label: label);
+}
+
 /// Unicode fractions as "1 1/2", like the receipt's own amount column.
 String _plain(String text) => text.replaceAllMapped(
   RegExp(r'(\d?)\s*([½¼¾⅓⅔⅛⅜⅝⅞])'),
@@ -313,8 +333,8 @@ const _otherUnits =
     r'Stangen?|Knollen?|Köpfe|Kopf|Töpfe|Topf|Beutel|Tüten?|Netze?|Schalen?'
     r'|Spritzer|Schuss|Tropfen|Würfel|Blätter|Blatt|Stiele?|Rispen?|Kugeln?'
     r'|Flaschen?|Tafeln?|Riegel|stalks?|sticks?|heads?|bulbs?|bags?|packets?'
-    r'|packages?|bottles?|dash(?:es)?|splash(?:es)?|drops?|cubes?|leaves|leaf'
-    r'|sheets?|balls?|bars?|ears?';
+    r'|packages?|bottles?|dash(?:es)?|splash(?:es)?|drizzles?|drops?|cubes?'
+    r'|leaves|leaf|sheets?|balls?|bars?|ears?';
 
 final String _unitWords = [
   ..._units.keys.toList()..sort((a, b) => b.length.compareTo(a.length)),
@@ -343,6 +363,17 @@ final _leadingAmount = RegExp(
   '(?:\\s*[x×]\\s*(?:$_numberPattern))?'
   '(?:\\s*(?:$_unitWords|$_otherUnits)\\.?(?=\\s))?)'
   '\\s+(?<label>\\S.*)\$',
+  caseSensitive: false,
+  unicode: true,
+);
+
+final _trailingAmount = RegExp(
+  '^(?<label>.*?\\S)(?:\\s*(?<mark>:|\\s[-–—]|\\()\\s*|\\s+)'
+  '(?<amount>$_approx(?:$_numberPattern)'
+  '(?:\\s*[-–—]\\s*(?:$_numberPattern))?'
+  '(?:\\s*[x×]\\s*(?:$_numberPattern))?'
+  '(?:\\s*(?<unit>$_unitWords)\\.?)?)'
+  '\\s*(?<close>\\))?\$',
   caseSensitive: false,
   unicode: true,
 );

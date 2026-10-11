@@ -664,6 +664,7 @@ const _units = {
   "stange", "stangen", "stick", "sticks", "stalk", "stalks", "knolle", //
   "knollen", "bulb", "kopf", "koepfe", "head", "heads", "topf", "pot", //
   "spritzer", "splash", "dash", "schuss", "tropfen", "drop", "drops", //
+  "drizzle", "drizzles", //
   "handvoll", "handful", "handfuls", "scheibe", "slice", "cm", "mm", //
   "bund", "bunch", "bunches", "zweig", "zweige", "sprig", "sprigs", //
   "blatt", "blaetter", "stiel", "stiele", "stem", "stems", "groesse", //
@@ -936,6 +937,26 @@ final Map<String, _Entry> _aliases = () {
           if (previous?.id == id) ...previous!.languages,
           language,
         });
+      }
+    }
+  }
+  return map;
+}();
+
+/// The app languages a name is written in when it is one of the synonym
+/// table's spellings ("Sesam" German, "sesame" English, "Feta" both); null
+/// for any other name.
+Set<String>? shoppingNameLanguages(String name) =>
+    _spellings[foldShoppingText(name).trim()];
+
+final Map<String, Set<String>> _spellings = () {
+  final map = <String, Set<String>>{};
+  for (final line in _synonyms) {
+    final [_, de, en] = line.split('|');
+    for (final (language, names) in [("de", de), ("en", en)]) {
+      for (final name in names.split(',')) {
+        if (name.trim() == '-') continue;
+        (map[foldShoppingText(name.trim())] ??= {}).add(language);
       }
     }
   }

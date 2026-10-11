@@ -168,6 +168,37 @@ void main() {
     }
   });
 
+  test('eine Menge hinter dem Namen braucht eine Einheit oder ein Zeichen', () {
+    const cases = <String, (String, String)?>{
+      'Hähnchenbrust 150g': ('150g', 'Hähnchenbrust'),
+      'Hähnchenbrust 150 g': ('150 g', 'Hähnchenbrust'),
+      'Skyr: 150 g': ('150 g', 'Skyr'),
+      'Haferflocken – 40 g': ('40 g', 'Haferflocken'),
+      'Hähnchenbrustfilet (ca. 200 g)': ('ca. 200 g', 'Hähnchenbrustfilet'),
+      'Brot 2 Scheiben': ('2 Scheiben', 'Brot'),
+      'Mehl Type 550 1 kg': ('1 kg', 'Mehl Type 550'),
+      'Eier: 2': ('2', 'Eier'),
+      'Zwiebel (1)': ('1', 'Zwiebel'),
+      // A number that is not an amount, or nothing after the name.
+      'Mehl Type 405': null,
+      'Joghurt 1,5 %': null,
+      'Eier 2': null,
+      'Zwiebel (1': null,
+      'Tortilla-Wrap': null,
+      'Reis (300 g gekocht)': null,
+      '150 g': null,
+      'Salz': null,
+    };
+    for (final MapEntry(key: text, value: expected) in cases.entries) {
+      final split = splitTrailingShoppingAmount(text);
+      expect(
+        split == null ? null : (split.amount, split.label),
+        expected,
+        reason: text,
+      );
+    }
+  });
+
   test('Summen je Einheit, Spannen getrennt, ca. steckt an', () {
     final sums = sumShoppingAmounts([
       _a(ShoppingUnit.handful, 1),

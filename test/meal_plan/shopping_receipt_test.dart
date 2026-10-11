@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/persisted_labels.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/models/shopping_receipt.dart';
@@ -396,6 +397,188 @@ void main() {
     expect(pantry(['2 EL gehackte Petersilie'], 'parsley|fresh'), isFalse);
     expect(pantry(['1 Zweig Rosmarin'], 'rosemary|fresh'), isFalse);
     expect(pantry(['1 TL Rosmarin'], 'rosemary|dried'), isTrue);
+    // A splash or a dash is measured like a spoon; a bottle is bought.
+    expect(
+      pantry(['2 EL Sojasauce', '1 Schuss Sojasauce'], 'soy_sauce'),
+      isTrue,
+    );
+    expect(pantry(['1 Spritzer Zitronensaft'], 'lemon_juice'), isTrue);
+    expect(pantry(['A splash of soy sauce'], 'soy_sauce'), isTrue);
+    expect(pantry(['Ein paar Tropfen Sesamöl'], 'sesame_oil'), isTrue);
+    expect(pantry(['Drizzle of olive oil'], 'olive_oil'), isTrue);
+    expect(pantry(['1 Flasche Sojasauce'], 'soy_sauce'), isFalse);
+    // An amount left in the name could be a kilo.
+    expect(pantry(['Olivenöl 200ml'], 'olive_oil'), isFalse);
+    expect(pantry(['Olivenöl (eine 500-ml-Flasche)'], 'olive_oil'), isFalse);
+    expect(pantry(['Mehl Type 405'], 'type405+flour'), isTrue);
+    // The amount keeps its own case, not the line's capital.
+    final splash = _receipt([
+      _plan(_own('A splash of soy sauce\nEin Schuss Essig\n1 Dash Tabasco'), 1),
+    ]);
+    expect(_row(splash, 'soy_sauce').texts, ['a splash']);
+    expect(_row(splash, 'essig').texts, ['ein Schuss']);
+    expect(_row(splash, 'tabasco').texts, ['1 dash']);
+  });
+
+  test(
+    'Mengen hinter dem Namen und nach einem Aufzählungszeichen zählen mit',
+    () {
+      var receipt = _receipt([
+        _plan(_own('Hähnchenbrust 150g\nSkyr 200g\nHaferflocken 50g'), 1),
+        _plan(
+          _own('Hähnchenbrust (150 g)\nSkyr: 150 g\nHaferflocken – 40 g'),
+          2,
+          day: 1,
+        ),
+        _plan(
+          _own('200 g Hähnchenbrust\n150 g Skyr\n60 g Haferflocken'),
+          3,
+          day: 2,
+        ),
+        _plan(_own('✅ 150 g Hähnchenbrust\n✅ 1/2 Gurke\n🔸 2 Eier'), 4, day: 3),
+        _plan(_own('1/2 Gurke\n1 Ei\nTomaten, 2 Stück'), 5, day: 4),
+      ], l10n: deL10n);
+      final chicken = _row(receipt, 'chicken_breast');
+      expect(chicken.label, 'Hähnchenbrust');
+      expect(chicken.total, [_a(ShoppingUnit.mass, 650)]);
+      expect(_row(receipt, 'skyr').total, [_a(ShoppingUnit.mass, 500)]);
+      expect(_row(receipt, 'oats').total, [_a(ShoppingUnit.mass, 150)]);
+      expect(_row(receipt, 'cucumber').total, [_a(ShoppingUnit.piece, 1)]);
+      expect(_row(receipt, 'egg').total, [_a(ShoppingUnit.piece, 3)]);
+      expect(_row(receipt, 'tomato').label, 'Tomaten');
+      expect(_row(receipt, 'tomato').total, [_a(ShoppingUnit.piece, 2)]);
+      // A type or a fat level is no amount.
+      expect(splitTrailingShoppingAmount('Mehl Type 405'), isNull);
+      expect(splitTrailingShoppingAmount('Joghurt 1,5 %'), isNull);
+
+      // What is still unread stays on a row of its own, as written.
+      receipt = _receipt([
+        _plan(_own('Reis (300 g gekocht)\n200 g Hähnchenbrust'), 1),
+        _plan(_own('100 g Reis'), 2, day: 1),
+      ]);
+      final rice = _all(receipt).where((r) => r.label.startsWith('Reis'));
+      expect(rice.map((r) => r.label), ['Reis', 'Reis (300 g gekocht)']);
+      expect(rice.map((r) => r.merged), [false, false]);
+      expect(rice.map((r) => r.total), [
+        [_a(ShoppingUnit.mass, 100)],
+        isEmpty,
+      ]);
+
+      // An import for four planned for one: the amount after the name is
+      // converted; one left in the name is marked as the recipe's.
+      receipt = _receipt([
+        _plan(_imported('Hähnchenbrust 600g\nReis (300 g gekocht)'), 1),
+        _plan(_own('200 g Hähnchenbrust'), 2, day: 1),
+      ]);
+      expect(_row(receipt, 'chicken_breast').total, [
+        _a(ShoppingUnit.mass, 350),
+      ]);
+      final cooked = _row(receipt, 'cooked+rice');
+      expect(
+        (cooked.uses.single.scale, cooked.uses.single.batchServings),
+        (ShoppingScale.batch, 4.0),
+      );
+      expect(cooked.showsDetail, isTrue);
+    },
+  );
+
+  test('zusammengelegt wird nichts, dessen Menge im Namen steckt', () {
+    // The same unsplittable line in two meals: each keeps its own row, or
+    // the onion would be summed as cloves.
+    final listed = [
+      _plan(_own('1 Zwiebel, 1 Zehe, Xyzwurzel'), 1),
+      _plan(_own('1 Zwiebel, 1 Zehe, Xyzwurzel'), 2, day: 1),
+    ];
+    final lineIds = [
+      for (final item in buildShoppingList(listed, _week)) item.lines.single.id,
+    ];
+    final rows = _all(_receipt(listed));
+    expect(rows.map((r) => r.merged), [false, false]);
+    expect(rows.map((r) => r.id).toSet(), lineIds.toSet());
+    for (final row in rows) {
+      expect(row.total, hasLength(1));
+      expect(row.total.single.low, 1);
+    }
+    // Without an amount, the same line merges with itself.
+    final plain = _all(
+      _receipt([
+        _plan(_own('Sesam, Frühlingszwiebel, Xyzwurzel'), 1),
+        _plan(_own('Sesam, Frühlingszwiebel, Xyzwurzel'), 2, day: 1),
+      ]),
+    );
+    expect(plain.single.parts, hasLength(2));
+  });
+
+  test('Zehen zählt nur, wer Knoblauch heißt', () {
+    final receipt = _receipt([
+      _plan(
+        _own(
+          '2 Tomaten mit Knoblauchzehe\n'
+          '2 Brotscheiben, mit Knoblauchzehe eingerieben',
+        ),
+        1,
+      ),
+      _plan(_own('2 Knoblauchzehen\n1 kleine Knoblauchzehe, gehackt'), 2),
+    ]);
+    final totals = {for (final row in _all(receipt)) row.label: row.total};
+    expect(totals['Tomaten mit Knoblauchzehe'], [_a(ShoppingUnit.piece, 2)]);
+    expect(totals['Brotscheiben, mit Knoblauchzehe eingerieben'], [
+      _a(ShoppingUnit.piece, 2),
+    ]);
+    expect(_row(receipt, 'garlic').total, [_a(ShoppingUnit.clove, 3)]);
+  });
+
+  test('Beispiele und Alternativen sind keine eigene Zeile', () {
+    final receipt = _receipt([
+      _plan(_own('300 g Fischfilet, z.B. Lachs\n150 g rice, or quinoa'), 1),
+      _plan(_own('200 g Lachs'), 2, day: 1),
+    ]);
+    expect(_row(receipt, 'salmon').parts, hasLength(1));
+    expect(_row(receipt, 'salmon').total, [_a(ShoppingUnit.mass, 200)]);
+    expect(_row(receipt, 'rice').label, 'Rice, or quinoa');
+    expect(_all(receipt), hasLength(3));
+  });
+
+  test('Produkte ohne Namen bleiben getrennt, in jeder Sprache gleich', () {
+    RecipeIngredient product(String code, double grams) => RecipeIngredient(
+      name: PersistedLabels.productName(code),
+      grams: grams,
+      per100g: const RecipeNutrition(
+        caloriesKcal: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 2,
+      ),
+      source: IngredientSource.openFoodFacts,
+      productCode: code,
+    );
+    final plans = [
+      _plan(
+        _own(
+          '',
+        ).copyWith(structuredIngredients: [product('4001234567890', 100)]),
+        1,
+      ),
+      _plan(
+        _own(
+          '',
+        ).copyWith(structuredIngredients: [product('5009876543210', 250)]),
+        2,
+        day: 2,
+      ),
+    ];
+    final de = _receipt(plans, l10n: deL10n).rows;
+    final en = _receipt(plans, l10n: enL10n).rows;
+    expect(de.map((r) => r.merged), [false, false]);
+    expect(de.map((r) => r.label), [
+      'Produkt 4001234567890',
+      'Produkt 5009876543210',
+    ]);
+    expect(en.map((r) => r.label), [
+      'Product 4001234567890',
+      'Product 5009876543210',
+    ]);
+    expect(en.map((r) => r.id), de.map((r) => r.id));
   });
 
   test('aufgeteilt wird eine Zeile nur, wenn jedes Stück bekannt ist', () {
@@ -437,6 +620,13 @@ void main() {
       'Sesam, Frühlingszwiebel, Xyzwurzel': null,
       '250 g Gemüse: Brokkoli, Zucchini': null,
       '120 g Blattsalat und Rucola': null,
+      // An example or an alternative describes the item before.
+      '250 g Nudeln, z. B. Spaghetti': null,
+      '300 g Fischfilet, z.B. Lachs': null,
+      '150 g Reis, oder Quinoa': null,
+      '150 g rice, or quinoa': null,
+      'Kräuter, z. B. Petersilie': null,
+      'Salz, oder Kräutersalz': null,
       'Salz': null,
     };
     for (final MapEntry(key: text, value: expected) in cases.entries) {
@@ -723,6 +913,30 @@ void main() {
     expect(
       label(['1 TL Paprikapulver', 'Salz, Pfeffer, Paprika'], 'paprika_powder'),
       'Paprikapulver',
+    );
+    // Not an alternative only one recipe allows.
+    expect(
+      label(['1 EL Olivenöl oder Butter', '8 g olive oil'], 'olive_oil'),
+      'Olivenöl',
+    );
+
+    // The app language by the name as written: "Sesam" is German.
+    String english(List<String> lines, String key) => _row(
+      _receipt([
+        for (var i = 0; i < lines.length; i++) _plan(_own(lines[i]), i + 1),
+      ], l10n: enL10n),
+      key,
+    ).label;
+    expect(
+      english(['1 EL Sesam', '1 tbsp sesame seeds'], 'sesame'),
+      'Sesame seeds',
+    );
+    expect(
+      english([
+        '1 handful cilantro or parsley',
+        '1 Bund Koriander',
+      ], 'coriander_leaf|fresh'),
+      'Cilantro',
     );
   });
 
