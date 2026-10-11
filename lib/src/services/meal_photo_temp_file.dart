@@ -134,25 +134,27 @@ Future<void> discardLostPickerMedia({
   }
 }
 
-/// The image files the picker writes to the cache: camera captures,
-/// `scaled_` copies and full gallery copies in UUID directories, which go
-/// once empty. Narrow on purpose, so other plugins' cache files stay.
+/// The files the picker writes to the cache: camera captures, `scaled_`
+/// copies and full gallery copies in UUID directories, which go once empty.
+/// A copy keeps the extension its MIME type maps to (`.dng`, `.avif`) or
+/// none, and its `scaled_` copy the same name, so both are matched by where
+/// the picker writes them, never by extension. Other cache files stay.
 Future<void> _sweepPickerFiles(Directory cache) async {
   await for (final entry in cache.list(followLinks: false)) {
     final name = _baseName(entry.path);
     if (entry is File) {
       if (_cameraCaptureName.hasMatch(name) ||
-          (name.startsWith(_scaledPrefix) && _imageFileName.hasMatch(name))) {
+          (name.startsWith(_scaledPrefix) && name != _scaledPrefix)) {
         await _deleteQuietly(entry);
       }
     } else if (entry is Directory && _pickerCopyDirName.hasMatch(name)) {
       try {
+        // Only the picker creates UUID directories at the top of the cache,
+        // one per pick, for the full copy of that pick.
         await for (final child in entry.list(followLinks: false)) {
-          if (child is File && _imageFileName.hasMatch(_baseName(child.path))) {
-            await _deleteQuietly(child);
-          }
+          if (child is File) await _deleteQuietly(child);
         }
-        // Non-recursive: a directory with anything else in it stays.
+        // Non-recursive: a directory with a subdirectory or link stays.
         await entry.delete();
       } catch (_) {
         // Not empty or unlistable: left as it is.
@@ -160,11 +162,6 @@ Future<void> _sweepPickerFiles(Directory cache) async {
     }
   }
 }
-
-final RegExp _imageFileName = RegExp(
-  r'\.(jpe?g|png|webp|heic|heif|gif|bmp)$',
-  caseSensitive: false,
-);
 
 Future<void> _deleteQuietly(File file) async {
   try {

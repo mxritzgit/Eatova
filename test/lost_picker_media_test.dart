@@ -103,7 +103,7 @@ void main() {
         final recording = write('describe_voice.m4a');
         final ownName = write('IMG_0999.jpg');
         final cameraPlugin = write('CAP2387612.jpg');
-        final foreignInUuid = write('$_otherUuid/notes.txt');
+        final otherPlugin = write('share_plus/IMG_0412.heic');
         final picker = _LostPicker(
           () async => LostDataResponse(
             file: XFile(scaled.path),
@@ -124,7 +124,7 @@ void main() {
         }
         expect(galleryCopy.existsSync(), isFalse);
         expect(Directory(inCache(_galleryUuid)).existsSync(), isFalse);
-        for (final kept in [recording, ownName, cameraPlugin, foreignInUuid]) {
+        for (final kept in [recording, ownName, cameraPlugin, otherPlugin]) {
           expect(kept.existsSync(), isTrue, reason: kept.path);
         }
       },
@@ -142,6 +142,37 @@ void main() {
       );
 
       expect(orphan.existsSync(), isFalse);
+    });
+
+    test('fegt Kopien mit jeder oder ohne Endung', () async {
+      // The picker names its copy after the gallery item's MIME type: a RAW
+      // or AVIF photo keeps `.dng`/`.avif`, an unknown type no extension.
+      // The `scaled_` copy carries the same name and the original's EXIF.
+      final raw = write('$_galleryUuid/PXL_20261011.dng');
+      final bare = write('$_otherUuid/IMG_2');
+      final scaledRaw = write('scaled_PXL_20261011.dng');
+      final scaledBare = write('scaled_IMG_2');
+      final ownName = write('IMG_0999.jpg');
+      final cameraPlugin = write('CAP2387612.jpg');
+      final otherPlugin = write('share_plus/PXL_20261011.dng');
+      ImagePickerPlatform.instance = _LostPicker(
+        () async => LostDataResponse.empty(),
+      );
+
+      await discardLostPickerMedia(
+        onAndroid: true,
+        cacheDirectory: () async => cache,
+      );
+
+      for (final gone in [raw, bare, scaledRaw, scaledBare]) {
+        expect(gone.existsSync(), isFalse, reason: gone.path);
+      }
+      for (final uuid in [_galleryUuid, _otherUuid]) {
+        expect(Directory(inCache(uuid)).existsSync(), isFalse, reason: uuid);
+      }
+      for (final kept in [ownName, cameraPlugin, otherPlugin]) {
+        expect(kept.existsSync(), isTrue, reason: kept.path);
+      }
     });
 
     test('ausserhalb von Android passiert nichts', () async {
