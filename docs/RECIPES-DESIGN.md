@@ -54,9 +54,11 @@ theme radii. The mockup is implemented as native Flutter UI with real recipe dat
   meal slot and portions. Selecting a recipe after scrolling resets the sheet to
   its heading; large text receives the full width below the photo.
 - Shopping List shows weekly progress, clear checked states and completion copy.
-  Checked rows stay in place. Quantified ingredients and free-text recipe
-  reminders remain distinct; no quantities are guessed. Week changes preserve
-  each week's checks. Loading, retry and empty states use the same visual system.
+  Checked rows stay in place. Since 2026-10-11 it is one weekly receipt: the
+  same ingredient from several meals is one row with the summed amount, and
+  spices and staples sit in a collapsed pantry section (see
+  [the feature inventory](FEATURES.md)). Week changes preserve each week's
+  checks. Loading, retry and empty states use the same visual system.
 
 Services, recipe calculations, snapshots, encrypted cache/outbox, account
 isolation and explicit-confirmation rules are preserved. Planned snapshots can

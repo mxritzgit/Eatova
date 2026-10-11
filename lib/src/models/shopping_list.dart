@@ -182,9 +182,7 @@ List<ShoppingItem> buildShoppingList(
             previous?.name ??
             (l10n == null ? ingredient.name : ingredient.displayName(l10n)),
         stored: previous?.stored ?? ingredient.name,
-        grams:
-            (previous?.grams ?? 0) +
-            ingredient.grams * plan.servings / recipe.batchServings,
+        grams: (previous?.grams ?? 0) + share,
       );
     }
   }

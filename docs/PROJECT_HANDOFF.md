@@ -3672,3 +3672,61 @@ small phone.
   the merged `main`. After the deploy, check on a test account that a
   streamed answer whose connection was dropped appears in the transcript
   within the deadline and spends one slot.
+
+## Weekly shopping receipt, 2026-10-11
+
+Owner request: one receipt for the week, so that "Chicken mit Reis" and
+"Chicken mit Schupfnudeln" give one chicken row, without a list where
+"20 Sachen nur irgendwelche Pulver sind". Built without waiting for a go, as
+the owner asked.
+
+**What changed (client only):**
+- New models: `shopping_amount.dart` reads free-text amounts (numbers,
+  fractions, ranges, "ca.", German and English units, trailing amounts);
+  `shopping_ingredient_key.dart` folds a name to a merge key with a DE/EN
+  synonym table, product words that must not merge, and a staple class;
+  `shopping_receipt.dart` builds rows, the pantry and the empty-recipe note.
+- `meal_plan_screen.dart` and `meal_plan_shopping.dart` render one list
+  sorted by name, a detail line per row that spans several meals or is
+  unconverted, and a collapsed "Gewürze & Vorrat" section with its own
+  count. The pantry is outside the totals, the progress and the stamp.
+- Check ids: a single-part row keeps its earlier id, a merged row hashes its
+  key and part ids, and older checks still count through the legacy ids. One
+  tap writes one check, so SYNC-3's receipt cost does not grow. Ids are built
+  over the week including eaten meals, so eating one meal does not untick a
+  bought merged row.
+- No schema, sync or function change.
+
+**Decisions made without the owner (open for review):**
+- Catalog recipes are now scaled per serving. Own and Coach recipes at any
+  serving count other than one keep their written amounts with
+  "(Originalrezept)" and stay out of the total, as `projectRecipeIngredients`
+  already treats them.
+- Powders (including protein and cocoa powder), salt, pepper, dried herbs and
+  stock always go to the pantry. Oil and vinegar stay there up to 100 g/ml a
+  week, other staples up to 50 g. The full German catalog week puts olive oil
+  at 101 g in the main list.
+- A bare "Paprika" or "Chili" with no amount and no hint stays its own
+  unresolved row and never merges. "mit"/"with" no longer cuts a name, so
+  "Frischkäse mit Kräutern" does not merge with plain cream cheese.
+- Removing a meal still reopens the merged rows it fed, because the store
+  drops removed meals.
+- Copy: "Meist schon im Schrank. Hake ab, was du noch hast.", toggle
+  "Einzeln abhaken"/"Einklappen", English "Spices & pantry" and
+  "(recipe serves N)".
+
+**Verification:** a workflow built the model and the UI, then four reviews
+(correctness, heuristics, design and accessibility, tests) gave 37 findings.
+Each was checked by a separate agent with a throwaway test: 31 confirmed and
+fixed with a regression test seen failing on the old code, 6 refuted. Full
+suite 7,522/7,522, coverage 97.19% without generated l10n. The 60 catalog
+recipes as one week give 90 main and 28 pantry rows per language, with no
+salt, pepper, powder or water in the main list. Captures in dark and light
+were checked by eye.
+
+**Known limits:** at 320 px with 2x text, long single-word names still break
+inside the word, as before. Structured ingredients keep their stored name, so
+an English "Rice" can appear on a German receipt. Grouping by supermarket
+aisle would be a possible next step.
+
+**Rollout:** needs an app build; no deploy, no migration.
