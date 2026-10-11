@@ -1784,6 +1784,7 @@
   },
   "settingsDeleteAccountPromptSuffixCode": " zu tippen und danach einen 8-stelligen Code aus deiner E-Mail zu bestätigen. Erst dann ist dein Konto samt aller Daten weg — sofort und unwiderruflich.",
   "settingsDeleteAccountReauthExpired": "Die Bestätigung ist abgelaufen. Bitte starte die Kontolöschung neu und fordere einen neuen Code an.",
+  "settingsDeleteAccountNotDeletedNewCode": "Dein Konto wurde nicht gelöscht. Der Code ist damit verbraucht — fordere einen neuen an, um es noch einmal zu versuchen.",
   "settingsDeleteAccountRequestCta": "Code anfordern",
   "settingsDeleteAccountRequestingCta": "Code wird angefordert…",
   "mealUpdated": "Mahlzeit aktualisiert.",

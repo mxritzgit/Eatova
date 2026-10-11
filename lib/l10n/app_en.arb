@@ -1732,6 +1732,7 @@
   },
   "settingsDeleteAccountPromptSuffixCode": " and then to confirm an 8-digit code from your email. Only then are your account and all data gone — immediately and irreversibly.",
   "settingsDeleteAccountReauthExpired": "Your confirmation has expired. Please restart the account deletion and request a new code.",
+  "settingsDeleteAccountNotDeletedNewCode": "Your account was not deleted. That code is now used up — request a new one to try again.",
   "settingsDeleteAccountRequestCta": "Request code",
   "settingsDeleteAccountRequestingCta": "Requesting code…",
   "mealUpdated": "Meal updated.",
