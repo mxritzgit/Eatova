@@ -181,4 +181,55 @@ void main() {
           'auf dem Cache-Stand einfrieren',
     );
   });
+
+  // Review 2026-10-11 (FOOD-4): the favorites load had no such per-row
+  // guard, so one unreadable row failed it as a whole on every boot.
+  test('loadFavorites ueberspringt einen kaputten Favoriten statt alle zu '
+      'verlieren', () async {
+    final rows = <Map<String, dynamic>>[
+      {
+        'favorite_key': 'name:skyr',
+        'added_at': DateTime(2026, 8, 8, 12).toUtc().toIso8601String(),
+        'pinned': true,
+        'payload': mealResultToJson(
+          const MealAnalysisResult(
+            mealName: 'Skyr',
+            caloriesKcal: 90,
+            estimatedGrams: 150,
+            kcalPer100G: 60,
+            protein: '16 g',
+            carbs: '6 g',
+            fat: '0 g',
+            confidence: 'database',
+            portionNotes: '',
+          ),
+        ),
+      },
+      {
+        'favorite_key': 'name:geist',
+        'added_at': DateTime(2026, 8, 8, 13).toUtc().toIso8601String(),
+        'pinned': false,
+        'payload': <String, dynamic>{'mealName': 'Geist'},
+      },
+    ];
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'test-anon-key',
+      httpClient: MockClient(
+        (req) async => http.Response(
+          jsonEncode(rows),
+          200,
+          headers: const {'Content-Type': 'application/json'},
+          request: req,
+        ),
+      ),
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+    );
+
+    final favorites = await MealsSync(client, 'user-1').loadFavorites();
+
+    expect(favorites.map((f) => f.id), ['name:skyr']);
+    expect(favorites.single.pinned, isTrue);
+    expect(favorites.single.result.caloriesKcal, 90);
+  });
 }
