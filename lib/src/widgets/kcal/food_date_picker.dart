@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
@@ -211,8 +212,10 @@ class _DayPreview extends StatelessWidget {
 /// month leaves no empty band.
 ///
 /// A swipe sideways pages too. Every day is a button with its full date as
-/// its spoken name ("today" added), the arrow keys move between days, and a
-/// keyboard focus draws a ring.
+/// its spoken name ("today" added), and a keyboard focus draws a ring. The
+/// arrow keys move a day or a week and page on past the month's edge, as
+/// Material's picker did; Page Up/Down page a month, keeping the day.
+/// Chevrons, swipe and arrows follow the text direction.
 class FoodMonthCalendar extends StatefulWidget {
   const FoodMonthCalendar({
     super.key,
@@ -237,6 +240,21 @@ class _FoodMonthCalendarState extends State<FoodMonthCalendar> {
   /// +1 paging forward, -1 back: the direction the new month slides in from.
   int _direction = 0;
 
+  /// One node per day the grid has shown, so a key that pages can put the
+  /// focus on a day of the new month. Kept until the calendar goes away.
+  final Map<DateTime, FocusNode> _dayFocus = <DateTime, FocusNode>{};
+
+  FocusNode _focusFor(DateTime day) =>
+      _dayFocus.putIfAbsent(day, () => FocusNode(debugLabel: 'day $day'));
+
+  @override
+  void dispose() {
+    for (final node in _dayFocus.values) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
   static DateTime _monthOf(DateTime day) => DateTime(day.year, day.month);
 
   DateTime get _first => DateUtils.dateOnly(widget.firstDate);
@@ -259,6 +277,77 @@ class _FoodMonthCalendarState extends State<FoodMonthCalendar> {
       _month = DateTime(_month.year, _month.month + delta);
     });
   }
+
+  bool get _rtl => Directionality.of(context) == TextDirection.rtl;
+
+  /// The day that has the keyboard focus, if any.
+  DateTime? get _focusedDay {
+    for (final MapEntry(key: day, value: node) in _dayFocus.entries) {
+      if (node.hasPrimaryFocus) return day;
+    }
+    return null;
+  }
+
+  /// Focuses [day], paging to its month first when it is not on screen.
+  void _focusDay(DateTime day) {
+    final month = _monthOf(day);
+    if (month == _month) {
+      _focusFor(day).requestFocus();
+      return;
+    }
+    setState(() {
+      _direction = month.isAfter(_month) ? 1 : -1;
+      _month = month;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusFor(day).requestFocus();
+    });
+  }
+
+  /// An arrow key: a day sideways, a week up or down, across the month's
+  /// edge too; nothing past the pickable range.
+  void _arrow(DirectionalFocusIntent intent) {
+    final from = _focusedDay;
+    if (from == null) return;
+    final step = switch (intent.direction) {
+      TraversalDirection.up => -DateTime.daysPerWeek,
+      TraversalDirection.down => DateTime.daysPerWeek,
+      TraversalDirection.left => _rtl ? 1 : -1,
+      TraversalDirection.right => _rtl ? -1 : 1,
+    };
+    final target = DateTime(from.year, from.month, from.day + step);
+    if (target.isBefore(_first) || target.isAfter(_last)) return;
+    _focusDay(target);
+  }
+
+  /// Page Up/Down: the neighbouring month, on the same day where it has one.
+  void _pageByKey(int delta) {
+    if (delta < 0 ? !_canGoBack : !_canGoForward) return;
+    final from = _focusedDay ?? DateUtils.dateOnly(widget.selected);
+    final month = DateTime(_month.year, _month.month + delta);
+    final day = math.min(
+      from.day,
+      DateUtils.getDaysInMonth(month.year, month.month),
+    );
+    _focusDay(_clamp(DateTime(month.year, month.month, day)));
+  }
+
+  /// The day keys on the grid: arrows (past the month's edge too) and Page
+  /// Up/Down instead of the default geometric focus traversal.
+  Widget _keyboard(Widget grid) => CallbackShortcuts(
+    bindings: <ShortcutActivator, VoidCallback>{
+      const SingleActivator(LogicalKeyboardKey.pageUp): () => _pageByKey(-1),
+      const SingleActivator(LogicalKeyboardKey.pageDown): () => _pageByKey(1),
+    },
+    child: Actions(
+      actions: <Type, Action<Intent>>{
+        DirectionalFocusIntent: CallbackAction<DirectionalFocusIntent>(
+          onInvoke: _arrow,
+        ),
+      },
+      child: grid,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -305,14 +394,14 @@ class _FoodMonthCalendarState extends State<FoodMonthCalendar> {
           const SizedBox(width: 8),
           _MonthArrow(
             buttonKey: const ValueKey('food-date-month-previous'),
-            glyph: FoodGlyph.chevronLeft,
+            glyph: _rtl ? FoodGlyph.chevronRight : FoodGlyph.chevronLeft,
             tooltip: material.previousMonthTooltip,
             onTap: _canGoBack ? () => _page(-1) : null,
           ),
           const SizedBox(width: 4),
           _MonthArrow(
             buttonKey: const ValueKey('food-date-month-next'),
-            glyph: FoodGlyph.chevronRight,
+            glyph: _rtl ? FoodGlyph.chevronLeft : FoodGlyph.chevronRight,
             tooltip: material.nextMonthTooltip,
             onTap: _canGoForward ? () => _page(1) : null,
           ),
@@ -346,17 +435,22 @@ class _FoodMonthCalendarState extends State<FoodMonthCalendar> {
     final rowHeight = math.max(48.0, scaler.scale(14) * 1.25 + 14);
     final grid = KeyedSubtree(
       key: ValueKey(_month),
-      child: _MonthGrid(
-        month: _month,
-        firstWeekday: firstWeekday,
-        rowHeight: rowHeight,
-        selected: DateUtils.dateOnly(widget.selected),
-        today: DateUtils.dateOnly(widget.today),
-        first: _first,
-        last: _last,
-        onSelected: widget.onSelected,
+      child: _keyboard(
+        _MonthGrid(
+          month: _month,
+          firstWeekday: firstWeekday,
+          rowHeight: rowHeight,
+          selected: DateUtils.dateOnly(widget.selected),
+          today: DateUtils.dateOnly(widget.today),
+          first: _first,
+          last: _last,
+          focusFor: _focusFor,
+          onSelected: widget.onSelected,
+        ),
       ),
     );
+    // Toward the next month: leftwards in LTR, rightwards in RTL.
+    final forward = _rtl ? -1.0 : 1.0;
 
     return Column(
       key: const ValueKey('food-date-calendar-grid'),
@@ -377,7 +471,7 @@ class _FoodMonthCalendarState extends State<FoodMonthCalendar> {
             onHorizontalDragEnd: (details) {
               final velocity = details.primaryVelocity ?? 0;
               if (velocity.abs() < 300) return;
-              _page(velocity < 0 ? 1 : -1);
+              _page(velocity * forward < 0 ? 1 : -1);
             },
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -399,7 +493,10 @@ class _FoodMonthCalendarState extends State<FoodMonthCalendar> {
                     transitionBuilder: (child, animation) {
                       final incoming = child.key == ValueKey(_month);
                       final offset = Tween<Offset>(
-                        begin: Offset(incoming ? 0.08 * _direction : 0, 0),
+                        begin: Offset(
+                          incoming ? 0.08 * _direction * forward : 0,
+                          0,
+                        ),
                         end: Offset.zero,
                       ).animate(animation);
                       return FadeTransition(
@@ -475,6 +572,7 @@ class _MonthGrid extends StatelessWidget {
     required this.today,
     required this.first,
     required this.last,
+    required this.focusFor,
     required this.onSelected,
   });
 
@@ -482,6 +580,7 @@ class _MonthGrid extends StatelessWidget {
   final int firstWeekday;
   final double rowHeight;
   final DateTime selected, today, first, last;
+  final FocusNode Function(DateTime day) focusFor;
   final ValueChanged<DateTime> onSelected;
 
   @override
@@ -522,6 +621,7 @@ class _MonthGrid extends StatelessWidget {
     return _DayCell(
       key: ValueKey('food-date-day-${date.year}-${date.month}-${date.day}'),
       date: date,
+      focusNode: focusFor(date),
       selected: DateUtils.isSameDay(date, selected),
       isToday: DateUtils.isSameDay(date, today),
       onTap: enabled ? () => onSelected(date) : null,
@@ -533,12 +633,14 @@ class _DayCell extends StatefulWidget {
   const _DayCell({
     super.key,
     required this.date,
+    required this.focusNode,
     required this.selected,
     required this.isToday,
     required this.onTap,
   });
 
   final DateTime date;
+  final FocusNode focusNode;
   final bool selected;
   final bool isToday;
 
@@ -614,6 +716,7 @@ class _DayCellState extends State<_DayCell> {
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
+                    focusNode: widget.focusNode,
                     onTap: widget.onTap,
                     onFocusChange: (focused) =>
                         setState(() => _focused = focused),

@@ -2,13 +2,14 @@
 // 2026-10-11): it replaced Material's CalendarDatePicker, so what the stock
 // widget did for free is pinned here: the locale's first weekday, only the
 // weeks a month needs, the pickable range, paging, the spoken day names and
-// keyboard use.
+// keyboard use (arrows paging past the month's edge, Page Up/Down, RTL).
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
+import 'package:eatova/src/widgets/kcal/food_glyphs.dart';
 
 import '../../support/harness.dart';
 
@@ -29,6 +30,7 @@ Future<List<DateTime>> _pump(
   DateTime? selected,
   DateTime? firstDate,
   DateTime? lastDate,
+  TextDirection? textDirection,
 }) async {
   pinPhoneViewport(tester);
   final picks = <DateTime>[];
@@ -36,8 +38,8 @@ Future<List<DateTime>> _pump(
   await pumpLocalized(
     tester,
     StatefulBuilder(
-      builder: (context, setState) => SingleChildScrollView(
-        child: FoodMonthCalendar(
+      builder: (context, setState) {
+        final calendar = FoodMonthCalendar(
           selected: current,
           firstDate: firstDate ?? DateTime(2024, 9, 28),
           lastDate: lastDate ?? _today,
@@ -46,13 +48,44 @@ Future<List<DateTime>> _pump(
             current = day;
             picks.add(day);
           }),
-        ),
-      ),
+        );
+        return SingleChildScrollView(
+          child: textDirection == null
+              ? calendar
+              : Directionality(textDirection: textDirection, child: calendar),
+        );
+      },
     ),
     locale: locale,
     settle: true,
   );
   return picks;
+}
+
+/// Puts the keyboard focus on [day].
+Future<void> _focus(WidgetTester tester, Finder day) async {
+  Focus.of(
+    tester.element(find.descendant(of: day, matching: find.byType(Text))),
+  ).requestFocus();
+  await tester.pump();
+}
+
+/// Whether the primary focus sits inside [day].
+bool _focusedIn(WidgetTester tester, Finder day) {
+  final focused = FocusManager.instance.primaryFocus?.context;
+  if (focused == null || day.evaluate().isEmpty) return false;
+  final target = tester.element(day);
+  var inside = false;
+  focused.visitAncestorElements((element) {
+    if (element == target) inside = true;
+    return !inside;
+  });
+  return inside;
+}
+
+Future<void> _press(WidgetTester tester, LogicalKeyboardKey key) async {
+  await tester.sendKeyEvent(key);
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -216,5 +249,88 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
     expect(picks, [DateTime(2026, 9, 22)]);
+  });
+
+  testWidgets('the arrow keys page on past the edge of the month, and stop '
+      'at the end of the range', (tester) async {
+    await _pump(tester);
+    await _focus(tester, _day(9, 1));
+
+    await _press(tester, LogicalKeyboardKey.arrowLeft);
+    expect(_title(tester), 'August 2026');
+    expect(_focusedIn(tester, _day(8, 31)), isTrue);
+
+    await _press(tester, LogicalKeyboardKey.arrowRight);
+    expect(_title(tester), 'September 2026');
+    expect(_focusedIn(tester, _day(9, 1)), isTrue);
+
+    await _press(tester, LogicalKeyboardKey.arrowUp);
+    expect(_title(tester), 'August 2026');
+    expect(_focusedIn(tester, _day(8, 25)), isTrue);
+
+    await _press(tester, LogicalKeyboardKey.arrowDown);
+    expect(_focusedIn(tester, _day(9, 1)), isTrue);
+
+    // Today is the last pickable day: past it the focus stays put.
+    await _focus(tester, _day(9, 28));
+    await _press(tester, LogicalKeyboardKey.arrowRight);
+    expect(_focusedIn(tester, _day(9, 28)), isTrue);
+    await _press(tester, LogicalKeyboardKey.arrowDown);
+    expect(_focusedIn(tester, _day(9, 28)), isTrue);
+    expect(_title(tester), 'September 2026');
+  });
+
+  testWidgets('Page Up and Page Down page a month and keep the day', (
+    tester,
+  ) async {
+    final picks = await _pump(tester);
+    await _focus(tester, _day(9, 14));
+
+    await _press(tester, LogicalKeyboardKey.pageUp);
+    expect(_title(tester), 'August 2026');
+    expect(_focusedIn(tester, _day(8, 14)), isTrue);
+
+    await _press(tester, LogicalKeyboardKey.pageUp);
+    expect(_title(tester), 'July 2026');
+    await _focus(tester, _day(7, 31));
+    await _press(tester, LogicalKeyboardKey.pageDown);
+    expect(_focusedIn(tester, _day(8, 31)), isTrue);
+
+    // September stops at today (the 28th), so the 31st lands there.
+    await _press(tester, LogicalKeyboardKey.pageDown);
+    expect(_title(tester), 'September 2026');
+    expect(_focusedIn(tester, _day(9, 28)), isTrue);
+
+    // No month after the last one.
+    await _press(tester, LogicalKeyboardKey.pageDown);
+    expect(_title(tester), 'September 2026');
+    expect(picks, isEmpty, reason: 'paging only moves the focus');
+  });
+
+  testWidgets('right to left: the chevrons, the arrow keys and the swipe '
+      'mirror', (tester) async {
+    await _pump(tester, textDirection: TextDirection.rtl);
+    FoodGlyph glyphOf(String key) => tester
+        .widget<FoodGlyphIcon>(
+          find.descendant(of: _key(key), matching: find.byType(FoodGlyphIcon)),
+        )
+        .glyph;
+    expect(glyphOf('food-date-month-previous'), FoodGlyph.chevronRight);
+    expect(glyphOf('food-date-month-next'), FoodGlyph.chevronLeft);
+
+    await _focus(tester, _day(9, 14));
+    await _press(tester, LogicalKeyboardKey.arrowLeft);
+    expect(_focusedIn(tester, _day(9, 15)), isTrue);
+    await _press(tester, LogicalKeyboardKey.arrowRight);
+    expect(_focusedIn(tester, _day(9, 14)), isTrue);
+
+    // A swipe toward the left goes back in RTL.
+    await tester.fling(
+      find.byType(FoodMonthCalendar),
+      const Offset(-300, 0),
+      1200,
+    );
+    await tester.pumpAndSettle();
+    expect(_title(tester), 'August 2026');
   });
 }
