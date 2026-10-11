@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/l10n.dart';
 import '../../../theme/app_tokens.dart';
+import '../../../widgets/common/lively.dart';
 import '../../../widgets/design/design.dart';
 import 'player_format.dart';
 
@@ -45,25 +46,40 @@ class PlayerHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
-    final finish = FilledButton(
-      key: const ValueKey('training-timer-finish'),
-      onPressed: enabled ? onFinish : null,
-      style: FilledButton.styleFrom(
-        backgroundColor: t.accentTint,
-        foregroundColor: t.accentText,
-        minimumSize: const Size(64, 48),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-      ),
-      child: Text(
-        l.trainingTimerFinishShort,
-        style: AppType.ui(14, weight: FontWeight.w800),
+    // The soft accent pill ([SoftPillTone.accent]). Disabled while the
+    // workout saves, it dims in its own tint like that pill: the theme's
+    // disabled FilledButton is an accent wash that reads as selected. No
+    // vertical padding, so at large text the compact header stays as short.
+    final finish = PressScale(
+      enabled: enabled,
+      child: FilledButton(
+        key: const ValueKey('training-timer-finish'),
+        onPressed: enabled ? onFinish : null,
+        style: FilledButton.styleFrom(
+          backgroundColor: t.accentTint,
+          foregroundColor: t.accentText,
+          disabledBackgroundColor: t.accentTint.withValues(
+            alpha: t.accentTint.a * 0.6,
+          ),
+          disabledForegroundColor: t.accentText.withValues(alpha: 0.45),
+          minimumSize: const Size(64, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          shape: const StadiumBorder(),
+        ),
+        child: Text(
+          l.trainingTimerFinishShort,
+          style: AppType.ui(14, weight: FontWeight.w800),
+        ),
       ),
     );
+    // The app's overflow menu: MenuRow entries that open under the trigger.
+    // Discard only tints its glyph; the decision card that follows carries
+    // the red action.
     final menu = PopupMenuButton<String>(
       key: const ValueKey('training-timer-menu'),
       tooltip: l.trainingTimerMenu,
       enabled: enabled,
-      icon: const Icon(Icons.more_vert_rounded),
+      icon: const Icon(Icons.more_horiz_rounded),
       onSelected: (value) => switch (value) {
         'pause' => onPause?.call(),
         'resume' => onResume?.call(),
@@ -71,24 +87,25 @@ class PlayerHeader extends StatelessWidget {
       },
       itemBuilder: (context) => [
         if (onPause != null)
-          PopupMenuItem(
+          eatovaMenuItem(
             key: const ValueKey('training-timer-pause'),
             value: 'pause',
-            child: Text(l.trainingTimerPause),
+            icon: Icons.pause_rounded,
+            label: l.trainingTimerPause,
           ),
         if (onResume != null)
-          PopupMenuItem(
+          eatovaMenuItem(
             key: const ValueKey('training-timer-resume'),
             value: 'resume',
-            child: Text(l.trainingTimerResume),
+            icon: Icons.play_arrow_rounded,
+            label: l.trainingTimerResume,
           ),
-        PopupMenuItem(
+        eatovaMenuItem(
           key: const ValueKey('training-timer-discard'),
           value: 'discard',
-          child: Text(
-            l.trainingTimerDiscard,
-            style: TextStyle(color: t.danger),
-          ),
+          icon: Icons.delete_outline_rounded,
+          label: l.trainingTimerDiscard,
+          destructive: true,
         ),
       ],
     );
@@ -129,13 +146,19 @@ class PlayerHeader extends StatelessWidget {
                   MediaQuery.textScalerOf(context).scale(16) > 22;
               final top = Row(
                 children: [
-                  IconButton(
-                    key: const ValueKey('training-timer-back'),
-                    tooltip: l.trainingTimerBack,
-                    onPressed: backEnabled ? onBack : null,
-                    icon: const Icon(Icons.arrow_back_rounded),
+                  // The pushed pages' round chevron (44 px disc in a 48 px
+                  // target), not Material's bare arrow; the disc lines up
+                  // with the cards below.
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 10),
+                    child: SheetCloseButton(
+                      buttonKey: const ValueKey('training-timer-back'),
+                      tooltip: l.trainingTimerBack,
+                      icon: Icons.chevron_left_rounded,
+                      onTap: backEnabled ? onBack : null,
+                    ),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 8),
                   Expanded(child: heading),
                   if (!compact) ...[const SizedBox(width: 8), finish],
                   menu,

@@ -273,9 +273,9 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
         Flexible(
         child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
-            24,
+            20,
             0,
-            24,
+            20,
             24 + mediaQuery.viewPadding.bottom,
           ),
           child: Column(
@@ -285,23 +285,17 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
               Row(
                 children: [
                   Expanded(
-                    child: Text(
+                    child: SheetTitle(
                       l10n.foodManualEntryTitle,
-                      key: const ValueKey('manual-meal-title'),
-                      style: AppType.display(
-                        mediaQuery.textScaler.scale(24) > 36 ? 20 : 24,
-                        color: t.ink,
-                        height: 1.15,
-                      ),
+                      textKey: const ValueKey('manual-meal-title'),
+                      compact: mediaQuery.textScaler.scale(24) > 36,
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    key: const ValueKey('manual-meal-close'),
+                  SheetCloseButton(
+                    buttonKey: const ValueKey('manual-meal-close'),
                     tooltip: l10n.commonClose,
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: IconButton.styleFrom(backgroundColor: t.surf2),
-                    icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
+                    onTap: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
@@ -419,6 +413,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                       unit: 'g',
                       numeric: true,
                       errorText: _gramsFehler,
+                      onBrand: true,
                     ),
                     if (vorschau != null) ...[
                       const SizedBox(height: 16),
@@ -565,13 +560,18 @@ class _ManualGroup extends StatelessWidget {
                 Flexible(
                   child: Padding(
                     padding: const EdgeInsets.only(left: 10),
-                    child: Text(
-                      trailing!,
-                      textAlign: TextAlign.right,
-                      style: AppType.ui(
-                        11,
-                        weight: FontWeight.w500,
-                        color: t.ink2,
+                    // Flush with the field edge, not at the row's half mark.
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      heightFactor: 1,
+                      child: Text(
+                        trailing!,
+                        textAlign: TextAlign.end,
+                        style: AppType.ui(
+                          11,
+                          weight: FontWeight.w500,
+                          color: t.ink2,
+                        ),
                       ),
                     ),
                   ),
@@ -600,6 +600,7 @@ class _ManualField extends StatefulWidget {
     this.maxChars,
     this.errorText,
     this.dot,
+    this.onBrand = false,
   });
 
   final Key fieldKey;
@@ -616,6 +617,9 @@ class _ManualField extends StatefulWidget {
   final int? maxChars;
   final String? errorText;
   final Color? dot;
+
+  /// Sits on the brandSurface portion panel: [FieldCapsule.onBrand].
+  final bool onBrand;
 
   @override
   State<_ManualField> createState() => _ManualFieldState();
@@ -668,6 +672,7 @@ class _ManualFieldState extends State<_ManualField> {
         FieldCapsule(
           focusNode: _focus,
           error: hasError,
+          onBrand: widget.onBrand,
           padding: const EdgeInsets.symmetric(horizontal: 13),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,

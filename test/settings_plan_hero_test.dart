@@ -124,12 +124,13 @@ void main() {
 
     // The floor does not bind — the target lands exactly ON it and
     // `floorApplied` needs a real undershoot. The cap (858 rounded down to
-    // 825) slows −1100 to −825, and the sentence names the rounded step.
+    // 825) slows −1100 to −825; rounded to 50 kcal the plan runs −814, and
+    // the sentence names that deficit, as the onboarding breakdown does.
     expect(find.byKey(const ValueKey('settings-pace-warning')), findsOneWidget);
     expect(
       find.text(
         'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir '
-        'nicht: Dein Defizit ist auf 825 kcal/Tag begrenzt. Dein tatsächliches '
+        'nicht: Dein Defizit ist auf 814 kcal/Tag begrenzt. Dein tatsächliches '
         'Tempo ist damit −0,75 kg/Woche statt −1 kg/Woche.',
       ),
       findsOneWidget,

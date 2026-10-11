@@ -4,15 +4,268 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/app_tokens.dart';
+import '../common/lively.dart';
 import '../common/motion.dart';
 import 'controls.dart';
 import 'surfaces.dart';
 
 // ---------------------------------------------------------------------------
-// SHEETS — scaffold, input field, handle and the opener.
+// SHEETS — header, scaffold, input field, handle and the opener.
 //
 // Geometry 1:1 from the design mock; colors from [AppTokens].
 // ---------------------------------------------------------------------------
+
+/// The ONE close control of a sheet header: a 44 px [AppTokens.surf] disc
+/// with a 1 px [AppTokens.lineStrong] ring and an [AppTokens.inkMuted] glyph,
+/// drawn inside Material's 48 px touch target — the Food tab's round header
+/// button. The ring keeps it visible on the sheet ground in light mode,
+/// where the old `surf2` disc measured 1.05:1.
+///
+/// A null [onTap] renders the disabled state (e.g. while saving).
+class SheetCloseButton extends StatelessWidget {
+  const SheetCloseButton({
+    super.key,
+    required this.onTap,
+    this.buttonKey,
+    this.tooltip,
+    this.icon = Icons.close_rounded,
+  });
+
+  /// Visible diameter; the touch target is Material's 48 px.
+  static const double size = 44;
+
+  final VoidCallback? onTap;
+
+  /// Goes on the inner [IconButton], so a test can read `onPressed` by key.
+  final Key? buttonKey;
+
+  /// Tooltip and spoken name; null is Material's localized "Close".
+  final String? tooltip;
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return PressScale(
+      enabled: onTap != null,
+      child: IconButton(
+        key: buttonKey,
+        onPressed: onTap,
+        tooltip:
+            tooltip ?? MaterialLocalizations.of(context).closeButtonTooltip,
+        style: IconButton.styleFrom(
+          backgroundColor: t.surf,
+          foregroundColor: t.inkMuted,
+          disabledBackgroundColor: t.surf,
+          disabledForegroundColor: t.inkDisabled,
+          fixedSize: const Size.square(size),
+          minimumSize: const Size.square(size),
+          padding: EdgeInsets.zero,
+          shape: CircleBorder(side: BorderSide(color: t.lineStrong)),
+        ),
+        icon: Icon(icon, size: 20),
+      ),
+    );
+  }
+}
+
+/// Size of a sheet's level-1 title; [kSheetTitleCompactSize] where the
+/// height belongs to the content (camera and scanner viewfinders).
+const double kSheetTitleSize = 24;
+const double kSheetTitleCompactSize = 20;
+
+/// The style of a sheet's level-1 title, for headers that lay it out
+/// themselves; [SheetTitle] wraps it with the heading semantics.
+TextStyle sheetTitleStyle(AppTokens t, {bool compact = false}) =>
+    AppType.display(
+      compact ? kSheetTitleCompactSize : kSheetTitleSize,
+      color: t.ink,
+      height: 1.15,
+    );
+
+/// A sheet's title: [sheetTitleStyle], announced as a level-1 heading.
+///
+/// Large text never splits a word: where the widest word would not fit the
+/// column at the current text scale, the scale drops just enough that it
+/// does, but never below the title's own size. Next to a slot tile and the
+/// close ring, "Review analysis" broke into "Revie/w/analysi/s" at 2x on a
+/// 320 px phone. Titles that fit keep the full scale, so they stay above
+/// the sheet's section headings.
+class SheetTitle extends StatelessWidget {
+  const SheetTitle(
+    this.text, {
+    super.key,
+    this.compact = false,
+    this.textKey,
+    this.textScaler,
+  });
+
+  final String text;
+  final bool compact;
+
+  /// Goes on the inner [Text] (tests read its style by key).
+  final Key? textKey;
+
+  /// The scale before the whole-word fit, e.g. [AppType.pageTitleScaler];
+  /// null follows the text scale of the context.
+  final TextScaler? textScaler;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = sheetTitleStyle(context.t, compact: compact);
+    final scaler = textScaler ?? MediaQuery.textScalerOf(context);
+    return HeadingSemantics(
+      level: 1,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Text(
+          text,
+          key: textKey,
+          textScaler: AppType.wholeWordScaler(
+            context,
+            text: text,
+            style: style,
+            scaler: scaler,
+            maxWidth: constraints.maxWidth,
+            minScaleFactor: 1,
+          ),
+          style: style,
+        ),
+      ),
+    );
+  }
+}
+
+/// The header row of a sheet: optional [leading] tile, an optional
+/// [eyebrow] line, the [SheetTitle], an optional [subtitle] and the
+/// [SheetCloseButton].
+///
+/// Top-aligned, so a title that wraps at large text never pushes the close
+/// button down; a short block is centred on the 48 px button. The default
+/// right padding is 2 px short of the 20 px gutter because the 44 px ring
+/// sits inside its 48 px target, so the ring lines up with the content.
+class SheetHeader extends StatelessWidget {
+  const SheetHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.subtitleMaxLines,
+    this.eyebrow,
+    this.leading,
+    this.onClose,
+    this.closeEnabled = true,
+    this.closeKey,
+    this.closeTooltip,
+    this.titleKey,
+    this.titleScaler,
+    this.compact = false,
+    this.padding = defaultPadding,
+  });
+
+  /// [SheetHeader]'s default padding.
+  static const EdgeInsets defaultPadding = EdgeInsets.fromLTRB(
+    20,
+    4,
+    18,
+    14,
+  );
+
+  final String title;
+  final String? subtitle;
+
+  /// Caps the subtitle (ellipsis), e.g. a meal name under "Edit meal".
+  final int? subtitleMaxLines;
+
+  /// A small line above the title (the slot of a review sheet).
+  final Widget? eyebrow;
+
+  /// A tile in front of the text, centred on the first 48 px.
+  final Widget? leading;
+
+  /// Null hides the close button.
+  final VoidCallback? onClose;
+
+  /// False keeps the button visible but disabled (e.g. while saving).
+  final bool closeEnabled;
+
+  /// Goes on the close button's [IconButton].
+  final Key? closeKey;
+  final String? closeTooltip;
+  final Key? titleKey;
+
+  /// See [SheetTitle.textScaler]; the whole-word fit applies either way.
+  final TextScaler? titleScaler;
+  final bool compact;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final close = onClose;
+    return Padding(
+      padding: padding,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (leading != null) ...[
+            SizedBox(
+              height: kMinInteractiveDimension,
+              child: Center(child: leading),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: kMinInteractiveDimension,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (eyebrow != null) ...[
+                    eyebrow!,
+                    const SizedBox(height: 2),
+                  ],
+                  SheetTitle(
+                    title,
+                    compact: compact,
+                    textKey: titleKey,
+                    textScaler: titleScaler,
+                  ),
+                  if (subtitle != null && subtitle!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle!,
+                      maxLines: subtitleMaxLines,
+                      overflow: subtitleMaxLines == null
+                          ? null
+                          : TextOverflow.ellipsis,
+                      style: AppType.ui(
+                        13,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (close != null) ...[
+            const SizedBox(width: 8),
+            SheetCloseButton(
+              buttonKey: closeKey,
+              tooltip: closeTooltip,
+              onTap: closeEnabled ? close : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 /// A bottom sheet's inside: title, line, fields, one action at the foot.
 class SheetScaffold extends StatelessWidget {
@@ -25,13 +278,21 @@ class SheetScaffold extends StatelessWidget {
     this.destructive = false,
     this.onAction,
     this.actionEnabled = true,
+    this.icon,
   });
 
   final String title;
   final String subtitle;
   final List<Widget> children;
   final String actionLabel;
+
+  /// Danger action at the foot. The title stays `ink`: the red belongs to
+  /// the header glyph and the action, not to a whole line of text.
   final bool destructive;
+
+  /// Optional 48 px header tile above the title (danger tint when
+  /// [destructive], accent otherwise) — the decision card's header.
+  final IconData? icon;
 
   /// Defaults to closing: a sheet without its own action only confirms.
   final VoidCallback? onAction;
@@ -42,6 +303,10 @@ class SheetScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    // The tile is decoration: with large text it gives its room to the
+    // field and the action, which must stay in reach.
+    final showIcon =
+        icon != null && MediaQuery.textScalerOf(context).scale(14) <= 21;
     // Scrollable, not just shrink-wrapping: a plain Column overflowed by
     // ~101 px at textScaler 2.0.
     return SingleChildScrollView(
@@ -50,15 +315,23 @@ class SheetScaffold extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          if (showIcon) ...<Widget>[
+            ExcludeSemantics(
+              child: IconTile(
+                icon: icon!,
+                color: destructive ? t.danger : t.accent,
+                size: 48,
+                glyphSize: 22,
+                radius: rControl,
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
           HeadingSemantics(
             level: 1,
             child: Text(
               title,
-              style: AppType.display(
-                24,
-                color: destructive ? t.danger : t.ink,
-                height: 1.15,
-              ),
+              style: AppType.display(24, color: t.ink, height: 1.15),
             ),
           ),
           const SizedBox(height: 6),
@@ -66,7 +339,7 @@ class SheetScaffold extends StatelessWidget {
           const SizedBox(height: 18),
           ...children,
           const SizedBox(height: 20),
-          // The SAME primary action as every screen foot (ink/bg, rButton):
+          // The SAME primary action as every screen foot (accent, rButton):
           // a forest fill was 1.33:1 against `surf` in dark mode and gave the
           // app two primary-button languages. The button draws its own
           // disabled state, so no Opacity wrapper on top of it.
@@ -101,6 +374,14 @@ enum SheetFieldShape {
 /// wrap their field in this instead of picking surf/surf2/tile themselves.
 /// Pass the same [focusNode] the inner TextField uses, or drive [focused]
 /// yourself when the caller already tracks focus.
+///
+/// [onBrand] is the variant for a field inside an [AppTokens.brandSurface]
+/// panel, where `field` and `fieldFocus` all but vanish (1.00:1 light,
+/// 1.09:1 dark) and focus even moved the fill closer to the panel. It rests
+/// on `bg` (1.16:1 light, 1.43:1 dark against the panel) and focuses to
+/// `surf`, one step lighter in both palettes like the field/fieldFocus step.
+/// An error tints `surf` with `danger` (20 %), a clear step from rest and
+/// focus in both palettes with the hint still above 4.5:1.
 class FieldCapsule extends StatefulWidget {
   const FieldCapsule({
     super.key,
@@ -114,6 +395,7 @@ class FieldCapsule extends StatefulWidget {
     this.constraints,
     this.shadow = true,
     this.alignment,
+    this.onBrand = false,
   });
 
   final Widget child;
@@ -138,6 +420,9 @@ class FieldCapsule extends StatefulWidget {
   final bool shadow;
 
   final AlignmentGeometry? alignment;
+
+  /// The ground of a field on a `brandSurface` panel (see the class doc).
+  final bool onBrand;
 
   @override
   State<FieldCapsule> createState() => _FieldCapsuleState();
@@ -181,11 +466,21 @@ class _FieldCapsuleState extends State<FieldCapsule> {
   Widget build(BuildContext context) {
     final t = context.t;
     final focused = widget.focused ?? _hasFocus;
-    final fill = widget.error
+    final fill = widget.onBrand
+        ? widget.error
+              // fieldError is ~1.0:1 on the panel; the danger line under the
+              // field carries the message, the tint marks the field. Over
+              // surf, not bg: 12 % on the near-black dark bg stayed a dark
+              // well (1.16:1 to rest); 20 % on surf reads red in both modes.
+              ? Color.alphaBlend(t.danger.withValues(alpha: 0.2), t.surf)
+              : focused
+              ? t.surf
+              : t.bg
+        : widget.error
         ? t.fieldError
         : focused
-            ? t.fieldFocus
-            : t.field;
+        ? t.fieldFocus
+        : t.field;
     final radius = widget.shape == SheetFieldShape.pill ? rPill : rControl;
     return Opacity(
       opacity: widget.enabled ? 1 : 0.55,
@@ -262,7 +557,9 @@ class SheetField extends StatefulWidget {
   /// External focus node; without one the field owns (and disposes) its own.
   final FocusNode? focusNode;
 
-  /// Spoken name of the field for screen readers.
+  /// Spoken name of the field for screen readers. Where it already says
+  /// what [label] says, the eyebrow is not read on its own, so the field is
+  /// one stop; otherwise the eyebrow stays readable before the field.
   final String? semanticLabel;
 
   final List<TextInputFormatter>? inputFormatters;
@@ -341,19 +638,30 @@ class _SheetFieldState extends State<SheetField> {
         hintStyle: AppType.ui(14, color: t.ink2),
       ),
     );
-    if (widget.semanticLabel != null) {
-      field = Semantics(label: widget.semanticLabel, child: field);
+    final label = widget.label;
+    final spoken = widget.semanticLabel;
+    if (spoken != null) {
+      field = Semantics(label: spoken, child: field);
     }
+    // Where the field's own name says it, a screen reader skips the all-caps
+    // eyebrow instead of stopping on the same word twice.
+    final eyebrowSaid =
+        label != null &&
+        spoken != null &&
+        spoken.toLowerCase().contains(label.toLowerCase());
 
     return Padding(
       padding: EdgeInsets.only(bottom: widget.bottomGap),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          if (widget.label != null) ...<Widget>[
-            Text(
-              widget.label!.toUpperCase(),
-              style: AppType.eyebrow(t.ink2, size: 9.5),
+          if (label != null) ...<Widget>[
+            ExcludeSemantics(
+              excluding: eyebrowSaid,
+              child: Text(
+                label.toUpperCase(),
+                style: AppType.eyebrow(t.ink2, size: 9.5),
+              ),
             ),
             const SizedBox(height: 7),
           ],
@@ -573,6 +881,15 @@ class _SheetDismissGuardState extends State<SheetDismissGuard>
     );
   }
 }
+
+/// The 1 px [AppTokens.lineStrong] edge of a sheet that paints its own
+/// shell, for a Container's `foregroundDecoration`. Drawn over the content
+/// like the shape side of [showEatovaSheet]; as a border in `decoration` it
+/// would pad the content 1 px off the 20 px gutter.
+BoxDecoration sheetEdgeDecoration(AppTokens t) => BoxDecoration(
+  borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
+  border: Border.all(color: t.lineStrong),
+);
 
 /// Gap between the top safe area and a sheet's top edge.
 const double kSheetTopGap = 12;

@@ -19,6 +19,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/widgets/design/soft_actions.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
 import 'support/harness.dart';
@@ -214,7 +215,70 @@ void main() {
     expect(
       find.byKey(const ValueKey('manual-entry-cta')),
       findsNothing,
-      reason: 'kein „gibt es nicht" -> kein Weg ins Formular',
+      reason: 'kein „gibt es nicht" -> nicht der Leer-Aufruf zum Formular',
+    );
+
+    // Design pass 2026-10-11: the error state names a way forward. Retry
+    // leads, but only after a cooldown — an instant retry hits the same
+    // limit — and the form stays reachable as the second way.
+    final retry = find.byKey(const ValueKey('product-search-retry'));
+    expect(retry, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('product-search-error-manual')),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<SoftPillButton>(retry).onTap,
+      isNull,
+      reason: 'direkt nach dem 429 bleibt "Erneut versuchen" gesperrt',
+    );
+    await tester.pump(const Duration(seconds: 5));
+    expect(tester.widget<SoftPillButton>(retry).onTap, isNotNull);
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(dienst.aufrufe, 2, reason: 'der Nutzer hat bewusst neu gesucht');
+  });
+
+  testWidgets('unreachable search offers retry and the manual form', (
+    tester,
+  ) async {
+    final dienst = _ZaehlenderProduktdienst(
+      fehler: const SocketException('OpenFoodFacts unreachable'),
+    );
+    await _pumpeSheet(tester, dienst);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      'Bauernmozzarella',
+    );
+    // The magnifier is the explicit path that names a network error.
+    await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pumpAndSettle();
+    final calls = dienst.aufrufe;
+
+    expect(find.byKey(const ValueKey('manual-entry-cta')), findsNothing);
+    final retry = find.byKey(const ValueKey('product-search-retry'));
+    expect(retry, findsOneWidget);
+    expect(tester.widget<SoftPillButton>(retry).onTap, isNotNull);
+    await tester.tap(retry);
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pumpAndSettle();
+    expect(dienst.aufrufe, greaterThan(calls));
+
+    await tester.tap(
+      find.byKey(const ValueKey('product-search-error-manual')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('manual-meal-name')))
+          .controller!
+          .text,
+      'Bauernmozzarella',
+      reason: 'the form opens with the query as the name',
     );
   });
 

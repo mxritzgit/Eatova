@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../common/persistence_action.dart';
 import 'package:flutter/services.dart';
@@ -340,6 +341,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   /// The block under the "already added" list: favorites or search hits.
   final GlobalKey _belowAddedKey = GlobalKey(debugLabel: 'below-added');
+  final GlobalKey<_SearchBarState> _searchBarKey = GlobalKey<_SearchBarState>(
+    debugLabel: 'search-bar',
+  );
   Timer? _productSearchDebounce;
   int _productSearchRequestId = 0;
   final Map<String, List<ProductSearchResult>> _productSearchCache =
@@ -366,9 +370,22 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// their meal, not diagnose a network.
   bool _searchGaveUp = false;
 
-  /// Definitively nothing found OR the search gave up: both hand the user the
-  /// manual form. A 429 and the min-chars hint deliberately do not.
+  /// Why the last search failed when the SERVICE failed (unreachable, or
+  /// rate limited); null otherwise. Written with [_productSearchMessage] in
+  /// every branch and only ever set alongside a message, so
+  /// [_searchStateDirty] already covers it.
+  _SearchFailure? _searchFailure;
+
+  /// Definitively nothing found OR the search gave up: both lead with the
+  /// manual form. A 429 or an unreachable service lead with "Try again" and
+  /// keep the form as the second way; the min-chars hint offers neither.
   bool get _offerManualEntry => _searchCameUpEmpty || _searchGaveUp;
+
+  /// After a 429 the error state's retry stays disabled for
+  /// [_rateLimitRetryCooldown]: an instant retry runs into the same limit.
+  Timer? _retryCooldownTimer;
+  bool get _retryCoolingDown => _retryCooldownTimer?.isActive ?? false;
+  static const Duration _rateLimitRetryCooldown = Duration(seconds: 5);
 
   /// True once [_productSearchSlowAfter] passed with the search still running
   /// — shows the "taking longer" line plus the cancel button.
@@ -489,6 +506,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   void dispose() {
     _productSearchDebounce?.cancel();
     _searchSlowTimer?.cancel();
+    _retryCooldownTimer?.cancel();
     for (final t in _justAddedTimers.values) {
       t.cancel();
     }
@@ -650,6 +668,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSearchMessage = null;
         _searchCameUpEmpty = false;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
     }
     if (query.length < _autoSearchMinChars) return;
@@ -681,6 +700,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSearchMessage = context.l10n.foodSearchMinCharsHint;
         _searchCameUpEmpty = false;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
       return;
     }
@@ -702,6 +722,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
             : null;
         _searchCameUpEmpty = cached.isEmpty;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
       return;
     }
@@ -716,6 +737,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSearchMessage = context.l10n.foodSearchNoResultsHint;
         _searchCameUpEmpty = true;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
       return;
     }
@@ -728,6 +750,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _searchCameUpEmpty = false;
       _searchGaveUp = false;
       _productSearchMessage = null;
+      _searchFailure = null;
     });
     _armSlowHint(requestId);
 
@@ -748,6 +771,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
             : null;
         _searchCameUpEmpty = suggestions.isEmpty;
         _searchGaveUp = false;
+        _searchFailure = null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -761,6 +785,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
       // zone is the one answer the user cannot act on.
       final abgelaufen = error is TimeoutException;
       _searchSlowTimer?.cancel();
+      if (gedrosselt) {
+        _retryCooldownTimer?.cancel();
+        _retryCooldownTimer = Timer(_rateLimitRetryCooldown, () {
+          if (mounted) setState(() {});
+        });
+      }
       setState(() {
         _isSearchingProducts = false;
         _searchIsSlow = false;
@@ -778,6 +808,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
         // anything about the product.
         _searchCameUpEmpty = false;
         _searchGaveUp = abgelaufen;
+        _searchFailure = gedrosselt
+            ? _SearchFailure.throttled
+            : !abgelaufen && showTransientError
+            ? _SearchFailure.unreachable
+            : null;
       });
     }
   }
@@ -814,6 +849,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _productSearchMessage = context.l10n.foodSearchCanceledHint;
       _searchCameUpEmpty = false;
       _searchGaveUp = true;
+      _searchFailure = null;
     });
   }
 
@@ -1160,6 +1196,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
           onClose: () => Navigator.of(context).pop(),
         ),
         _SearchBar(
+          key: _searchBarKey,
           controller: _searchController,
           autofocus: widget.searchMode,
           isSearching: _isSearchingProducts,
@@ -1172,75 +1209,81 @@ class _AddMealSheetState extends State<AddMealSheet> {
           },
         ),
         Flexible(
-          child: SingleChildScrollView(
-            key: const ValueKey('add-meal-sheet-scroll'),
+          // Scrolled cards dissolve under the pinned search bar instead of
+          // being cut straight through their rounded edge; the capsule's
+          // shadow is not masked.
+          child: _TopFade(
             controller: _scrollController,
-            padding: EdgeInsets.fromLTRB(
-              20,
-              14,
-              20,
-              28 + mediaQuery.viewPadding.bottom,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  key: const ValueKey('add-meal-slot-select'),
-                  padding: const EdgeInsets.only(bottom: _kBlockGap),
-                  child: MealSlotPicker(
-                    selected: _selectedSlot,
-                    onSelected: _selectSlot,
-                  ),
-                ),
-                // Standing entry point for manual entry while no search is
-                // active; after that the contextual CTA under "nothing
-                // found" takes over (_buildSearchResults).
-                if (!searchActive) ...[
-                  // Manual entry joins the entry-method card; the search
-                  // mode has no method card, so it keeps its own row.
-                  if (widget.searchMode)
-                    _ManualEntryRow(onTap: () => _openManualEntry())
-                  else
-                    MealEntryMethods(
-                      onCamera: () => _pickAndAnalyze(ImageSource.camera),
-                      onGallery: () => _pickAndAnalyze(ImageSource.gallery),
-                      onBarcode: _scanBarcode,
-                      onDescribe: _openDescribe,
-                      onManual: () => _openManualEntry(),
+            child: SingleChildScrollView(
+              key: const ValueKey('add-meal-sheet-scroll'),
+              controller: _scrollController,
+              padding: EdgeInsets.fromLTRB(
+                20,
+                14,
+                20,
+                28 + mediaQuery.viewPadding.bottom,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    key: const ValueKey('add-meal-slot-select'),
+                    padding: const EdgeInsets.only(bottom: _kBlockGap),
+                    child: MealSlotPicker(
+                      selected: _selectedSlot,
+                      onSelected: _selectSlot,
                     ),
-                  const SizedBox(height: _kSectionGap),
-                ],
-                if (_slotMeals.isNotEmpty) ...[
-                  ExistingMealsList(
-                    meals: _slotMeals,
-                    slot: _selectedSlot,
-                    onRemove: widget.onRemoveMeal == null
-                        ? null
-                        : (id) => tryPersistChange(
-                            context,
-                            () => _removeExisting(id),
-                          ),
-                    onEdit: widget.onUpdateMealDetails == null
-                        ? null
-                        : _editExisting,
                   ),
-                  const SizedBox(height: _kSectionGap),
+                  // Standing entry point for manual entry while no search is
+                  // active; after that the contextual CTA under "nothing
+                  // found" takes over (_buildSearchResults).
+                  if (!searchActive) ...[
+                    // Manual entry joins the entry-method card; the search
+                    // mode has no method card, so it keeps its own row.
+                    if (widget.searchMode)
+                      _ManualEntryRow(onTap: () => _openManualEntry())
+                    else
+                      MealEntryMethods(
+                        onCamera: () => _pickAndAnalyze(ImageSource.camera),
+                        onGallery: () => _pickAndAnalyze(ImageSource.gallery),
+                        onBarcode: _scanBarcode,
+                        onDescribe: _openDescribe,
+                        onManual: () => _openManualEntry(),
+                      ),
+                    const SizedBox(height: _kSectionGap),
+                  ],
+                  if (_slotMeals.isNotEmpty) ...[
+                    ExistingMealsList(
+                      meals: _slotMeals,
+                      slot: _selectedSlot,
+                      onRemove: widget.onRemoveMeal == null
+                          ? null
+                          : (id) => tryPersistChange(
+                              context,
+                              () => _removeExisting(id),
+                            ),
+                      onEdit: widget.onUpdateMealDetails == null
+                          ? null
+                          : _editExisting,
+                    ),
+                    const SizedBox(height: _kSectionGap),
+                  ],
+                  KeyedSubtree(
+                    key: _belowAddedKey,
+                    child: searchActive
+                        ? _buildSearchResults()
+                        // Removing a favorite collapses the list smoothly
+                        // instead of jumping.
+                        : maybeAnimatedSize(
+                            context,
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeInOut,
+                            alignment: Alignment.topCenter,
+                            child: _buildFavorites(),
+                          ),
+                  ),
                 ],
-                KeyedSubtree(
-                  key: _belowAddedKey,
-                  child: searchActive
-                      ? _buildSearchResults()
-                      // Removing a favorite collapses the list smoothly
-                      // instead of jumping.
-                      : maybeAnimatedSize(
-                          context,
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeInOut,
-                          alignment: Alignment.topCenter,
-                          child: _buildFavorites(),
-                        ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1267,8 +1310,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(rSheet),
           ),
-          border: Border.all(color: t.lineStrong),
         ),
+        foregroundDecoration: sheetEdgeDecoration(t),
         child: SnackHost(measureToast: true, child: body),
       ),
     );
@@ -1305,7 +1348,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
     }
     if (_productSuggestions.isEmpty && _productSearchMessage != null) {
       final message = _productSearchMessage!;
-      return _CalmState(
+      final throttled = _searchFailure == _SearchFailure.throttled;
+      // The service failed (unreachable or throttled): neither says the
+      // product does not exist, so the way forward is to try again — and,
+      // for someone who just wants to log the meal, the form.
+      final failed = _searchFailure != null;
+      void manual() =>
+          _openManualEntry(initialName: _searchController.text.trim());
+      return CalmState(
         icon: _searchCameUpEmpty
             ? Icons.search_off_rounded
             : _searchGaveUp
@@ -1314,18 +1364,33 @@ class _AddMealSheetState extends State<AddMealSheet> {
             ? Icons.keyboard_rounded
             : Icons.cloud_off_rounded,
         text: message,
-        action: _offerManualEntry
+        actions: [
+          if (_offerManualEntry)
             // Definitively nothing found, or the search gave up -> straight
             // into the form, with the query prefilled as the name.
-            ? _TintedPillButton(
-                key: const ValueKey('manual-entry-cta'),
-                icon: Icons.edit_rounded,
-                label: l10n.foodManualEntryCta,
-                onTap: () => _openManualEntry(
-                  initialName: _searchController.text.trim(),
-                ),
-              )
-            : null,
+            SoftPillButton(
+              key: const ValueKey('manual-entry-cta'),
+              icon: Icons.edit_rounded,
+              label: l10n.foodManualEntryCta,
+              onTap: manual,
+            )
+          else if (failed) ...[
+            SoftPillButton(
+              key: const ValueKey('product-search-retry'),
+              icon: Icons.refresh_rounded,
+              label: l10n.foodAnalysisRetryButton,
+              // A throttled service only gets worse from an instant retry.
+              onTap: throttled && _retryCoolingDown ? null : _searchProducts,
+            ),
+            SoftPillButton(
+              key: const ValueKey('product-search-error-manual'),
+              icon: Icons.edit_rounded,
+              label: l10n.foodManualEntryCta,
+              tone: SoftPillTone.neutral,
+              onTap: manual,
+            ),
+          ],
+        ],
       );
     }
     if (_productSuggestions.isEmpty) {
@@ -1337,6 +1402,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _SectionLabel(l10n.foodSectionSearchResults),
         const SizedBox(height: _kLabelGap),
         SavedMealCollection(
+          expandedIndex: _productSuggestions.indexWhere(
+            (s) => _expandedItemKey == 'product:${s.code}',
+          ),
           children: [
             for (var i = 0; i < _productSuggestions.length; i++)
               _suggestionItem(i),
@@ -1423,6 +1491,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
           _SectionLabel(context.l10n.foodSectionRecentMeals),
           const SizedBox(height: _kLabelGap),
           SavedMealCollection(
+            expandedIndex: recents.indexWhere(
+              (f) => _expandedItemKey == 'favorite:${f.id}',
+            ),
             children: [
               for (var i = 0; i < recents.length; i++)
                 _recentItem(recents[i], i),
@@ -1445,6 +1516,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       onTap: () => _toggleExpanded(key),
       onAdd: (result) => _handleAdd(key, result),
       onRemove: () => _removeFavorite(favorite.id),
+      removeButtonKey: ValueKey('$tileKey-remove'),
       addButtonKey: ValueKey('favorite-tile-add-$index'),
       isFavorite: favorite.pinned,
       onToggleFavorite: widget.onToggleFavorite == null
@@ -1516,7 +1588,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// favorites sheet itself. The rebuild after closing refreshes count and
   /// top 3 after unpins and after adds.
   Future<void> _openFavoritesSheet() async {
-    await showFavoritesSheet(
+    final searchInstead = await showFavoritesSheet(
       context,
       favorites: _favorites,
       slot: _selectedSlot,
@@ -1526,6 +1598,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
     if (!mounted) return;
     setState(() {});
+    // The emptied favorites sheet handed back to the search.
+    if (searchInstead == true) _searchBarKey.currentState?.focus();
   }
 
   /// Mirrors the store's "last used" bump (`_rememberRecent`) into the local
@@ -1590,7 +1664,7 @@ class _SheetHeader extends StatelessWidget {
     final l10n = context.l10n;
     final date = MaterialLocalizations.of(context).formatMediumDate(foodDate);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 16, 16),
+      padding: const EdgeInsets.fromLTRB(20, 8, 18, 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -1650,27 +1724,124 @@ class _SheetHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // The Food tab's round header button (card fill, strong outline),
-          // drawn at 44 inside Material's 48 px touch target.
-          PressScale(
-            child: IconButton(
-              key: const ValueKey('add-meal-sheet-close'),
-              onPressed: onClose,
-              tooltip: l10n.commonClose,
-              style: IconButton.styleFrom(
-                backgroundColor: t.surf,
-                foregroundColor: t.inkMuted,
-                fixedSize: const Size.square(44),
-                minimumSize: const Size.square(44),
-                padding: EdgeInsets.zero,
-                shape: CircleBorder(side: BorderSide(color: t.lineStrong)),
-              ),
-              icon: const Icon(Icons.close_rounded, size: 20),
-            ),
+          // The Food tab's round header button, shared by every sheet.
+          SheetCloseButton(
+            buttonKey: const ValueKey('add-meal-sheet-close'),
+            onTap: onClose,
+            tooltip: l10n.commonClose,
           ),
         ],
       ),
     );
+  }
+}
+
+/// Fades the top 14 px of [child] (the sheet's scroll view) to clear once
+/// [controller] has scrolled, so cards dissolve under the search capsule
+/// instead of being cut through their rounded edge. A `dstIn` mask touches
+/// only the scroll content, never the capsule's shadow above it. At rest the
+/// content sits below the band on the scroll view's top padding, so no mask
+/// (and no layer) is painted: the resting sheet paints as without a fade.
+class _TopFade extends SingleChildRenderObjectWidget {
+  const _TopFade({required this.controller, required super.child})
+    : super(key: const ValueKey('add-meal-sheet-scroll-fade'));
+
+  final ScrollController controller;
+
+  @override
+  _RenderTopFade createRenderObject(BuildContext context) =>
+      _RenderTopFade(controller, context.t.bg);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderTopFade renderObject) {
+    renderObject
+      ..controller = controller
+      ..ground = context.t.bg;
+  }
+}
+
+class _RenderTopFade extends RenderProxyBox {
+  _RenderTopFade(this._controller, this._ground);
+
+  static const double _kFade = 14;
+
+  ScrollController _controller;
+  set controller(ScrollController value) {
+    if (identical(value, _controller)) return;
+    if (!attached) {
+      _controller = value;
+      return;
+    }
+    _controller.removeListener(_onScroll);
+    _controller = value..addListener(_onScroll);
+    _onScroll();
+  }
+
+  /// Only its alpha matters for `dstIn`; any opaque token works.
+  Color _ground;
+  set ground(Color value) {
+    if (value == _ground) return;
+    _ground = value;
+    if (_masked) markNeedsPaint();
+  }
+
+  bool _masked = false;
+
+  bool get _scrolled {
+    if (!_controller.hasClients) return false;
+    final position = _controller.position;
+    return position.hasPixels && position.pixels > 0;
+  }
+
+  void _onScroll() {
+    final masked = _scrolled;
+    if (masked == _masked) return;
+    _masked = masked;
+    markNeedsCompositingBitsUpdate();
+    markNeedsPaint();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _controller.addListener(_onScroll);
+    _masked = _scrolled;
+  }
+
+  @override
+  void detach() {
+    _controller.removeListener(_onScroll);
+    super.detach();
+  }
+
+  @override
+  bool get alwaysNeedsCompositing => child != null && _masked;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    if (child == null) return;
+    if (!_masked) {
+      layer = null;
+      context.paintChild(child, offset);
+      return;
+    }
+    final edge = size.height <= 0
+        ? 0.0
+        : (_kFade / size.height).clamp(0.0, 1.0);
+    final current = layer;
+    final mask = current is ShaderMaskLayer ? current : ShaderMaskLayer();
+    mask
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: <Color>[_ground.withValues(alpha: 0), _ground, _ground],
+        stops: <double>[0, edge, 1],
+      ).createShader(Offset.zero & size)
+      ..maskRect = offset & size
+      ..blendMode = BlendMode.dstIn;
+    layer = mask;
+    context.pushLayer(mask, super.paint, offset);
   }
 }
 
@@ -1682,6 +1853,7 @@ class _SheetHeader extends StatelessWidget {
 /// end. Focus also tints the glyph, a second cue next to the fill change.
 class _SearchBar extends StatefulWidget {
   const _SearchBar({
+    super.key,
     required this.controller,
     required this.autofocus,
     required this.onClear,
@@ -1713,6 +1885,9 @@ class _SearchBarState extends State<_SearchBar> {
   }
 
   void _onFocus() => setState(() {});
+
+  /// Puts the caret in the field (back from the emptied favorites sheet).
+  void focus() => _focus.requestFocus();
 
   @override
   void dispose() {
@@ -1941,48 +2116,14 @@ class _SkeletonGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    Widget bar(double widthFactor, double height) => FractionallySizedBox(
-      alignment: Alignment.centerLeft,
-      widthFactor: widthFactor,
-      child: Container(
-        height: height,
-        decoration: BoxDecoration(
-          color: t.tile,
-          borderRadius: BorderRadius.circular(rPill),
-        ),
-      ),
-    );
     // The row geometry of the result rows: 64 tall, 14 inset, 40 tile.
-    Widget row(double nameWidth, double metaWidth) => Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: t.tile,
-              borderRadius: BorderRadius.circular(rChip),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                bar(nameWidth, 12),
-                const SizedBox(height: 9),
-                bar(metaWidth, 10),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-    return ExcludeSemantics(
+    return const ExcludeSemantics(
       child: SavedMealCollection(
-        children: [row(0.62, 0.34), row(0.48, 0.3), row(0.7, 0.38)],
+        children: [
+          SkeletonRow(nameWidth: 0.62, metaWidth: 0.34),
+          SkeletonRow(nameWidth: 0.48, metaWidth: 0.3),
+          SkeletonRow(nameWidth: 0.7, metaWidth: 0.38),
+        ],
       ),
     );
   }
@@ -2079,9 +2220,10 @@ class _ManualEntryRow extends StatelessWidget {
 ///
 /// Deliberately the same ARB key as `_SlowHint` in `meal_analysis_sheet.dart`:
 /// one wording for "this is taking a while", so the photo scan and the
-/// product search speak with one voice. Its own widget rather than a shared
-/// one — the analysis sheet's version sits under a loading CARD and carries
-/// that card's insets.
+/// product search speak with one voice — and the same shape: the line, then
+/// a quiet neutral pill. Its own widget rather than a shared one — the
+/// analysis sheet's version sits under a loading CARD and carries that
+/// card's insets.
 class _SearchSlowHint extends StatelessWidget {
   const _SearchSlowHint({required this.onCancel});
 
@@ -2091,124 +2233,30 @@ class _SearchSlowHint extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    // On the sheet's gutter, flush with the section label above it.
     return Row(
       key: const ValueKey('product-search-slow-hint'),
-      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Flexible(
+        Expanded(
           child: Text(
             l10n.foodAnalysisSlowHint,
             style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
           ),
         ),
-        const SizedBox(width: 4),
-        TextButton(
+        const SizedBox(width: 12),
+        SoftPillButton(
           key: const ValueKey('product-search-cancel'),
-          onPressed: onCancel,
-          style: TextButton.styleFrom(foregroundColor: t.accentText),
-          child: Text(l10n.commonCancel),
+          label: l10n.commonCancel,
+          onTap: onCancel,
+          tone: SoftPillTone.neutral,
         ),
       ],
     );
   }
 }
 
-/// The sheet's one shape for "nothing to show here": an icon tile, one line
-/// of guidance and at most one way forward.
-class _CalmState extends StatelessWidget {
-  const _CalmState({
-    required this.icon,
-    required this.text,
-    this.title,
-    this.action,
-  });
-
-  final IconData icon;
-  final String text;
-  final String? title;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-      child: Column(
-        children: [
-          IconTile.custom(
-            size: 48,
-            child: Icon(icon, size: 22, color: t.ink2),
-          ),
-          const SizedBox(height: 14),
-          if (title != null) ...[
-            Text(
-              title!,
-              textAlign: TextAlign.center,
-              style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
-            ),
-            const SizedBox(height: 4),
-          ],
-          Text(
-            text,
-            textAlign: TextAlign.center,
-            style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-          ),
-          if (action != null) ...[const SizedBox(height: 16), action!],
-        ],
-      ),
-    );
-  }
-}
-
-/// Accent-tinted pill for the one secondary action of a [_CalmState].
-class _TintedPillButton extends StatelessWidget {
-  const _TintedPillButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return PressScale(
-      child: Material(
-        color: t.accentTint,
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 48),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 18, color: t.accentText),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: AppType.ui(
-                      14,
-                      weight: FontWeight.w700,
-                      color: t.accentText,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+/// Why a product search failed on the service's side.
+enum _SearchFailure { unreachable, throttled }
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
@@ -2216,7 +2264,7 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return _CalmState(
+    return CalmState(
       icon: Icons.history_rounded,
       title: l10n.foodEntryEmptyTitle,
       text: l10n.foodEntryEmptyHint,

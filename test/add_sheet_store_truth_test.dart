@@ -318,11 +318,17 @@ Finder _kachelText(String text) => find.descendant(
       matching: find.text(text),
     );
 
-/// The X inside a suggestion tile (it carries no key of its own).
-Finder _kachelX(String kachel) => find.descendant(
-      of: find.byKey(ValueKey(kachel)),
-      matching: find.byTooltip('Entfernen'),
-    );
+/// Forgets the recent [kachel]: the action sits in its open panel (the row
+/// has no X, which read like "delete diary entry").
+Future<void> _kachelVergessen(WidgetTester tester, String kachel) async {
+  final zeile = find.byKey(ValueKey(kachel));
+  await tester.ensureVisible(zeile);
+  await tester.tap(zeile);
+  await tester.pumpAndSettle();
+  final entfernen = find.byKey(ValueKey('$kachel-remove'));
+  await tester.ensureVisible(entfernen);
+  await tester.tap(entfernen);
+}
 
 void main() {
   testWidgets(
@@ -371,9 +377,7 @@ void main() {
 
     expect(find.text('Apfel'), findsOneWidget);
 
-    final x = _kachelX('favorite-tile-0');
-    await tester.ensureVisible(x);
-    await tester.tap(x);
+    await _kachelVergessen(tester, 'favorite-tile-0');
     await tester.pumpAndSettle();
     expect(find.text('Apfel'), findsNothing);
 

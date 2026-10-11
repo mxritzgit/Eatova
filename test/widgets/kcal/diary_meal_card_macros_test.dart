@@ -31,15 +31,23 @@ const double _breite = 390;
 
 /// Exactly the shape of `foodMacroSummary`, so the finder picks up neither
 /// the kcal line nor the slot line.
-final RegExp _makroZeile = RegExp(r'^P \d+ g · [KC] \d+ g · F \d+ g$');
+final RegExp _makroZeile = RegExp(
+  r'^P\u00a0\d+\u00a0g\u00a0· [KC]\u00a0\d+\u00a0g\u00a0· F\u00a0\d+\u00a0g$',
+);
+
+/// `foodMacroSummary` as rendered: no-break spaces hold each token ("P 41 g")
+/// together, so a narrow line breaks only after a ' · ' separator.
+String _macros(String line) =>
+    line.replaceAll(' ', '\u00a0').replaceAll('\u00a0·\u00a0', '\u00a0· ');
 
 Future<void> _pump(
   WidgetTester tester,
   Widget child, {
   double textScale = 1.0,
   Locale locale = const Locale('de'),
+  double breite = _breite,
 }) async {
-  tester.view.physicalSize = const Size(_breite * 3, 844 * 3);
+  tester.view.physicalSize = Size(breite * 3, 844 * 3);
   tester.view.devicePixelRatio = 3.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -156,9 +164,9 @@ void main() {
       expect(find.text('12:30 · 2 Einträge'), findsOneWidget);
 
       expect(_makroZeilen(tester), <String>[
-        'P 42 g · K 59 g · F 26 g', // slot header: sum 42.4 / 58.6 / 26
-        'P 12 g · K 48 g · F 6 g', // Haferbrei
-        'P 30 g · K 11 g · F 20 g', // Quark: 30.4 / 10.6 / 20
+        _macros('P 42 g · K 59 g · F 26 g'), // slot header: sum 42.4 / 58.6 / 26
+        _macros('P 12 g · K 48 g · F 6 g'), // Haferbrei
+        _macros('P 30 g · K 11 g · F 20 g'), // Quark: 30.4 / 10.6 / 20
       ]);
 
       // The amount line stays its own Text widget; an AI estimate keeps
@@ -177,9 +185,9 @@ void main() {
       expect(find.text('530'), findsOneWidget);
       expect(find.text('12:30 · 2 items'), findsOneWidget);
       expect(_makroZeilen(tester), <String>[
-        'P 42 g · C 59 g · F 26 g',
-        'P 12 g · C 48 g · F 6 g',
-        'P 30 g · C 11 g · F 20 g',
+        _macros('P 42 g · C 59 g · F 26 g'),
+        _macros('P 12 g · C 48 g · F 6 g'),
+        _macros('P 30 g · C 11 g · F 20 g'),
       ]);
     });
 
@@ -228,7 +236,7 @@ void main() {
 
       // Only the header sum (0 is 0, like the day rings); a row hides unknown
       // macros so a zero never looks like a measurement.
-      expect(_makroZeilen(tester), <String>['P 0 g · K 0 g · F 0 g']);
+      expect(_makroZeilen(tester), <String>[_macros('P 0 g · K 0 g · F 0 g')]);
     });
 
     for (final scale in const <double>[1.0, 1.3]) {
@@ -258,6 +266,67 @@ void main() {
             find.text('~1200 g'),
           );
           expect(slotZeile.didExceedMaxLines, isFalse);
+        },
+      );
+    }
+
+    // At the 2x cap on a 320 pt phone the lines wrap. They may only break
+    // after a ' · ' separator: "F" on one line and "0 g" on the next read as
+    // two values (design review, 2026-10-11).
+    final trennerMuster = RegExp('[ \u00a0]· ');
+    for (final locale in const [Locale('de'), Locale('en')]) {
+      testWidgets(
+        'bei 320 pt und 2x Text bricht eine Makro-Zeile nur am Trenner '
+        '(${locale.languageCode})',
+        (tester) async {
+          await _pump(
+            tester,
+            _karteMitZweiEintraegen(),
+            textScale: 2,
+            locale: locale,
+            breite: 320,
+          );
+          expect(tester.takeException(), isNull);
+
+          final zeilen = find.textContaining(_makroZeile);
+          expect(zeilen, findsNWidgets(3));
+          var umbrochen = false;
+          for (final element in zeilen.evaluate()) {
+            final text = (element.widget as Text).data!;
+            final paragraph = element.findRenderObject()! as RenderParagraph;
+            final zeilenTops = paragraph
+                .getBoxesForSelection(
+                  TextSelection(baseOffset: 0, extentOffset: text.length),
+                )
+                .map((box) => box.top)
+                .toSet();
+            if (zeilenTops.length > 1) umbrochen = true;
+            // The tokens between the separators, by offset.
+            var start = 0;
+            final ends = [
+              for (final trenner in trennerMuster.allMatches(text))
+                (trenner.start, trenner.end),
+              (text.length, text.length),
+            ];
+            for (final (end, next) in ends) {
+              final boxes = paragraph.getBoxesForSelection(
+                TextSelection(baseOffset: start, extentOffset: end),
+              );
+              expect(
+                boxes.map((box) => box.top).toSet(),
+                hasLength(1),
+                reason:
+                    '"${text.substring(start, end)}" in "$text" breaks '
+                    'across lines',
+              );
+              start = next;
+            }
+          }
+          expect(
+            umbrochen,
+            isTrue,
+            reason: 'the case needs at least one wrapped line',
+          );
         },
       );
     }

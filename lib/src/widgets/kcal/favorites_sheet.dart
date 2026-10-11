@@ -14,6 +14,7 @@ import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
+import 'food_glyphs.dart';
 import 'meal_suggestion_item.dart';
 import 'saved_meal_presentation.dart';
 
@@ -27,8 +28,9 @@ import 'saved_meal_presentation.dart';
 // The heart is the only way to remove a row (no X), and removal is mirrored
 // locally while the parent store does the real toggle.
 
-/// Opens the favorites sheet above the add-meal sheet.
-Future<void> showFavoritesSheet(
+/// Opens the favorites sheet above the add-meal sheet. Completes with true
+/// when the user left the empty sheet to search for food instead.
+Future<bool?> showFavoritesSheet(
   BuildContext context, {
   required List<FavoriteMeal> favorites,
   required MealSlot slot,
@@ -37,7 +39,7 @@ Future<void> showFavoritesSheet(
   required PersistValueChanged<MealAnalysisResult> onUnpin,
   Map<String, int> useCounts = const <String, int>{},
 }) {
-  return showEatovaSheet<void>(
+  return showEatovaSheet<bool>(
     context,
     FavoritesSheet(
       favorites: favorites,
@@ -215,30 +217,18 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: HeadingSemantics(
-                  level: 1,
-                  child: Text(
-                    l10n.foodFavoritesSheetTitle(pinned.length),
-                    key: const ValueKey('favorites-sheet-title'),
-                    style: AppType.display(24, color: t.ink, height: 1.15),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                key: const ValueKey('favorites-sheet-close'),
-                onPressed: () => Navigator.of(context).maybePop(),
-                tooltip: l10n.commonClose,
-                style: IconButton.styleFrom(backgroundColor: t.surf2),
-                icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-              ),
-            ],
-          ),
+        // The same title and count line as the add sheet's Favorites row
+        // that opened this sheet.
+        SheetHeader(
+          title: l10n.foodSectionFavorites,
+          titleKey: const ValueKey('favorites-sheet-title'),
+          subtitle: pinned.isEmpty
+              ? null
+              : l10n.foodFavoritesEntryCount(pinned.length),
+          onClose: () => Navigator.of(context).maybePop(),
+          closeKey: const ValueKey('favorites-sheet-close'),
+          closeTooltip: l10n.commonClose,
+          padding: const EdgeInsets.fromLTRB(20, 4, 18, 0),
         ),
         // Nothing to filter without pinned rows: the field would only mislead.
         if (pinned.isNotEmpty) ...[
@@ -339,25 +329,42 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
   Widget _buildList(List<FavoriteMeal> pinned, List<FavoriteMeal> visible) {
     final l10n = context.l10n;
     if (pinned.isEmpty) {
-      return _Hint(
+      // Not "Close" (the X already says that): the way forward is to find
+      // a meal worth a heart, so this hands back to the add sheet's search.
+      return CalmState(
         key: const ValueKey('favorites-sheet-empty'),
-        text: l10n.foodFavoritesEmptyHint,
+        card: true,
         icon: Icons.favorite_outline_rounded,
-        actionLabel: l10n.commonClose,
-        onAction: () => Navigator.of(context).maybePop(),
+        text: l10n.foodFavoritesEmptyHint,
+        actions: [
+          SoftPillButton(
+            key: const ValueKey('favorites-sheet-empty-search'),
+            label: l10n.foodFavoritesEmptySearchAction,
+            icon: Icons.search_rounded,
+            onTap: () => Navigator.of(context).maybePop(true),
+          ),
+        ],
       );
     }
     if (visible.isEmpty) {
-      return _Hint(
+      return CalmState(
         key: const ValueKey('favorites-sheet-no-match'),
+        card: true,
+        icon: Icons.search_off_rounded,
         text: l10n.foodFavoritesNoMatchHint,
-        icon: Icons.search_rounded,
-        actionLabel: l10n.recipesSearchClearTooltip,
-        onAction: _clearQuery,
+        actions: [
+          SoftPillButton(
+            key: const ValueKey('favorites-sheet-no-match-clear'),
+            label: l10n.recipesSearchClearTooltip,
+            icon: Icons.close_rounded,
+            onTap: _clearQuery,
+          ),
+        ],
       );
     }
     return SavedMealCollection(
       dividerInset: kSavedMealDividerInset,
+      expandedIndex: visible.indexWhere((f) => _expandedItemKey == _itemKey(f)),
       children: [for (var i = 0; i < visible.length; i++) _item(visible[i], i)],
     );
   }
@@ -384,6 +391,9 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
 
 /// Borderless pill on a [FieldCapsule] (rest `field`, focus `fieldFocus`; no
 /// hairline, no focus ring). Local filter only — no network, no debounce.
+///
+/// The add sheet's search capsule without its submit button: 54 px, the
+/// food search glyph on the 18 px inset, tinted accent while focused.
 class _SearchField extends StatefulWidget {
   const _SearchField({
     required this.controller,
@@ -405,7 +415,16 @@ class _SearchFieldState extends State<_SearchField> {
   final FocusNode _focus = FocusNode();
 
   @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocus);
+  }
+
+  void _onFocus() => setState(() {});
+
+  @override
   void dispose() {
+    _focus.removeListener(_onFocus);
     _focus.dispose();
     super.dispose();
   }
@@ -416,15 +435,20 @@ class _SearchFieldState extends State<_SearchField> {
     return FieldCapsule(
       focusNode: _focus,
       shape: SheetFieldShape.pill,
-      // Minimum, not fixed: at textScaler 2.0 the hint needs ~56 pt and a
-      // fixed 46 let it hang out of the capsule (safe-area test 2026-08-27).
-      constraints: const BoxConstraints(minHeight: 46),
+      // Minimum, not fixed: at textScaler 2.0 the hint needs more and a fixed
+      // height let it hang out of the capsule (safe-area test 2026-08-27).
+      constraints: const BoxConstraints(minHeight: 54),
       padding: EdgeInsets.zero,
       child: Row(
         children: [
-          const SizedBox(width: 14),
-          Icon(Icons.search_rounded, size: 18, color: t.ink2),
-          const SizedBox(width: 8),
+          const SizedBox(width: 18),
+          FoodGlyphIcon(
+            FoodGlyph.search,
+            // Grows with the query text instead of shrinking beside it.
+            size: scaledWidth(context, 20),
+            color: _focus.hasFocus ? t.accentText : t.ink2,
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: TextField(
               key: const ValueKey('favorites-sheet-search'),
@@ -450,7 +474,7 @@ class _SearchFieldState extends State<_SearchField> {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 filled: false,
-                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
           ),
@@ -471,70 +495,7 @@ class _SearchFieldState extends State<_SearchField> {
               icon: Icon(Icons.close_rounded, size: 18, color: t.ink2),
             )
           else
-            const SizedBox(width: 14),
-        ],
-      ),
-    );
-  }
-}
-
-/// Empty and filtered collections retain an obvious way back: a calm card
-/// with the icon in an accent tint, the message, and a soft accent pill.
-class _Hint extends StatelessWidget {
-  const _Hint({
-    super.key,
-    required this.text,
-    required this.icon,
-    required this.actionLabel,
-    required this.onAction,
-  });
-
-  final String text, actionLabel;
-  final IconData icon;
-  final VoidCallback onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
-      decoration: BoxDecoration(
-        color: t.surf,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: t.cardBorder),
-      ),
-      child: Column(
-        children: [
-          ExcludeSemantics(
-            child: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: t.accentTint,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 24, color: t.accentText),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            text,
-            textAlign: TextAlign.center,
-            style: AppType.ui(14, color: t.ink2, height: 1.4),
-          ),
-          const SizedBox(height: 14),
-          TextButton(
-            onPressed: onAction,
-            style: TextButton.styleFrom(
-              foregroundColor: t.accentText,
-              backgroundColor: t.accentTint,
-              minimumSize: const Size(64, 48),
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              shape: const StadiumBorder(),
-              textStyle: AppType.ui(14, weight: FontWeight.w700),
-            ),
-            child: Text(actionLabel),
-          ),
+            const SizedBox(width: 18),
         ],
       ),
     );

@@ -19,6 +19,7 @@ Future<List<MealComponent>?> showWeightAdjustmentSheet(
       builder: (dialogContext) => EatovaDialog(
         title: context.l10n.recipeCalcSavedPortion,
         content: Text(context.l10n.recipeCalcNoCookedWeight),
+        icon: Icons.info_outline_rounded,
         actions: [
           EatovaDialogAction(
             label: context.l10n.commonClose,
@@ -38,32 +39,10 @@ Future<List<MealComponent>?> showWeightAdjustmentSheet(
 }
 
 // ---------------------------------------------------------------------------
-// D5: discard confirmation, drag guard and the sheet's own grabber
+// D5: drag guard and the sheet's own grabber. The "discard changes?" card
+// for every way of closing a filled form is the shared
+// [confirmDiscardChanges].
 // ---------------------------------------------------------------------------
-
-/// "Discard changes?" — shared confirmation for EVERY way of closing a filled
-/// form; `true` = discard. `barrierDismissible` stays `true`: the dialog's own
-/// barrier swallows the tap, so a cancel cannot dismiss the route it protects.
-Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
-  final l10n = context.l10n;
-  final verwerfen = await showEatovaDialog<bool>(
-    context: context,
-    builder: (dialogContext) => EatovaConfirmDialog(
-      key: const ValueKey('discard-changes-dialog'),
-      title: l10n.foodDiscardChangesTitle,
-      body: text,
-      icon: Icons.edit_off_rounded,
-      destructive: true,
-      cancelKey: const ValueKey('discard-changes-cancel'),
-      cancelLabel: l10n.foodDiscardChangesKeepEditing,
-      onCancel: () => Navigator.of(dialogContext).pop(false),
-      confirmKey: const ValueKey('discard-changes-confirm'),
-      confirmLabel: l10n.foodDiscardChangesConfirm,
-      onConfirm: () => Navigator.of(dialogContext).pop(true),
-    ),
-  );
-  return verwerfen ?? false;
-}
 
 /// D5: intercepts the drag-down dismiss of a modal bottom sheet. A `PopScope`
 /// only sees the barrier tap; a drag goes `onClosing` → **`Navigator.pop`** and
@@ -346,9 +325,9 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
   Future<void> _askDiscard() async {
     if (_discardDialogOpen) return;
     _discardDialogOpen = true;
-    final verwerfen = await _confirmDiscardChanges(
+    final verwerfen = await confirmDiscardChanges(
       context,
-      context.l10n.foodDiscardItemsBody,
+      body: context.l10n.foodDiscardItemsBody,
     );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
@@ -876,30 +855,64 @@ class _RemovedItemCard extends StatelessWidget {
 /// Typed values are **rejected, not clamped**.
 const double _makroMaxG = LoggedMealLimits.macroGMax;
 
+/// The unit inside an add-item capsule, visible before the first keystroke.
+/// Not a stop of its own: the field's spoken name carries the unit.
+class _FieldUnit extends StatelessWidget {
+  const _FieldUnit(this.unit);
+
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Text(
+        unit,
+        style: AppType.ui(13, weight: FontWeight.w600, color: context.t.ink2),
+      ),
+    ),
+  );
+}
+
 /// One macro input: optional, grams, comma OR dot as decimal separator.
 /// Deliberately without a character filter — 0.5 g of fat must be typeable,
 /// and anything else is refused by the validator, not stripped.
+///
+/// The app's labelled capsule ([SheetField]) with the macro's dot, as on the
+/// custom nutrition sheet.
 class _MacroField extends StatelessWidget {
   const _MacroField({
     required this.fieldKey,
     required this.controller,
     required this.label,
+    required this.dot,
   });
 
   final Key fieldKey;
   final TextEditingController controller;
   final String label;
+  final Color dot;
 
   @override
   Widget build(BuildContext context) {
     // No `onChanged`: button enablement and `PopScope.canPop` hang on the
     // `_AddItemDialogState._feld` listener.
-    return TextField(
-      key: fieldKey,
-      cursorOpacityAnimates: false,
+    return SheetField(
+      fieldKey: fieldKey,
       controller: controller,
+      label: label,
+      semanticLabel: context.l10n.foodAddItemFieldInGrams(label),
+      hint: '',
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: InputDecoration(labelText: label, suffixText: 'g'),
+      prefix: ExcludeSemantics(
+        child: Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+        ),
+      ),
+      suffix: const _FieldUnit('g'),
+      bottomGap: 0,
     );
   }
 }
@@ -1071,9 +1084,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   Future<void> _askDiscard() async {
     if (_discardDialogOpen) return;
     _discardDialogOpen = true;
-    final verwerfen = await _confirmDiscardChanges(
+    final verwerfen = await confirmDiscardChanges(
       context,
-      context.l10n.foodDiscardNewItemBody,
+      body: context.l10n.foodDiscardNewItemBody,
     );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
@@ -1105,31 +1118,36 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               l10n.foodAddItemManualHint,
               style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
             ),
-            const SizedBox(height: 14),
-            TextField(
-              key: const ValueKey('analyse-add-item-name'),
-              cursorOpacityAnimates: false,
+            const SizedBox(height: 16),
+            // The app's labelled capsules (eyebrow above a FieldCapsule):
+            // the label stays visible while typing and the unit before it.
+            SheetField(
+              fieldKey: const ValueKey('analyse-add-item-name'),
               controller: _name,
+              label: l10n.foodAddItemNameLabel,
+              semanticLabel: l10n.foodAddItemNameLabel,
+              hint: l10n.foodAddItemNameHint,
               autofocus: true,
               textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                labelText: l10n.foodAddItemNameLabel,
-                hintText: l10n.foodAddItemNameHint,
-              ),
+              bottomGap: 0,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
             Flex(
               direction: compactFields ? Axis.horizontal : Axis.vertical,
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: compactFields
-                  ? CrossAxisAlignment.center
+                  ? CrossAxisAlignment.start
                   : CrossAxisAlignment.stretch,
               children: [
                 Flexible(
-                  child: TextField(
-                    key: const ValueKey('analyse-add-item-grams'),
-                    cursorOpacityAnimates: false,
+                  child: SheetField(
+                    fieldKey: const ValueKey('analyse-add-item-grams'),
                     controller: _grams,
+                    label: l10n.foodAddItemWeightLabel,
+                    semanticLabel: l10n.foodAddItemFieldInGrams(
+                      l10n.foodAddItemWeightLabel,
+                    ),
+                    hint: '',
                     keyboardType: TextInputType.number,
                     inputFormatters: const [
                       // Same digit budget as the component row's field: as
@@ -1137,26 +1155,26 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       // the rest (P8-02b).
                       DigitBudgetFormatter(_postenEingabeZiffern),
                     ],
-                    decoration: InputDecoration(
-                      labelText: l10n.foodAddItemWeightLabel,
-                      suffixText: 'g',
-                    ),
+                    suffix: const _FieldUnit('g'),
+                    bottomGap: 0,
                   ),
                 ),
-                const SizedBox(width: 10, height: 10),
+                const SizedBox(width: 10, height: 14),
                 Flexible(
-                  child: TextField(
-                    key: const ValueKey('analyse-add-item-kcal'),
-                    cursorOpacityAnimates: false,
+                  child: SheetField(
+                    fieldKey: const ValueKey('analyse-add-item-kcal'),
                     controller: _kcal,
+                    label: l10n.foodAddItemCaloriesLabel,
+                    semanticLabel: l10n.foodAddItemFieldInKcal(
+                      l10n.foodAddItemCaloriesLabel,
+                    ),
+                    hint: '',
                     keyboardType: TextInputType.number,
                     inputFormatters: const [
                       DigitBudgetFormatter(_postenEingabeZiffern),
                     ],
-                    decoration: InputDecoration(
-                      labelText: l10n.foodAddItemCaloriesLabel,
-                      suffixText: 'kcal',
-                    ),
+                    suffix: const _FieldUnit('kcal'),
+                    bottomGap: 0,
                   ),
                 ),
               ],
@@ -1208,7 +1226,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 direction: compactFields ? Axis.horizontal : Axis.vertical,
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: compactFields
-                    ? CrossAxisAlignment.center
+                    ? CrossAxisAlignment.start
                     : CrossAxisAlignment.stretch,
                 children: [
                   Flexible(
@@ -1216,22 +1234,25 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                       fieldKey: const ValueKey('analyse-add-item-protein'),
                       controller: _protein,
                       label: l10n.todayMacroProtein,
+                      dot: t.protein,
                     ),
                   ),
-                  const SizedBox(width: 8, height: 8),
+                  const SizedBox(width: 8, height: 12),
                   Flexible(
                     child: _MacroField(
                       fieldKey: const ValueKey('analyse-add-item-carbs'),
                       controller: _carbs,
                       label: l10n.foodMacroTileCarbsLabel,
+                      dot: t.carbs,
                     ),
                   ),
-                  const SizedBox(width: 8, height: 8),
+                  const SizedBox(width: 8, height: 12),
                   Flexible(
                     child: _MacroField(
                       fieldKey: const ValueKey('analyse-add-item-fat'),
                       controller: _fat,
                       label: l10n.todayMacroFat,
+                      dot: t.fat,
                     ),
                   ),
                 ],

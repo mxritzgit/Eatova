@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import 'support/harness.dart';
@@ -164,6 +165,61 @@ void main() {
             findsOneWidget);
         expect(find.byKey(const ValueKey('analyse-add-item-fat')),
             findsOneWidget);
+      },
+    );
+
+    // Screen readers: one stop per field, its name with the unit, and no
+    // separate stop for the all-caps eyebrow or the unit beside the input.
+    testWidgetsRobust(
+      'jedes Feld ist ein Halt fuer den Screenreader, mit Einheit im Namen',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        await tester.pumpWidget(_host(_mitMakros, (_) {}));
+        await _openSheet(tester);
+        await tester.tap(find.byKey(const ValueKey('analyse-item-add-button')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('analyse-add-item-macros-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        final dialog = find.byType(EatovaDialog);
+        final eigeneHalte = [
+          for (final text in const [
+            'NAME',
+            'GEWICHT',
+            'KALORIEN',
+            'PROTEIN',
+            'CARBS',
+            'FETT',
+            'g',
+            'kcal',
+          ])
+            if (find
+                .descendant(of: dialog, matching: find.bySemanticsLabel(text))
+                .evaluate()
+                .isNotEmpty)
+              text,
+        ];
+        expect(eigeneHalte, isEmpty);
+
+        const felder = {
+          // The hint follows the name.
+          'analyse-add-item-name': 'Name\nz. B. Tomate',
+          'analyse-add-item-grams': 'Gewicht in Gramm',
+          'analyse-add-item-kcal': 'Kalorien in Kilokalorien',
+          'analyse-add-item-protein': 'Protein in Gramm',
+          'analyse-add-item-carbs': 'Carbs in Gramm',
+          'analyse-add-item-fat': 'Fett in Gramm',
+        };
+        for (final MapEntry(key: key, value: name) in felder.entries) {
+          expect(
+            tester.getSemantics(find.byKey(ValueKey(key))),
+            isSemantics(label: name, isTextField: true),
+            reason: key,
+          );
+        }
+        semantics.dispose();
       },
     );
 

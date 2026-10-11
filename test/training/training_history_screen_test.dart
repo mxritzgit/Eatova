@@ -473,19 +473,20 @@ void main() {
         locale: locale,
         scale: 2,
       );
+      // Both pages carry the tab-scale 36 px title of Profile and Settings.
       expect(find.byType(PageHeader), findsOneWidget);
       expect(
         tester.widget<Text>(find.text(
           tester.element(find.byType(PageHeader)).l10n.trainingHistoryTitle,
         )).style?.fontSize,
-        24,
+        36,
       );
       expect(tester.takeException(), isNull);
       await _saveImage(tester, 'history-$locale-320');
       await _tap(tester, 'training-history-${entry.id}');
       expect(
         tester.widget<Text>(find.text(entry.snapshot.workout.title)).style?.fontSize,
-        24,
+        36,
       );
       expect(tester.takeException(), isNull);
       await _saveImage(tester, 'history-detail-$locale-320');
@@ -518,10 +519,20 @@ void main() {
       await _tap(tester, 'training-history-delete');
       await tester.tap(find.text('Delete workout').last);
       await tester.pumpAndSettle();
+      // The busy pill names the deletion, not the player's checkpoint.
+      expect(
+        tester
+            .widget<SoftPillButton>(
+              find.byKey(const ValueKey('training-history-delete')),
+            )
+            .label,
+        'Deleting workout…',
+      );
+      expect(find.text('Saving your place…'), findsNothing);
       final back = find.byKey(const ValueKey('training-history-detail-back'));
       await tester.scrollUntilVisible(back, -300);
       await tester.pumpAndSettle();
-      expect(tester.widget<SquareIconButton>(back).onTap, isNull);
+      expect(tester.widget<HeaderIconButton>(back).onTap, isNull);
       await tester.tap(back);
       await tester.pump();
       expect(find.byType(TrainingHistoryDetail), findsOneWidget);
@@ -590,46 +601,66 @@ void main() {
     testWidgets('a log without duration says Logged, no "Recorded from"', (
       tester,
     ) async {
-      final entry = log();
-      expect(trainingEntryHasDuration(entry), isFalse);
-      await _host(
-        tester,
-        TrainingHistoryScreen(
-          entries: [entry],
-          onDelete: (_) async => SyncDelivery.delivered,
-        ),
-      );
-      expect(
-        find.text('Oct 1, 2026 · Logged\n1 of 1 set completed'),
-        findsOneWidget,
-      );
-      await _tap(tester, 'training-history-$id');
-      expect(find.textContaining('Recorded from'), findsNothing);
-      expect(find.text('Finished: Oct 1, 2026'), findsOneWidget);
-      expect(find.text('Logged'), findsOneWidget);
-      await _tap(tester, 'training-history-delete');
-      expect(
-        find.text(
-          'This logged workout and its set values will be removed from your '
-          'history.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.textContaining('training plan stays saved'), findsNothing);
+      await withClock(Clock.fixed(now), () async {
+        final semantics = tester.ensureSemantics();
+        final entry = log();
+        expect(trainingEntryHasDuration(entry), isFalse);
+        await _host(
+          tester,
+          TrainingHistoryScreen(
+            entries: [entry],
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+        );
+        // The Recent rows' meta; no set count when nothing was skipped.
+        expect(find.text('Thu, Oct 1 · Logged'), findsOneWidget);
+        expect(find.text('1 of 1 set completed'), findsNothing);
+        await _tap(tester, 'training-history-$id');
+        // No start and no span: a log without a duration has neither.
+        expect(
+          find.byKey(const ValueKey('training-history-detail-time')),
+          findsNothing,
+        );
+        expect(find.bySemanticsLabel(RegExp('Recorded from')), findsNothing);
+        expect(find.text('Thu, Oct 1'), findsOneWidget);
+        expect(find.bySemanticsLabel('Finished: Oct 1, 2026'), findsOneWidget);
+        expect(find.text('Logged'), findsOneWidget);
+        await _tap(tester, 'training-history-delete');
+        expect(
+          find.text(
+            'This logged workout and its set values will be removed from '
+            'your history.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('training plan stays saved'), findsNothing);
+        semantics.dispose();
+      });
     });
 
     testWidgets('a log with a duration keeps "Recorded from"', (tester) async {
-      final entry = log(minutes: 45);
-      await _host(
-        tester,
-        TrainingHistoryDetail(
-          entry: entry,
-          onDelete: (_) async => SyncDelivery.delivered,
-        ),
-      );
-      expect(find.text('Logged'), findsOneWidget);
-      expect(find.text('Recorded from: Oct 1, 2026 17:45'), findsOneWidget);
-      expect(find.text('Finished: Oct 1, 2026 18:30'), findsOneWidget);
+      await withClock(Clock.fixed(now), () async {
+        final semantics = tester.ensureSemantics();
+        final entry = log(minutes: 45);
+        await _host(
+          tester,
+          TrainingHistoryDetail(
+            entry: entry,
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+        );
+        expect(find.text('Logged'), findsOneWidget);
+        expect(find.text('17:45–18:30 · 45 min'), findsOneWidget);
+        expect(
+          find.bySemanticsLabel('Recorded from: Oct 1, 2026 17:45, 45 min'),
+          findsOneWidget,
+        );
+        expect(
+          find.bySemanticsLabel('Finished: Oct 1, 2026 18:30'),
+          findsOneWidget,
+        );
+        semantics.dispose();
+      });
     });
 
     testWidgets('a plan workout with a duration keeps its plan line and copy', (
@@ -663,9 +694,66 @@ void main() {
         ),
       );
       expect(find.text('Logged'), findsNothing);
-      expect(find.textContaining('Recorded from'), findsOneWidget);
+      expect(find.text(plan.title), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('training-history-detail-time')),
+        findsOneWidget,
+      );
       await _tap(tester, 'training-history-delete');
       expect(find.textContaining('training plan stays saved'), findsOneWidget);
+    });
+
+    testWidgets('a timed set shows and speaks its interval and its weight', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      // Full body: Hold (2 × 30 s), then Squats (2 × 12).
+      final entry = buildPlanAttachedLog(
+        historyId: id,
+        plan: timerPlan(),
+        workoutIndex: 0,
+        sets: const [
+          [
+            PlanAttachedSet(done: true, weightKg: 10),
+            PlanAttachedSet(done: true),
+          ],
+          [
+            PlanAttachedSet(done: true, reps: 12, weightKg: 40),
+            PlanAttachedSet(done: false),
+          ],
+        ],
+        performedOn: DateTime(2026, 10, 1),
+        now: now,
+      );
+      await withClock(
+        Clock.fixed(now),
+        () => _host(
+          tester,
+          TrainingHistoryDetail(
+            entry: entry,
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+        ),
+      );
+      final rows = {
+        'training-history-set-0-0': ('30 s · 10 kg', 'Set 1: 30 seconds · 10 kg'),
+        'training-history-set-0-1': (
+          '30 s',
+          'Set 2: 30 seconds · Weight not recorded',
+        ),
+        'training-history-set-1-0': ('12 × 40 kg', 'Set 1: 12 reps · 40 kg'),
+        'training-history-set-1-1': ('–', 'Set 2: skipped'),
+      };
+      for (final MapEntry(key: key, value: (shown, spoken)) in rows.entries) {
+        final row = find.byKey(ValueKey(key));
+        expect(
+          find.descendant(of: row, matching: find.text(shown)),
+          findsOneWidget,
+          reason: key,
+        );
+        expect(tester.getSemantics(row).label, spoken, reason: key);
+      }
+      semantics.dispose();
     });
 
     testWidgets('a played workout without a duration is not tagged Logged', (
@@ -690,18 +778,81 @@ void main() {
       controller.dispose();
       expect(isLoggedTrainingEntry(entry), isFalse);
       expect(trainingEntryHasDuration(entry), isFalse);
-      await _host(
-        tester,
-        TrainingHistoryScreen(
-          entries: [entry],
-          onDelete: (_) async => SyncDelivery.delivered,
-        ),
+      await withClock(Clock.fixed(now), () async {
+        final semantics = tester.ensureSemantics();
+        await _host(
+          tester,
+          TrainingHistoryScreen(
+            entries: [entry],
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+        );
+        // Three sets were skipped, so the row also counts them.
+        expect(find.text('Sat, Oct 3'), findsOneWidget);
+        expect(find.text('1 of 4 sets completed'), findsOneWidget);
+        await _tap(tester, 'training-history-${entry.id}');
+        expect(find.text('Logged'), findsNothing);
+        expect(find.text('Strength & focus'), findsOneWidget);
+        expect(find.bySemanticsLabel('Finished: Oct 3, 2026'), findsOneWidget);
+        semantics.dispose();
+      });
+    });
+
+    testWidgets('the history and its detail name the records and a year '
+        'outside the current one', (tester) async {
+      // The same plan workout twice: the heavier one sets one record.
+      final plan = timerPlan();
+      TrainingHistoryEntry played(String id, DateTime day, double kg) =>
+          buildPlanAttachedLog(
+            historyId: id,
+            plan: plan,
+            workoutIndex: 1,
+            sets: [
+              for (final exercise in plan.workouts[1].exercises)
+                [
+                  for (var s = 0; s < exercise.sets; s++)
+                    PlanAttachedSet(
+                      done: true,
+                      reps: exercise.isTimed ? null : 8,
+                      weightKg: kg,
+                    ),
+                ],
+            ],
+            performedOn: day,
+            durationMinutes: 40,
+            now: day.add(const Duration(days: 1)),
+          );
+      final first = played(
+        '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d',
+        DateTime(2025, 12, 30),
+        20,
       );
-      expect(find.text('Oct 3, 2026\n1 of 4 sets completed'), findsOneWidget);
-      await _tap(tester, 'training-history-${entry.id}');
-      expect(find.text('Logged'), findsNothing);
-      expect(find.text('Strength & focus'), findsOneWidget);
-      expect(find.text('Finished: Oct 3, 2026'), findsOneWidget);
+      final record = played(id, DateTime(2026, 1, 2), 25);
+      await withClock(Clock.fixed(DateTime(2026, 1, 3, 9)), () async {
+        await _host(
+          tester,
+          TrainingHistoryScreen(
+            entries: [record, first],
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+        );
+        expect(
+          find.byKey(ValueKey('training-history-pr-${record.id}')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(ValueKey('training-history-pr-${first.id}')),
+          findsNothing,
+        );
+        expect(find.text('Fri, Jan 2 · 40 min'), findsOneWidget);
+        expect(find.text('Tue, Dec 30, 2025 · 40 min'), findsOneWidget);
+        await _tap(tester, 'training-history-${record.id}');
+        expect(
+          find.byKey(const ValueKey('training-history-detail-pr')),
+          findsOneWidget,
+        );
+        expect(find.text('1 PR'), findsOneWidget);
+      });
     });
 
     testWidgets('the empty history explains both ways in', (tester) async {

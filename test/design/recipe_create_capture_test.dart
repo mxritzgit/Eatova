@@ -42,7 +42,11 @@ class _DishPhoto implements MealPhotoInput {
 
 class _Products implements ProductLookupService {
   @override
-  Future<List<ProductSearchResult>> searchProducts(String query) async => [
+  Future<List<ProductSearchResult>> searchProducts(String query) async =>
+      // "zzz" finds nothing: the calm no-match state.
+      query == 'zzz' ? const [] : _hits;
+
+  List<ProductSearchResult> get _hits => [
     for (final (code, name, brand, kcal, protein, carbs, fat) in [
       ('101', 'Rolled oats', 'Kölln', 372, 13.5, 58.7, 7.0),
       ('102', 'Oat drink barista', 'Oatly', 59, 1.0, 6.6, 3.0),
@@ -156,6 +160,22 @@ Future<void> _addManualIngredient(
   await tester.pumpAndSettle();
 }
 
+/// Switches the open sheet to ingredients and opens the product search.
+Future<void> _openIngredientSearch(WidgetTester tester) async {
+  await _type(tester, 'name', 'Overnight oats');
+  await _unfocus(tester);
+  final structured = _key('recipe-create-structured');
+  await tester.ensureVisible(structured);
+  await tester.pumpAndSettle();
+  await tester.tap(structured);
+  await tester.pumpAndSettle();
+  final add = _key('ingredient-add');
+  await tester.ensureVisible(add);
+  await tester.pumpAndSettle();
+  await tester.tap(add);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUpAll(loadDesignFonts);
 
@@ -249,6 +269,45 @@ void main() {
       await _unfocus(tester);
       await captureDesignShot(tester, 'recipe-create-06-search');
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('ingredient search: the capsule and no match', (tester) async {
+    await fixed(() async {
+      await _open(tester);
+      await _openIngredientSearch(tester);
+      // The Food search's capsule with its arrow, a close ring in the
+      // header and no full-width search button.
+      expect(_key('ingredient-search-close'), findsOneWidget);
+      expect(
+        tester.widget<IconButton>(_key('ingredient-search-submit')).onPressed,
+        isNull,
+        reason: 'nothing typed yet',
+      );
+      await captureDesignShot(tester, 'recipe-create-13-search-idle');
+
+      await tester.enterText(_key('ingredient-query'), 'zzz');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      await _unfocus(tester);
+      expect(_key('ingredient-search-empty'), findsOneWidget);
+      expect(_key('ingredient-manual'), findsOneWidget);
+      await captureDesignShot(tester, 'recipe-create-14-search-empty');
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('ingredient search at 320 px and 2x text', (tester) async {
+    await fixed(() async {
+      await _open(tester, textScale: 2, narrow: const Size(320, 700));
+      await _openIngredientSearch(tester);
+      await tester.enterText(_key('ingredient-query'), 'oats');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      await _unfocus(tester);
+      expect(_key('ingredient-result-0'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'recipe-create-15-narrow-search');
     });
   });
 

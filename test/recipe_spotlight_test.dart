@@ -2,7 +2,6 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/recipes/recipe_photo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +25,7 @@ void main() {
       settle: true,
     );
     expect(find.byType(Image), findsOneWidget);
-    expect(find.byType(ImagePlaceholder), findsNothing);
+    expect(find.byType(RecipeArt), findsNothing);
   });
 
   for (final wrongSlug in [false, true]) {
@@ -46,7 +45,7 @@ void main() {
           settle: true,
         );
         expect(find.byType(Image), findsNothing);
-        expect(find.byType(ImagePlaceholder), findsOneWidget);
+        expect(find.byType(RecipeArt), findsOneWidget);
       },
     );
   }

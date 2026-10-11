@@ -204,7 +204,8 @@ void main() {
       _screen(loading: true),
       locale: const Locale('en'),
     );
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    // The next-workout card in outline, never the empty state.
+    expect(find.byKey(const ValueKey('training-loading')), findsOneWidget);
     expect(find.byKey(const ValueKey('training-empty-coach')), findsNothing);
     var retries = 0;
     await pumpLocalized(
@@ -499,10 +500,18 @@ void main() {
     );
     await _tap(tester, 'training-editor-edit');
     await _enter(tester, 'training-editor-exercise-0-0-name', 'Edited squat');
+    // Order and removal live in each card's ⋯ menu; the first has no "up".
+    await _tap(tester, 'training-editor-exercise-0-0-menu');
+    expect(
+      find.byKey(const ValueKey('training-editor-exercise-0-0-up')),
+      findsNothing,
+    );
     await _tap(tester, 'training-editor-exercise-0-0-down');
     await _tap(tester, 'training-editor-add-exercise-0');
     await _enter(tester, 'training-editor-exercise-0-2-name', 'Lunge');
+    await _tap(tester, 'training-editor-exercise-0-0-menu');
     await _tap(tester, 'training-editor-exercise-0-0-remove');
+    await _tap(tester, 'training-editor-workout-1-menu');
     await _tap(tester, 'training-editor-workout-1-up');
     await _tap(tester, 'training-editor-save');
     expect(saved!.workouts.first.title, 'Mobility');

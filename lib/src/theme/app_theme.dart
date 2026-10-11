@@ -100,15 +100,24 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       contentTextStyle:
           AppType.ui(13.5, weight: FontWeight.w500, color: t.onForest),
       actionTextColor: t.lime,
+      // Depth from a hairline, not a shadow: a sheet's [SnackHost] strip
+      // clipped Material's elevation shadow into a hard seam in light mode.
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rControl),
+        borderRadius: BorderRadius.circular(rTile),
+        side: BorderSide(color: t.lineStrong),
       ),
       behavior: SnackBarBehavior.floating,
-      elevation: 8,
+      elevation: 0,
+      // On the pages' 20 px gutter (Material's default is 15).
+      // `SnackHost._toastReserve` measures with the same horizontal inset.
+      insetPadding: const EdgeInsets.fromLTRB(20, 5, 20, 12),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: t.bg,
       modalBackgroundColor: t.bg,
+      // Safety net for direct `showModalBottomSheet` calls: the app scrim,
+      // not Material's grey black54. `showEatovaSheet` passes it anyway.
+      modalBarrierColor: t.scrim,
       surfaceTintColor: Colors.transparent,
       showDragHandle: false,
       // One handle geometry app-wide (same as [SheetHandle]).
@@ -118,28 +127,60 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
     ),
+    // The decision card's surface (EatovaDialog sets the same values itself):
+    // the sheets' `lineStrong` edge, no tint.
     dialogTheme: DialogThemeData(
       backgroundColor: t.surf,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rSheet),
-        side: BorderSide(color: t.line),
+        side: BorderSide(color: t.lineStrong),
       ),
       titleTextStyle: AppType.display(20, weight: FontWeight.w700, color: t.ink),
       contentTextStyle: AppType.ui(13.5, color: t.ink2, height: 1.45),
     ),
+    // Overflow menus: rows come from `MenuRow`; the label style is the net
+    // for a plain item, so none falls back to Material's labelLarge. Menus
+    // open under their anchor and the trigger glyph is a quiet `ink2`. The
+    // edge is the decision card's `lineStrong`; `line` lost the dark menu
+    // against `bg`.
     popupMenuTheme: PopupMenuThemeData(
       color: t.surf,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rCard),
-        side: BorderSide(color: t.line),
+        side: BorderSide(color: t.lineStrong),
       ),
+      textStyle: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+      labelTextStyle: WidgetStatePropertyAll(
+        AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+      ),
+      menuPadding: const EdgeInsets.symmetric(vertical: 6),
+      position: PopupMenuPosition.under,
+      iconColor: t.ink2,
     ),
+    // Long-press labels: the selection language's inverse pair (`ink` chip,
+    // `bg` text) on the radius scale, instead of Material's 4 px bubble in
+    // an unvetted `inverseSurface`.
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: t.ink,
+        borderRadius: BorderRadius.circular(rChip),
+      ),
+      textStyle: AppType.ui(12.5, weight: FontWeight.w600, color: t.bg),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      waitDuration: const Duration(milliseconds: 400),
+    ),
+    // Rounded like every other pill in the app: bars end in caps on a
+    // `tile` track, spinners in round caps.
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: t.accent,
       linearTrackColor: t.tile,
+      linearMinHeight: 4,
+      borderRadius: BorderRadius.circular(rPill),
       circularTrackColor: t.tile,
+      strokeCap: StrokeCap.round,
     ),
     // UNREACHED TODAY, kept as a net: `lib/` contains no Material Chip at all
     // (no Filter/Choice/Input/ActionChip, no bare `Chip`) — the app draws
@@ -168,8 +209,8 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     // semantics for all three (dark redesign 2026-09-28): text = quiet `ink`
     // (a screen sets `accent` only for an explicitly affirmative action),
     // filled = the primary action (accent pill, like [PrimaryActionButton]),
-    // outlined = the SECONDARY action, a tonal `surf2` pill with an `ink`
-    // label.
+    // outlined = the SECONDARY action, a tonal `softFill` pill with an `ink`
+    // label (`surf2` vanished on the light page ground, 1.05:1).
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: t.ink,
@@ -198,9 +239,9 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: t.surf2,
+        backgroundColor: t.softFill,
         foregroundColor: t.ink,
-        disabledBackgroundColor: t.surf2.withValues(alpha: 0.5),
+        disabledBackgroundColor: t.softFill.withValues(alpha: 0.5),
         disabledForegroundColor: t.ink2.withValues(alpha: 0.5),
         side: BorderSide.none,
         textStyle: AppType.ui(15, weight: FontWeight.w700),

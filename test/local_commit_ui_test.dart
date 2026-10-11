@@ -384,7 +384,13 @@ void main() {
     commit.completeError(StateError('disk full'));
     await tester.pumpAndSettle();
     expect(find.text('Bowl'), findsOneWidget);
-    expect(find.text('Favoriten (1)'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('favorites-sheet')),
+        matching: find.text('1 gespeichert'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Favorit entfernt'), findsNothing);
   });
 

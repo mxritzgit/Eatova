@@ -159,6 +159,50 @@ void main() {
           semantics.dispose();
         });
       });
+
+      // Design review 2026-10-11: both sheets used a raw
+      // showModalBottomSheet — Material's grey black54 barrier and no edge,
+      // so in dark mode the sheet melted into the dimmed page.
+      testWidgets('$name opens in the Eatova shell (scrim and edge)', (
+        tester,
+      ) async {
+        await withClock(Clock.fixed(_now), () async {
+          for (final brightness in Brightness.values) {
+            await pumpLocalized(
+              tester,
+              _profile(),
+              locale: const Locale('en'),
+              scaffold: false,
+              brightness: brightness,
+              surfaceSize: const Size(390, 844),
+            );
+            await _tapInto(tester, open);
+            final sheet = find.byType(SheetHandle);
+            final t = tester.element(sheet).t;
+            expect(
+              t.bg,
+              (brightness == Brightness.light
+                      ? AppTokens.light
+                      : AppTokens.dark)
+                  .bg,
+            );
+            final route = ModalRoute.of(tester.element(sheet))!;
+            expect(route.barrierColor, t.scrim);
+            final shape =
+                tester.widget<BottomSheet>(find.byType(BottomSheet)).shape!
+                    as RoundedRectangleBorder;
+            expect(shape.side.color, t.lineStrong);
+            expect(
+              tester.widget<BottomSheet>(find.byType(BottomSheet)).showDragHandle,
+              isFalse,
+              reason: 'the sheet draws its own SheetHandle',
+            );
+            await tester.tapAt(const Offset(195, 40));
+            await tester.pumpAndSettle();
+            expect(find.byType(BottomSheet), findsNothing);
+          }
+        });
+      });
     }
   });
 }

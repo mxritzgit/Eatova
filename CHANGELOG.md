@@ -55,6 +55,25 @@ the complete current product.
     is no longer dropped before the share bridge exists.
   - Rollout: `coach-chat` and `recipe-import` need a redeploy, a separate
     step; there is no migration.
+- **Design polish** (2026-10-11, #148): the shared surfaces follow one design
+  language. Confirmations and discard prompts use one bottom-anchored decision
+  card; removing a planned meal now asks there first and reports "Removed
+  from plan." instead of a generic "Saved." toast. Overflow menus share one
+  row style and edge. Sheets share one header with a close button and a title
+  that never splits a word at large text, and the remaining stray sheets open
+  in the Eatova sheet shell. Empty, error and loading states use calm cards,
+  skeletons, one small accent spinner, busy save buttons, flat toasts and
+  rounded progress bars.
+  The add-ingredient dialog uses the app's labelled capsule fields, each one
+  screen-reader stop that names its unit. Per area: the Choose day sheet uses
+  the app's own month grid; recipes without a photo show recipe art instead
+  of a wireframe placeholder, the recipe detail uses the import preview's
+  section cards and ingredient search follows the Food search; the plan
+  editor has a servings stepper; Coach proposal cards, the recipe sheet and
+  sessions share one language; workout history and editor rows follow the
+  Recent rows, locked rest controls read as unavailable, the onboarding
+  pace-cap warning quotes the deficit the plan runs, and the boot error
+  screen matches the boot screens.
 - **Claude for Coach, meal scan and recipe import** (2026-10-08): text and
   photo understanding moved from OpenRouter/Gemini to the Anthropic Messages
   API (`claude-sonnet-5-5`, adaptive thinking; effort `high` for Coach

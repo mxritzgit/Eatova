@@ -528,7 +528,10 @@ void main() {
     expect(coach.calls.single.session, 'a');
     expect(coach.chats + coach.plans + coach.recipes, 0);
     expect(_card, findsOneWidget);
-    expect(find.text(deL10n.coachWorkoutLogCardEyebrow), findsOneWidget);
+    expect(
+      find.text(deL10n.coachWorkoutLogCardEyebrow.toUpperCase()),
+      findsOneWidget,
+    );
     expect(find.text('Beintag'), findsOneWidget);
     expect(find.text(deL10n.trainingLogYesterday), findsOneWidget);
     expect(find.text('Kniebeuge · 2 × 8 Wdh. · 100 kg'), findsOneWidget);
@@ -719,12 +722,18 @@ void main() {
     await _mount(tester, coach, locale: const Locale('en'));
     await _send(tester, '/log $_wish');
     expect(coach.calls.single.locale, 'en');
-    expect(find.text(enL10n.coachWorkoutLogCardEyebrow), findsOneWidget);
+    expect(
+      find.text(enL10n.coachWorkoutLogCardEyebrow.toUpperCase()),
+      findsOneWidget,
+    );
     expect(find.text(enL10n.trainingLogYesterday), findsOneWidget);
     expect(find.text('Kniebeuge · 2 × 8 reps · 100 kg'), findsOneWidget);
     expect(find.text('Plank · 1 × 60s'), findsOneWidget);
     expect(find.text(enL10n.coachWorkoutLogAddButton), findsOneWidget);
-    expect(find.text(deL10n.coachWorkoutLogCardEyebrow), findsNothing);
+    expect(
+      find.text(deL10n.coachWorkoutLogCardEyebrow.toUpperCase()),
+      findsNothing,
+    );
   });
 
   _test('a reload rebuilds the card from the history row', (tester) async {
@@ -839,7 +848,10 @@ void main() {
     ]);
     expect(_editorSave, findsNothing);
     expect(_add, findsNothing, reason: 'no second editable save');
-    expect(find.text(deL10n.coachWorkoutLogAddedLabel), findsOneWidget);
+    expect(
+      find.text(deL10n.coachWorkoutLogAddedLabel.toUpperCase()),
+      findsOneWidget,
+    );
     final open = find.byKey(const ValueKey('coach-workout-log-open-training'));
     await tester.ensureVisible(open);
     await tester.tap(open);
@@ -873,7 +885,10 @@ void main() {
     expect(h.saved, isEmpty);
     expect(_editorSave, findsNothing);
     expect(_add, findsNothing);
-    expect(find.text(deL10n.coachWorkoutLogAddedLabel), findsOneWidget);
+    expect(
+      find.text(deL10n.coachWorkoutLogAddedLabel.toUpperCase()),
+      findsOneWidget,
+    );
   });
 
   _test('a deleted id is "Removed from history" and never added again', (
@@ -958,7 +973,10 @@ void main() {
     expect(isUuidShape(id), isTrue);
     expect(id, id.toLowerCase());
     expect(h.saved.map((e) => e.id).toSet(), {id});
-    expect(find.text(deL10n.coachWorkoutLogAddedLabel), findsOneWidget);
+    expect(
+      find.text(deL10n.coachWorkoutLogAddedLabel.toUpperCase()),
+      findsOneWidget,
+    );
   });
 
   _test('a replacement account cannot write from an older open sheet', (

@@ -257,12 +257,14 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
         child: SizedBox(
           height: panelHeight,
           child: Container(
+            // The page ground plus the 1 px edge of every Eatova sheet.
             decoration: BoxDecoration(
               color: context.t.bg,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(rSheet),
               ),
             ),
+            foregroundDecoration: sheetEdgeDecoration(context.t),
             clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
@@ -271,7 +273,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                 ),
                 _HeaderRow(onClose: _schliessen),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  // The sheets' 20 px gutter, like title and close ring.
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: MealSlotPicker(
                     selected: _slot,
                     onSelected: _selectSlot,
@@ -280,7 +283,7 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                 ),
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(rCard),
                       child: Stack(
@@ -353,11 +356,13 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                                           ),
                                           child: Text(
                                             context.l10n.foodBarcodeHintText,
-                                            style: const TextStyle(
-                                              fontSize: 11.5,
-                                              fontWeight: FontWeight.w700,
+                                            // The type scale; white because
+                                            // it sits on the camera image.
+                                            style: AppType.ui(
+                                              11.5,
+                                              weight: FontWeight.w700,
+                                              color: context.t.onImage,
                                               letterSpacing: -0.1,
-                                              color: Colors.white,
                                             ),
                                           ),
                                         ),
@@ -521,50 +526,33 @@ class _ScannerFailedLayer extends StatelessWidget {
       child: Center(
         // Scrolls instead of overflowing on a short preview or at 2x text.
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
-              const SizedBox(height: 12),
-              Text(
-                permissionDenied
-                    ? l10n.foodBarcodePermissionDeniedMessage
-                    : l10n.foodCameraUnavailableMessage,
-                textAlign: TextAlign.center,
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w500,
-                  color: t.ink,
-                  height: 1.4,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          // The app's calm state (glyph tile, guidance, soft pills), as in
+          // the add sheet's search.
+          child: CalmState(
+            icon: Icons.no_photography_outlined,
+            text: permissionDenied
+                ? l10n.foodBarcodePermissionDeniedMessage
+                : l10n.foodCameraUnavailableMessage,
+            // Design-system pills on the sheet's `bg` (F8-10: no colour
+            // copies). Typing is the only way out when the camera is dead,
+            // so it takes the accent unless Settings is the real fix.
+            actions: [
+              if (permissionDenied)
+                SoftPillButton(
+                  key: const ValueKey('barcode-open-settings'),
+                  onTap: onOpenSettings,
+                  icon: Icons.settings_outlined,
+                  label: l10n.foodOpenSettingsButton,
                 ),
-              ),
-              const SizedBox(height: 14),
-              // Design-system pills on the sheet's `bg` (F8-10: no colour
-              // copies). Typing is the only way out when the camera is dead,
-              // so it takes the accent unless Settings is the real fix.
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (permissionDenied)
-                    SoftPillButton(
-                      key: const ValueKey('barcode-open-settings'),
-                      onTap: onOpenSettings,
-                      icon: Icons.settings_outlined,
-                      label: l10n.foodOpenSettingsButton,
-                    ),
-                  SoftPillButton(
-                    key: const ValueKey('barcode-type-in'),
-                    onTap: onTypeBarcode,
-                    icon: Icons.keyboard_alt_outlined,
-                    label: l10n.foodBarcodeTypeInButton,
-                    tone: permissionDenied
-                        ? SoftPillTone.neutral
-                        : SoftPillTone.accent,
-                  ),
-                ],
+              SoftPillButton(
+                key: const ValueKey('barcode-type-in'),
+                onTap: onTypeBarcode,
+                icon: Icons.keyboard_alt_outlined,
+                label: l10n.foodBarcodeTypeInButton,
+                tone: permissionDenied
+                    ? SoftPillTone.neutral
+                    : SoftPillTone.accent,
               ),
             ],
           ),
@@ -613,7 +601,8 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
       key: const ValueKey('barcode-manual-layer'),
       color: t.bg,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        // The viewfinder already sits on the sheet's 20 px gutter.
+        padding: const EdgeInsets.symmetric(vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -644,12 +633,12 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
               ),
             ),
             const SizedBox(height: 14),
+            // The standard foot action of a sheet form.
             PrimaryActionButton(
               key: const ValueKey('barcode-manual-submit'),
               label: l10n.foodBarcodeManualSubmit,
               icon: Icons.search_rounded,
               onTap: _submit,
-              height: 48,
             ),
             const SizedBox(height: 10),
             SoftPillButton(
@@ -704,28 +693,15 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return Padding(
-      // The close circle's edge lines up with the slot picker (14 px).
-      padding: const EdgeInsets.fromLTRB(20, 2, 10, 2),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              l10n.foodScanBarcodeTooltip,
-              style: AppType.display(17, color: t.ink),
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('barcode-close-button'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-          ),
-        ],
-      ),
+    // Compact title: the height belongs to the viewfinder.
+    return SheetHeader(
+      title: l10n.foodScanBarcodeTooltip,
+      compact: true,
+      onClose: onClose,
+      closeKey: const ValueKey('barcode-close-button'),
+      closeTooltip: l10n.commonClose,
+      padding: const EdgeInsets.fromLTRB(20, 2, 18, 2),
     );
   }
 }
@@ -743,6 +719,7 @@ class _AnalyzerStalledLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final l10n = context.l10n;
     return Container(
       key: const ValueKey('barcode-analyzer-stalled'),
@@ -751,32 +728,31 @@ class _AnalyzerStalledLayer extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.refresh_rounded, size: 30, color: Colors.white),
+          Icon(Icons.refresh_rounded, size: 30, color: t.onImage),
           const SizedBox(height: 10),
           Text(
             l10n.foodDetectionStalledTitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 14.5,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
+            style: AppType.ui(14.5, weight: FontWeight.w800, color: t.onImage),
           ),
           const SizedBox(height: 6),
           Text(
             l10n.foodDetectionStalledBody,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontSize: 12, height: 1.35, color: Colors.white70),
+            style: AppType.ui(
+              12,
+              color: t.onImage.withValues(alpha: 0.72),
+              height: 1.35,
+            ),
           ),
           const SizedBox(height: 14),
           // The accent pair the themed FilledButton carried, so the contrast
-          // on the dimmed preview is unchanged.
+          // on the dimmed preview is unchanged; the in-card touch floor.
           PrimaryActionButton(
             key: const ValueKey('barcode-analyzer-restart'),
             onTap: onRetry,
             label: l10n.foodRestartScannerButton,
-            height: 48,
+            height: kButtonMinHeight,
           ),
         ],
       ),

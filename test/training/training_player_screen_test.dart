@@ -605,8 +605,10 @@ void main() {
       final ends = host.writes.last!.phaseEndsAt!;
       final writes = host.writes.length;
       final plus = _key('training-timer-rest-plus');
-      bool enabled() => tester.widget<FilledButton>(plus).onPressed != null;
+      bool enabled() => tester.widget<SoftPillButton>(plus).onTap != null;
       expect(enabled(), isFalse, reason: 'the full 60 s rest is left');
+      // Off reads dimmed in the neutral tone, never as an accent pill.
+      expect(tester.widget<SoftPillButton>(plus).tone, SoftPillTone.neutral);
       expect(
         tester.getSemantics(plus),
         isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),

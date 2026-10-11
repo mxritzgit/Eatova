@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../l10n/l10n.dart';
@@ -73,12 +75,18 @@ class PlayerRestBar extends StatelessWidget {
         ),
       ),
     );
+    final label = rest.running
+        ? l.trainingTimerRestLabel
+        : l.trainingTimerPaused;
     final heading = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Tracked caps like the app's other eyebrows ("NEXT WORKOUT"); the
+        // tracking on mixed case read as "R e s t".
         Text(
-          rest.running ? l.trainingTimerRestLabel : l.trainingTimerPaused,
-          style: AppType.eyebrow(t.accentText, size: 11),
+          label.toUpperCase(),
+          semanticsLabel: label,
+          style: AppType.sectionEyebrow(t.accentText, size: 11),
         ),
         const SizedBox(height: 2),
         Text(
@@ -114,7 +122,7 @@ class PlayerRestBar extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 8),
-            PlayerRestControls(rest: rest),
+            PlayerRestControls(rest: rest, keepRow: true),
           ],
         ),
       ),
@@ -122,7 +130,9 @@ class PlayerRestBar extends StatelessWidget {
   }
 }
 
-/// Full-screen rest, readable from the bench (tap on the bar's time).
+/// Full-screen rest, readable from the bench (tap on the bar's time): close
+/// at the top, the time in the middle, the controls at the bottom within
+/// reach of the thumb.
 class PlayerRestView extends StatelessWidget {
   const PlayerRestView({
     super.key,
@@ -133,178 +143,266 @@ class PlayerRestView extends StatelessWidget {
   final PlayerRestState rest;
   final VoidCallback onCollapse;
 
+  static const EdgeInsets _padding = EdgeInsets.fromLTRB(20, 8, 20, 24);
+
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
+    final time = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          HeadingSemantics(
+            level: 1,
+            child: Text(
+              rest.running ? l.trainingTimerRestLabel : l.trainingTimerPaused,
+              textAlign: TextAlign.center,
+              style: AppType.display(22, color: t.accentText),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Semantics(
+            label: l.trainingTimerSecondsRemaining(rest.seconds),
+            excludeSemantics: true,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                formatClock(rest.seconds),
+                key: const ValueKey('training-rest-view-time'),
+                style: AppType.display(96, color: t.ink, height: 1),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            l.trainingTimerRestNext(rest.nextExercise, rest.nextSet),
+            textAlign: TextAlign.center,
+            style: AppType.ui(16, color: t.ink2),
+          ),
+          if (rest.alertsOff) ...[
+            const SizedBox(height: 12),
+            Center(child: _AlertsOffChip(rest: rest)),
+          ],
+        ],
+      ),
+    );
     return Material(
       key: const ValueKey('training-rest-view'),
       color: t.bg,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: IconButton(
-                key: const ValueKey('training-timer-rest-collapse'),
-                tooltip: l.trainingTimerRestCollapse,
-                onPressed: onCollapse,
-                icon: const Icon(Icons.close_rounded),
-              ),
+      // At least one screen tall, so close, time and controls spread over
+      // it; large text scrolls instead.
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: _padding,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: math.max(0, constraints.maxHeight - _padding.vertical),
             ),
-            const SizedBox(height: 24),
-            HeadingSemantics(
-              level: 1,
-              child: Text(
-                rest.running ? l.trainingTimerRestLabel : l.trainingTimerPaused,
-                textAlign: TextAlign.center,
-                style: AppType.display(22, color: t.accentText),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Semantics(
-              label: l.trainingTimerSecondsRemaining(rest.seconds),
-              excludeSemantics: true,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  formatClock(rest.seconds),
-                  key: const ValueKey('training-rest-view-time'),
-                  style: AppType.display(96, color: t.ink, height: 1),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: SheetCloseButton(
+                    buttonKey: const ValueKey('training-timer-rest-collapse'),
+                    tooltip: l.trainingTimerRestCollapse,
+                    onTap: onCollapse,
+                  ),
                 ),
-              ),
+                time,
+                PlayerRestControls(rest: rest),
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              l.trainingTimerRestNext(rest.nextExercise, rest.nextSet),
-              textAlign: TextAlign.center,
-              style: AppType.ui(16, color: t.ink2),
-            ),
-            if (rest.alertsOff) ...[
-              const SizedBox(height: 12),
-              Center(child: _AlertsOffChip(rest: rest)),
-            ],
-            const SizedBox(height: 32),
-            PlayerRestControls(rest: rest),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// −15 s · +15 s · (Resume) · Skip; stacks on narrow or large-text screens.
+/// A small rest pill: key suffix, visible text, spoken name and glyph.
+typedef _RestPill = ({
+  String id,
+  String text,
+  String? label,
+  IconData? icon,
+  VoidCallback? onTap,
+});
+
+/// −15 s · +15 s · (Resume) · Skip in one row of one height while every
+/// label fits on one line (measured, so "Pause überspringen" gets the width
+/// it needs). Where they do not, the small pills go above a full-width Skip.
 class PlayerRestControls extends StatelessWidget {
-  const PlayerRestControls({super.key, required this.rest});
+  const PlayerRestControls({
+    super.key,
+    required this.rest,
+    this.keepRow = false,
+  });
 
   final PlayerRestState rest;
+
+  /// The bar under the list keeps a running rest's one row on a wide phone
+  /// even where Skip's label wraps, so it stays short; the full-screen view
+  /// has the height to stack instead.
+  final bool keepRow;
+
+  static const double _gap = 8;
+
+  /// What a pill adds to its label: [SoftPillButton]'s 20 px sides or
+  /// [PrimaryActionButton]'s 16 px ones, and an 18 px icon with its gap.
+  static const double _softSides = 40;
+  static const double _primarySides = 32;
+  static const double _iconRoom = 26;
 
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final t = context.t;
-    Widget button(
-      String id,
-      String text,
-      String? label,
-      VoidCallback? action, {
-      bool primary = false,
-      IconData? icon,
-    }) {
-      final onPressed = rest.enabled ? action : null;
-      final style = primary
-          ? FilledButton.styleFrom(
-              backgroundColor: t.accentFill,
-              foregroundColor: t.onAccentFill,
-              minimumSize: const Size(64, 48),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            )
-          : FilledButton.styleFrom(
-              backgroundColor: t.surf2,
-              foregroundColor: t.ink,
-              minimumSize: const Size(64, 48),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            );
-      final child = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[Icon(icon, size: 18), const SizedBox(width: 6)],
-          Flexible(child: Text(text, textAlign: TextAlign.center)),
-        ],
-      );
-      final widget = FilledButton(
-        key: ValueKey('training-timer-$id'),
-        onPressed: onPressed,
-        style: style,
-        child: child,
-      );
-      return label == null
-          ? widget
-          : Semantics(
-              label: label,
-              excludeSemantics: true,
-              button: true,
-              enabled: onPressed != null,
-              onTap: onPressed,
-              child: widget,
-            );
-    }
-
-    final buttons = [
-      button(
-        'rest-minus',
-        l.trainingTimerRestShorter,
-        l.trainingTimerRestShorterLabel,
-        rest.onShorter,
+    VoidCallback? live(VoidCallback? action) => rest.enabled ? action : null;
+    final small = <_RestPill>[
+      (
+        id: 'rest-minus',
+        text: l.trainingTimerRestShorter,
+        label: l.trainingTimerRestShorterLabel,
+        icon: null,
+        onTap: live(rest.onShorter),
       ),
-      button(
-        'rest-plus',
-        l.trainingTimerRestLonger,
-        l.trainingTimerRestLongerLabel,
-        rest.onLonger,
+      (
+        id: 'rest-plus',
+        text: l.trainingTimerRestLonger,
+        label: l.trainingTimerRestLongerLabel,
+        icon: null,
+        onTap: live(rest.onLonger),
       ),
       if (!rest.running)
-        button(
-          'rest-resume',
-          l.trainingTimerResume,
-          null,
-          rest.onResume,
+        (
+          id: 'rest-resume',
+          text: l.trainingTimerResume,
+          label: null,
           icon: Icons.play_arrow_rounded,
+          onTap: live(rest.onResume),
         ),
-      button(
-        'skip-rest',
-        l.trainingTimerSkipRest,
-        null,
-        rest.onSkip,
-        primary: true,
-        icon: Icons.skip_next_rounded,
-      ),
     ];
+    // Neutral soft pills: an unavailable +15 s dims; it never takes the
+    // accent of a selected or primary control.
+    final pills = [
+      for (final pill in small)
+        SoftPillButton(
+          key: ValueKey('training-timer-${pill.id}'),
+          label: pill.text,
+          semanticLabel: pill.label,
+          icon: pill.icon,
+          tone: SoftPillTone.neutral,
+          onTap: pill.onTap,
+        ),
+    ];
+    final skip = PrimaryActionButton(
+      key: const ValueKey('training-timer-skip-rest'),
+      label: l.trainingTimerSkipRest,
+      icon: Icons.skip_next_rounded,
+      height: kButtonMinHeight,
+      onTap: live(rest.onSkip),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
-        final stack =
-            constraints.maxWidth < 340 ||
-            MediaQuery.textScalerOf(context).scale(14) > 21;
-        if (stack) {
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.center,
-            children: buttons,
+        final scaler = MediaQuery.textScalerOf(context);
+        final direction = Directionality.of(context);
+        double textWidth(String text, TextStyle style) {
+          final painter = TextPainter(
+            text: TextSpan(text: text, style: style),
+            textDirection: direction,
+            textScaler: scaler,
+            maxLines: 1,
+          )..layout();
+          final width = painter.width.ceilToDouble();
+          painter.dispose();
+          return width;
+        }
+
+        // The width each pill needs for its label on one line.
+        final smallWidths = [
+          for (final pill in small)
+            textWidth(pill.text, AppType.ui(14, weight: FontWeight.w700)) +
+                _softSides +
+                (pill.icon == null ? 0 : _iconRoom),
+        ];
+        final skipWidth =
+            textWidth(
+              l.trainingTimerSkipRest,
+              AppType.ui(15, weight: FontWeight.w800),
+            ) +
+            _primarySides +
+            _iconRoom;
+        final maxWidth = constraints.maxWidth;
+        final smallTotal = smallWidths.fold(0.0, (sum, width) => sum + width);
+        final smallRowWidth = smallTotal + _gap * (small.length - 1);
+        final free = maxWidth - smallRowWidth - _gap - skipWidth;
+
+        // One height for a row of pills, whatever each label's line height;
+        // [widths] are the shares of the row's width.
+        Widget row(List<Widget> children, List<double> widths) =>
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < children.length; i++) ...[
+                    if (i > 0) const SizedBox(width: _gap),
+                    Expanded(
+                      flex: (widths[i] * 100).round(),
+                      child: children[i],
+                    ),
+                  ],
+                ],
+              ),
+            );
+
+        if (free >= 0) {
+          // Every label on one line; Skip and the small pills split what is
+          // left, so −15 s and +15 s stay a matched pair.
+          return row(
+            [...pills, skip],
+            [
+              for (final width in smallWidths)
+                width + free / 2 * width / smallTotal,
+              skipWidth + free / 2,
+            ],
           );
         }
-        return Row(
-          children: [
-            for (var i = 0; i < buttons.length; i++) ...[
-              if (i > 0) const SizedBox(width: 8),
-              Expanded(
-                flex: i == buttons.length - 1 ? 2 : 1,
-                child: buttons[i],
-              ),
+        // A wide bar keeps the running rest's single row even where Skip's
+        // label has to wrap (German below 390 px): one height, no stacking
+        // under the list. Otherwise the small pills go above a full-width
+        // Skip.
+        final wide = maxWidth >= 340 && scaler.scale(14) <= 21;
+        if (keepRow && wide && small.length == 2) {
+          return row([...pills, skip], const [1, 1, 2]);
+        }
+        // −15 s and +15 s stay a pair where Resume no longer fits beside
+        // them (large text).
+        final pairWidth = smallWidths[0] + _gap + smallWidths[1];
+        final List<Widget> smallRows;
+        if (smallRowWidth <= maxWidth) {
+          smallRows = [row(pills, smallWidths)];
+        } else if (pairWidth <= maxWidth) {
+          smallRows = [
+            row(pills.sublist(0, 2), smallWidths.sublist(0, 2)),
+            for (final pill in pills.skip(2)) ...[
+              const SizedBox(height: _gap),
+              pill,
             ],
-          ],
+          ];
+        } else {
+          smallRows = [
+            for (var i = 0; i < pills.length; i++) ...[
+              if (i > 0) const SizedBox(height: _gap),
+              pills[i],
+            ],
+          ];
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [...smallRows, const SizedBox(height: _gap), skip],
         );
       },
     );

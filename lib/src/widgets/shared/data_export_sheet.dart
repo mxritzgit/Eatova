@@ -305,10 +305,12 @@ class _DataExportSheetState extends State<DataExportSheet> {
                   style: AppType.ui(12, color: t.ink2, height: 1.4),
                 ),
                 const SizedBox(height: 22),
+                // The card above already says what is loading; the app's
+                // spinner holds the sections' place.
                 if (loading)
                   const SizedBox(
                     height: 160,
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(child: AppSpinner()),
                   )
                 else if (document != null) ...[
                   for (final section in document.sections)
@@ -424,36 +426,28 @@ class _ExportHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
-    final title = HeadingSemantics(
-      level: 1,
-      child: Text(
-        largeText
-            ? context.l10n.settingsExportDataTitle
-            : context.l10n.exportSheetTitleFull,
-        style: AppType.display(largeText ? 22 : 26, color: context.t.ink),
-      ),
+    void close() => Navigator.of(context).pop();
+    if (!largeText) {
+      // The shared header row: a one-line title centres on the close ring.
+      return SheetHeader(
+        title: context.l10n.exportSheetTitleFull,
+        onClose: close,
+        closeTooltip: context.l10n.commonClose,
+        padding: EdgeInsets.zero,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: SheetCloseButton(
+            tooltip: context.l10n.commonClose,
+            onTap: close,
+          ),
+        ),
+        SheetTitle(context.l10n.settingsExportDataTitle, compact: true),
+      ],
     );
-    final t = context.t;
-    final close = IconButton(
-      tooltip: context.l10n.commonClose,
-      onPressed: () => Navigator.of(context).pop(),
-      style: IconButton.styleFrom(backgroundColor: t.surf2),
-      icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-    );
-    return largeText
-        ? Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(alignment: Alignment.centerRight, child: close),
-              title,
-            ],
-          )
-        : Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: title),
-              close,
-            ],
-          );
   }
 }

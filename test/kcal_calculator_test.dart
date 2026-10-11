@@ -224,7 +224,10 @@ void main() {
       expect(t.effectiveKcalDelta, -814);
       expect(t.effectiveWeeklyRateKg, closeTo(-0.74, 0.0005));
       expect(t.effectivePaceLabel(), '−0,75 kg/Woche');
-      expect(t.paceWarning(), contains('825'));
+      // The warning quotes the deficit the plan runs (the breakdown's −814),
+      // not the cap before the goal was rounded to 50 kcal.
+      expect(t.paceWarning(), contains('814 kcal'));
+      expect(t.paceWarning(), isNot(contains('825')));
       expect(t.paceWarning(), contains('1 %'));
       expect(t.paceWarning(), contains('−0,75 kg/Woche statt −1 kg/Woche'));
 

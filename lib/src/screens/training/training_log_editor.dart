@@ -427,23 +427,17 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     }
     _closing = true;
     final l10n = context.l10n;
-    final discard = await showEatovaDialog<bool>(
-      context: context,
-      builder: (dialogContext) => EatovaConfirmDialog(
-        key: const ValueKey('training-log-discard-dialog'),
-        title: l10n.trainingPageDiscardTitle,
-        body: l10n.trainingPageDiscardBody,
-        icon: Icons.edit_off_rounded,
-        destructive: true,
-        cancelLabel: l10n.trainingPageKeepEditing,
-        onCancel: () => Navigator.pop(dialogContext, false),
-        confirmKey: const ValueKey('training-log-discard-confirm'),
-        confirmLabel: l10n.trainingPageDiscard,
-        onConfirm: () => Navigator.pop(dialogContext, true),
-      ),
+    final discard = await confirmDiscardChanges(
+      context,
+      title: l10n.trainingPageDiscardTitle,
+      body: l10n.trainingPageDiscardBody,
+      confirmLabel: l10n.trainingPageDiscard,
+      keepLabel: l10n.trainingPageKeepEditing,
+      dialogKey: const ValueKey('training-log-discard-dialog'),
+      confirmKey: const ValueKey('training-log-discard-confirm'),
     );
     _closing = false;
-    if (mounted && discard == true) Navigator.pop(context);
+    if (mounted && discard) Navigator.pop(context);
   }
 
   void _setDay(DateTime day) {
@@ -560,7 +554,12 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
             // and footer would leave the fields no room at all.
             final compact = constraints.maxHeight < 400 * scale;
             final header = Padding(
-              padding: EdgeInsets.fromLTRB(compact ? 0 : 20, 14, 12, 10),
+              padding: EdgeInsets.fromLTRB(
+                compact ? 0 : 20,
+                14,
+                compact ? 0 : 18,
+                10,
+              ),
               child: _header(context),
             );
             final footer = _footer(context, hint: hint, ready: ready);
@@ -665,7 +664,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
   }) {
     final t = context.t;
     final l10n = context.l10n;
-    final message = _error ?? (_busy ? null : hint);
+    final hintText = _busy ? null : hint;
     return SafeArea(
       top: false,
       child: Padding(
@@ -673,29 +672,32 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (message != null)
+            if (_error case final error?)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: SignalNote(
+                  error,
+                  tone: t.danger,
+                  icon: Icons.error_outline_rounded,
+                  boxed: true,
+                  liveRegion: true,
+                ),
+              )
+            else if (hintText != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Semantics(
                   liveRegion: true,
                   child: Text(
-                    message,
-                    style: AppType.ui(
-                      14,
-                      color: _error != null ? t.danger : t.ink2,
-                      height: 1.4,
-                    ),
+                    hintText,
+                    style: AppType.ui(14, color: t.ink2, height: 1.4),
                   ),
                 ),
-              ),
-            if (_busy)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: LinearProgressIndicator(color: t.accent),
               ),
             PrimaryActionButton(
               key: const ValueKey('training-log-save'),
               label: _busy ? l10n.trainingPageSaving : l10n.trainingLogSave,
+              busy: _busy,
               onTap: ready ? _save : null,
             ),
           ],
@@ -731,20 +733,16 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
               ],
               HeadingSemantics(
                 level: 1,
-                child: Text(
-                  title,
-                  style: AppType.display(24, color: t.ink, height: 1.15),
-                ),
+                child: Text(title, style: sheetTitleStyle(t)),
               ),
             ],
           ),
         ),
-        IconButton(
-          key: const ValueKey('training-log-close'),
-          onPressed: _busy ? null : _close,
+        const SizedBox(width: 8),
+        SheetCloseButton(
+          buttonKey: const ValueKey('training-log-close'),
+          onTap: _busy ? null : _close,
           tooltip: l10n.trainingPageClose,
-          style: IconButton.styleFrom(backgroundColor: context.t.surf2),
-          icon: Icon(Icons.close_rounded, color: context.t.ink2, size: 21),
         ),
       ],
     );
@@ -972,11 +970,9 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
             runSpacing: 8,
             children: [
               for (var i = 0; i < suggestions.length; i++)
-                SoftPillButton(
-                  key: ValueKey('$prefix-suggestion-$i'),
-                  icon: Icons.history_rounded,
+                _SuggestionPill(
+                  pillKey: ValueKey('$prefix-suggestion-$i'),
                   label: suggestions[i].name,
-                  tone: SoftPillTone.neutral,
                   onTap: _busy
                       ? null
                       : () => _pickName(exercise, suggestions[i]),

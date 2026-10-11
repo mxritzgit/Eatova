@@ -445,7 +445,7 @@ void main() {
     await _send(tester, '/PLAN\nZwei Tage mit Kurzhanteln');
     expect(coach.calls.single.wish, 'Zwei Tage mit Kurzhanteln');
     expect(coach.calls.single.locale, 'en');
-    expect(find.text('Training plan · Draft'), findsOneWidget);
+    expect(find.text('TRAINING PLAN · DRAFT'), findsOneWidget);
     expect(find.text('2 workout days · 3 exercises'), findsOneWidget);
     expect(find.byKey(const ValueKey('coach-plan-card')), findsOneWidget);
     expect(saves, 0);
@@ -497,7 +497,7 @@ void main() {
     expect(plans, hasLength(1));
     expect(plans.single.id, trainingPlanIdForMessage('server-plan-1'));
     expect(find.byKey(const ValueKey('coach-plan-review')), findsNothing);
-    expect(find.text('Übernommen'), findsOneWidget);
+    expect(find.text('ÜBERNOMMEN'), findsOneWidget);
     await tester.ensureVisible(
       find.byKey(const ValueKey('coach-plan-open-training')),
     );
@@ -535,10 +535,10 @@ void main() {
       expect(attempts, 1);
       expect(find.textContaining('private database detail'), findsNothing);
       expect(find.text('Trainingsplan übernehmen'), findsOneWidget);
-      expect(find.text('Übernommen'), findsNothing);
+      expect(find.text('ÜBERNOMMEN'), findsNothing);
       await _confirm(tester);
       expect(attempts, 2);
-      expect(find.text('Übernommen'), findsOneWidget);
+      expect(find.text('ÜBERNOMMEN'), findsOneWidget);
     },
   );
 

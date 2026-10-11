@@ -199,7 +199,9 @@ class _IngredientRow extends StatelessWidget {
   }
 }
 
-/// The round surf2 icon button of the sheets (close, edit, remove).
+/// Round edit/remove button of an ingredient row: the quiet [softFill] disc
+/// (the neutral soft pill's fill), which holds on the white light-mode card
+/// where `surf2` faded to 1.05:1.
 class _RoundIconButton extends StatelessWidget {
   const _RoundIconButton({
     required this.buttonKey,
@@ -220,8 +222,8 @@ class _RoundIconButton extends StatelessWidget {
       key: buttonKey,
       tooltip: tooltip,
       onPressed: onPressed,
-      style: IconButton.styleFrom(backgroundColor: t.surf2),
-      icon: Icon(icon, size: 18, color: t.ink2),
+      style: IconButton.styleFrom(backgroundColor: t.softFill),
+      icon: Icon(icon, size: 18, color: t.inkMuted),
     );
   }
 }
@@ -337,6 +339,10 @@ class _IngredientSheet extends StatefulWidget {
 
 class _IngredientSheetState extends State<_IngredientSheet> {
   final _query = TextEditingController();
+
+  /// Tints the search glyph while the capsule has focus, as in the Food
+  /// search.
+  final _queryFocus = FocusNode();
   late final List<TextEditingController> _fields;
   RecipeIngredient? _original;
   bool _form = false,
@@ -353,7 +359,10 @@ class _IngredientSheetState extends State<_IngredientSheet> {
     _original = widget.initial;
     _form = widget.initial != null;
     _fields = List.generate(6, (_) => TextEditingController());
+    _queryFocus.addListener(_onQueryFocus);
   }
+
+  void _onQueryFocus() => setState(() {});
 
   bool _filled = false;
 
@@ -388,6 +397,9 @@ class _IngredientSheetState extends State<_IngredientSheet> {
 
   @override
   void dispose() {
+    _queryFocus
+      ..removeListener(_onQueryFocus)
+      ..dispose();
     _query.dispose();
     for (final field in _fields) {
       field.dispose();
@@ -510,102 +522,208 @@ class _IngredientSheetState extends State<_IngredientSheet> {
         : null;
   }
 
+  void _enterManually() => setState(() {
+    _fill(null);
+    _form = true;
+  });
+
+  /// The way into the empty form. One at a time carries the key: the calm
+  /// states below hold their own, so the standalone pill steps aside there.
+  Widget _manualPill({
+    SoftPillTone tone = SoftPillTone.neutral,
+    bool expand = false,
+  }) => SoftPillButton(
+    key: const ValueKey('ingredient-manual'),
+    label: context.l10n.ingredientManual,
+    icon: Icons.edit_rounded,
+    tone: tone,
+    expand: expand,
+    onTap: _enterManually,
+  );
+
+  /// The Food search's capsule: search glyph, the query, and the accent
+  /// arrow that runs the search.
+  Widget _searchCapsule(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final canSearch = !_searching && _query.text.trim().length >= 2;
+    return FieldCapsule(
+      focusNode: _queryFocus,
+      shape: SheetFieldShape.pill,
+      // Minimum, not fixed: large text needs more than 54 px.
+      constraints: const BoxConstraints(minHeight: 54),
+      padding: const EdgeInsets.only(left: 18, right: 7),
+      child: Row(
+        children: [
+          Icon(
+            Icons.search_rounded,
+            size: scaledWidth(context, 20),
+            color: _queryFocus.hasFocus ? t.accentText : t.ink2,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Semantics(
+              label: l10n.ingredientSearch,
+              child: TextField(
+                key: const ValueKey('ingredient-query'),
+                controller: _query,
+                focusNode: _queryFocus,
+                maxLength: 100,
+                textInputAction: TextInputAction.search,
+                cursorColor: t.accent,
+                cursorOpacityAnimates: false,
+                onSubmitted: (_) => _search(),
+                onChanged: (_) => setState(() {
+                  _searchEpoch++;
+                  _searching = false;
+                  _searched = false;
+                  _searchError = false;
+                  _results = const [];
+                }),
+                style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
+                decoration: InputDecoration(
+                  hintText: l10n.ingredientSearchHint,
+                  hintStyle: AppType.ui(16, color: t.ink2),
+                  isCollapsed: true,
+                  counterText: '',
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            key: const ValueKey('ingredient-search-submit'),
+            tooltip: l10n.ingredientSearch,
+            onPressed: canSearch ? _search : null,
+            style: IconButton.styleFrom(
+              backgroundColor: t.accentTint,
+              disabledBackgroundColor: t.accentTint,
+              foregroundColor: t.accentText,
+              disabledForegroundColor: t.accentText.withValues(alpha: 0.45),
+              fixedSize: const Size.square(40),
+              minimumSize: const Size.square(40),
+              padding: EdgeInsets.zero,
+            ),
+            icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// What the search found, or why it found nothing.
+  List<Widget> _searchResults(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    if (_searching) {
+      return [
+        const SizedBox(height: 8),
+        Semantics(
+          liveRegion: true,
+          label: l10n.ingredientSearching,
+          excludeSemantics: true,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l10n.ingredientSearching.toUpperCase(),
+                    style: AppType.sectionEyebrow(t.ink2),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const AppSpinner(size: 16, strokeWidth: 2),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        // The result rows' geometry, so the hits replace it without a jump.
+        const ExcludeSemantics(
+          child: SavedMealCollection(
+            children: [
+              SkeletonRow(nameWidth: 0.62, metaWidth: 0.34),
+              SkeletonRow(nameWidth: 0.48, metaWidth: 0.3),
+              SkeletonRow(nameWidth: 0.7, metaWidth: 0.38),
+            ],
+          ),
+        ),
+      ];
+    }
+    if (_searchError) {
+      // The service failed; that does not mean the product is unknown.
+      // Try again, or write the ingredient down yourself.
+      return [
+        CalmState(
+          key: const ValueKey('ingredient-search-error'),
+          icon: Icons.cloud_off_rounded,
+          text: l10n.ingredientSearchError,
+          actions: [
+            SoftPillButton(
+              key: const ValueKey('ingredient-search-retry'),
+              icon: Icons.refresh_rounded,
+              label: l10n.foodAnalysisRetryButton,
+              onTap: _query.text.trim().length >= 2 ? _search : null,
+            ),
+            _manualPill(),
+          ],
+        ),
+      ];
+    }
+    if (_searched && _results.isEmpty) {
+      return [
+        CalmState(
+          key: const ValueKey('ingredient-search-empty'),
+          icon: Icons.search_off_rounded,
+          text: l10n.ingredientNoResults,
+          actions: [_manualPill(tone: SoftPillTone.accent)],
+        ),
+      ];
+    }
+    if (_results.isEmpty) return const [];
+    return [
+      const SizedBox(height: 16),
+      SavedMealCollection(
+        children: [
+          for (var i = 0; i < _results.length; i++)
+            _ProductResultRow(
+              key: ValueKey('ingredient-result-$i'),
+              product: _results[i],
+              onTap: () => _select(_results[i]),
+            ),
+        ],
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.l10n;
     if (!_form) {
+      final calm =
+          !_searching && (_searchError || (_searched && _results.isEmpty));
       return SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              t.ingredientAdd,
-              style: AppType.display(24, color: context.t.ink),
+            SheetHeader(
+              title: t.ingredientAdd,
+              closeKey: const ValueKey('ingredient-search-close'),
+              onClose: () => Navigator.of(context).pop(),
+              padding: const EdgeInsets.only(bottom: 14),
             ),
-            const SizedBox(height: 12),
-            SheetField(
-              label: t.ingredientSearch,
-              hint: t.ingredientSearchHint,
-              controller: _query,
-              fieldKey: const ValueKey('ingredient-query'),
-              maxLength: 100,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (_) => _search(),
-              onChanged: (_) => setState(() {
-                _searchEpoch++;
-                _searching = false;
-                _searched = false;
-                _searchError = false;
-                _results = const [];
-              }),
-            ),
-            PrimaryActionButton(
-              key: const ValueKey('ingredient-search-submit'),
-              label: t.ingredientSearch,
-              icon: Icons.search_rounded,
-              onTap: _searching || _query.text.trim().length < 2
-                  ? null
-                  : _search,
-            ),
-            const SizedBox(height: 10),
-            SoftPillButton(
-              key: const ValueKey('ingredient-manual'),
-              label: t.ingredientManual,
-              icon: Icons.edit_rounded,
-              expand: true,
-              onTap: () => setState(() {
-                _fill(null);
-                _form = true;
-              }),
-            ),
-            if (_searching) ...[
-              const SizedBox(height: 20),
-              Semantics(
-                liveRegion: true,
-                label: t.ingredientSearching,
-                child: Center(
-                  child: CircularProgressIndicator(color: context.t.accent),
-                ),
-              ),
+            _searchCapsule(context),
+            if (!calm) ...[
+              const SizedBox(height: 12),
+              _manualPill(expand: true),
             ],
-            if (_searchError) ...[
-              const SizedBox(height: 16),
-              Text(
-                t.ingredientSearchError,
-                style: AppType.ui(14, color: context.t.danger, height: 1.4),
-              ),
-            ],
-            if (_searched &&
-                !_searching &&
-                _results.isEmpty &&
-                !_searchError) ...[
-              const SizedBox(height: 16),
-              Text(
-                t.ingredientNoResults,
-                style: AppType.ui(14, color: context.t.ink2, height: 1.4),
-              ),
-            ],
-            if (_results.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              SavedMealCollection(
-                children: [
-                  for (var i = 0; i < _results.length; i++)
-                    _ProductResultRow(
-                      key: ValueKey('ingredient-result-$i'),
-                      product: _results[i],
-                      onTap: () => _select(_results[i]),
-                    ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 16),
-            SoftPillButton(
-              label: t.commonCancel,
-              tone: SoftPillTone.neutral,
-              expand: true,
-              onTap: () => Navigator.of(context).pop(),
-            ),
+            ..._searchResults(context),
           ],
         ),
       );

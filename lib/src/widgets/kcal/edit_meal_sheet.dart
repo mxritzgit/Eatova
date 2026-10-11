@@ -95,36 +95,6 @@ Future<MealEditOutcome?> showEditMealSheet(
   );
 }
 
-/// Shared "discard changes?" confirmation for every way of closing a dirty
-/// sheet.
-///
-/// `barrierDismissible: true` is intentional: a tap beside the dialog means
-/// cancel, the harmless answer. The dialog sits on the root navigator above
-/// the sheet route, so its own barrier swallows that tap and the sheet below
-/// never sees it.
-///
-/// Returns true to discard, false to keep the sheet open.
-Future<bool> _confirmDiscardChanges(BuildContext context) async {
-  final l10n = context.l10n;
-  final verwerfen = await showEatovaDialog<bool>(
-    context: context,
-    builder: (dialogContext) => EatovaConfirmDialog(
-      key: const ValueKey('discard-changes-dialog'),
-      title: l10n.foodDiscardChangesTitle,
-      body: l10n.foodDiscardChangesBody,
-      icon: Icons.edit_off_rounded,
-      destructive: true,
-      cancelKey: const ValueKey('discard-changes-cancel'),
-      cancelLabel: l10n.foodDiscardChangesKeepEditing,
-      onCancel: () => Navigator.of(dialogContext).pop(false),
-      confirmKey: const ValueKey('discard-changes-confirm'),
-      confirmLabel: l10n.foodDiscardChangesConfirm,
-      onConfirm: () => Navigator.of(dialogContext).pop(true),
-    ),
-  );
-  return verwerfen ?? false;
-}
-
 /// Intercepts the drag-down dismissal of a modal bottom sheet.
 ///
 /// `PopScope` only covers half of it: a barrier tap goes through
@@ -307,7 +277,10 @@ class _EditMealSheetState extends State<EditMealSheet> {
     if (_saving) return;
     if (_discardDialogOpen) return;
     _discardDialogOpen = true;
-    final verwerfen = await _confirmDiscardChanges(context);
+    final verwerfen = await confirmDiscardChanges(
+      context,
+      body: context.l10n.foodDiscardChangesBody,
+    );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
     // The dialog is already popped, so the sheet is the top route again.
@@ -474,44 +447,15 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 16, 14),
-      child: Row(
-        children: [
-          SlotIconTile(slot: slot, size: 40),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                HeadingSemantics(
-                  level: 1,
-                  child: Text(
-                    l10n.foodEditMealTitle,
-                    style: AppType.display(22, color: t.ink, height: 1.15),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  mealName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('edit-meal-sheet-close'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-          ),
-        ],
-      ),
+    return SheetHeader(
+      leading: SlotIconTile(slot: slot, size: 40),
+      title: l10n.foodEditMealTitle,
+      subtitle: mealName,
+      subtitleMaxLines: 1,
+      onClose: onClose,
+      closeKey: const ValueKey('edit-meal-sheet-close'),
+      closeTooltip: l10n.commonClose,
     );
   }
 }

@@ -134,7 +134,8 @@ void main() {
     },
   );
 
-  testWidgetsRobust('Netz-Fehler zeigt KEINEN manuellen CTA', (
+  testWidgetsRobust('Netz-Fehler fuehrt mit Erneut versuchen, nicht mit dem '
+      'Leer-CTA', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -164,7 +165,17 @@ void main() {
     // screen instead of about the error state.
     expect(find.text(enL10n.foodSearchUnreachableHint), findsOneWidget,
         reason: 'ohne den Fehlerhinweis prueft die naechste Zeile nichts');
-    // An error means "search is broken", not "does not exist" — no CTA.
+    // An error means "search is broken", not "does not exist" — not the
+    // "nothing found" CTA. The way forward is retry first; the form is the
+    // quieter second way (design pass 2026-10-11).
     expect(find.byKey(const ValueKey('manual-entry-cta')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('product-search-retry')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('product-search-error-manual')),
+      findsOneWidget,
+    );
   });
 }

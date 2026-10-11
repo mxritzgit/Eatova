@@ -137,7 +137,7 @@ void main() {
     await _openFavoritesMenu(tester);
 
     // The sheet lists ALL pinned, newest first, and no recents.
-    expect(find.text('Favoriten (4)'), findsOneWidget);
+    expect(_menuText('4 gespeichert'), findsOneWidget);
     for (var i = 0; i < 4; i++) {
       expect(find.byKey(ValueKey('favorites-sheet-item-$i')), findsOneWidget);
     }
@@ -189,7 +189,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
     await tester.pumpAndSettle();
     expect(find.text('Favorit entfernt'), findsOneWidget);
-    expect(find.text('Favoriten (3)'), findsOneWidget);
+    expect(_menuText('3 gespeichert'), findsOneWidget);
     expect(find.byKey(const ValueKey('favorites-sheet-item-3')), findsNothing);
     expect(_menuText('Haferdrink'), findsNothing);
     expect(_menuText('Skyr Natur'), findsOneWidget);
@@ -258,7 +258,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('favorites-sheet-no-match')), findsOneWidget);
     expect(find.byKey(const ValueKey('favorites-sheet-item-0')), findsNothing);
-    expect(find.text('Favoriten (4)'), findsOneWidget);
+    expect(_menuText('4 gespeichert'), findsOneWidget);
 
     // Clearing the query brings all four back.
     await tester.tap(find.byKey(const ValueKey('favorites-sheet-search-clear')));

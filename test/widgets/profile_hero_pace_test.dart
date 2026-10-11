@@ -118,11 +118,12 @@ void main() {
 
     // KcalTargets.paceWarning hangs on the pace row as tooltip/semantics —
     // no second prose block on the card, but not silent either. For the
-    // standard profile only the cap bites.
+    // standard profile only the cap bites; the sentence names the deficit
+    // the plan runs after rounding (814), not the cap (825).
     expect(
       find.byTooltip(
         'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir '
-        'nicht: Dein Defizit ist auf 825 kcal/Tag begrenzt. Dein tatsächliches '
+        'nicht: Dein Defizit ist auf 814 kcal/Tag begrenzt. Dein tatsächliches '
         'Tempo ist damit −0,75 kg/Woche statt −1 kg/Woche.',
       ),
       findsOneWidget,

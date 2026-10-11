@@ -298,7 +298,7 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
     final t = context.t;
     final l10n = context.l10n;
     return Padding(
-      padding: EdgeInsets.fromLTRB(compact ? 0 : 20, 4, compact ? 0 : 12, 6),
+      padding: EdgeInsets.fromLTRB(compact ? 0 : 20, 4, compact ? 0 : 18, 6),
       // Top-aligned: a title that wraps at large text must not push the
       // close button down behind the action bar.
       child: Row(
@@ -312,18 +312,16 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
                 level: 1,
                 child: Text(
                   l10n.coachBriefTitle,
-                  style: AppType.display(24, color: t.ink, height: 1.15),
+                  style: sheetTitleStyle(t),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 8),
-          IconButton(
-            key: const ValueKey('coach-brief-close'),
+          SheetCloseButton(
+            buttonKey: const ValueKey('coach-brief-close'),
             tooltip: l10n.trainingPageClose,
-            onPressed: () => Navigator.pop(context),
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
+            onTap: () => Navigator.pop(context),
           ),
         ],
       ),
@@ -618,9 +616,11 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
               if (_error != null) ...[
                 Semantics(
                   liveRegion: true,
-                  child: Text(
+                  child: SignalNote(
                     _error!,
-                    style: AppType.ui(14, color: t.danger, height: 1.4),
+                    tone: t.danger,
+                    icon: Icons.error_outline_rounded,
+                    boxed: true,
                   ),
                 ),
                 const SizedBox(height: 10),

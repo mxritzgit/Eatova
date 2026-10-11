@@ -227,6 +227,9 @@ void main() {
       final ergebnis = _Ergebnis();
       await _oeffneScanner(tester, platform, ergebnis);
 
+      // The fallback layer scrolls inside the short 800x600 test surface.
+      await tester.ensureVisible(find.byKey(const ValueKey('barcode-type-in')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('barcode-type-in')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('barcode-manual-layer')), findsOneWidget);
@@ -265,6 +268,8 @@ void main() {
         (tester) async {
       platform.denyPermission = true;
       await _oeffneScanner(tester, platform, _Ergebnis());
+      await tester.ensureVisible(find.byKey(const ValueKey('barcode-type-in')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('barcode-type-in')));
       await tester.pumpAndSettle();
 

@@ -82,6 +82,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.field,
     required this.fieldFocus,
     required this.fieldError,
+    required this.softFill,
     required this.scrim,
     required this.slotBreakfastTint,
     required this.slotBreakfastInk,
@@ -268,6 +269,15 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// a runtime blend dropped it under 4.5:1 in both modes.
   final Color fieldError;
 
+  /// Neutral control fill that has to read on the page/sheet ground [bg]
+  /// as well as on a card [surf]: the neutral `SoftPillButton` tone and the
+  /// rest of a step track. Dark keeps the [surf2] value (1.21:1 on bg);
+  /// light steps below [surf2], which measured 1.05:1 on bg and let these
+  /// controls vanish (1.21:1 on bg, 1.33:1 on a card). Only a shade deeper
+  /// than [field], whose capsule also carries a shadow: a neutral pill under
+  /// an input must not outweigh it, nor the accent pill beside it.
+  final Color softFill;
+
   /// Modal barrier behind sheets and dialogs.
   final Color scrim;
 
@@ -378,6 +388,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     field: Color(0xFFE4E2EB),
     fieldFocus: Color(0xFFEBE9F1),
     fieldError: Color(0xFFF5E2E1),
+    softFill: Color(0xFFE0DEE8),
     scrim: Color(0x5217151F),
     // Slot tints (12 %, dinner 14 %) with the matching *Ink glyphs.
     slotBreakfastTint: Color(0x1F2D7DD2),
@@ -460,6 +471,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     field: Color(0xFF26252F),
     fieldFocus: Color(0xFF2F2E39),
     fieldError: Color(0xFF3A2F36),
+    softFill: Color(0xFF1F1E27),
     scrim: Color(0xA60C0914),
     // rgba(70,151,226,.16) / (29,176,113,.16) / (213,124,17,.18) /
     // (185,165,255,.16) with the design's glyph inks.
@@ -550,6 +562,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? field,
     Color? fieldFocus,
     Color? fieldError,
+    Color? softFill,
     Color? scrim,
     Color? slotBreakfastTint,
     Color? slotBreakfastInk,
@@ -620,6 +633,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       field: field ?? this.field,
       fieldFocus: fieldFocus ?? this.fieldFocus,
       fieldError: fieldError ?? this.fieldError,
+      softFill: softFill ?? this.softFill,
       scrim: scrim ?? this.scrim,
       slotBreakfastTint: slotBreakfastTint ?? this.slotBreakfastTint,
       slotBreakfastInk: slotBreakfastInk ?? this.slotBreakfastInk,
@@ -696,6 +710,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       field: c(field, other.field),
       fieldFocus: c(fieldFocus, other.fieldFocus),
       fieldError: c(fieldError, other.fieldError),
+      softFill: c(softFill, other.softFill),
       scrim: c(scrim, other.scrim),
       slotBreakfastTint: c(slotBreakfastTint, other.slotBreakfastTint),
       slotBreakfastInk: c(slotBreakfastInk, other.slotBreakfastInk),
@@ -821,6 +836,41 @@ class AppType {
   /// The text scaler for a tab title (and for measuring one).
   static TextScaler pageTitleScaler(BuildContext context) =>
       MediaQuery.textScalerOf(context).clamp(maxScaleFactor: pageTitleMaxScale);
+
+  /// [scaler], lowered just enough that the widest word of [text] in [style]
+  /// still fits [maxWidth] on one line, so a title wraps between words and
+  /// never splits one ("Revie/w" at 2x on a 320 px phone).
+  ///
+  /// It never goes below [minScaleFactor] (nor raises a smaller [scaler]):
+  /// a word too wide even there wraps as it would at that size.
+  static TextScaler wholeWordScaler(
+    BuildContext context, {
+    required String text,
+    required TextStyle style,
+    required TextScaler scaler,
+    required double maxWidth,
+    double minScaleFactor = 0,
+  }) {
+    if (!maxWidth.isFinite || maxWidth <= 0) return scaler;
+    var widest = 0.0;
+    for (final word in text.split(RegExp(r'\s+'))) {
+      if (word.isEmpty) continue;
+      final painter = TextPainter(
+        text: TextSpan(text: word, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      if (painter.width > widest) widest = painter.width;
+      painter.dispose();
+    }
+    if (widest <= maxWidth) return scaler;
+    final size = style.fontSize ?? 14;
+    final base = scaler.scale(size) / size;
+    final fit = base * maxWidth / widest;
+    final floor = base < minScaleFactor ? base : minScaleFactor;
+    return TextScaler.linear(fit > floor ? fit : floor);
+  }
 
   /// Numbers and headings.
   static TextStyle display(

@@ -113,7 +113,7 @@ class _ProgressBar extends StatelessWidget {
               curve: kMotionCurve,
               height: 4,
               decoration: BoxDecoration(
-                color: i <= index ? t.accent : t.surf2,
+                color: i <= index ? t.accent : t.softFill,
                 borderRadius: BorderRadius.circular(rPill),
               ),
             ),

@@ -212,7 +212,7 @@ class _ShelfCard extends StatelessWidget {
                       height: 112,
                       child: RecipePhoto(
                         recipe: recipe,
-                        placeholder: (_) => _RecipeArt(recipe: recipe),
+                        placeholder: (_) => RecipeArt.of(recipe, iconSize: 44),
                       ),
                     ),
                     Padding(
@@ -263,20 +263,44 @@ class _YourRecipesCard extends StatelessWidget {
   /// Null (no import service wired) leaves Create alone in the card.
   final VoidCallback? onImport;
 
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
+  /// Import and Create, the card's two pills — also the way forward of the
+  /// empty "My recipes" list.
+  static Widget pills(
+    BuildContext context, {
+    required VoidCallback onCreate,
+    VoidCallback? onImport,
+  }) {
     final l10n = context.l10n;
     final create = _Pill(
       key: const ValueKey('recipe-create-button'),
       label: l10n.recipesCreateButton,
-      glyph: _RecipeGlyph.pencil,
+      glyph: RecipeGlyph.pencil,
       height: 46,
       fontSize: 14,
       horizontalPadding: 16,
       grow: true,
       onTap: onCreate,
     );
+    if (onImport == null) return create;
+    return _PillPair(
+      equal: true,
+      first: _Pill(
+        key: const ValueKey('recipe-import-button'),
+        label: l10n.recipeImportAction,
+        glyph: RecipeGlyph.download,
+        height: 46,
+        fontSize: 14,
+        horizontalPadding: 16,
+        onTap: onImport,
+      ),
+      second: create,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
     return Container(
       key: const ValueKey('recipes-your-recipes'),
       padding: const EdgeInsets.all(18),
@@ -301,22 +325,7 @@ class _YourRecipesCard extends StatelessWidget {
             style: AppType.ui(14, color: t.ink2, height: 1.45),
           ),
           const SizedBox(height: 12),
-          if (onImport == null)
-            create
-          else
-            _PillPair(
-              equal: true,
-              first: _Pill(
-                key: const ValueKey('recipe-import-button'),
-                label: l10n.recipeImportAction,
-                glyph: _RecipeGlyph.download,
-                height: 46,
-                fontSize: 14,
-                horizontalPadding: 16,
-                onTap: onImport,
-              ),
-              second: create,
-            ),
+          pills(context, onCreate: onCreate, onImport: onImport),
         ],
       ),
     );

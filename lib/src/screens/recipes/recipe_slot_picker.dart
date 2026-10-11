@@ -15,6 +15,14 @@ class _MealSlotPickerSheet extends StatefulWidget {
   State<_MealSlotPickerSheet> createState() => _MealSlotPickerSheetState();
 }
 
+/// What the chosen servings log, in the recipe summary's wording
+/// ("480 kcal · 36 g protein").
+String _resultSummary(MealAnalysisResult result, AppLocalizations l10n) =>
+    _keepFiguresTogether(
+      '${_kcalNumber(result.caloriesKcal.toDouble(), l10n)} kcal · '
+      '${result.resolvedProtein(l10n)} ${l10n.recipesHeroProteinUnit}',
+    );
+
 class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
   double? _servings = 1;
   bool _saving = false;
@@ -64,31 +72,12 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: HeadingSemantics(
-                        level: 1,
-                        child: Text(
-                          l10n.recipesWhenToLogTitle,
-                          style: AppType.display(
-                            24,
-                            color: t.ink,
-                            height: 1.15,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SquareIconButton(
-                      icon: Icons.close_rounded,
-                      semanticLabel: MaterialLocalizations.of(
-                        context,
-                      ).closeButtonTooltip,
-                      onTap: _saving ? null : () => Navigator.of(context).pop(),
-                    ),
-                  ],
+                // A one-line title centres on the close ring.
+                SheetHeader(
+                  title: l10n.recipesWhenToLogTitle,
+                  onClose: () => Navigator.of(context).pop(),
+                  closeEnabled: !_saving,
+                  padding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -122,7 +111,7 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                         Text(
                           result == null
                               ? _recipeSummary(recipe, l10n)
-                              : '${result.caloriesKcal} kcal · ${result.resolvedProtein(l10n)} ${l10n.todayMacroProtein}',
+                              : _resultSummary(result, l10n),
                           style: AppType.ui(13, color: t.ink2, height: 1.4),
                         ),
                       ],

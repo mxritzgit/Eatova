@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:clock/clock.dart';
 
+import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
+import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 
 import 'support/harness.dart';
 
@@ -63,11 +66,13 @@ void main() {
         // Page to the PREVIOUS month and pick the 15th: it exists in every month,
         // is always in the past (lastDate = today never bites) and never collides
         // with the today special case.
-        await tester.tap(find.byIcon(Icons.chevron_left));
+        await tester.tap(
+          find.byKey(const ValueKey('food-date-month-previous')),
+        );
         await tester.pumpAndSettle();
         await tester.tap(
           find.descendant(
-            of: find.byType(CalendarDatePicker),
+            of: find.byType(FoodMonthCalendar),
             matching: find.text('15'),
           ),
         );
@@ -83,16 +88,26 @@ void main() {
     },
   );
 
-  testWidgetsRobust('dayLoading zeigt den Spinner statt der Verlaufskarte', (
-    WidgetTester tester,
-  ) async {
-    await _pumpFoodTab(tester, dayLoading: true);
+  testWidgetsRobust(
+    'dayLoading zeigt die Slot-Silhouetten statt der Verlaufskarte',
+    (WidgetTester tester) async {
+      final semantics = tester.ensureSemantics();
+      await _pumpFoodTab(tester, dayLoading: true);
 
-    expect(find.byKey(const ValueKey('food-day-loading')), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    // History slots are absent while loading.
-    expect(find.text('Tag wird geladen…'), findsOneWidget);
-  });
+      final laden = find.byKey(const ValueKey('food-day-loading'));
+      expect(laden, findsOneWidget);
+      // One silhouette per slot card, no spinner of its own.
+      expect(
+        find.descendant(of: laden, matching: find.byType(SkeletonCard)),
+        findsNWidgets(MealSlot.values.length),
+      );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      // History slots are absent while loading; the state is one label.
+      expect(find.byKey(const ValueKey('food-history')), findsNothing);
+      expect(find.bySemanticsLabel('Tag wird geladen…'), findsOneWidget);
+      semantics.dispose();
+    },
+  );
 
   testWidgetsRobust('Ohne dayLoading rendert der Verlauf wie bisher', (
     WidgetTester tester,

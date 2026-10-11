@@ -29,7 +29,7 @@ import '../support/design_capture.dart';
 import '../support/food_design_fixture.dart';
 import '../support/harness.dart';
 
-enum _Mode { results, empty, hang, error }
+enum _Mode { results, empty, hang, error, throttled }
 
 /// Search stub: answers by [mode], never touches the network.
 class _Products implements ProductLookupService {
@@ -52,6 +52,8 @@ class _Products implements ProductLookupService {
         return _never.future;
       case _Mode.error:
         throw Exception('socket closed');
+      case _Mode.throttled:
+        throw Exception('OpenFoodFacts search failed: 429');
     }
   }
 }
@@ -330,10 +332,38 @@ void main() {
         await _search(tester, 'skyr');
         await tester.pump(const Duration(seconds: 3));
         await tester.pumpAndSettle();
-        // The error state rendered, and it offers no manual-entry CTA.
+        // The error state rendered: not the "nothing found" CTA, but retry
+        // first and the manual form as the second way.
         expect(find.text(enL10n.foodSearchUnreachableHint), findsOneWidget);
         expect(find.byKey(const ValueKey('manual-entry-cta')), findsNothing);
+        expect(
+          find.byKey(const ValueKey('product-search-retry')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('product-search-error-manual')),
+          findsOneWidget,
+        );
         await _shot(tester, 'add-sheet-error');
+      });
+    });
+
+    testWidgets('search rate limited', (tester) async {
+      await run(() async {
+        final products = await _pumpFood(tester);
+        products.mode = _Mode.throttled;
+        await _openFromCapsule(tester);
+        await _search(tester, 'skyr');
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pumpAndSettle();
+        expect(find.text(enL10n.searchRateLimited), findsOneWidget);
+        // Retry waits out the cooldown: shown, but disabled at first.
+        expect(
+          find.byKey(const ValueKey('product-search-retry')),
+          findsOneWidget,
+        );
+        await _shot(tester, 'add-sheet-rate-limited');
+        await tester.pump(const Duration(seconds: 6));
       });
     });
 

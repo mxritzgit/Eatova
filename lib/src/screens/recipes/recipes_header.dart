@@ -35,7 +35,10 @@ class _RecipesHeader extends StatelessWidget {
             key: const ValueKey('recipe-meal-plan-button'),
             semanticLabel: l10n.recipeEditMealPlan,
             onTap: onOpenMealPlan,
-            child: const _GlyphIcon(_RecipeGlyph.calendar, strokeWidth: 1.9),
+            child: const RecipeGlyphIcon(
+              RecipeGlyph.calendar,
+              strokeWidth: 1.9,
+            ),
           ),
           const SizedBox(width: 8),
         ],
@@ -44,7 +47,7 @@ class _RecipesHeader extends StatelessWidget {
           tone: HeaderIconTone.primary,
           semanticLabel: addSemantics,
           onTap: onAdd,
-          child: const _GlyphIcon(_RecipeGlyph.plus, strokeWidth: 2.4),
+          child: const RecipeGlyphIcon(RecipeGlyph.plus, strokeWidth: 2.4),
         ),
       ],
     );
@@ -163,7 +166,7 @@ class _RecipeSearchCapsule extends StatelessWidget {
             ),
             child: Row(
               children: [
-                _GlyphIcon(_RecipeGlyph.search, color: t.ink2),
+                RecipeGlyphIcon(RecipeGlyph.search, color: t.ink2),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Semantics(
@@ -248,8 +251,8 @@ class _FilterButton extends StatelessWidget {
                 child: SizedBox.square(
                   dimension: 40,
                   child: Center(
-                    child: _GlyphIcon(
-                      _RecipeGlyph.sliders,
+                    child: RecipeGlyphIcon(
+                      RecipeGlyph.sliders,
                       size: 18,
                       color: t.inkMuted,
                     ),
@@ -437,7 +440,7 @@ class _RecipeAddChoiceSheet extends StatelessWidget {
           const SizedBox(height: 18),
           _AddChoiceRow(
             key: const ValueKey('recipe-add-choice-import'),
-            glyph: _RecipeGlyph.download,
+            glyph: RecipeGlyph.download,
             title: l10n.recipeImportTitle,
             body: l10n.recipesAddChoiceImportBody,
             onTap: () => Navigator.of(context).pop(_AddChoice.import),
@@ -445,7 +448,7 @@ class _RecipeAddChoiceSheet extends StatelessWidget {
           const SizedBox(height: 10),
           _AddChoiceRow(
             key: const ValueKey('recipe-add-choice-create'),
-            glyph: _RecipeGlyph.pencil,
+            glyph: RecipeGlyph.pencil,
             title: l10n.recipesCreateSemantics,
             body: l10n.recipesAddChoiceCreateBody,
             onTap: () => Navigator.of(context).pop(_AddChoice.create),
@@ -465,7 +468,7 @@ class _AddChoiceRow extends StatelessWidget {
     required this.onTap,
   });
 
-  final _RecipeGlyph glyph;
+  final RecipeGlyph glyph;
   final String title, body;
   final VoidCallback onTap;
 
@@ -496,7 +499,7 @@ class _AddChoiceRow extends StatelessWidget {
                       borderRadius: BorderRadius.circular(rControl),
                     ),
                     child: Center(
-                      child: _GlyphIcon(glyph, color: t.accentText),
+                      child: RecipeGlyphIcon(glyph, color: t.accentText),
                     ),
                   ),
                   const SizedBox(width: 14),

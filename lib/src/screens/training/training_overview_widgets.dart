@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -181,6 +182,10 @@ class _WeekDayCell extends StatelessWidget {
 
   final TrainingWeekDay day;
 
+  /// Today's column: a tall, narrow cell, rounder than [rControl] and below
+  /// the [rThumb] of square tiles.
+  static const double _todayRadius = 16;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -254,7 +259,7 @@ class _WeekDayCell extends StatelessWidget {
         decoration: today
             ? BoxDecoration(
                 color: t.accent.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(_todayRadius),
               )
             : null,
         child: Column(
@@ -468,27 +473,7 @@ class _TrainingExerciseRowsState extends State<TrainingExerciseRows> {
                 alignment: AlignmentDirectional.centerStart,
                 child: Row(
                   children: [
-                    Container(
-                      constraints: const BoxConstraints(
-                        minWidth: 28,
-                        minHeight: 28,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: t.surf2,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Text(
-                        '${i + 1}',
-                        style: AppType.ui(
-                          13,
-                          weight: FontWeight.w800,
-                          color: t.ink2,
-                          height: kTrainingLine,
-                        ),
-                      ),
-                    ),
+                    TrainingIndexBadge(number: i + 1),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -680,7 +665,7 @@ class TrainingQuickTile extends StatelessWidget {
                         height: 38,
                         decoration: BoxDecoration(
                           color: tint,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(rChip),
                         ),
                         child: IconTheme(
                           data: IconThemeData(size: 20, color: ink),
@@ -1141,25 +1126,9 @@ class _RecentRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final date = DateFormat.MMMEd(
-      l10n.localeName,
-    ).format(summary.finishedAt.toLocal());
-    final minutes = (summary.duration.inSeconds / 60).round();
-    // No duration, nothing to show ("0 min" would lie). Only a free log says
-    // Logged: a played workout can end without a duration too.
-    final meta = trainingEntryHasDuration(summary.entry)
-        ? '$date · ${l10n.trainingDurationMinutes(minutes)}'
-        : isLoggedTrainingEntry(summary.entry)
-        ? '$date · ${l10n.trainingHistoryLogged}'
-        : date;
+    final meta = trainingWorkoutMeta(l10n, summary.entry);
     final records = summary.personalRecords;
     final badge = records > 0 ? l10n.trainingRecentPrs(records) : null;
-    // A stable hue per workout of the plan; it encodes no workout type.
-    final (tint, ink) = switch (summary.entry.snapshot.workoutIndex % 3) {
-      0 => (t.accentTintStrong, t.accentText),
-      1 => (t.carbsSurface, t.carbsInk),
-      _ => (t.proteinSurface, t.proteinInk),
-    };
     final open = onOpen;
     return Semantics(
       container: true,
@@ -1173,16 +1142,8 @@ class _RecentRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 12),
             child: Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: tint,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Center(
-                    child: AppIcon(AppSymbol.training, size: 22, color: ink),
-                  ),
+                TrainingWorkoutGlyph(
+                  workoutIndex: summary.entry.snapshot.workoutIndex,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1214,45 +1175,135 @@ class _RecentRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 if (badge != null)
-                  Container(
+                  TrainingRecordBadge(
                     key: ValueKey('training-recent-pr-${summary.entry.id}'),
-                    constraints: const BoxConstraints(
-                      minHeight: 28,
-                      maxWidth: 120,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: t.fatSurface,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.emoji_events_outlined,
-                          size: 14,
-                          color: t.fatInk,
-                        ),
-                        const SizedBox(width: 5),
-                        Flexible(
-                          child: Text(
-                            badge,
-                            style: AppType.ui(
-                              12,
-                              weight: FontWeight.w800,
-                              color: t.fatInk,
-                              height: kTrainingLine,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    count: records,
                   )
                 else
                   Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Fri, Sep 25 · 52 min" for a finished workout: the day, with its year only
+/// outside the current one, then the duration, or "Logged" for a free log
+/// without one. The Recent rows and the history share it.
+String trainingWorkoutMeta(AppLocalizations l10n, TrainingHistoryEntry entry) {
+  final finished = entry.finishedAt.toLocal();
+  final format = finished.year == clock.now().year
+      ? DateFormat.MMMEd(l10n.localeName)
+      : DateFormat.yMMMEd(l10n.localeName);
+  final day = format.format(finished);
+  // No duration, nothing to show ("0 min" would lie). Only a free log says
+  // Logged: a played workout can end without a duration too.
+  if (trainingEntryHasDuration(entry)) {
+    final elapsed = entry.finishedAt.difference(entry.snapshot.startedAt);
+    final minutes = (elapsed.inSeconds / 60).round();
+    return '$day · ${l10n.trainingDurationMinutes(minutes)}';
+  }
+  return isLoggedTrainingEntry(entry)
+      ? '$day · ${l10n.trainingHistoryLogged}'
+      : day;
+}
+
+/// The training glyph on a finished workout's tile, in a stable hue per
+/// workout of its plan; the hue encodes no workout type.
+class TrainingWorkoutGlyph extends StatelessWidget {
+  const TrainingWorkoutGlyph({super.key, required this.workoutIndex});
+
+  final int workoutIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final (tint, ink) = switch (workoutIndex % 3) {
+      0 => (t.accentTintStrong, t.accentText),
+      1 => (t.carbsSurface, t.carbsInk),
+      _ => (t.proteinSurface, t.proteinInk),
+    };
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: BorderRadius.circular(rControl),
+      ),
+      child: Center(child: AppIcon(AppSymbol.training, size: 22, color: ink)),
+    );
+  }
+}
+
+/// "2 PRs": the personal records a workout set, on the fat hue.
+class TrainingRecordBadge extends StatelessWidget {
+  const TrainingRecordBadge({super.key, required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 28, maxWidth: 120),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: t.fatSurface,
+        borderRadius: BorderRadius.circular(rPill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.emoji_events_outlined, size: 14, color: t.fatInk),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              context.l10n.trainingRecentPrs(count),
+              style: AppType.ui(
+                12,
+                weight: FontWeight.w800,
+                color: t.fatInk,
+                height: kTrainingLine,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// An exercise's number on a quiet 28 px tile, as in the workout card's
+/// rows.
+class TrainingIndexBadge extends StatelessWidget {
+  const TrainingIndexBadge({super.key, required this.number});
+
+  final int number;
+
+  /// Below [rChip]: the tile is only 28 px.
+  static const double radius = 9;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: t.surf2,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Text(
+        '$number',
+        style: AppType.ui(
+          13,
+          weight: FontWeight.w800,
+          color: t.ink2,
+          height: kTrainingLine,
         ),
       ),
     );

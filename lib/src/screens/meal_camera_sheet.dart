@@ -18,6 +18,7 @@ import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/design/sheets.dart';
 import '../widgets/design/soft_actions.dart';
+import '../widgets/design/states.dart';
 import '../widgets/kcal/meal_slot_picker.dart';
 
 /// In-app camera as an animated bottom panel. Pops a [MealCameraCapture], or
@@ -309,7 +310,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         const SheetHandle(padding: EdgeInsets.only(top: 10, bottom: 4)),
         _HeaderRow(onClose: () => Navigator.of(context).pop()),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          // The sheets' 20 px gutter, like title and close ring.
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: IgnorePointer(
             ignoring: _busy,
             child: MealSlotPicker(
@@ -321,7 +323,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(rCard),
               // The viewfinder is dark in both modes, like the barcode
@@ -377,12 +379,14 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       child: SizedBox(
         height: panelHeight,
         child: Container(
+          // The page ground plus the 1 px edge of every Eatova sheet.
           decoration: BoxDecoration(
             color: context.t.bg,
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(rSheet),
             ),
           ),
+          foregroundDecoration: sheetEdgeDecoration(context.t),
           clipBehavior: Clip.antiAlias,
           child: SnackHost(child: body),
         ),
@@ -464,41 +468,31 @@ class _CameraFailedLayer extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final denied = failure == _CameraFailure.permissionDenied;
-    // NO spinner here: the error state explains, it does not wait.
+    // NO spinner here: the error state explains, it does not wait. The
+    // app's calm state (glyph tile, guidance, soft pill), as in the barcode
+    // scanner; the viewfinder's dark theme gives it the dark tokens, so it
+    // sits on the same ground as the capture bar below it.
     return ColoredBox(
       key: const ValueKey('meal-camera-failed'),
       color: t.bg,
       child: Center(
+        // Scrolls instead of overflowing on a short preview or at 2x text.
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.no_photography_outlined, color: t.ink2, size: 32),
-              const SizedBox(height: 12),
-              Text(
-                denied
-                    ? l10n.foodCameraPermissionDeniedMessage
-                    : l10n.foodCameraUnavailableGalleryMessage,
-                textAlign: TextAlign.center,
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w500,
-                  color: t.ink,
-                  height: 1.4,
-                ),
-              ),
-              if (denied) ...[
-                const SizedBox(height: 14),
-                // Design-system pill on the sheet's `bg` (F8-10: no colour
-                // copies here).
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: CalmState(
+            icon: Icons.no_photography_outlined,
+            text: denied
+                ? l10n.foodCameraPermissionDeniedMessage
+                : l10n.foodCameraUnavailableGalleryMessage,
+            actions: [
+              if (denied)
+                // Design-system pill (F8-10: no colour copies here).
                 SoftPillButton(
                   key: const ValueKey('meal-camera-open-settings'),
                   onTap: onOpenSettings,
                   icon: Icons.settings_outlined,
                   label: l10n.foodOpenSettingsButton,
                 ),
-              ],
             ],
           ),
         ),
@@ -542,28 +536,15 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return Padding(
-      // The close circle's edge lines up with the slot picker (16 px).
-      padding: const EdgeInsets.fromLTRB(20, 2, 12, 2),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              l10n.foodScanMealTitle,
-              style: AppType.display(17, color: t.ink),
-            ),
-          ),
-          IconButton(
-            key: const ValueKey('meal-camera-close'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
-          ),
-        ],
-      ),
+    // Compact title: the height belongs to the viewfinder.
+    return SheetHeader(
+      title: l10n.foodScanMealTitle,
+      compact: true,
+      onClose: onClose,
+      closeKey: const ValueKey('meal-camera-close'),
+      closeTooltip: l10n.commonClose,
+      padding: const EdgeInsets.fromLTRB(20, 2, 18, 2),
     );
   }
 }

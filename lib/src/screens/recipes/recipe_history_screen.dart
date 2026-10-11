@@ -44,6 +44,14 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
   int? _next;
   int? _restoring;
 
+  /// True while the fresh head loads, before the dialog asks: the tapped
+  /// pill says it is checking, so a slow read does not look frozen.
+  bool _checkingHead = false;
+
+  /// Set once the dialog is confirmed: only then does the pill say
+  /// "Restoring…"; before, the user has approved nothing.
+  bool _restoreConfirmed = false;
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +86,10 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
 
   Future<void> _restore(RecipeVersion version) async {
     if (!_current || _restoring != null || !version.hasRecipeContent) return;
-    setState(() => _restoring = version.revision);
+    setState(() {
+      _restoring = version.revision;
+      _checkingHead = true;
+    });
     try {
       // A timeline cursor is historical. Confirmation binds to a fresh head;
       // a later concurrent edit is handled by the store's CAS conflict policy.
@@ -86,6 +97,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
       if (!mounted || !widget.isSessionCurrent()) return;
       final expected = head.currentRevision;
       if (expected == null) throw StateError('Recipe head is unavailable');
+      setState(() => _checkingHead = false);
       final l10n = context.l10n;
       final confirm = await showEatovaDialog<bool>(
         context: context,
@@ -103,6 +115,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
         ),
       );
       if (confirm != true || !mounted || !widget.isSessionCurrent()) return;
+      setState(() => _restoreConfirmed = true);
       final delivery = await widget.restoreVersion(
         version.recipe,
         expectedRevision: expected,
@@ -118,7 +131,13 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _restoring = null);
+      if (mounted) {
+        setState(() {
+          _restoring = null;
+          _checkingHead = false;
+          _restoreConfirmed = false;
+        });
+      }
     }
   }
 
@@ -148,30 +167,52 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 key: ValueKey('recipe-history-version-${version.revision}'),
                 version: version,
                 restoreEnabled: _restoring == null,
+                checking: _checkingHead && _restoring == version.revision,
+                restoring:
+                    _restoreConfirmed && _restoring == version.revision,
                 onRestore: () => _restore(version),
               ),
               const SizedBox(height: 12),
             ],
-            if (_answered && _versions.isEmpty)
-              Text(
-                l10n.recipeHistoryEmpty,
-                style: AppType.ui(14, color: t.ink2),
+            // The first page: two version cards in outline.
+            if (_loading && _versions.isEmpty)
+              Semantics(
+                container: true,
+                label: l10n.recipeHistoryLoading,
+                child: const ExcludeSemantics(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SkeletonCard(rows: 1, tileSize: 36),
+                      SizedBox(height: 12),
+                      SkeletonCard(rows: 1, tileSize: 36),
+                    ],
+                  ),
+                ),
+              ),
+            if (_answered && _versions.isEmpty && _error == null)
+              CalmState(
+                key: const ValueKey('recipe-history-empty'),
+                card: true,
+                icon: Icons.history_rounded,
+                title: l10n.recipeHistoryEmptyTitle,
+                text: l10n.recipeHistoryEmptyBody,
               ),
             if (_error != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                directSyncErrorMessage(_error!, l10n),
-                style: AppType.ui(14, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: SoftPillButton(
-                  key: const ValueKey('recipe-history-retry'),
-                  label: l10n.commonBootUnansweredRetry,
-                  icon: Icons.refresh_rounded,
-                  onTap: _load,
-                ),
+              if (_versions.isNotEmpty) const SizedBox(height: 4),
+              CalmState(
+                key: const ValueKey('recipe-history-error'),
+                card: true,
+                icon: Icons.cloud_off_rounded,
+                text: directSyncErrorMessage(_error!, l10n),
+                actions: [
+                  SoftPillButton(
+                    key: const ValueKey('recipe-history-retry'),
+                    label: l10n.commonBootUnansweredRetry,
+                    icon: Icons.refresh_rounded,
+                    onTap: _load,
+                  ),
+                ],
               ),
             ] else if (!_loading && _next != null)
               Padding(
@@ -186,11 +227,13 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                   ),
                 ),
               ),
-            if (_loading || _restoring != null)
+            // Earlier versions on their way. A restore shows its progress on
+            // the tapped version's pill instead, next to where it started.
+            if (_loading && _versions.isNotEmpty)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: CircularProgressIndicator(),
+                  child: AppSpinner(),
                 ),
               ),
           ],
@@ -208,12 +251,22 @@ class _VersionCard extends StatefulWidget {
     required this.version,
     required this.restoreEnabled,
     required this.onRestore,
+    this.checking = false,
+    this.restoring = false,
   });
 
   final RecipeVersion version;
 
   /// False while any restore is in flight.
   final bool restoreEnabled;
+
+  /// True while THIS version's restore reads the current head, before the
+  /// dialog asks: its pill says so.
+  final bool checking;
+
+  /// True while THIS version is being restored (after the confirm): its
+  /// pill says so.
+  final bool restoring;
   final VoidCallback onRestore;
 
   @override
@@ -314,7 +367,11 @@ class _VersionCardState extends State<_VersionCard> {
             const SizedBox(height: 16),
             SoftPillButton(
               key: ValueKey('recipe-history-restore-${version.revision}'),
-              label: l10n.recipeHistoryRestore,
+              label: widget.restoring
+                  ? l10n.recipeHistoryRestoring
+                  : widget.checking
+                  ? l10n.recipeHistoryChecking
+                  : l10n.recipeHistoryRestore,
               icon: Icons.restore_rounded,
               onTap: widget.restoreEnabled ? widget.onRestore : null,
             ),

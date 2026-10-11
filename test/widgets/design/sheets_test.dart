@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
 import 'package:eatova/src/widgets/design/sheets.dart';
 
+import '../../support/design_capture.dart' show loadDesignFonts;
 import 'design_harness.dart';
 
 void main() {
@@ -269,6 +271,53 @@ void main() {
 
       expect(find.byIcon(Icons.visibility_outlined), findsOneWidget);
     });
+
+    testWidgets('the eyebrow is not read again where the field says it', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        designHarness(
+          const SheetField(
+            fieldKey: ValueKey('weight'),
+            label: 'Weight',
+            semanticLabel: 'Weight in grams',
+            hint: '',
+          ),
+        ),
+      );
+
+      // One stop: the field with its name, no separate "WEIGHT" before it.
+      expect(find.text('WEIGHT'), findsOneWidget);
+      expect(find.bySemanticsLabel('WEIGHT'), findsNothing);
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('weight'))),
+        isSemantics(label: 'Weight in grams', isTextField: true),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('the eyebrow stays readable where the field does not say it', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        designHarness(
+          const Column(
+            children: [
+              // No spoken name: the eyebrow is the only label.
+              SheetField(label: 'E-Mail', hint: 'hint'),
+              // A spoken name that does not repeat the eyebrow.
+              SheetField(label: 'Code', semanticLabel: 'Six digits', hint: ''),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.bySemanticsLabel('E-MAIL'), findsOneWidget);
+      expect(find.bySemanticsLabel('CODE'), findsOneWidget);
+      semantics.dispose();
+    });
   });
 
   group('showEatovaSheet', () {
@@ -352,5 +401,230 @@ void main() {
         ],
       ),
     );
+  });
+
+  // Design review 2026-10-11: one close control and one title for every
+  // sheet header. The old `surf2` disc measured 1.05:1 on the light sheet
+  // ground and read as a bare glyph.
+  group('SheetCloseButton', () {
+    for (final brightness in Brightness.values) {
+      testWidgets('surf disc with lineStrong ring, 44 in 48 ($brightness)', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          designHarness(
+            Align(
+              alignment: Alignment.topLeft,
+              child: SheetCloseButton(
+                buttonKey: const ValueKey('close'),
+                onTap: () {},
+              ),
+            ),
+            brightness: brightness,
+          ),
+        );
+        final t = brightness == Brightness.light
+            ? AppTokens.light
+            : AppTokens.dark;
+        final button = find.byKey(const ValueKey('close'));
+        expect(tester.widget(button), isA<IconButton>());
+        expect(tester.getSize(button), const Size(48, 48));
+        final style = tester.widget<IconButton>(button).style!;
+        expect(style.backgroundColor!.resolve(<WidgetState>{}), t.surf);
+        expect(style.foregroundColor!.resolve(<WidgetState>{}), t.inkMuted);
+        expect(style.fixedSize!.resolve(<WidgetState>{}), const Size(44, 44));
+        final shape = style.shape!.resolve(<WidgetState>{})! as CircleBorder;
+        expect(shape.side.color, t.lineStrong);
+        // The disc itself must differ from the sheet ground (bg).
+        expect(t.surf, isNot(t.bg));
+      });
+    }
+
+    testWidgets('null onTap is disabled; the default tooltip is Close', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        designHarness(
+          const SheetCloseButton(buttonKey: ValueKey('close'), onTap: null),
+          locale: const Locale('en'),
+        ),
+      );
+      final button = tester.widget<IconButton>(
+        find.byKey(const ValueKey('close')),
+      );
+      expect(button.onPressed, isNull);
+      expect(button.tooltip, 'Close');
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('close'))),
+        isSemantics(
+          tooltip: 'Close',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: false,
+        ),
+      );
+      semantics.dispose();
+    });
+  });
+
+  group('SheetHeader', () {
+    testWidgets('title is a level-1 heading at 24 (compact 20)', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      for (final compact in <bool>[false, true]) {
+        await tester.pumpWidget(
+          designHarness(
+            SheetHeader(
+              title: 'Tag waehlen',
+              subtitle: 'Fuer das Ernaehrungstagebuch',
+              titleKey: const ValueKey('title'),
+              compact: compact,
+              onClose: () {},
+            ),
+          ),
+        );
+        final title = tester.widget<Text>(find.byKey(const ValueKey('title')));
+        expect(title.style!.fontSize, compact ? 20 : 24);
+        final node = tester.getSemantics(find.byKey(const ValueKey('title')));
+        expect(node, isSemantics(label: 'Tag waehlen', isHeader: true));
+        expect(node.headingLevel, 1);
+      }
+      semantics.dispose();
+    });
+
+    testWidgets('close: tap, disabled while busy, hidden without onClose', (
+      tester,
+    ) async {
+      var closed = 0;
+      Future<void> pump({bool enabled = true, bool withClose = true}) =>
+          tester.pumpWidget(
+            designHarness(
+              SheetHeader(
+                title: 'Titel',
+                closeKey: const ValueKey('close'),
+                closeEnabled: enabled,
+                onClose: withClose ? () => closed++ : null,
+              ),
+            ),
+          );
+      await pump();
+      await tester.tap(find.byKey(const ValueKey('close')));
+      expect(closed, 1);
+
+      await pump(enabled: false);
+      expect(
+        tester.widget<IconButton>(find.byKey(const ValueKey('close'))).onPressed,
+        isNull,
+      );
+      expect(find.byType(SheetCloseButton), findsOneWidget);
+
+      await pump(withClose: false);
+      expect(find.byType(SheetCloseButton), findsNothing);
+    });
+
+    testWidgets('a wrapping title keeps the close button at the top', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320 * 3, 700 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        designHarness(
+          SheetHeader(
+            title: 'Mahlzeit mit einem sehr langen Namen bearbeiten',
+            subtitle: 'Haehnchen mit Reis und Brokkoli',
+            leading: const SizedBox.square(dimension: 40),
+            closeKey: const ValueKey('close'),
+            onClose: () {},
+            padding: EdgeInsets.zero,
+          ),
+          textScaler: const TextScaler.linear(2),
+          scrollable: true,
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      final header = tester.getRect(find.byType(SheetHeader));
+      final close = tester.getRect(find.byKey(const ValueKey('close')));
+      expect(close.top, header.top);
+      expect(header.height, greaterThan(close.height * 2));
+    });
+  });
+
+  // Design review 2026-10-11, round 2: beside a slot tile and the close
+  // ring, "Review analysis" broke into "Revie/w/analysi/s" at 2x on a
+  // 320 px phone. Measured with the bundled fonts, not the test glyphs.
+  group('SheetHeader title at 320 px and 2x text', () {
+    setUpAll(loadDesignFonts);
+
+    /// The analysis sheet's header column: the harness pads 20 a side.
+    Future<Text> pumpHeader(WidgetTester tester, String title) async {
+      tester.view.physicalSize = const Size(320 * 3, 700 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        designHarness(
+          SheetHeader(
+            title: title,
+            eyebrow: const Text('Lunch'),
+            leading: const SizedBox.square(dimension: 44),
+            titleKey: const ValueKey('title'),
+            onClose: () {},
+            padding: EdgeInsets.zero,
+          ),
+          textScaler: const TextScaler.linear(2),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      return tester.widget<Text>(find.byKey(const ValueKey('title')));
+    }
+
+    for (final title in <String>[
+      'Review analysis',
+      'Analyse prüfen',
+      'Mahlzeit bearbeiten',
+      'Rezept importieren',
+    ]) {
+      testWidgets('"$title" wraps between words, never inside one', (
+        tester,
+      ) async {
+        final text = await pumpHeader(tester, title);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.byKey(const ValueKey('title')),
+        );
+        var start = 0;
+        for (final word in title.split(' ')) {
+          final lines = paragraph
+              .getBoxesForSelection(
+                TextSelection(
+                  baseOffset: start,
+                  extentOffset: start + word.length,
+                ),
+              )
+              .map((box) => box.top.round())
+              .toSet();
+          expect(lines, hasLength(1), reason: '"$word" split across lines');
+          start += word.length + 1;
+        }
+        // Still large text: the fit lowers the scale only as far as needed.
+        expect(
+          text.textScaler!.scale(kSheetTitleSize),
+          greaterThan(kSheetTitleSize),
+        );
+      });
+    }
+
+    // No blanket cap: the title stays above the 17 px section headings,
+    // which follow the full scale too.
+    testWidgets('a title that fits keeps the full text scale', (tester) async {
+      final text = await pumpHeader(tester, 'Edit meal');
+      expect(text.textScaler!.scale(kSheetTitleSize), kSheetTitleSize * 2);
+    });
+
+    testWidgets('the fit stops at the title size itself', (tester) async {
+      final text = await pumpHeader(tester, 'Ernährungstagebuchauswertung');
+      expect(text.textScaler!.scale(kSheetTitleSize), kSheetTitleSize);
+    });
   });
 }

@@ -11,6 +11,7 @@ import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/recipes/recipe_sections.dart';
 import 'recipe_import_nutrition.dart';
 import 'recipes_screen.dart' show showRecipeNutritionDraftEditor;
 
@@ -402,21 +403,14 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     if (_saving || _askingToDiscard) return;
     if (_hasUserChanges) {
       _askingToDiscard = true;
-      final discard = await showEatovaDialog<bool>(
-        context: context,
-        builder: (dialogContext) => EatovaConfirmDialog(
-          title: context.l10n.foodDiscardChangesTitle,
-          body: context.l10n.recipesDiscardChangesBody,
-          confirmLabel: context.l10n.foodDiscardChangesConfirm,
-          cancelLabel: context.l10n.foodDiscardChangesKeepEditing,
-          destructive: true,
-          confirmKey: const ValueKey('recipe-import-discard'),
-          onConfirm: () => Navigator.of(dialogContext).pop(true),
-          onCancel: () => Navigator.of(dialogContext).pop(false),
-        ),
+      final discard = await confirmDiscardChanges(
+        context,
+        body: context.l10n.recipesDiscardChangesBody,
+        confirmKey: const ValueKey('recipe-import-discard'),
+        keepKey: const ValueKey('recipe-import-keep-editing'),
       );
       _askingToDiscard = false;
-      if (!mounted || discard != true) return;
+      if (!mounted || !discard) return;
     }
     if (mounted) Navigator.of(context).pop(_lastSaved);
   }
@@ -475,58 +469,64 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       },
       child: SafeArea(
         top: false,
-        child: SingleChildScrollView(
-          key: const ValueKey('recipe-import-sheet'),
-          controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: HeadingSemantics(
-                      level: 1,
-                      child: Text(
-                        l10n.recipeImportTitle,
-                        // Capped like a tab title: at 2x on 320 px the
-                        // uncapped "importieren" broke mid-word.
-                        textScaler: AppType.pageTitleScaler(context),
-                        style: AppType.display(
-                          compactTitle ? 20 : 24,
-                          color: t.ink,
-                          height: 1.15,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // The sheet opens without Material's handle (enableDrag is off
+            // for the discard guard), so it draws the grip itself; its
+            // dismiss action takes the same guarded path as the close. Above
+            // the scroll view, like the create sheet's, so it stays put.
+            SheetHandle(
+              padding: const EdgeInsets.only(top: 10, bottom: 6),
+              onDismiss: _close,
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                key: const ValueKey('recipe-import-sheet'),
+                controller: _scroll,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: HeadingSemantics(
+                            level: 1,
+                            child: Text(
+                              l10n.recipeImportTitle,
+                              // Capped like a tab title: at 2x on 320 px the
+                              // uncapped "importieren" broke mid-word.
+                              textScaler: AppType.pageTitleScaler(context),
+                              style: sheetTitleStyle(t, compact: compactTitle),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        SheetCloseButton(
+                          buttonKey: const ValueKey('recipe-import-close'),
+                          tooltip: l10n.commonClose,
+                          onTap: _saving ? null : _close,
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    key: const ValueKey('recipe-import-close'),
-                    tooltip: l10n.commonClose,
-                    onPressed: _saving ? null : _close,
-                    style: IconButton.styleFrom(
-                      backgroundColor: t.surf2,
-                      foregroundColor: t.ink2,
-                      disabledBackgroundColor: t.surf2,
-                      disabledForegroundColor: t.inkDisabled,
+                    const SizedBox(height: 18),
+                    // Each state arrives with the shared soft entrance; a
+                    // state that only changes inside (an error, a
+                    // correction) does not replay.
+                    LivelyEntrance(
+                      key: ValueKey('recipe-import-view-$view'),
+                      offsetY: 8,
+                      duration: const Duration(milliseconds: 260),
+                      child: body,
                     ),
-                    icon: const Icon(Icons.close_rounded, size: 21),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 18),
-              // Each state arrives with the shared soft entrance; a state that
-              // only changes inside (an error, a correction) does not replay.
-              LivelyEntrance(
-                key: ValueKey('recipe-import-view-$view'),
-                offsetY: 8,
-                duration: const Duration(milliseconds: 260),
-                child: body,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -800,7 +800,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                   child: Row(
                     children: [
                       ExcludeSemantics(
-                        child: _NumberBadge(number: index + 1, size: 34),
+                        child: RecipeStepBadge(number: index + 1, size: 34),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -928,7 +928,12 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             enabled: !_saving,
           ),
           if (_editError != null) ...[
-            Text(_editError!, style: AppType.ui(14, color: t.danger)),
+            SignalNote(
+              _editError!,
+              tone: t.danger,
+              icon: Icons.error_outline_rounded,
+              boxed: true,
+            ),
             const SizedBox(height: 12),
           ],
           Align(
@@ -957,25 +962,31 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                 : null,
           ),
           const SizedBox(height: 22),
-          _SectionCard(
+          RecipeSectionCard(
             icon: Icons.restaurant_rounded,
             title: l10n.recipesSectionPortion,
-            child: _Paragraph(text: portion, empty: l10n.recipesNoDataProvided),
+            child: RecipeParagraph(
+              text: portion,
+              empty: l10n.recipesNoDataProvided,
+            ),
           ),
           const SizedBox(height: 12),
-          _SectionCard(
+          RecipeSectionCard(
             icon: Icons.shopping_basket_outlined,
             title: l10n.recipesSectionIngredients,
-            child: _Ingredients(
+            child: RecipeIngredientLines(
               hint: previewRecipe.ingredientQuantityHint(l10n),
               text: previewRecipe.displayIngredients(l10n),
             ),
           ),
           const SizedBox(height: 12),
-          _SectionCard(
+          RecipeSectionCard(
             icon: Icons.soup_kitchen_outlined,
             title: l10n.recipesSectionPreparation,
-            child: _Preparation(text: candidate.preparation),
+            child: RecipePreparationSteps(
+              text: candidate.preparation,
+              empty: l10n.recipeImportPreparationMissing,
+            ),
           ),
           const SizedBox(height: 16),
           Align(
@@ -1313,34 +1324,6 @@ class _Notice extends StatelessWidget {
   }
 }
 
-/// Accent-tinted round number (a candidate's position, a preparation step).
-/// The digit follows text scale only up to 1.3x, so it never bursts the
-/// circle.
-class _NumberBadge extends StatelessWidget {
-  const _NumberBadge({required this.number, required this.size});
-
-  final int number;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: t.accentTint, shape: BoxShape.circle),
-      child: Text(
-        '$number',
-        textScaler: MediaQuery.textScalerOf(
-          context,
-        ).clamp(maxScaleFactor: 1.3),
-        style: AppType.display(size * 0.46, color: t.accentText),
-      ),
-    );
-  }
-}
-
 /// A small tinted label chip (variant, "Added").
 class _TintChip extends StatelessWidget {
   const _TintChip({required this.label, this.icon, this.done = false});
@@ -1376,203 +1359,6 @@ class _TintChip extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// A preview section: small icon tile, title, content on a calm card.
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.icon,
-    required this.title,
-    required this.child,
-  });
-
-  final IconData icon;
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return AppCard(
-      radius: rTile,
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              ExcludeSemantics(
-                child: IconTile(icon: icon, color: t.accent, size: 30),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: HeadingSemantics(
-                  level: 2,
-                  child: Text(
-                    title,
-                    style: AppType.display(
-                      16,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-const double _bodySize = 15;
-const double _bodyHeight = 1.5;
-
-TextStyle _bodyStyle(AppTokens t, {bool muted = false}) =>
-    AppType.ui(_bodySize, color: muted ? t.ink2 : t.ink, height: _bodyHeight);
-
-/// Non-empty, trimmed lines of a free text.
-List<String> _lines(String text) => [
-  for (final line in text.split('\n'))
-    if (line.trim().isNotEmpty) line.trim(),
-];
-
-class _Paragraph extends StatelessWidget {
-  const _Paragraph({required this.text, required this.empty});
-
-  final String text;
-
-  /// Shown muted when [text] is empty.
-  final String empty;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = text.trim();
-    return Text(
-      value.isEmpty ? empty : value,
-      style: _bodyStyle(context.t, muted: value.isEmpty),
-    );
-  }
-}
-
-/// Ingredients as bullet lines (accent dot + text) under the quantity hint.
-class _Ingredients extends StatelessWidget {
-  const _Ingredients({required this.hint, required this.text});
-
-  final String hint;
-  final String text;
-
-  // A leading list marker from the caption; the dot replaces it.
-  static final RegExp _marker = RegExp(r'^(?:[•*·–]\s*|-\s+)');
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final lines = [
-      for (final line in _lines(text))
-        if (line.replaceFirst(_marker, '').isNotEmpty)
-          line.replaceFirst(_marker, ''),
-    ];
-    // Centre the dot on the first line at any text scale.
-    final dotTop =
-        (MediaQuery.textScalerOf(context).scale(_bodySize) * _bodyHeight - 6) /
-        2;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (hint.isNotEmpty) ...[
-          Text(hint, style: AppType.ui(13, color: t.ink2, height: 1.45)),
-          const SizedBox(height: 12),
-        ],
-        if (lines.isEmpty)
-          Text(
-            context.l10n.recipesNoDataProvided,
-            style: _bodyStyle(t, muted: true),
-          ),
-        for (final (i, line) in lines.indexed) ...[
-          if (i > 0) const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: EdgeInsets.only(top: dotTop),
-                child: Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: t.accent,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Text(line, style: _bodyStyle(t))),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-/// Preparation as numbered steps when the text has several lines; a single
-/// paragraph stays a paragraph.
-class _Preparation extends StatelessWidget {
-  const _Preparation({required this.text});
-
-  final String text;
-
-  // "1." / "2)" or a list marker the caption already numbered with; not the
-  // "1" of "1.5 l".
-  static final RegExp _marker = RegExp(r'^(?:\d+[.)](?!\d)|[•*·–]|-(?=\s))\s*');
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final steps = _lines(text);
-    if (steps.length < 2) {
-      return _Paragraph(
-        text: text,
-        empty: context.l10n.recipeImportPreparationMissing,
-      );
-    }
-    const badge = 26.0;
-    // Badge and first text line share one centre at any text scale.
-    final line =
-        MediaQuery.textScalerOf(context).scale(_bodySize) * _bodyHeight;
-    final badgeTop = line > badge ? (line - badge) / 2 : 0.0;
-    final textTop = line < badge ? (badge - line) / 2 : 0.0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final (i, step) in steps.indexed) ...[
-          if (i > 0) const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: EdgeInsets.only(top: badgeTop),
-                child: _NumberBadge(number: i + 1, size: badge),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(top: textTop),
-                  child: Text(
-                    step.replaceFirst(_marker, ''),
-                    style: _bodyStyle(t),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ],
     );
   }
 }

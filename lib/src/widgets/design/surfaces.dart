@@ -115,18 +115,23 @@ class SectionHeading extends StatelessWidget {
           ),
         ),
         // Flexible instead of a fixed text: at textScaler 2.0 the trailing
-        // text would burst the row.
+        // text would burst the row. The Align puts a short label flush with
+        // the card edge; a loose Flexible alone left it at the half mark.
         if (trailing != null)
           Flexible(
             child: Padding(
               padding: const EdgeInsets.only(left: 10),
-              child: Text(
-                trailing!,
-                textAlign: TextAlign.right,
-                style: AppType.ui(
-                  11.5,
-                  weight: FontWeight.w600,
-                  color: t.ink2,
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                heightFactor: 1,
+                child: Text(
+                  trailing!,
+                  textAlign: TextAlign.end,
+                  style: AppType.ui(
+                    11.5,
+                    weight: FontWeight.w600,
+                    color: t.ink2,
+                  ),
                 ),
               ),
             ),

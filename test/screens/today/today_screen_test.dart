@@ -568,7 +568,7 @@ void main() {
       });
 
       expect(find.byKey(const ValueKey('today-day-loading')), findsOneWidget);
-      expect(find.text('Tag wird geladen…'), findsOneWidget);
+      expect(find.bySemanticsLabel('Tag wird geladen…'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('today-meals-card'), skipOffstage: false),
         findsNothing,

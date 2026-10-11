@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/widgets/design/soft_actions.dart';
 import 'package:eatova/src/widgets/kcal/favorites_sheet.dart';
 import 'package:eatova/src/widgets/kcal/saved_meal_presentation.dart';
 import 'support/harness.dart';
@@ -160,7 +161,7 @@ void main() {
           final noMatch = _key('favorites-sheet-no-match');
           final reset = find.descendant(
             of: noMatch,
-            matching: find.byType(TextButton),
+            matching: find.byType(SoftPillButton),
           );
           await tester.ensureVisible(reset);
           await tester.pumpAndSettle();

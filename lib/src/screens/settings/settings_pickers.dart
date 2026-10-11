@@ -193,33 +193,9 @@ class _PickerRow<T> extends StatelessWidget {
           chevron: false,
           dense: true,
           onTap: () => Navigator.pop<T>(context, result),
-          trailing: ExcludeSemantics(child: _Radio(selected: selected)),
+          trailing: OptionRadio(selected: selected, size: 22),
         ),
       ),
-    );
-  }
-}
-
-/// 22 px radio mark: a filled accent disc with a check, or an empty ring.
-class _Radio extends StatelessWidget {
-  const _Radio({required this.selected});
-
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      width: 22,
-      height: 22,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected ? t.selectedFill : Colors.transparent,
-        border: selected ? null : Border.all(color: t.ink3, width: 1.5),
-      ),
-      child: selected
-          ? Icon(Icons.check_rounded, size: 15, color: t.onSelected)
-          : null,
     );
   }
 }

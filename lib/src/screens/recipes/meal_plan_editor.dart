@@ -171,19 +171,17 @@ class _PlanEditorState extends State<_PlanEditor> {
                     level: 1,
                     child: Text(
                       widget.plan == null ? l.mealPlanAdd : l.mealPlanEdit,
-                      style: AppType.display(24, color: t.ink, height: 1.15),
+                      style: sheetTitleStyle(t),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  key: const ValueKey('meal-plan-editor-close'),
+                SheetCloseButton(
+                  buttonKey: const ValueKey('meal-plan-editor-close'),
                   tooltip: l.commonClose,
-                  onPressed: _saving
+                  onTap: _saving
                       ? null
                       : () => Navigator.of(context).maybePop(),
-                  style: IconButton.styleFrom(backgroundColor: t.surf2),
-                  icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
                 ),
               ],
             ),
@@ -304,17 +302,12 @@ class _PlanEditorState extends State<_PlanEditor> {
                 ),
               ),
               const SizedBox(height: 20),
-              SheetField(
-                fieldKey: const ValueKey('meal-plan-servings'),
+              _EditorLabel(l.mealPlanServings),
+              _ServingsStepper(
                 controller: _servings,
                 label: l.mealPlanServings,
-                hint: formatDecimal(1.5, l),
                 enabled: !_saving,
-                bottomGap: 0,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                onChanged: (_) => setState(() {}),
+                onChanged: () => setState(() {}),
                 errorText: _amount == null
                     ? numberInputHint(NumberInput.parse(_servings.text), l) ??
                           l.mealPlanServingsError
@@ -327,7 +320,12 @@ class _PlanEditorState extends State<_PlanEditor> {
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(_error!, style: AppType.ui(14, color: t.danger)),
+                SignalNote(
+                  _error!,
+                  tone: t.danger,
+                  icon: Icons.error_outline_rounded,
+                  boxed: true,
+                ),
               ],
               const SizedBox(height: 22),
               PrimaryActionButton(
@@ -360,6 +358,193 @@ class _EditorLabel extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Servings as the app's stepper: round minus and plus in a pill capsule,
+/// half a serving per step, with the typed value in the middle. The field
+/// stays free text, so 1.25 servings or a pasted value still work; the
+/// editor validates it as before.
+class _ServingsStepper extends StatefulWidget {
+  const _ServingsStepper({
+    required this.controller,
+    required this.label,
+    required this.enabled,
+    required this.onChanged,
+    required this.errorText,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final bool enabled;
+  final VoidCallback onChanged;
+  final String? errorText;
+
+  @override
+  State<_ServingsStepper> createState() => _ServingsStepperState();
+}
+
+class _ServingsStepperState extends State<_ServingsStepper> {
+  static const double _step = 0.5;
+  static const double _max = 100;
+
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  /// The next half serving above (+1) or below (-1) the current value, or
+  /// null when there is none (an invalid entry, or the 0.5 / 100 ends).
+  double? _neighbour(int direction) {
+    final value = parseRecipeServings(widget.controller.text);
+    if (value == null) return null;
+    final steps = value / _step;
+    final next = direction > 0
+        ? (steps.floor() + 1) * _step
+        : (steps.ceil() - 1) * _step;
+    return next < _step || next > _max ? null : next;
+  }
+
+  void _stepBy(int direction) {
+    final next = _neighbour(direction);
+    if (next == null) return;
+    widget.controller.text = formatDecimalInput(
+      next,
+      context.l10n,
+      maxFractionDigits: 3,
+    );
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l = context.l10n;
+    final error = widget.errorText;
+    Widget button(int direction) => _ServingsStepButton(
+      actionKey: ValueKey(
+        'meal-plan-servings-${direction < 0 ? 'dec' : 'inc'}',
+      ),
+      icon: direction < 0 ? Icons.remove_rounded : Icons.add_rounded,
+      semanticLabel: direction < 0
+          ? l.onboardingStepDownSemanticLabel
+          : l.onboardingStepUpSemanticLabel,
+      onTap: widget.enabled && _neighbour(direction) != null
+          ? () => _stepBy(direction)
+          : null,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FieldCapsule(
+          focusNode: _focus,
+          error: error != null,
+          enabled: widget.enabled,
+          shape: SheetFieldShape.pill,
+          padding: const EdgeInsets.all(4),
+          child: Row(
+            children: [
+              button(-1),
+              Expanded(
+                child: Semantics(
+                  label: widget.label,
+                  child: TextField(
+                    key: const ValueKey('meal-plan-servings'),
+                    controller: widget.controller,
+                    focusNode: _focus,
+                    enabled: widget.enabled,
+                    textAlign: TextAlign.center,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: (_) => widget.onChanged(),
+                    cursorColor: t.accent,
+                    cursorOpacityAnimates: false,
+                    style: AppType.ui(
+                      18,
+                      weight: FontWeight.w700,
+                      color: t.ink,
+                    ).copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                      hintText: formatDecimal(1.5, l),
+                      hintStyle: AppType.ui(18, color: t.ink2),
+                    ),
+                  ),
+                ),
+              ),
+              button(1),
+            ],
+          ),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            error,
+            style: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Round 44 px stepper button in the accent tint (the training brief's).
+class _ServingsStepButton extends StatelessWidget {
+  const _ServingsStepButton({
+    required this.actionKey,
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+  });
+
+  final Key actionKey;
+  final IconData icon;
+  final String semanticLabel;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final enabled = onTap != null;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: semanticLabel,
+      child: PressScale(
+        enabled: enabled,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.4,
+          child: Material(
+            color: t.accentTint,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: actionKey,
+              onTap: onTap,
+              customBorder: const CircleBorder(),
+              child: SizedBox.square(
+                dimension: 44,
+                child: Icon(icon, size: 22, color: t.accentText),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The planned day as a borderless field capsule; a tap opens the calendar.

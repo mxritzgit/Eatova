@@ -139,7 +139,7 @@
   "foodEntryDeleteSemantics": "Delete entry",
   "foodPortionFallback": "1 portion",
   "foodEditMealTitle": "Edit meal",
-  "foodMacroSummary": "P {protein} g · C {carbs} g · F {fat} g",
+  "foodMacroSummary": "P\u00a0{protein}\u00a0g\u00a0· C\u00a0{carbs}\u00a0g\u00a0· F\u00a0{fat}\u00a0g",
   "@foodMacroSummary": {
     "placeholders": {
       "protein": { "type": "int" },
@@ -156,6 +156,7 @@
   },
   "foodAlreadyAddedEyebrow": "Already added",
   "foodRemoveTooltip": "Remove",
+  "foodRemoveFromRecents": "Remove from recent meals",
   "commonClose": "Close",
   "commonSave": "Save",
   "commonCancel": "Cancel",
@@ -257,22 +258,22 @@
   "todayEnergyCheckBurnMore": "Your last three weeks suggest you burn about {observed} kcal a day – roughly {difference} kcal more than calculated.",
   "@todayEnergyCheckBurnMore": {
     "placeholders": {
-      "observed": { "type": "int" },
-      "difference": { "type": "int" }
+      "observed": { "type": "int", "format": "decimalPattern" },
+      "difference": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckBurnLess": "Your last three weeks suggest you burn about {observed} kcal a day – roughly {difference} kcal less than calculated.",
   "@todayEnergyCheckBurnLess": {
     "placeholders": {
-      "observed": { "type": "int" },
-      "difference": { "type": "int" }
+      "observed": { "type": "int", "format": "decimalPattern" },
+      "difference": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckQuestion": "Change your daily goal from {current} to {proposed} kcal?",
   "@todayEnergyCheckQuestion": {
     "placeholders": {
-      "current": { "type": "int" },
-      "proposed": { "type": "int" }
+      "current": { "type": "int", "format": "decimalPattern" },
+      "proposed": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckBasis": "Based on {days} logged days and {weighIns} weigh-ins",
@@ -433,6 +434,20 @@
   "foodAddItemNameHint": "e.g. Tomato",
   "foodAddItemWeightLabel": "Weight",
   "foodAddItemCaloriesLabel": "Calories",
+  "foodAddItemFieldInGrams": "{label} in grams",
+  "@foodAddItemFieldInGrams": {
+    "description": "Spoken name of an add-item field whose unit, g, is shown beside the input.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "foodAddItemFieldInKcal": "{label} in kilocalories",
+  "@foodAddItemFieldInKcal": {
+    "description": "Spoken name of an add-item field whose unit, kcal, is shown beside the input.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
   "foodAddItemCaloriesRangeHint": "Calories between {min} and {max}.",
   "@foodAddItemCaloriesRangeHint": {
     "placeholders": {
@@ -494,6 +509,9 @@
     }
   },
   "recipesEmptyStateMessage": "No recipe found. Try a different category or search term.",
+  "recipesNoResultTitle": "No recipe found",
+  "recipesNoResultBody": "Try a different category or search term.",
+  "recipesNoResultShowAll": "Show all recipes",
   "recipesImagePlaceholderLabel": "RECIPE",
   "recipesOwnTitle": "Your recipe",
   "recipesBrandTitle": "Eatova recipe",
@@ -502,7 +520,7 @@
   "recipesKcalProteinSummary": "{kcal} kcal · {protein} g protein",
   "@recipesKcalProteinSummary": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "protein": { "type": "int" }
     }
   },
@@ -561,6 +579,7 @@
   "recipesPortionHint": "1 plate",
   "recipesGroupNutrition": "Nutrition",
   "recipesPerPortion": "per portion",
+  "recipesNutritionPerPortionHeading": "Nutrition per portion",
   "recipesOptionalLabel": "optional",
   "recipesIngredientsHint": "One ingredient per line",
   "recipesSaveButtonLabel": "Save recipe",
@@ -932,6 +951,7 @@
   "trendsErrorTitle": "Trends could not be loaded",
   "trendsErrorBody": "Check your internet connection and try again.",
   "trendsRetryCta": "Try again",
+  "trendsLoading": "Loading trends…",
   "trendsChartGoalLabel": "Goal {goal}",
   "@trendsChartGoalLabel": {
     "placeholders": {
@@ -1268,8 +1288,8 @@
   "settingsAccountDiscardTitle": "Cancel this change?",
   "settingsAccountDiscardBody": "The code from your e-mail expires with it. A fresh attempt needs a fresh code.",
   "settingsAccountDiscardBodyConfirmed": "The first code is already confirmed and used up. Cancelling now restarts the address change from scratch, with two new codes.",
-  "settingsAccountDiscardKeep": "Keep going",
-  "settingsAccountDiscardConfirm": "Cancel",
+  "settingsAccountDiscardKeep": "Continue",
+  "settingsAccountDiscardConfirm": "Stop change",
 
   "exportSheetLoadingSubtitle": "Your data is loading from the server …",
   "exportSheetErrorSubtitle": "This copy is incomplete or could not be fully verified. Please try again later.",
@@ -1780,18 +1800,13 @@
       "count": { "type": "int" }
     }
   },
-  "foodFavoritesSheetTitle": "Favorites ({count})",
-  "@foodFavoritesSheetTitle": {
-    "placeholders": {
-      "count": { "type": "int" }
-    }
-  },
   "foodFavoritesSortRecent": "Recent",
   "foodFavoritesSortFrequent": "Frequent",
   "foodFavoritesSortAlphabetical": "A–Z",
   "foodFavoritesSortLabel": "Sort favorites",
   "foodFavoritesSearchHint": "Search favorites",
   "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
+  "foodFavoritesEmptySearchAction": "Search food",
   "foodFavoritesNoMatchHint": "No favorite matches your search.",
   "trainingPageGoal": "Training goal",
   "trainingPageContentLimit": "Your plan contains too much text. Shorten the descriptions and notes.",
@@ -1852,6 +1867,15 @@
   "trainingPageRemoveExercise": "Remove exercise",
   "trainingPageMoveUp": "Move up",
   "trainingPageMoveDown": "Move down",
+  "trainingPageItemOptions": "Options for {name}",
+  "@trainingPageItemOptions": {
+    "description": "Tooltip of the ⋯ menu of a workout or exercise in the plan editor.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "trainingPageInvalid": "Check the highlighted fields.",
   "trainingPageRequired": "Please fill this in.",
   "trainingPageTooLong": "Please shorten this.",
@@ -2358,6 +2382,20 @@
     }
   },
   "mealPlanAlreadyEaten": "This meal is already in your diary.",
+  "mealPlanRemoveAction": "Remove from plan",
+  "mealPlanRemoveTitle": "Remove from plan?",
+  "mealPlanRemoveBody": "“{title}” leaves this day's plan. The recipe itself stays.",
+  "@mealPlanRemoveBody": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanRemoveConfirm": "Remove",
+  "mealPlanRemoved": "Removed from plan.",
+  "mealPlanRemovedOffline": "Removed on this device. Will sync later.",
+  "mealPlanRemoveError": "Not removed. Check your connection or device storage and try again.",
   "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
   "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
   "mealPlanShoppingEmpty": "The list collects the ingredients of this week's planned meals that you have not eaten yet.",
@@ -2448,6 +2486,7 @@
   "healthConnectReview": "Review connection",
   "trainingHistoryTitle": "Workout history",
   "trainingHistorySubtitle": "Your completed workouts.",
+  "trainingHistoryEmptyTitle": "No workouts yet",
   "trainingHistoryEmpty": "Your workouts appear here. Start one from a plan or log a workout you already did.",
   "trainingHistoryLoadError": "History could not load. Saved workouts remain available. Try again.",
   "trainingHistoryNote": "Workout note",
@@ -2494,6 +2533,45 @@
       }
     }
   },
+  "trainingHistorySetLabel": "Set {set}",
+  "@trainingHistorySetLabel": {
+    "description": "Left label of a set row in the workout detail.",
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistorySetRepsWeight": "{reps} × {weight} kg",
+  "@trainingHistorySetRepsWeight": {
+    "description": "Compact value of a set row in the workout detail, e.g. 8 × 80 kg.",
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      },
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistorySetSeconds": "{seconds} s",
+  "@trainingHistorySetSeconds": {
+    "description": "Compact value of a completed timed set in the workout detail.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistorySetSecondsLabel": "{seconds, plural, one{1 second} other{{seconds} seconds}}",
+  "@trainingHistorySetSecondsLabel": {
+    "description": "Spoken value of a completed timed set in the workout detail.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "trainingHistoryStarted": "Recorded from: {date}",
   "@trainingHistoryStarted": {
     "placeholders": {
@@ -2516,6 +2594,7 @@
   "trainingHistorySourceChanged": "Your plan changed. This workout was not saved.",
   "trainingActualConfirmLegacyTimed": "Confirm completed interval",
   "trainingHistoryDeleteAction": "Delete workout",
+  "trainingHistoryDeleting": "Deleting workout…",
   "trainingHistoryAlreadyDeleted": "This workout was deleted on another device.",
   "trainingHistoryLogged": "Logged",
   "trainingHistoryDeleteLogBody": "This logged workout and its set values will be removed from your history.",
@@ -2793,11 +2872,16 @@
   "recipeHistoryTitle": "Recipe history",
   "recipeHistoryExplanation": "Find previous versions and deleted recipes here. Restoring a version saves a new change.",
   "recipeHistoryRestore": "Restore version",
+  "recipeHistoryRestoring": "Restoring…",
+  "recipeHistoryChecking": "Checking current version…",
   "recipeHistoryRestoreConfirm": "Restore this version of “{title}”? The current version stays in the history. If another change arrives at the same time, your version is saved as a separate recipe.",
   "recipeHistoryRestored": "Recipe version saved.",
   "recipeHistoryVersion": "Version {revision}",
   "recipeHistoryDeleted": "Deleted",
   "recipeHistoryEmpty": "No recipe history yet.",
+  "recipeHistoryEmptyTitle": "Nothing to restore yet",
+  "recipeHistoryEmptyBody": "When you change or delete one of your recipes, the earlier version shows up here.",
+  "recipeHistoryLoading": "Loading versions…",
   "recipeHistoryLoadMore": "Load earlier versions",
   "@recipeHistoryRestoreConfirm": {
     "placeholders": {

@@ -176,14 +176,18 @@ LoggedMeal _logged() => LoggedMeal(
   forcedSlot: MealSlot.breakfast,
 );
 
-/// Pumps a launcher button at the reference geometry and taps it.
+/// Pumps a launcher button at the reference geometry, optionally narrowed to
+/// [width] logical pixels, and taps it.
 Future<void> _host(
   WidgetTester tester,
   void Function(BuildContext context) open, {
   Locale locale = const Locale('en'),
   double textScale = 1,
+  double width = 390,
 }) async {
   pinDesignViewport(tester);
+  tester.view.physicalSize =
+      Size(width, kDesignViewport.height) * kDesignPixelRatio;
   await tester.pumpWidget(
     designCaptureBoundary(
       localizedApp(
@@ -236,6 +240,7 @@ Future<void> _edit(
   String shot, {
   Locale locale = const Locale('en'),
   double textScale = 1,
+  double width = 390,
 }) => withClock(Clock.fixed(_day), () async {
   await _host(
     tester,
@@ -246,6 +251,7 @@ Future<void> _edit(
     ),
     locale: locale,
     textScale: textScale,
+    width: width,
   );
   final selector = find.byType(SlotSelector);
   expect(selector, findsOneWidget);
@@ -357,6 +363,18 @@ void main() {
 
   testWidgets('edit sheet, German', (tester) async {
     await _edit(tester, 'slots-edit-de', locale: const Locale('de'));
+  });
+
+  // "Mahlzeit bearbeiten" next to the slot tile and the close ring: the
+  // narrowest title column of the shared sheet header.
+  testWidgets('edit sheet, German, 320 px and 2x text', (tester) async {
+    await _edit(
+      tester,
+      'slots-edit-de-320-x2',
+      locale: const Locale('de'),
+      textScale: 2,
+      width: 320,
+    );
   });
 
   // As the add sheet wires it: the manual row joins the methods card.

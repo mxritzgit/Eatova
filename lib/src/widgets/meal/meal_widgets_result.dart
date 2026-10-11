@@ -63,35 +63,53 @@ class _MealResultCardState extends State<MealResultCard> {
             Expanded(
               child: Text(
                 result.resolvedSourceLabel(l10n),
+                // accentText, not the accent fill: small type.
                 style: AppType.ui(
                   12,
                   weight: FontWeight.w700,
-                  color: isBarcode ? t.ink2 : t.accent,
+                  color: isBarcode ? t.ink2 : t.accentText,
                 ),
               ),
             ),
-            if (widget.onToggleFavorite != null)
-              IconButton(
-                key: const ValueKey('analyse-favorite-button'),
-                onPressed: () => widget.onToggleFavorite!(result),
-                tooltip: widget.isFavorite
+            // The app's round icon buttons (the Food header's calendar, the
+            // sheets' close ring), not bare Material glyphs.
+            if (widget.onToggleFavorite != null) ...[
+              const SizedBox(width: 8),
+              // The spoken name says the state, as the tooltip did before.
+              Tooltip(
+                message: widget.isFavorite
                     ? l10n.foodRemoveFavoriteTooltip
                     : l10n.foodAddFavoriteTooltip,
-                icon: Icon(
-                  widget.isFavorite
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_outline_rounded,
-                  color: widget.isFavorite ? t.accent : t.ink2,
+                excludeFromSemantics: true,
+                child: HeaderIconButton.custom(
+                  key: const ValueKey('analyse-favorite-button'),
+                  semanticLabel: widget.isFavorite
+                      ? l10n.foodRemoveFavoriteTooltip
+                      : l10n.foodAddFavoriteTooltip,
+                  onTap: () => widget.onToggleFavorite!(result),
+                  child: Icon(
+                    widget.isFavorite
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_outline_rounded,
+                    color: widget.isFavorite ? t.accentText : null,
+                  ),
                 ),
               ),
-            IconButton(
-              key: const ValueKey('analyse-info-button'),
-              onPressed: () => _showInfo(context),
-              tooltip: l10n.foodDetailsTooltip,
-              icon: Icon(Icons.info_outline_rounded, color: t.ink2),
+            ],
+            const SizedBox(width: 8),
+            Tooltip(
+              message: l10n.foodDetailsTooltip,
+              excludeFromSemantics: true,
+              child: HeaderIconButton(
+                key: const ValueKey('analyse-info-button'),
+                icon: Icons.info_outline_rounded,
+                semanticLabel: l10n.foodDetailsTooltip,
+                onTap: () => _showInfo(context),
+              ),
             ),
           ],
         ),
+        const SizedBox(height: 4),
         Text(
           result.resolvedMealName(l10n),
           key: const ValueKey('analyse-meal-name'),
@@ -190,43 +208,46 @@ class _MealResultCardState extends State<MealResultCard> {
     );
   }
 
+  /// The (i) details: the shared sheet shell (scrim, edge, keyboard inset,
+  /// height cap) and the shared header with its close button.
   void _showInfo(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final result = widget.result;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: t.bg,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
-      ),
-      builder: (sheetContext) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+    showEatovaSheet<void>(
+      context,
+      Builder(
+        builder: (sheetContext) => SingleChildScrollView(
+          key: const ValueKey('analyse-info-sheet'),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            28 + MediaQuery.viewPaddingOf(sheetContext).bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                result.resolvedMealName(l10n),
-                style: AppType.display(18, color: t.ink),
+              SheetHeader(
+                title: result.resolvedMealName(l10n),
+                onClose: () => Navigator.of(sheetContext).maybePop(),
+                closeKey: const ValueKey('analyse-info-close'),
+                closeTooltip: l10n.commonClose,
+                padding: const EdgeInsets.only(bottom: 8),
               ),
-              const SizedBox(height: 12),
-              if (result.brand != null && result.brand!.isNotEmpty)
-                _InfoLine(label: l10n.foodInfoBrandLabel, value: result.brand!),
-              if (result.barcode != null && result.barcode!.isNotEmpty)
-                _InfoLine(
-                  label: l10n.foodInfoBarcodeLabel,
-                  value: result.barcode!,
-                ),
-              _InfoLine(
-                label: l10n.foodInfoSourceLabel,
-                value: result.resolvedSourceLabel(l10n),
-              ),
-              _InfoLine(
-                label: l10n.foodInfoConfidenceLabel,
-                value: result.resolvedConfidence(l10n),
+              _InfoLines(
+                lines: [
+                  if (result.brand != null && result.brand!.isNotEmpty)
+                    (l10n.foodInfoBrandLabel, result.brand!),
+                  if (result.barcode != null && result.barcode!.isNotEmpty)
+                    (l10n.foodInfoBarcodeLabel, result.barcode!),
+                  (l10n.foodInfoSourceLabel, result.resolvedSourceLabel(l10n)),
+                  (
+                    l10n.foodInfoConfidenceLabel,
+                    result.resolvedConfidence(l10n),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               Text(
@@ -258,46 +279,87 @@ class _MealResultCardState extends State<MealResultCard> {
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
 
-class _InfoLine extends StatelessWidget {
-  const _InfoLine({required this.label, required this.value});
+/// Label/value pairs of the details sheet. The label column is as wide as
+/// its widest label (at least 86), so the values still line up; a fixed 86
+/// broke "Confidence" mid-word at 2x text on a 320 px phone. Where even that
+/// leaves the values too little room, each label stacks above its value.
+class _InfoLines extends StatelessWidget {
+  const _InfoLines({required this.lines});
 
-  final String label;
-  final String value;
+  final List<(String, String)> lines;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 86,
-            child: Text(
-              label,
-              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: AppType.ui(
-                13,
-                weight: FontWeight.w600,
-                color: t.ink,
-                height: 1.3,
+    final labelStyle = AppType.ui(12, weight: FontWeight.w500, color: t.ink2);
+    final valueStyle = AppType.ui(
+      13,
+      weight: FontWeight.w600,
+      color: t.ink,
+      height: 1.3,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaler = MediaQuery.textScalerOf(context);
+        var labelWidth = 86.0;
+        for (final (label, _) in lines) {
+          final painter = TextPainter(
+            text: TextSpan(text: label, style: labelStyle),
+            textDirection: Directionality.of(context),
+            textScaler: scaler,
+            maxLines: 1,
+          )..layout();
+          final width = painter.width.ceilToDouble();
+          if (width > labelWidth) labelWidth = width;
+          painter.dispose();
+        }
+        const gap = 12.0;
+        if (labelWidth + gap > constraints.maxWidth * 0.45) {
+          return Column(
+            key: const ValueKey('analyse-info-lines'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (label, value) in lines)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, style: labelStyle),
+                      const SizedBox(height: 2),
+                      Text(value, style: valueStyle),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        }
+        return Column(
+          key: const ValueKey('analyse-info-lines'),
+          children: [
+            for (final (label, value) in lines)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: labelWidth + gap,
+                      child: Text(label, style: labelStyle),
+                    ),
+                    Expanded(child: Text(value, style: valueStyle)),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 }

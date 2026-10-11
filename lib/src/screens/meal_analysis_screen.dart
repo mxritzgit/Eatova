@@ -728,35 +728,29 @@ String foodDateSelectedLabel(
   return l10n.todayDateDaysAgo(offset);
 }
 
-/// Loading state of the diary while an older day loads on demand: exactly one
-/// spinner replacing the whole diary block, not individual cards.
+/// Loading state of the diary while an older day loads on demand: the four
+/// slot cards as silhouettes (slot tile, name and meta bars), so the real
+/// cards replace them without a jump. One label for screen readers.
 class _DayLoadingCard extends StatelessWidget {
   const _DayLoadingCard();
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return AppCard(
-      key: const ValueKey('food-day-loading'),
-      radius: rCard,
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+  Widget build(BuildContext context) => Semantics(
+    key: const ValueKey('food-day-loading'),
+    container: true,
+    // Shares `todayDayLoading`: both tabs show the same interim state.
+    label: context.l10n.todayDayLoading,
+    child: ExcludeSemantics(
       child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.4, color: t.accent),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            // Shares `todayDayLoading`: both tabs show the same interim state.
-            context.l10n.todayDayLoading,
-            style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
-          ),
+          for (final slot in MealSlot.values) ...[
+            if (slot != MealSlot.values.first)
+              const SizedBox(height: MealAnalysisScreen._gap),
+            const SkeletonCard(rows: 1, tileSize: 44, tileRadius: rControl),
+          ],
         ],
       ),
-    );
-  }
+    ),
+  );
 }

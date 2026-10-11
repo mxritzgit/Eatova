@@ -306,9 +306,18 @@ void main() {
     expect(find.byKey(const ValueKey('settings-save')), findsOneWidget);
     // The day reset was removed from the whole app; pinned so it cannot return.
     expect(find.text('Tagesdaten zurücksetzen'), findsNothing);
-    expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-imprint-link')), findsOneWidget);
+    for (final key in const [
+      'settings-privacy-link',
+      'settings-terms-link',
+      'settings-imprint-link',
+    ]) {
+      final link = find.byKey(ValueKey(key));
+      expect(link, findsOneWidget);
+      // Small footer text, but each link is a full 48 px touch target.
+      final size = tester.getSize(link);
+      expect(size.height, greaterThanOrEqualTo(48), reason: key);
+      expect(size.width, greaterThanOrEqualTo(48), reason: key);
+    }
   });
 
   // --- Redesign 2026-10-04 --------------------------------------------------

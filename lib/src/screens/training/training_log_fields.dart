@@ -182,6 +182,43 @@ List<_KnownExercise> _knownExercises(List<TrainingHistoryEntry> history) {
   ];
 }
 
+/// A known exercise name to reuse: a quiet capsule, not a third mode next
+/// to the type chips. While saving it dims and keeps its 44 px, and it is
+/// still announced as a button, a disabled one.
+class _SuggestionPill extends StatelessWidget {
+  const _SuggestionPill({
+    required this.pillKey,
+    required this.label,
+    required this.onTap,
+  });
+
+  final Key pillKey;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    button: true,
+    enabled: onTap != null,
+    label: label,
+    onTap: onTap,
+    excludeSemantics: true,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: Opacity(
+        opacity: onTap == null ? 0.45 : 1,
+        child: SourcePill(
+          key: pillKey,
+          icon: Icons.history_rounded,
+          label: label,
+          onTap: onTap,
+        ),
+      ),
+    ),
+  );
+}
+
 /// A set's done/skipped switch: lime with a check when done.
 class _DoneToggle extends StatelessWidget {
   const _DoneToggle({

@@ -227,7 +227,13 @@ void main() {
     await _pumpe(tester, favoriten: _fuenfGepinnt);
 
     await _oeffneFavoritenSheet(tester);
-    expect(find.text('Favoriten (5)'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('favorites-sheet')),
+        matching: find.text('5 gespeichert'),
+      ),
+      findsOneWidget,
+    );
     for (var i = 0; i < 5; i++) {
       expect(
         find.byKey(ValueKey('favorites-sheet-item-$i')),
@@ -281,6 +287,41 @@ void main() {
       find.descendant(of: _alleKnopf(), matching: find.text('4 gespeichert')),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+      'das geleerte Favoriten-Sheet gibt an die Suche ab: „Lebensmittel '
+      'suchen" setzt den Cursor ins Suchfeld', (tester) async {
+    await _pumpe(tester, favoriten: <FavoriteMeal>[_favorit('Skyr', tag: 20)]);
+    final suche = find.byKey(const ValueKey('kcal-product-search-input'));
+    bool sucheFokussiert() =>
+        tester.widget<TextField>(suche).focusNode!.hasFocus;
+    expect(sucheFokussiert(), isFalse);
+
+    await _oeffneFavoritenSheet(tester);
+    await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
+    await tester.pumpAndSettle();
+    final weiter = find.byKey(const ValueKey('favorites-sheet-empty-search'));
+    expect(weiter, findsOneWidget);
+    await tester.tap(weiter);
+    await tester.pumpAndSettle();
+
+    expect(_favoritenSheet(), findsNothing);
+    expect(sucheFokussiert(), isTrue);
+  });
+
+  testWidgets(
+      'das Favoriten-Sheet über X zu schließen fokussiert die Suche nicht',
+      (tester) async {
+    await _pumpe(tester, favoriten: _fuenfGepinnt);
+    final suche = find.byKey(const ValueKey('kcal-product-search-input'));
+
+    await _oeffneFavoritenSheet(tester);
+    await tester.tap(find.byKey(const ValueKey('favorites-sheet-close')));
+    await tester.pumpAndSettle();
+
+    expect(_favoritenSheet(), findsNothing);
+    expect(tester.widget<TextField>(suche).focusNode!.hasFocus, isFalse);
   });
 
   testWidgets(

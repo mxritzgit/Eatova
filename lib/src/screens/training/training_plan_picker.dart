@@ -69,10 +69,7 @@ class _TrainingPlanPickerState extends State<TrainingPlanPicker> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        l10n.trainingPagePlans,
-                        style: AppType.display(28, color: t.ink),
-                      ),
+                      SheetTitle(l10n.trainingPagePlans),
                       const SizedBox(height: 7),
                       Text(
                         l10n.trainingStudioLibrarySubtitle,
@@ -81,11 +78,10 @@ class _TrainingPlanPickerState extends State<TrainingPlanPicker> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                SquareIconButton(
-                  key: const ValueKey('training-library-close'),
-                  icon: Icons.close_rounded,
-                  semanticLabel: l10n.trainingPageClose,
+                const SizedBox(width: 8),
+                SheetCloseButton(
+                  buttonKey: const ValueKey('training-library-close'),
+                  tooltip: l10n.trainingPageClose,
                   onTap: () => Navigator.pop(context),
                 ),
               ],
@@ -120,35 +116,25 @@ class _TrainingPlanPickerState extends State<TrainingPlanPicker> {
                 ),
               ),
             const SizedBox(height: 6),
-            TextButton.icon(
+            // The soft pill pair of the Training empty state; a surf2
+            // rectangle vanished on the light sheet ground.
+            SoftPillButton(
               key: const ValueKey('training-library-create'),
-              onPressed: () =>
+              onTap: () =>
                   Navigator.pop(context, TrainingPlanLibraryAction.create),
-              icon: const Icon(Icons.add_rounded),
-              label: Text(l10n.trainingPageCreate),
-              style: TextButton.styleFrom(
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 16,
-                ),
-                backgroundColor: t.surf2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-              ),
+              icon: Icons.add_rounded,
+              label: l10n.trainingPageCreate,
+              expand: true,
             ),
-            const SizedBox(height: 8),
-            TextButton.icon(
+            const SizedBox(height: 10),
+            SoftPillButton(
               key: const ValueKey('training-library-coach'),
-              onPressed: () =>
+              onTap: () =>
                   Navigator.pop(context, TrainingPlanLibraryAction.coach),
-              icon: const Icon(Icons.chat_bubble_outline_rounded),
-              label: Text(l10n.trainingPageCoach),
-              style: TextButton.styleFrom(
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.all(14),
-              ),
+              icon: Icons.chat_bubble_outline_rounded,
+              label: l10n.trainingPageCoach,
+              tone: SoftPillTone.neutral,
+              expand: true,
             ),
           ],
         ),
@@ -183,7 +169,7 @@ class _PlanCardState extends State<_PlanCard> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rCard),
           side: BorderSide(
-            color: selected ? t.lime.withValues(alpha: 0.65) : t.line,
+            color: selected ? t.accent.withValues(alpha: 0.65) : t.line,
           ),
         ),
         clipBehavior: Clip.antiAlias,
@@ -219,7 +205,7 @@ class _PlanCardState extends State<_PlanCard> {
                             style: AppType.ui(
                               12,
                               weight: FontWeight.w700,
-                              color: selected ? t.lime : t.ink2,
+                              color: selected ? t.accentText : t.ink2,
                             ),
                           ),
                         ),
@@ -228,7 +214,7 @@ class _PlanCardState extends State<_PlanCard> {
                               ? Icons.check_circle_rounded
                               : Icons.arrow_outward_rounded,
                           size: 21,
-                          color: selected ? t.lime : t.ink2,
+                          color: selected ? t.accent : t.ink2,
                         ),
                       ],
                     ),
@@ -268,7 +254,7 @@ class _PlanCardState extends State<_PlanCard> {
                                 style: AppType.ui(
                                   13,
                                   weight: FontWeight.w700,
-                                  color: t.lime,
+                                  color: t.accentText,
                                 ),
                               ),
                             ),

@@ -50,6 +50,8 @@ Future<void> _host(
   bool destructive = false,
   bool busy = false,
   ValueChanged<bool?>? onResult,
+  bool reducedMotion = true,
+  bool settle = true,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -98,10 +100,12 @@ Future<void> _host(
         locale: locale,
         brightness: brightness,
         textScale: scale,
+        reducedMotion: reducedMotion,
       ),
     ),
   );
   await tester.tap(find.text('Open dialog'));
+  if (!settle) return;
   if (busy) {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
@@ -446,4 +450,218 @@ void main() {
       );
     }
   }
+
+  // X-01: the decision card speaks the sheets' language instead of a
+  // centred stock box.
+  group('decision card', () {
+    Rect cardRect(WidgetTester tester) => tester.getRect(
+      find
+          .descendant(of: find.byType(Dialog), matching: find.byType(Material))
+          .first,
+    );
+
+    for (final brightness in Brightness.values) {
+      testWidgets('sits at the foot in the page gutter with the sheet edge '
+          '(${brightness.name})', (tester) async {
+        final t = brightness == Brightness.light
+            ? AppTokens.light
+            : AppTokens.dark;
+        await _host(tester, destructive: true, brightness: brightness);
+        final rect = cardRect(tester);
+        // 852 view, 24 px safe area, 12 px lift.
+        expect(rect.bottom, 852 - 24 - 12);
+        expect(rect.left, 20);
+        expect(rect.right, 393 - 20);
+        expect(rect.top, greaterThan(852 / 2 - 100));
+        final dialog = tester.widget<AlertDialog>(find.byType(AlertDialog));
+        expect(dialog.backgroundColor, t.surf);
+        final shape = dialog.shape! as RoundedRectangleBorder;
+        expect(shape.borderRadius, BorderRadius.circular(rSheet));
+        expect(shape.side.color, t.lineStrong);
+        // Header: a 48 px danger tile with a 22 px glyph, the title in ink.
+        final tile = tester.widget<IconTile>(find.byType(IconTile));
+        expect(tile.size, 48);
+        expect(tile.glyphSize, 22);
+        expect(tile.color, t.danger);
+        final title = tester.widget<Text>(
+          find.text('Discard this workout?'),
+        );
+        expect(title.style!.color, t.ink);
+      });
+    }
+
+    testWidgets('rises into place while the route fades in', (tester) async {
+      await _host(tester, reducedMotion: false, settle: false);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      final rising = cardRect(tester);
+      await tester.pumpAndSettle();
+      final settled = cardRect(tester);
+      expect(rising.top, greaterThan(settled.top + 4));
+      expect(settled.bottom, 852 - 24 - 12);
+    });
+
+    testWidgets('reduced motion: the card is in place on the first frame', (
+      tester,
+    ) async {
+      await _host(tester, settle: false);
+      await tester.pump();
+      final first = cardRect(tester);
+      await tester.pumpAndSettle();
+      expect(first, cardRect(tester));
+    });
+  });
+
+  // X-02 / X-13: one action language, armed and locked in the same hue.
+  group('EatovaDialogAction', () {
+    Future<ButtonStyle> styleOf(
+      WidgetTester tester,
+      EatovaDialogAction action,
+    ) async {
+      await tester.pumpWidget(
+        localizedApp(action, brightness: Brightness.light),
+      );
+      return tester.widget<FilledButton>(find.byType(FilledButton)).style!;
+    }
+
+    const disabled = <WidgetState>{WidgetState.disabled};
+    const t = AppTokens.light;
+
+    testWidgets('primary is the accent pill and dims its own hue when locked',
+        (tester) async {
+      final style = await styleOf(
+        tester,
+        const EatovaDialogAction(label: 'Add', onPressed: null),
+      );
+      expect(style.backgroundColor!.resolve({}), t.accentFill);
+      expect(style.foregroundColor!.resolve({}), t.onAccentFill);
+      expect(
+        style.backgroundColor!.resolve(disabled),
+        t.accentFill.withValues(alpha: kDisabledFillAlpha),
+      );
+      expect(
+        style.foregroundColor!.resolve(disabled),
+        t.onAccentFill.withValues(alpha: 0.8),
+      );
+      expect(
+        tester.getSize(find.byType(FilledButton)).height,
+        greaterThanOrEqualTo(kPrimaryButtonHeight),
+      );
+    });
+
+    testWidgets('destructive primary is danger on bg', (tester) async {
+      final style = await styleOf(
+        tester,
+        EatovaDialogAction(label: 'Delete', onPressed: () {}, destructive: true),
+      );
+      expect(style.backgroundColor!.resolve({}), t.danger);
+      expect(style.foregroundColor!.resolve({}), t.bg);
+    });
+
+    testWidgets('secondary and destructive is the soft danger pair, not a '
+        'neutral pill', (tester) async {
+      final style = await styleOf(
+        tester,
+        EatovaDialogAction(
+          label: 'Leave',
+          onPressed: () {},
+          secondary: true,
+          destructive: true,
+        ),
+      );
+      expect(
+        style.backgroundColor!.resolve({}),
+        t.danger.withValues(alpha: 0.12),
+      );
+      expect(style.foregroundColor!.resolve({}), t.danger);
+    });
+
+    testWidgets('busy keeps the full colour', (tester) async {
+      final style = await styleOf(
+        tester,
+        const EatovaDialogAction(label: 'Saving', onPressed: null, busy: true),
+      );
+      expect(style.backgroundColor!.resolve(disabled), t.accentFill);
+      expect(style.foregroundColor!.resolve(disabled), t.onAccentFill);
+    });
+  });
+
+  // X-12: one discard card for every filled form.
+  group('confirmDiscardChanges', () {
+    Future<List<bool>> host(
+      WidgetTester tester, {
+      Key? dialogKey,
+      Key? confirmKey,
+      Key? keepKey,
+    }) async {
+      final results = <bool>[];
+      await tester.pumpWidget(
+        localizedApp(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => results.add(
+                await confirmDiscardChanges(
+                  context,
+                  body: 'Body text',
+                  dialogKey: dialogKey,
+                  confirmKey: confirmKey,
+                  keepKey: keepKey,
+                ),
+              ),
+              child: const Text('Close form'),
+            ),
+          ),
+          locale: const Locale('en'),
+        ),
+      );
+      await tester.tap(find.text('Close form'));
+      await tester.pumpAndSettle();
+      return results;
+    }
+
+    testWidgets('defaults: food copy, edit-off glyph and the shared keys', (
+      tester,
+    ) async {
+      final results = await host(tester);
+      expect(
+        find.byKey(const ValueKey('discard-changes-dialog')),
+        findsOneWidget,
+      );
+      expect(find.text('Discard changes?'), findsOneWidget);
+      expect(find.text('Body text'), findsOneWidget);
+      expect(find.byIcon(Icons.edit_off_rounded), findsOneWidget);
+      final keep = find.byKey(const ValueKey('discard-changes-cancel'));
+      expect(Focus.of(tester.element(find.text('Keep editing'))).hasFocus,
+          isTrue);
+      await tester.tap(keep);
+      await tester.pumpAndSettle();
+      expect(results, [false]);
+
+      await tester.tap(find.text('Close form'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
+      await tester.pumpAndSettle();
+      expect(results, [false, true]);
+
+      await tester.tap(find.text('Close form'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(4, 100));
+      await tester.pumpAndSettle();
+      expect(results, [false, true, false]);
+    });
+
+    testWidgets('call sites keep their own keys', (tester) async {
+      final results = await host(
+        tester,
+        dialogKey: const ValueKey('own-dialog'),
+        confirmKey: const ValueKey('own-confirm'),
+        keepKey: const ValueKey('own-keep'),
+      );
+      expect(find.byKey(const ValueKey('own-dialog')), findsOneWidget);
+      expect(find.byKey(const ValueKey('own-keep')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('own-confirm')));
+      await tester.pumpAndSettle();
+      expect(results, [true]);
+    });
+  });
 }

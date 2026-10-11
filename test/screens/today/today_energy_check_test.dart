@@ -83,16 +83,17 @@ void main() {
     testWidgets('names expenditure, difference and the new goal', (tester) async {
       await _pumpCard(tester);
       expect(find.text('Wochen-Check'), findsOneWidget);
-      // 2454 -> 2450, |2454 - 2850| = 396 -> 400: rounded to tens.
+      // 2454 -> 2450, |2454 - 2850| = 396 -> 400: rounded to tens, with the
+      // locale's thousands separator like the hero above the card.
       expect(
         find.text(
-          'Laut deinen letzten drei Wochen verbrauchst du rund 2450 kcal am '
+          'Laut deinen letzten drei Wochen verbrauchst du rund 2.450 kcal am '
           'Tag – etwa 400 kcal weniger als berechnet.',
         ),
         findsOneWidget,
       );
       expect(
-        find.text('Tagesziel von 2100 auf 1950 kcal anpassen?'),
+        find.text('Tagesziel von 2.100 auf 1.950 kcal anpassen?'),
         findsOneWidget,
       );
       expect(
@@ -107,13 +108,13 @@ void main() {
       await _pumpCard(tester, proposal: _higher, locale: const Locale('en'));
       expect(
         find.text(
-          'Your last three weeks suggest you burn about 3020 kcal a day – '
+          'Your last three weeks suggest you burn about 3,020 kcal a day – '
           'roughly 370 kcal more than calculated.',
         ),
         findsOneWidget,
       );
       expect(
-        find.text('Change your daily goal from 2100 to 2250 kcal?'),
+        find.text('Change your daily goal from 2,100 to 2,250 kcal?'),
         findsOneWidget,
       );
     });

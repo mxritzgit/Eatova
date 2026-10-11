@@ -906,7 +906,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                                 decoration: BoxDecoration(
                                   color: index <= _step.index
                                       ? t.accent
-                                      : t.surf2,
+                                      : t.softFill,
                                   borderRadius: BorderRadius.circular(rPill),
                                 ),
                               ),

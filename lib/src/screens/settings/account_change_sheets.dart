@@ -95,25 +95,18 @@ Future<bool> _fragAbbruch(
   required bool codeVerbraucht,
 }) async {
   final l10n = context.l10n;
-  final abbrechen = await showEatovaDialog<bool>(
-    context: context,
-    builder: (dialogContext) => EatovaConfirmDialog(
-      key: const ValueKey<String>('account-change-discard-dialog'),
-      title: l10n.settingsAccountDiscardTitle,
-      body: codeVerbraucht
-          ? l10n.settingsAccountDiscardBodyConfirmed
-          : l10n.settingsAccountDiscardBody,
-      icon: Icons.edit_off_rounded,
-      destructive: true,
-      cancelKey: const ValueKey<String>('account-change-discard-keep'),
-      cancelLabel: l10n.settingsAccountDiscardKeep,
-      onCancel: () => Navigator.of(dialogContext).pop(false),
-      confirmKey: const ValueKey<String>('account-change-discard-confirm'),
-      confirmLabel: l10n.settingsAccountDiscardConfirm,
-      onConfirm: () => Navigator.of(dialogContext).pop(true),
-    ),
+  return confirmDiscardChanges(
+    context,
+    title: l10n.settingsAccountDiscardTitle,
+    body: codeVerbraucht
+        ? l10n.settingsAccountDiscardBodyConfirmed
+        : l10n.settingsAccountDiscardBody,
+    confirmLabel: l10n.settingsAccountDiscardConfirm,
+    keepLabel: l10n.settingsAccountDiscardKeep,
+    dialogKey: const ValueKey<String>('account-change-discard-dialog'),
+    keepKey: const ValueKey<String>('account-change-discard-keep'),
+    confirmKey: const ValueKey<String>('account-change-discard-confirm'),
   );
-  return abbrechen ?? false;
 }
 
 /// The shell both sheets wear: handle, dismiss guard and [PopScope] around the

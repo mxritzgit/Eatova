@@ -147,6 +147,23 @@ void main() {
     });
   }
 
+  // The discard question for typed text: the same face as the create
+  // sheet's (edit_off icon, soft "Keep editing", filled danger action).
+  testWidgets('discard dialog', (tester) async {
+    pinDesignViewport(tester);
+    await _openSheet(tester, respond: _two);
+    await tester.enterText(
+      find.byKey(const ValueKey('recipe-import-input')),
+      _source,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('recipe-import-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('recipe-import-discard')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await captureDesignShot(tester, 'recipe-import-08-discard');
+  });
+
   testWidgets('reading state', (tester) async {
     pinDesignViewport(tester);
     final pending = Completer<RecipeImportResult>();

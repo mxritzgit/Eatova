@@ -25,7 +25,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_tokens.dart' show AppType, AppTokens;
-import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/recipes/recipe_photo.dart' show RecipeArt;
 
 import 'support/harness.dart';
 import 'support/recipe_navigation.dart';
@@ -38,7 +38,7 @@ const _remaining = MacroProgress(
 );
 
 /// A user recipe without an image asset — the only case where the
-/// [ImagePlaceholder] may appear.
+/// [RecipeArt] placeholder may appear.
 final _eigenes = FitnessRecipe(
   slug: FitnessRecipe.userRecipeSlug(),
   title: 'Mein Testteller',
@@ -535,10 +535,15 @@ void main() {
       const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli'),
     );
     await _scrollTo(tester, tile);
-    expect(find.descendant(of: tile,
-        matching: find.textContaining('590 kcal')), findsOneWidget);
-    expect(find.descendant(of: tile,
-        matching: find.textContaining('55')), findsOneWidget);
+    // The shelves' wording, with number and unit held together by no-break
+    // spaces: at 2x text the line broke inside "55 g / Protein".
+    expect(
+      find.descendant(
+        of: tile,
+        matching: find.text('590\u00A0kcal · 55\u00A0g\u00A0Protein'),
+      ),
+      findsOneWidget,
+    );
     await tester.tap(tile);
     await tester.pumpAndSettle();
     for (final value in ['590', '55 g', '62 g', '12 g']) {
@@ -551,7 +556,7 @@ void main() {
       await _pumpTabPlain(tester);
 
       expect(
-        find.byType(ImagePlaceholder),
+        find.byType(RecipeArt),
         findsNothing,
         reason: 'Alle 30 Bestandsrezepte haben ein echtes Asset — der '
             'Platzhalter des Entwurfs darf sie nicht ersetzen.',
@@ -564,7 +569,7 @@ void main() {
       await _pumpTabPlain(tester, userRecipes: [_eigenes]);
       await selectRecipeSection(tester, 'own');
 
-      expect(find.byType(ImagePlaceholder), findsWidgets);
+      expect(find.byType(RecipeArt), findsWidgets);
     });
   });
 

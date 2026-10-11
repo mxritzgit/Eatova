@@ -3,7 +3,8 @@
 // Mounts the real home page at the design's reference geometry with the
 // design's scenario (test/support/today_design_fixture.dart) and shoots
 // `today-00` (top) and `today-01` (scrolled to the reference's 631 px), plus
-// the design's `day=Empty` variant as `today-empty-00`.
+// the design's `day=Empty` variant as `today-empty-00`. `today-pick-art`
+// shows an own recipe without a photo as Tonight's pick: the recipe art.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the shots land in
 // build/dark-redesign/. Without it the suite still pins that the scenario's
@@ -110,6 +111,34 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('today-pick-art: an own recipe without a photo as the pick', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(designNow), () async {
+      final store = await pumpDesignToday(tester);
+      // More protein than the catalog's best (58 g), within the 902 kcal
+      // left: the pick is the own recipe, and it has no photo.
+      await store.saveUserRecipe(designOwnRecipe);
+      await tester.pumpAndSettle();
+      expect(_text(tester, 'today-pick-title'), designOwnRecipe.title);
+      final pick = find.byKey(const ValueKey('today-pick'));
+      expect(
+        find.descendant(
+          of: pick,
+          matching: find.byKey(const ValueKey('recipe-art-bowl')),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.ensureVisible(pick);
+      await tester.pumpAndSettle();
+      await scrollDesignTabBy(tester, 160);
+      await precacheDesignImages(tester);
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'today-pick-art');
     });
   });
 

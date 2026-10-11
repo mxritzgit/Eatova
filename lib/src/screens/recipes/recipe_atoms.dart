@@ -3,12 +3,34 @@ part of 'recipes_screen.dart';
 String _nutritionNumber(double? value, AppLocalizations l10n) =>
     value == null ? '—' : formatDecimal(value, l10n, maxFractionDigits: 1);
 
+/// kcal as everywhere else in the app: whole, with the language's thousands
+/// separator; a dash when unknown. Ingredient sums would otherwise show
+/// "455.1 kcal".
+String _kcalNumber(double? kcal, AppLocalizations l10n) =>
+    kcal == null ? '—' : formatThousands(kcal.round(), l10n.localeName);
+
 RecipeNutrition _recipeNutrition(FitnessRecipe recipe) =>
     recipe.displayNutrition;
 
+/// Number and unit never part ("32 g protein"); only the " · " between the
+/// figures may break — at 2x text the line split inside "36 g / Protein".
+String _keepFiguresTogether(String text) => text
+    .split(' · ')
+    .map((part) => part.replaceAll(' ', '\u00A0'))
+    .join(' · ');
+
+/// "380 kcal · 32 g protein", the shelves' wording, with a dash for an
+/// unknown value.
 String _recipeSummary(FitnessRecipe recipe, AppLocalizations l10n) {
   final n = _recipeNutrition(recipe);
-  return '${_nutritionNumber(n.caloriesKcal, l10n)} kcal · ${_nutritionNumber(n.proteinG, l10n)} g ${l10n.todayMacroProtein}';
+  final kcal = n.caloriesKcal, protein = n.proteinG;
+  return _keepFiguresTogether(
+    kcal != null && protein != null
+        ? l10n.recipesKcalProteinSummary(kcal.round(), protein.round())
+        : '${_kcalNumber(kcal, l10n)} kcal · '
+              '${protein == null ? '—' : protein.round()} g '
+              '${l10n.recipesHeroProteinUnit}',
+  );
 }
 
 /// The per-portion result of a batch recipe: one calm card with the kcal as
@@ -68,7 +90,7 @@ class _CalculatedNutrition extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(
-                  text: _nutritionNumber(n.caloriesKcal, l10n),
+                  text: _kcalNumber(n.caloriesKcal, l10n),
                   style: AppType.display(26, color: t.ink, height: 1.1),
                 ),
                 TextSpan(

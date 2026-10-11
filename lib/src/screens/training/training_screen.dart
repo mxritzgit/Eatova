@@ -320,6 +320,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
       showAppSnack(
         context,
         deliveryHint(l10n.trainingPageDeleted, delivery, l10n),
+        icon: Icons.delete_outline_rounded,
+        tone: SnackTone.error,
       );
     } catch (_) {
       if (!mounted || !context.mounted) return;
@@ -366,21 +368,21 @@ class _TrainingScreenState extends State<TrainingScreen> {
     }
   }
 
-  /// A popup menu anchored at [anchor] (the tapped control).
+  /// A popup menu that opens under [anchor] (the tapped control), like every
+  /// [PopupMenuButton] (`PopupMenuPosition.under`); Material shifts it up to
+  /// stay on screen when the space below is too short.
   Future<T?> _menu<T>(BuildContext anchor, List<PopupMenuEntry<T>> items) {
     final box = anchor.findRenderObject()! as RenderBox;
     final overlay =
         Navigator.of(anchor).overlay!.context.findRenderObject()! as RenderBox;
+    final bottomLeft = box.localToGlobal(
+      box.size.bottomLeft(Offset.zero),
+      ancestor: overlay,
+    );
     return showMenu<T>(
       context: anchor,
       position: RelativeRect.fromRect(
-        Rect.fromPoints(
-          box.localToGlobal(Offset.zero, ancestor: overlay),
-          box.localToGlobal(
-            box.size.bottomRight(Offset.zero),
-            ancestor: overlay,
-          ),
-        ),
+        Rect.fromLTWH(bottomLeft.dx, bottomLeft.dy, box.size.width, 0),
         Offset.zero & overlay.size,
       ),
       items: items,
@@ -407,27 +409,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 '${l10n.trainingPageWorkoutNumber(i + 1)}: '
                 '${plan.workouts[i].title}',
             excludeSemantics: true,
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 24,
-                  child: i == shown
-                      ? Icon(Icons.check_rounded, size: 20, color: t.accentText)
-                      : null,
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    plan.workouts[i].title,
-                    style: AppType.ui(
-                      15,
-                      weight: FontWeight.w600,
-                      color: t.ink,
-                      height: kTrainingLine,
-                    ),
-                  ),
-                ),
-              ],
+            child: MenuRow(
+              icon: i == shown ? Icons.check_rounded : null,
+              iconColor: t.accentText,
+              label: plan.workouts[i].title,
             ),
           ),
         ),
@@ -460,14 +445,18 @@ class _TrainingScreenState extends State<TrainingScreen> {
       (entry) => entry.id == plan.id,
     );
     final action = await _menu<String>(anchor, [
-      PopupMenuItem(value: 'edit', child: Text(l10n.trainingPageEdit)),
-      PopupMenuItem(
+      eatovaMenuItem(
+        value: 'edit',
+        icon: Icons.edit_outlined,
+        label: l10n.trainingPageEdit,
+      ),
+      eatovaMenuItem(
         value: 'delete',
-        child: Text(
-          conflict
-              ? l10n.trainingAdoptionDiscardAction
-              : l10n.trainingPageDelete,
-        ),
+        icon: Icons.delete_outline_rounded,
+        label: conflict
+            ? l10n.trainingAdoptionDiscardAction
+            : l10n.trainingPageDelete,
+        destructive: true,
       ),
     ]);
     if (!mounted) return;
@@ -564,30 +553,36 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 gap,
               ],
               if (widget.loadFailed) ...[
-                _notice(
-                  context,
-                  l10n.trainingPageLoadError,
-                  action: SoftPillButton(
-                    onTap: widget.onRetry,
-                    icon: Icons.refresh_rounded,
-                    label: l10n.trainingPageRetry,
-                  ),
+                CalmState(
+                  key: const ValueKey('training-load-error'),
+                  card: true,
+                  icon: Icons.cloud_off_rounded,
+                  text: l10n.trainingPageLoadError,
+                  actions: [
+                    SoftPillButton(
+                      onTap: widget.onRetry,
+                      icon: Icons.refresh_rounded,
+                      label: l10n.trainingPageRetry,
+                    ),
+                  ],
                 ),
                 gap,
               ],
               if (widget.historyLoadFailed) ...[
-                _notice(
-                  context,
-                  l10n.trainingHistoryRootLoadError,
+                CalmState(
+                  key: const ValueKey('training-history-load-error'),
+                  card: true,
                   icon: Icons.cloud_off_rounded,
-                  action: widget.onRetryHistory == null
-                      ? null
-                      : SoftPillButton(
-                          key: const ValueKey('training-history-retry'),
-                          onTap: widget.onRetryHistory,
-                          icon: Icons.refresh_rounded,
-                          label: l10n.trainingPageRetry,
-                        ),
+                  text: l10n.trainingHistoryRootLoadError,
+                  actions: [
+                    if (widget.onRetryHistory case final retry?)
+                      SoftPillButton(
+                        key: const ValueKey('training-history-retry'),
+                        onTap: retry,
+                        icon: Icons.refresh_rounded,
+                        label: l10n.trainingPageRetry,
+                      ),
+                  ],
                 ),
                 gap,
               ],
@@ -887,46 +882,113 @@ class _TrainingScreenState extends State<TrainingScreen> {
     );
   }
 
+  /// A notice as an icon row: the glyph in an accent tile beside the text,
+  /// its actions under the text.
   Widget _notice(
     BuildContext context,
     String text, {
-    IconData? icon,
+    required IconData icon,
     Widget? action,
   }) {
     final t = context.t;
+    // From 1.5x text the tile gives its width to the text.
+    final large = MediaQuery.textScalerOf(context).scale(16) > 24;
     return AppCard(
       padding: const EdgeInsets.all(16),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (icon != null) ...[
-            Icon(icon, color: t.accentText),
-            const SizedBox(height: 10),
+          if (!large) ...[
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: t.accentTint,
+                borderRadius: BorderRadius.circular(rChip),
+              ),
+              child: Icon(icon, size: 20, color: t.accentText),
+            ),
+            const SizedBox(width: 14),
           ],
-          Text(text, style: AppType.ui(14, color: t.ink2, height: 1.45)),
-          if (action != null) ...[const SizedBox(height: 12), action],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Centred on the tile while the text is one line.
+                Padding(
+                  padding: EdgeInsets.only(top: large ? 0 : 9),
+                  child: Text(
+                    text,
+                    style: AppType.ui(14, color: t.ink, height: 1.45),
+                  ),
+                ),
+                if (action != null) ...[const SizedBox(height: 12), action],
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
+  /// The plans are on their way: the next-workout card in outline, so the
+  /// real one replaces it without a jump. Static; one spoken label.
   Widget _loadingState(BuildContext context) {
     final t = context.t;
-    final l10n = context.l10n;
-    return Semantics(
-      label: l10n.trainingPageLoading,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            LinearProgressIndicator(color: t.accent),
-            const SizedBox(height: 20),
-            Text(
-              l10n.trainingPageLoading,
-              style: AppType.ui(15, color: t.ink, height: kTrainingLine),
+    Widget exercise(double name, double meta) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: t.tile,
+              borderRadius: BorderRadius.circular(rChip),
             ),
-          ],
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SkeletonBar(widthFactor: name),
+                const SizedBox(height: 8),
+                SkeletonBar(widthFactor: meta, height: 10),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    return Semantics(
+      key: const ValueKey('training-loading'),
+      container: true,
+      label: context.l10n.trainingPageLoading,
+      child: ExcludeSemantics(
+        child: TrainingHeroCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SkeletonBar(widthFactor: 0.3, height: 10),
+              const SizedBox(height: 14),
+              const SkeletonBar(widthFactor: 0.72, height: 26),
+              const SizedBox(height: 14),
+              const SkeletonBar(widthFactor: 0.46),
+              const SizedBox(height: 14),
+              exercise(0.5, 0.34),
+              exercise(0.42, 0.3),
+              exercise(0.58, 0.36),
+              const SizedBox(height: 16),
+              Container(
+                height: kPrimaryButtonHeight,
+                decoration: BoxDecoration(
+                  color: t.tile,
+                  borderRadius: BorderRadius.circular(rButton),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

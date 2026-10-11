@@ -277,18 +277,15 @@ class WeightCard extends StatelessWidget {
   /// A prompt would cost an extra tap on every close and protect almost
   /// nothing. Sheets with multi-part forms do keep their prompt.
   ///
-  /// No `showDragHandle: true` either: the theme sets it false globally, and
-  /// the route's handle is a stack sibling NEXT TO the builder child, where no
-  /// sheet can reach it. Drawn inside the sheet instead: a [SheetHandle] with
-  /// the dismiss action.
+  /// No Material drag handle either: the route's handle is a stack sibling
+  /// NEXT TO the builder child, where no sheet can reach it. Drawn inside the
+  /// sheet instead: a [SheetHandle] with the dismiss action. The shell
+  /// (scrim, edge, keyboard inset, height cap) is [showEatovaSheet]'s.
   Future<void> _promptWeight(BuildContext context) async {
-    await showModalBottomSheet<double>(
-      showDragHandle: false,
-      context: context,
-      backgroundColor: context.t.bg,
-      isScrollControlled: true,
-      builder: (_) =>
-          _ProfileWeightInputSheet(initial: _current, onSave: onLogWeight),
+    await showEatovaSheet<double>(
+      context,
+      _ProfileWeightInputSheet(initial: _current, onSave: onLogWeight),
+      dragHandle: false,
     );
   }
 
@@ -340,7 +337,8 @@ class BmiCard extends StatelessWidget {
                   style: AppType.ui(16, weight: FontWeight.w700, color: t.ink),
                 ),
               ),
-              _InfoButton(
+              _CardActionButton(
+                icon: Icons.info_outline_rounded,
                 onTap: () => _showBmiInfoSheet(context, bmi),
                 tooltip: l10n.profileBmiInfoTooltip,
               ),
@@ -458,16 +456,12 @@ class BmiCard extends StatelessWidget {
     );
   }
 
-  /// `isScrollControlled` because at 2x system font the four zone rows plus
-  /// the explanation exceed the 9/16 screen height an uncontrolled sheet gets
-  /// (measured 1087 px overflow). The content scrolls too, see [_BmiInfoSheet].
+  /// Scroll-controlled ([showEatovaSheet]) because at 2x system font the four
+  /// zone rows plus the explanation exceed the 9/16 screen height an
+  /// uncontrolled sheet gets (measured 1087 px overflow). The content scrolls
+  /// too, see [_BmiInfoSheet], which draws its own [SheetHandle].
   static void _showBmiInfoSheet(BuildContext context, double bmi) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: context.t.bg,
-      isScrollControlled: true,
-      builder: (_) => _BmiInfoSheet(bmi: bmi),
-    );
+    showEatovaSheet<void>(context, _BmiInfoSheet(bmi: bmi), dragHandle: false);
   }
 }
 
@@ -698,8 +692,10 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
     final l10n = context.l10n;
     final fehler = _errorText(l10n);
     final gesperrt = !_valid || _saving;
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    // showEatovaSheet lifts the sheet above the keyboard; this only keeps
+    // the action clear of the home indicator.
+    return SafeArea(
+      top: false,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
         child: Column(
@@ -770,19 +766,16 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
             ],
             const SizedBox(height: 16),
             Semantics(
-              // Same pattern as the goals page: PrimaryActionButton cannot
-              // express "disabled" itself.
+              // Same pattern as the goals page. The button dims itself when
+              // locked; an Opacity on top would dim it twice.
               button: true,
               enabled: !gesperrt,
-              child: Opacity(
-                opacity: gesperrt ? 0.4 : 1,
-                child: PrimaryActionButton(
-                  key: const ValueKey('profile-weight-save'),
-                  label: l10n.commonSave,
-                  icon: Icons.check_rounded,
-                  height: 50,
-                  onTap: gesperrt ? null : _save,
-                ),
+              child: PrimaryActionButton(
+                key: const ValueKey('profile-weight-save'),
+                label: l10n.commonSave,
+                icon: Icons.check_rounded,
+                height: 50,
+                onTap: gesperrt ? null : _save,
               ),
             ),
           ],
@@ -1175,34 +1168,56 @@ class _Caption extends StatelessWidget {
   }
 }
 
-class _InfoButton extends StatelessWidget {
-  const _InfoButton({required this.onTap, required this.tooltip});
+/// The one header action of a profile card (edit the goal, the BMI guide,
+/// sync Apple Health): a quiet 28 px [AppTokens.tile] chip in a 44 px
+/// target, the glyph in [AppTokens.ink2] or, for an edit, the accent.
+class _CardActionButton extends StatelessWidget {
+  const _CardActionButton({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.accent = false,
+  });
 
-  final VoidCallback onTap;
+  final IconData icon;
+
+  /// Long-press label and spoken name.
   final String tooltip;
+  final VoidCallback onTap;
+
+  /// Accent glyph: the action edits what the card shows.
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     // A11y: 44x44 hit target; chip and glyph stay visually 28/15.
-    return Tooltip(
-      message: tooltip,
-      child: SizedBox(
-        width: 44,
-        height: 44,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rControl),
-          child: Center(
-            child: Container(
-              width: 28,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: t.tile,
-                borderRadius: BorderRadius.circular(rControl),
+    return Semantics(
+      button: true,
+      child: Tooltip(
+        message: tooltip,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(rControl),
+            child: Center(
+              child: Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: t.tile,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: Icon(
+                  icon,
+                  color: accent ? t.accentText : t.ink2,
+                  size: 15,
+                ),
               ),
-              child: Icon(Icons.info_outline_rounded, color: t.ink2, size: 15),
             ),
           ),
         ),

@@ -13,6 +13,7 @@ import '../../widgets/common/motion.dart';
 import '../../widgets/design/controls.dart';
 import '../../widgets/design/sheets.dart'
     show FieldCapsule, SheetFieldShape;
+import '../../widgets/design/states.dart' show SignalNote;
 
 // ---------------------------------------------------------------------------
 // Controls of the settings page. Package-local clones because the shared
@@ -273,78 +274,9 @@ class SettingsGlyphTile extends StatelessWidget {
 }
 
 /// Explanatory row with an icon. Without [boxed] a plain child of a settings
-/// group; with [boxed] it carries its own tinted surface.
-class SettingsNote extends StatelessWidget {
-  const SettingsNote(
-    this.text, {
-    super.key,
-    this.tone,
-    this.icon = Icons.info_outline_rounded,
-    this.boxed = false,
-  });
-
-  final String text;
-
-  /// Glyph color — and, on an UNBOXED note, the text color too; defaults to
-  /// the quiet [AppTokens.ink2]. [AppTokens.warning] and [AppTokens.danger]
-  /// mark notes that need action. A [boxed] note always writes in `ink`.
-  final Color? tone;
-
-  final IconData icon;
-  final bool boxed;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final ton = tone ?? t.ink2;
-    // Signal-banner contract (hell_modus_audit_test): fill = tone at 10 %,
-    // GLYPH in the full tone, TEXT in `ink`. The tinted fill eats the
-    // headroom the tone still had on the bare ground — over `bg` (where these
-    // boxes actually sit) 13 px text measures warning 4.20:1, danger 4.48:1
-    // and even the quiet ink2 4.48:1, all below AA. `ink` gives 12.9-14.7:1.
-    // Unboxed notes keep the tone as text color: without a fill it carries
-    // (warning 4.76:1 on bg, 5.38:1 on surf), and the tone IS the signal
-    // there.
-    final textFarbe = boxed ? t.ink : ton;
-
-    final zeile = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Icon(icon, size: 17, color: ton),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            text,
-            style: AppType.ui(
-              13,
-              weight: FontWeight.w500,
-              color: textFarbe,
-              height: 1.4,
-            ),
-          ),
-        ),
-      ],
-    );
-
-    if (!boxed) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
-        child: zeile,
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-      decoration: BoxDecoration(
-        color: ton.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(rTile),
-        border: Border.all(color: ton.withValues(alpha: 0.24)),
-      ),
-      child: zeile,
-    );
-  }
-}
+/// group; with [boxed] it carries its own tinted surface. Promoted to the
+/// design library as [SignalNote]; the settings name stays.
+typedef SettingsNote = SignalNote;
 
 /// Shared rendering base of the settings pills: a recessed capsule track
 /// with full-width segments of at least 48 px and a test key per option.
@@ -595,13 +527,13 @@ class _LegalLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    // Small text, full 48 px target like every other control on the page.
     return TextButton(
       onPressed: () => openLegalLink(context, url),
       style: TextButton.styleFrom(
         foregroundColor: t.ink2,
-        minimumSize: Size.zero,
+        minimumSize: const Size(48, 48),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       child: Text(
         label,

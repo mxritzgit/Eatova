@@ -283,41 +283,71 @@ void main() {
     },
   );
 
-  testWidgets('context suggestions add once and keep analysis available', (
-    tester,
-  ) async {
-    pinPhoneViewport(tester);
-    await pumpLocalized(
-      tester,
-      const MealScanPreviewSheet(
-        request: MealAnalysisRequest(imageId: 'photo'),
-        previewBytes: null,
-      ),
-      locale: const Locale('de'),
-    );
+  testWidgets(
+    'context suggestions toggle on and off and keep analysis available',
+    (tester) async {
+      pinPhoneViewport(tester);
+      await pumpLocalized(
+        tester,
+        const MealScanPreviewSheet(
+          request: MealAnalysisRequest(imageId: 'photo'),
+          previewBytes: null,
+        ),
+        locale: const Locale('de'),
+      );
+      String note() =>
+          tester.widget<TextField>(_key('meal-scan-context')).controller!.text;
+      bool picked(Finder chip) => tester.widget<FilterChipPill>(chip).selected;
 
-    final sauceSuggestion = find.widgetWithText(TextButton, 'ohne Sauce');
-    await tester.ensureVisible(sauceSuggestion);
-    await tester.tap(sauceSuggestion);
-    await tester.pump();
-    expect(
-      tester.widget<TextField>(_key('meal-scan-context')).controller!.text,
-      'ohne Sauce',
-    );
-    expect(
-      tester.widget<PrimaryActionButton>(_key('meal-scan-start')).onTap,
-      isNotNull,
-    );
+      // The app's chip, not a stock button: "+" offers, a check marks.
+      final sauce = find.widgetWithText(FilterChipPill, 'ohne Sauce');
+      final homemade = find.widgetWithText(FilterChipPill, 'hausgemacht');
+      expect(picked(sauce), isFalse);
+      await tester.ensureVisible(sauce);
+      await tester.tap(sauce);
+      await tester.pump();
+      expect(note(), 'ohne Sauce');
+      expect(picked(sauce), isTrue);
+      expect(
+        find.descendant(of: sauce, matching: find.byIcon(Icons.check_rounded)),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<PrimaryActionButton>(_key('meal-scan-start')).onTap,
+        isNotNull,
+      );
 
-    // A repeated tap becomes a check state instead of duplicating the note.
-    await tester.ensureVisible(sauceSuggestion);
-    await tester.tap(sauceSuggestion);
-    await tester.pump();
-    expect(
-      tester.widget<TextField>(_key('meal-scan-context')).controller!.text,
-      'ohne Sauce',
-    );
-  });
+      // A second suggestion joins the note instead of replacing it.
+      await tester.ensureVisible(homemade);
+      await tester.tap(homemade);
+      await tester.pump();
+      expect(note(), 'ohne Sauce · hausgemacht');
+
+      // A picked suggestion taps off again and leaves the rest alone; it
+      // used to stay locked on as a disabled button.
+      await tester.ensureVisible(sauce);
+      await tester.tap(sauce);
+      await tester.pump();
+      expect(note(), 'hausgemacht');
+      expect(picked(sauce), isFalse);
+      expect(picked(homemade), isTrue);
+
+      // Typed text around a suggestion survives taking it out.
+      await tester.enterText(
+        _key('meal-scan-context'),
+        'Döner · hausgemacht',
+      );
+      await tester.pump();
+      await tester.ensureVisible(homemade);
+      await tester.tap(homemade);
+      await tester.pump();
+      expect(note(), 'Döner');
+      expect(
+        tester.widget<PrimaryActionButton>(_key('meal-scan-start')).onTap,
+        isNotNull,
+      );
+    },
+  );
 
   for (final camera in [true, false]) {
     testWidgets(

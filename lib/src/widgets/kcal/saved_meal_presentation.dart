@@ -33,6 +33,7 @@ class SavedMealCollection extends StatelessWidget {
     super.key,
     required this.children,
     this.dividerInset = kMealRowDividerInset,
+    this.expandedIndex,
   });
 
   final List<Widget> children;
@@ -40,9 +41,14 @@ class SavedMealCollection extends StatelessWidget {
   /// Where the hairline starts: under the text of the rows' tile size.
   final double dividerInset;
 
+  /// The row that is open on its raised panel, if any. The hairlines above
+  /// and below it fade out, so no stub is left glued to the panel's edge.
+  final int? expandedIndex;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final open = expandedIndex;
     return Material(
       color: t.surf,
       shape: RoundedRectangleBorder(
@@ -58,12 +64,20 @@ class SavedMealCollection extends StatelessWidget {
             for (var i = 0; i < children.length; i++) ...[
               children[i],
               if (i < children.length - 1)
-                Divider(
-                  height: 1,
-                  thickness: 1,
-                  indent: dividerInset,
-                  endIndent: 14,
-                  color: t.line,
+                AnimatedOpacity(
+                  opacity: open == i || open == i + 1 ? 0 : 1,
+                  duration: motionDuration(
+                    context,
+                    const Duration(milliseconds: 180),
+                  ),
+                  curve: kMotionCurve,
+                  child: Divider(
+                    height: 1,
+                    thickness: 1,
+                    indent: dividerInset,
+                    endIndent: 14,
+                    color: t.line,
+                  ),
                 ),
             ],
           ],

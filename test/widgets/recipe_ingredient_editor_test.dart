@@ -222,4 +222,68 @@ void main() {
       expect(find.byKey(const ValueKey('ingredient-add')), findsOneWidget);
     },
   );
+
+  testWidgets('Try again repeats the failed search with the same query', (
+    tester,
+  ) async {
+    final queries = <String>[];
+    var fail = true;
+    final products = _Products()
+      ..response = (query) async {
+        queries.add(query);
+        if (fail) throw const FormatException('upstream down');
+        return [_product()];
+      };
+    await pumpLocalized(
+      tester,
+      RecipeIngredientEditor(
+        ingredients: const [],
+        onChanged: (_) {},
+        productService: products,
+      ),
+      locale: const Locale('en'),
+    );
+    await _tap(tester, find.byKey(const ValueKey('ingredient-add')));
+    await tester.enterText(
+      find.byKey(const ValueKey('ingredient-query')),
+      '  oats ',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('ingredient-search-error')), findsOne);
+    expect(find.byKey(const ValueKey('ingredient-result-0')), findsNothing);
+
+    fail = false;
+    await _tap(tester, find.byKey(const ValueKey('ingredient-search-retry')));
+    expect(queries, ['oats', 'oats']);
+    expect(find.byKey(const ValueKey('ingredient-search-error')), findsNothing);
+    expect(find.byKey(const ValueKey('ingredient-result-0')), findsOneWidget);
+  });
+
+  testWidgets('the close ring closes the search without adding anything', (
+    tester,
+  ) async {
+    var changes = 0;
+    await pumpLocalized(
+      tester,
+      RecipeIngredientEditor(
+        ingredients: const [],
+        onChanged: (_) => changes++,
+        productService: _Products(),
+      ),
+      locale: const Locale('en'),
+    );
+    await _tap(tester, find.byKey(const ValueKey('ingredient-add')));
+    await tester.enterText(
+      find.byKey(const ValueKey('ingredient-query')),
+      'oats',
+    );
+    await tester.pump();
+    final close = find.byKey(const ValueKey('ingredient-search-close'));
+    expect(tester.widget<IconButton>(close).onPressed, isNotNull);
+    await _tap(tester, close);
+    expect(find.byKey(const ValueKey('ingredient-query')), findsNothing);
+    expect(find.byKey(const ValueKey('ingredient-add')), findsOneWidget);
+    expect(changes, 0);
+  });
 }

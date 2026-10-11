@@ -500,7 +500,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
     if (_saving) return;
     if (_discardDialogOpen) return;
     _discardDialogOpen = true;
-    final verwerfen = await _confirmDiscardChanges(context);
+    final verwerfen = await confirmDiscardChanges(
+      context,
+      body: context.l10n.goalsDiscardChangesBody,
+    );
     _discardDialogOpen = false;
     if (!mounted || !verwerfen) return;
     // The dialog is already popped; the page is the top route again.
@@ -677,16 +680,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       // normal button that does nothing to a screen reader.
                       button: true,
                       enabled: !_hatFehler,
-                      child: Opacity(
-                        // PrimaryActionButton cannot express "disabled" itself;
-                        // same solution as SheetScaffold.
-                        opacity: _hatFehler ? 0.4 : 1,
-                        child: PrimaryActionButton(
-                          key: const ValueKey('settings-save'),
-                          label: l10n.commonSave,
-                          icon: Icons.check_rounded,
-                          onTap: _hatFehler || _saving ? null : _save,
-                        ),
+                      // The button draws its own dimmed disabled state; an
+                      // Opacity on top would dim it twice.
+                      child: PrimaryActionButton(
+                        key: const ValueKey('settings-save'),
+                        label: l10n.commonSave,
+                        icon: Icons.check_rounded,
+                        onTap: _hatFehler || _saving ? null : _save,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -1209,40 +1209,4 @@ class _ReminderState extends StatelessWidget {
       ],
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// D5: discard prompt
-// ---------------------------------------------------------------------------
-
-/// "Discard changes?" — the shared confirmation for every way of leaving a
-/// filled page.
-///
-/// `barrierDismissible: true` (default) is intentional: a tap outside means
-/// cancel, the harmless answer.
-///
-/// **Duplicated:** the same confirmation lives in `edit_meal_sheet.dart` and
-/// `recipe_create_sheet.dart` (both still with `_DiscardDragGuard`). The copies
-/// belong in the shared library.
-///
-/// Returns `true` = discard, `false`/dismissed = keep editing.
-Future<bool> _confirmDiscardChanges(BuildContext context) async {
-  final l10n = context.l10n;
-  final verwerfen = await showEatovaDialog<bool>(
-    context: context,
-    builder: (dialogContext) => EatovaConfirmDialog(
-      key: const ValueKey('discard-changes-dialog'),
-      title: l10n.foodDiscardChangesTitle,
-      body: l10n.goalsDiscardChangesBody,
-      icon: Icons.edit_off_rounded,
-      destructive: true,
-      cancelKey: const ValueKey('discard-changes-cancel'),
-      cancelLabel: l10n.foodDiscardChangesKeepEditing,
-      onCancel: () => Navigator.of(dialogContext).pop(false),
-      confirmKey: const ValueKey('discard-changes-confirm'),
-      confirmLabel: l10n.foodDiscardChangesConfirm,
-      onConfirm: () => Navigator.of(dialogContext).pop(true),
-    ),
-  );
-  return verwerfen ?? false;
 }

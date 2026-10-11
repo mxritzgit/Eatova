@@ -7,6 +7,7 @@ import 'package:eatova/src/screens/recipes/recipe_history_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/user_recipe_reads.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -105,6 +106,89 @@ void main() {
     expect(find.textContaining('private fixture'), findsNothing);
     expect(find.textContaining('Please try again'), findsOneWidget);
     expect(find.text('Recipe version saved.'), findsNothing);
+  });
+
+  testWidgets('the pill says Restoring only once the restore is confirmed', (
+    tester,
+  ) async {
+    pinPhoneViewport(tester);
+    final restore = Completer<SyncDelivery>();
+    await tester.pumpWidget(
+      localizedApp(
+        RecipeHistoryScreen(
+          loadHistory: ({slug, beforeRevision}) async =>
+              _page(head: slug == null ? null : 19),
+          restoreVersion: (recipe, {required expectedRevision}) =>
+              restore.future,
+          isSessionCurrent: () => true,
+        ),
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final pill = find.byKey(const ValueKey('recipe-history-restore-3'));
+    String label() => tester.widget<SoftPillButton>(pill).label;
+    await _openVersion(tester, 3);
+    // The dialog asks; nothing is being restored yet.
+    expect(find.byKey(const ValueKey('recipe-history-confirm')), findsOneWidget);
+    expect(label(), 'Restore version');
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(label(), 'Restore version');
+    expect(tester.widget<SoftPillButton>(pill).onTap, isNotNull);
+
+    await _openVersion(tester, 3);
+    await tester.tap(find.byKey(const ValueKey('recipe-history-confirm')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(label(), 'Restoring…');
+    expect(tester.widget<SoftPillButton>(pill).onTap, isNull);
+    restore.complete(SyncDelivery.delivered);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('the pill says Checking while the head loads before the dialog', (
+    tester,
+  ) async {
+    pinPhoneViewport(tester);
+    final head = Completer<RecipeHistoryPage>();
+    await tester.pumpWidget(
+      localizedApp(
+        RecipeHistoryScreen(
+          loadHistory: ({slug, beforeRevision}) =>
+              slug == null ? Future.value(_page()) : head.future,
+          restoreVersion: (recipe, {required expectedRevision}) async =>
+              SyncDelivery.delivered,
+          isSessionCurrent: () => true,
+        ),
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final pill = find.byKey(const ValueKey('recipe-history-restore-3'));
+    SoftPillButton button() => tester.widget<SoftPillButton>(pill);
+    await tester.tap(find.byKey(const ValueKey('recipe-history-version-3')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(pill);
+    await tester.tap(pill);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    // The head read is slow: the tapped pill says what is happening.
+    expect(find.byKey(const ValueKey('recipe-history-confirm')), findsNothing);
+    expect(button().label, 'Checking current version…');
+    expect(button().onTap, isNull);
+
+    head.complete(_page(head: 19));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('recipe-history-confirm')),
+      findsOneWidget,
+    );
+    expect(button().label, 'Restore version');
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(button().label, 'Restore version');
+    expect(button().onTap, isNotNull);
   });
 
   testWidgets(

@@ -161,7 +161,12 @@ void main() {
     await tester.ensureVisible(kachel);
     expect(kachel, findsOneWidget);
 
-    final x = find.descendant(of: kachel, matching: find.byTooltip('Entfernen'));
+    // Forgetting a recent lives in its open panel (no X on the row).
+    await tester.tap(kachel);
+    await tester.pumpAndSettle();
+    final x = find.byKey(const ValueKey('favorite-tile-0-remove'));
+    await tester.ensureVisible(x);
+    await tester.pumpAndSettle();
     await tester.tap(x);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));

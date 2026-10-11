@@ -7,7 +7,6 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
-import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:clock/clock.dart';
@@ -24,6 +23,7 @@ import '../../models/number_input.dart';
 import '../../models/recipe_pick.dart';
 import '../../models/recipe_shelf.dart';
 import '../../models/user_profile.dart';
+import '../../services/kcal_format.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/recipe_image_store.dart';
 import '../../services/recipe_save_result.dart';
@@ -37,17 +37,18 @@ import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/recipes/recipe_glyphs.dart';
 import '../../widgets/recipes/recipe_ingredient_editor.dart';
 import '../../widgets/recipes/recipe_portion_selector.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_pick_actions.dart';
+import '../../widgets/recipes/recipe_sections.dart';
 
 import 'recipe_history_screen.dart';
 
 part 'recipes_header.dart';
 part 'recipes_hero.dart';
 part 'recipes_shelves.dart';
-part 'recipe_glyphs.dart';
 part 'recipe_cards.dart';
 part 'recipe_detail.dart';
 part 'recipe_slot_picker.dart';
@@ -631,6 +632,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
     _forYou = false;
     selectedFilter = filter;
   });
+
+  /// The way out of an empty result: a typed search is cleared (the section
+  /// stays); without one, the category had nothing, so all recipes show.
+  void _resetNoResult() {
+    if (query.trim().isNotEmpty) {
+      _searchController.clear();
+    } else {
+      _seeAll(recipeFilters.first);
+    }
+  }
 
   /// A "See all" link far down the page: the list it opens starts at the
   /// top, not at the offset the page had.
@@ -1231,11 +1242,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
       ];
     } else {
       final rows = visibleRecipes;
+      // No own recipe at all: one calm card with the import/create pair
+      // instead of the "Your recipes" card plus an empty list saying the
+      // same thing below it.
+      final ownEmpty = own && rows.isEmpty && query.trim().isEmpty;
+      final history =
+          widget.onLoadRecipeHistory != null && widget.onRestoreRecipe != null;
       body = [
-        if (own) ...[
-          yourRecipes,
-          if (widget.onLoadRecipeHistory != null &&
-              widget.onRestoreRecipe != null)
+        if (own && (!ownEmpty || history)) ...[
+          if (!ownEmpty) yourRecipes,
+          if (history)
             gutter(
               Align(
                 alignment: Alignment.centerLeft,
@@ -1267,8 +1283,27 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ),
         const SizedBox(height: 4),
         ...rowsOf(rows),
-        if (rows.isEmpty)
-          gutter(_RecipeEmptyState(own: own && query.trim().isEmpty)),
+        if (ownEmpty)
+          gutter(
+            _RecipeOwnEmptyState(
+              actions: _YourRecipesCard.pills(
+                context,
+                onCreate: _openCreateSheet,
+                onImport: widget.onImport,
+              ),
+            ),
+          )
+        else if (rows.isEmpty)
+          gutter(
+            _RecipeNoResultState(
+              hasQuery: query.trim().isNotEmpty,
+              // "All" with nothing typed has no wider list to go to.
+              onReset:
+                  query.trim().isEmpty && selectedFilter == recipeFilters.first
+                  ? null
+                  : _resetNoResult,
+            ),
+          ),
       ];
     }
 
