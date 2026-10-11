@@ -761,16 +761,23 @@ DraftCandidate? _productCandidate(ProductSearchResult hit) {
 /// gives none.
 ({int grams, CountUnit? unit})? _serving(MealAnalysisResult result) {
   final serving = MealResultOffNote.resolve(result.portionNotes)?.serving;
-  final grams = result.estimatedGrams;
+  final grams = _portionOfServing(result, serving);
   if (serving == null || !isPlausiblePortionGrams(grams)) return null;
-  // A sub-gram serving ("1 Stück (0,49 g)") left the portion at the 100 g base.
-  final stated = MealAnalysisResult.gramsInServingText(serving);
-  if (stated != null && !isPlausiblePortionGrams(stated)) return null;
   final count = _countOf(serving);
   if (count != null && count.count > 0) {
     return (grams: clampPortionGrams(grams / count.count), unit: count.unit);
   }
   return grams == 100 ? null : (grams: grams, unit: null);
+}
+
+/// The portion `fromOpenFoodFacts` set for [serving], or 0 when the serving
+/// states less than a gram ("1 Stück (0,49 g)"): the portion is then the
+/// 100 g base, not a piece.
+int _portionOfServing(MealAnalysisResult result, String? serving) {
+  final stated = MealAnalysisResult.gramsInServingText(serving);
+  return stated != null && !isPlausiblePortionGrams(stated)
+      ? 0
+      : result.estimatedGrams;
 }
 
 /// A stored macro text ("12,5 g", "-") per 100 g of [grams], or null.
