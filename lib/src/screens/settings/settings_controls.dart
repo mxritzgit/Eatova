@@ -527,13 +527,13 @@ class _LegalLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    // Small text, full 48 px target like every other control on the page.
     return TextButton(
       onPressed: () => openLegalLink(context, url),
       style: TextButton.styleFrom(
         foregroundColor: t.ink2,
-        minimumSize: Size.zero,
+        minimumSize: const Size(48, 48),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       child: Text(
         label,

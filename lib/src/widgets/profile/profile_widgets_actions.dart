@@ -65,10 +65,10 @@ class HealthConnectionCard extends StatelessWidget {
         : l10n.profileHealthActionConnect;
 
     final action = isGranted
-        ? HeaderIconButton(
+        ? _CardActionButton(
             key: const ValueKey('profile-health-refresh'),
             icon: Icons.sync_rounded,
-            semanticLabel: l10n.profileHealthRefreshSemantics,
+            tooltip: l10n.profileHealthRefreshSemantics,
             onTap: onRefresh,
           )
         : isUnsupported
@@ -81,8 +81,10 @@ class HealthConnectionCard extends StatelessWidget {
     // Short states sit as a status line under the name; the two repair
     // hints are sentences and get the full card width below.
     final longHint = needsAttention;
+    // The card-action chip ends 16 px from the edge, as on the plan and
+    // body cards; the text below keeps its 16 px.
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -127,7 +129,7 @@ class HealthConnectionCard extends StatelessWidget {
           if (longHint) ...[
             const SizedBox(height: 12),
             Padding(
-              padding: const EdgeInsets.only(right: 4),
+              padding: const EdgeInsets.only(right: 8),
               child: Text(
                 subtitle,
                 style: AppType.ui(
@@ -140,7 +142,7 @@ class HealthConnectionCard extends StatelessWidget {
           ],
           if (!isGranted && action != null) ...[
             const SizedBox(height: 14),
-            Padding(padding: const EdgeInsets.only(right: 4), child: action),
+            Padding(padding: const EdgeInsets.only(right: 8), child: action),
           ],
         ],
       ),

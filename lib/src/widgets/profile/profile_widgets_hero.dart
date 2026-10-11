@@ -370,14 +370,14 @@ class GoalPlanCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (onEdit != null)
-                // A11y: full 48 px tap area (not compact), glyph stays 20.
-                IconButton(
+              if (onEdit case final edit?)
+                // The card-action chip of the profile's other cards.
+                _CardActionButton(
                   key: const ValueKey('profile-goalplan-edit'),
-                  onPressed: onEdit,
+                  icon: Icons.tune_rounded,
                   tooltip: l10n.profileGoalPlanEditTooltip,
-                  icon: const Icon(Icons.tune_rounded, size: 20),
-                  color: accentInk,
+                  onTap: edit,
+                  accent: !isMaintain,
                 ),
             ],
           ),

@@ -337,7 +337,8 @@ class BmiCard extends StatelessWidget {
                   style: AppType.ui(16, weight: FontWeight.w700, color: t.ink),
                 ),
               ),
-              _InfoButton(
+              _CardActionButton(
+                icon: Icons.info_outline_rounded,
                 onTap: () => _showBmiInfoSheet(context, bmi),
                 tooltip: l10n.profileBmiInfoTooltip,
               ),
@@ -1167,34 +1168,56 @@ class _Caption extends StatelessWidget {
   }
 }
 
-class _InfoButton extends StatelessWidget {
-  const _InfoButton({required this.onTap, required this.tooltip});
+/// The one header action of a profile card (edit the goal, the BMI guide,
+/// sync Apple Health): a quiet 28 px [AppTokens.tile] chip in a 44 px
+/// target, the glyph in [AppTokens.ink2] or, for an edit, the accent.
+class _CardActionButton extends StatelessWidget {
+  const _CardActionButton({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.accent = false,
+  });
 
-  final VoidCallback onTap;
+  final IconData icon;
+
+  /// Long-press label and spoken name.
   final String tooltip;
+  final VoidCallback onTap;
+
+  /// Accent glyph: the action edits what the card shows.
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     // A11y: 44x44 hit target; chip and glyph stay visually 28/15.
-    return Tooltip(
-      message: tooltip,
-      child: SizedBox(
-        width: 44,
-        height: 44,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rControl),
-          child: Center(
-            child: Container(
-              width: 28,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: t.tile,
-                borderRadius: BorderRadius.circular(rControl),
+    return Semantics(
+      button: true,
+      child: Tooltip(
+        message: tooltip,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(rControl),
+            child: Center(
+              child: Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: t.tile,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: Icon(
+                  icon,
+                  color: accent ? t.accentText : t.ink2,
+                  size: 15,
+                ),
               ),
-              child: Icon(Icons.info_outline_rounded, color: t.ink2, size: 15),
             ),
           ),
         ),
