@@ -153,15 +153,29 @@ Deno.test('grouped kcal totals keep their thousands and are never read as decima
   const dot = 'Nährwerte gesamt: 2.450 kcal, 120 g Protein, 200 g KH, 80 g Fett';
   check(total(dot, 2450) === 612.5, 'The model reading of 2.450 kcal is source-proven');
   check(total(dot, null) === 612.5, 'Recovery reads 2.450 kcal as 2450, never 0.6125 per serving');
-  check(total(dot, 2.45) === null && total(dot, 2.45, false) === null, 'A decimal kcal reading is not proven');
+  // The prompt asks for numbers exactly as written, so 2.450 can arrive as 2.45.
+  check(total(dot, 2.45) === 612.5, 'A literal 2.45 model copy of 2.450 kcal is the grouped 2450');
+  check(total(dot, 2.45, false) === 612.5, 'v1 reads the literal copy as 2450 as well');
+  check(total(dot, 2.5) === null && total(dot, 245) === null, 'Other model values stay unproven');
   const english = (calories: number | null) => sourcedNutrition({ nutrition_basis: 'per_serving', calories_kcal: calories,
     protein_g: 60, carbs_g: 100, fat_g: 40 }, 'Per serving: 1,050 calories, 60g protein, 100g carbs, 40g fat', 2, true).calories_kcal;
   check(english(1050) === 1050 && english(null) === 1050, 'English thousands separator');
+  check(english(1.05) === 1050, 'A literal 1.05 model copy of 1,050 calories is 1050');
+  const totalEnglish = sourcedNutrition({ nutrition_basis: 'per_recipe', calories_kcal: 1.05 },
+    'Total: 1,050 calories, 60g protein', 2, true, 'For 2 servings');
+  check(totalEnglish.calories_kcal === 525, `1,050 calories copied as 1.05 are 525 per serving: ${JSON.stringify(totalEnglish)}`);
+  const legacy = sourcedNutrition({ nutrition_basis: 'per_serving', calories_kcal: 2.45 }, 'Pro Portion: 2.450 kcal', null, false);
+  check(legacy.calories_kcal === 2450, `v1 per serving reads a literal 2.45 as 2450: ${JSON.stringify(legacy)}`);
   const unknown = { nutrition_basis: 'unspecified', calories_kcal: null };
   const twice = sourcedNutrition(unknown, 'Nährwerte: 2.450 kcal (2450 kcal)', null, true);
   check(twice.calories_kcal === 2450 && !twice.nutrition_conflicts, 'One total in two spellings is no conflict');
+  check(sourcedNutrition({ ...unknown, calories_kcal: 2.45 }, 'Nährwerte: 2.450 kcal (2450 kcal)', null, true)
+    .calories_kcal === 2450, 'A literal copy agrees with the same total in another spelling');
   const conflict = sourcedNutrition(unknown, 'Nährwerte: 2.450 kcal, 2.540 kcal', null, true);
   check(conflict.calories_kcal === null && conflict.nutrition_conflicts?.includes('calories_kcal'), 'Distinct totals conflict');
+  const copiedConflict = sourcedNutrition({ ...unknown, calories_kcal: 2.45 }, 'Nährwerte: 2.450 kcal, 2.540 kcal', null, true);
+  check(copiedConflict.calories_kcal === null && copiedConflict.nutrition_conflicts?.includes('calories_kcal'),
+    'A literal copy cannot settle distinct totals');
   // A space can group thousands or separate two numbers: the model decides.
   for (const space of [' ', '\u202f', '\u00a0']) {
     const grouped = `Nährwerte gesamt: 2${space}450 kcal, 120 g Protein, 200 g KH, 80 g Fett`;
@@ -193,6 +207,30 @@ Deno.test('a grouped reading no field can hold leaves adjacent numbers recoverab
   // Two readings within range stay the model's decision.
   check(missing('Nährwerte: 2 450 kcal').calories_kcal === null, '2 450 kcal stays ambiguous');
   check(missing('Nährwerte: 1.000 g Fett').fat_g === null, '1.000 g fat stays ambiguous');
+});
+
+Deno.test('a space-grouped fragment is never the only reading of a kcal value', () => {
+  const perServing = (evidence: string, calories: number | null) =>
+    sourcedNutrition({ nutrition_basis: 'per_serving', calories_kcal: calories }, evidence, null, true);
+  // A range cuts off the leading group: neither 400 nor 1400 is the value.
+  for (const dash of ['-', '–', ' - ']) {
+    const evidence = `Pro Portion: 1 200${dash}1 400 kcal`;
+    const recovered = perServing(evidence, null);
+    check(recovered.calories_kcal === null, `${evidence} is not recovered as 400: ${JSON.stringify(recovered)}`);
+    check(recovered.nutrition_conflicts?.includes('calories_kcal') === true, `${evidence} is flagged for review`);
+    check(perServing(evidence, 400).calories_kcal === null && perServing(evidence, 1400).calories_kcal === null,
+      `${evidence}: no model value settles a range`);
+  }
+  check(perServing('Pro Portion: 400-1 400 kcal', null).calories_kcal === null, '400-1 400 kcal is not 400');
+  // A grouped tail the field cannot hold is shortened, not dropped.
+  const flattened = 'Pro Portion: Kalorien 1 450 100g KH';
+  const recovered = perServing(flattened, null);
+  check(recovered.calories_kcal === null && recovered.carbs_g === 100,
+    `Kalorien 1 450 is not recovered as 1 kcal: ${JSON.stringify(recovered)}`);
+  check(perServing(flattened, 1450).calories_kcal === 1450, 'The model reading 1450 is source-proven');
+  // Unchanged: one plain group still reads both ways, and an adjacent number stays apart.
+  check(perServing('Pro Portion: 1 450 kcal', 1450).calories_kcal === 1450, '1 450 kcal with the model reading');
+  check(perServing('Pro Portion: Kalorien 520 100g KH', null).calories_kcal === 520, '520 100 is no tail');
 });
 
 Deno.test('a space-grouped kcal row after a blank line stays in its nutrition section', async () => {
