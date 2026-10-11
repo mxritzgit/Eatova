@@ -1,13 +1,15 @@
 // The receipt's price view state (docs/SHOPPING-PRICES.md): one run per
 // change of lines, no synchronous notify from build, cancellation on pause
-// and dispose, late results ignored, a cooldown for failed lines and a
-// fresh start after midnight.
+// and dispose, late results ignored, a cooldown for failed lines, a fresh
+// start after midnight, and no endless loading when the service gives up.
 
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/shopping_price.dart';
+import 'package:eatova/src/services/open_prices_api.dart';
 import 'package:eatova/src/services/shopping_price_controller.dart';
+import 'package:eatova/src/services/shopping_price_service.dart';
 
 import '../support/fake_shopping_prices.dart';
 
@@ -22,6 +24,12 @@ Future<void> _at(Future<void> Function() body) =>
     withClock(Clock(() => _now), body);
 
 Future<void> _settle() => pumpEventQueue();
+
+/// A source a disposed service must never reach.
+class _NoSource implements OpenPricesSource {
+  @override
+  OpenPricesConnection connect() => throw StateError('no request expected');
+}
 
 LinePrice _priced(PriceRequestLine line) => switch (line.id) {
   'salt' => const LinePriceSkipped(),
@@ -130,7 +138,6 @@ void main() {
       service.lastRun.fail();
       await _settle();
       expect(controller.priceFor('milk'), isA<LinePriceUnavailable>());
-      expect(controller.failed, isTrue);
       expect(controller.totalFor(const ['milk']).failed, isTrue);
 
       // Back to the receipt within the minute: still "n/a", no request.
@@ -163,6 +170,23 @@ void main() {
       controller.show(const [_milk], PriceRegion.germany);
       await _settle();
       expect(service.runs, hasLength(2));
+    }),
+  );
+
+  test(
+    'a run the service refuses (a planner outliving its session) stops '
+    'loading and reads as unavailable',
+    () => _at(() async {
+      final disposed = OpenPricesShoppingPriceService(_NoSource())..dispose();
+      final refused = ShoppingPriceController(disposed);
+      addTearDown(refused.dispose);
+      var notified = 0;
+      refused.addListener(() => notified++);
+      refused.show(const [_milk], PriceRegion.germany);
+      await _settle();
+      expect(refused.priceFor('milk'), isA<LinePriceUnavailable>());
+      expect(refused.totalFor(const ['milk']).failed, isTrue);
+      expect(notified, 1);
     }),
   );
 

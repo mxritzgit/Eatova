@@ -227,7 +227,7 @@ void main() {
     await _run(service);
     expect(source.requests, greaterThan(requests));
 
-    // Written at 23:00, stale after midnight.
+    // Rewritten at 20:00, stale after midnight.
     final late = source.requests;
     _now = DateTime(2026, 10, 12, 0, 30);
     await _run(service);
@@ -237,6 +237,46 @@ void main() {
       '2026-08-31',
       reason: 'the window moves with the day',
     );
+  });
+
+  test('a result cut off by the page cap is shown, not cached', () async {
+    bool overlap(Map<String, String> q) =>
+        q.containsKey('product__categories_tags__overlap');
+    final source = _FakeSource();
+    final service = OpenPricesShoppingPriceService(
+      source,
+      retryDelay: const Duration(milliseconds: 1),
+      maxTagPages: 1,
+    );
+    final first = await _run(service);
+    // Page 1 of 2 still prices this run.
+    expect(source.queries.where(overlap), hasLength(1));
+    expect(first['milch'], isA<LinePriceEstimate>());
+    // The next run asks again instead of keeping a partial answer all day.
+    await _run(service);
+    expect(source.queries.where(overlap), hasLength(2));
+  });
+
+  test('a run past its budget sends nothing more', () async {
+    final source = _FakeSource(
+      prices: (query) async {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        return _answer(query);
+      },
+    );
+    final service = OpenPricesShoppingPriceService(
+      source,
+      retryDelay: const Duration(milliseconds: 1),
+      runBudget: const Duration(milliseconds: 60),
+    );
+    final prices = await _run(service);
+    // The barcode and loose-goods requests ran into the budget; neither a
+    // retry, the product lookup nor the overlap request went out after it.
+    expect(source.queries, hasLength(2));
+    expect(source.products, isEmpty);
+    expect(prices['milch'], isA<LinePriceUnavailable>());
+    expect(prices['almighurt'], isA<LinePriceUnavailable>());
+    expect(prices['salz'], isA<LinePriceSkipped>());
   });
 
   test('failures are never cached', () async {

@@ -42,14 +42,6 @@ class ShoppingPriceController extends ChangeNotifier {
   ShoppingPriceTotal totalFor(Iterable<String> lineIds) =>
       shoppingPriceTotal(lineIds.map(priceFor));
 
-  /// Whether a line shown today failed to load.
-  bool get failed {
-    final today = _today;
-    return _results.values.any(
-      (r) => r.day == today && r.price is LinePriceUnavailable,
-    );
-  }
-
   /// Asks for the prices of [lines]. Safe to call from build: it never
   /// notifies synchronously. The same lines on the same day are a no-op; a
   /// change cancels the run in flight and starts the next in a microtask,
@@ -84,7 +76,15 @@ class ShoppingPriceController extends ChangeNotifier {
           _apply(prices, day);
         },
         onError: (Object _) {
-          if (generation == _generation) _run = null;
+          if (_disposed || generation != _generation) return;
+          _run = null;
+          // Not our cancel (that bumps the generation): the service gave
+          // up on the run, e.g. after a logout. The lines stop loading.
+          _apply({
+            for (final line in pending)
+              if (_results[line.id]?.day != day)
+                line.id: const LinePriceUnavailable(),
+          }, day);
         },
       );
     });

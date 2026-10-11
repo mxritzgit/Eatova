@@ -273,6 +273,11 @@ class _PriceRun {
   final List<OpenPriceRow> _tagRows = [];
   final Map<String, bool> _tagsFetched = {};
 
+  /// Tags, and the loose-goods snapshot, cut off by a page cap: aggregated
+  /// for this run, never cached.
+  final Set<String> _tagsTruncated = {};
+  bool _categoriesTruncated = false;
+
   OpenPricesConnection? _connection;
   ChainDeadline? _deadline;
   final List<Completer<void>> _sleeps = [];
@@ -498,7 +503,12 @@ class _PriceRun {
       basis: entry.basis,
     );
     _entries[entry.id] = aggregate;
-    service.cache.write(_entryKey(entry), aggregate, clock.now());
+    final truncated =
+        entry.productTags.any(_tagsTruncated.contains) ||
+        (entry.categoryPrices && _categoriesTruncated);
+    if (!truncated) {
+      service.cache.write(_entryKey(entry), aggregate, clock.now());
+    }
   }
 
   Future<void> _fetchCodes(List<String> codes) async {
@@ -540,7 +550,10 @@ class _PriceRun {
         );
         rows.addAll(page.items);
         if (number >= page.pages) break;
-        if (number == service.maxCategoryPages) _partial = true;
+        if (number == service.maxCategoryPages) {
+          _partial = true;
+          _categoriesTruncated = true;
+        }
       }
       _categoryRows = rows;
     } on ShoppingPriceCancelled {
@@ -578,6 +591,7 @@ class _PriceRun {
           if (budget <= 0) {
             _partial = true;
             ok = number > 1;
+            _tagsTruncated.addAll(chunk);
             break;
           }
           budget--;
@@ -619,7 +633,9 @@ class _PriceRun {
         rethrow;
       } catch (error) {
         if (_cancelled) throw const ShoppingPriceCancelled();
-        if (attempt > 0 || !_retryable(error)) rethrow;
+        if (attempt > 0 || !_retryable(error) || _deadline!.isExpired) {
+          rethrow;
+        }
         await _sleep(service.retryDelay);
       }
     }
@@ -629,6 +645,10 @@ class _PriceRun {
     await _acquire();
     try {
       if (_cancelled) throw const ShoppingPriceCancelled();
+      // An expired run sends nothing more; its answer would be dropped.
+      if (_deadline!.isExpired) {
+        throw TimeoutException('openPrices.run', service.runBudget);
+      }
       final now = clock.now();
       if (_requests >= service.maxRequestsPerRun ||
           !service._sessionAllows(now)) {
