@@ -14,6 +14,7 @@ import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
@@ -175,6 +176,59 @@ void main() {
         ),
         findsNothing,
       );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('during the cold load every day keeps its add control', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_today), () async {
+      final store = _store()..mealPlansLoading = true;
+      await pumpLocalized(
+        tester,
+        MealPlanScreen(store: store),
+        locale: const Locale('en'),
+        surfaceSize: const Size(393, 852),
+      );
+      // The progress bar never settles.
+      await tester.pump(const Duration(milliseconds: 300));
+      // The outline still says the plans are on their way …
+      expect(find.byType(SkeletonCard), findsWidgets);
+      expect(find.text('Plan a meal'), findsNothing);
+      // … and planning stays possible, from the day's header.
+      final add = _key('meal-plan-add-2026-09-09');
+      expect(add, findsOneWidget);
+      expect(
+        tester.getSemantics(add),
+        isSemantics(
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          label: 'Plan a meal',
+        ),
+      );
+      await tester.ensureVisible(add);
+      await tester.pump(const Duration(milliseconds: 300));
+      Future<void> tapAndWait(Finder finder) async {
+        await tester.ensureVisible(finder);
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(finder);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+      }
+
+      await tapAndWait(add);
+      expect(_editor, findsOneWidget);
+      // The plan is written while the load still runs, on that day.
+      await tapAndWait(
+        find.descendant(
+          of: _editor,
+          matching: find.text(recipeCatalogEn.first.title),
+        ),
+      );
+      await tapAndWait(_key('meal-plan-save'));
+      expect(store.plannedMeals.single.day, '2026-09-09');
       expect(tester.takeException(), isNull);
     });
   });

@@ -489,6 +489,10 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     // The window's first and last week also show days outside it.
     final plannable = _plannable(day);
     final add = plannable ? () => _edit(day) : null;
+    // The cold load: an outline of a planned meal rather than seven
+    // "Plan a meal" rows that claim the week is empty.
+    final coldLoad =
+        entries.isEmpty && store.mealPlansLoading && store.plannedMeals.isEmpty;
     return KeyedSubtree(
       key: _dayKeys.putIfAbsent(key, GlobalKey.new),
       child: Padding(
@@ -500,9 +504,10 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             _DayHeader(
               day: day,
               isToday: isToday,
-              // One add control per day: the header's for a planned day, the
-              // row below for an empty one.
-              add: entries.isEmpty
+              // One add control per day: the header's for a planned day and
+              // during the cold load (a write may race the load), the row
+              // below for an empty one.
+              add: entries.isEmpty && !coldLoad
                   ? null
                   : _RoundAddButton(
                       key: ValueKey('meal-plan-add-$key'),
@@ -511,11 +516,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                     ),
             ),
             const SizedBox(height: 8),
-            // The cold load: an outline of a planned meal rather than seven
-            // "Plan a meal" rows that claim the week is empty.
-            if (entries.isEmpty &&
-                store.mealPlansLoading &&
-                store.plannedMeals.isEmpty)
+            if (coldLoad)
               const SkeletonCard(rows: 1, tileSize: 56, tileRadius: rThumb)
             else if (entries.isEmpty)
               _PlanMealRow(
