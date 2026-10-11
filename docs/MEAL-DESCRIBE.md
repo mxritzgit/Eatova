@@ -160,9 +160,11 @@ The feature's Dart entry points:
   - **none:** another food; dropped. Words under four letters ("Ei") only
     match whole.
 - Auto-selection only for a close candidate with a loggable kcal/100 g
-  within 2.5× of the estimate; a named brand ranks first, then favorites,
-  then title closeness. Everything else stays a listed alternative, close
-  titles before loose ones.
+  within 1.8× of the estimate (or 20 kcal/100 g, for drinks); a named
+  brand ranks first, then favorites, then title closeness. Everything else
+  stays a listed alternative, close titles before loose ones. The window
+  keeps dry pasta or rice (about 350 kcal/100 g) from replacing the
+  model's cooked estimate (about 150).
 - A scan, recipe or manual favorite must name the same food both ways
   ("Toast Hawaii" is not "Toast"); product favorites fit like search hits.
 - A stated countable amount ("1 Scheibe") uses the candidate's serving size

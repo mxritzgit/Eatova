@@ -325,8 +325,10 @@ class ProductMealDescriptionMatcher implements MealDescriptionMatcher {
 
   /// How far a product's kcal/100 g may sit from the estimate (either way)
   /// and still be picked without the user. Within [_densitySlack] kcal/100 g
-  /// counts as close whatever the ratio (water, tea, light drinks).
-  static const double maxDensityRatio = 2.5;
+  /// counts as close whatever the ratio (water, tea, light drinks). Narrow
+  /// enough that dry pasta or rice (about 350) never replaces the model's
+  /// cooked estimate (about 150); such products stay alternatives.
+  static const double maxDensityRatio = 1.8;
   static const double _densitySlack = 20;
 
   /// Hits checked for the named brand before a second, branded query.

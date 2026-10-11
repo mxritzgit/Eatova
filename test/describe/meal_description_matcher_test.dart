@@ -360,6 +360,79 @@ void main() {
     });
   });
 
+  // The model itemizes pasta and rice cooked (about 150 kcal/100 g); the
+  // products found are mostly dry (about 350). Such a product must never
+  // replace the estimate under a "Datenbank" badge.
+  group('Dichte', () {
+    test(
+      'trockene Nudeln und Reis ersetzen keine gekochte Schaetzung',
+      () async {
+        final products = _FakeProducts({
+          'Spaghetti': _hits([
+            _product('1', 'Spaghetti', brand: 'Barilla', kcal: 359),
+          ]),
+          'Basmati Reis': _hits([
+            _product('2', 'Basmati Reis', brand: 'Oryza', kcal: 350),
+          ]),
+        });
+        final draft = await _matcher(products).match(
+          _meal([
+            // 158 kcal/100 g: 2.27x.
+            _food('Spaghetti', grams: 250, kcal: 395),
+            // 140 kcal/100 g: 2.5x.
+            _food('Basmati Reis', grams: 250, kcal: 350),
+            _food(
+              'Spaghetti',
+              grams: 200,
+              kcal: 316,
+              amount: '200 g',
+              stated: true,
+            ),
+          ]),
+        );
+        for (final (index, kcal, barcode) in [
+          (0, 395, '1'),
+          (1, 350, '2'),
+          (2, 316, '1'),
+        ]) {
+          final line = draft.items[index];
+          expect(line.isEstimate, isTrue, reason: 'Zeile $index');
+          expect(line.caloriesKcal, kcal, reason: 'Zeile $index');
+          expect(line.candidates.map((c) => c.barcode), [
+            null,
+            barcode,
+          ], reason: 'Zeile $index: als Alternative gelistet');
+        }
+      },
+    );
+
+    // Estimate kcal/100 g, product kcal/100 g, chosen without the user.
+    const rows = <(String, int, int, bool)>[
+      ('Muesli', 200, 340, true), // 1.7x
+      ('Muesli', 200, 380, false), // 1.9x
+      ('Muesli', 200, 118, true), // 1.7x below
+      ('Muesli', 200, 105, false), // 1.9x below
+      ('Apfelschorle', 10, 24, true), // 2.4x, but within 20 kcal/100 g
+    ];
+    for (final (name, estimate, product, chosen) in rows) {
+      test('$name $estimate vs. $product kcal/100 g: '
+          '${chosen ? 'gewaehlt' : 'gelistet'}', () async {
+        final products = _FakeProducts({
+          name: _hits([_product('1', name, kcal: product.toDouble())]),
+        });
+        final line = (await _matcher(
+          products,
+        ).match(_meal([_food(name, grams: 100, kcal: estimate)]))).items.single;
+        expect(line.candidates.map((c) => c.barcode), [
+          if (chosen) '1',
+          null,
+          if (!chosen) '1',
+        ]);
+        expect(line.isEstimate, !chosen);
+      });
+    }
+  });
+
   group('Fehler und Zeit', () {
     // Key guarantee: a failed search never fails the match, and every line
     // keeps numbers.
