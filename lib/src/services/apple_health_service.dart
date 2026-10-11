@@ -32,7 +32,7 @@ class HealthAuthEvidence {
 
   /// Steps today. `0` proves NOTHING: without read access
   /// `getTotalStepsInInterval` sums an empty collection without error, so it
-  /// yields 0, never null.
+  /// yields 0, never null. A day without any step sample yet is 0 as well.
   final int? steps;
 
   /// Most recent weight read (kg), if any.
@@ -235,17 +235,19 @@ class AppleHealthService implements HealthService {
 
   /// [optional] queries (the weight) report a failure at once: the read
   /// keeps its other results, so a retry would only repeat them. [retry]
-  /// false skips the wait (best-effort reads). [emptyInterval] tells a
-  /// generic error on an interval WITHOUT samples apart from a real failure:
-  /// HealthKit's statistics query reports "no data" as an error, not as a
-  /// zero sum (Sentry FLUTTER-H, FLUTTER-K), and that is not reported.
+  /// false skips the wait (best-effort reads). [empty] tells a generic error
+  /// on an interval WITHOUT samples apart from a real failure: HealthKit's
+  /// statistics query reports "no data" as an error, not as a zero sum
+  /// (Sentry FLUTTER-H, FLUTTER-K). Such an interval is an answer, not a
+  /// failure: it yields `empty.value`, unreported and without a retry, so the
+  /// rest of the read (the weight) still runs.
   Future<T> _query<T>(
     _HealthReadSession session,
     String operation,
     Future<T> Function() query, {
     bool optional = false,
     bool retry = true,
-    Future<bool> Function()? emptyInterval,
+    ({Future<bool> Function() confirm, T value})? empty,
   }) async {
     session.check();
     late T result;
@@ -259,6 +261,16 @@ class AppleHealthService implements HealthService {
       final generic =
           e is PlatformException &&
           (e.code == 'HEALTH_ERROR' || e.code == 'STEPS_ERROR');
+      // Before the retry: a store that is briefly unreadable fails the sample
+      // query too, so only a real "no samples" ends here.
+      if (generic &&
+          empty != null &&
+          !session.interrupted &&
+          session.isCurrent() &&
+          await empty.confirm()) {
+        session.check();
+        return empty.value;
+      }
       final interruptedRead = session.interrupted && generic;
       final retrying =
           generic &&
@@ -268,9 +280,7 @@ class AppleHealthService implements HealthService {
           !session.interrupted;
       if (retrying) session.retryAfterWait = true;
       if (session.isCurrent() && !interruptedRead && !retrying) {
-        final noData =
-            generic && emptyInterval != null && await emptyInterval();
-        if (!noData && session.isCurrent()) _reportError(operation, e, st);
+        _reportError(operation, e, st);
       }
       throw const _HealthReadDeferred();
     }
@@ -335,11 +345,13 @@ class AppleHealthService implements HealthService {
   ) async {
     final writeGrant = await _query(session, 'writeGrant', _readWriteGrant);
     final startOfDay = DateTime(now.year, now.month, now.day);
+    // No step sample since midnight is a measured 0 (early morning), and the
+    // weight below may still prove the read access.
     final steps = await _query(
       session,
       'readSteps',
       () => _health.getTotalStepsInInterval(startOfDay, now),
-      emptyInterval: () => _noStepSamples(startOfDay, now),
+      empty: (confirm: () => _noStepSamples(startOfDay, now), value: 0),
     );
 
     double? latestWeight;
@@ -450,7 +462,7 @@ class AppleHealthService implements HealthService {
       'readStepsOnDay',
       () => _health.getTotalStepsInInterval(start, end),
       retry: false,
-      emptyInterval: () => _noStepSamples(start, end),
+      empty: (confirm: () => _noStepSamples(start, end), value: 0),
     );
     // 0 proves nothing (see HealthAuthEvidence.steps). Store positives only.
     return (steps ?? 0) > 0 ? steps : null;
