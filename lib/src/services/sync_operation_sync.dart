@@ -14,7 +14,14 @@ import 'uuid.dart';
 export '../models/recipe_mutation_result.dart';
 export '../models/training_plan_head.dart';
 
-enum SyncCapacityKind { recipeHistory, operationReceipts, trainingHeads }
+enum SyncCapacityKind {
+  recipeHistory,
+  operationReceipts,
+  trainingHeads,
+
+  /// The server's cap on open planned meals or on shopping checks.
+  mealPlans,
+}
 
 class SyncCapacityException implements Exception {
   const SyncCapacityException(this.kind);
@@ -32,6 +39,11 @@ Never rethrowSyncFailure(PostgrestException error, StackTrace stack) {
       'EX_TRAINING_HEAD_CAPACITY' => SyncCapacityKind.trainingHeads,
       _ => SyncCapacityKind.operationReceipts,
     });
+  }
+  // The row caps raise without an errcode (P0001); timed retries free no room.
+  if (error.code == 'P0001' &&
+      const {'EX_PLAN_LIMIT', 'EX_SHOPPING_LIMIT'}.contains(error.message)) {
+    throw const SyncCapacityException(SyncCapacityKind.mealPlans);
   }
   Error.throwWithStackTrace(error, stack);
 }

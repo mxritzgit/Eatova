@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/planned_meal.dart';
+import 'package:eatova/src/services/sync_dispatcher.dart';
 import 'package:eatova/src/services/sync_operation_sync.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/services/uuid.dart';
@@ -333,6 +335,51 @@ void main() {
         ),
       );
     }
+  });
+
+  test('a full planner or shopping list blocks as capacity at once', () async {
+    final check = SyncOp.shoppingCheck(
+      ShoppingCheck(id: '2026-09-28:${'a' * 64}', checked: true),
+    );
+    Future<Object> failure(String message) async {
+      final service = SyncOperationSync(
+        client(
+          (request) async => http.Response(
+            jsonEncode({'code': 'P0001', 'message': message}),
+            400,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          ),
+        ),
+        owner,
+      );
+      try {
+        await service.apply(check);
+      } catch (error) {
+        return error;
+      }
+      fail('apply must fail');
+    }
+
+    for (final message in ['EX_SHOPPING_LIMIT', 'EX_PLAN_LIMIT']) {
+      final error = await failure(message);
+      expect(
+        error,
+        isA<SyncCapacityException>().having(
+          (error) => error.kind,
+          'kind',
+          SyncCapacityKind.mealPlans,
+        ),
+      );
+      // Blocked on the first answer instead of after eight counted retries.
+      expect(
+        blockedReasonForSyncError(error, kind: check.kind),
+        SyncBlockedReason.capacity,
+      );
+    }
+    final other = await failure('EX_DAY_NOT_LOGGED');
+    expect(other, isA<PostgrestException>());
+    expect(blockedReasonForSyncError(other, kind: check.kind), isNull);
   });
 
   test(

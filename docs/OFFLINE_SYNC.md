@@ -277,6 +277,11 @@ blocked storage-limit state requiring support; it must not drop the operation,
 claim success, or endlessly describe the problem as temporary offline delivery.
 The existing 5,000-active-recipe cap instead returns `22023` and is displayed as
 a rejected server operation, with the local draft and intent still retained.
+The planner caps (500 open planned meals, 2,000 shopping checks) raise
+`EX_PLAN_LIMIT` and `EX_SHOPPING_LIMIT` with `P0001`. The client maps them to
+the same blocked capacity state on the first answer instead of spending counted
+retries; a manual retry delivers once room frees up, for example when old weeks
+leave the 35-day shopping window.
 An operator can raise an account's history byte budget after reviewing storage
 capacity. Raising the other fixed limits requires a reviewed backend migration.
 Any future compaction needs a protocol/installation fence proving older requests
