@@ -11,6 +11,8 @@ class _CountingGateway implements NotificationPluginGateway {
   int cancels = 0;
   int schedules = 0;
   int cancelAlls = 0;
+  bool failInit = false;
+  final List<String> log = <String>[];
 
   int get calls => cancels + schedules + cancelAlls;
 
@@ -18,7 +20,9 @@ class _CountingGateway implements NotificationPluginGateway {
   Future<void> initialize(
     InitializationSettings settings, {
     DidReceiveNotificationResponseCallback? onResponse,
-  }) async {}
+  }) async {
+    if (failInit) throw StateError('plugin down');
+  }
 
   @override
   Future<void> createAndroidChannel(AndroidNotificationChannel channel) async {}
@@ -43,7 +47,10 @@ class _CountingGateway implements NotificationPluginGateway {
     required tz.TZDateTime scheduledDate,
     required NotificationDetails details,
     String? payload,
-  }) async => schedules++;
+  }) async {
+    schedules++;
+    log.add('schedule');
+  }
 
   @override
   Future<void> show({
@@ -58,7 +65,10 @@ class _CountingGateway implements NotificationPluginGateway {
   Future<void> cancel(int id) async => cancels++;
 
   @override
-  Future<void> cancelAll() async => cancelAlls++;
+  Future<void> cancelAll() async {
+    cancelAlls++;
+    log.add('cancelAll');
+  }
 
   @override
   Future<NotificationAppLaunchDetails?> launchDetails() async => null;
@@ -121,5 +131,24 @@ void main() {
     final afterBackstop = gateway.schedules;
     await service.scheduleAll(_plan('a'));
     expect(gateway.schedules - afterBackstop, 3);
+  });
+
+  test('ein Abmelde-Cancel bei kaputtem Init läuft beim nächsten Init nach',
+      () async {
+    // Cold start with the previous account's nudges pending; the plugin
+    // fails to come up when the user signs out.
+    gateway.failInit = true;
+    await service.cancelAll();
+    expect(gateway.cancelAlls, 0, reason: 'precondition: never reached');
+
+    gateway.failInit = false;
+    await service.scheduleAll(_plan('b'));
+    expect(gateway.log.first, 'cancelAll',
+        reason: 'the deferred cancel runs before the new plan');
+    expect(gateway.schedules, 3);
+
+    await service.cancelNudges();
+    await service.scheduleAll(_plan('b'));
+    expect(gateway.cancelAlls, 1, reason: 'run once, not on every init');
   });
 }

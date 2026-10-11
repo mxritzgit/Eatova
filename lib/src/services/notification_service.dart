@@ -462,6 +462,12 @@ class LocalNotificationService
       if (_platform == NotificationPlatform.android) {
         await _createAndroidChannels();
       }
+      // A session end that found the plugin down: the ended account's
+      // schedules go before anything new can be planned.
+      if (_sessionEndCancelPending) {
+        await _gateway.cancelAll();
+        _sessionEndCancelPending = false;
+      }
       _initialized = true;
     } catch (e, st) {
       // Not available for now; the next init() retries. Reported, not
@@ -627,12 +633,19 @@ class LocalNotificationService
     return _enqueueMutation(_cancelAll);
   }
 
+  /// A session-end cancel that could not reach the plugin; the next
+  /// successful [init] runs it.
+  bool _sessionEndCancelPending = false;
+
   Future<void> _cancelAll() async {
     _liveRestAlerts.clear();
     _scheduledNudges = null;
     if (!_supported) return;
     await init();
-    if (!_initialized) return;
+    if (!_initialized) {
+      _sessionEndCancelPending = true;
+      return;
+    }
     try {
       await _gateway.cancelAll();
     } catch (e, st) {
