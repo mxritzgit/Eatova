@@ -122,7 +122,7 @@ class PlayerRestBar extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 8),
-            PlayerRestControls(rest: rest),
+            PlayerRestControls(rest: rest, keepRow: true),
           ],
         ),
       ),
@@ -236,9 +236,18 @@ typedef _RestPill = ({
 /// label fits on one line (measured, so "Pause überspringen" gets the width
 /// it needs). Where they do not, the small pills go above a full-width Skip.
 class PlayerRestControls extends StatelessWidget {
-  const PlayerRestControls({super.key, required this.rest});
+  const PlayerRestControls({
+    super.key,
+    required this.rest,
+    this.keepRow = false,
+  });
 
   final PlayerRestState rest;
+
+  /// The bar under the list keeps a running rest's one row on a wide phone
+  /// even where Skip's label wraps, so it stays short; the full-screen view
+  /// has the height to stack instead.
+  final bool keepRow;
 
   static const double _gap = 8;
 
@@ -366,22 +375,34 @@ class PlayerRestControls extends StatelessWidget {
         // under the list. Otherwise the small pills go above a full-width
         // Skip.
         final wide = maxWidth >= 340 && scaler.scale(14) <= 21;
-        if (wide && small.length == 2) {
+        if (keepRow && wide && small.length == 2) {
           return row([...pills, skip], const [1, 1, 2]);
+        }
+        // −15 s and +15 s stay a pair where Resume no longer fits beside
+        // them (large text).
+        final pairWidth = smallWidths[0] + _gap + smallWidths[1];
+        final List<Widget> smallRows;
+        if (smallRowWidth <= maxWidth) {
+          smallRows = [row(pills, smallWidths)];
+        } else if (pairWidth <= maxWidth) {
+          smallRows = [
+            row(pills.sublist(0, 2), smallWidths.sublist(0, 2)),
+            for (final pill in pills.skip(2)) ...[
+              const SizedBox(height: _gap),
+              pill,
+            ],
+          ];
+        } else {
+          smallRows = [
+            for (var i = 0; i < pills.length; i++) ...[
+              if (i > 0) const SizedBox(height: _gap),
+              pills[i],
+            ],
+          ];
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (smallRowWidth <= maxWidth)
-              row(pills, smallWidths)
-            else
-              for (var i = 0; i < pills.length; i++) ...[
-                if (i > 0) const SizedBox(height: _gap),
-                pills[i],
-              ],
-            const SizedBox(height: _gap),
-            skip,
-          ],
+          children: [...smallRows, const SizedBox(height: _gap), skip],
         );
       },
     );

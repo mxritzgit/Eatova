@@ -25,9 +25,15 @@
 //                       "Pause überspringen") and on a 320 px phone at 2x
 //   training-player-01-paused
 //                       a paused rest: Resume joins the controls
+//   training-player-finishing (-320-x2), -finishing-controls-320-x2
+//                       Finish confirmed while the entry is written: the
+//                       header's Finish and the rest controls are locked
+//                       (at 2x text the bar scrolled to its controls)
 //
 // Shots are written only with DARK_REDESIGN_CAPTURE or
 // DESIGN_CAPTURE_BRIGHTNESS; the normal pass checks that each surface shows.
+
+import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
@@ -51,13 +57,14 @@ final class _NoAwake implements ScreenAwake {
 
 /// The list player alone. With [refuse] the store refuses every checkpoint
 /// (the source plan changed), so leaving after a set asks on the unstored
-/// card.
+/// card. Finishing waits for [saving] before the entry counts as written.
 Future<void> _pumpPlayer(
   WidgetTester tester, {
   double width = 390,
   double textScale = 1,
   Locale locale = const Locale('en'),
   bool refuse = false,
+  Future<void>? saving,
 }) async {
   pinDesignViewport(tester);
   tester.view.physicalSize =
@@ -68,7 +75,7 @@ Future<void> _pumpPlayer(
         TrainingPlayerScreen(
           plan: trainingDesignPlan(),
           onPersist: (_) async => !refuse,
-          onComplete: (_) async {},
+          onComplete: (_) async => saving,
           screenAwake: const _NoAwake(),
           monotonicNow: () => Duration.zero,
         ),
@@ -278,10 +285,74 @@ void main() {
 
         await _tap(tester, 'training-timer-rest-expand');
         expect(_key('training-rest-view'), findsOneWidget);
+        if (scale == 1) {
+          // The full view has the height to stack: Skip's label never
+          // wraps there ("Pause überspringen" in ~350 px).
+          final label = find.descendant(
+            of: _key('training-timer-skip-rest'),
+            matching: find.byType(Text),
+          );
+          expect(tester.getSize(label).height, lessThan(30));
+        }
         expect(tester.takeException(), isNull);
         await captureDesignShot(tester, 'training-player-02$suffix');
         await tester.pumpWidget(const SizedBox.shrink());
         await settleFrames(tester);
+      });
+    });
+  }
+
+  for (final (suffix, width, scale) in const [
+    ('', 390.0, 1.0),
+    ('-320-x2', 320.0, 2.0),
+  ]) {
+    testWidgets('finishing: Finish and the rest controls wait$suffix', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(kTrainingDesignNow), () async {
+        // The entry is still being written: the header's Finish and the
+        // paused rest's controls are locked until it lands.
+        final semantics = tester.ensureSemantics();
+        final saving = Completer<void>();
+        await _pumpPlayer(
+          tester,
+          width: width,
+          textScale: scale,
+          saving: saving.future,
+        );
+        await _tap(tester, 'training-set-check-0-0');
+        expect(_key('training-rest-bar'), findsOneWidget);
+        await _tap(tester, 'training-timer-finish');
+        await _tap(tester, 'training-finish-save');
+        expect(_key('training-finish-sheet'), findsNothing);
+        expect(_key('training-rest-bar'), findsOneWidget);
+        for (final id in const [
+          'training-timer-finish',
+          'training-timer-rest-minus',
+          'training-timer-rest-plus',
+          'training-timer-rest-resume',
+          'training-timer-skip-rest',
+        ]) {
+          expect(
+            tester.getSemantics(_key(id)),
+            isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),
+            reason: id,
+          );
+        }
+        expect(tester.takeException(), isNull);
+        await captureDesignShot(tester, 'training-player-finishing$suffix');
+        if (scale > 1) {
+          // At 2x text the bar scrolls: its locked controls sit at its end.
+          await tester.ensureVisible(_key('training-timer-skip-rest'));
+          await settleFrames(tester, rounds: 4);
+          await captureDesignShot(
+            tester,
+            'training-player-finishing-controls$suffix',
+          );
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        await settleFrames(tester);
+        semantics.dispose();
       });
     });
   }
