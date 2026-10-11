@@ -572,6 +572,11 @@ class LocalNotificationService
     if (!_supported) return;
     await init();
     if (!_initialized) return;
+    // Every resume and every meal logged today re-plans. An identical plan
+    // is already pending, so skip the 28 cancels and up to 10 schedules,
+    // each a platform call (Android rewrites its stored schedule list).
+    if (listEquals(_scheduledNudges, specs)) return;
+    _scheduledNudges = null;
 
     try {
       // Clear first, then reschedule — avoids duplicates and orphans when a
@@ -604,10 +609,15 @@ class LocalNotificationService
           details: details,
         );
       }
+      _scheduledNudges = specs;
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'notification-schedule');
     }
   }
+
+  /// The plan the plugin holds since the last complete [scheduleAll]; null
+  /// once any path cancels nudges or a schedule failed.
+  List<NotificationSpec>? _scheduledNudges;
 
   @override
   Future<void> cancelAll() {
@@ -619,6 +629,7 @@ class LocalNotificationService
 
   Future<void> _cancelAll() async {
     _liveRestAlerts.clear();
+    _scheduledNudges = null;
     if (!_supported) return;
     await init();
     if (!_initialized) return;
@@ -631,6 +642,7 @@ class LocalNotificationService
 
   @override
   Future<void> cancelNudges() => _enqueueMutation(() async {
+        _scheduledNudges = null;
         if (!_supported) return;
         await init();
         if (!_initialized) return;
@@ -671,6 +683,7 @@ class LocalNotificationService
     List<PlannedRestAlert> restore,
     int epoch,
   ) async {
+    _scheduledNudges = null;
     if (!_supported) return;
     await init();
     if (!_initialized) return;
