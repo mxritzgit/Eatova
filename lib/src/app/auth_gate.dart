@@ -15,6 +15,9 @@ import '../services/rest_alerts.dart';
 import '../services/sync_execution_guard.dart';
 import '../widgets/common/app_snack.dart';
 
+/// Why a deliberate session end happens; decides what the gate tells the user.
+enum SignOutIntent { signOut, accountDeleted }
+
 /// Marker for a DELIBERATE sign-out.
 ///
 /// [_AuthGateState._onAuthEvent] sees THAT the identity changed, never why,
@@ -30,10 +33,15 @@ abstract final class IntentionalSignOut {
   static const Duration gueltigkeit = Duration(seconds: 30);
 
   static DateTime? _markiertAm;
+  static SignOutIntent _grund = SignOutIntent.signOut;
 
   /// The logout path declares its intent BEFORE calling `signOut` — the auth
-  /// event can follow immediately.
-  static void mark() => _markiertAm = clock.now();
+  /// event can follow immediately. A completed account deletion declares
+  /// [SignOutIntent.accountDeleted] as soon as the server confirmed it.
+  static void mark({SignOutIntent reason = SignOutIntent.signOut}) {
+    _markiertAm = clock.now();
+    _grund = reason;
+  }
 
   /// Restarts the window at the end of a long sign-out step. NEVER creates an
   /// intent: an involuntary session end runs through the same cleanup, and one
@@ -54,11 +62,16 @@ abstract final class IntentionalSignOut {
   static void clear() => _markiertAm = null;
 
   /// Reads and CONSUMES the intent — each covers exactly one transition.
-  static bool consume() {
+  static bool consume() => consumeIntent() != null;
+
+  /// Like [consume], but tells which intent it was; null without a live one.
+  static SignOutIntent? consumeIntent() {
     final markiert = _markiertAm;
     _markiertAm = null;
-    return markiert != null &&
-        clock.now().difference(markiert) < gueltigkeit;
+    if (markiert == null || clock.now().difference(markiert) >= gueltigkeit) {
+      return null;
+    }
+    return _grund;
   }
 }
 
@@ -256,19 +269,28 @@ class _AuthGateState extends State<AuthGate> {
       // Consume logout intent on session exits, including same-user rotation.
       // An entry from the signed-out screen must leave that intent untouched.
       final gewollt = identityChanged || sessionChanged
-          ? IntentionalSignOut.consume()
-          : false;
+          ? IntentionalSignOut.consumeIntent()
+          : null;
       _popToRootRoute();
       // A new home takes over; any session end above was cancelled first.
       if (user != null) _openRestAlerts(user.id);
       // Only the gate knows "signed out" from "session lost", and
       // [IntentionalSignOut] draws that line. The snack runs through the
       // MaterialApp's ScaffoldMessenger and appears once AuthScreen is built.
-      if (!isLoggedIn && !gewollt) {
+      if (!isLoggedIn && gewollt == null) {
         showAppSnack(
           context,
           context.l10n.authSessionExpired,
           icon: Icons.lock_clock_rounded,
+          duration: kSnackError,
+        );
+      } else if (!isLoggedIn && gewollt == SignOutIntent.accountDeleted) {
+        // The deletion's sheet and settings are gone with the session; this
+        // is the only confirmation the irreversible step gets.
+        showAppSnack(
+          context,
+          context.l10n.authAccountDeleted,
+          icon: Icons.check_circle_outline_rounded,
           duration: kSnackError,
         );
       }

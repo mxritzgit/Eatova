@@ -1590,6 +1590,7 @@
   "authCodeTooManyAttempts": "Too many incorrect codes. For security reasons, please request a new code.",
   "authSignupExistingAccountHint": "If an account already exists for this address, please sign in.",
   "authSessionExpired": "Your session has expired. Please sign in again.",
+  "authAccountDeleted": "Your account and all your data have been deleted.",
   "authBackSemanticLabel": "Back",
   "authHeadlineLogin": "Welcome back.",
   "authHeadlineRegister": "Make it yours.",

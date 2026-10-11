@@ -485,15 +485,21 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       throw const AuthUnavailableException();
     }
     if (!await ownerStore.deleteAccount(
-      deleteRemote: deleteRemote,
+      deleteRemote: () async {
+        await deleteRemote();
+        // Deleted server-side: a session end from here on (a refresh failing
+        // during local cleanup) belongs to the deletion, not to an expiry.
+        IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
+      },
       isCurrentSession: isCurrentSession,
     )) {
       throw StateError('Account deletion failed');
     }
     if (_isStoreSessionCurrent(ownerStore) && isCurrentSession()) {
       // An INTENTIONAL logout: without the flag [AuthGate] would report an
-      // expired session (Review 2026-08-19).
-      IntentionalSignOut.mark();
+      // expired session (Review 2026-08-19). Marked again: the local cleanup
+      // may outlast the intent's window.
+      IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
       await widget.onSignOut?.call();
     }
   }

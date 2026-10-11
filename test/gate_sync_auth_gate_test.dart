@@ -382,6 +382,32 @@ void main() {
           reason: 'sonst schaltete ein Logout jeden spaeteren Verlust stumm');
     });
 
+    // AUTH-4: the gate confirms a deletion instead of staying silent.
+    testWidgets('eine Kontoloeschung bestaetigt sich statt still zu enden',
+        (tester) async {
+      final repository = _ScriptedAuthRepository(_userA);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository);
+
+      IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
+      repository.emit(null);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+      expect(find.text(deL10n.authAccountDeleted), findsOneWidget);
+      expect(find.textContaining('Sitzung ist abgelaufen'), findsNothing);
+      await tester.pumpAndSettle(const Duration(seconds: 6));
+    });
+
+    test('ein spaeteres mark() ohne Grund ist wieder ein Logout', () {
+      IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
+      expect(IntentionalSignOut.consumeIntent(), SignOutIntent.accountDeleted);
+      IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
+      IntentionalSignOut.mark();
+      expect(IntentionalSignOut.consumeIntent(), SignOutIntent.signOut);
+      expect(IntentionalSignOut.consumeIntent(), isNull);
+    });
+
     test(
         'eine steckengebliebene Absicht verfaellt und schaltet einen echten '
         'Verlust nicht stumm', () {

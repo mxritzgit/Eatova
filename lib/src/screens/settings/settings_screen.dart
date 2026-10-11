@@ -1084,7 +1084,10 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
       });
       return;
     }
-    if (!mounted) return;
+    // AuthGate pops every route when the deleted account's session ends, and
+    // this sheet stays mounted for its exit animation. A second pop would
+    // remove the gate's own route and leave an empty navigator.
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return;
     Navigator.of(context).pop(true);
   }
 

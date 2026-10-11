@@ -1642,6 +1642,7 @@
   "authCodeTooManyAttempts": "Zu viele falsche Codes. Fordere aus Sicherheitsgründen einen neuen Code an.",
   "authSignupExistingAccountHint": "Falls es zu dieser Adresse schon ein Konto gibt, melde dich bitte an.",
   "authSessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
+  "authAccountDeleted": "Dein Konto und alle Daten wurden gelöscht.",
   "authBackSemanticLabel": "Zurück",
   "authHeadlineLogin": "Wieder da.",
   "authHeadlineRegister": "Dein Start.",
