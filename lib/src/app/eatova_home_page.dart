@@ -920,6 +920,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.userRecipes,
       _store.pendingRecipeDeletes,
       _store.mealPlansRevision,
+      // The repeat offers' source: whether the previous day is complete.
+      _store.previousFoodDayComplete(_store.selectedFoodDate),
     ),
     builder: (context) {
       assert(_countTabBuild(_tabFood));
@@ -937,6 +939,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         child: MealEditScope(
           onUpdateMeal: _store.updateLoggedMealDetails,
           onRemoveMeal: _store.removeLoggedMeal,
+          onCopyMeals: _store.copyLoggedMeals,
           child: MealAnalysisScreen(
             analyzer: widget.mealAnalyzer,
             productService: widget.productService,
@@ -982,6 +985,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 unawaited(MealPlanScreen.open(context, ownerStore));
               }
             },
+            previousDayMeals: _store.repeatableMealsBefore(
+              _store.selectedFoodDate,
+            ),
+            onRepeatSlot: _store.repeatPreviousDaySlot,
           ),
         ),
       );

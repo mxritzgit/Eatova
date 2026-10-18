@@ -35,6 +35,22 @@ class DiaryEntry {
   final int index;
 }
 
+/// What the previous day logged in an empty slot, offered for repeating.
+@immutable
+class SlotRepeatOffer {
+  const SlotRepeatOffer({
+    required this.entries,
+    required this.kcal,
+    required this.yesterday,
+  });
+
+  final int entries;
+  final int kcal;
+
+  /// The shown day is today, so the previous day is "yesterday".
+  final bool yesterday;
+}
+
 /// Left edge of a card's rows: the 44 px slot tile plus its 12 px gap.
 const double _rowInset = 56;
 
@@ -60,6 +76,8 @@ class DiaryMealCard extends StatefulWidget {
     this.onAddToSlot,
     this.onMealTap,
     this.onRemoveMeal,
+    this.repeatOffer,
+    this.onRepeat,
   });
 
   final MealSlot slot;
@@ -81,12 +99,25 @@ class DiaryMealCard extends StatefulWidget {
   final ValueChanged<MealSlot>? onAddToSlot, onMealTap;
   final PersistValueChanged<String>? onRemoveMeal;
 
+  /// "Repeat yesterday" for an empty slot; shown only with [onRepeat].
+  final SlotRepeatOffer? repeatOffer;
+  final PersistValueChanged<MealSlot>? onRepeat;
+
   @override
   State<DiaryMealCard> createState() => _DiaryMealCardState();
 }
 
 class _DiaryMealCardState extends State<DiaryMealCard> {
   bool _showMacros = false;
+  bool _repeating = false;
+
+  Future<void> _repeat() async {
+    final onRepeat = widget.onRepeat;
+    if (onRepeat == null || _repeating) return;
+    setState(() => _repeating = true);
+    await tryPersistChange(context, () => onRepeat(widget.slot));
+    if (mounted) setState(() => _repeating = false);
+  }
 
   /// Entries that were not in the previous build (a new log, a move into
   /// this slot, an undo); they grow in instead of popping. Empty on the first
@@ -137,6 +168,9 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
       kcal: empty ? null : total.kcal,
     );
     final pick = widget.pick;
+    final repeatOffer = empty && widget.onRepeat != null
+        ? widget.repeatOffer
+        : null;
     return Material(
       key: ValueKey('food-slot-card-${slot.name}'),
       color: t.surf,
@@ -204,6 +238,21 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
                 showMacros: showMacros,
                 onMealTap: widget.onMealTap,
                 onRemoveMeal: widget.onRemoveMeal,
+              ),
+            ),
+          if (repeatOffer != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                _cardPad + _rowInset,
+                0,
+                _cardPad,
+                12,
+              ),
+              child: _RepeatRow(
+                slot: slot,
+                offer: repeatOffer,
+                busy: _repeating,
+                onTap: _repeat,
               ),
             ),
           if (empty && pick != null)
@@ -339,6 +388,105 @@ class _AddRow extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Repeat yesterday · 2 items · 540 kcal" in an empty slot: one tap copies
+/// the previous day's entries of this slot onto the shown day.
+class _RepeatRow extends StatelessWidget {
+  const _RepeatRow({
+    required this.slot,
+    required this.offer,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final MealSlot slot;
+  final SlotRepeatOffer offer;
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final kcal = formatThousands(offer.kcal, l10n.localeName);
+    return Semantics(
+      container: true,
+      button: true,
+      enabled: !busy,
+      label: l10n.foodCopyRepeatSemantics(
+        slot.label(l10n),
+        offer.entries,
+        kcal,
+      ),
+      onTap: busy ? null : onTap,
+      excludeSemantics: true,
+      child: PressScale(
+        enabled: !busy,
+        scale: kPressScaleCard,
+        child: Material(
+          color: t.surfRaised,
+          borderRadius: BorderRadius.circular(rControl),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: ValueKey('food-slot-repeat-${slot.name}'),
+            onTap: busy ? null : onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(6, 6, 10, 6),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: t.accentTint,
+                        borderRadius: BorderRadius.circular(rChip),
+                      ),
+                      child: Icon(
+                        Icons.replay_rounded,
+                        size: 18,
+                        color: t.accentText,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            offer.yesterday
+                                ? l10n.foodCopyRepeatYesterday
+                                : l10n.foodCopyRepeatPreviousDay,
+                            style: foodText(
+                              14,
+                              weight: FontWeight.w700,
+                              color: t.accentText,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            l10n.foodCopyRepeatMeta(offer.entries, kcal),
+                            style: foodText(12, color: t.ink3),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (busy) ...[
+                      const SizedBox(width: 8),
+                      const AppSpinner(size: 16, strokeWidth: 2),
+                    ],
                   ],
                 ),
               ),
@@ -518,6 +666,7 @@ class _SlidableEntryState extends State<_SlidableEntry> {
         meal: meal,
         onUpdateMeal: editScope.onUpdateMeal,
         onRemoveMeal: editScope.onRemoveMeal,
+        onCopyMeals: editScope.onCopyMeals,
       );
     } else if (onMealTap != null) {
       tap = () => onMealTap(meal.slot);

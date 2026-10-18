@@ -80,6 +80,8 @@ class MealAnalysisScreen extends StatelessWidget {
     this.nutrition,
     this.recipePick,
     this.onOpenMealPlan,
+    this.previousDayMeals = const <LoggedMeal>[],
+    this.onRepeatSlot,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
@@ -175,6 +177,35 @@ class MealAnalysisScreen extends StatelessWidget {
 
   /// Opens the meal plan: where a planned pick is eaten.
   final VoidCallback? onOpenMealPlan;
+
+  /// The meals of the day before [selectedDate], only when that day is known
+  /// completely (the store's `repeatableMealsBefore`): an empty slot whose
+  /// counterpart there has entries offers to repeat them.
+  final List<LoggedMeal> previousDayMeals;
+
+  /// Copies the previous day's entries of a slot onto the given day. Null
+  /// hides "Repeat yesterday".
+  final FutureOr<void> Function(MealSlot slot, DateTime day)? onRepeatSlot;
+
+  /// The repeat offer per slot: the previous day's entries and kcal of every
+  /// slot that is empty on the shown day.
+  Map<MealSlot, SlotRepeatOffer> _repeatOffers(
+    Map<MealSlot, List<DiaryEntry>> bySlot,
+    bool showsToday,
+  ) {
+    final offers = <MealSlot, SlotRepeatOffer>{};
+    for (final meal in previousDayMeals) {
+      final slot = meal.slot;
+      if (bySlot[slot]?.isNotEmpty ?? true) continue;
+      final before = offers[slot];
+      offers[slot] = SlotRepeatOffer(
+        entries: (before?.entries ?? 0) + 1,
+        kcal: (before?.kcal ?? 0) + meal.result.caloriesKcal,
+        yesterday: showsToday,
+      );
+    }
+    return offers;
+  }
 
   /// [onAddMeal] bound to the day on screen when a flow starts. The store's
   /// selected day follows today at midnight, also under an open sheet that
@@ -463,6 +494,10 @@ class MealAnalysisScreen extends StatelessWidget {
     // Loading wins: a retry in flight shows the skeleton again.
     final loadFailed = dayLoadFailed && !dayLoading;
     final pick = showsToday && !loadFailed ? recipePick : null;
+    final repeat = onRepeatSlot;
+    final repeatOffers = repeat == null || loadFailed
+        ? const <MealSlot, SlotRepeatOffer>{}
+        : _repeatOffers(bySlot, showsToday);
     final chrome = <Widget>[
       FoodPageHeader(
         key: TabChrome.headerKey,
@@ -532,6 +567,10 @@ class MealAnalysisScreen extends StatelessWidget {
                         onAddToSlot: (s) => _openAddSheet(context, s),
                         onMealTap: (s) => _openAddSheet(context, s),
                         onRemoveMeal: onRemoveMeal,
+                        repeatOffer: repeatOffers[slot],
+                        onRepeat: repeat == null
+                            ? null
+                            : (s) => repeat(s, selectedDate),
                       ),
                     ],
                   ],
