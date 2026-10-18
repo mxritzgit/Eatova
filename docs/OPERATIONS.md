@@ -374,6 +374,8 @@ details outside this repository.
 5. Prepare the smallest reviewed fix or last compatible verified application/
    function revision. Use protected PRs and required checks; record deployed
    function/source versions and artifact checksums separately from Git merge.
+   Deploy or roll back Edge Functions with the
+   [deploy workflow](#edge-function-deploys); its record is that evidence.
    Database migrations are forward-only by default: review a corrective
    migration and data compatibility instead of blindly undoing SQL. A database
    restore needs the separate recovery procedure above and acceptance of its
@@ -384,6 +386,91 @@ details outside this repository.
    Restore only the intended switches after verification. Document cause,
    affected interval, credential actions, remaining uncertainties and follow-up
    owner/date. Confirm alert delivery and backup freshness before closure.
+
+## Edge Function deploys
+
+**Deploy Edge Functions** ([deploy-functions.yml](../.github/workflows/deploy-functions.yml))
+replaces deploys from a workstation checkout, which uploaded CRLF files from
+Windows and once left a redeploy unrecorded. It deploys only Edge Functions;
+apply migrations separately and first when a function needs them. A merge
+still deploys nothing.
+
+### One-time setup on GitHub (owner)
+
+1. Create the environment `supabase-deploy` (Settings, Environments):
+   - Required reviewers: the owner, plus a backup maintainer if there is one.
+     With a single maintainer, leave "Prevent self-review" off, or nobody can
+     approve.
+   - Deployment branches and tags: selected branches, only `main`.
+   - Do not allow administrators to bypass the protection rules.
+2. Add three environment secrets there, never as repository secrets, because
+   any workflow of a branch can read repository secrets:
+   - `SUPABASE_ACCESS_TOKEN`: the management token the Supabase CLI and the
+     Management API read under this name; the same name as in `supabase-drift`.
+     Prefer a token used only for deploys and revoke it on personnel changes.
+   - `SUPABASE_PROJECT_REF`: the verified production project. As a secret, the
+     target can only change with an environment change, and the value is
+     masked in logs.
+   - `SUPABASE_ANON_KEY`: the public key the boot probe sends, under the name
+     the functions and the app use. It must pass the gateway's JWT check; if
+     the publishable key does not, use the legacy anon JWT. Not a secret by
+     nature, but kept out of the repository like the app's defines.
+3. Pin the CLI: set `SUPABASE_CLI_SHA256` in the workflow to the SHA-256 of
+   `supabase_linux_amd64.tar.gz` from the `v2.120.0` release, after comparing it
+   with that release's checksum file, in a reviewed PR. Until then every run
+   fails before it uses a secret. A CLI upgrade changes both values together.
+
+The first run is the first real check of the CLI commands
+(`functions deploy --use-api`, `functions download --use-api`, `--workdir`) and
+of the gateway answers the probe expects; none of this ran from the repository.
+
+### Running a deploy
+
+Actions, Deploy Edge Functions, Run workflow on `main`:
+
+- `functions`: comma-separated slugs (`coach-chat,search-key`) or `all`.
+- `sha`: empty deploys the current `main` head; a full 40-character SHA
+  deploys that commit, which must be on `main`.
+
+After the environment approval the run:
+
+1. checks out `main` for its own tooling and the chosen commit separately, so
+   an older commit never supplies its own deployer or verifier;
+2. plans: the slugs exist, each has a boot probe definition, and no
+   `supabase/config.toml` sets `verify_jwt = false` (there is none today, so
+   the CLI default `verify_jwt = true` applies; the workflow never passes
+   `--no-verify-jwt`);
+3. reads each function's version and downloads its live source, compared with
+   the commit ignoring CRLF; a mismatch here only shows what was live before;
+4. deploys one function after another with the pinned CLI and `--use-api`;
+5. reads back ACTIVE, `verify_jwt = true` and a new version, downloads the live
+   source again and compares it byte for byte with the function's import
+   graph in the commit: a missing, changed or unexpected file fails;
+6. runs the boot probe: preflight 204, 401 from the gateway without a token,
+   and the handler's own 401 with the anon key, which proves it booted and
+   passed its configuration check. No user token, no paid call; a key that
+   reaches the Auth lookup counts one failed lookup for the runner's address;
+7. writes the deploy record and the job summary.
+
+The record (artifact `deploy-record-<run>-attempt-<n>`, kept 90 days) holds the
+source and `main` SHAs, the rollback flag, the slugs, versions before and
+after, each check, the CLI version, times and the run URL; no project ref, key
+or response body. Copy its essentials into the handoff entry of the rollout.
+Any failed check fails the run. A failure after step 4 may mean some functions
+are already live: read the record, then fix forward or roll back.
+
+Only one run is active at a time and a running deploy is never cancelled.
+GitHub keeps at most one waiting run per group: queuing another one cancels
+the older waiting run before it starts.
+
+### Rollback
+
+Run the workflow with the older commit as `sha`. The same checks apply to that
+tree and the record says `rollback: true`. Check compatibility first: the
+older function must work with the current schema (migrations are
+forward-only, see the RPCs it calls) and with installed app builds. When in
+doubt, fix forward with a reviewed PR. `_shared` code is part of every
+function's graph, so roll back all functions that need the older version.
 
 ## Client release and rollback gate
 

@@ -307,7 +307,9 @@ Use a separate project or disposable local Postgres for development and RLS
 tests. Follow [CONTRIBUTING.md](../CONTRIBUTING.md) before a code PR. A production
 rollout requires verifying the target project, the exact reviewed revision,
 pending migrations and function configuration. Do not infer the target's role
-from a credential-store environment name such as `dev`.
+from a credential-store environment name such as `dev`. Deploy Edge Functions
+with the approved workflow, which also verifies the live source and keeps a
+deploy record ([Edge Function deploys](OPERATIONS.md#edge-function-deploys)).
 
 Source history records the Gemini switch in [PR #74](https://github.com/mxritzgit/Eatova/pull/74),
 the six-feature backend rollout in [PR #77](https://github.com/mxritzgit/Eatova/pull/77),
