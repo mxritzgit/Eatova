@@ -294,8 +294,10 @@ mixin _HomeStoreMealsPart
     await _commitSyncIntents(
       [
         update,
-        if (recordToday) SyncOp.trackingDay(updated.effectiveLocalDay)
-            .withPredecessor(update.operationId),
+        if (recordToday)
+          SyncOp.trackingDay(
+            updated.effectiveLocalDay,
+          ).withPredecessor(update.operationId),
       ],
       publish: () {
         loggedMeals = [updated, ...loggedMeals.where((m) => m.id != updated.id)]
@@ -476,9 +478,9 @@ mixin _HomeStoreMealsPart
       throw ArgumentError.value(target, 'day', 'must not be in the future');
     }
     final today = _isSameFoodDate(target, now);
-    final copies = [
+    final copies = _notAfter(now, [
       for (final source in sources) _copyOnto(source, target, slot),
-    ];
+    ]);
     await _commitSyncIntents(
       [for (final copy in copies) SyncOp.mealInsert(copy, trackDay: today)],
       publish: () {
@@ -528,6 +530,25 @@ mixin _HomeStoreMealsPart
       forcedSlot: slot ?? source.slot,
       localDay: localDayKey(target),
     );
+  }
+
+  /// Copies whose wall-clock time lies after [now] (yesterday's dinner
+  /// repeated in the morning) move to just before [now], in their order, so
+  /// no entry is logged in the future. Earlier times stay as they are.
+  List<LoggedMeal> _notAfter(DateTime now, List<LoggedMeal> copies) {
+    final ahead = copies.where((c) => c.loggedAt.isAfter(now)).toList()
+      ..sort((a, b) => a.loggedAt.compareTo(b.loggedAt));
+    if (ahead.isEmpty) return copies;
+    final moved = <String, DateTime>{
+      for (var i = 0; i < ahead.length; i++)
+        ahead[i].id: now.subtract(Duration(milliseconds: ahead.length - 1 - i)),
+    };
+    return [
+      for (final copy in copies)
+        moved.containsKey(copy.id)
+            ? copy.copyWith(loggedAt: moved[copy.id])
+            : copy,
+    ];
   }
 
   /// Undo of a copy: deletes exactly the copies still logged, in one commit.
@@ -674,7 +695,10 @@ mixin _HomeStoreMealsPart
     final cancelsPendingDelete =
         !requireExisting && _pendingRecipeDeletes.contains(recipe.slug);
     final pendingDeleteRevision = cancelsPendingDelete
-        ? _userRecipes.where((r) => r.slug == recipe.slug).firstOrNull?.serverRevision
+        ? _userRecipes
+              .where((r) => r.slug == recipe.slug)
+              .firstOrNull
+              ?.serverRevision
         : null;
     final operation = SyncOp.recipeUpsert(
       validated,
@@ -690,7 +714,8 @@ mixin _HomeStoreMealsPart
       notifyQueued: false,
       publish: () {
         if (cancelsPendingDelete) {
-          _pendingRecipeDeletes = {..._pendingRecipeDeletes}..remove(recipe.slug);
+          _pendingRecipeDeletes = {..._pendingRecipeDeletes}
+            ..remove(recipe.slug);
         }
         _userRecipes = [
           validated,

@@ -344,6 +344,53 @@ void main() {
     );
 
     test(
+      'eine Kopie auf heute liegt nie in der Zukunft und behaelt die Reihenfolge',
+      () => _at(_now, () async {
+        final s = _setup();
+        await _log(
+          s.store,
+          'Brot',
+          day: _yesterday,
+          slot: MealSlot.dinner,
+          hour: 11,
+        );
+        await _log(
+          s.store,
+          'Pasta',
+          day: _yesterday,
+          slot: MealSlot.dinner,
+          hour: 19,
+        );
+        await _log(
+          s.store,
+          'Eis',
+          day: _yesterday,
+          slot: MealSlot.dinner,
+          hour: 19,
+          minute: 45,
+        );
+
+        final ids = await s.store.repeatPreviousDaySlot(
+          MealSlot.dinner,
+          _today,
+        );
+
+        final copies = [for (final id in ids) _byId(s.store, id)];
+        expect(copies.every((c) => !c.loggedAt.isAfter(_now)), isTrue);
+        expect(
+          copies.singleWhere((c) => c.result.mealName == 'Brot').loggedAt,
+          DateTime(2026, 10, 14, 11, 30),
+        );
+        expect(_namesIn(s.store, _today, MealSlot.dinner), [
+          'Brot',
+          'Pasta',
+          'Eis',
+        ]);
+        expect(copies.every((c) => c.localDay == localDayKey(_today)), isTrue);
+      }),
+    );
+
+    test(
       'ein Doppeltipp kopiert einmal, ein gefuellter Slot gar nicht',
       () => _at(_now, () async {
         final s = _setup();
