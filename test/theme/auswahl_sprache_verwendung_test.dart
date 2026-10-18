@@ -48,6 +48,7 @@ import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/food_glyphs.dart';
 
 import '../support/harness.dart';
+import '../support/pinned_clock.dart';
 
 // --- WCAG 2.1 maths ---------------------------------------------------------
 
@@ -271,12 +272,12 @@ Future<void> _pumpFoodTab(
   );
 }
 
-/// Today, because the edit sheet's strip ends on the real today: a meal pinned
-/// to a fixed calendar day would stop being the SELECTED day the day after
-/// this file is written, and the assertions below would compare two
-/// UNSELECTED days. Pinned to 2026-08-29, this group was green on exactly one
-/// day and red from 2026-08-30 on.
-final DateTime _heute = DateUtils.dateOnly(DateTime.now());
+/// The edit sheet's strip ends on the clock's today, so a meal on a fixed day
+/// is only the SELECTED day while the clock says that day too. A fixed day
+/// alone was green on exactly one day (2026-08-29) and red from the next;
+/// now the sheet test pins the clock to [_mittag] as well.
+final DateTime _mittag = DateTime(2026, 8, 29, 12);
+final DateTime _heute = DateUtils.dateOnly(_mittag);
 
 LoggedMeal _mahlzeit() => LoggedMeal(
       id: 'm1',
@@ -392,7 +393,7 @@ void main() {
     _modi.forEach((modus, brightness) {
       final t = _tokens(brightness);
 
-      testWidgets('$modus: Flaeche, Wochentag und Tageszahl', (tester) async {
+      testWidgets('$modus: Flaeche, Wochentag und Tageszahl', (tester) => withClockAt(_mittag, () async {
         await _oeffneEditSheet(tester, brightness: brightness);
         final streifen = find.byKey(const ValueKey('edit-meal-day-picker'));
         expect(tester.widget(streifen), isA<TodayDayStrip>());
@@ -434,7 +435,7 @@ void main() {
           aufDerFlaeche: <Color>[_ueber(wochentag, auswahl), zahl],
           gegenueber: [for (final c in farben(ungewaehlt)) _ueber(c, t.bg)],
         );
-      });
+      }));
     });
   });
 

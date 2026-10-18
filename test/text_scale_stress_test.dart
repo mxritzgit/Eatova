@@ -11,6 +11,7 @@ import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 import 'support/harness.dart';
+import 'support/pinned_clock.dart';
 
 // Stress test for the textScaler cap (EatovaApp caps at 2.0, WCAG 1.4.4): the
 // core screens must render at 200 % system font without RenderFlex overflows
@@ -109,10 +110,11 @@ Future<void> _expectNoOverflow(
   );
 }
 
-DateTime _daysAgo(int n) {
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day - n);
-}
+/// The trend case pins its clock here; its days count back from it.
+final DateTime _trendTag = DateTime(2026, 9, 28, 12);
+
+DateTime _daysAgo(int n) =>
+    DateTime(_trendTag.year, _trendTag.month, _trendTag.day - n);
 
 /// Boots the app and lands on the "Heute" tab (index 0).
 ///
@@ -354,7 +356,7 @@ void main() {
 
   testWidgets('Trend-Ansicht rendert bei textScale 2.0 ohne Overflow', (
     tester,
-  ) async {
+  ) => withClockAt(_trendTag, () async {
     _pinViewport(tester);
     await _expectNoOverflow(tester, 'Trend-Ansicht', () async {
       await pumpLocalized(
@@ -383,7 +385,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
     });
-  });
+  }));
 
   // Everything above renders at EXACTLY 2.0, so the clamp in `EatovaApp` is a
   // no-op there: lowering the cap to 1.3 (or deleting it) left all eight

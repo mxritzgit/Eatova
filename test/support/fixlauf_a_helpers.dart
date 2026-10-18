@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'recipe_read_fake.dart';
 import 'sync_operation_fake.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -406,13 +407,13 @@ class StummerFotoStore extends RecipeImageStore {
 /// [stunde]:[minute] wall clock (default local midnight, so it is never in the
 /// future).
 ///
-/// `DateTime.now().subtract(...)` is the trap this replaces: run between 00:00
-/// and 01:00 local, "an hour ago" is YESTERDAY, and everything bucketed per
-/// local day (`dailyConsumedKcal`, `mealsForFoodDate`) drops the entry. A
-/// fixed calendar date would survive that hour but rot with the calendar, so
-/// the anchor stays relative to today and only the time of day is pinned.
+/// "Now minus one hour" is the trap this replaces: run between 00:00 and 01:00
+/// local, "an hour ago" is YESTERDAY, and everything bucketed per local day
+/// (`dailyConsumedKcal`, `mealsForFoodDate`) drops the entry. "Today" is the
+/// injected `clock`, the same one the store reads; tests pin it with
+/// `withClockAt` so the day cannot change while they run.
 DateTime heuteUm({int stunde = 0, int minute = 0}) {
-  final heute = DateTime.now();
+  final heute = clock.now();
   return DateTime(heute.year, heute.month, heute.day, stunde, minute);
 }
 
@@ -466,7 +467,7 @@ Map<String, dynamic> serverMealRow(
   String name = 'Server-Gericht',
 }) => <String, dynamic>{
   'id': id,
-  'logged_at': DateTime.now().toUtc().toIso8601String(),
+  'logged_at': clock.now().toUtc().toIso8601String(),
   'forced_slot': null,
   'local_day': null,
   'payload': mealResultToJson(mealResult(name, kcal: 250)),

@@ -7,6 +7,10 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 
 import '../../support/harness.dart';
+import '../../support/pinned_clock.dart';
+
+/// Noon of a fixed day; the test pins the clock here so it is today.
+final DateTime _mittag = DateTime(2026, 8, 19, 12);
 
 // ---------------------------------------------------------------------------
 // Review 2026-08-19, finding 3: the day picker of the edit sheet overflowed at
@@ -33,7 +37,7 @@ MealAnalysisResult _result() => const MealAnalysisResult(
 LoggedMeal _loggedMeal() => LoggedMeal(
   id: 'meal-1',
   result: _result(),
-  loggedAt: DateTime.now(),
+  loggedAt: _mittag,
   forcedSlot: MealSlot.breakfast,
 );
 
@@ -88,11 +92,11 @@ void main() {
   for (final scale in [1.0, 2.0]) {
     testWidgets('bei ${scale}x Schrift bleiben Wochentag und Zahl im Tag', (
       tester,
-    ) async {
+    ) => withClockAt(_mittag, () async {
       await _openSheet(tester, textScale: scale);
 
       final heute = find.byKey(
-        ValueKey<String>('today-day-${localDayKey(DateTime.now())}'),
+        ValueKey<String>('today-day-${localDayKey(_mittag)}'),
       );
       expect(heute, findsOneWidget);
       final zeilen = find.descendant(of: heute, matching: find.byType(Text));
@@ -109,6 +113,6 @@ void main() {
         );
       }
       expect(rahmen.height, greaterThanOrEqualTo(44), reason: 'Tap-Ziel');
-    });
+    }));
   }
 }

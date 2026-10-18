@@ -7,6 +7,7 @@
 // `services/day_math_test.dart`; this file covers the food tab's labels and
 // its previous-day button.
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,6 +16,7 @@ import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 
 import 'support/harness.dart';
+import 'support/pinned_clock.dart';
 
 final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
@@ -36,6 +38,9 @@ Future<void> _pumpFoodTab(
 void main() {
   // 2026-03-30 is a Monday; the DST switch fell on Sunday 2026-03-29.
   final montagNachUmstellung = DateTime(2026, 3, 30);
+  // The rendered strip runs on that Monday too, so "yesterday" crosses
+  // the switch wherever the local zone observes it.
+  final mittagNachUmstellung = DateTime(2026, 3, 30, 12);
 
   group('foodDateSelectedLabel — die Kopfzeile', () {
     test('zaehlt Kalendertage, nicht 24-Stunden-Bloecke', () {
@@ -61,11 +66,11 @@ void main() {
   group('Die gerenderte Leiste', () {
     testWidgetsRobust(
       'zeigt den Tag einmal und navigiert einen Kalendertag zurueck',
-      (tester) async {
+      (tester) => withClockAt(mittagNachUmstellung, () async {
         DateTime? gewaehlt;
         await _pumpFoodTab(tester, onDateSelected: (d) => gewaehlt = d);
 
-        final heute = startOfDay(DateTime.now());
+        final heute = startOfDay(clock.now());
         expect(find.text(foodHeaderDateLabel(heute, _de)), findsOneWidget);
         final next = tester.widget<IconButton>(
           find.byKey(const ValueKey('food-date-next')),
@@ -75,7 +80,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(gewaehlt, isNotNull);
         expect(daysBetween(heute, gewaehlt!), 1);
-      },
+      }),
     );
   });
 }

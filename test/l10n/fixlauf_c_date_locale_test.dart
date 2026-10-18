@@ -95,17 +95,19 @@ Future<List<String>> _openEditSheet(WidgetTester tester, Locale locale) async {
 
 Future<List<String>> _pumpFoodTab(WidgetTester tester, Locale locale) async {
   final overflows = _telefon(tester);
-  await pumpLocalized(
-    tester,
-    MealAnalysisScreen(
-      dailyConsumedKcal: 0,
-      selectedDate: DateTime.now(),
-    ),
-    reducedMotion: false,
-    locale: locale,
-    safeArea: false,
-  );
-  await tester.pumpAndSettle();
+  await withClock(Clock.fixed(_jetzt), () async {
+    await pumpLocalized(
+      tester,
+      MealAnalysisScreen(
+        dailyConsumedKcal: 0,
+        selectedDate: _jetzt,
+      ),
+      reducedMotion: false,
+      locale: locale,
+      safeArea: false,
+    );
+    await tester.pumpAndSettle();
+  });
   return overflows;
 }
 
@@ -142,7 +144,7 @@ void main() {
   group('Food-Tab, Datumsstreifen', () {
     testWidgets('englisch zeigt das ausgeschriebene Datum', (tester) async {
       final overflows = await _pumpFoodTab(tester, const Locale('en'));
-      final heute = DateTime.now();
+      final heute = _jetzt;
       // Weekday written out, short month ("Monday, Sep 28").
       expect(
         find.text(
@@ -157,7 +159,7 @@ void main() {
 
     testWidgets('deutsch zeigt das ausgeschriebene Datum', (tester) async {
       final overflows = await _pumpFoodTab(tester, const Locale('de'));
-      final heute = DateTime.now();
+      final heute = _jetzt;
       expect(
         find.text(
           '${DateFormat.EEEE('de').format(heute)}, '

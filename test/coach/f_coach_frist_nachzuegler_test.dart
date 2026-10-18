@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -182,7 +183,7 @@ List<Map<String, Object?>> _austausch({
   bool refusal = false,
   Map<String, Object?>? rezept,
 }) {
-  final t = wann ?? DateTime.now().toUtc();
+  final t = wann ?? clock.now().toUtc();
   return <Map<String, Object?>>[
     <String, Object?>{
       'id': 'm-antwort',
@@ -347,7 +348,7 @@ void main() {
         verlauf: _austausch(
           frage: 'Wie viel Protein?',
           antwort: 'Etwa 1,6 g pro Kilo.',
-          wann: DateTime.now().toUtc().subtract(const Duration(hours: 3)),
+          wann: clock.now().toUtc().subtract(const Duration(hours: 3)),
         ),
       );
       final svc = _service(backend, chatFrist: const Duration(milliseconds: 30));
@@ -371,7 +372,7 @@ void main() {
             'role': 'user',
             'content': 'Wie viel Protein?',
             'refusal': false,
-            'created_at': DateTime.now().toUtc().toIso8601String(),
+            'created_at': clock.now().toUtc().toIso8601String(),
             'recipe': null,
           },
         ],

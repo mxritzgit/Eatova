@@ -19,6 +19,10 @@ import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
 import '../../support/harness.dart';
 import '../../support/meal_slot_picker.dart';
+import '../../support/pinned_clock.dart';
+
+/// Noon of a fixed day: the existing meal counts for the sheet's today.
+final DateTime _mittag = DateTime(2026, 8, 27, 12);
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -152,7 +156,7 @@ Future<void> _fuegeHinzu(WidgetTester tester, String kachel, String knopf) async
 void main() {
   testWidgets(
       'Favorit hinzufügen: „Bereits hinzugefügt" zeigt die neue Zeile und die '
-      'Slot-Summe steigt sofort', (tester) async {
+      'Slot-Summe steigt sofort', (tester) => withClockAt(_mittag, () async {
     await _pumpe(
       tester,
       favoriten: [_favorit('Apfel')],
@@ -160,7 +164,7 @@ void main() {
         LoggedMeal(
           id: 'm-1',
           result: _mahlzeit('Brot', kcal: 100),
-          loggedAt: DateTime.now(),
+          loggedAt: _mittag,
           forcedSlot: MealSlot.snack,
         ),
       ],
@@ -174,7 +178,7 @@ void main() {
     expect(_zeile('Apfel'), findsOneWidget);
     expect(_zeile('Brot'), findsOneWidget);
     expect(_summe('350'), findsOneWidget);
-  });
+  }));
 
   testWidgets('ohne Vorhandenes erscheint die Liste mit der ersten Zeile',
       (tester) async {

@@ -4,6 +4,7 @@
 // dwell times, timeouts and backoffs (timing, not motion), and
 // `MealLoadingCard`'s progress (see the last test).
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -115,10 +116,13 @@ const MealAnalysisResult _haferbrei = MealAnalysisResult(
   sourceLabel: 'Foto-KI',
 );
 
+/// Fixed noon so date-dependent views cannot straddle midnight.
+final DateTime _jetzt = DateTime(2026, 8, 9, 12);
+
 LoggedMeal _mahlzeit(String id, MealSlot slot) => LoggedMeal(
       id: id,
       result: _haferbrei,
-      loggedAt: DateTime.now(),
+      loggedAt: _jetzt,
       forcedSlot: slot,
     );
 
@@ -208,21 +212,24 @@ void main() {
   group('MealAnalysisScreen (Food-Tab)', () {
     testWidgets('Datums-Chips und Tagebuch stehen sofort im Endzustand',
         (tester) async {
-      await _pump(
-        tester,
-        MealAnalysisScreen(
-          dailyConsumedKcal: 320,
-          loggedMeals: <LoggedMeal>[
-            _mahlzeit('m1', MealSlot.breakfast),
-            _mahlzeit('m2', MealSlot.lunch),
-          ],
-        ),
-      );
-      // The chip strip scrolls into view in the post-frame callback. Under
-      // reduced motion that must be a jump: `animateTo` with `Duration.zero`
-      // trips `assert(duration > Duration.zero)` in DrivenScrollActivity.
-      await tester.pump();
-      await tester.pump();
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          MealAnalysisScreen(
+            dailyConsumedKcal: 320,
+            loggedMeals: <LoggedMeal>[
+              _mahlzeit('m1', MealSlot.breakfast),
+              _mahlzeit('m2', MealSlot.lunch),
+            ],
+          ),
+        );
+        // The chip strip scrolls into view in the post-frame callback. Under
+        // reduced motion that must be a jump: `animateTo` with
+        // `Duration.zero` trips `assert(duration > Duration.zero)` in
+        // DrivenScrollActivity.
+        await tester.pump();
+        await tester.pump();
+      });
 
       expect(
         _offeneAnimationen(tester, find.byType(MealAnalysisScreen)),
@@ -293,14 +300,16 @@ void main() {
   group('EditMealSheet — Tages-Picker', () {
     testWidgets('die 35 Tages-Chips faerben sich ohne Uebergang',
         (tester) async {
-      await _pump(
-        tester,
-        EditMealSheet(
-          meal: _mahlzeit('m1', MealSlot.breakfast),
-          onUpdateMeal: (String id, {result, slot, day}) => null,
-        ),
-      );
-      await tester.pump();
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          EditMealSheet(
+            meal: _mahlzeit('m1', MealSlot.breakfast),
+            onUpdateMeal: (String id, {result, slot, day}) => null,
+          ),
+        );
+        await tester.pump();
+      });
 
       expect(
         _offeneAnimationen(tester, find.byType(EditMealSheet)),

@@ -313,6 +313,9 @@ String _feldText(WidgetTester tester) =>
         ?.text ??
     '';
 
+/// Server time of a late answer; the screen matches rows by id, not time.
+final DateTime _spaeteAntwort = DateTime(2026, 9, 8, 12, 0, 1);
+
 void main() {
   testWidgets(
     'ohne Wechsel: die Antwort erscheint in DER Sitzung, in der gesendet wurde',
@@ -725,7 +728,7 @@ void main() {
         id: 'persisted-answer',
         role: ChatRole.assistant,
         content: 'Old A answer',
-        createdAt: DateTime.now().add(const Duration(seconds: 1)),
+        createdAt: _spaeteAntwort,
       ),
     ];
     svc.offen.single.complete(const CoachChatReply(
@@ -750,7 +753,7 @@ void main() {
         id: 'persisted-answer',
         role: ChatRole.assistant,
         content: 'Already in A history',
-        createdAt: DateTime.now().add(const Duration(seconds: 1)),
+        createdAt: _spaeteAntwort,
       ),
     ];
     await _wechsleAufSitzung(tester, 'Chat A');
@@ -781,7 +784,7 @@ void main() {
         id: 'persisted-answer',
         role: ChatRole.assistant,
         content: 'Fresh A answer',
-        createdAt: DateTime.now().add(const Duration(seconds: 1)),
+        createdAt: _spaeteAntwort,
       ),
     ];
     svc.offen.single.complete(const CoachChatReply(

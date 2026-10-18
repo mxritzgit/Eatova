@@ -12,8 +12,12 @@ import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 import '../support/harness.dart';
+import '../support/pinned_clock.dart';
 
-DateTime _vorTagen(int n) => addDays(startOfDay(DateTime.now()), -n);
+/// Widget tests pin the clock here; the days count back from it.
+final DateTime _mittag = DateTime(2026, 8, 27, 12);
+
+DateTime _vorTagen(int n) => addDays(startOfDay(_mittag), -n);
 
 TrendDayTotals _tag(int vorTagen, int kcal) => TrendDayTotals(
       day: _vorTagen(vorTagen),
@@ -53,20 +57,20 @@ Future<void> _pumpAndOpenTrends(
 
 void main() {
   testWidgets('Bonus-Quelle am Screen: Tag mit Schritt-Bonus gilt in Trends '
-      'als getroffen, Fussnote erscheint', (tester) async {
+      'als getroffen, Fussnote erscheint', (tester) => withClockAt(_mittag, () async {
     await _pumpAndOpenTrends(tester, bonus: (_) => 230);
 
     expect(find.text('2 von 2 Tagen (±10 %)'), findsOneWidget);
     expect(find.byKey(const ValueKey('trends-goal-bonus-note')), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
+  }));
 
   testWidgets('ohne Bonus-Quelle bleibt Trends beim Basisziel (wie vorher)',
-      (tester) async {
+      (tester) => withClockAt(_mittag, () async {
     await _pumpAndOpenTrends(tester);
 
     expect(find.text('0 von 2 Tagen (±10 %)'), findsOneWidget);
     expect(find.byKey(const ValueKey('trends-goal-bonus-note')), findsNothing);
     expect(tester.takeException(), isNull);
-  });
+  }));
 }

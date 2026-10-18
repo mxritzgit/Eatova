@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -206,7 +207,7 @@ List<Map<String, Object?>> _austausch({
   required String frage,
   required String antwort,
 }) {
-  final t = DateTime.now().toUtc();
+  final t = clock.now().toUtc();
   return <Map<String, Object?>>[
     <String, Object?>{
       'id': 'm-antwort',

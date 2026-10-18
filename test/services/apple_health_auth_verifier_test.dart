@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -185,7 +186,7 @@ void main() {
           tester,
           HealthConnectionCard(
             state: state,
-            lastFetch: DateTime.now(),
+            lastFetch: clock.now(),
             onConnect: () {},
             onRefresh: () {},
           ),

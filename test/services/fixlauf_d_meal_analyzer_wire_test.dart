@@ -333,9 +333,9 @@ void main() {
         .analyze(_request(cancellation: cancellation));
 
     // Wait until the request reached the server, then abort.
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    final uhr = Stopwatch()..start();
     while (loopback.seen.isEmpty) {
-      if (DateTime.now().isAfter(deadline)) {
+      if (uhr.elapsed > const Duration(seconds: 5)) {
         fail('Request kam innerhalb von 5 s nicht am Loopback-Server an');
       }
       await Future<void>.delayed(const Duration(milliseconds: 10));

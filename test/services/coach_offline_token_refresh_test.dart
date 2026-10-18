@@ -22,7 +22,8 @@ const _userId = '6f1d7a52-0c3e-4f5b-9a8e-2b4c6d8e0f13';
 String _expiredJwt() {
   String part(Object value) =>
       base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
-  final exp = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 600;
+  // 2026-01-01T00:00:00Z: expired whenever the suite runs.
+  const exp = 1767225600;
   return '${part({'alg': 'HS256', 'typ': 'JWT'})}.'
       '${part({'sub': _userId, 'exp': exp})}.signature';
 }

@@ -17,10 +17,13 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 
 const _userId = '6f1d7a52-0c3e-4f5b-9a8e-2b4c6d8e0f13';
 
+/// 2100-01-01T00:00:00Z: a session that stays valid whenever the suite runs.
+const int _gueltigBis = 4102444800;
+
 String _validJwt() {
   String part(Object value) =>
       base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
-  final exp = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
+  const exp = _gueltigBis;
   return '${part({'alg': 'HS256', 'typ': 'JWT'})}.'
       '${part({'sub': _userId, 'exp': exp, 'session_id': 'sess-1'})}.signature';
 }

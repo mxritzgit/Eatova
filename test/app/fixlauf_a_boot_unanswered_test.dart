@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -149,7 +150,7 @@ void main() {
           LoggedMeal(
             id: '00000000-0000-4000-8000-00000000000a',
             result: mealResult('Haengt'),
-            loggedAt: DateTime.now(),
+            loggedAt: clock.now(),
           ),
           trackDay: false,
         ),

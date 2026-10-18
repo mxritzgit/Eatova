@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../support/recipe_read_fake.dart';
 import '../support/sync_operation_fake.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -623,7 +624,7 @@ Map<String, dynamic> serverProfileRow(UserProfile p) => <String, dynamic>{
 Map<String, dynamic> serverMealRow(String id) =>
     <String, dynamic>{
       'id': id,
-      'logged_at': DateTime.now().toUtc().toIso8601String(),
+      'logged_at': clock.now().toUtc().toIso8601String(),
       'forced_slot': null,
       'local_day': null,
       'payload': mealResultToJson(mealResult('Server-Gericht', kcal: 250)),

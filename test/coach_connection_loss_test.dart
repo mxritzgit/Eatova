@@ -92,7 +92,7 @@ List<Map<String, Object?>> _exchange({
   Map<String, Object?>? plan,
   Map<String, Object?>? log,
 }) {
-  final t = (at ?? DateTime.now()).toUtc();
+  final t = (at ?? clock.now()).toUtc();
   return <Map<String, Object?>>[
     <String, Object?>{
       'id': _assistantId,
@@ -302,18 +302,22 @@ void main() {
     });
 
     test('/log: the stored draft comes back with its server id', () async {
+      // The log's date comes from the clock: pin it and stamp the stored
+      // exchange at the same instant.
+      final jetzt = DateTime(2026, 9, 15, 12);
       final backend = _Backend(
         loss: _Loss.inBody,
         persisted: _exchange(
           question: 'today squats 1x8 100 kg',
           answer: 'Workout to log: Leg day.',
           log: _log(),
+          at: jetzt,
         ),
       );
       final svc = _service(backend);
 
       final res = await withClock(
-        Clock.fixed(DateTime.now()),
+        Clock.fixed(jetzt),
         () => svc.requestWorkoutLog(
           'today squats 1x8 100 kg',
           sessionId: _sessionId,
@@ -392,7 +396,7 @@ void main() {
         persisted: _exchange(
           question: 'How much protein?',
           answer: 'About 1.6 g per kilo.',
-          at: DateTime.now().subtract(const Duration(hours: 3)),
+          at: clock.now().subtract(const Duration(hours: 3)),
         ),
       );
       final svc = _service(backend);
@@ -620,7 +624,7 @@ class _FakeWaiter implements CoachAnswerWaiter {
 
   final bool weiter;
   final List<Duration> pauses = <Duration>[];
-  DateTime _now = DateTime.now();
+  DateTime _now = clock.now();
 
   void attach(CoachChatService svc) => svc.answerWaiter = this;
 

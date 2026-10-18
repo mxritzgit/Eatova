@@ -88,11 +88,9 @@ class _FakeGateway implements NotificationPluginGateway {
   Future<NotificationAppLaunchDetails?> launchDetails() async => null;
 }
 
-/// Tomorrow 20:00 local wall clock — what the streak planner emits.
-DateTime _morgen20Uhr() {
-  final jetzt = DateTime.now();
-  return DateTime(jetzt.year, jetzt.month, jetzt.day + 1, 20);
-}
+/// 20:00 local wall clock, like the streak planner's specs, on a fixed day
+/// that stays in the future and away from any DST switch.
+DateTime _spaeter20Uhr() => DateTime(2099, 1, 15, 20);
 
 NotificationSpec _spec(DateTime wann) => NotificationSpec(
       id: 7,
@@ -155,7 +153,7 @@ void main() {
           () async {
         final gateway = _FakeGateway();
         final service = _service(gateway, zone: () async => zone);
-        final wann = _morgen20Uhr();
+        final wann = _spaeter20Uhr();
 
         await service.scheduleAll([_spec(wann)]);
 
@@ -179,7 +177,7 @@ void main() {
       final gateway = _FakeGateway();
       final service = _service(gateway);
       await service.scheduleAll([
-        _spec(DateTime.now().subtract(const Duration(hours: 1))),
+        _spec(DateTime(2026, 1, 15, 20)),
       ]);
       expect(gateway.scheduled, isEmpty);
     });
@@ -192,7 +190,7 @@ void main() {
         gateway,
         zone: () async => throw MissingPluginException('flutter_timezone'),
       );
-      final wann = _morgen20Uhr();
+      final wann = _spaeter20Uhr();
 
       await service.scheduleAll([_spec(wann)]);
 
@@ -216,7 +214,7 @@ void main() {
       // Every other call answers honestly instead of throwing.
       expect(await service.hasPermission(), isFalse);
       expect(await service.requestPermission(), isFalse);
-      await service.scheduleAll([_spec(_morgen20Uhr())]);
+      await service.scheduleAll([_spec(_spaeter20Uhr())]);
       expect(gateway.scheduled, isEmpty);
 
       // Every call retried the init (4 attempts so far) — a transient plugin

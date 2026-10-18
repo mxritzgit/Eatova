@@ -4,6 +4,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
 
 import '../support/fixlauf_a_helpers.dart';
+import '../support/pinned_clock.dart';
 
 // Review 2026-08-27, F1-01: the welcome gate opens on the cached profile while
 // the six boot loads are still in flight. A live write delivered in that
@@ -16,11 +17,11 @@ import '../support/fixlauf_a_helpers.dart';
 // wins, missing server ids are added, locally deleted ids stay deleted).
 
 /// The cached meals count towards TODAY, so their timestamp must not be able
-/// to slip over midnight: `DateTime.now() - 1 h` put them on the PREVIOUS day
+/// to slip over midnight: "now minus one hour" put them on the PREVIOUS day
 /// between 00:00 and 01:00 local, `dailyConsumedKcal` then saw only the live
 /// meal, and the test was red every night in that hour (CI hit it on
-/// 2026-08-31 at 00:41 UTC: expected 800, got 300). [heuteUm] anchors to today
-/// instead of to a fixed date, which would only rot differently.
+/// 2026-08-31 at 00:41 UTC: expected 800, got 300). [heuteUm] anchors to the
+/// injected clock's today, and every test pins that day with [_mittag].
 LoggedMeal _cachedMeal(String id, String name) => LoggedMeal(
       id: id,
       result: mealResult(name, kcal: 250),
@@ -50,12 +51,15 @@ Future<FixlaufSetup> _bootMitAngehaltenenReads({String? extraServerRow}) async {
   return s;
 }
 
+/// Pinned noon of the day the CI flake hit; the clock still advances.
+final DateTime _mittag = DateTime(2026, 8, 31, 12);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
       'Live-Insert im Ladefenster ueberlebt die Server-Antwort von VOR dem '
-      'Write', () async {
+      'Write', () => withClockAt(_mittag, () async {
     final s = await _bootMitAngehaltenenReads();
 
     final liveId = await s.store.addResultToDailyTotal(mealResult('Live-Bowl'));
@@ -77,10 +81,10 @@ void main() {
     final cached = await s.cache!.readLoggedMeals();
     expect(cached!.map((m) => m.id), contains(liveId),
         reason: 'der Cache-Snapshot nach dem Boot traegt den gemergten Stand');
-  });
+  }));
 
   test('Live-Delete im Ladefenster wird von der Server-Antwort nicht '
-      'wiederbelebt', () async {
+      'wiederbelebt', () => withClockAt(_mittag, () async {
     final s = await _bootMitAngehaltenenReads();
 
     await s.store.removeLoggedMeal('m2');
@@ -97,10 +101,10 @@ void main() {
     expect(s.store.loggedMeals.map((m) => m.id), contains('m1'));
     final cached = await s.cache!.readLoggedMeals();
     expect(cached!.map((m) => m.id), isNot(contains('m2')));
-  });
+  }));
 
   test('Server-Zeilen, die lokal fehlen und nicht geloescht wurden, kommen '
-      'beim Merge dazu (anderes Geraet)', () async {
+      'beim Merge dazu (anderes Geraet)', () => withClockAt(_mittag, () async {
     // The server snapshot carries m9 (logged on another device); the cache
     // never saw it. Must be there BEFORE the hold, the snapshot is captured at
     // request time.
@@ -116,10 +120,10 @@ void main() {
     expect(s.store.loggedMeals.map((m) => m.id),
         containsAll([liveId, 'm1', 'm2', 'm9']),
         reason: 'lokal gewinnt, aber fehlende Server-Ids werden ergaenzt');
-  });
+  }));
 
   test('Ein online geloeschter, lokal unbekannter Eintrag bleibt nach dem Load geloescht',
-      () async {
+      () => withClockAt(_mittag, () async {
     final s = await _bootMitAngehaltenenReads(extraServerRow: 'm9');
     expect(s.store.loggedMeals.any((meal) => meal.id == 'm9'), isFalse);
 
@@ -134,10 +138,10 @@ void main() {
     expect(s.store.loggedMeals.map((meal) => meal.id), isNot(contains('m9')));
     expect((await s.cache!.readLoggedMeals())!.map((meal) => meal.id),
         isNot(contains('m9')));
-  });
+  }));
 
   test('Kontrolle: ohne Mutation im Ladefenster ersetzt der Server-Load die '
-      'Liste weiterhin komplett', () async {
+      'Liste weiterhin komplett', () => withClockAt(_mittag, () async {
     final s = fixlaufSetup();
     await s.cache!.writeProfile(completedProfile);
     // The cache still knows m3; the server does not (deleted elsewhere).
@@ -155,10 +159,10 @@ void main() {
     expect(s.store.loggedMeals.map((m) => m.id).toSet(), {'m1', 'm2'},
         reason: 'ohne Rennen bleibt der Server die Wahrheit — der Merge '
             'greift nur, wenn lokal etwas passiert ist');
-  });
+  }));
 
   test('Favorit und Gewicht aus dem Ladefenster ueberleben ebenfalls',
-      () async {
+      () => withClockAt(_mittag, () async {
     final s = await _bootMitAngehaltenenReads();
 
     await s.store.toggleFavorite(mealResult('Pin-Bowl'));
@@ -176,10 +180,10 @@ void main() {
     expect(s.store.weightLog.latest?.weightKg, 83.5,
         reason: 'die leere Gewichts-Antwort von vor dem Eintrag darf ihn '
             'nicht entfernen');
-  });
+  }));
 
   test('Onboarding-Variante: ein im Ladefenster abgeschlossenes Onboarding '
-      'wird von der Bootstrap-Zeile nicht zurueckgedreht', () async {
+      'wird von der Bootstrap-Zeile nicht zurueckgedreht', () => withClockAt(_mittag, () async {
     final s = fixlaufSetup();
     // Cached bootstrap row: the gate opens straight into onboarding while the
     // server (same row) is still loading.
@@ -206,15 +210,15 @@ void main() {
             'nicht ueberschreiben');
     expect(s.store.needsOnboarding, isFalse);
     expect((await s.cache!.readProfile())!.weightKg, 91);
-  });
+  }));
 
   test('ohne Cache-Instanz bootet der Store weiterhin ueber den Server',
-      () async {
+      () => withClockAt(_mittag, () async {
     final s = fixlaufSetup(ohneCache: true);
     s.server.profileRow = serverProfileRow(completedProfile);
     s.server.mealRows['m1'] = serverMealRow('m1');
     await bootStore(s.store);
     expect(s.store.loggedMeals.map((m) => m.id), ['m1']);
     expect(s.cache, isNull);
-  });
+  }));
 }

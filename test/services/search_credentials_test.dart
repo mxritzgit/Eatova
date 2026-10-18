@@ -479,16 +479,17 @@ void main() {
 
     test('persistierter http-Cache-Eintrag wird verworfen -> Default (https)',
         () async {
+      final clock = _Clock();
       final disk = InMemoryKeyValueStore({
         SearchCredentialsStore.cacheKey: _entry(
-          fetchedAt: DateTime.now(),
+          fetchedAt: clock.value,
           baseUrl: 'http://eatova.de/meili', // tampered / old version
         ),
       });
       final store = SearchCredentialsStore(
         store: disk,
         fetcher: _FakeFetcher(),
-        clock: _Clock().call,
+        clock: clock.call,
       );
 
       await store.warmUp();

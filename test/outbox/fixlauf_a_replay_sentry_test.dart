@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/crash_reporter.dart';
@@ -79,7 +80,7 @@ void main() {
     s.server.offline = true;
     gemeldet.clear();
 
-    s.store.setFoodDate(DateTime.now().subtract(const Duration(days: 60)));
+    s.store.setFoodDate(clock.now().subtract(const Duration(days: 60)));
     await settle();
 
     expect(gemeldet, isEmpty, reason: kontexte.join(', '));

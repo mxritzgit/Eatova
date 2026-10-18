@@ -599,17 +599,17 @@ void main() {
     });
 
     test('grosse Slots geben den Stack vor der Krypto frei', () async {
-      AesGcmCacheCipher.debugResetDartAlgorithm();
+      final skript = _SkriptDartAesGcm();
+      AesGcmCacheCipher.debugSetDartAlgorithm(skript);
       final cipher = AesGcmCacheCipher(_dek);
       final gross = jsonEncode({'items': List<String>.filled(4000, 'Döner')});
 
-      final sw = Stopwatch()..start();
       final pending = cipher.encrypt(_key, gross);
-      final syncMicros = sw.elapsedMicroseconds;
-      sw.stop();
+      // Right after the synchronous call: no crypto ran in the caller's stack.
+      expect(skript.encrypts, 0);
 
       expect(await cipher.decrypt(_key, await pending), gross);
-      expect(syncMicros / 1000, lessThan(20));
+      expect(skript.encrypts + skript.decrypts, 0);
     });
 
     test('ein synchroner Wurf auf dem Inline-Pfad kommt als Future-Fehler an',

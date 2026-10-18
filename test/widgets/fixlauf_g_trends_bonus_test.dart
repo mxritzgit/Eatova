@@ -6,13 +6,17 @@ import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 import '../support/harness.dart';
+import '../support/pinned_clock.dart';
 
 // F7-05: Trends measured "goal hit" as ±10 % around the BASE goal while the
 // Today tab steers by goal + step bonus (model B). Goal 2200 + 8000 steps
 // (~230 kcal): Today said "20 over", Trends said "missed" (2450 > 2420). The
 // hit rate, corridor and target line now use goal + burnedKcalFor(day).
 
-DateTime _vorTagen(int n) => addDays(startOfDay(DateTime.now()), -n);
+/// Widget tests pin the clock here; the days count back from it.
+final DateTime _mittag = DateTime(2026, 8, 27, 12);
+
+DateTime _vorTagen(int n) => addDays(startOfDay(_mittag), -n);
 
 TrendDayTotals _tag(int vorTagen, int kcal) => TrendDayTotals(
       day: _vorTagen(vorTagen),
@@ -72,7 +76,7 @@ void main() {
 
   group('TrendsScreen', () {
     testWidgets('Tag mit Bonus gilt als getroffen, Fussnote erklaert es',
-        (tester) async {
+        (tester) => withClockAt(_mittag, () async {
       await _pump(
         tester,
         totals: [_tag(2, 2450), _tag(1, 2450), _tag(0, 500)],
@@ -83,10 +87,10 @@ void main() {
       expect(find.text('100 %'), findsOneWidget);
       expect(find.byKey(const ValueKey('trends-goal-bonus-note')),
           findsOneWidget);
-    });
+    }));
 
     testWidgets('Stufen-Ziellinie rendert ohne Fehler ueber 90 Tage',
-        (tester) async {
+        (tester) => withClockAt(_mittag, () async {
       await _pump(
         tester,
         totals: [for (var i = 0; i < 40; i++) _tag(i, 2000 + i * 10)],
@@ -96,10 +100,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-    });
+    }));
 
     testWidgets('Semantik-Ansage nennt das Ziel des letzten Slots inklusive '
-        'Bonus, nicht das Basisziel (G M-1)', (tester) async {
+        'Bonus, nicht das Basisziel (G M-1)', (tester) => withClockAt(_mittag, () async {
       await _pump(
         tester,
         totals: [_tag(2, 2450), _tag(1, 2450), _tag(0, 500)],
@@ -114,6 +118,6 @@ void main() {
           );
       expect(ansage('2430'), findsOneWidget);
       expect(ansage('2200'), findsNothing);
-    });
+    }));
   });
 }

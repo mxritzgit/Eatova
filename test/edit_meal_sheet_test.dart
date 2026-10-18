@@ -1,5 +1,6 @@
 import 'support/food_navigation.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/widgets/design/design.dart';
@@ -15,6 +16,7 @@ import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 
 import 'support/harness.dart';
 import 'support/meal_slot_picker.dart';
+import 'support/pinned_clock.dart';
 
 // Edit sheet: tapping a logged meal opens a sheet that changes portion/items,
 // slot and day and saves through the outbox-safe store path. Standalone tests
@@ -37,7 +39,7 @@ MealAnalysisResult _result() => const MealAnalysisResult(
 LoggedMeal _loggedMeal() => LoggedMeal(
       id: 'meal-1',
       result: _result(),
-      loggedAt: DateTime.now(),
+      loggedAt: clock.now(),
       // Fixed slot instead of the time-of-day heuristic: deterministic at any
       // test run time.
       forcedSlot: MealSlot.breakfast,
@@ -99,9 +101,12 @@ Future<void> _openSheet(
   await tester.pumpAndSettle();
 }
 
-/// The Today strip's cell for the day [daysAgo] before today (real clock).
+/// Noon on a mid-month Wednesday; tests that pick days pin the clock here.
+final DateTime _mittwoch = DateTime(2026, 6, 17, 12);
+
+/// The Today strip's cell for the day [daysAgo] before today (injected clock).
 Finder _tagVor(int daysAgo) {
-  final today = DateUtils.dateOnly(DateTime.now());
+  final today = DateUtils.dateOnly(clock.now());
   return find.byKey(
     ValueKey<String>(
       'today-day-${localDayKey(DateTime(today.year, today.month, today.day - daysAgo))}',
@@ -112,7 +117,7 @@ Finder _tagVor(int daysAgo) {
 void main() {
   testWidgetsRobust('Slot + Tag aendern ruft den Store einmal korrekt auf', (
     WidgetTester tester,
-  ) async {
+  ) => withClockAt(_mittwoch, () async {
     final capture = _EditCapture();
     await _openSheet(tester, capture);
 
@@ -142,10 +147,10 @@ void main() {
     expect(capture.result, isNull, reason: 'Portion wurde nicht angefasst');
     // B5: calendar arithmetic, not Duration — otherwise the test itself is
     // wrong across the spring DST switch.
-    final yesterday = addDays(startOfDay(DateTime.now()), -1);
+    final yesterday = addDays(startOfDay(clock.now()), -1);
     expect(DateUtils.isSameDay(capture.day!, yesterday), isTrue);
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
-  });
+  }));
 
   testWidgetsRobust(
       'Portion ueber den bestehenden Einzelposten-Editor anpassen und speichern',
@@ -183,7 +188,7 @@ void main() {
 
   testWidgetsRobust(
       '„Anderes Datum…" oeffnet den Kalender; der gewaehlte Tag geht als day '
-      'an den Store', (WidgetTester tester) async {
+      'an den Store', (WidgetTester tester) => withClockAt(_mittwoch, () async {
     final capture = _EditCapture();
     await _openSheet(tester, capture);
 
@@ -224,13 +229,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
     await tester.pumpAndSettle();
 
-    final today = DateUtils.dateOnly(DateTime.now());
+    final today = DateUtils.dateOnly(clock.now());
     expect(capture.updateCalls, 1);
     expect(capture.day, DateTime(today.year, today.month - 1, 15));
     expect(capture.slot, isNull, reason: 'Slot wurde nicht angefasst');
     expect(capture.result, isNull, reason: 'Portion wurde nicht angefasst');
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
-  });
+  }));
 
   // ─── D5: a filled-in form is no longer discarded silently ───────────────
   //
@@ -347,7 +352,7 @@ void main() {
 
   testWidgetsRobust(
       'D5: der Drag-Guard blockiert weder Taps noch die Auswahl im Sheet',
-      (WidgetTester tester) async {
+      (WidgetTester tester) => withClockAt(_mittwoch, () async {
     // The guard registers only a vertical drag recognizer; taps and the
     // horizontal lists must keep working while the sheet is dirty.
     final capture = _EditCapture();
@@ -368,11 +373,11 @@ void main() {
     expect(
       DateUtils.isSameDay(
         capture.day!,
-        addDays(startOfDay(DateTime.now()), -2),
+        addDays(startOfDay(clock.now()), -2),
       ),
       isTrue,
     );
-  });
+  }));
 
   testWidgetsRobust(
       'D5: ohne Aenderung schliesst der Barriere-Tap sofort — kein Dialog',
@@ -560,7 +565,7 @@ void main() {
 
   testWidgetsRobust(
       'Tagesliste im Add-Sheet: Verschieben auf gestern raeumt heute und '
-      'fuellt gestern', (WidgetTester tester) async {
+      'fuellt gestern', (WidgetTester tester) => withClockAt(_mittwoch, () async {
     // Pin the device language: without an override EatovaApp resolves via
     // resolveEatovaLocale, and the assertions below check verbatim German ARB
     // texts.
@@ -607,7 +612,7 @@ void main() {
     await tester.pumpAndSettle();
     await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
-  });
+  }));
 }
 
 /// Adds the fake salami pizza to slot [slotKey] via the search flow and leaves

@@ -3,6 +3,7 @@
 // theme with `FilledButton.styleFrom(backgroundColor: forest …)`. They now
 // inherit the app-wide filledButtonTheme — one primary language, set once.
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/widgets/design/design.dart';
@@ -127,7 +128,7 @@ void main() {
               meal: LoggedMeal(
                 id: 'meal-1',
                 result: _apfel,
-                loggedAt: DateTime.now(),
+                loggedAt: clock.now(),
                 forcedSlot: MealSlot.breakfast,
               ),
               onUpdateMeal: _update,

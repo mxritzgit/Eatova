@@ -118,10 +118,10 @@ Widget _heuteTab() => TodayScreen(
       onOpenProfile: () {},
     );
 
-/// The coach greeting reads the wall clock (`DateTime.now()`), not the
-/// injectable one — the expectation has to be built the same way.
+/// The coach greeting reads `clock.now()`; the test pins it to [_jetzt] so
+/// the expectation cannot flip at an hour boundary.
 String _coachBegruessung(AppLocalizations l10n, String vorname) =>
-    '${greetingForHour(DateTime.now().hour, l10n)}, $vorname';
+    '${greetingForHour(_jetzt.hour, l10n)}, $vorname';
 
 void main() {
   group('Rang-Schema der geteilten Ueberschriften', () {
@@ -415,14 +415,16 @@ void main() {
         (tester) async {
       final l10n = _de;
       final handle = tester.ensureSemantics();
-      await pumpLocalized(
-        tester,
-        const CoachChatScreen(service: null, userName: 'Moritz Schneider'),
-        // The hero is tall; on the binding's 800x600 default it overflows.
-        surfaceSize: const Size(402, 900),
-        safeArea: false,
-        settle: true,
-      );
+      await withClock(Clock.fixed(_jetzt), () async {
+        await pumpLocalized(
+          tester,
+          const CoachChatScreen(service: null, userName: 'Moritz Schneider'),
+          // The hero is tall; on the binding's 800x600 default it overflows.
+          surfaceSize: const Size(402, 900),
+          safeArea: false,
+          settle: true,
+        );
+      });
 
       final marken = _sprungmarken();
       final info = tester.getSemantics(find.byKey(const ValueKey('coach-info')));

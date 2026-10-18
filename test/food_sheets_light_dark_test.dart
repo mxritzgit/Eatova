@@ -28,6 +28,10 @@ import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 
 import 'support/harness.dart';
+import 'support/pinned_clock.dart';
+
+/// Noon of a fixed day: the sheets show "today" for a meal logged then.
+final DateTime _mittag = DateTime(2026, 8, 12, 12);
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -88,7 +92,7 @@ Future<void> _pumpSheet(
 void main() {
   renderMatrix(
     'Das Add-Sheet rendert sauber',
-    (tester, c) async {
+    (tester, c) => withClockAt(_mittag, () async {
       await _pumpSheet(
         tester,
         c,
@@ -102,7 +106,7 @@ void main() {
             LoggedMeal(
               id: 'm1',
               result: _resultat,
-              loggedAt: DateTime.now(),
+              loggedAt: _mittag,
               forcedSlot: MealSlot.lunch,
             ),
           ],
@@ -124,7 +128,7 @@ void main() {
         find.byKey(const ValueKey('analyse-existing-meals')),
         findsOneWidget,
       );
-    },
+    }),
     locales: _beideSprachen,
   );
 
@@ -156,7 +160,7 @@ void main() {
 
   renderMatrix(
     'Das Bearbeiten-Sheet rendert sauber',
-    (tester, c) async {
+    (tester, c) => withClockAt(_mittag, () async {
       await _pumpSheet(
         tester,
         c,
@@ -164,7 +168,7 @@ void main() {
           meal: LoggedMeal(
             id: 'm1',
             result: _resultat,
-            loggedAt: DateTime.now(),
+            loggedAt: _mittag,
             forcedSlot: MealSlot.dinner,
           ),
           // No real update needed: this test only renders, never saves.
@@ -176,12 +180,12 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
       expect(find.text(c.l10n.foodEditMealTitle), findsOneWidget);
-    },
+    }),
     locales: _beideSprachen,
   );
 
   testWidgets('Auf Englisch traegt das Bearbeiten-Sheet den englischen Titel',
-      (tester) async {
+      (tester) => withClockAt(_mittag, () async {
     // Counter-check to the matrices above: they read the same ARB the sheets
     // read, so a regress in app_en.arb would pass unnoticed. One hard anchor
     // per language proves the title really CHANGES with the language.
@@ -194,7 +198,7 @@ void main() {
           meal: LoggedMeal(
             id: 'm1',
             result: _resultat,
-            loggedAt: DateTime.now(),
+            loggedAt: _mittag,
             forcedSlot: MealSlot.dinner,
           ),
           onUpdateMeal: (_, {result, slot, day}) => null,
@@ -207,5 +211,5 @@ void main() {
 
     expect(find.text('Edit meal'), findsOneWidget);
     expect(find.text('Mahlzeit bearbeiten'), findsNothing);
-  });
+  }));
 }

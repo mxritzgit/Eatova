@@ -24,6 +24,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase/supabase.dart';
 
@@ -195,7 +196,7 @@ void main() {
     // The guard against a zeroed window. None of these numbers come from
     // MealsSync; they describe what a user expects.
     setUp(() {
-      final jetzt = DateTime.now().toUtc();
+      final jetzt = clock.now().toUtc();
       server.tables['logged_meals'] = <Map<String, dynamic>>[
         _zeile(
           id: 'vor-2-stunden',
@@ -331,7 +332,7 @@ void main() {
 
   group('Zeilen-Deckel: der Deckel deckelt, aber nicht das Tagebuch', () {
     test('60 Mahlzeiten der letzten drei Tage kommen vollstaendig an', () async {
-      final jetzt = DateTime.now().toUtc();
+      final jetzt = clock.now().toUtc();
       server.tables['logged_meals'] = <Map<String, dynamic>>[
         for (var i = 0; i < 60; i++)
           _zeile(id: 'm$i', loggedAt: jetzt.subtract(Duration(hours: i))),
@@ -702,10 +703,10 @@ void main() {
         ),
         <String>['a', 'b'],
       );
-      // And the degenerate case: a window starting NOW returns nothing past —
-      // exactly the effect of loggedMealsWindowDays = 0.
-      final jetzt = DateTime.now().toUtc().toIso8601String();
-      expect(ids(await hole('at=gte.$jetzt')), isEmpty);
+      // And the degenerate case: a window starting after the newest row (as
+      // "now" does) returns nothing past — the effect of
+      // loggedMealsWindowDays = 0.
+      expect(ids(await hole('at=gte.2026-03-16T00:00:01Z')), isEmpty);
     });
 
     test('eq filtert, order sortiert, limit deckelt', () async {
@@ -733,7 +734,7 @@ void main() {
         <String, dynamic>{
           ..._zeile(
             id: 'voll',
-            loggedAt: DateTime.now().toUtc().subtract(const Duration(hours: 1)),
+            loggedAt: clock.now().toUtc().subtract(const Duration(hours: 1)),
             localDay: '2026-03-14',
             kcal: 777,
             name: 'Lachsbowl',

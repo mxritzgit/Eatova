@@ -50,7 +50,8 @@ Future<void> signIn(SupabaseClient client, String id) => client.auth
         'refresh_token': 'refresh-$id',
         'token_type': 'bearer',
         'expires_in': 3600,
-        'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600,
+        // Same far-future instant as the token's `exp`.
+        'expires_at': 4102444800,
         'user': {
           'id': id,
           'aud': 'authenticated',

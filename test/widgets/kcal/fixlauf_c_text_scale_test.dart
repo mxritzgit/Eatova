@@ -24,6 +24,10 @@ import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 import '../../support/harness.dart';
+import '../../support/pinned_clock.dart';
+
+/// Noon of a fixed day: the existing meal shows in the sheet's today list.
+final DateTime _mittag = DateTime(2026, 8, 27, 12);
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -83,7 +87,7 @@ Future<void> _pumpAddSheet(WidgetTester tester, RenderCase c) async {
         LoggedMeal(
           id: 'm-1',
           result: _apfel,
-          loggedAt: DateTime.now(),
+          loggedAt: _mittag,
           forcedSlot: MealSlot.snack,
         ),
       ],
@@ -122,7 +126,7 @@ Future<void> _openManualSheet(WidgetTester tester, RenderCase c) async {
 void main() {
   renderMatrix(
     'Das Add-Sheet traegt seine Kapseln bei jeder Systemschrift',
-    (tester, c) async {
+    (tester, c) => withClockAt(_mittag, () async {
       await _pumpAddSheet(tester, c);
 
       // Search capsule: at least the design height, taller when needed.
@@ -149,13 +153,13 @@ void main() {
         (sum, e) => sum + (e.renderObject! as RenderBox).size.height,
       );
       expect(tester.getSize(row).height, greaterThanOrEqualTo(textHeight));
-    },
+    }),
     textScales: _skalen,
   );
 
   renderMatrix(
     'Die Mahlzeiten-Segmente wachsen mit der Systemschrift',
-    (tester, c) async {
+    (tester, c) => withClockAt(_mittag, () async {
       await _pumpAddSheet(tester, c);
       expect(find.byType(MealSlotPicker), findsOneWidget);
       for (final slot in MealSlot.values) {
@@ -170,7 +174,7 @@ void main() {
           );
         }
       }
-    },
+    }),
     textScales: _skalen,
   );
 

@@ -53,7 +53,7 @@ class _ZaehlenderStore extends InMemoryKeyValueStore {
 LoggedMeal _meal(String id) => LoggedMeal(
       id: id,
       result: mealResult('Bowl'),
-      loggedAt: DateTime.now(),
+      loggedAt: DateTime(2026, 8, 27, 12),
     );
 
 void main() {
