@@ -3817,3 +3817,36 @@ seven-day Coach context.
 (skipped on UTC CI); TRN-9 is avoided in the Coach context but still open in
 the Trends screen; `bootstrap` in the Coach controller checks only
 `_disposed` after its awaits, as before.
+
+### Rollout of PR #155, 2026-10-18
+
+- **Migration:** `20261018100000_profiles_food_preferences.sql` was applied
+  live through the Management API right before the merge, in one transaction
+  with its `schema_migrations` row, after a dry run with rollback. Before:
+  55 registered, last `20261011101000`, live `apply_sync_operation` equal to
+  the `20261003100000` body. After: the new body (SECURITY DEFINER, search
+  path and ACL unchanged), both columns and checks present, the version
+  registered; `authenticated` can select but not update the new columns.
+- **Merge:** [PR #155](https://github.com/mxritzgit/Eatova/pull/155) was
+  squash-merged as `a3a7263b` after 16/16 green checks on the reviewed head
+  `9d5df54c` (753 test files, coverage 97.27 % against the new 95 % floor).
+  The first CI run failed only because the DST-gap reminder test skipped
+  itself on the UTC runner, which the shard contract rejects; it now runs in
+  every zone.
+- **Functions:** before the deploy, all four live sources were identical to
+  `ea2722e6`. Deployed from an LF export of `a3a7263b` with Supabase CLI
+  2.120.0 (`--use-api`), `coach-chat` first: `coach-chat` **v59** (the
+  previous number was not read before this deploy),
+  `analyze-meal` v40 → **v41**, `recipe-import` v15 → **v16**, `search-key`
+  v16 → **v17**, all ACTIVE with `verify_jwt=true`. The downloaded live
+  sources equal `a3a7263b` byte for byte, without CRLF. Boot probe: preflight
+  204 and the gateway's 401 without a token everywhere; with the public anon
+  key each handler's own 401 (`search-key` answers POST with its 405 and GET
+  with 401).
+- **Still open:** an app build and the device checks (Today chip and line,
+  reminder time and offer, copy and repeat, "Your foods", quick entry, own
+  barcode on Android and iOS, the Nutrition section, `/recipe` with
+  preferences, a Coach answer that uses the seven-day block); `ai_call` lines
+  in the function logs after the first real requests; the
+  `supabase-deploy` environment and its secrets before the first workflow
+  run; the privacy-policy sentence on the website.
