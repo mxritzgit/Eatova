@@ -3730,3 +3730,20 @@ an English "Rice" can appear on a German receipt. Grouping by supermarket
 aisle would be a possible next step.
 
 **Rollout:** needs an app build; no deploy, no migration.
+
+## Improvement review with two agents, 2026-10-18
+
+The owner asked for a two-agent review of what would still improve Eatova.
+See [IMPROVEMENT-REVIEW-2026-10-18.md](IMPROVEMENT-REVIEW-2026-10-18.md),
+based on `5ff0958a`. Two read-only agents covered product/UX and
+engineering/backend/release; the main session spot-checked the load-bearing
+claims in code. Since 2026-10-10 only E2, the Health measurement time and part
+of P2 are done; the other P1 gaps, F8, F9 and the owner items from 2026-10-11
+except REC-3, BE-2 and COACH-4 remain open. Strongest candidates: AI consent
+(the describe sheet does not mention AI at all), Sign in with Apple and a
+release lane before a store launch; a visible weigh-in and weekly-check
+progress plus findable reminders; copying meals and history search; Coach
+preferences and a 7-day context. Technically: per-call AI usage telemetry
+(`coach-chat` never logs `usage`), a CI deploy workflow for functions, shared
+Edge modules and a Coach controller. This is a recommendation, not an approved
+roadmap; only documentation changed.
