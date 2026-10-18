@@ -691,7 +691,7 @@
   "coachInfoIntro": "Hier antwortet eine KI, keine echte Person. Die Antworten sind eine Schätzung und ersetzen keinen ärztlichen Rat.",
   "coachInfoDataLabel": "Das schickt jede Frage mit",
   "coachInfoBulletWeight": "Dein Gewicht und dein Zielgewicht",
-  "coachInfoBulletMacros": "Deine heutigen Kalorien und die offenen Makros",
+  "coachInfoBulletMacros": "Deine heutigen Kalorien und die offenen Makros, dazu ein Überblick über die letzten 7 Tage: Kalorien, Protein, Gewichtstrend und Trainings",
   "coachInfoBulletMeals": "Die Namen der Mahlzeiten, die du heute geloggt hast",
   "coachInfoProvider": "Der Coach nutzt Claude-Modelle von Anthropic. Je nach Anfrage werden deine Frage, die oben genannten Angaben, bis zu zehn vorherige Chatnachrichten, ein angehängtes Foto oder ausgewählte Trainingsplaninformationen übermittelt. Bilder für Rezeptkarten erstellt ein Bildmodell von Google über OpenRouter, nur aus Titel und Beschreibung des Rezepts. Dabei können Daten auch außerhalb der EU, einschließlich der USA, verarbeitet werden. Mehr zu Empfängern und Datenverwendung steht in der Datenschutzerklärung.",
   "coachInfoLimitLabel": "Coach-Limit",

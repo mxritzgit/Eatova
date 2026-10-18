@@ -15,16 +15,16 @@ export const EVAL_PRICES = Object.freeze({ input: 2.0, output: 10.0, cacheWrite:
  */
 export const EVAL_OUTPUT_CAPS = Object.freeze({ classifier: 1024, answer: 4096, structured: 5000 });
 export const EVAL_LIMITS = Object.freeze({
-  requests: 24,
+  requests: 26,
   /** UTF-8 bytes of system prompt, messages and output schema together; the
-   *  largest synthetic request measured 7,480 (an answer with history). */
+   *  largest synthetic request measured 8,787 (the week-context answer). */
   inputBytes: 16_384,
   /** Message framing and the thinking/structured-output instructions the API adds. */
   overheadTokens: 4_096,
   /** The server's own provider read limit (MAX_PROVIDER_RESPONSE_BYTES). */
   responseBytes: 524_288,
   timeoutMs: 45_000,
-  totalUsd: 2.06,
+  totalUsd: 2.23,
 });
 export type EvalRoute = keyof typeof EVAL_OUTPUT_CAPS;
 const MESSAGES = "https://api.anthropic.com/v1/messages";
@@ -36,8 +36,8 @@ type EvalMode = "standard" | "remainder" | "log";
 const REMAINDER_CASE_IDS = ["context-injection", "history-injection", "minor-risk", "plan-positive", "recipe-positive"];
 // Batch caps: every call at the full input budget (reservationCents below):
 // classifier 7, answer 10, recipe or /log draft 10, plan 11 cents.
-//  standard  12 classifiers + 9 answers + recipe + 2 plans (injury-plan may
-//            pass its classifier) = 84 + 90 + 10 + 22 = 206 cents, 24 calls.
+//  standard  13 classifiers + 10 answers + recipe + 2 plans (injury-plan may
+//            pass its classifier) = 91 + 100 + 10 + 22 = 223 cents, 26 calls.
 //  remainder 5 classifiers + 3 answers + recipe + plan = 35 + 30 + 10 + 11 = 86 cents, 10 calls.
 //  /log      24 classifiers + 22 extractions + 2 answers = 168 + 220 + 20 = 408 cents, 48 calls.
 export const REMAINDER_EVAL_LIMITS = Object.freeze({ requests: 10, totalUsd: 0.86 });

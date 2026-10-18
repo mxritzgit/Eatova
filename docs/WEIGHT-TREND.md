@@ -160,6 +160,13 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
 - The goals screen shows a non-zero adjustment in live mode and can reset it
   to 0, which takes effect on save.
 
+### Other readers
+
+The Coach's seven-day block (2026-10-18) reads the same weight change through
+`EnergyCheck.weightRate`: same window, typo filter and minimum of weigh-ins.
+Its ± band is the two-standard-error noise guard, in kg/week. Without the
+minimum the block says so instead of naming a rate.
+
 ### Storage and rollout
 
 - `profiles.energy_adjustment_kcal smallint not null default 0`, with a check

@@ -1612,6 +1612,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         _store.burnedKcalForFoodDate(clock.now()),
         _store.macroProgress,
         _store.loggedMeals,
+        // The seven-day block: weigh-ins, past activity credit and the day
+        // the window ends on.
+        _store.weightLog,
+        _store.dailyActivity,
+        DateUtils.dateOnly(clock.now()),
         // Deleting in the recipes tab must re-enable the card button —
         // already while the delete sits in its undo window (2026-09-02).
         _store.userRecipes,

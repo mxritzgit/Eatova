@@ -112,10 +112,7 @@ class EnergyCheck {
     if (logged.length < minLoggedDays) return null;
 
     final weighIns = _weighInDays(weightLog, days.first, days.last);
-    if (weighIns.length < minWeighInDays ||
-        daysBetween(weighIns.last.$1, weighIns.first.$1) < minWeighInSpanDays) {
-      return null;
-    }
+    if (!_enoughWeighIns(weighIns)) return null;
     final (slopeKgPerDay, slopeError) = _slope(weighIns);
 
     double mean(Iterable<int> values) =>
@@ -154,6 +151,40 @@ class EnergyCheck {
       weighInDays: weighIns.length,
     );
   }
+
+  /// The weight change this check measures for [today] (local midnight):
+  /// the same window, typo filter, minimum and slope as [evaluate], so other
+  /// readers (the Coach's week block) never contradict the check.
+  ///
+  /// [weighInDays] counts the window's weigh-in days after the typo filter.
+  /// Below the minimum ([minWeighInDays] days, [minWeighInSpanDays] apart)
+  /// there is no rate. [noiseKgPerWeek] is [minDifferenceStandardErrors]
+  /// standard errors of the slope: the band [evaluate] treats as noise.
+  static ({int weighInDays, double? kgPerWeek, double? noiseKgPerWeek})
+  weightRate(WeightLog weightLog, {required DateTime today}) {
+    final weighIns = _weighInDays(
+      weightLog,
+      addDays(today, -windowDays),
+      addDays(today, -1),
+    );
+    if (!_enoughWeighIns(weighIns)) {
+      return (
+        weighInDays: weighIns.length,
+        kgPerWeek: null,
+        noiseKgPerWeek: null,
+      );
+    }
+    final (slopeKgPerDay, slopeError) = _slope(weighIns);
+    return (
+      weighInDays: weighIns.length,
+      kgPerWeek: slopeKgPerDay * 7,
+      noiseKgPerWeek: minDifferenceStandardErrors * slopeError * 7,
+    );
+  }
+
+  static bool _enoughWeighIns(List<(DateTime, double)> weighIns) =>
+      weighIns.length >= minWeighInDays &&
+      daysBetween(weighIns.last.$1, weighIns.first.$1) >= minWeighInSpanDays;
 
   /// The last weigh-in of each local day in [first]..[last], typos dropped:
   /// days further than [weighInOutlierShare] from the median.
