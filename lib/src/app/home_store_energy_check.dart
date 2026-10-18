@@ -16,6 +16,7 @@ mixin _HomeStoreEnergyCheckPart
 
   Object? _energyCheckKey;
   EnergyCheckProposal? _energyCheckProposal;
+  EnergyCheckProgress? _energyCheckProgress;
 
   /// The local day whose window [_backfillEnergyCheckWindow] last refreshed.
   DateTime? _energyCheckStepsDay;
@@ -32,20 +33,39 @@ mixin _HomeStoreEnergyCheckPart
     return day != null && daysBetween(clock.now(), day) == 0;
   }
 
-  /// Today's weekly-check proposal, or null.
+  /// The check's sources are complete: data the server answered in this
+  /// session — profile, weight log and the complete meal window — like the
+  /// weight-trend re-anchor, plus the refreshed step window. A proposal from
+  /// a stale cache would be advice built on missing days.
   ///
-  /// Only on data the server answered in this session — profile, weight log
-  /// and the complete meal window — like the weight-trend re-anchor: a goal
-  /// proposal from a stale cache would be advice built on missing days.
+  /// Public for the Today slice: card and progress line follow the gate
+  /// itself instead of relying on an input that changes in the same notify.
+  bool get energyCheckSourcesReady =>
+      sync == null ||
+      (_hydratedFromRealSource &&
+          _serverAnsweredProfileAndWeightLog &&
+          _serverMealsLoaded &&
+          !_bootMealsAtCapacity &&
+          energyCheckStepsReady);
+
+  /// Today's weekly-check proposal, or null; only on complete sources
+  /// ([energyCheckSourcesReady]).
   EnergyCheckProposal? get energyCheckProposal {
-    if (sync != null &&
-        !(_hydratedFromRealSource &&
-            _serverAnsweredProfileAndWeightLog &&
-            _serverMealsLoaded &&
-            !_bootMealsAtCapacity &&
-            energyCheckStepsReady)) {
-      return null;
-    }
+    _refreshEnergyCheck();
+    return energyCheckSourcesReady ? _energyCheckProposal : null;
+  }
+
+  /// How far the weekly check is from an estimate, on the same sources and
+  /// inputs as [energyCheckProposal]; null while those are incomplete or
+  /// when the check does not apply (manual goal, unfinished onboarding).
+  EnergyCheckProgress? get energyCheckProgress {
+    _refreshEnergyCheck();
+    return energyCheckSourcesReady ? _energyCheckProgress : null;
+  }
+
+  /// Recomputes proposal and progress when an input changed.
+  void _refreshEnergyCheck() {
+    if (!energyCheckSourcesReady) return;
     final today = startOfDay(clock.now());
     // A reading today can arrive without changing the day's pinned value.
     final stepSourceToday = stepsForFoodDate(clock.now()) != null;
@@ -58,15 +78,25 @@ mixin _HomeStoreEnergyCheckPart
       today,
       stepSourceToday,
     );
-    if (key == _energyCheckKey) return _energyCheckProposal;
+    if (key == _energyCheckKey) return;
     _energyCheckKey = key;
-    return _energyCheckProposal = const EnergyCheck().evaluate(
+    // Only what this device holds: step values are not synced, and a day
+    // without one must not count as zero steps.
+    int? burnedKcal(DateTime day) => dailyActivity[localDayKey(day)]?.kcal;
+    const check = EnergyCheck();
+    _energyCheckProposal = check.evaluate(
       profile: profile,
       today: today,
       intakeKcal: consumedKcalForFoodDate,
-      // Only what this device holds: step values are not synced, and a day
-      // without one must not count as zero steps.
-      burnedKcal: (day) => dailyActivity[localDayKey(day)]?.kcal,
+      burnedKcal: burnedKcal,
+      stepSourceToday: stepSourceToday,
+      weightLog: weightLog,
+    );
+    _energyCheckProgress = check.progress(
+      profile: profile,
+      today: today,
+      intakeKcal: consumedKcalForFoodDate,
+      burnedKcal: burnedKcal,
       stepSourceToday: stepSourceToday,
       weightLog: weightLog,
     );

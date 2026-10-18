@@ -281,13 +281,8 @@ class WeightCard extends StatelessWidget {
   /// NEXT TO the builder child, where no sheet can reach it. Drawn inside the
   /// sheet instead: a [SheetHandle] with the dismiss action. The shell
   /// (scrim, edge, keyboard inset, height cap) is [showEatovaSheet]'s.
-  Future<void> _promptWeight(BuildContext context) async {
-    await showEatovaSheet<double>(
-      context,
-      _ProfileWeightInputSheet(initial: _current, onSave: onLogWeight),
-      dragHandle: false,
-    );
-  }
+  Future<void> _promptWeight(BuildContext context) =>
+      showWeightEntrySheet(context, initial: _current, onSave: onLogWeight);
 
   static String _formatShort(DateTime d, AppLocalizations l10n) {
     final now = clock.now();
@@ -608,6 +603,19 @@ class _ZoneRow extends StatelessWidget {
     );
   }
 }
+
+/// The weigh-in sheet ([WeightCard._promptWeight] explains its shape): one
+/// field prefilled with [initial], saved through [onSave], closed on
+/// success. The profile's weight card and Today's weight chip share it.
+Future<void> showWeightEntrySheet(
+  BuildContext context, {
+  required double initial,
+  required PersistValueChanged<double> onSave,
+}) => showEatovaSheet<double>(
+  context,
+  _ProfileWeightInputSheet(initial: initial, onSave: onSave),
+  dragHandle: false,
+);
 
 class _ProfileWeightInputSheet extends StatefulWidget {
   const _ProfileWeightInputSheet({required this.initial, required this.onSave});

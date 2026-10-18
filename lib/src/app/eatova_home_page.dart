@@ -817,9 +817,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.loggedMeals,
       _store.profile,
       // The weekly energy check also reads the weight log, and waits for its
-      // step backfill.
+      // step backfill and server answers (the gate itself, not only the
+      // inputs that change with it today).
       _store.weightLog,
       _store.energyCheckStepsReady,
+      _store.energyCheckSourcesReady,
       _store.stepsForFoodDate(_store.selectedFoodDate),
       // Map identity as fingerprint (G11): an upsert replaces the map.
       _store.dailyActivity,
@@ -844,6 +846,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
+      final ownerStore = _store;
       final tag = _store.selectedFoodDate;
       final today = _store.selectedFoodDateIsToday;
       return TodayScreen(
@@ -894,6 +897,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onAcceptReminderPrompt: _acceptReminderPrompt,
         onDismissReminderPrompt: _store.dismissReminderPrompt,
         onChangeReminderTime: (time) => unawaited(_store.setReminderTime(time)),
+        energyCheckProgress: today ? _store.energyCheckProgress : null,
+        // The weight chip: the profile's weigh-in path, for this session.
+        latestWeightKg: _store.weightLog.latest?.weightKg,
+        onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,
       );
     },
   );
@@ -923,6 +930,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       case ReminderState.off:
         break;
     }
+  }
+
+  Future<void> _logWeightFromToday(HomeStore ownerStore, double kg) async {
+    // A sheet opened before an account change must not write into the new
+    // session; the sheet then names the failed save.
+    if (!_isStoreSessionCurrent(ownerStore)) {
+      throw StateError('Weight owner changed');
+    }
+    await ownerStore.logWeight(kg);
   }
 
   /// "Tonight's pick" through the shared pick actions: a suggestion opens

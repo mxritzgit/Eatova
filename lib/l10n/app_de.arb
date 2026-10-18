@@ -3483,5 +3483,21 @@
   "@foodOwnProductSource": {"description": "Origin of a product the user entered by hand for an unknown barcode."},
   "foodOwnProductBarcodeNote": "Barcode {code} · Eatova merkt sich dein Produkt für den nächsten Scan.",
   "@foodOwnProductBarcodeNote": {"placeholders": {"code": {"type": "String"}}},
-  "foodOwnProductCheckDigitInvalid": "Die Prüfziffer passt nicht. Prüf die Nummer noch einmal."
+  "foodOwnProductCheckDigitInvalid": "Die Prüfziffer passt nicht. Prüf die Nummer noch einmal.",
+  "todayWeighChipLog": "Gewicht eintragen",
+  "@todayWeighChipLog": {"description": "Today's weight chip without any weigh-in yet; opens the weigh-in sheet."},
+  "todayWeighChipValue": "{kg} kg",
+  "@todayWeighChipValue": {"description": "Today's weight chip: the latest weigh-in, kg already in the locale's decimal format.", "placeholders": {"kg": {"type": "String"}}},
+  "todayWeighChipSemantics": "Letztes Gewicht {kg} kg. Neues Gewicht eintragen",
+  "@todayWeighChipSemantics": {"description": "Screen reader label of Today's weight chip (a button).", "placeholders": {"kg": {"type": "String"}}},
+  "todayWeighCheckIn": "{days, plural, =1{Wochen-Check frühestens morgen} other{Wochen-Check frühestens in {days} Tagen}}",
+  "@todayWeighCheckIn": {"description": "Today's progress line: the earliest day the weekly check can run if every day gets logged and weighed as needed.", "placeholders": {"days": {"type": "int"}}},
+  "todayWeighLoggedToGo": "{count, plural, =1{noch 1 Tag eintragen} other{noch {count} Tage eintragen}}",
+  "@todayWeighLoggedToGo": {"description": "Part of Today's progress line: logged days the weekly check still needs, today included.", "placeholders": {"count": {"type": "int"}}},
+  "todayWeighWeighInsToGo": "{count, plural, =1{noch 1 Wiegung} other{noch {count} Wiegungen}}",
+  "@todayWeighWeighInsToGo": {"description": "Part of Today's progress line: weigh-in days the weekly check still needs.", "placeholders": {"count": {"type": "int"}}},
+  "todayWeighJoin": "{first} · {second}",
+  "@todayWeighJoin": {"description": "Joins two parts of Today's progress line.", "placeholders": {"first": {"type": "String"}, "second": {"type": "String"}}},
+  "todayWeighCheckReady": "Wochen-Check aktiv · deine Daten reichen",
+  "@todayWeighCheckReady": {"description": "Today's progress line once the weekly check has enough data and proposes nothing."}
 }
