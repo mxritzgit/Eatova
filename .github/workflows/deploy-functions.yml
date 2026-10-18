@@ -31,9 +31,9 @@ concurrency:
 env:
   # The version every recorded manual deploy used (docs/PROJECT_HANDOFF.md).
   SUPABASE_CLI_VERSION: 2.120.0
-  # SHA-256 of supabase_linux_amd64.tar.gz of that release. Must be pinned
-  # before the first run (docs/OPERATIONS.md); until then the run fails closed.
-  SUPABASE_CLI_SHA256: unpinned
+  # SHA-256 of supabase_linux_amd64.tar.gz of that release, as listed in its
+  # checksums.txt and GitHub's asset digest (checked 2026-10-18).
+  SUPABASE_CLI_SHA256: 7074584113aa00495beeac661c41fb09f1ddd0a483cd7333894b0d080086dc6e
 
 jobs:
   deploy:

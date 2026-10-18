@@ -415,10 +415,11 @@ still deploys nothing.
      the functions and the app use. It must pass the gateway's JWT check; if
      the publishable key does not, use the legacy anon JWT. Not a secret by
      nature, but kept out of the repository like the app's defines.
-3. Pin the CLI: set `SUPABASE_CLI_SHA256` in the workflow to the SHA-256 of
-   `supabase_linux_amd64.tar.gz` from the `v2.120.0` release, after comparing it
-   with that release's checksum file, in a reviewed PR. Until then every run
-   fails before it uses a secret. A CLI upgrade changes both values together.
+3. The CLI is pinned: `SUPABASE_CLI_SHA256` in the workflow is the SHA-256 of
+   `supabase_linux_amd64.tar.gz` from the `v2.120.0` release, compared on
+   2026-10-18 with that release's `checksums.txt` and GitHub's asset digest.
+   An invalid value fails the run before it uses a secret. A CLI upgrade
+   changes both values together, in a reviewed PR.
 
 The first run is the first real check of the CLI commands
 (`functions deploy --use-api`, `functions download --use-api`, `--workdir`) and
