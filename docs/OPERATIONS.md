@@ -122,6 +122,124 @@ destination before any authorized routing test. Do not send unsolicited test
 alerts to real recipients. A configured rule without delivery evidence remains
 unverified. Recheck access, rules and restore evidence after material changes.
 
+### AI call telemetry
+
+Every paid provider call writes one JSON line to `function_logs`, from
+`coach-chat`, `analyze-meal` and `recipe-import`
+([ai_telemetry.ts](../supabase/functions/_shared/ai_telemetry.ts)):
+
+```json
+{"event":"ai_call","fn":"coach-chat","route":"chat","provider":"anthropic","model":"claude-sonnet-5-5","effort":"high","stream":true,"attempt":1,"outcome":"ok","http_status":200,"latency_ms":8423,"stop_reason":"end_turn","input_tokens":812,"output_tokens":233,"cache_creation_input_tokens":0,"cache_read_input_tokens":2400,"refunded":false}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `fn`, `route` | Function and call: `chat`, `classifier`, `recipe`, `plan`, `log`, `image` (Coach); `analyze`, `describe`; `import` |
+| `provider`, `model`, `effort` | `anthropic` or `openrouter` (recipe images), the configured model id, thinking effort (`null` for images) |
+| `stream`, `attempt` | Streamed Coach answer; 1-based attempt of a recipe-import retry |
+| `outcome`, `http_status` | `ok`, `refused` (provider safety stop), `timeout`, `aborted` (client gone), `error`; the provider's HTTP status or `null` |
+| `latency_ms` | From request start to the settled result, for a stream to its end |
+| `stop_reason` | Provider stop reason from a fixed list (`end_turn`, `max_tokens`, `refusal`, ...), else `other` |
+| `*_tokens` | Usage counters as reported, `null` if absent. Claude's `input_tokens` excludes cached tokens: the prompt is input + cache creation + cache read |
+| `refunded` | The user's Coach question slot for this request was given back. Always `false` in analyze-meal and recipe-import, which have no refund |
+
+The line is built from an allowlist: enum values (anything else becomes
+`other`), bounded integers, booleans and `null`. It never carries prompts,
+answers, user ids, IPs or request ids; tests feed content into every field and
+check that it does not appear. Telemetry never throws. `coach-chat` writes its
+lines when the request, or its stream, has settled, so `refunded` is final; a
+call whose function is killed before that point leaves no line. A refusal the
+app derives from an answer (Layer 3, an unusable draft) counts as `ok` here.
+
+Query the lines in the Supabase dashboard's Logs Explorer (source
+`function_logs`, BigQuery dialect; set the time range in the picker). The
+queries below were written against the documented schema and not run against
+the live project. They extract fields with `regexp_extract`, which works
+because the key order is fixed.
+
+```sql
+-- Tokens per function, route and day. Price them with the provider's current
+-- price list: cache writes and reads are billed at different rates than input.
+select
+  timestamp_trunc(timestamp, day) as day,
+  regexp_extract(event_message, r'"fn":"([a-z-]+)"') as fn,
+  regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+  count(*) as calls,
+  sum(cast(regexp_extract(event_message, r'"input_tokens":(\d+)') as int64)) as input_tokens,
+  sum(cast(regexp_extract(event_message, r'"cache_creation_input_tokens":(\d+)') as int64)) as cache_write_tokens,
+  sum(cast(regexp_extract(event_message, r'"cache_read_input_tokens":(\d+)') as int64)) as cache_read_tokens,
+  sum(cast(regexp_extract(event_message, r'"output_tokens":(\d+)') as int64)) as output_tokens,
+  countif(regexp_contains(event_message, r'"refunded":true')) as refunded_calls
+from function_logs
+where regexp_contains(event_message, r'^\{"event":"ai_call"')
+group by day, fn, route
+order by day desc, output_tokens desc;
+
+-- Prompt-cache hit rate per route: the share of prompt tokens read from cache.
+-- Near zero at low traffic means the 5-minute cache expires between requests.
+select route,
+  safe_divide(sum(cache_read), sum(input + cache_write + cache_read)) as cache_read_share,
+  countif(cache_read > 0) as calls_with_cache_hit,
+  count(*) as calls
+from (
+  select
+    regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+    coalesce(cast(regexp_extract(event_message, r'"input_tokens":(\d+)') as int64), 0) as input,
+    coalesce(cast(regexp_extract(event_message, r'"cache_creation_input_tokens":(\d+)') as int64), 0) as cache_write,
+    coalesce(cast(regexp_extract(event_message, r'"cache_read_input_tokens":(\d+)') as int64), 0) as cache_read
+  from function_logs
+  where regexp_contains(event_message, r'^\{"event":"ai_call","fn":"[a-z-]+","route":"[a-z]+","provider":"anthropic"')
+)
+group by route;
+
+-- p50/p95 latency per route and stream mode, successful calls only.
+select route, stream, count(*) as calls,
+  approx_quantiles(latency_ms, 100)[offset(50)] as p50_ms,
+  approx_quantiles(latency_ms, 100)[offset(95)] as p95_ms
+from (
+  select
+    regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+    regexp_contains(event_message, r'"stream":true') as stream,
+    cast(regexp_extract(event_message, r'"latency_ms":(\d+)') as int64) as latency_ms
+  from function_logs
+  where regexp_contains(event_message, r'^\{"event":"ai_call"')
+    and regexp_contains(event_message, r'"outcome":"ok"')
+)
+group by route, stream;
+
+-- BE-3: answers cut by max_tokens per route, and how many refunded the slot.
+select
+  regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+  count(*) as calls,
+  countif(regexp_contains(event_message, r'"stop_reason":"max_tokens"')) as max_tokens_stops,
+  countif(regexp_contains(event_message, r'"stop_reason":"max_tokens"')
+    and regexp_contains(event_message, r'"refunded":true')) as max_tokens_refunded
+from function_logs
+where regexp_contains(event_message, r'^\{"event":"ai_call"')
+group by route
+order by max_tokens_stops desc;
+```
+
+Two recommended alerts, as instructions; none is configured by this
+repository. Follow the record and test rules above for each.
+
+1. **Edge Function 5xx rate.** Every 5 minutes, count responses by status in
+   `function_edge_logs` (the gateway's view, which also sees boot errors and
+   timeouts that leave no `ai_call` line), for example with the dashboard's
+   invocation query: `from function_edge_logs cross join unnest(metadata) as m
+   cross join unnest(m.response) as response`, grouping
+   `response.status_code >= 500` per `m.function_id`. Alert above 5% over 5
+   minutes with at least 20 requests, as in the table above. Run the query from
+   a protected scheduler through the Management API's logs endpoint, or route a
+   log drain into an alerting tool where the plan allows it. Do not put the
+   management token into PR-reachable workflows.
+2. **Provider budget at 80%.** Schedule the readiness check below: it exits 1
+   when global AI calls or images reach 80% of the approved daily limit
+   (`--budget-warning-percent`), and 2 when the state is unknown. Route both
+   exit codes and a missed run. Separately set the provider accounts' spend
+   notifications to 80% of the approved monthly money limit where the provider
+   console offers them; the daily reservation limit is not a money limit.
+
 ### Executable read-only readiness check
 
 Run the [metadata checker](../scripts/operations/readiness.py) with Python 3.11+

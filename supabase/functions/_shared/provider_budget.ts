@@ -1,7 +1,15 @@
 // Every paid outbound call requires a fresh, non-refundable database claim.
+import type { AiCallLog } from './ai_telemetry.ts';
+
 export type ProviderOperation = 'coach_classifier' | 'coach_answer' | 'coach_recipe' |
   'coach_plan' | 'coach_image' | 'analyze_meal';
-export type ProviderCallBudget = (operation: ProviderOperation) => Promise<void>;
+/**
+ * Reserves one paid call. Every paid call passes through the request's budget
+ * first, so it also carries the request's AI call log (ai_telemetry.ts).
+ */
+export type ProviderCallBudget = ((operation: ProviderOperation) => Promise<void>) & {
+  readonly calls?: AiCallLog;
+};
 
 export class ProviderBudgetError extends Error {
   readonly status: number;
@@ -18,10 +26,12 @@ interface BudgetContext {
   userId: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** The request's AI call log, handed on to the provider calls. */
+  calls?: AiCallLog;
 }
 
 export function providerCallBudget(context: BudgetContext): ProviderCallBudget {
-  return async (operation) => {
+  const reserve = async (operation: ProviderOperation): Promise<void> => {
     const signal = AbortSignal.any([
       AbortSignal.timeout(Math.max(1, Math.min(context.timeoutMs ?? 5000, 5000))),
       ...(context.signal ? [context.signal] : []),
@@ -71,4 +81,5 @@ export function providerCallBudget(context: BudgetContext): ProviderCallBudget {
       void reader?.cancel().catch(() => {});
     }
   };
+  return Object.assign(reserve, { calls: context.calls });
 }

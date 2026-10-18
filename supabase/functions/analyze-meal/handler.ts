@@ -25,6 +25,7 @@ import {
 } from '../_shared/claude.ts';
 import type { ClaudeEffort, ClaudeImageBlock, ClaudeTextBlock } from '../_shared/claude.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
+import { AiCallLog, aiAnswerOutcome, aiOutcomeOf } from '../_shared/ai_telemetry.ts';
 import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
 import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
 import type { AuthFailGateResult } from '../_shared/auth_fail_gate.ts';
@@ -351,6 +352,8 @@ type ProviderRequest = {
   content: (ClaudeTextBlock | ClaudeImageBlock)[];
   effort: ClaudeEffort;
   schema: Record<string, unknown>;
+  /** Telemetry route (../_shared/ai_telemetry.ts). */
+  route: 'analyze' | 'describe';
   /** Extra fields of the request log line: counts only, never content. */
   logMeta: Record<string, string | number>;
 };
@@ -1096,6 +1099,7 @@ function providerRequest(body: ParsedBody): ProviderRequest {
       content: [{ type: 'text', text: JSON.stringify({ mealText: body.mealText }) }],
       effort: ANALYZE_MEAL_DESCRIBE_EFFORT,
       schema: DESCRIBE_OUTPUT_SCHEMA,
+      route: 'describe',
       logMeta: { mode: 'describe', textChars: body.mealText.length },
     };
   }
@@ -1107,6 +1111,7 @@ function providerRequest(body: ParsedBody): ProviderRequest {
     ],
     effort: ANALYZE_MEAL_EFFORT,
     schema: MEAL_OUTPUT_SCHEMA,
+    route: 'analyze',
     logMeta: {},
   };
 }
@@ -1125,6 +1130,14 @@ async function callProvider(
   // preliminary steps have already spent part of the 60 s the client waits.
   const timeoutMs = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, deadline.remainingMs()));
   const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(timeoutMs)]);
+  // One ai_call line (../_shared/ai_telemetry.ts); there is no refund here.
+  const telemetry = new AiCallLog('analyze-meal').start({
+    route: call.route,
+    provider: 'anthropic',
+    model: CLAUDE_MODEL,
+    effort: call.effort,
+  });
+  let status: number | null = null;
   let response: Response;
   let text: string;
   try {
@@ -1147,10 +1160,12 @@ async function callProvider(
         schema: call.schema,
       })),
     });
+    status = response.status;
     const bounded = await readProviderBody(response, 512 * 1024, signal);
     if (bounded === null) throw new HttpError(502, 'provider_response_too_large', 'Analyse-Antwort war zu gross.');
     text = bounded;
   } catch (error) {
+    telemetry.settle({ outcome: requestSignal.aborted ? 'aborted' : aiOutcomeOf(error), httpStatus: status });
     if (requestSignal.aborted) {
       throw new HttpError(499, 'request_aborted', 'Anfrage abgebrochen.');
     }
@@ -1169,6 +1184,7 @@ async function callProvider(
     throw error;
   }
   if (!response.ok) {
+    telemetry.settle({ outcome: 'error', httpStatus: status });
     // Never log the raw error body (CWE-532): provider errors can mirror
     // user input. Status, length and digest prefix suffice for diagnosis.
     console.error('Provider error', {
@@ -1183,8 +1199,17 @@ async function callProvider(
   try {
     completion = JSON.parse(text) as Record<string, unknown>;
   } catch (_) {
+    telemetry.settle({ outcome: 'error', httpStatus: status });
     throw new HttpError(502, 'provider_invalid_response', 'Analyse-Antwort war ungültig.');
   }
+  // The provider call is complete; what the answer is worth is decided below.
+  const envelope = isRecord(completion) ? completion : {};
+  telemetry.settle({
+    outcome: aiAnswerOutcome(envelope.stop_reason),
+    httpStatus: status,
+    stopReason: envelope.stop_reason,
+    usage: envelope.usage,
+  });
 
   const finishReason = finishReasonFromStop(completion.stop_reason);
   const rawContent = claudeText(completion);

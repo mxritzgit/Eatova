@@ -1,7 +1,9 @@
+import { AiCallLog, aiAnswerOutcome, aiOutcomeOf } from '../_shared/ai_telemetry.ts';
 import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
 import {
   cachedSystem,
   CLAUDE_MESSAGES_URL,
+  CLAUDE_MODEL,
   claudeHeaders,
   claudeRequestBody,
   claudeText,
@@ -173,9 +175,15 @@ export async function handleRequest(request: Request): Promise<Response> {
     const retryPossible = () =>
       !providerDeadline.aborted && window - (Date.now() - providerStarted) >= PROVIDER_TIMINGS_MS.retryMin;
     let lastError = new ImportError(502, 'provider_invalid_response');
+    // One ai_call line per attempt (../_shared/ai_telemetry.ts); no refund here.
+    const calls = new AiCallLog('recipe-import');
     for (let attempt = 0; attempt < 2; attempt++) {
       await budget('coach_recipe');
       const signal = providerDeadline;
+      const call = calls.start({
+        route: 'import', provider: 'anthropic', model: CLAUDE_MODEL, effort: RECIPE_IMPORT_EFFORT, attempt: attempt + 1,
+      });
+      let status: number | null = null;
       let provider: unknown;
       try {
         const response = await fetch(CLAUDE_MESSAGES_URL, {
@@ -187,7 +195,9 @@ export async function handleRequest(request: Request): Promise<Response> {
             maxTokens: MAX_TOKENS, effort: RECIPE_IMPORT_EFFORT, schema: extractionSchema,
           })),
         });
+        status = response.status;
         if (!response.ok) {
+          call.settle({ outcome: 'error', httpStatus: status });
           void response.body?.cancel().catch(() => {});
           if (attempt === 0 && (response.status === 429 || response.status >= 500) && retryPossible()) {
             lastError = new ImportError(502, 'provider_unavailable');
@@ -197,6 +207,7 @@ export async function handleRequest(request: Request): Promise<Response> {
         }
         provider = await boundedJson(response, 192_000, signal);
       } catch (error) {
+        call.settle({ outcome: aiOutcomeOf(error), httpStatus: status });
         if (error instanceof ImportError) throw error;
         // A timeout leaves no time for a second attempt.
         if (signal.aborted) throw new ImportError(504, 'request_timeout');
@@ -204,6 +215,12 @@ export async function handleRequest(request: Request): Promise<Response> {
         if (attempt === 0 && retryPossible()) continue;
         throw lastError;
       }
+      call.settle({
+        outcome: aiAnswerOutcome(record(provider) ? provider.stop_reason : undefined),
+        httpStatus: status,
+        stopReason: record(provider) ? provider.stop_reason : undefined,
+        usage: record(provider) ? provider.usage : undefined,
+      });
       const stop = record(provider) ? finishReasonFromStop(provider.stop_reason) : undefined;
       // Too much recipe content for one answer: the same text would be cut
       // again, so the user is asked for fewer recipes, not for a retry.

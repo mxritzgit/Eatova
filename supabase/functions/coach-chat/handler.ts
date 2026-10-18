@@ -18,6 +18,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { providerCallBudget, ProviderBudgetError, type ProviderCallBudget } from "../_shared/provider_budget.ts";
+import { type AiCall, AiCallLog, aiAnswerOutcome, aiOutcomeOf, type AiRoute } from "../_shared/ai_telemetry.ts";
 import { readProviderBody } from "../_shared/provider_body.ts";
 import { MAX_INPUT_CHARS, preFilter } from "./prefilter.ts";
 import {
@@ -46,6 +47,7 @@ import {
   cachedSystem,
   CLAUDE_MAX_IMAGE_EDGE_PX,
   CLAUDE_MESSAGES_URL,
+  CLAUDE_MODEL,
   claudeErrorStatus,
   claudeFailureStatus,
   claudeHeaders,
@@ -410,23 +412,57 @@ async function providerFailure(
   );
 }
 
+/// Telemetry route of each buffered call, by its diagnostic label.
+const CALL_ROUTES: Readonly<Record<string, AiRoute>> = {
+  "Classifier call": "classifier",
+  "Answer call": "chat",
+  "Recipe call": "recipe",
+  "Training plan call": "plan",
+  "Workout log call": "log",
+};
+
 /// One buffered Messages API call. `signal` bounds the fetch AND the body read;
-/// a non-ok status or an unreadable envelope throws a ProviderError.
+/// a non-ok status or an unreadable envelope throws a ProviderError. Each call
+/// is one ai_call line in the request's log (../_shared/ai_telemetry.ts).
 async function claudeMessage(
   apiKey: string,
   request: ClaudeRequest,
   signal: AbortSignal,
   label: string,
   photoInRequest = false,
+  budget?: ProviderCallBudget,
 ): Promise<any> {
-  const resp = await fetch(CLAUDE_MESSAGES_URL, {
-    method: "POST",
-    headers: claudeHeaders(apiKey),
-    signal,
-    body: JSON.stringify(claudeRequestBody(request)),
+  const call = budget?.calls?.start({
+    route: CALL_ROUTES[label] ?? "chat",
+    provider: "anthropic",
+    model: CLAUDE_MODEL,
+    effort: request.effort,
   });
-  if (!resp.ok) throw await providerFailure(resp, signal, label, photoInRequest);
-  return await readProviderJson(resp, signal);
+  let status: number | null = null;
+  try {
+    const resp = await fetch(CLAUDE_MESSAGES_URL, {
+      method: "POST",
+      headers: claudeHeaders(apiKey),
+      signal,
+      body: JSON.stringify(claudeRequestBody(request)),
+    });
+    status = resp.status;
+    if (!resp.ok) {
+      call?.settle({ outcome: "error", httpStatus: status });
+      throw await providerFailure(resp, signal, label, photoInRequest);
+    }
+    const data = await readProviderJson(resp, signal);
+    call?.settle({
+      outcome: aiAnswerOutcome(data?.stop_reason),
+      httpStatus: status,
+      stopReason: data?.stop_reason,
+      usage: data?.usage,
+    });
+    return data;
+  } catch (e) {
+    call?.settle({ outcome: aiOutcomeOf(e), httpStatus: status });
+    throw e;
+  }
 }
 
 /// The provider's safety system declined to classify: nothing is known about
@@ -456,7 +492,7 @@ async function classify(
     maxTokens: CLASSIFIER_MAX_TOKENS,
     effort: CLASSIFIER_EFFORT,
     schema: CLASSIFIER_OUTPUT_SCHEMA,
-  }, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.classify), "Classifier call");
+  }, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.classify), "Classifier call", false, budget);
   const raw = claudeText(data);
   const finishReason = loggableFinishReason(finishReasonFromStop(data?.stop_reason));
   // An explicit provider safety decline is a paid answer, not an outage: the
@@ -808,6 +844,7 @@ async function answer(
     AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
     "Answer call",
     image !== undefined,
+    budget,
   );
   // P6-04c: the completion reason reaches logs only as an allowlisted value
   // or category, never as a provider-chosen string (CWE-532).
@@ -858,6 +895,32 @@ interface AnswerStreamState {
   ended: boolean;
   /// A photo rides along, so an input-fault error event can be the user's.
   photoInRequest: boolean;
+  /// Telemetry: the call's record, HTTP status, raw stop_reason and token
+  /// counters from message_start/message_delta. Never content.
+  call?: AiCall;
+  httpStatus: number;
+  stopReason?: unknown;
+  usage: Record<string, number>;
+}
+
+/// Keeps the numeric usage counters of a stream event (telemetry only).
+function captureStreamUsage(state: AnswerStreamState, usage: unknown): void {
+  if (usage === null || typeof usage !== "object" || Array.isArray(usage)) return;
+  for (const [key, value] of Object.entries(usage)) {
+    if (typeof value === "number") state.usage[key] = value;
+  }
+}
+
+/// Settles the stream's ai_call record once. A stream that reached its end is
+/// a completed provider call even if the answer is judged unusable later.
+function settleStreamCall(state: AnswerStreamState, error?: unknown): void {
+  const failed = error !== undefined && !state.ended;
+  state.call?.settle({
+    outcome: failed ? aiOutcomeOf(error) : aiAnswerOutcome(state.stopReason),
+    httpStatus: state.httpStatus,
+    stopReason: state.stopReason,
+    usage: state.usage,
+  });
 }
 
 /// Status of a mid-stream error event. F2: this used to be a flat 502, which
@@ -898,12 +961,15 @@ function consumeProviderFrames(state: AnswerStreamState): void {
       state.ended = true;
       return;
     }
+    if (frame?.type === "message_start") captureStreamUsage(state, frame.message?.usage);
     // Only answer text is collected; thinking and signature deltas are not.
     if (frame?.type === "content_block_delta" && frame.delta?.type === "text_delta" &&
         typeof frame.delta.text === "string") {
       state.text += frame.delta.text;
     }
     if (frame?.type !== "message_delta") continue;
+    captureStreamUsage(state, frame.usage);
+    if (frame.delta?.stop_reason != null) state.stopReason = frame.delta.stop_reason;
     const reason = loggableFinishReason(finishReasonFromStop(frame.delta?.stop_reason));
     if (reason === "content_filter") {
       // A known safety rejection is final. Stop reading and keep its paid slot,
@@ -936,21 +1002,37 @@ async function openAnswerStream(
   // Deliberately NOT tied to the request signal (COACH-4): a reserved call
   // runs to its end so a disconnected client's answer can still be stored.
   const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer);
-  const resp = await fetch(CLAUDE_MESSAGES_URL, {
-    method: "POST",
-    headers: claudeHeaders(apiKey),
-    // The answer deadline has to survive the streamed body: an aborted signal
-    // rejects the reader too, so a stream that STALLS mid-answer still ends at
-    // PROVIDER_TIMEOUTS_MS.answer instead of hanging until the platform limit
-    // Includes all bytes held for final approval.
-    signal,
-    body: JSON.stringify(claudeRequestBody(
-      answerRequest(history, userMessage, image, userContext, true, trainingContext, locale),
-    )),
+  const request = answerRequest(history, userMessage, image, userContext, true, trainingContext, locale);
+  const call = budget.calls?.start({
+    route: "chat",
+    provider: "anthropic",
+    model: CLAUDE_MODEL,
+    effort: request.effort,
+    stream: true,
   });
+  let resp: Response;
+  try {
+    resp = await fetch(CLAUDE_MESSAGES_URL, {
+      method: "POST",
+      headers: claudeHeaders(apiKey),
+      // The answer deadline has to survive the streamed body: an aborted signal
+      // rejects the reader too, so a stream that STALLS mid-answer still ends at
+      // PROVIDER_TIMEOUTS_MS.answer instead of hanging until the platform limit
+      // Includes all bytes held for final approval.
+      signal,
+      body: JSON.stringify(claudeRequestBody(request)),
+    });
+  } catch (e) {
+    call?.settle({ outcome: aiOutcomeOf(e) });
+    throw e;
+  }
+  if (!resp.ok || !resp.body) call?.settle({ outcome: "error", httpStatus: resp.status });
   if (!resp.ok) throw await providerFailure(resp, signal, "Answer stream", image !== undefined);
   if (!resp.body) throw new ProviderError(502, "Answer stream without body");
   return {
+    call,
+    httpStatus: resp.status,
+    usage: {},
     reader: resp.body.getReader(),
     decoder: new TextDecoder(),
     raw: "",
@@ -1022,6 +1104,8 @@ interface SseAnswerOptions {
   persist: (content: string, refusal: boolean) => Promise<unknown>;
   /// Slot back — only ever called when NOTHING was delivered (contract §5).
   refund: () => Promise<unknown>;
+  /// The request's AI call log, held open until the pump has settled the call.
+  calls?: AiCallLog;
 }
 
 /// One encoded SSE frame. The single place the wire shape is written, so the
@@ -1057,6 +1141,7 @@ function sseDoneOnlyResponse(
 
 function sseAnswerResponse(options: SseAnswerOptions): Response {
   const { state, locale, meta, doneBase, persist, refund, requestSignal } = options;
+  const releaseCalls = options.calls?.hold();
   const encoder = new TextEncoder();
   // Set by cancel(): the client hung up. Never a refund — an aborted stream
   // must not become a cheaper way to spend nothing (contract §5). It only
@@ -1116,6 +1201,7 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
           // for this answer, and the app's straggler lookup finds it stored.
           // Bounded by the answer deadline and the response byte cap.
           while (!state.ended) await pullAnswerChunk(state);
+          settleStreamCall(state);
           const final = finalizeAnswer(state.text, state.finishReason, locale);
           // Publish only after the final safety verdict. Refusals have no
           // deltas, and nothing goes out once the client is gone.
@@ -1137,6 +1223,7 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
           // The provider is no longer cancelled on a disconnect, so every
           // failure here is a real one, with or without a client.
           console.error(`answer stream failed: ${providerFailureDetail(e)}`);
+          settleStreamCall(state, e);
           // The refund line is the first delta, NOT the status: nothing
           // delivered refunds exactly like the buffered path, one delta out
           // keeps the slot spent. A client abort never refunds.
@@ -1157,6 +1244,8 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
           } catch {
             // Already closed by cancel() — nothing to do.
           }
+          // After the refund decision, so the lines carry it.
+          releaseCalls?.();
         }
       })();
       // The pump may outlive the response once the client hangs up.
@@ -1190,12 +1279,15 @@ async function structuredDraft(
   apiKey: string,
   request: Omit<ClaudeRequest, "stream">,
   label: string,
+  budget?: ProviderCallBudget,
 ): Promise<{ content: string; finishReason: string | undefined }> {
   const data = await claudeMessage(
     apiKey,
     request,
     AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
     label,
+    false,
+    budget,
   );
   return {
     content: claudeText(data).trim(),
@@ -1216,7 +1308,7 @@ async function draftRecipe(
     maxTokens: RECIPE_MAX_TOKENS,
     effort: COACH_EFFORT,
     schema: RECIPE_OUTPUT_SCHEMA,
-  }, "Recipe call");
+  }, "Recipe call", budget);
 }
 
 /// Image generation via the OpenRouter image API. TOLERANT: any error returns
@@ -1235,9 +1327,12 @@ async function generateRecipeImage(
   // Numbers only in every log line below (duration, size, container): the
   // budget was the blind spot that hid the 2026-09-01 outage.
   const started = Date.now();
+  let call: AiCall | undefined;
+  let status: number | null = null;
   try {
     await budget("coach_image");
     const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.image);
+    call = budget.calls?.start({ route: "image", provider: "openrouter", model: MODEL_IMAGE, effort: null });
     const resp = await fetch("https://openrouter.ai/api/v1/images", {
       method: "POST",
       headers: {
@@ -1258,7 +1353,9 @@ async function generateRecipeImage(
         n: 1,
       }),
     });
+    status = resp.status;
     if (!resp.ok) {
+      call?.settle({ outcome: "error", httpStatus: status });
       // Metadata only: the image prompt derives from the user's wish and may
       // be mirrored in the error response (CWE-532).
       const meta = await providerErrorBodyMeta(resp, signal);
@@ -1268,6 +1365,7 @@ async function generateRecipeImage(
       return null;
     }
     const data = await readProviderJson(resp, signal, 8 * 1024 * 1024);
+    call?.settle({ outcome: "ok", httpStatus: status, usage: data?.usage });
     const b64 = data?.data?.[0]?.b64_json;
     if (typeof b64 !== "string" || b64.length === 0) {
       console.error("recipe image: Antwort ohne b64_json");
@@ -1291,6 +1389,7 @@ async function generateRecipeImage(
     console.log(`recipe image ok: ${Date.now() - started} ms, ${clean.length} chars, ${mimeType}`);
     return { base64: clean, mimeType };
   } catch (e) {
+    call?.settle({ outcome: aiOutcomeOf(e), httpStatus: status });
     console.error(
       `recipe image failed after ${Date.now() - started} ms: ${providerFailureDetail(e)}`,
     );
@@ -1384,7 +1483,7 @@ async function handleRecipeMode(params: {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
   if (!userStored) {
-    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     return json({ error: "store_failed" }, 500);
   }
   void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
@@ -1398,7 +1497,7 @@ async function handleRecipeMode(params: {
     // answer path. Client-caused 4xx keep the slot (isClientFaultFailure).
     console.error(`recipe draft failed: ${providerFailureDetail(e)}`);
     if (!params.requestSignal.aborted && !isClientFaultFailure(e)) {
-      await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+      await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     }
     await touchSession(serviceKey, supabaseUrl, sessionId);
     if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
@@ -1443,7 +1542,7 @@ async function handleRecipeMode(params: {
     // failures; request gates remain an additional abuse limit. Explicit
     // provider/model safety refusals above still keep the question charge.
     console.error(`recipe draft unlesbar (${raw.length} Zeichen, finish_reason=${completion.finishReason ?? "missing"})`);
-    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
@@ -1495,7 +1594,7 @@ async function draftTrainingPlan(apiKey: string, budget: ProviderCallBudget, wis
     maxTokens: PLAN_MAX_TOKENS,
     effort: PLAN_EFFORT,
     schema: TRAINING_PLAN_OUTPUT_SCHEMA,
-  }, "Training plan call");
+  }, "Training plan call", budget);
 }
 
 async function storeTrainingPlanMessage(
@@ -1540,7 +1639,7 @@ async function handlePlanMode(params: {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
   if (!userStored) {
-    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     return json({ error: "store_failed" }, 500);
   }
   void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
@@ -1554,7 +1653,7 @@ async function handlePlanMode(params: {
     // text. Only the stable class/status crosses the diagnostic boundary.
     console.error(isProviderTimeout(e) ? "training plan provider timeout" :
       e instanceof ProviderError ? `training plan provider status ${e.status}` : "training plan provider unavailable");
-    if (!params.requestSignal.aborted && !isClientFaultFailure(e)) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted && !isClientFaultFailure(e)) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
     return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
@@ -1576,7 +1675,7 @@ async function handlePlanMode(params: {
   const draft = completion.finishReason === "stop" ? parseTrainingPlanDraft(raw) : null;
   if (draft === null) {
     console.error(`training plan invalid (chars=${raw.length})`);
-    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
@@ -1619,7 +1718,7 @@ async function extractWorkoutLog(
     maxTokens: LOG_MAX_TOKENS,
     effort: COACH_EFFORT,
     schema: WORKOUT_LOG_OUTPUT_SCHEMA,
-  }, "Workout log call");
+  }, "Workout log call", budget);
 }
 
 async function storeWorkoutLogMessage(
@@ -1660,7 +1759,7 @@ async function handleWorkoutLogMode(params: {
   remaining: number | null; quotaDay: string | null;
 }): Promise<Response> {
   const { serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
-  const refund = () => params.requestSignal.aborted ? Promise.resolve() : rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+  const refund = () => params.requestSignal.aborted ? Promise.resolve() : rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
@@ -1942,6 +2041,7 @@ async function rpcRefundQuota(
   supabaseUrl: string,
   userId: string,
   quotaDay: string | null,
+  calls?: AiCallLog,
 ): Promise<void> {
   // Rollout mismatch: old DB claims contain no day. Guessing today's date can
   // refund an unrelated claim, so keep the honest error without unsafe refund.
@@ -1961,6 +2061,8 @@ async function rpcRefundQuota(
     });
     if (!resp.ok) {
       console.error(`refund_chat_quota failed: ${resp.status}`);
+    } else {
+      calls?.markRefunded();
     }
   } catch (e) {
     if (!isSupabaseIoError(e)) throw e;
@@ -2400,7 +2502,10 @@ const LOG_FORBIDDEN_FIELDS = ["image_base64", "image_mime_type", "training_conte
 // Keep CORS request-local for every JSON/SSE outcome, including early errors.
 // Reusing the body preserves streaming and cancellation semantics.
 export async function handleRequest(req: Request): Promise<Response> {
-  const pending = handleCoachRequest(req);
+  // One ai_call line per provider call, written once the request (or its
+  // stream) has settled, so `refunded` is final (../_shared/ai_telemetry.ts).
+  const calls = new AiCallLog("coach-chat", { deferUntilFlush: true });
+  const pending = handleCoachRequest(req, calls).finally(() => calls.flush());
   // A client that hangs up before the response does not stop the handler:
   // in-flight provider work still finishes and persists for the straggler
   // lookup. Settles with the response, so a connected request is unaffected.
@@ -2421,7 +2526,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-async function handleCoachRequest(req: Request): Promise<Response> {
+async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: responseHeaders(req) });
   if (req.method !== "POST") {
     return json({ error: "Only POST is allowed" }, 405);
@@ -2731,7 +2836,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   // budget gate stops work after an already-paid classifier. Provider calls
   // already in flight (buffered drafts and, since COACH-4, the streamed
   // answer) still finish and persist for later recovery.
-  const budget = providerCallBudget({ supabaseUrl, serviceKey, userId, signal: req.signal });
+  const budget = providerCallBudget({ supabaseUrl, serviceKey, userId, signal: req.signal, calls });
 
   // ---------------------------------------------------------------- LAYER 2
   // Refusal categories spend the just-claimed slot ON PURPOSE: refunding it
@@ -2777,7 +2882,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       // Refund only on an OUTAGE: a client-caused 4xx is a paid call, and
       // refunding it would make the slot reusable at will.
       if (!req.signal.aborted && !isClientFaultFailure(e)) {
-        await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+        await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, calls);
       }
       if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
       if (isProviderTimeout(e)) {
@@ -2872,7 +2977,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
   if (!userStored) {
-    if (!req.signal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!req.signal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, calls);
     return json({ error: "store_failed" }, 500);
   }
   // First real user message in the session becomes the title, so the session
@@ -2913,7 +3018,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     // Only for an OUTAGE: a client-caused 4xx is paid work, and refunding it
     // would leave only the IP gate capping paid vision calls.
     if (!req.signal.aborted && !isClientFaultFailure(e)) {
-      await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+      await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, calls);
     }
     await touchSession(serviceKey, supabaseUrl, sessionId);
     if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
@@ -2960,6 +3065,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       // this one. Without it a failed head left the provider connection open
       // on the paths that had already gone wrong. Cancelling changes nothing
       // about the verdict: answerFailed still refunds and answers 502/504.
+      settleStreamCall(state, e);
       await state.reader.cancel().catch(() => {});
       return await answerFailed(e);
     }
@@ -2967,6 +3073,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     if (!head.streams) {
       // Refusal, prompt-leak hit or a reply shorter than the marker: no delta
       // may ever go out, so the whole answer arrives in one done event.
+      settleStreamCall(state);
       await state.reader.cancel().catch(() => {});
       await persistAnswer(head.reply, head.refusal);
       return sseDoneOnlyResponse({
@@ -2983,7 +3090,8 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       meta: { session_id: sessionId, ...quotaFields },
       doneBase,
       persist: persistAnswer,
-      refund: () => rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay),
+      refund: () => rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, calls),
+      calls,
     });
   }
 
