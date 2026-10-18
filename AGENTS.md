@@ -34,7 +34,7 @@
   Local Windows SDK: `C:/Users/morit/Desktop/Flutter/flutter/bin/flutter.bat`.
   Check the installed version before dependency or lockfile changes.
 - Follow `CONTRIBUTING.md` and the actual CI workflows. Analyzer warnings and
-  infos are fatal. Coverage floor is 88%; RLS is also tested against Postgres.
+  infos are fatal. Coverage floor is 95%; RLS is also tested against Postgres.
 - Add meaningful regression tests for behavioral fixes. For critical guarantees,
   demonstrate that the test detects the faulty behavior. Freeze date/time when
   testing date-dependent behavior. Do not mutate a shared working tree during

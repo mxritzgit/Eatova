@@ -98,7 +98,7 @@ jobs:
         env:
           FLUTTER_CI_NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 tool/flutter_ci.py aggregate --shards 4 --run-attempt ${{ github.run_attempt }} --output .dart_tool/flutter-ci-download --floor 88
+          python3 tool/flutter_ci.py aggregate --shards 4 --run-attempt ${{ github.run_attempt }} --output .dart_tool/flutter-ci-download --floor 95
       - name: Upload merged coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

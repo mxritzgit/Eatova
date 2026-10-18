@@ -199,7 +199,7 @@ flutter test --coverage \
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md) lists the Deno and database checks, the
-**88% coverage floor**, documentation-only validation and repository conventions.
+**95% coverage floor**, documentation-only validation and repository conventions.
 Tests use dummy configuration and stub external requests.
 
 ## Continuous integration

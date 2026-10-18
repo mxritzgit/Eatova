@@ -67,16 +67,16 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(MODULE.coverage_percent(merged), 75.0)
 
     def test_repeated_high_coverage_shards_cannot_hide_uncovered_lines(self):
-        # Summing per-shard LF/LH would report 90/91 and falsely pass 88%.
+        # Summing per-shard LF/LH would report 90/92 and falsely pass 95%.
         good = MODULE.parse_lcov(lcov("lib/good.dart", {i: 1 for i in range(1, 10)}))
         bad = MODULE.parse_lcov(lcov("lib/bad.dart", {1: 0, 2: 0}))
         merged = MODULE.merge_coverage([good] * 10 + [bad])
         self.assertAlmostEqual(MODULE.coverage_percent(merged), 900 / 11)
-        self.assertLess(MODULE.coverage_percent(merged), 88)
+        self.assertLess(MODULE.coverage_percent(merged), 95)
 
-    def test_floor_comparison_does_not_round_87_99_to_88(self):
-        coverage = {"lib/a.dart": {line: int(line <= 8799) for line in range(1, 10001)}}
-        self.assertLess(MODULE.coverage_percent(coverage), 88)
+    def test_floor_comparison_does_not_round_94_99_to_95(self):
+        coverage = {"lib/a.dart": {line: int(line <= 9499) for line in range(1, 10001)}}
+        self.assertLess(MODULE.coverage_percent(coverage), 95)
 
     def test_generated_l10n_is_excluded_by_exact_directory(self):
         parsed = MODULE.parse_lcov(lcov("lib/a.dart", {1: 0}) +
@@ -564,6 +564,36 @@ class RerunTests(FlutterCiFixtures):
                                           "--output", str(destination), "--run-attempt", "2"]), 0)
         self.assertIn("Selected shard artifacts: shard-0-attempt-1, shard-1-attempt-2", output.getvalue())
         self.assertIn("All 3 test files verified", output.getvalue())
+
+
+class FloorTests(FlutterCiFixtures):
+    """The merged coverage floor defaults to 95% and cannot be configured lower."""
+
+    def aggregate(self, covered_lines, *extra):
+        # Verified evidence is stubbed; only the floor decision is under test.
+        coverage = {"lib/a.dart": {line: int(line <= covered_lines) for line in range(1, 10001)}}
+        with mock.patch.object(MODULE, "build_manifest", return_value=self.manifest), \
+             mock.patch.object(MODULE, "_timings", return_value={}), \
+             mock.patch.object(MODULE, "validate_shards", return_value=coverage), \
+             mock.patch.dict(MODULE.os.environ, {"GITHUB_ACTIONS": "false", "GITHUB_STEP_SUMMARY": ""}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            return MODULE.main(["aggregate", "--root", str(self.root), "--shards", "2",
+                                "--output", str(self.root / "artifacts"), *extra])
+
+    def test_default_floor_is_95_percent(self):
+        self.assertEqual(self.aggregate(9500), 0)
+        with self.assertRaisesRegex(ValueError, "below the required floor"):
+            self.aggregate(9499)
+
+    def test_floor_cannot_be_configured_below_95_percent_or_invalid(self):
+        for floor in ["94.99", "88", "0", "nan", "inf", "100.01"]:
+            with self.subTest(floor=floor), self.assertRaisesRegex(ValueError, "Coverage floor"):
+                self.aggregate(10000, "--floor", floor)
+
+    def test_stricter_floor_is_enforced(self):
+        self.assertEqual(self.aggregate(9750, "--floor", "97.5"), 0)
+        with self.assertRaisesRegex(ValueError, "below the required floor"):
+            self.aggregate(9749, "--floor", "97.5")
 
 
 class RunnerTests(FlutterCiFixtures):
