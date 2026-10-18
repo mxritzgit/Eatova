@@ -88,13 +88,17 @@ class SavedMealCollection extends StatelessWidget {
 }
 
 /// Name without a trailing " · Brand" (product names carry it) plus the brand.
+/// An own product (E5) has no brand and names its origin in that place, so
+/// the rows say whose values these are.
 (String title, String? brand) mealTitleAndBrand(
   MealAnalysisResult result,
   AppLocalizations l10n,
 ) {
   final name = result.resolvedMealName(l10n);
   final brand = result.brand?.trim();
-  if (brand == null || brand.isEmpty) return (name, null);
+  if (brand == null || brand.isEmpty) {
+    return (name, result.isOwnProduct ? l10n.foodOwnProductSource : null);
+  }
   final suffix = ' · $brand';
   return (
     name.endsWith(suffix) ? name.substring(0, name.length - suffix.length) : name,

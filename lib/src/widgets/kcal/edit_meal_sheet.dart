@@ -15,6 +15,7 @@ import '../../screens/today/today_day_strip.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
 import 'food_date_picker.dart';
+import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
 import 'meal_copy_sheet.dart';
 import 'saved_meal_presentation.dart' show SavedMealNutrients;
@@ -224,6 +225,22 @@ class _EditMealSheetState extends State<EditMealSheet> {
     });
   }
 
+  /// A quick entry has no weight to rescale (E4): its totals are changed in
+  /// the manual form instead, prefilled, and like a portion change they only
+  /// land on "save".
+  Future<void> _editQuickValues() async {
+    final edited = await showManualMealSheet(
+      context,
+      initial: _result,
+      barcode: _result.barcode,
+    );
+    if (!mounted || edited == null) return;
+    setState(() {
+      _result = edited;
+      _resultChanged = true;
+    });
+  }
+
   /// The app's calendar sheet for days beyond the strip. Same bounds as the
   /// food-tab calendar: two years back, nothing in the future. Feeds the same
   /// _day state as the strip; saving still runs only through
@@ -385,7 +402,21 @@ class _EditMealSheetState extends State<EditMealSheet> {
                 children: [
                   _SummaryCard(result: _result, adjusted: _resultChanged),
                   const SizedBox(height: 10),
-                  if (_result.isRecipeWithoutCookedWeight)
+                  if (_result.isQuickEntry) ...[
+                    Text(
+                      l10n.foodQuickNoWeightHint,
+                      key: const ValueKey('edit-meal-quick-hint'),
+                      style: AppType.ui(13.5, color: t.ink2, height: 1.4),
+                    ),
+                    const SizedBox(height: 10),
+                    SoftPillButton(
+                      key: const ValueKey('edit-meal-quick-values'),
+                      onTap: _saving ? null : _editQuickValues,
+                      icon: Icons.edit_outlined,
+                      label: l10n.foodQuickEditValues,
+                      expand: true,
+                    ),
+                  ] else if (_result.isRecipeWithoutCookedWeight)
                     Text(
                       l10n.recipeCalcNoCookedWeight,
                       key: const ValueKey('edit-meal-no-cooked-weight'),
@@ -541,6 +572,8 @@ class _SummaryCard extends StatelessWidget {
                 Text(
                   result.isRecipeWithoutCookedWeight
                       ? '${result.caloriesKcal}\u00a0kcal · ${context.l10n.recipeCalcSavedPortion}'
+                      : result.isQuickEntry
+                      ? '${result.caloriesKcal}\u00a0kcal · ${context.l10n.foodPortionFallback}'
                       : '${result.caloriesKcal}\u00a0kcal · ${result.estimatedGrams}\u00a0g',
                   key: const ValueKey('edit-meal-summary-figure'),
                   style: AppType.display(16, color: t.ink),

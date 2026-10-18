@@ -1,3 +1,4 @@
+import 'barcode.dart';
 import 'meal_analysis_result.dart';
 
 class FavoriteMeal {
@@ -52,15 +53,54 @@ class FavoriteMeal {
     final photo = other?.imageUrl;
     if (next.imageUrl != null || photo == null) return next;
     final code = next.barcode;
-    if (code == null || code.isEmpty || code != other?.barcode) return next;
+    final otherCode = other?.barcode;
+    if (code == null ||
+        code.isEmpty ||
+        otherCode == null ||
+        canonicalBarcode(code) != canonicalBarcode(otherCode)) {
+      return next;
+    }
     return next.withImageUrl(photo);
   }
+
+  static const String _barcodePrefix = 'barcode:';
 
   static String idFor(MealAnalysisResult result) {
     final barcode = result.barcode;
     if (barcode != null && barcode.isNotEmpty) {
-      return 'barcode:$barcode';
+      return '$_barcodePrefix$barcode';
     }
     return 'name:${result.mealName.toLowerCase().trim()}';
+  }
+
+  /// [id] with its barcode in [canonicalBarcode] form; name keys unchanged.
+  /// A 12-digit key written before FOOD-6 and the GTIN-13 key of the same
+  /// product share it.
+  static String canonicalId(String id) {
+    if (!id.startsWith(_barcodePrefix)) return id;
+    final code = id.substring(_barcodePrefix.length);
+    return '$_barcodePrefix${canonicalBarcode(code)}';
+  }
+
+  /// The entry of [favorites] that stands for [result]: the one under its own
+  /// key, else the same product stored under the other UPC-A spelling.
+  ///
+  /// Stored keys are not migrated (FOOD-6), so a favorite pinned from a
+  /// 12-digit Android scan must still answer a 13-digit one. Writers keep
+  /// the found entry's [id].
+  static FavoriteMeal? findFor(
+    Iterable<FavoriteMeal> favorites,
+    MealAnalysisResult result,
+  ) {
+    final id = idFor(result);
+    final canonical = canonicalId(id);
+    FavoriteMeal? otherSpelling;
+    for (final favorite in favorites) {
+      if (favorite.id == id) return favorite;
+      if (otherSpelling == null && canonicalId(favorite.id) == canonical) {
+        otherSpelling = favorite;
+      }
+    }
+    return otherSpelling;
   }
 }

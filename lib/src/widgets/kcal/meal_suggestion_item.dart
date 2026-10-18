@@ -182,7 +182,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
   /// An unchanged portion keeps the original: the invariant
   /// `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal` makes that
   /// the same number, without `isAdjusted` or rewritten `portionNotes`.
-  MealAnalysisResult get _adjusted => widget.result.isRecipeWithoutCookedWeight ||
+  MealAnalysisResult get _adjusted => widget.result.hasNoPortionWeight ||
       _grams == widget.result.estimatedGrams
       ? widget.result
       : widget.result.adjustedToGrams(_grams);
@@ -412,9 +412,11 @@ class _PortionPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (preview.isRecipeWithoutCookedWeight)
+          if (preview.hasNoPortionWeight)
             Text(
-              l10n.recipeCalcNoCookedWeight,
+              preview.isQuickEntry
+                  ? l10n.foodQuickNoWeightHint
+                  : l10n.recipeCalcNoCookedWeight,
               style: AppType.ui(13, color: t.ink2, height: 1.4),
             )
           else ...[

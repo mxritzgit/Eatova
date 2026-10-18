@@ -152,13 +152,18 @@ mixin _HomeStoreMealsPart
         // change in the running app moved the entry to another day.
         localDay: localDayKey(targetDate),
       );
-      final recentId = FavoriteMeal.idFor(result);
-      final old = favorites.where((f) => f.id == recentId).firstOrNull;
+      // FOOD-6: an entry stored under the other UPC-A spelling is the same
+      // product and keeps its key; stored keys are not migrated.
+      final old = FavoriteMeal.findFor(favorites, result);
+      final recentId = old?.id ?? FavoriteMeal.idFor(result);
       final recent = FavoriteMeal(
         id: recentId,
         result: FavoriteMeal.keepImage(result, old?.result),
         addedAt: addedAt,
-        pinned: old?.pinned ?? false,
+        // E5: a product entered for an unknown barcode is remembered, so the
+        // next scan finds it; the recents cap would drop it. An unpin by the
+        // user stands.
+        pinned: old?.pinned ?? result.isOwnProduct,
       );
       final before = [recent, ...favorites.where((f) => f.id != recentId)];
       final after = _cappedFavorites(before);
@@ -556,16 +561,13 @@ mixin _HomeStoreMealsPart
     return [...pinned, ...recents];
   }
 
-  bool isFavorite(MealAnalysisResult result) {
-    final id = FavoriteMeal.idFor(result);
-    final matches = favorites.where((f) => f.id == id);
-    return matches.isNotEmpty && matches.first.pinned;
-  }
+  bool isFavorite(MealAnalysisResult result) =>
+      FavoriteMeal.findFor(favorites, result)?.pinned ?? false;
 
   Future<void> toggleFavorite(MealAnalysisResult result) =>
       _serializeFavoriteMutation(() async {
-        final id = FavoriteMeal.idFor(result);
-        final old = favorites.where((f) => f.id == id).firstOrNull;
+        final old = FavoriteMeal.findFor(favorites, result);
+        final id = old?.id ?? FavoriteMeal.idFor(result);
         // The stored portion stays; only a missing photo is taken over.
         final entry =
             old?.copyWith(

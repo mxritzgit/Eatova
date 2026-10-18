@@ -21,6 +21,9 @@ abstract final class PersistedLabels {
   /// `MealComponent.fromJson` for a model item without a name.
   static const String ingredientNameFallback = 'Zutat';
 
+  /// `MealAnalysisResult.quickEntry` for a quick entry without a name.
+  static const String quickEntryName = 'Schnell-Eintrag';
+
   /// `MealAnalysisResult.fromOpenFoodFacts` for a product without a name.
   static String productName(String code) => 'Produkt $code';
 

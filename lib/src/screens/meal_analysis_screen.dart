@@ -27,6 +27,7 @@ import '../services/meal_scan_identity.dart';
 import '../services/meal_totals.dart';
 import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/own_products.dart';
 import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/meal_slot_style.dart';
@@ -296,17 +297,22 @@ class MealAnalysisScreen extends StatelessWidget {
 
   /// Manual capture or scan fallback. The dock offers a slot choice; both
   /// paths preserve the explicit-confirmation and zero-calorie guards.
+  /// [barcode] and [initial] come from a scan (own product, E5).
   Future<void> _manualEntryFor(
     BuildContext context,
     MealSlot slot, {
     bool chooseSlot = false,
     FutureOr<String> Function(MealAnalysisResult, MealSlot)? add,
+    String? barcode,
+    MealAnalysisResult? initial,
   }) async {
     final identity = MealScanIdentity();
     final addToDay = add ?? _addToShownDay();
     var selectedSlot = slot;
     final result = await showManualMealSheet(
       context,
+      barcode: barcode,
+      initial: initial,
       initialSlot: chooseSlot ? slot : null,
       onSlotChanged: (slot) => selectedSlot = slot,
       onSave: (result) async {
@@ -345,9 +351,15 @@ class MealAnalysisScreen extends StatelessWidget {
       initialSlot: currentMealSlot(),
     );
     if (scan == null || !context.mounted) return;
+    // The user's own product first (E5); the database only without one.
+    final own = ownProductFor(favorites, scan.code);
     // As for the photo scan: offline the lookup fails before the sheet
     // listens, which must not surface as an unhandled zone error.
-    final lookup = productService.lookupBarcode(scan.code)..ignore();
+    final lookup =
+        (own != null
+              ? Future<MealAnalysisResult>.value(own)
+              : productService.lookupBarcode(scan.code))
+          ..ignore();
     // No retry/cancel: a lookup is cheap and its "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
@@ -359,10 +371,22 @@ class MealAnalysisScreen extends StatelessWidget {
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
+      offerEditValues: own != null,
     );
-    if (outcome == MealAnalysisSheetOutcome.manualEntry && context.mounted) {
-      await _manualEntryFor(context, scan.slot, add: add);
+    if (outcome != MealAnalysisSheetOutcome.manualEntry || !context.mounted) {
+      return;
     }
+    // Remembered under its code only when the database does not know the
+    // product; after a network error the entry stays a one-off.
+    final remember = own != null || await barcodeLookupMissedProduct(lookup);
+    if (!context.mounted) return;
+    await _manualEntryFor(
+      context,
+      scan.slot,
+      add: add,
+      barcode: remember ? scan.code : null,
+      initial: own,
+    );
   }
 
   // Trends as a full page. The kcal goal comes from the already passed profile

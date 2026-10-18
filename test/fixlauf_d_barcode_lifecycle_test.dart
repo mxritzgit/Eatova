@@ -243,24 +243,34 @@ void main() {
           findsOneWidget);
       expect(ergebnis.geschlossen, isFalse);
 
+      // Right length, wrong check digit (a typo): named apart.
       await tester.enterText(
           find.byKey(const ValueKey('barcode-manual-field')), '4001724012345');
+      await tester.tap(find.byKey(const ValueKey('barcode-manual-submit')));
+      await tester.pumpAndSettle();
+      expect(find.text(deL10n.foodOwnProductCheckDigitInvalid), findsOneWidget);
+      expect(ergebnis.geschlossen, isFalse);
+
+      // A UPC-A as printed (12 digits) leaves as GTIN-13 (FOOD-6).
+      await tester.enterText(
+          find.byKey(const ValueKey('barcode-manual-field')), '036000291452');
       await tester.pumpAndSettle();
       expect(find.text('Bitte 8, 12 oder 13 Ziffern eingeben.'), findsNothing,
           reason: 'Tippen loescht den Fehler');
+      expect(find.text(deL10n.foodOwnProductCheckDigitInvalid), findsNothing);
       // The context stays reachable with denied permission and a typed draft.
       await chooseMealSlot(tester, 'barcode-slot-dinner');
       expect(
         tester.widget<TextField>(
           find.byKey(const ValueKey('barcode-manual-field')),
         ).controller!.text,
-        '4001724012345',
+        '036000291452',
       );
       await tester.tap(find.byKey(const ValueKey('barcode-manual-submit')));
       await tester.pumpAndSettle();
 
       expect(ergebnis.geschlossen, isTrue);
-      expect(ergebnis.scan?.code, '4001724012345');
+      expect(ergebnis.scan?.code, '0036000291452');
       expect(ergebnis.scan?.slot, MealSlot.dinner);
     });
 
@@ -298,10 +308,13 @@ void main() {
     semantics.dispose();
   });
 
-  test('isValidTypedBarcode: 8/12/13 Ziffern, sonst nichts', () {
-    expect(isValidTypedBarcode('12345678'), isTrue);
+  test('isValidTypedBarcode: 8/12/13 Ziffern mit gueltiger Pruefziffer', () {
+    expect(isValidTypedBarcode('96385074'), isTrue);
     expect(isValidTypedBarcode('123456789012'), isTrue);
-    expect(isValidTypedBarcode('4001724012345'), isTrue);
+    expect(isValidTypedBarcode('4006381333931'), isTrue);
+    // FOOD-6: the check digit is validated, so typos do not pass.
+    expect(isValidTypedBarcode('12345678'), isFalse);
+    expect(isValidTypedBarcode('4001724012345'), isFalse);
     expect(isValidTypedBarcode('1234567'), isFalse);
     expect(isValidTypedBarcode('12345678901234'), isFalse);
     expect(isValidTypedBarcode('40017240a2345'), isFalse);

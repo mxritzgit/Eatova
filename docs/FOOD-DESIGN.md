@@ -32,6 +32,14 @@ kept.
   "Add manually" row of every add sheet; favorites stay in the add sheet.
   The diary scrolls under the dock and the tab bar; very short windows keep
   the dock at the diary's end.
+- **Manual entry** has two modes (2026-10-18): label values per 100 g plus
+  a portion, or a quick entry with totals only (kcal required, name and
+  macros optional, stored with 0 g; gram adjustments keep its calories, the
+  edit sheet changes its values instead). A barcode the database does not
+  know reaches the form with its code; the saved product is pinned as the
+  user's own product and the next scan finds it before the database.
+  Barcodes are GTIN-13 (UPC-A gains its leading 0, FOOD-6); stored
+  12-digit favorite keys are not migrated and match both spellings.
 - Loading archive days show a loading state without stale totals or enabled
   capture actions. A new date starts at the top with the macro details closed.
 

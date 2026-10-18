@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../l10n/l10n.dart';
+import '../models/barcode.dart';
 import '../models/logged_meal.dart';
 import '../services/crash_reporter.dart';
 import '../services/meal_camera_launcher.dart' show openAppSettingsForCamera;
@@ -38,10 +39,16 @@ Future<BarcodeScan?> showBarcodeScannerSheet(
   );
 }
 
-/// EAN-8, UPC-A (12) and EAN-13 — the formats the scanner accepts.
-bool isValidTypedBarcode(String digits) =>
-    RegExp(r'^\d+$').hasMatch(digits) &&
-    (digits.length == 8 || digits.length == 12 || digits.length == 13);
+/// EAN-8, UPC-A (12) and EAN-13 with a valid check digit — the formats the
+/// scanner accepts. See [normalizeBarcode].
+bool isValidTypedBarcode(String digits) => normalizeBarcode(digits) != null;
+
+/// A typed code with the right length whose last digit is not its check
+/// digit: almost always a typo, which would otherwise be looked up (or saved
+/// as an own product) under a code no scan ever delivers.
+bool _checkDigitMismatch(String digits) =>
+    RegExp(r'^(\d{8}|\d{12}|\d{13})$').hasMatch(digits) &&
+    !hasValidGtinCheckDigit(digits);
 
 class BarcodeScannerSheet extends StatefulWidget {
   const BarcodeScannerSheet({super.key, required this.initialSlot});
@@ -225,7 +232,10 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
     for (final barcode in capture.barcodes) {
       final rawValue = barcode.rawValue;
       if (rawValue != null && rawValue.trim().isNotEmpty) {
-        final code = rawValue.trim();
+        // GTIN-13 for UPC-A on both platforms (FOOD-6). The native decoder
+        // has verified the check digit; a code that does not normalize is
+        // handed on as read rather than dropped.
+        final code = normalizeBarcode(rawValue) ?? rawValue.trim();
         _codeAbgeben(code);
         return;
       }
@@ -572,6 +582,10 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
   final TextEditingController _controller = TextEditingController();
   bool _invalid = false;
 
+  /// The length fits, only the check digit does not: named apart, since
+  /// "8, 12 or 13 digits" would not tell the user what is wrong.
+  bool _checkDigitWrong = false;
+
   @override
   void dispose() {
     _controller.dispose();
@@ -580,11 +594,16 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
 
   void _submit() {
     final digits = _controller.text.trim();
-    if (!isValidTypedBarcode(digits)) {
-      setState(() => _invalid = true);
+    // Same canonical form as a scan (FOOD-6): UPC-A goes out as GTIN-13.
+    final code = normalizeBarcode(digits);
+    if (code == null) {
+      setState(() {
+        _invalid = true;
+        _checkDigitWrong = _checkDigitMismatch(digits);
+      });
       return;
     }
-    widget.onSubmit(digits);
+    widget.onSubmit(code);
   }
 
   @override
@@ -623,7 +642,11 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
               style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
               decoration: InputDecoration(
                 hintText: l10n.foodBarcodeManualHint,
-                errorText: _invalid ? l10n.foodBarcodeManualInvalid : null,
+                errorText: !_invalid
+                    ? null
+                    : _checkDigitWrong
+                    ? l10n.foodOwnProductCheckDigitInvalid
+                    : l10n.foodBarcodeManualInvalid,
               ),
             ),
             const SizedBox(height: 14),

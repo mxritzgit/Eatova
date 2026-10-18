@@ -26,6 +26,7 @@ import '../../services/meal_photo_input.dart';
 import '../../services/meal_scan_identity.dart';
 import '../../services/meals_sync.dart';
 import '../../services/open_food_facts_product_service.dart';
+import '../../services/own_products.dart';
 import '../../services/screen_awake.dart';
 import '../../services/speech_input.dart';
 import '../../theme/app_tokens.dart';
@@ -1024,9 +1025,15 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // header would show one slot while the hit went to another.
     _selectSlot(scan.slot);
 
+    // The user's own product first (E5), from the sheet's live list.
+    final own = ownProductFor(_favorites, scan.code);
     // As for the photo scan: offline the lookup fails before the sheet
     // listens, which must not surface as an unhandled zone error.
-    final lookup = widget.productService.lookupBarcode(scan.code)..ignore();
+    final lookup =
+        (own != null
+              ? Future<MealAnalysisResult>.value(own)
+              : widget.productService.lookupBarcode(scan.code))
+          ..ignore();
     // No retry/cancel: a lookup is cheap and its "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
@@ -1038,10 +1045,17 @@ class _AddMealSheetState extends State<AddMealSheet> {
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
+      offerEditValues: own != null,
     );
-    if (outcome == MealAnalysisSheetOutcome.manualEntry && mounted) {
-      await _openManualEntry();
-    }
+    if (outcome != MealAnalysisSheetOutcome.manualEntry || !mounted) return;
+    // Remembered under its code only when the database does not know the
+    // product; after a network error the entry stays a one-off.
+    final remember = own != null || await barcodeLookupMissedProduct(lookup);
+    if (!mounted) return;
+    await _openManualEntry(
+      barcode: remember ? scan.code : null,
+      initial: own,
+    );
   }
 
   // ─── Manual entry ─────────────────────────────────────────────────────
@@ -1049,12 +1063,19 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// Entry point for own nutrition values (spec 2026-08-13). The form only
   /// builds the result; logging happens here via [_logAndMirror], plus the
   /// success snack. A manual 0 kcal is measured (explicitZeroKcal), so no
-  /// sentinel guard applies. [initialName] comes from the search CTA.
-  Future<void> _openManualEntry({String? initialName}) async {
+  /// sentinel guard applies. [initialName] comes from the search CTA,
+  /// [barcode] and [initial] from a scan (own product, E5).
+  Future<void> _openManualEntry({
+    String? initialName,
+    String? barcode,
+    MealAnalysisResult? initial,
+  }) async {
     var slot = _selectedSlot;
     final result = await showManualMealSheet(
       context,
       initialName: initialName,
+      barcode: barcode,
+      initial: initial,
       initialSlot: _selectedSlot,
       onSlotChanged: (value) => slot = value,
       onSave: (result) async {
