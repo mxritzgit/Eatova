@@ -12,6 +12,7 @@ import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/planned_meal.dart';
+import '../models/reminder_time.dart';
 import '../models/training_plan.dart';
 import '../models/training_plan_head.dart';
 import '../models/training_history.dart';
@@ -275,6 +276,31 @@ class LocalCache {
     final v = json['enabled'];
     return v is bool ? v : null;
   }
+
+  // C4: the chosen reminder time and the answer to Today's one-time reminder
+  // card. Same lifecycle as the opt-in: per account, cleared in [clear].
+  String get _reminderTimeKey => 'eatova.v1.reminder_time.$_userId';
+  String get _reminderPromptKey => 'eatova.v1.reminder_prompt.$_userId';
+
+  Future<void> writeReminderTime(ReminderTime time) => _writeJson(
+    _reminderTimeKey,
+    <String, dynamic>{'hour': time.hour, 'minute': time.minute},
+  );
+
+  /// Missing or corrupt -> null; the caller falls back to 20:00.
+  Future<ReminderTime?> readReminderTime() async {
+    final json = await _readJson(_reminderTimeKey);
+    if (json == null) return null;
+    return ReminderTime.tryParse(json['hour'], json['minute']);
+  }
+
+  /// Records that the reminder card was answered (or made moot by a choice
+  /// elsewhere), so it never shows again for this account.
+  Future<void> writeReminderPromptAnswered() =>
+      _writeJson(_reminderPromptKey, <String, dynamic>{'answered': true});
+
+  Future<bool> readReminderPromptAnswered() async =>
+      (await _readJson(_reminderPromptKey))?['answered'] == true;
 
   // ---- Profile ------------------------------------------------------------
 
@@ -954,6 +980,8 @@ class LocalCache {
       await _store.remove(_legacyDailyKey);
       await _store.remove(_statsKey);
       await _store.remove(_notificationsKey);
+      await _store.remove(_reminderTimeKey);
+      await _store.remove(_reminderPromptKey);
       await _store.remove(_healthConnectKey);
       await _store.remove(_loggedMealsKey);
       await _store.remove(_favoritesKey);

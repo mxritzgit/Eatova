@@ -23,6 +23,8 @@ const durableCacheSlotNames = {
   'recipe_versions',
   'sync_session',
   'sync_claim',
+  'reminder_time',
+  'reminder_prompt',
 };
 
 bool isDurableCacheSlotKey(String key) {

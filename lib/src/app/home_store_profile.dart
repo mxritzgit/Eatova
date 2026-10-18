@@ -54,6 +54,26 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Full state for the shell (text + action, see [ReminderState]).
   ReminderState get reminderState => _reminderState;
 
+  /// C4: the chosen reminder time, 20:00 until the user picks another.
+  ReminderTime get reminderTime => _reminderTime;
+  ReminderTime _reminderTime = ReminderTime.standard;
+
+  /// The user picked a time in this session; a later cache read keeps it.
+  bool _reminderTimeChosen = false;
+
+  /// Today's one-time reminder card was answered, or made moot by a choice
+  /// in the settings. Null until this account's cache was read: without a
+  /// cache the card never shows, as "never again" could not be kept.
+  bool? _reminderPromptAnswered;
+
+  /// C4: Today offers the reminder once — after logs on two different days,
+  /// only while reminders are off, and never again after any answer.
+  bool get reminderPromptVisible =>
+      _reminderPromptAnswered == false &&
+      _reminderState == ReminderState.off &&
+      !_notificationSessionEnded &&
+      loggedOnTwoDays(loggedMeals, lifetimeStats);
+
   /// Onboarding is mandatory once a real Supabase sync exists and the profile
   /// has not been completed. Never without sync (test/preview).
   bool get needsOnboarding =>
@@ -73,15 +93,20 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// with [NotificationPermissionProbe.hasPermission] (silent) — never
   /// `requestPermission()`, which would ambush the user with a dialog.
   Future<void> _initNotificationsFromCache() async {
+    if (_disposed || _notificationSessionEnded) return;
+    final cache = _notificationCache;
+    if (cache == null) return;
+    // C4: time and card answer first, so the first plan uses the chosen time.
+    await _loadReminderPreferences(cache);
     // Hydration may finish after a user has already changed the preference.
     if (_disposed || _notificationSessionEnded || _notificationRevision != 0) {
       return;
     }
     final revision = _notificationRevision;
-    final cache = _notificationCache;
-    if (cache == null) return;
     final enabled = await cache.readNotificationsEnabled() ?? false;
     if (!_notificationRequestIsCurrent(revision)) return;
+    // Opted in before the card existed: the card has nothing to offer.
+    if (enabled) unawaited(_markReminderPromptAnswered());
     // No opt-in -> the OS is never asked for permission. P2-02: but what an
     // earlier account on this device scheduled is still cancelled. The gate
     // cancels on every session end it sees; this covers one it did not.
@@ -219,6 +244,8 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     // A later user choice wins over every earlier permission request/probe.
     final revision = ++_notificationRevision;
     _notificationOptInRevision = enabled ? revision : null;
+    // Any explicit choice answers Today's reminder card too (C4).
+    unawaited(_markReminderPromptAnswered());
     final cache = _notificationCache;
 
     if (!enabled) {
@@ -276,13 +303,78 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
       return;
     }
     await notificationService.scheduleAll(
-      planStreakReminders(clock.now(), lifetimeStats, _l10n),
+      planStreakReminders(clock.now(), lifetimeStats, _l10n, _reminderTime),
     );
+  }
+
+  /// A re-plan outside the opt-in flows: a plugin failure is reported, never
+  /// thrown at the caller (same fence as [_syncWithOsGuarded]).
+  Future<void> _rescheduleGuarded(String context) async {
+    try {
+      await _rescheduleStreakReminder();
+    } catch (e, st) {
+      unawaited(CrashReporter.capture(e, st, context: context));
+    }
   }
 
   /// Turns reminders on/off (settings toggle). Public facade for the shell.
   Future<void> setNotificationsEnabled(bool enabled) =>
       _setNotificationsEnabled(enabled);
+
+  // --- Reminder time and Today's card (C4) ----------------------------------
+
+  /// Reads the chosen time and the card's answer for this account.
+  Future<void> _loadReminderPreferences(LocalCache cache) async {
+    final stored = await cache.readReminderTime();
+    final answered = await cache.readReminderPromptAnswered();
+    if (_disposed || _notificationSessionEnded) return;
+    final adopt =
+        stored != null && !_reminderTimeChosen && stored != _reminderTime;
+    final nextAnswered = (_reminderPromptAnswered ?? false) || answered;
+    if (adopt || nextAnswered != _reminderPromptAnswered) {
+      _mutate(() {
+        if (adopt) _reminderTime = stored;
+        _reminderPromptAnswered = nextAnswered;
+      });
+    }
+    // Choices made before the cache was open are persisted now.
+    if (_reminderTimeChosen && stored != _reminderTime) {
+      unawaited(cache.writeReminderTime(_reminderTime));
+    }
+    if (_reminderPromptAnswered == true && !answered) {
+      unawaited(cache.writeReminderPromptAnswered());
+    }
+    // Only an opt-in during the boot load can have planned before this read.
+    if (adopt) await _rescheduleGuarded('notifications-time-load');
+  }
+
+  /// Records the card as answered: in memory at once, then per account.
+  Future<void> _markReminderPromptAnswered() async {
+    if (_disposed || _reminderPromptAnswered == true) return;
+    _mutate(() => _reminderPromptAnswered = true);
+    await _notificationCache?.writeReminderPromptAnswered();
+  }
+
+  /// Sets the reminder time and re-plans at once when reminders are on. Kept
+  /// per account while they are off too, so turning them on keeps the choice.
+  Future<void> setReminderTime(ReminderTime time) async {
+    if (_disposed || _notificationSessionEnded) return;
+    _reminderTimeChosen = true;
+    if (time == _reminderTime) return;
+    _mutate(() => _reminderTime = time);
+    await _notificationCache?.writeReminderTime(time);
+    await _rescheduleGuarded('notifications-time-change');
+  }
+
+  /// The card's "yes": the regular opt-in with its permission dialog. Returns
+  /// the resulting state, so the shell can say honestly what happened.
+  Future<ReminderState> acceptReminderPrompt() async {
+    await _setNotificationsEnabled(true);
+    return _reminderState;
+  }
+
+  /// The card's "no thanks": it never shows again for this account.
+  Future<void> dismissReminderPrompt() => _markReminderPromptAnswered();
 
   /// Re-reads the OS permission and corrects the state — WITHOUT a dialog.
   ///

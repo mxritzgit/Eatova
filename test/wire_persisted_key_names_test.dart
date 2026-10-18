@@ -3,6 +3,7 @@ import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/reminder_time.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/durable_cache_store.dart';
@@ -94,6 +95,8 @@ void main() {
         await c.writeOutbox(const <SyncOp>[]);
         await c.writePendingStatsDeltas(meals: 1, weightLogs: 1);
         await c.writeUserRecipes(const <FitnessRecipe>[]);
+        await c.writeReminderTime(const ReminderTime(21, 30));
+        await c.writeReminderPromptAnswered();
       }
 
       test('jeder Slot traegt exakt seinen erwarteten Namen', () async {
@@ -115,6 +118,10 @@ void main() {
           // Renaming this key makes every install's recipes disappear on the
           // next offline start.
           'eatova.v1.user_recipes.user-42',
+          // C4: renamed, every install falls back to 20:00 and shows the
+          // already answered reminder card again.
+          'eatova.v1.reminder_time.user-42',
+          'eatova.v1.reminder_prompt.user-42',
         };
 
         expect(store.snapshot.keys.toSet(), erwartet,

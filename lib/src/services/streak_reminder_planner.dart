@@ -1,15 +1,17 @@
 import '../l10n/l10n.dart';
 import '../models/lifetime_stats.dart';
+import '../models/reminder_time.dart';
 import 'day_math.dart';
 import 'notification_service.dart';
 
 /// Plans the evening streak-saver reminders (PROD-1, purely local).
 ///
-/// PURE: (now, stats) yields a deterministic spec list for
+/// PURE: (now, stats, time) yields a deterministic spec list for
 /// [NotificationService.scheduleAll], which is cancel-first.
 
-/// Wall-clock hour the evening reminder fires at (20:00 local).
-const int streakReminderHour = 20;
+/// Default wall-clock hour of the reminder (20:00 local) until the user picks
+/// another time (C4, [ReminderTime]).
+const int streakReminderHour = ReminderTime.defaultHour;
 
 /// Hard cap of the planning horizon in calendar days (D10).
 ///
@@ -42,10 +44,10 @@ const int _streakReminderIdBase = reminderNudgeIdFirst;
 /// Fixed reference point of the ID arithmetic: arbitrary but immutable.
 final DateTime _idEpoch = DateTime(2000, 1, 1);
 
-/// Builds the reminder specs for the coming evenings, one per
-/// [streakReminderDayOffsets] entry at [streakReminderHour]:00 local. Already
-/// tracked, or past the hour, starts tomorrow — planning into the past fires
-/// immediately.
+/// Builds the reminder specs for the coming days, one per
+/// [streakReminderDayOffsets] entry at [time] local (default 20:00). Already
+/// tracked, or at or past that time, starts tomorrow — planning into the past
+/// fires immediately.
 ///
 /// Only the FIRST day may name the streak number: it fires within ~24 h and
 /// every log re-plans, while later slots prove the user did not log.
@@ -55,6 +57,7 @@ List<NotificationSpec> planStreakReminders(
   DateTime now,
   LifetimeStats stats, [
   AppLocalizations? l10n,
+  ReminderTime time = ReminderTime.standard,
 ]) {
   final t = l10n ?? deL10n;
   final today = startOfDay(now);
@@ -62,24 +65,18 @@ List<NotificationSpec> planStreakReminders(
   final last = stats.lastTrackedDate;
   final trackedToday = last != null && startOfDay(last) == today;
 
-  final slotToday = DateTime(
-    today.year,
-    today.month,
-    today.day,
-    streakReminderHour,
-  );
-  final skipToday = trackedToday || !now.isBefore(slotToday);
-  // Calendar arithmetic via addDays, not Duration: 20:00 stays 20:00 across
-  // any DST edge (see day_math.dart).
-  final firstSlot = addDays(slotToday, skipToday ? 1 : 0);
+  final skipToday = trackedToday || !now.isBefore(_slotOn(today, 0, time));
+  final firstOffset = skipToday ? 1 : 0;
+  final firstSlot = _slotOn(today, firstOffset, time);
 
-  // The streak as it stands when the first slot fires, not now: after 20:00
+  // The streak as it stands when the first slot fires, not now: past the time
   // without a log today, tomorrow's slot finds yesterday's chain broken.
   final streak = stats.effectiveStreakOn(firstSlot);
 
   final specs = <NotificationSpec>[];
   for (var i = 0; i < streakReminderDayOffsets.length; i++) {
-    final when = addDays(firstSlot, streakReminderDayOffsets[i]);
+    final when =
+        _slotOn(today, firstOffset + streakReminderDayOffsets[i], time);
 
     final String title;
     final String body;
@@ -101,3 +98,13 @@ List<NotificationSpec> planStreakReminders(
   }
   return specs;
 }
+
+/// [day] shifted by [offset] calendar days, at [time] local.
+///
+/// Calendar arithmetic via the constructor's day overflow, not Duration, so
+/// the wall-clock time holds across DST (see day_math.dart). Built from the
+/// date parts for every slot: on a day where [time] falls into a DST gap the
+/// constructor moves that one slot, and the next slot is back on [time]
+/// instead of inheriting the shift.
+DateTime _slotOn(DateTime day, int offset, ReminderTime time) =>
+    DateTime(day.year, day.month, day.day + offset, time.hour, time.minute);
