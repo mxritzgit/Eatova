@@ -584,21 +584,25 @@ void main() {
           reason: 'Sonst taucht der Blob NACH dem Logout wieder auf.');
     });
 
-    test('verschiedene Slots blockieren sich nicht gegenseitig', () async {
+    test('verschiedene Slots laufen in Aufrufreihenfolge durch die eine Queue',
+        () async {
+      const meals = 'eatova.v1.logged_meals.user-1';
+      const favorites = 'eatova.v1.favorites.user-1';
       final raw = InMemoryKeyValueStore();
       final cipher = _FakeCipher('dek-a')
-        ..encryptDelays.add(const Duration(milliseconds: 60));
+        ..encryptDelays.addAll([
+          const Duration(milliseconds: 40), // the FIRST one takes longer
+          Duration.zero,
+        ]);
       final store = EncryptedKeyValueStore(raw, cipher);
 
-      final sw = Stopwatch()..start();
-      await Future.wait([
-        store.setString('eatova.v1.logged_meals.user-1', '{"items":[]}'),
-        store.setString('eatova.v1.favorites.user-1', '{"items":[]}'),
-      ]);
-      sw.stop();
+      final first = store.setString(meals, '{"items":[]}');
+      await store.setString(favorites, '{"items":[]}');
 
-      // ~60 ms in parallel vs. >= 120 ms serialised; loose against CI jitter.
-      expect(sw.elapsedMilliseconds, lessThan(200));
+      expect(raw.snapshot.containsKey(meals), isTrue,
+          reason: 'Batch and single writes share one queue (#98): a fast '
+              'write on another slot must not overtake a slow one.');
+      await first;
       expect(raw.snapshot, hasLength(2));
     });
 
