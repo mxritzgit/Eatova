@@ -1,5 +1,5 @@
-/// Coach tab state without widgets: sessions, history, sending and the
-/// banner.
+/// Coach tab state without widgets: sessions, history, sending, the wait for
+/// a stored answer, the quota and the banner.
 ///
 /// Lives exactly as long as the screen's State, which creates and disposes
 /// it, so it sits next to the screen rather than with the app-wide stores in
@@ -7,9 +7,6 @@
 /// and never touches a BuildContext: scrolling, haptics, announcements, the
 /// composer field and every other UI reaction go through [CoachChatViewHooks].
 library;
-
-// The banner setter below stays plain until the screen's own errors move in.
-// ignore_for_file: unnecessary_getters_setters
 
 import 'dart:async';
 import 'dart:convert';
@@ -115,20 +112,33 @@ typedef _ProposalAnswer = ({
 });
 
 /// State and operations of the Coach tab.
+///
+/// [inBackground] tells the answer wait whether the app is in the
+/// background right now (the screen reads the binding's lifecycle state);
+/// there no timer runs.
 class CoachChatController extends ChangeNotifier {
   CoachChatController({
     CoachChatService? service,
     CoachChatViewHooks hooks = const CoachChatViewHooks(),
     CoachRequestInputs Function()? requestInputs,
+    bool Function()? inBackground,
   }) : _service = service,
        _hooks = hooks,
-       _requestInputs = requestInputs ?? _noInputs;
+       _requestInputs = requestInputs ?? _noInputs {
+    _antwortWarten = _AntwortWarten(this, inBackground ?? _never);
+    _antwortWarten.binden(service);
+  }
 
   static CoachRequestInputs _noInputs() => const CoachRequestInputs();
+  static bool _never() => false;
 
   final CoachChatViewHooks _hooks;
   final CoachRequestInputs Function() _requestInputs;
   bool _disposed = false;
+
+  /// Keeps a request whose connection died in its thinking state while the
+  /// server may still store the answer (COACH-4).
+  late final _AntwortWarten _antwortWarten;
 
   // --- Inputs from the screen ------------------------------------------------
 
@@ -143,11 +153,14 @@ class CoachChatController extends ChangeNotifier {
   int get accountRevision => _accountRevision;
 
   /// Account switch from the shell. Results of the old service are fenced
-  /// out by identity and [accountRevision].
+  /// out by identity and [accountRevision]; the old account's answer wait
+  /// ends here.
   void updateService(CoachChatService? service) {
     if (identical(service, _service)) return;
+    _antwortWarten.loesen(_service);
     _service = service;
     _accountRevision++;
+    _antwortWarten.binden(service);
   }
 
   AppLocalizations _l10n = deL10n;
@@ -156,7 +169,6 @@ class CoachChatController extends ChangeNotifier {
   /// locale of its requests, set by the screen from `context.l10n` (the same
   /// setter pattern as [CoachChatService.l10n]). German until the screen
   /// sets it.
-  AppLocalizations get l10n => _l10n;
   set l10n(AppLocalizations value) => _l10n = value;
 
   // --- State -----------------------------------------------------------------
@@ -278,20 +290,39 @@ class CoachChatController extends ChangeNotifier {
   bool _addingRecipe = false;
   bool get addingRecipe => _addingRecipe;
 
-  // --- Bridge for the screen's own errors -------------------------------------
-
-  set error(String? value) => _error = value;
+  /// Why nothing can be sent at all, or null. Loading and a running request
+  /// are waits, not locks.
+  String? get lockReason {
+    if (_service == null) return _l10n.coachErrorNotLoggedIn;
+    if (quotaExhausted) {
+      return _l10n.coachErrorDailyLimitReached(limitForDisplay);
+    }
+    if (_activeSessionId == null) {
+      // A failed history load leaves no active session either; its banner
+      // names the real cause.
+      return _historyUnavailable
+          ? _l10n.coachErrorHistoryUnavailable
+          : _l10n.coachErrorNoSession;
+    }
+    return null;
+  }
 
   // --- Lifecycle ---------------------------------------------------------------
 
+  /// Every state change notifies here, so this one place also ends a pending
+  /// answer wait once its conversation is left.
   void _notify() {
     if (_disposed) return;
+    _antwortWarten.sitzungPruefen(_activeSessionId);
     notifyListeners();
   }
 
+  /// Ends the answer wait without a timer left behind; late results of
+  /// running requests change nothing afterwards.
   @override
   void dispose() {
     _disposed = true;
+    _antwortWarten.loesen(_service);
     _preview.dispose();
     super.dispose();
   }
@@ -301,6 +332,44 @@ class CoachChatController extends ChangeNotifier {
     _loading = false;
     _error = _l10n.coachErrorNotLoggedIn;
     _notify();
+  }
+
+  /// Feedback the screen produces itself (dictation, photo, a locked brief)
+  /// in the same banner; null clears it.
+  void showError(String? message) {
+    if (_disposed || _error == message) return;
+    _error = message;
+    _notify();
+  }
+
+  /// The app went to the background: the answer wait keeps no timer.
+  void appPaused() => _antwortWarten.hintergrund();
+
+  /// Back in front: a waiting answer check runs at once, the answer may have
+  /// landed meanwhile.
+  void appResumed() => _antwortWarten.vordergrund();
+
+  /// Everything a tab switch used to do by unmounting the screen. It stays
+  /// mounted, so whatever is missing here never happens again until cold
+  /// start. Called when the tab becomes visible and on resume of a visible
+  /// tab, for the account [svc] seen at that moment.
+  Future<void> returnToChat(CoachChatService svc) async {
+    if (_disposed) return;
+    // Healing path: a bootstrap that ended without a session (offline on the
+    // first visit) would otherwise leave the composer dead for the whole app
+    // run, since only the quota was refreshed here, never the session.
+    if (_activeSessionId == null) {
+      await bootstrap();
+      return;
+    }
+    // The error banner is feedback on an action, not a permanent state. A
+    // failed history load is the exception: nothing here reloads it, and
+    // without its banner the conversation is just blank.
+    if (identical(_service, svc) && _error != null && !_historyUnavailable) {
+      _error = null;
+      _notify();
+    }
+    await _refreshQuota(svc);
   }
 
   // --- Sessions and history ---------------------------------------------------
@@ -386,7 +455,7 @@ class CoachChatController extends ChangeNotifier {
     }
     if (_disposed || _activeSessionId != sessionBeforeLoad) return;
     _historyUnavailable = false;
-    history = await hydrateProposalImages(history);
+    history = await _hydrateProposalImages(history);
     // Unknown stays unknown: the last known state survives instead of being
     // replaced by a guess.
     // The quota RPC has been running alongside history; preserve the previous
@@ -418,7 +487,7 @@ class CoachChatController extends ChangeNotifier {
   ///
   /// Rule: a network outage must neither consume nor refill the quota —
   /// [CoachChatService.loadQuotaToday] throws instead of inventing a snapshot.
-  Future<void> refreshQuota(CoachChatService svc) async {
+  Future<void> _refreshQuota(CoachChatService svc) async {
     final revision = ++_quotaRevision;
     final ChatQuotaSnapshot frisch;
     try {
@@ -435,7 +504,7 @@ class CoachChatController extends ChangeNotifier {
   }
 
   /// Reloads the sessions sheet's list; an outage keeps the last known one.
-  Future<void> refreshSessions() async {
+  Future<void> _refreshSessions() async {
     final svc = _service;
     if (svc == null) return;
     final revision = ++_sessionListRevision;
@@ -511,7 +580,7 @@ class CoachChatController extends ChangeNotifier {
       _notify();
       return;
     }
-    history = await hydrateProposalImages(history);
+    history = await _hydrateProposalImages(history);
     if (!_matchesConversation(svc, sessionId, revision)) {
       return;
     }
@@ -536,7 +605,7 @@ class CoachChatController extends ChangeNotifier {
     final revision = _conversationRevision;
     final id = await svc.createSession(title: _l10n.coachSessionDefaultTitle);
     if (id == null) return false;
-    await refreshSessions();
+    await _refreshSessions();
     if (!_matchesConversation(svc, vorher, revision)) return true;
     _conversationRevision++;
     _activeSessionId = id;
@@ -563,7 +632,7 @@ class CoachChatController extends ChangeNotifier {
     if (_disposed || !identical(_service, svc)) return true;
     _sessions = _sessions.where((s) => s.id != sessionId).toList();
     _notify();
-    await refreshSessions();
+    await _refreshSessions();
     if (_disposed || !identical(_service, svc)) return true;
     // Ignore a list response that still contains the confirmed deletion.
     if (_sessions.any((s) => s.id == sessionId)) {
@@ -593,7 +662,7 @@ class CoachChatController extends ChangeNotifier {
           _notify();
           return true;
         }
-        await refreshSessions();
+        await _refreshSessions();
         if (_disposed ||
             !identical(_service, svc) ||
             _activeSessionId != sessionId) {
@@ -608,7 +677,7 @@ class CoachChatController extends ChangeNotifier {
   /// Proposals loaded from history carry no bytes; this reloads the locally
   /// stored proposal images (RecipeImageStore, keyed by message id). Missing
   /// files (second device, cap prune, logout) stay placeholders.
-  Future<List<ChatMessage>> hydrateProposalImages(
+  Future<List<ChatMessage>> _hydrateProposalImages(
     List<ChatMessage> history,
   ) async {
     final result = List<ChatMessage>.of(history);
@@ -938,7 +1007,7 @@ class CoachChatController extends ChangeNotifier {
     _hooks.answerArrived();
     // Refresh sessions in the background so auto title / last_message_at are
     // current in the sheet without blocking the send flow.
-    unawaited(refreshSessions());
+    unawaited(_refreshSessions());
   }
 
   /// A request of the conversation on screen failed: banner and marker.
@@ -1034,7 +1103,7 @@ class CoachChatController extends ChangeNotifier {
     _failedSend = null;
     _notify();
     // The deleted session is gone from the sheet and the used one may be new.
-    await refreshSessions();
+    await _refreshSessions();
     if (!_matchesConversation(svc, angefragt, revision)) return;
     // [switchToSession] does the full load; the history it fetches already
     // contains both the question and the answer.
@@ -1047,7 +1116,7 @@ class CoachChatController extends ChangeNotifier {
   /// Keeping the old number would promise a question the server refuses.
   void _quotaNachfragen(CoachChatService svc) {
     if (!_disposed && identical(_service, svc)) {
-      unawaited(refreshQuota(svc));
+      unawaited(_refreshQuota(svc));
     }
   }
 
@@ -1152,7 +1221,7 @@ class CoachChatController extends ChangeNotifier {
       // failed. Keep that response visible without claiming history is sound.
     }
     if (!_matchesConversation(svc, sessionId, revision)) return;
-    if (history != null) history = await hydrateProposalImages(history);
+    if (history != null) history = await _hydrateProposalImages(history);
     if (!_matchesConversation(svc, sessionId, revision)) return;
     final loaded = history;
     final messages = loaded ?? _messages;
@@ -1554,7 +1623,7 @@ class CoachChatController extends ChangeNotifier {
       historyUnavailable = true;
     }
     if (!isCurrentTarget()) return;
-    history = await hydrateProposalImages(history);
+    history = await _hydrateProposalImages(history);
     if (!isCurrentTarget()) return;
     _messages = [
       ...history,
@@ -1615,5 +1684,69 @@ class CoachChatController extends ChangeNotifier {
       _addingRecipe = false;
       _notify();
     }
+  }
+}
+
+/// [CoachChatService.answerWaiter] of the controller (COACH-4): after a lost
+/// connection the service re-checks the transcript while the question is
+/// stored without an answer, and the request keeps its thinking state. No
+/// timer runs while the app is in the background (the resume checks at once),
+/// and the wait ends when the controller leaves the request's session or
+/// account or goes away; the error then stands, fenced as for any late
+/// failure.
+class _AntwortWarten implements CoachAnswerWaiter {
+  _AntwortWarten(this._coach, this._imHintergrund);
+
+  final CoachChatController _coach;
+  final bool Function() _imHintergrund;
+  Timer? _wecker;
+  Completer<bool>? _pause;
+  String? _sitzung;
+
+  void binden(CoachChatService? svc) {
+    if (svc != null) svc.answerWaiter = this;
+  }
+
+  void loesen(CoachChatService? svc) {
+    if (svc != null && identical(svc.answerWaiter, this)) {
+      svc.answerWaiter = null;
+    }
+    _wecken(false);
+  }
+
+  bool _gilt(String sessionId) =>
+      !_coach._disposed && _coach._activeSessionId == sessionId;
+
+  @override
+  Future<bool> pause(String sessionId, Duration interval) async {
+    if (!_gilt(sessionId)) return false;
+    _wecken(false);
+    final pause = _pause = Completer<bool>();
+    _sitzung = sessionId;
+    if (!_imHintergrund()) _wecker = Timer(interval, () => _wecken(true));
+    final weiter = await pause.future;
+    return weiter && _gilt(sessionId);
+  }
+
+  /// Background: no timer; the pending pause waits for [vordergrund].
+  void hintergrund() {
+    _wecker?.cancel();
+    _wecker = null;
+  }
+
+  /// Back in front: check at once, the answer may have landed meanwhile.
+  void vordergrund() => _wecken(true);
+
+  void sitzungPruefen(String? aktiv) {
+    if (_pause != null && aktiv != _sitzung) _wecken(false);
+  }
+
+  void _wecken(bool weiter) {
+    _wecker?.cancel();
+    _wecker = null;
+    final pause = _pause;
+    _pause = null;
+    _sitzung = null;
+    if (pause != null && !pause.isCompleted) pause.complete(weiter);
   }
 }

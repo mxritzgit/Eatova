@@ -2,9 +2,8 @@ part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Recipe proposal: card in the coach bubble plus the confirmation sheet. Both
-// are DISPLAY ONLY — saving happens in
-// `_CoachChatScreenState._addProposalToRecipes` after the user confirms; the
-// coach has no write rights of its own.
+// are DISPLAY ONLY — saving happens in `CoachChatController.adoptRecipe`
+// after the user confirms; the coach has no write rights of its own.
 // ---------------------------------------------------------------------------
 
 /// Proposal card in the chat: eyebrow, photo (or placeholder), title,

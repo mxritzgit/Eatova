@@ -217,12 +217,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   List<String> _gerenderteIds = const <String>[];
   bool _warAmLaden = true;
 
-  /// Sessions, history, sending and the banner (see [CoachChatController]).
+  /// Sessions, history, sending, the answer wait, the quota and the banner
+  /// (see [CoachChatController]).
   late final CoachChatController _coach;
-
-  // Bridge for the screen's own banner texts (dictation, photo, brief).
-  String? get _error => _coach.error;
-  set _error(String? value) => _coach.error = value;
 
   bool _listening = false;
 
@@ -265,10 +262,6 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// above both drop the Coach semantics until they return.
   bool get _cueCanSpeak => _sichtbar && _routeOnTop;
 
-  /// Keeps a request whose connection died in its thinking state while the
-  /// server may still store the answer (COACH-4).
-  late final _AntwortWarten _antwortWarten = _AntwortWarten(this);
-
   ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
   @override
@@ -279,9 +272,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       hooks: _CoachScreenHooks(this),
       // Read when a request starts, so it follows the current widget.
       requestInputs: () => CoachRequestInputs(userContext: widget.userContext),
+      inBackground: () => switch (WidgetsBinding.instance.lifecycleState) {
+        AppLifecycleState.paused ||
+        AppLifecycleState.hidden ||
+        AppLifecycleState.detached => true,
+        _ => false,
+      },
     );
     WidgetsBinding.instance.addObserver(this);
-    _antwortWarten.binden(widget.service);
     // ValueNotifier dedupes identical assignments, so no equality check here.
     _input.addListener(() => _draft.value = _input.text);
     _loadDictationLanguage();
@@ -303,10 +301,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void didUpdateWidget(covariant CoachChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(widget.service, oldWidget.service)) {
+      // The old account's answer wait ends there; its results are fenced out.
       _coach.updateService(widget.service);
-      // The old account's wait ends here; its result is fenced out anyway.
-      _antwortWarten.loesen(oldWidget.service);
-      _antwortWarten.binden(widget.service);
       _briefIsActive?.value = false;
       _queuedBrief = null;
       _dropAnswerCue();
@@ -351,7 +347,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// Whether the tab is visible, tracked via `TickerMode`: this screen lives
   /// in an `IndexedStack` and stays mounted, so the bootstrap runs once per
   /// app run and a stale quota, error banner or failed session would persist
-  /// until cold start. A flip to `true` triggers [_beiRueckkehr].
+  /// until cold start. A flip to `true` triggers
+  /// [CoachChatController.returnToChat].
   ///
   /// Depends on `TickerMode(enabled: i == tab, …)` in `eatova_home_page.dart`;
   /// remove it there and this branch silently dies. The edge only covers tab
@@ -396,34 +393,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // Only on becoming visible and only once bootstrap is done, or two calls
     // race.
     if (!wurdeSichtbar || svc == null || _coach.loading) return;
-    // After the frame: [_beiRueckkehr] calls setState, and this runs mid-build.
+    // After the frame: the return notifies, and this runs mid-build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_beiRueckkehr(svc));
+      if (mounted) unawaited(_coach.returnToChat(svc));
     });
-  }
-
-  /// Everything a tab switch used to do by unmounting the screen. It stays
-  /// mounted now, so whatever is missing here never happens again until cold
-  /// start. Two callers: [didChangeDependencies] (tab switch) and
-  /// [didChangeAppLifecycleState] (resume on an already-open coach tab).
-  Future<void> _beiRueckkehr(CoachChatService svc) async {
-    // Healing path: a bootstrap that ended without a session (offline on the
-    // first visit) would otherwise leave the composer dead for the whole app
-    // run, since only the quota was refreshed here, never the session.
-    if (_coach.activeSessionId == null) {
-      await _coach.bootstrap();
-      return;
-    }
-    // The error banner is feedback on an action, not a permanent state. A
-    // failed history load is the exception: nothing here reloads it, and
-    // without its banner the conversation is just blank.
-    if (mounted &&
-        identical(widget.service, svc) &&
-        _error != null &&
-        !_coach.historyUnavailable) {
-      setState(() => _error = null);
-    }
-    await _coach.refreshQuota(svc);
   }
 
   /// Second trigger for the refresh path: [didChangeDependencies] only fires
@@ -437,27 +410,27 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      _antwortWarten.hintergrund();
+      _coach.appPaused();
       if (_listening) setState(_cancelSpeechInput);
       return;
     }
     if (state != AppLifecycleState.resumed) return;
-    _antwortWarten.vordergrund();
+    _coach.appResumed();
     final svc = widget.service;
     if (!_sichtbar || svc == null || _coach.loading) return;
-    unawaited(_beiRueckkehr(svc));
+    unawaited(_coach.returnToChat(svc));
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _antwortWarten.loesen(widget.service);
+    // Ends the answer wait too.
+    _coach.dispose();
     _briefIsActive?.value = false;
     _answerCueTimer?.cancel();
     _cancelSpeechInput();
     _input.dispose();
     _draft.dispose();
-    _coach.dispose();
     _scroll.dispose();
     _inputFocus.dispose();
     super.dispose();
@@ -766,9 +739,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
     // Nothing could be sent from the brief: say why up front instead of
     // after the whole form is filled in.
-    final locked = _composerLockReason(context.l10n);
+    final locked = _coach.lockReason;
     if (locked != null) {
-      setState(() => _error = locked);
+      _coach.showError(locked);
       return;
     }
     final service = widget.service;
@@ -814,23 +787,6 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _entwurfZurueck(draft);
     }
     await versand;
-  }
-
-  /// Why nothing can be sent at all, or null. Loading and a running request
-  /// are waits, not locks.
-  String? _composerLockReason(AppLocalizations l10n) {
-    if (widget.service == null) return l10n.coachErrorNotLoggedIn;
-    if (_coach.quotaExhausted) {
-      return l10n.coachErrorDailyLimitReached(_coach.limitForDisplay);
-    }
-    if (_coach.activeSessionId == null) {
-      // A failed history load leaves no active session either; its banner
-      // names the real cause.
-      return _coach.historyUnavailable
-          ? l10n.coachErrorHistoryUnavailable
-          : l10n.coachErrorNoSession;
-    }
-    return null;
   }
 
   /// Opens a brief that waited for a request or a load ([_queuedBrief]).
@@ -1169,7 +1125,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       final bytes = await _scrubImage(raw);
       if (!isCurrent()) return;
       if (bytes.lengthInBytes > _maxImageBytes) {
-        setState(() => _error = l10n.coachErrorImageTooLarge);
+        _coach.showError(l10n.coachErrorImageTooLarge);
         return;
       }
       final typed = _input.text;
@@ -1186,10 +1142,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       await versand;
     } on PlatformException catch (e) {
       if (!isCurrent()) return;
-      setState(() => _error = _permissionMessageFor(source, e, l10n));
+      _coach.showError(_permissionMessageFor(source, e, l10n));
     } catch (e) {
       if (!isCurrent()) return;
-      setState(() => _error = l10n.coachErrorImageLoadFailed);
+      _coach.showError(l10n.coachErrorImageLoadFailed);
     } finally {
       // Only here: by now the bytes are read, scrubbed and sent — the path is
       // needed for the MIME type only, not the content.
@@ -1376,13 +1332,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
     final generation = _speechGeneration = ++_speechSeq;
+    _coach.showError(null);
     setState(() {
       _listening = true;
       _listeningLanguage = language;
       _speechShown = '';
       _speechStopping = false;
       _speechCapReached = false;
-      _error = null;
     });
     _keepScreenAwake(true);
     var end = CoachSpeechEnd.stopped;
@@ -1414,23 +1370,19 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         if (dictated.isNotEmpty) {
           _setDraft(_withDictation(_speechDraft, dictated));
         }
-        if (hint != null) _error = hint;
       });
+      if (hint != null) _coach.showError(hint);
       if (dictated.isNotEmpty) _inputFocus.requestFocus();
     } on CoachSpeechException catch (e) {
       if (!mounted || generation != _speechGeneration) return;
       _keepScreenAwake(false);
-      setState(() {
-        _listening = false;
-        _error = e.message;
-      });
+      setState(() => _listening = false);
+      _coach.showError(e.message);
     } catch (_) {
       if (!mounted || generation != _speechGeneration) return;
       _keepScreenAwake(false);
-      setState(() {
-        _listening = false;
-        _error = l10n.coachSpeechUnavailable;
-      });
+      setState(() => _listening = false);
+      _coach.showError(l10n.coachSpeechUnavailable);
     }
   }
 
@@ -1569,8 +1521,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // Every state change that can end a wait rebuilds, so this one place
     // covers the reply, the bootstrap and a session load alike.
     _openQueuedBriefWhenFree();
-    // Same rule: leaving the conversation ends a pending answer wait.
-    _antwortWarten.sitzungPruefen(_coach.activeSessionId);
+    final error = _coach.error;
     return LayoutBuilder(
       builder: (context, constraints) {
         // The floating tab bar's band (from the shell). The composer's own
@@ -1615,7 +1566,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
             ),
             Expanded(
               child: _CoachConversationArea(
-                feedback: _coach.failedSend != null || _error != null
+                feedback: _coach.failedSend != null || error != null
                     ? Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1625,7 +1576,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                               canRetry: _coach.canInteract,
                               onRetry: _wiederholen,
                             ),
-                          if (_error != null) _ErrorBanner(text: _error!),
+                          if (error != null) _ErrorBanner(text: error),
                         ],
                       )
                     : null,
@@ -1880,77 +1831,6 @@ class _CoachScreenHooks extends CoachChatViewHooks {
 
   @override
   void draftReturned(String text) => _state._entwurfZurueck(text);
-}
-
-/// [CoachChatService.answerWaiter] of this screen (COACH-4): after a lost
-/// connection the service re-checks the transcript while the question is
-/// stored without an answer, and the screen keeps its thinking state. No
-/// timer runs while the app is in the background (the resume checks at once),
-/// and the wait ends when the screen leaves the request's session or account
-/// or goes away; the error then stands, fenced as for any late failure.
-class _AntwortWarten implements CoachAnswerWaiter {
-  _AntwortWarten(this._state);
-
-  final _CoachChatScreenState _state;
-  Timer? _wecker;
-  Completer<bool>? _pause;
-  String? _sitzung;
-
-  void binden(CoachChatService? svc) {
-    if (svc != null) svc.answerWaiter = this;
-  }
-
-  void loesen(CoachChatService? svc) {
-    if (svc != null && identical(svc.answerWaiter, this)) {
-      svc.answerWaiter = null;
-    }
-    _wecken(false);
-  }
-
-  static bool get _imHintergrund => switch (
-      WidgetsBinding.instance.lifecycleState) {
-    AppLifecycleState.paused ||
-    AppLifecycleState.hidden ||
-    AppLifecycleState.detached =>
-      true,
-    _ => false,
-  };
-
-  bool _gilt(String sessionId) =>
-      _state.mounted && _state._coach.activeSessionId == sessionId;
-
-  @override
-  Future<bool> pause(String sessionId, Duration interval) async {
-    if (!_gilt(sessionId)) return false;
-    _wecken(false);
-    final pause = _pause = Completer<bool>();
-    _sitzung = sessionId;
-    if (!_imHintergrund) _wecker = Timer(interval, () => _wecken(true));
-    final weiter = await pause.future;
-    return weiter && _gilt(sessionId);
-  }
-
-  /// Background: no timer; the pending pause waits for [vordergrund].
-  void hintergrund() {
-    _wecker?.cancel();
-    _wecker = null;
-  }
-
-  /// Back in front: check at once, the answer may have landed meanwhile.
-  void vordergrund() => _wecken(true);
-
-  void sitzungPruefen(String? aktiv) {
-    if (_pause != null && aktiv != _sitzung) _wecken(false);
-  }
-
-  void _wecken(bool weiter) {
-    _wecker?.cancel();
-    _wecker = null;
-    final pause = _pause;
-    _pause = null;
-    _sitzung = null;
-    if (pause != null && !pause.isCompleted) pause.complete(weiter);
-  }
 }
 
 /// "Not sent" under the history, with the retry button next to it.

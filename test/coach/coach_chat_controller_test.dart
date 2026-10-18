@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
+import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
@@ -182,6 +185,116 @@ class _Hooks extends CoachChatViewHooks {
 
   @override
   void draftReturned(String text) => calls.add('draft:$text');
+}
+
+/// The real [CoachChatService] transcript loop behind a connection that dies
+/// after the server stored the question (COACH-4). Only the screen's own
+/// loads are scripted; the request and its transcript checks go through
+/// HTTP.
+class _LostConnection {
+  _LostConnection(this.question);
+
+  /// What the server stored for the request (the wish, without a command).
+  final String question;
+
+  /// The transcript check that first shows the answer; null: never.
+  int? answerAtCheck;
+
+  int functionCalls = 0;
+  int checks = 0;
+
+  late final SupabaseClient client = SupabaseClient(
+    'https://example.supabase.co',
+    'test-anon-key',
+    httpClient: MockClient(_handle),
+    authOptions: const AuthClientOptions(autoRefreshToken: false),
+    isolate: _InlineJson(),
+  );
+
+  late final _LostCoach service = _LostCoach(client);
+
+  Future<http.Response> _handle(http.Request req) async {
+    final path = req.url.path;
+    if (path.contains('coach-chat')) {
+      functionCalls++;
+      throw http.ClientException('Software caused connection abort', req.url);
+    }
+    if (path.endsWith('/rest/v1/chat_messages')) {
+      checks++;
+      final answered = answerAtCheck != null && checks >= answerAtCheck!;
+      // Newest first, as loadHistory asks for them.
+      return _json(req, <Map<String, Object?>>[
+        if (answered) _row('r1', 'assistant', 'Etwa 25 g.', _t0),
+        _row('q1', 'user', question, _t0),
+      ]);
+    }
+    return _json(req, const <Object?>[]);
+  }
+
+  static Map<String, Object?> _row(
+    String id,
+    String role,
+    String content,
+    DateTime at,
+  ) => <String, Object?>{
+    'id': id,
+    'role': role,
+    'content': content,
+    'refusal': false,
+    'created_at': at.toIso8601String(),
+    'recipe': null,
+    'training_plan': null,
+    'workout_log': null,
+  };
+
+  static http.Response _json(http.Request req, Object? data) => http.Response(
+    jsonEncode(data),
+    200,
+    request: req,
+    headers: const <String, String>{
+      'content-type': 'application/json; charset=utf-8',
+    },
+  );
+}
+
+/// JSON on the calling isolate. The SDK's default codec answers through a
+/// real isolate port, which fake time cannot advance.
+class _InlineJson implements YAJsonIsolate {
+  @override
+  String? get debugName => null;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<dynamic> decode(String json) async => jsonDecode(json);
+
+  @override
+  Future<String> encode(Object? json) async => jsonEncode(json);
+}
+
+class _LostCoach extends CoachChatService {
+  _LostCoach(SupabaseClient client) : super(client, 'user-1');
+
+  @override
+  Future<List<ChatSession>> loadSessions() async =>
+      <ChatSession>[_session('a'), _session('b')];
+
+  @override
+  Future<String?> ensureDefaultSession() async => 'a';
+
+  @override
+  Future<List<ChatMessage>> loadHistory(
+    String sessionId, {
+    int limit = 100,
+  }) async => const <ChatMessage>[];
+
+  @override
+  Future<ChatQuotaSnapshot> loadQuotaToday() async =>
+      const ChatQuotaSnapshot(used: 1, remaining: 4, dailyLimit: 5);
 }
 
 /// A controller on [svc] with the bootstrap done (session `a` open).
@@ -594,6 +707,288 @@ void main() {
       await pumpEventQueue();
       expect(hooks.calls, calls);
       expect(svc.quotaLoads, 1, reason: 'only the bootstrap asked');
+    });
+  });
+
+  group('waiting for a stored answer (COACH-4)', () {
+    const abstand = Duration(seconds: 3);
+
+    /// Bootstraps [net]'s controller on fake time and sends [typed]; the
+    /// connection dies and the first transcript check finds the question.
+    CoachChatController start(
+      FakeAsync async,
+      _LostConnection net,
+      String typed, {
+      bool Function()? inBackground,
+    }) {
+      final coach = CoachChatController(
+        service: net.service,
+        inBackground: inBackground,
+      );
+      unawaited(coach.bootstrap());
+      async.flushMicrotasks();
+      unawaited(coach.send(typed));
+      // Zero-length timers of the HTTP stack run too, the 3 s pause not.
+      async.elapse(Duration.zero);
+      expect(net.functionCalls, 1);
+      expect(net.checks, 1);
+      expect(coach.sendingInActiveSession, isTrue);
+      expect(coach.error, isNull);
+      // The pause between two checks is the only timer.
+      expect(
+        async.pendingTimers.map((timer) => timer.duration),
+        [const Duration(seconds: 3)],
+      );
+      return coach;
+    }
+
+    final kinds = <String, ({Duration deadline, String stored, String typed})>{
+      'chat': (
+        deadline: CoachChatService.chatDeadline,
+        stored: 'Wie viel Protein?',
+        typed: 'Wie viel Protein?',
+      ),
+      '/recipe': (
+        deadline: CoachChatService.recipeDeadline,
+        stored: 'Bowl mit Kichererbsen',
+        typed: '/recipe Bowl mit Kichererbsen',
+      ),
+      '/plan': (
+        deadline: CoachChatService.planDeadline,
+        stored: 'Kraft für Anfänger',
+        typed: '/plan Kraft für Anfänger',
+      ),
+      '/log': (
+        deadline: CoachChatService.workoutLogDeadline,
+        stored: 'heute Kniebeugen 1x8 100 kg',
+        typed: '/log heute Kniebeugen 1x8 100 kg',
+      ),
+    };
+    for (final MapEntry(key: name, value: kind) in kinds.entries) {
+      test('$name: checks every 3 s up to its deadline '
+          '(${kind.deadline.inSeconds} s), then the error', () {
+        fakeAsync((async) {
+          final net = _LostConnection(kind.stored);
+          final coach = start(async, net, kind.typed);
+
+          async.elapse(abstand);
+          expect(net.checks, 2);
+          async.elapse(kind.deadline - abstand - const Duration(seconds: 1));
+          expect(coach.error, isNull, reason: 'the answer may still come');
+          expect(coach.failedSend, isNull, reason: 'a retry buys a 2nd slot');
+          expect(coach.sendingInActiveSession, isTrue);
+
+          async.elapse(const Duration(seconds: 2));
+          expect(coach.error, deL10n.coachErrorNoConnection);
+          expect(coach.failedSend, isNotNull);
+          expect(coach.sending, isFalse);
+          // At once, then every 3 s, the last one at the deadline itself.
+          expect(net.checks, (kind.deadline.inSeconds / 3).ceil() + 1);
+          expect(net.functionCalls, 1, reason: 'no second paid request');
+          expect(async.pendingTimers, isEmpty);
+          coach.dispose();
+          net.client.dispose();
+        }, initialTime: _t0);
+      });
+    }
+
+    test('the stored answer arrives: no error, one request', () {
+      fakeAsync((async) {
+        final net = _LostConnection('Wie viel Protein?')..answerAtCheck = 3;
+        final coach = start(async, net, 'Wie viel Protein?');
+        async.elapse(abstand);
+        expect(coach.sendingInActiveSession, isTrue);
+        async.elapse(abstand);
+
+        expect(net.checks, 3);
+        expect(
+          coach.messages.map((m) => m.content),
+          ['Wie viel Protein?', 'Etwa 25 g.'],
+        );
+        expect(coach.error, isNull);
+        expect(coach.failedSend, isNull);
+        expect(coach.sending, isFalse);
+        expect(net.functionCalls, 1);
+        expect(async.pendingTimers, isEmpty);
+        coach.dispose();
+        net.client.dispose();
+      }, initialTime: _t0);
+    });
+
+    test('in the background no timer runs; the resume checks at once', () {
+      fakeAsync((async) {
+        var background = false;
+        final net = _LostConnection('Wie viel Protein?')..answerAtCheck = 2;
+        final coach = start(
+          async,
+          net,
+          'Wie viel Protein?',
+          inBackground: () => background,
+        );
+
+        background = true;
+        coach.appPaused();
+        expect(async.pendingTimers, isEmpty);
+        async.elapse(const Duration(seconds: 60));
+        expect(net.checks, 1, reason: 'no transcript checks in the background');
+
+        background = false;
+        coach.appResumed();
+        async.flushMicrotasks();
+        expect(net.checks, 2);
+        expect(coach.messages.last.content, 'Etwa 25 g.');
+        expect(coach.error, isNull);
+        coach.dispose();
+        net.client.dispose();
+      }, initialTime: _t0);
+    });
+
+    test('a connection lost while in the background starts no timer', () {
+      fakeAsync((async) {
+        var background = false;
+        final net = _LostConnection('Wie viel Protein?')..answerAtCheck = 2;
+        final coach = CoachChatController(
+          service: net.service,
+          inBackground: () => background,
+        );
+        unawaited(coach.bootstrap());
+        async.flushMicrotasks();
+        // iOS reclaims the socket of an app the user has just left.
+        unawaited(coach.send('Wie viel Protein?'));
+        background = true;
+        coach.appPaused();
+        async.elapse(Duration.zero);
+        expect(net.checks, 1);
+        expect(async.pendingTimers, isEmpty);
+        async.elapse(const Duration(seconds: 60));
+        expect(net.checks, 1);
+        expect(coach.sendingInActiveSession, isTrue);
+
+        background = false;
+        coach.appResumed();
+        async.flushMicrotasks();
+        expect(net.checks, 2);
+        expect(coach.messages.last.content, 'Etwa 25 g.');
+        coach.dispose();
+        net.client.dispose();
+      }, initialTime: _t0);
+    });
+
+    test('leaving the conversation ends the wait at once, its error stays '
+        'behind', () {
+      fakeAsync((async) {
+        final net = _LostConnection('Wie viel Protein?');
+        final coach = start(async, net, 'Wie viel Protein?');
+
+        unawaited(coach.switchToSession('b'));
+        async.flushMicrotasks();
+        expect(coach.sending, isFalse, reason: 'the composer is free at once');
+        expect(async.pendingTimers, isEmpty);
+        expect(coach.error, isNull, reason: 'the error belongs to chat a');
+        expect(coach.failedSend, isNull);
+
+        async.elapse(const Duration(seconds: 30));
+        expect(net.checks, 1, reason: 'no checks for a conversation left');
+        coach.dispose();
+        net.client.dispose();
+      }, initialTime: _t0);
+    });
+
+    test('an account switch ends the wait; no timer, no error', () {
+      fakeAsync((async) {
+        final net = _LostConnection('Wie viel Protein?');
+        final coach = start(async, net, 'Wie viel Protein?');
+        final next = _LostConnection('anders');
+
+        coach.updateService(next.service);
+        async.flushMicrotasks();
+        expect(net.service.answerWaiter, isNull);
+        expect(next.service.answerWaiter, isNotNull);
+        expect(async.pendingTimers, isEmpty);
+        expect(coach.error, isNull);
+        expect(coach.failedSend, isNull);
+        expect(coach.sending, isFalse);
+        async.elapse(const Duration(seconds: 30));
+        expect(net.checks, 1);
+        coach.dispose();
+        net.client.dispose();
+        next.client.dispose();
+      }, initialTime: _t0);
+    });
+
+    test('dispose ends the wait; no timer, no callback', () {
+      fakeAsync((async) {
+        final net = _LostConnection('Wie viel Protein?');
+        final coach = start(async, net, 'Wie viel Protein?');
+        var notified = 0;
+        coach.addListener(() => notified++);
+
+        coach.dispose();
+        async.flushMicrotasks();
+        expect(net.service.answerWaiter, isNull);
+        expect(async.pendingTimers, isEmpty);
+        async.elapse(const Duration(seconds: 30));
+        expect(net.checks, 1);
+        expect(notified, 0);
+        net.client.dispose();
+      }, initialTime: _t0);
+    });
+  });
+
+  group('return to the tab', () {
+    test('a send error goes, a history error stays and can be retried',
+        () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      unawaited(coach.send('Frage'));
+      svc.sends.single.reply.completeError(
+        CoachChatException(deL10n.coachErrorTimeout),
+      );
+      await pumpEventQueue();
+      expect(coach.error, deL10n.coachErrorTimeout);
+
+      // The banner is feedback on an action; the marker stays.
+      final loads = svc.quotaLoads;
+      await coach.returnToChat(svc);
+      expect(coach.error, isNull);
+      expect(coach.failedSend, isNotNull);
+      expect(svc.quotaLoads, loads + 1, reason: 'the quota is asked again');
+
+      // A failed history keeps its banner: nothing else would reload it.
+      svc.historyFailure = _offline;
+      await coach.switchToSession('b');
+      expect(coach.historyUnavailable, isTrue);
+      await coach.returnToChat(svc);
+      expect(coach.error, deL10n.coachErrorHistoryUnavailable);
+      expect(coach.historyUnavailable, isTrue);
+
+      await coach.switchToSession('b');
+      expect(coach.error, isNull);
+      expect(coach.historyUnavailable, isFalse);
+    });
+
+    test('without a session the return runs the bootstrap again', () async {
+      final svc = _Coach()..sessionList = <ChatSession>[];
+      final coach = await _ready(svc);
+      expect(coach.activeSessionId, isNull);
+      expect(coach.error, deL10n.coachErrorNoSession);
+      expect(coach.lockReason, deL10n.coachErrorNoSession);
+
+      svc.sessionList = [_session('a')];
+      await coach.returnToChat(svc);
+      expect(coach.activeSessionId, 'a');
+      expect(coach.error, isNull);
+      expect(coach.lockReason, isNull);
+    });
+
+    test('a quota answer of the old account is dropped', () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      final next = _Coach();
+      coach.updateService(next);
+      final quota = coach.quota;
+      await coach.returnToChat(svc);
+      expect(coach.quota, same(quota));
     });
   });
 }
