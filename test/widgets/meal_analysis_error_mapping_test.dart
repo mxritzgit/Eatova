@@ -270,7 +270,7 @@ void main() {
         // Review 2026-08-31 (I1): 503 from a GoTrue lookup that hit its step
         // deadline. This list is hand-written and therefore structurally
         // blind to new server codes — the guard against that is
-        // test/review_31/i_analyze_meal_error_contract_test.dart, which reads
+        // test/services/i_analyze_meal_error_contract_test.dart, which reads
         // the codes out of the edge function sources.
         'auth_unavailable',
       ]) {

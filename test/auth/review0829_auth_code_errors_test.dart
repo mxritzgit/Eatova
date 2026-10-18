@@ -136,7 +136,7 @@ AuthApiException _otpAbgeschaltet() => const AuthApiException(
 /// (`_handleError`) and never reaches the `AuthApiException` branch — the
 /// `AuthApiException(statusCode: '500')` that stood here is a form gotrue
 /// cannot produce, so the real 5xx path was untested. What the SENTENCE for it
-/// has to be is pinned in `test/review_31/h_auth_server_fault_test.dart`.
+/// has to be is pinned in `test/auth/h_auth_server_fault_test.dart`.
 AuthRetryableFetchException _serverfehler500() => AuthRetryableFetchException(
       message: '{"code":500,"message":"Unexpected failure"}',
       statusCode: '500',

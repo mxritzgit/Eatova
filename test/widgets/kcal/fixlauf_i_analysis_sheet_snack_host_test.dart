@@ -2,7 +2,7 @@
 // analysis sheet hosts its own toast surface above the modal scrim. The
 // 0-kcal guard, the add confirmation and the re-portion toast all fire while
 // the sheet stays open — on the root messenger they painted UNDER the scrim
-// and read as dead. Pattern: test/fixlauf_c_sheet_snack_widget_test.dart.
+// and read as dead. Pattern: test/widgets/kcal/fixlauf_c_sheet_snack_widget_test.dart.
 
 import 'dart:async';
 

@@ -28,7 +28,7 @@ import '../support/harness.dart';
 // Impressum, AGB und Datenschutz sind § 5 DDG / DSGVO Art. 13 und
 // Store-Pflicht, deshalb nennt der Ersatzweg die URL zum Abtippen.
 //
-// Schwesterdatei: test/review0829_auth_legal_links_test.dart (dieselbe
+// Schwesterdatei: test/auth/review0829_auth_legal_links_test.dart (dieselbe
 // Zusicherung fuer den Einwilligungshinweis).
 
 const MethodChannel _urlLauncherKanal =

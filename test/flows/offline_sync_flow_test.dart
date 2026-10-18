@@ -5,7 +5,7 @@
 //
 // The unit suites pin the store's outbox in isolation; this one drives the
 // same path through the real shell (add sheet -> store -> EatovaSync ->
-// PostgREST) over the stateful fake server from test/fixlauf_a_helpers.dart.
+// PostgREST) over the stateful fake server from test/support/fixlauf_a_helpers.dart.
 // EatovaApp cannot carry a sync (it builds one from `Supabase.instance`), so
 // the shell is composed here. Runs in English.
 

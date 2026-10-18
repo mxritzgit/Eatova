@@ -83,7 +83,7 @@ class ProfileSync {
 
   /// Every column [load] reads and [save] writes. A new column needs a grant
   /// in supabase/migrations (column grants since 20260819100000) — guarded by
-  /// test/fixlauf_g_manual_energy_migration_test.dart.
+  /// test/migrations/fixlauf_g_manual_energy_migration_test.dart.
   static const _columns =
       'weight_kg, height_cm, age_years, sex, '
       'activity_level, target_weight_kg, '

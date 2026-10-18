@@ -529,6 +529,6 @@ void main() {
   });
 
   // The error translator (`accountChangeErrorMessage`) is pinned in
-  // review_31/h_account_change_classifier_test.dart and
+  // auth/h_account_change_classifier_test.dart and
   // auth_enumeration_test.dart.
 }
