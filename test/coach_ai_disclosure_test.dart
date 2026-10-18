@@ -73,6 +73,7 @@ List<String> _c8Block(AppLocalizations l10n) => <String>[
       l10n.coachInfoBulletWeight,
       l10n.coachInfoBulletMacros,
       l10n.coachInfoBulletMeals,
+      l10n.foodPrefsCoachInfoBullet,
       l10n.coachInfoProvider,
       l10n.coachInfoLimitLabel,
     ];
@@ -205,6 +206,8 @@ void main() {
     expect(find.textContaining('Kalorien'), findsAtLeastNWidgets(1));
     expect(find.textContaining('Makros'), findsAtLeastNWidgets(1));
     expect(find.textContaining('Mahlzeiten'), findsAtLeastNWidgets(1));
+    // The diet line and the /recipe preferences (C3).
+    expect(find.textContaining('Ernährungsform'), findsAtLeastNWidgets(1));
 
     // WHERE it goes: third party and country.
     expect(find.textContaining('USA'), findsAtLeastNWidgets(1));

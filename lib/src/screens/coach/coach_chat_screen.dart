@@ -32,6 +32,7 @@ import '../../models/coach_workout_log.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/training_history.dart';
 import '../../models/training_plan.dart';
+import '../../models/user_profile.dart' show FoodPreferences;
 import '../../services/coach_chat_service.dart';
 import '../../services/dictation_language.dart';
 import '../../services/kcal_format.dart';
@@ -80,6 +81,7 @@ class CoachChatScreen extends StatefulWidget {
     this.userName = 'Moritz',
     this.dayBrief,
     this.userContext,
+    this.recipePreferences,
     this.imagePicker,
     this.speechInput = const CoachSpeechInput(),
     this.screenAwake = const MethodChannelScreenAwake(),
@@ -163,6 +165,10 @@ class CoachChatScreen extends StatefulWidget {
   /// Chat mode only. /recipe deliberately gets none (P5-02): the function's
   /// recipe branch never reads it, so it would be health data sent for nothing.
   final String? userContext;
+
+  /// Diet, avoided foods and dislikes for /recipe (C3): the only profile data
+  /// a recipe request carries, as its own narrow field. Null sends none.
+  final FoodPreferences? recipePreferences;
 
   final ImagePicker? imagePicker;
   final CoachSpeechInput speechInput;
@@ -1823,11 +1829,20 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     try {
       // No `userContext` (P5-02): the function's recipe mode never reads it,
       // so sending profile and daily balance would be data without a purpose.
-      final res = await svc.requestRecipe(
-        wish,
-        sessionId: sessionId,
-        locale: l10n.localeName,
-      );
+      // Only the food preferences, which the recipe prompt does read.
+      final preferences = widget.recipePreferences;
+      final res = preferences == null
+          ? await svc.requestRecipe(
+              wish,
+              sessionId: sessionId,
+              locale: l10n.localeName,
+            )
+          : await svc.requestRecipeWithPreferences(
+              wish,
+              sessionId: sessionId,
+              locale: l10n.localeName,
+              preferences: preferences,
+            );
       // As in [_send]: the slot is spent even if the card is discarded.
       if (!mounted || !identical(widget.service, svc)) return;
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
@@ -3446,6 +3461,7 @@ class _CoachInfoSheetUnbekannt extends StatelessWidget {
               _InfoBullet(l10n.coachInfoBulletWeight),
               _InfoBullet(l10n.coachInfoBulletMacros),
               _InfoBullet(l10n.coachInfoBulletMeals),
+              _InfoBullet(l10n.foodPrefsCoachInfoBullet),
               const SizedBox(height: 12),
               Text(
                 l10n.coachInfoProvider,

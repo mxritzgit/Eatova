@@ -431,6 +431,58 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     }
   }
 
+  // --- Food preferences (F8, C3) -------------------------------------------
+
+  /// Provided by the tracking part; see `_HomeStoreTrackingPart`.
+  Future<void> _settledLocalMutations();
+
+  /// Saves diet, avoided foods and dislikes from the profile's editor.
+  ///
+  /// Derived from the PUBLISHED profile once pending local commits settled,
+  /// so a goals save in flight lands first and only these three fields
+  /// change. One profile op through the outbox, like [applySettings]. The
+  /// recipe shelves and the coach read [profile], so both follow at once.
+  Future<void> updateFoodPreferences(FoodPreferences preferences) async {
+    if (sync != null && !_hydratedFromRealSource) {
+      throw StateError('Profile storage is not ready');
+    }
+    await _settledLocalMutations();
+    final next = profile.copyWith(
+      diet: preferences.diet,
+      foodAvoidances: preferences.avoidances,
+      foodDislikes: preferences.dislikes,
+    );
+    await _commitSyncIntents([
+      SyncOp.profileUpsert(next),
+    ], publish: () => profile = next);
+  }
+
+  /// The preferences a /recipe request carries, or null when nothing is set
+  /// (the request then has no `preferences` field at all).
+  FoodPreferences? get coachRecipePreferences {
+    final preferences = profile.foodPreferences;
+    return preferences.isEmpty ? null : preferences;
+  }
+
+  /// The coach context line for diet, avoided foods and dislikes, or null
+  /// when nothing is set. German like the rest of the context (labels from
+  /// [deL10n]); the dislikes are user text and travel inside the context the
+  /// server frames and filters.
+  @override
+  String? _foodPreferencesContext() {
+    final p = profile.foodPreferences;
+    if (p.isEmpty) return null;
+    final avoided = sortedFoodAvoidances(
+      p.avoidances,
+    ).map((a) => a.label(deL10n)).join(', ');
+    final parts = <String>[
+      if (p.diet != DietPreference.none) 'Kostform ${p.diet.label(deL10n)}',
+      if (avoided.isNotEmpty) 'meidet $avoided',
+      if (p.dislikes.isNotEmpty) 'mag nicht: ${p.dislikes}',
+    ];
+    return 'Laut Profil: ${parts.join('; ')}.';
+  }
+
   // `resetTodayData()`/`_clearTodayState()` were removed with "reset day
   // data". The `_lastKnownToday` note in home_store.dart still names
   // `_clearTodayState`; its argument (date compare, not a flag) holds anyway.

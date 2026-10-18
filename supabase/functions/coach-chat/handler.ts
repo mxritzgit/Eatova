@@ -69,6 +69,14 @@ import {
   recipeSystemPrompt,
 } from "./recipe.ts";
 import {
+  findPreferenceConflicts,
+  labelPreferenceConflicts,
+  parseRecipePreferences,
+  recipeDislikesMessage,
+  recipePreferenceRules,
+  type RecipePreferences,
+} from "./recipe_preferences.ts";
+import {
   parsePlanCommand,
   parseTrainingPlanDraft,
   parseTrainingPlanRefusal,
@@ -1300,11 +1308,18 @@ async function draftRecipe(
   budget: ProviderCallBudget,
   wish: string,
   locale: "de" | "en",
+  preferences: RecipePreferences | null,
 ): Promise<{ content: string; finishReason: string | undefined }> {
   await budget("coach_recipe");
+  // The shared prompt stays the cached prefix; the requirements from the
+  // validated codes form the uncached tail, the dislikes a framed data turn.
+  const dislikes = preferences ? recipeDislikesMessage(preferences) : null;
   return await structuredDraft(apiKey, {
-    system: cachedSystem(recipeSystemPrompt(locale)),
-    messages: [{ role: "user", content: wish }],
+    system: cachedSystem(
+      recipeSystemPrompt(locale),
+      preferences ? recipePreferenceRules(preferences) : undefined,
+    ),
+    messages: [...(dislikes ? [dislikes] : []), { role: "user", content: wish }],
     maxTokens: RECIPE_MAX_TOKENS,
     effort: COACH_EFFORT,
     schema: RECIPE_OUTPUT_SCHEMA,
@@ -1465,6 +1480,8 @@ async function handleRecipeMode(params: {
   locale: "de" | "en";
   remaining: number | null;
   quotaDay: string | null;
+  /// Validated profile preferences (C3); null without any.
+  preferences: RecipePreferences | null;
 }): Promise<Response> {
   const {
     serviceKey,
@@ -1477,6 +1494,7 @@ async function handleRecipeMode(params: {
     locale,
     remaining,
     quotaDay,
+    preferences,
   } = params;
 
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
@@ -1491,7 +1509,7 @@ async function handleRecipeMode(params: {
 
   let completion: Awaited<ReturnType<typeof draftRecipe>>;
   try {
-    completion = await draftRecipe(claudeKey, params.budget, message, locale);
+    completion = await draftRecipe(claudeKey, params.budget, message, locale, preferences);
   } catch (e) {
     // Infra error: nothing delivered -> refund + honest status, as in the
     // answer path. Client-caused 4xx keep the slot (isClientFaultFailure).
@@ -1554,18 +1572,27 @@ async function handleRecipeMode(params: {
   // serialising two round-trips behind the image budget. generateRecipeImage
   // never throws (it returns null on every failure), so Promise.all surfaces
   // exactly the store/touch errors the serial code surfaced.
-  const summary = recipeSummary(draft, locale);
+  //
+  // An obvious break of the profile preferences is labelled, not re-drafted
+  // (recipe_preferences.ts says why). The image prompt keeps the unlabelled
+  // text; card, stored row and a saved recipe carry the note. Count only in
+  // the log: the codes are health data.
+  const conflicts = preferences ? findPreferenceConflicts(draft, preferences) : [];
+  if (conflicts.length > 0) console.log(`recipe preference check flagged ${conflicts.length}`);
+  const delivered = labelPreferenceConflicts(draft, conflicts, locale);
+  const summary = recipeSummary(delivered, locale);
   const [image, assistantMessageId] = await Promise.all([
     generateRecipeImage(openRouterKey, params.budget, recipeImagePrompt(draft)),
     storeRecipeMessage(serviceKey, supabaseUrl, {
-      user_id: userId, session_id: sessionId, content: summary, recipe: draft,
+      user_id: userId, session_id: sessionId, content: summary, recipe: delivered,
     }),
     touchSession(serviceKey, supabaseUrl, sessionId),
   ]);
 
   return json({
     reply: summary,
-    recipe: draft,
+    recipe: delivered,
+    ...(conflicts.length === 0 ? {} : { preference_conflicts: conflicts }),
     ...(image === null
       ? {}
       : { image_base64: image.base64, image_mime_type: image.mimeType }),
@@ -2488,7 +2515,7 @@ function json(body: unknown, status = 200, extraHeaders: Record<string, string> 
 
 const REQUEST_FIELDS = new Set([
   "message", "session_id", "locale", "image_base64", "image_mime_type",
-  "user_context", "mode", "training_context", "local_date",
+  "user_context", "mode", "training_context", "local_date", "preferences",
 ]);
 
 // An explicit mode always wins; text commands are parsed only without one.
@@ -2699,6 +2726,17 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
   // The recipe draft is text-only too: a photo would be dropped unread, and a
   // photo without words would reach the provider as an empty wish.
   if (isRecipeMode && hasImage) return json({ error: "recipe_image_not_supported" }, 400);
+  // Food preferences (C3): recipe mode only (chat gets them inside
+  // user_context), known codes only, before session writes or quota.
+  const preferenceCheck = parseRecipePreferences(body.preferences);
+  if (!preferenceCheck.ok || (body.preferences !== undefined && !isRecipeMode)) {
+    return json({ error: "invalid_preferences" }, 400);
+  }
+  if (preferenceCheck.dislikesDropped !== null) {
+    // Reason only, never the text: dislikes can name health conditions.
+    console.error(`preferences.dislikes verworfen (${preferenceCheck.dislikesDropped})`);
+  }
+  const recipePreferences = preferenceCheck.preferences;
   const locale: CoachLocale = body?.locale === "en" ? "en" : "de";
   const requestedSessionId =
     typeof body?.session_id === "string" && SESSION_ID_RE.test(body.session_id)
@@ -2966,6 +3004,7 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
       locale,
       remaining: claim.remaining,
       quotaDay,
+      preferences: recipePreferences,
     });
   }
 

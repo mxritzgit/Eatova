@@ -561,6 +561,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // ARCH-1/PERF-2: while open, the store listener bumps _profileRefresh so
     // mid-route state changes reach the ProfileScreen.
     _profileRouteOpen = true;
+    final ownerStore = _store;
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -583,6 +584,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onOpenSettings: _openSettings,
               onConnectHealth: _store.connectHealth,
               onRefreshHealth: _store.refreshHealthSteps,
+              onSaveFoodPreferences: (preferences) {
+                if (!_isStoreSessionCurrent(ownerStore)) {
+                  throw StateError('Profile owner changed');
+                }
+                return ownerStore.updateFoodPreferences(preferences);
+              },
               // Sign-out, deletion, export and "about" hang off
               // [_openSettings]; the profile block duplicated them.
             ),
@@ -1722,6 +1729,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             nextMainSlot: _store.nextOpenMainSlot(),
           ),
           userContext: widget.sync != null ? _store.coachContext : null,
+          // /recipe's only profile data (C3); `_store.profile` above is in
+          // the selector, so an edit reaches the next request.
+          recipePreferences: widget.sync != null
+              ? _store.coachRecipePreferences
+              : null,
           // Confirmed /recipe suggestions take the manual form's path.
           onCreateRecipe: widget.sync == null ? null : _store.createUserRecipe,
           // `visibleUserRecipes`, not `userRecipes`: a recipe inside the

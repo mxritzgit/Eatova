@@ -279,7 +279,7 @@ void main() {
   });
 
   group('Sprungmarken auf echten Seiten', () {
-    testWidgets('Profil: Titel und die vier Abschnitte in Lesereihenfolge',
+    testWidgets('Profil: Titel und die fuenf Abschnitte in Lesereihenfolge',
         (tester) async {
       final l10n = _de;
       final handle = tester.ensureSemantics();
@@ -308,6 +308,7 @@ void main() {
           (label: l10n.profileSectionPlan, level: 2),
           (label: l10n.profileSectionBody, level: 2),
           (label: l10n.profileSectionDailyGoals, level: 2),
+          (label: l10n.foodPrefsSectionLabel, level: 2),
           (label: l10n.profileSectionConnections, level: 2),
         ],
         reason: 'im Navigationsmodus „Überschriften" muss die Profilseite '

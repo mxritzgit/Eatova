@@ -429,13 +429,17 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     return parts.first.characters.first.toUpperCase();
   }
 
+  /// The diet line of [coachContext]; lives in `_HomeStoreProfilePart`.
+  String? _foodPreferencesContext();
+
   /// Compact day/profile snapshot for the AI coach, so it can advise on
   /// concrete numbers.
   ///
   /// Order is FIXED because the Edge Function truncates the TAIL of
   /// `user_context` at [kCoachContextCapChars]: language hint, core values
-  /// (weight, effective weight goal, balance, open macros), the last seven
-  /// days ([_coachWeekSummary]), per-slot macros ([_todaysSlotSummary]), then
+  /// (weight, effective weight goal, balance, open macros), food preferences
+  /// ([_foodPreferencesContext]), the last seven days ([_coachWeekSummary]),
+  /// per-slot macros ([_todaysSlotSummary]), then
   /// the food list ([_todaysFoodSummary]) — the only line the cap may hit.
   String get coachContext {
     final p = profile;
@@ -471,8 +475,12 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
           'Fett $remFat g.',
     ];
-    // The last seven days (C2) right after the core values, before the
-    // per-slot and food lines of today.
+    // Diet and avoided foods right after the core values: constraints, so the
+    // cap must never reach them ([_foodPreferencesContext]).
+    final preferences = _foodPreferencesContext();
+    if (preferences != null) lines.add(preferences);
+    // The last seven days (C2) next, before the per-slot and food lines of
+    // today.
     lines.add(_coachWeekSummary());
     // Slot totals BEFORE the food list: short, capped at four slots, and the
     // only source for per-meal macros.
