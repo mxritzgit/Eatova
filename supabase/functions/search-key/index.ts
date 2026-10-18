@@ -18,6 +18,14 @@ import type { AuthFailGateResult } from '../_shared/auth_fail_gate.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
+import {
+  allowedOriginsFromEnv,
+  HttpError,
+  jsonResponse as sharedJsonResponse,
+  responseHeaders as sharedResponseHeaders,
+} from '../_shared/http.ts';
+import { consumeRateLimits as consumeEdgeRateLimits, retryAfterSeconds } from '../_shared/rate_limit.ts';
+import type { RateLimitGate, RateLimitOutcome, RateLimitVerdict } from '../_shared/rate_limit.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -70,10 +78,7 @@ const MAX_TTL_SECONDS = 604_800;
 const DEFAULT_TTL_SECONDS = 43_200;
 const TTL_SECONDS = clampTtl(Deno.env.get('EATOVA_SEARCH_KEY_TTL_SECONDS'));
 
-const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const ALLOWED_ORIGINS = allowedOriginsFromEnv();
 
 // Generous enough for app starts behind a carrier NAT, tight enough that nobody
 // can use the endpoint as a key oracle. `positiveIntFromEnv` instead of bare
@@ -138,13 +143,7 @@ function isTimeout(error: unknown): boolean {
 }
 
 type AuthUser = { id: string };
-type RateLimitResult = {
-  allowed: boolean;
-  limit: number;
-  remaining: number;
-  resetAt: string;
-  windowSeconds: number;
-};
+type RateLimitResult = RateLimitVerdict;
 /** authenticateUser either identifies the caller or, after too many failed
  *  introspections from one IP, asks for a 429 instead of the 401. */
 type AuthOutcome = { user: AuthUser } | { rateLimited: RateLimitResult };
@@ -173,9 +172,9 @@ Deno.serve(async (request) => {
     const ipSubject = clientIpSubject(request, user.id);
 
     // P6-02: both application gates in ONE roundtrip instead of two sequential
-    // ones. The RPC keeps the old order and stops AT the first denial, so
-    // gates[i] belongs to specs[i] and each gate still answers with its own
-    // rateLimitedResponse (its own numbers, its own Retry-After).
+    // ones. The RPC keeps the old order and stops AT the first denial, so each
+    // gate still answers with its own rateLimitedResponse (its own numbers,
+    // its own Retry-After).
     const gates = await consumeRateLimits(
       [
         { scope: 'search-key:ip', subject: ipSubject, limit: IP_LIMIT, windowSeconds: IP_WINDOW_SECONDS },
@@ -183,12 +182,10 @@ Deno.serve(async (request) => {
       ],
       deadline,
     );
-    // First (and only) denial in array order == the gate that used to return
-    // early. A MISSING trailing element is "never consumed", never "allowed" —
-    // consumeRateLimits rejects a short reply whose last element is allowed.
-    const denied = gates.find((gate) => !gate.allowed);
-    if (denied) {
-      return rateLimitedResponse(request, denied, requestId);
+    // The first denial is the gate that used to return early; the shared
+    // client rejects a short reply without one as an outage.
+    if (gates.kind === 'denied') {
+      return rateLimitedResponse(request, gates.denied, requestId);
     }
 
     // No await on purpose: cleanup must not hold up the request. Error handling
@@ -409,9 +406,6 @@ function authFailureOutcome(gate: AuthFailGateResult): AuthOutcome {
   throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
 }
 
-/** One gate of a batch, in the shape consume_edge_rate_limits validates. */
-type RateLimitGate = { scope: string; subject: string; limit: number; windowSeconds: number };
-
 /** Fails closed with the one error every limiter problem produces: an outage is
  *  never a measured limit, and without its gates this endpoint must not hand
  *  out search material. */
@@ -420,108 +414,27 @@ function rateLimitUnavailable(): HttpError {
 }
 
 /**
- * P6-02 (perf audit 2026-09-01): consumes ALL gates in one RPC roundtrip.
- *
- * Two sequential consume_edge_rate_limit calls cost two PostgREST roundtrips on
- * the hot path of every key fetch. consume_edge_rate_limits takes the gates as
- * an ordered array and does exactly what the single-gate RPC did per element —
- * including STOPPING at the first denial, which is what the old early `return`
- * between the two calls did.
- *
- * Therefore the reply carries one element per gate ACTUALLY consumed and may be
- * SHORTER than the input. result[i] belongs to gates[i]; a missing trailing
- * element means "never consumed", and reading it as "allowed" would silently
- * open the gate the RPC deliberately skipped. Deadline and failure handling are
- * the single-gate ones, unchanged (E1/E6).
+ * P6-02 (perf audit 2026-09-01): consumes ALL gates in one RPC roundtrip via
+ * the shared client (../_shared/rate_limit.ts). A missing trailing element
+ * means "never consumed"; reading it as "allowed" would silently open the gate
+ * the RPC deliberately skipped. Deadline handling is the single-gate one (E1).
  */
-async function consumeRateLimits(gates: RateLimitGate[], deadline: Deadline): Promise<RateLimitResult[]> {
-  const scopes = gates.map((gate) => gate.scope).join(',');
-  let response: Response;
-  try {
-    response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/consume_edge_rate_limits`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        p_gates: gates.map((gate) => ({
-          scope: gate.scope,
-          subject: gate.subject,
-          limit: gate.limit,
-          window_seconds: gate.windowSeconds,
-        })),
-      }),
-      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
-    });
-  } catch (error) {
-    // E1: a hanging limiter is the same case as a failing one (E6) — an
-    // outage, not a measured limit. Fails CLOSED, like the !ok branch below:
-    // these gates keep the endpoint from being used as a key oracle.
-    if (isTimeout(error)) {
-      console.error(`consume_edge_rate_limits (${scopes}) timeout`);
-      throw rateLimitUnavailable();
-    }
-    throw error;
-  }
-
-  if (!response.ok) {
-    throw rateLimitUnavailable();
-  }
-
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch (error) {
-    // E1/E6: a stalled or non-JSON 200 body is a limiter outage as well.
-    console.error(`consume_edge_rate_limits (${scopes}) ${isTimeout(error) ? 'timeout' : 'body unreadable'}`);
-    throw rateLimitUnavailable();
-  }
-  // E6: a broken response shape (RPC signature change, proxy body) must be an
-  // outage, not an invented 429. An array LONGER than the input is just as
-  // unreadable as a non-array — the RPC only ever shortens.
-  if (!Array.isArray(data) || data.length === 0 || data.length > gates.length) {
-    console.error('consume_edge_rate_limits: 200 mit unlesbarer Antwort');
-    throw rateLimitUnavailable();
-  }
-
-  const results: RateLimitResult[] = [];
-  for (let i = 0; i < data.length; i++) {
-    const gate = gates[i];
-    const entry = (data[i] ?? {}) as Partial<RateLimitResult>;
-    if (typeof entry.allowed !== 'boolean') {
-      console.error(
-        `consume_edge_rate_limits: ${gate.scope} ohne lesbares allowed`,
-      );
-      throw rateLimitUnavailable();
-    }
-    // Defaults come from the gate the element belongs to, exactly as the
-    // single-gate helper used its own parameters.
-    results.push({
-      allowed: entry.allowed,
-      limit: Number(entry.limit ?? gate.limit),
-      remaining: Number(entry.remaining ?? 0),
-      resetAt: String(entry.resetAt ?? new Date(Date.now() + gate.windowSeconds * 1000).toISOString()),
-      windowSeconds: Number(entry.windowSeconds ?? gate.windowSeconds),
-    });
-  }
-
-  // A short reply is legal ONLY at a denial. Anything else means a gate went
-  // unconsumed while the RPC still claimed success — treating that as "allowed"
-  // is precisely the hole this endpoint must not have.
-  if (results.length < gates.length && results[results.length - 1].allowed) {
-    console.error(`consume_edge_rate_limits: kurze Antwort ohne Ablehnung (${results.length}/${gates.length})`);
-    throw rateLimitUnavailable();
-  }
-  return results;
+async function consumeRateLimits(
+  gates: RateLimitGate[],
+  deadline: Deadline,
+): Promise<Exclude<RateLimitOutcome, { kind: 'unavailable' }>> {
+  const outcome = await consumeEdgeRateLimits({
+    supabaseUrl: SUPABASE_URL,
+    serviceKey: SUPABASE_SERVICE_ROLE_KEY,
+    gates,
+    signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+  });
+  if (outcome.kind === 'unavailable') throw rateLimitUnavailable();
+  return outcome;
 }
 
 function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId: string): Response {
-  const resetAt = new Date(limit.resetAt).getTime();
-  const retryAfter = Number.isFinite(resetAt)
-    ? Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))
-    : limit.windowSeconds;
+  const retryAfter = retryAfterSeconds(limit.resetAt, limit.windowSeconds);
   return jsonResponse(
     request,
     {
@@ -541,46 +454,11 @@ function jsonResponse(
   status: number,
   extraHeaders: HeadersInit = {},
 ): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...Object.fromEntries(responseHeaders(request)),
-      'content-type': 'application/json; charset=utf-8',
-      // Error responses keep the 'no-store' from responseHeaders(); only the
-      // 200 overrides it deliberately above.
-      ...extraHeaders,
-    },
-  });
+  // Error responses keep the 'no-store' from responseHeaders(); only the 200
+  // overrides it deliberately above.
+  return sharedJsonResponse(body, status, responseHeaders(request), extraHeaders);
 }
 
 function responseHeaders(request: Request): Headers {
-  const headers = new Headers({
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-    'x-frame-options': 'DENY',
-    'referrer-policy': 'no-referrer',
-    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
-    'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-    'access-control-allow-methods': 'GET, OPTIONS',
-    'access-control-allow-headers': 'authorization, apikey, content-type, x-client-info',
-    'access-control-max-age': '86400',
-  });
-
-  const origin = request.headers.get('origin');
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    headers.set('access-control-allow-origin', origin);
-    headers.set('vary', 'Origin');
-  }
-
-  return headers;
-}
-
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    readonly publicMessage: string,
-  ) {
-    super(code);
-  }
+  return sharedResponseHeaders(request, { methods: 'GET, OPTIONS', origins: ALLOWED_ORIGINS });
 }

@@ -37,7 +37,9 @@ import type { AuthFailGateResult, AuthRejection } from "../_shared/auth_fail_gat
 import { hasExpectedUserTokenContext } from "../_shared/user_token_context.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
+import { allowedOrigin, allowedOriginsFromEnv, jsonResponse, responseHeaders as sharedResponseHeaders } from "../_shared/http.ts";
 import { loggableFinishReason } from "../_shared/provider_log.ts";
+import { consumeRateLimits, retryAfterSeconds } from "../_shared/rate_limit.ts";
 import { pruneRateLimits } from "../_shared/rate_limit_prune.ts";
 import { clipUtf16 } from "../_shared/text_clip.ts";
 import {
@@ -255,29 +257,10 @@ const HISTORY_BUDGET_CHARS   = 24_000;
 const SESSION_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const ALLOWED_ORIGINS = (Deno.env.get("EATOVA_ALLOWED_ORIGINS") ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const ALLOWED_ORIGINS = allowedOriginsFromEnv();
 
 function responseHeaders(req?: Request): Headers {
-  const headers = new Headers({
-    "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "no-referrer",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Max-Age": "86400",
-  });
-  const origin = req?.headers.get("origin");
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    headers.set("Access-Control-Allow-Origin", origin);
-    headers.set("Vary", "Origin");
-  }
-  return headers;
+  return sharedResponseHeaders(req, { methods: "POST, OPTIONS", origins: ALLOWED_ORIGINS });
 }
 
 // ---------------------------------------------------------------------------
@@ -1985,118 +1968,9 @@ async function rpcRefundQuota(
   }
 }
 
-/** One gate of the batched limiter call. */
-interface RateLimitGate {
-  scope: string;
-  subject: string;
-  limit: number;
-  windowSeconds: number;
-}
-
-/** Per-gate verdict, byte-for-byte the shape the single-gate RPC returned. */
-interface RateLimitVerdict {
-  allowed: boolean;
-  remaining: number;
-  resetAt: string;
-  windowSeconds: number;
-}
-
-// P6-02: ALL gates in ONE roundtrip instead of one call per gate. The RPC walks
-// the array IN ORDER and STOPS at the first denial, which is exactly what the
-// sequential calls did (an early `return` skipped the later consume). So:
-//   - result[i] belongs to gates[i];
-//   - a MISSING trailing element means "never consumed", never "allowed".
-// Error handling is the single-gate one: a limiter that hangs, fails or answers
-// in an unreadable shape is an OUTAGE, never a measured limit (E1/E6), and the
-// caller fails CLOSED on it.
-async function rpcConsumeEdgeRateLimits(
-  serviceKey: string,
-  supabaseUrl: string,
-  gates: RateLimitGate[],
-): Promise<RateLimitVerdict[] | { error: string }> {
-  const scopes = gates.map((gate) => gate.scope).join(",");
-  let resp: Response;
-  try {
-    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/consume_edge_rate_limits`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${serviceKey}`,
-        "apikey": serviceKey,
-        "Content-Type": "application/json",
-      },
-      // Wire keys are the RPC's, mapped here so the rest of the file stays
-      // camelCase.
-      body: JSON.stringify({
-        p_gates: gates.map((gate) => ({
-          scope: gate.scope,
-          subject: gate.subject,
-          limit: gate.limit,
-          window_seconds: gate.windowSeconds,
-        })),
-      }),
-    });
-  } catch (e) {
-    if (!isSupabaseIoError(e)) throw e;
-    // E1: a hanging limiter is the same case as a failing one (E6) — an
-    // outage, not a measured limit. Fails CLOSED: these gates sit in front of
-    // the paid calls, so the request must not slip past them.
-    console.error(`consume_edge_rate_limits (${scopes}) ${isAbortError(e) ? "timeout" : "unavailable"}`);
-    return { error: "rate_limit_unavailable" };
-  }
-  if (!resp.ok) {
-    void resp.body?.cancel().catch(() => {});
-    console.error(`consume_edge_rate_limits failed: HTTP ${resp.status}`);
-    return { error: "rate_limit_unavailable" };
-  }
-  const data = await readSupabaseBody(() => resp.json(), "consume_edge_rate_limits");
-  if (data === undefined) return { error: "rate_limit_unavailable" };
-  // E6, now per element: only a well-formed array can be mapped back onto the
-  // gates. `data?.allowed === true` on a broken shape once produced a 429 with
-  // invented numbers although no limit was ever measured — a broken shape is a
-  // limiter outage, not a limit.
-  if (!Array.isArray(data) || data.length < 1 || data.length > gates.length) {
-    console.error(
-      "consume_edge_rate_limits: 200 ohne lesbares Ergebnis",
-    );
-    return { error: "rate_limit_unavailable" };
-  }
-  const verdicts: RateLimitVerdict[] = [];
-  for (let i = 0; i < data.length; i++) {
-    const entry = data[i];
-    if (typeof entry?.allowed !== "boolean") {
-      console.error(
-        "consume_edge_rate_limits: 200 ohne lesbares allowed",
-      );
-      return { error: "rate_limit_unavailable" };
-    }
-    verdicts.push({
-      allowed: entry.allowed,
-      remaining: Number(entry?.remaining ?? 0),
-      resetAt: String(
-        entry?.resetAt ?? new Date(Date.now() + gates[i].windowSeconds * 1000).toISOString(),
-      ),
-      windowSeconds: Number(entry?.windowSeconds ?? gates[i].windowSeconds),
-    });
-  }
-  // A short array is only legal BECAUSE the last processed gate denied. One
-  // that ends in allowed=true silently dropped a gate, so it is an outage too.
-  if (verdicts.length < gates.length && verdicts[verdicts.length - 1].allowed) {
-    console.error(
-      `consume_edge_rate_limits: nur ${verdicts.length}/${gates.length} Tore, ohne Ablehnung`,
-    );
-    return { error: "rate_limit_unavailable" };
-  }
-  return verdicts;
-}
-
 // Table hygiene for public.edge_rate_limits lives in
 // ../_shared/rate_limit_prune.ts. The copy that used to be here had its
 // parameter order swapped, which is why the shared version takes an object.
-
-function retryAfterSeconds(resetAt: string, fallback: number): number {
-  const ms = new Date(resetAt).getTime() - Date.now();
-  return Number.isFinite(ms) ? Math.max(1, Math.ceil(ms / 1000)) : fallback;
-}
 
 // HISTORY_LIMIT caps ROWS, not bytes, so oversized legacy rows would amplify
 // memory, traffic and provider cost on every follow-up (CWE-400). Fill the
@@ -2507,10 +2381,7 @@ async function readProviderJson(resp: Response, signal: AbortSignal, maxBytes = 
 // HTTP handler
 // ---------------------------------------------------------------------------
 function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
-  const headers = responseHeaders();
-  headers.set("Content-Type", "application/json; charset=utf-8");
-  for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value);
-  return new Response(JSON.stringify(body), { status, headers });
+  return jsonResponse(body, status, responseHeaders(), extraHeaders);
 }
 
 const REQUEST_FIELDS = new Set([
@@ -2536,8 +2407,8 @@ export async function handleRequest(req: Request): Promise<Response> {
   keepWorkerAlive(pending);
   const response = await pending;
   const headers = new Headers(response.headers);
-  const origin = req.headers.get("origin");
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  const origin = allowedOrigin(req, ALLOWED_ORIGINS);
+  if (origin) {
     headers.set("Access-Control-Allow-Origin", origin);
   } else {
     headers.delete("Access-Control-Allow-Origin");
@@ -2621,49 +2492,37 @@ async function handleCoachRequest(req: Request): Promise<Response> {
 
   // P6-02: both gates in ONE roundtrip. Array ORDER is the contract — the RPC
   // stops at the first denial, so the ip gate still shields the user bucket
-  // exactly as the two sequential calls did.
-  const gateResults = await rpcConsumeEdgeRateLimits(serviceKey, supabaseUrl, [
-    {
-      scope: "coach-chat:ip",
-      // Not `.split(",")[0]` of x-forwarded-for: Cloudflare APPENDS, so the
-      // leftmost entry is client-set. Details in ../_shared/client_ip.ts.
-      subject: clientIpSubject(req, userId),
-      limit: REQUEST_IP_LIMIT,
-      windowSeconds: 600,
-    },
-    {
-      scope: "coach-chat:user",
-      subject: userId,
-      limit: REQUEST_USER_LIMIT,
-      windowSeconds: 3600,
-    },
-  ]);
-  if (!Array.isArray(gateResults)) return json({ error: gateResults.error }, 500);
-  const ipGate = gateResults[0];
-  // Deliberately optional: a denied ip gate leaves the array one element short,
-  // and a missing element means "never consumed", NOT "allowed".
-  const userGate: RateLimitVerdict | undefined = gateResults[1];
-  if (!ipGate.allowed) {
+  // exactly as the two sequential calls did. A hanging, failing or unreadable
+  // limiter is an outage and fails CLOSED (E1/E6, ../_shared/rate_limit.ts).
+  const gates = await consumeRateLimits({
+    supabaseUrl,
+    serviceKey,
+    gates: [
+      {
+        scope: "coach-chat:ip",
+        // Not `.split(",")[0]` of x-forwarded-for: Cloudflare APPENDS, so the
+        // leftmost entry is client-set. Details in ../_shared/client_ip.ts.
+        subject: clientIpSubject(req, userId),
+        limit: REQUEST_IP_LIMIT,
+        windowSeconds: 600,
+      },
+      {
+        scope: "coach-chat:user",
+        subject: userId,
+        limit: REQUEST_USER_LIMIT,
+        windowSeconds: 3600,
+      },
+    ],
+    signal: AbortSignal.timeout(SUPABASE_TIMEOUTS_MS.call),
+  });
+  if (gates.kind === "unavailable") return json({ error: "rate_limit_unavailable" }, 500);
+  if (gates.kind === "denied") {
+    // The ip gate (index 0) is the short window, the user gate the long one.
+    const text = gates.deniedIndex === 0 ? LIMIT_TEXTS.rate_limited_short : LIMIT_TEXTS.rate_limited_long;
     return json(
-      { error: "rate_limited", reply: LIMIT_TEXTS.rate_limited_short[headerLocale] },
+      { error: "rate_limited", reply: text[headerLocale] },
       429,
-      { "Retry-After": String(retryAfterSeconds(ipGate.resetAt, ipGate.windowSeconds)) },
-    );
-  }
-  // Behind an ALLOWED ip gate the user verdict must exist (the helper rejects a
-  // short array without a denial). If it is missing anyway, that is a limiter
-  // fault and fails closed like every other unreadable answer — never a 429.
-  //
-  // A belt, and knowingly untestable: while the helper's own guard stands, no
-  // response shape reaches this line, so deleting it stays green (verified,
-  // review 2026-09-01) and no black-box test can pin it. The half that IS
-  // pinned is the helper's, by its "nur n/m Tore" log line (handler_test.ts).
-  if (!userGate) return json({ error: "rate_limit_unavailable" }, 500);
-  if (!userGate.allowed) {
-    return json(
-      { error: "rate_limited", reply: LIMIT_TEXTS.rate_limited_long[headerLocale] },
-      429,
-      { "Retry-After": String(retryAfterSeconds(userGate.resetAt, userGate.windowSeconds)) },
+      { "Retry-After": String(retryAfterSeconds(gates.denied.resetAt, gates.denied.windowSeconds)) },
     );
   }
 
