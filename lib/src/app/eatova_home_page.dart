@@ -32,6 +32,8 @@ import '../services/rest_alerts.dart';
 import '../services/meal_scan_identity.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_connectivity.dart';
+import '../services/trend_report.dart';
+import '../services/trend_service.dart';
 import '../services/uuid.dart';
 import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
@@ -43,6 +45,8 @@ import '../screens/recipes/recipe_import_sheet.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
+import '../screens/today/today_trends.dart' show TodayTrendsPreview;
+import '../screens/trends_screen.dart';
 import '../screens/today/today_texts.dart' show greetingForHour;
 import '../screens/training/training_screen.dart';
 import '../screens/training/training_history_screen.dart';
@@ -85,6 +89,7 @@ class EatovaHomePage extends StatefulWidget {
     this.backgroundSyncScheduler,
     this.recipeImportInbox,
     this.recipeImportService,
+    this.trendTotalsLoader,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -116,6 +121,9 @@ class EatovaHomePage extends StatefulWidget {
   /// hydration are testable without a Supabase session. Null in production.
   @visibleForTesting
   final LocalCache? debugCache;
+
+  /// The trends page's server window; null reads the signed-in user's.
+  final TrendTotalsLoader? trendTotalsLoader;
 
   /// True only on a fresh login/register; false on session restore.
   final bool showWelcome;
@@ -908,9 +916,93 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // The weight chip: the profile's weigh-in path, for this session.
         latestWeightKg: _store.weightLog.latest?.weightKg,
         onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,
+        trendsPreview: today ? _todayTrendsPreview() : null,
+        onOpenTrends: _openTrends,
       );
     },
   );
+
+  // --- Trends -----------------------------------------------------------
+
+  /// The trends page over the current store: the server window plus the
+  /// store's days, steps, weigh-ins and workouts, rebuilt on every store
+  /// change while open. Reached from Today's card and the Food tab's day
+  /// card.
+  void _openTrends() {
+    final ownerStore = _store;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TrendsScreen(
+          kcalGoal: ownerStore.profile.dailyKcalGoal,
+          loadTotals: widget.trendTotalsLoader ?? loadSignedInTrendTotals,
+          // "Goal hit" against goal plus step bonus, like Today (F7-05).
+          burnedKcalFor: ownerStore.burnedKcalForFoodDate,
+          local: TrendLocalSource(
+            changes: ownerStore,
+            read: () => _trendLocalData(ownerStore),
+          ),
+          onBackfillSteps: (days) => _isStoreSessionCurrent(ownerStore)
+              ? ownerStore.backfillStepsForTrends(days)
+              : Future<void>.value(),
+        ),
+      ),
+    );
+  }
+
+  /// What the trends page reads from [store]. [confirmedOnly] limits the day
+  /// overlay to a store whose meal load answered this session (see
+  /// `HomeStore.trendLocalTotals`); Today's preview takes the cached days
+  /// as well.
+  static TrendLocalData _trendLocalData(
+    HomeStore store, {
+    bool confirmedOnly = true,
+    int days = TrendService.trendWindowDays,
+  }) {
+    final today = clock.now();
+    return TrendLocalData(
+      dayTotals: store.trendLocalTotals(
+        confirmedOnly: confirmedOnly,
+        days: days,
+      ),
+      stepsByDay: {
+        for (final entry in store.dailyActivity.entries)
+          entry.key: entry.value.steps,
+      },
+      stepsToday: store.stepsForFoodDate(today),
+      hasStepSource:
+          store.stepsForFoodDate(today) != null ||
+          store.dailyActivity.isNotEmpty,
+      weighIns: store.weightLog.entries,
+      workoutsFinishedAt: [
+        for (final entry in store.trainingHistory) entry.finishedAt,
+      ],
+      proteinGoalG: store.profile.proteinGoalG,
+      stepsGoal: store.profile.dailyStepsGoal,
+    );
+  }
+
+  /// Today's trends card: the last seven completed days from the store
+  /// alone, no server read.
+  TodayTrendsPreview _todayTrendsPreview() {
+    final data = _trendLocalData(
+      _store,
+      confirmedOnly: false,
+      days: TrendRange.week.days,
+    );
+    final report = TrendReport.build(
+      range: TrendRange.week,
+      today: clock.now(),
+      totals: overlayTrendTotals(const <TrendDayTotals>[], data.dayTotals),
+      goals: TrendGoals(kcal: _store.profile.dailyKcalGoal),
+      stepsByDay: data.stepsByDay,
+      stepsToday: data.stepsToday,
+    );
+    return (
+      avgKcal: report.avgKcal,
+      avgProteinG: report.macros?.proteinG,
+      avgSteps: report.avgSteps,
+    );
+  }
 
   /// The reminder card's "yes" (C4): the store's opt-in, then one honest
   /// line. A refused permission is said once, the card is gone either way,
@@ -1050,6 +1142,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // Trends measure "goal hit" against goal + step bonus, like
             // the Today tab (F7-05).
             trendBurnedKcalFor: _store.burnedKcalForFoodDate,
+            onOpenTrends: _openTrends,
             addSlotRequest: _addSlotRequest,
             nutrition: _store.nutritionSummaryForFoodDate(
               _store.selectedFoodDate,

@@ -10,6 +10,9 @@ mixin _HomeStoreMealsPart
         _HomeStoreProfilePart {
   Future<void> _favoriteMutationTail = Future<void>.value();
 
+  /// Whether this session's meal load answered (see [HomeStore]).
+  bool get _serverMealsLoaded;
+
   Future<T> _serializeFavoriteMutation<T>(Future<T> Function() action) {
     final future = _favoriteMutationTail.then((_) => action());
     _favoriteMutationTail = future.then<void>(
@@ -376,6 +379,53 @@ mixin _HomeStoreMealsPart
         _reportSyncError('undo', error, stack);
       }),
     );
+  }
+
+  // --- Trends -----------------------------------------------------------------
+
+  /// Day totals of every day in the trends window this store knows
+  /// completely, keyed by local day; null for a known day without entries.
+  ///
+  /// The trends page lays them over the server's window
+  /// (`overlayTrendTotals`): they hold writes still waiting in the outbox,
+  /// which the server rows miss for up to the cache's two minutes (TRN-9).
+  /// With [confirmedOnly], only after this session's meal load answered: a
+  /// cached list alone may lack another device's entries and would hide them
+  /// on the trends page. Today's preview, which shows nothing else, takes the
+  /// cache. [days] counts back from today.
+  Map<String, TrendDayTotals?> trendLocalTotals({
+    bool confirmedOnly = true,
+    int days = TrendService.trendWindowDays,
+  }) {
+    if (confirmedOnly && sync != null && !_serverMealsLoaded) {
+      return const <String, TrendDayTotals?>{};
+    }
+    final today = startOfDay(clock.now());
+    final known = <String, TrendDayTotals?>{};
+    for (var n = 0; n < days; n++) {
+      final day = addDays(today, -n);
+      final key = localDayKey(day);
+      if (!_loadedArchiveDays.contains(key) && _needsFoodDayLoad(day)) {
+        continue;
+      }
+      final meals = mealsForFoodDate(day);
+      if (meals.isEmpty) {
+        known[key] = null;
+        continue;
+      }
+      final sum = meals.fold(
+        MacroProgress.empty,
+        (total, meal) => total.add(meal.result),
+      );
+      known[key] = TrendDayTotals(
+        day: day,
+        kcal: sum.kcal,
+        proteinG: sum.proteinG,
+        carbsG: sum.carbsG,
+        fatG: sum.fatG,
+      );
+    }
+    return known;
   }
 
   // --- Copy meals -----------------------------------------------------------

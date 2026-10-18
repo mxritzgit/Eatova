@@ -17,6 +17,13 @@ the complete current product.
 
 ### October 2026
 
+- **Trends page** (2026-10-18): a card at the end of Today shows the last
+  seven days' averages and opens the page; the Food tab has a trends button
+  in its header. 7, 30 or 90 days or 6 months of calories, macros with
+  protein-goal days, steps (missing days read from Health), weight and
+  workouts. The calorie window is read in pages, since the server cut every
+  answer at 1,000 rows and silently dropped older days; entries still in the
+  outbox now count (TRN-9).
 - **Improvements from the review of 2026-10-18**:
   - Today: a weight chip opens the weigh-in, and a line says when the weekly
     check can first propose a goal and how many logged days and weigh-ins it

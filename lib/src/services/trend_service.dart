@@ -24,16 +24,26 @@ class TrendService {
   /// instance because the loader builds a fresh service on every open.
   final TrendTotalsCache _cache;
 
-  /// Trend window in days. Filtered on logged_at, not local_day: very old
-  /// rows may carry local_day=null and would silently disappear.
-  static const int trendWindowDays = 90;
+  /// Trend window in days: the trends page's longest range, six months.
+  /// Filtered on logged_at, not local_day: very old rows may carry
+  /// local_day=null and would silently disappear.
+  static const int trendWindowDays = 182;
 
-  /// Defensive row cap: PostgREST truncates SILENTLY under db-max-rows, so an
-  /// explicit limit makes the ceiling deterministic (order desc drops oldest).
-  static const int trendMaxRows = 2500;
+  /// Page size. PostgREST truncates every answer SILENTLY at `db-max-rows`,
+  /// which is 1000 live (Management API, 2026-10-18): the former single
+  /// `limit(2500)` came back with at most 1000 rows and dropped whole days.
+  /// So the window is read in pages of exactly that size, keyset by id.
+  static const int trendPageRows = 1000;
+
+  /// Bound on the pages, about 55 entries a day over the window. Crossing it
+  /// fails the load (retry state) instead of presenting partial totals.
+  static const int trendMaxPages = 10;
+
+  /// Most rows one load reads.
+  static const int trendMaxRows = trendPageRows * trendMaxPages;
 
   static const String _projection =
-      'local_day, logged_at, calories_kcal, protein_g, carbs_g, fat_g';
+      'id, local_day, logged_at, calories_kcal, protein_g, carbs_g, fat_g';
 
   /// Aggregates the window to daily totals client-side (ascending). Errors
   /// are logged and rethrown; the UI shows a retry state.
@@ -63,14 +73,34 @@ class TrendService {
           .toUtc()
           .subtract(const Duration(days: trendWindowDays))
           .toIso8601String();
-      final rows = await _client
-          .from('logged_meals')
-          .select(_projection)
-          .eq('user_id', _userId)
-          .gte('logged_at', cutoffIso)
-          .order('logged_at', ascending: false)
-          .limit(trendMaxRows);
-      // Aggregation is order-independent; the desc sort only serves the limit.
+      final rows = <Map<String, dynamic>>[];
+      String? cursor;
+      for (var page = 0; ; page++) {
+        if (page == trendMaxPages) {
+          throw StateError('Trend window exceeds its page bound');
+        }
+        var query = _client
+            .from('logged_meals')
+            .select(_projection)
+            .eq('user_id', _userId)
+            .gte('logged_at', cutoffIso);
+        if (cursor != null) query = query.gt('id', cursor);
+        final batch = await query
+            .order('id', ascending: true)
+            .limit(trendPageRows);
+        rows.addAll(batch);
+        if (batch.length < trendPageRows) break;
+        // A full page: the next one starts after its last id, which must be
+        // a string past the previous cursor, or the loop could repeat rows.
+        final last = batch.last['id'];
+        if (last is! String ||
+            last.isEmpty ||
+            (cursor != null && last.compareTo(cursor) <= 0)) {
+          throw StateError('Trend page has an invalid cursor order');
+        }
+        cursor = last;
+      }
+      // Aggregation is order-independent.
       return aggregateDailyTotals(rows);
     } catch (e, stack) {
       dev.log(
@@ -87,16 +117,28 @@ class TrendService {
 /// Trend loader injected into TrendsScreen; tests pass fakes.
 typedef TrendTotalsLoader = Future<List<TrendDayTotals>> Function();
 
+/// The app's [TrendTotalsLoader]: the signed-in user's window. Throws
+/// synchronously without init or session; TrendsScreen turns that into its
+/// error and retry state rather than a crash.
+Future<List<TrendDayTotals>> loadSignedInTrendTotals() {
+  final client = Supabase.instance.client;
+  final userId = client.auth.currentUser?.id;
+  if (userId == null) {
+    throw StateError('No signed-in user for the trends view.');
+  }
+  return TrendService(client, userId).loadDailyTotals();
+}
+
 /// Session cache in front of [TrendService.loadDailyTotals].
 ///
-/// The 90-day window is one PostgREST round trip over up to
-/// [TrendService.trendMaxRows] rows, and it used to run on EVERY open of the
+/// The six-month window is one or more PostgREST pages of up to
+/// [TrendService.trendPageRows] rows, and it used to run on EVERY open of the
 /// trends view. One entry is kept per session, keyed by user AND local
 /// calendar day.
 ///
 /// A stale trend chart is a correctness bug the user believes, so the entry is
 /// dropped on everything that can make it wrong:
-///  * the local calendar day rolls over — the 90-day window slides (the key
+///  * the local calendar day rolls over — the window slides (the key
 ///    holds [localDayKey], measured against the injectable `clock`),
 ///  * a different user asks (account switch — the key holds the user id),
 ///  * any auth event except a token refresh: sign-out, sign-in, user deleted

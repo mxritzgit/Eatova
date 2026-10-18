@@ -287,6 +287,35 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return true;
   }
 
+  /// Fills the step values of the trends page's range: every past day of the
+  /// last [days] without a stored value is read from the health store, one
+  /// after another and once per day and session
+  /// ([_maybeBackfillDailyActivity]). Each found day lands in [dailyActivity]
+  /// and notifies, so the page fills in while it reads. Skipped without a
+  /// usable health connection, where every read would come back empty.
+  Future<void> backfillStepsForTrends(int days) async {
+    if (!_healthReadable) return;
+    final today = startOfDay(clock.now());
+    for (var n = 1; n < days; n++) {
+      if (_disposed || _healthSessionEnded || !_healthReadable) return;
+      final day = addDays(today, -n);
+      if (dailyActivity.containsKey(localDayKey(day))) continue;
+      await _maybeBackfillDailyActivity(day);
+    }
+  }
+
+  bool get _healthReadable => switch (health.authState) {
+    HealthAuthState.granted ||
+    HealthAuthState.unverified ||
+    HealthAuthState.noData => true,
+    HealthAuthState.unknown ||
+    HealthAuthState.denied ||
+    HealthAuthState.unsupported ||
+    HealthAuthState.unavailable ||
+    HealthAuthState.updateRequired ||
+    HealthAuthState.error => false,
+  };
+
   /// A known non-resumed state; an unknown one (tests) counts as foreground.
   /// Needs the widgets binding, which the app always has; a store test that
   /// reaches the backfill initializes it.

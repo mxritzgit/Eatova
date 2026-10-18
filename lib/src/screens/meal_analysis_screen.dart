@@ -7,7 +7,6 @@ import '../widgets/common/persistence_action.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../l10n/l10n.dart';
 import '../models/day_nutrition.dart';
@@ -77,6 +76,7 @@ class MealAnalysisScreen extends StatelessWidget {
     PersistValueChanged<String>? onRemoveMeal,
     this.trendTotalsLoader,
     this.trendBurnedKcalFor,
+    this.onOpenTrends,
     this.addSlotRequest,
     this.nutrition,
     this.recipePick,
@@ -166,6 +166,10 @@ class MealAnalysisScreen extends StatelessWidget {
   /// Step bonus per day for the trends corridor (F7-05), the store's
   /// `burnedKcalForFoodDate`. Null keeps Trends on the base goal.
   final int Function(DateTime day)? trendBurnedKcalFor;
+
+  /// Opens the shell's full trends page (steps, weight, training and the
+  /// local day overlay); null falls back to calories and macros only.
+  final VoidCallback? onOpenTrends;
 
   /// The shown day's numbers (the store's `nutritionSummaryForFoodDate`:
   /// budget incl. activity credit). Null (tests, previews) derives them from
@@ -393,7 +397,11 @@ class MealAnalysisScreen extends StatelessWidget {
   // (no store access); the loader is injected or built lazily on open, so
   // construction and preview work without an initialized Supabase.
   void _openTrends(BuildContext context) {
-    final loader = trendTotalsLoader ?? _supabaseTrendLoader;
+    if (onOpenTrends case final open?) {
+      open();
+      return;
+    }
+    final loader = trendTotalsLoader ?? loadSignedInTrendTotals;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => TrendsScreen(
@@ -403,17 +411,6 @@ class MealAnalysisScreen extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static Future<List<TrendDayTotals>> _supabaseTrendLoader() {
-    // Throws synchronously without init/session; TrendsScreen turns that into
-    // its error/retry state rather than a crash.
-    final client = Supabase.instance.client;
-    final userId = client.auth.currentUser?.id;
-    if (userId == null) {
-      throw StateError('Kein angemeldeter Nutzer für die Trend-Ansicht.');
-    }
-    return TrendService(client, userId).loadDailyTotals();
   }
 
   /// Entries of the shown day per slot, oldest first (the diary order of
@@ -526,6 +523,7 @@ class MealAnalysisScreen extends StatelessWidget {
       FoodPageHeader(
         key: TabChrome.headerKey,
         onCalendar: () => _selectDate(context),
+        onTrends: () => _openTrends(context),
       ),
       const SizedBox(height: _gap),
       FoodDayNavigation(
