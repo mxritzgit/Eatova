@@ -9,7 +9,7 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 ## [Unreleased]
 
 Updated 2026-09-16; the dark redesign entry was added 2026-10-01 and the October
-entries on 2026-10-03, 2026-10-08 and 2026-10-11. Changes between
+entries on 2026-10-03, 2026-10-08, 2026-10-11 and 2026-10-18. Changes between
 those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
 repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
@@ -17,6 +17,25 @@ the complete current product.
 
 ### October 2026
 
+- **Improvements from the review of 2026-10-18**:
+  - Today: a weight chip opens the weigh-in, and a line says when the weekly
+    check can first propose a goal and how many logged days and weigh-ins it
+    still needs.
+  - Reminders: the evening reminder has its own time and a row in Settings;
+    Today offers it once after two logged days.
+  - Logging: "Repeat yesterday" per diary slot and "Copy to…" for an entry;
+    search shows your own earlier foods and recipes first; up to 30 recents;
+    a quick entry with total kcal only; an unknown barcode entered by hand
+    is found on the next scan; barcodes are compared as GTIN-13.
+  - Coach: a Nutrition section in the profile (diet form, avoided foods,
+    dislikes; migration `20261018100000`) that `/recipe` and the chat
+    respect, and a seven-day block in the chat context. `coach-chat` needs a
+    redeploy.
+  - Engineering: shared Edge Function modules for rate limits and HTTP, one
+    content-free `ai_call` log line per paid provider call, a manual deploy
+    workflow for the functions, a Coach controller outside the screen, test
+    files sorted by feature, no wall clock in tests, and a 95 % coverage
+    floor. All four functions need a redeploy.
 - **Owner decisions from the review** (2026-10-11):
   - Recipes: importing a deleted recipe again, or adopting a deleted Coach
     recipe again, brings it back under its own name instead of saving a
