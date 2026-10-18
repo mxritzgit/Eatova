@@ -216,9 +216,10 @@ void main() {
       }
     });
 
-    // Only meaningful where the local zone skips 02:00-03:00 on 2026-03-29
-    // (Europe/Berlin and its neighbours); elsewhere there is no gap to test.
-    final gapDay = DateTime(2026, 3, 29, 2, 30);
+    // Holds in every zone, and detects slots chained by a day's duration
+    // only where the local zone skips 02:00-03:00 on 2026-03-29 (Europe/Berlin
+    // and its neighbours), like the test above. It never skips: the CI
+    // contract rejects skipped tests, and a UTC runner still checks the rest.
     test(
       'eine Zeit in der Sommerzeit-Luecke verschiebt nur diesen einen Tag',
       () {
@@ -237,7 +238,6 @@ void main() {
           );
         }
       },
-      skip: gapDay.hour == 2 ? 'no DST gap in this local zone' : false,
     );
   });
 
