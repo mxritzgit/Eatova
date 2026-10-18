@@ -3,7 +3,7 @@ import 'package:clock/clock.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'fixlauf_a_helpers.dart';
+import 'support/fixlauf_a_helpers.dart';
 
 const _finished = UserProfile(
   weightKg: 82,

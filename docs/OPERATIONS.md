@@ -122,6 +122,124 @@ destination before any authorized routing test. Do not send unsolicited test
 alerts to real recipients. A configured rule without delivery evidence remains
 unverified. Recheck access, rules and restore evidence after material changes.
 
+### AI call telemetry
+
+Every paid provider call writes one JSON line to `function_logs`, from
+`coach-chat`, `analyze-meal` and `recipe-import`
+([ai_telemetry.ts](../supabase/functions/_shared/ai_telemetry.ts)):
+
+```json
+{"event":"ai_call","fn":"coach-chat","route":"chat","provider":"anthropic","model":"claude-sonnet-5-5","effort":"high","stream":true,"attempt":1,"outcome":"ok","http_status":200,"latency_ms":8423,"stop_reason":"end_turn","input_tokens":812,"output_tokens":233,"cache_creation_input_tokens":0,"cache_read_input_tokens":2400,"refunded":false}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `fn`, `route` | Function and call: `chat`, `classifier`, `recipe`, `plan`, `log`, `image` (Coach); `analyze`, `describe`; `import` |
+| `provider`, `model`, `effort` | `anthropic` or `openrouter` (recipe images), the configured model id, thinking effort (`null` for images) |
+| `stream`, `attempt` | Streamed Coach answer; 1-based attempt of a recipe-import retry |
+| `outcome`, `http_status` | `ok`, `refused` (provider safety stop), `timeout`, `aborted` (client gone), `error`; the provider's HTTP status or `null` |
+| `latency_ms` | From request start to the settled result, for a stream to its end |
+| `stop_reason` | Provider stop reason from a fixed list (`end_turn`, `max_tokens`, `refusal`, ...), else `other` |
+| `*_tokens` | Usage counters as reported, `null` if absent. Claude's `input_tokens` excludes cached tokens: the prompt is input + cache creation + cache read |
+| `refunded` | The user's Coach question slot for this request was given back. Always `false` in analyze-meal and recipe-import, which have no refund |
+
+The line is built from an allowlist: enum values (anything else becomes
+`other`), bounded integers, booleans and `null`. It never carries prompts,
+answers, user ids, IPs or request ids; tests feed content into every field and
+check that it does not appear. Telemetry never throws. `coach-chat` writes its
+lines when the request, or its stream, has settled, so `refunded` is final; a
+call whose function is killed before that point leaves no line. A refusal the
+app derives from an answer (Layer 3, an unusable draft) counts as `ok` here.
+
+Query the lines in the Supabase dashboard's Logs Explorer (source
+`function_logs`, BigQuery dialect; set the time range in the picker). The
+queries below were written against the documented schema and not run against
+the live project. They extract fields with `regexp_extract`, which works
+because the key order is fixed.
+
+```sql
+-- Tokens per function, route and day. Price them with the provider's current
+-- price list: cache writes and reads are billed at different rates than input.
+select
+  timestamp_trunc(timestamp, day) as day,
+  regexp_extract(event_message, r'"fn":"([a-z-]+)"') as fn,
+  regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+  count(*) as calls,
+  sum(cast(regexp_extract(event_message, r'"input_tokens":(\d+)') as int64)) as input_tokens,
+  sum(cast(regexp_extract(event_message, r'"cache_creation_input_tokens":(\d+)') as int64)) as cache_write_tokens,
+  sum(cast(regexp_extract(event_message, r'"cache_read_input_tokens":(\d+)') as int64)) as cache_read_tokens,
+  sum(cast(regexp_extract(event_message, r'"output_tokens":(\d+)') as int64)) as output_tokens,
+  countif(regexp_contains(event_message, r'"refunded":true')) as refunded_calls
+from function_logs
+where regexp_contains(event_message, r'^\{"event":"ai_call"')
+group by day, fn, route
+order by day desc, output_tokens desc;
+
+-- Prompt-cache hit rate per route: the share of prompt tokens read from cache.
+-- Near zero at low traffic means the 5-minute cache expires between requests.
+select route,
+  safe_divide(sum(cache_read), sum(input + cache_write + cache_read)) as cache_read_share,
+  countif(cache_read > 0) as calls_with_cache_hit,
+  count(*) as calls
+from (
+  select
+    regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+    coalesce(cast(regexp_extract(event_message, r'"input_tokens":(\d+)') as int64), 0) as input,
+    coalesce(cast(regexp_extract(event_message, r'"cache_creation_input_tokens":(\d+)') as int64), 0) as cache_write,
+    coalesce(cast(regexp_extract(event_message, r'"cache_read_input_tokens":(\d+)') as int64), 0) as cache_read
+  from function_logs
+  where regexp_contains(event_message, r'^\{"event":"ai_call","fn":"[a-z-]+","route":"[a-z]+","provider":"anthropic"')
+)
+group by route;
+
+-- p50/p95 latency per route and stream mode, successful calls only.
+select route, stream, count(*) as calls,
+  approx_quantiles(latency_ms, 100)[offset(50)] as p50_ms,
+  approx_quantiles(latency_ms, 100)[offset(95)] as p95_ms
+from (
+  select
+    regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+    regexp_contains(event_message, r'"stream":true') as stream,
+    cast(regexp_extract(event_message, r'"latency_ms":(\d+)') as int64) as latency_ms
+  from function_logs
+  where regexp_contains(event_message, r'^\{"event":"ai_call"')
+    and regexp_contains(event_message, r'"outcome":"ok"')
+)
+group by route, stream;
+
+-- BE-3: answers cut by max_tokens per route, and how many refunded the slot.
+select
+  regexp_extract(event_message, r'"route":"([a-z]+)"') as route,
+  count(*) as calls,
+  countif(regexp_contains(event_message, r'"stop_reason":"max_tokens"')) as max_tokens_stops,
+  countif(regexp_contains(event_message, r'"stop_reason":"max_tokens"')
+    and regexp_contains(event_message, r'"refunded":true')) as max_tokens_refunded
+from function_logs
+where regexp_contains(event_message, r'^\{"event":"ai_call"')
+group by route
+order by max_tokens_stops desc;
+```
+
+Two recommended alerts, as instructions; none is configured by this
+repository. Follow the record and test rules above for each.
+
+1. **Edge Function 5xx rate.** Every 5 minutes, count responses by status in
+   `function_edge_logs` (the gateway's view, which also sees boot errors and
+   timeouts that leave no `ai_call` line), for example with the dashboard's
+   invocation query: `from function_edge_logs cross join unnest(metadata) as m
+   cross join unnest(m.response) as response`, grouping
+   `response.status_code >= 500` per `m.function_id`. Alert above 5% over 5
+   minutes with at least 20 requests, as in the table above. Run the query from
+   a protected scheduler through the Management API's logs endpoint, or route a
+   log drain into an alerting tool where the plan allows it. Do not put the
+   management token into PR-reachable workflows.
+2. **Provider budget at 80%.** Schedule the readiness check below: it exits 1
+   when global AI calls or images reach 80% of the approved daily limit
+   (`--budget-warning-percent`), and 2 when the state is unknown. Route both
+   exit codes and a missed run. Separately set the provider accounts' spend
+   notifications to 80% of the approved monthly money limit where the provider
+   console offers them; the daily reservation limit is not a money limit.
+
 ### Executable read-only readiness check
 
 Run the [metadata checker](../scripts/operations/readiness.py) with Python 3.11+
@@ -256,6 +374,8 @@ details outside this repository.
 5. Prepare the smallest reviewed fix or last compatible verified application/
    function revision. Use protected PRs and required checks; record deployed
    function/source versions and artifact checksums separately from Git merge.
+   Deploy or roll back Edge Functions with the
+   [deploy workflow](#edge-function-deploys); its record is that evidence.
    Database migrations are forward-only by default: review a corrective
    migration and data compatibility instead of blindly undoing SQL. A database
    restore needs the separate recovery procedure above and acceptance of its
@@ -266,6 +386,92 @@ details outside this repository.
    Restore only the intended switches after verification. Document cause,
    affected interval, credential actions, remaining uncertainties and follow-up
    owner/date. Confirm alert delivery and backup freshness before closure.
+
+## Edge Function deploys
+
+**Deploy Edge Functions** ([deploy-functions.yml](../.github/workflows/deploy-functions.yml))
+replaces deploys from a workstation checkout, which uploaded CRLF files from
+Windows and once left a redeploy unrecorded. It deploys only Edge Functions;
+apply migrations separately and first when a function needs them. A merge
+still deploys nothing.
+
+### One-time setup on GitHub (owner)
+
+1. Create the environment `supabase-deploy` (Settings, Environments):
+   - Required reviewers: the owner, plus a backup maintainer if there is one.
+     With a single maintainer, leave "Prevent self-review" off, or nobody can
+     approve.
+   - Deployment branches and tags: selected branches, only `main`.
+   - Do not allow administrators to bypass the protection rules.
+2. Add three environment secrets there, never as repository secrets, because
+   any workflow of a branch can read repository secrets:
+   - `SUPABASE_ACCESS_TOKEN`: the management token the Supabase CLI and the
+     Management API read under this name; the same name as in `supabase-drift`.
+     Prefer a token used only for deploys and revoke it on personnel changes.
+   - `SUPABASE_PROJECT_REF`: the verified production project. As a secret, the
+     target can only change with an environment change, and the value is
+     masked in logs.
+   - `SUPABASE_ANON_KEY`: the public key the boot probe sends, under the name
+     the functions and the app use. It must pass the gateway's JWT check; if
+     the publishable key does not, use the legacy anon JWT. Not a secret by
+     nature, but kept out of the repository like the app's defines.
+3. The CLI is pinned: `SUPABASE_CLI_SHA256` in the workflow is the SHA-256 of
+   `supabase_linux_amd64.tar.gz` from the `v2.120.0` release, compared on
+   2026-10-18 with that release's `checksums.txt` and GitHub's asset digest.
+   An invalid value fails the run before it uses a secret. A CLI upgrade
+   changes both values together, in a reviewed PR.
+
+The first run is the first real check of the CLI commands
+(`functions deploy --use-api`, `functions download --use-api`, `--workdir`) and
+of the gateway answers the probe expects; none of this ran from the repository.
+
+### Running a deploy
+
+Actions, Deploy Edge Functions, Run workflow on `main`:
+
+- `functions`: comma-separated slugs (`coach-chat,search-key`) or `all`.
+- `sha`: empty deploys the current `main` head; a full 40-character SHA
+  deploys that commit, which must be on `main`.
+
+After the environment approval the run:
+
+1. checks out `main` for its own tooling and the chosen commit separately, so
+   an older commit never supplies its own deployer or verifier;
+2. plans: the slugs exist, each has a boot probe definition, and no
+   `supabase/config.toml` sets `verify_jwt = false` (there is none today, so
+   the CLI default `verify_jwt = true` applies; the workflow never passes
+   `--no-verify-jwt`);
+3. reads each function's version and downloads its live source, compared with
+   the commit ignoring CRLF; a mismatch here only shows what was live before;
+4. deploys one function after another with the pinned CLI and `--use-api`;
+5. reads back ACTIVE, `verify_jwt = true` and a new version, downloads the live
+   source again and compares it byte for byte with the function's import
+   graph in the commit: a missing, changed or unexpected file fails;
+6. runs the boot probe: preflight 204, 401 from the gateway without a token,
+   and the handler's own 401 with the anon key, which proves it booted and
+   passed its configuration check. No user token, no paid call; a key that
+   reaches the Auth lookup counts one failed lookup for the runner's address;
+7. writes the deploy record and the job summary.
+
+The record (artifact `deploy-record-<run>-attempt-<n>`, kept 90 days) holds the
+source and `main` SHAs, the rollback flag, the slugs, versions before and
+after, each check, the CLI version, times and the run URL; no project ref, key
+or response body. Copy its essentials into the handoff entry of the rollout.
+Any failed check fails the run. A failure after step 4 may mean some functions
+are already live: read the record, then fix forward or roll back.
+
+Only one run is active at a time and a running deploy is never cancelled.
+GitHub keeps at most one waiting run per group: queuing another one cancels
+the older waiting run before it starts.
+
+### Rollback
+
+Run the workflow with the older commit as `sha`. The same checks apply to that
+tree and the record says `rollback: true`. Check compatibility first: the
+older function must work with the current schema (migrations are
+forward-only, see the RPCs it calls) and with installed app builds. When in
+doubt, fix forward with a reviewed PR. `_shared` code is part of every
+function's graph, so roll back all functions that need the older version.
 
 ## Client release and rollback gate
 

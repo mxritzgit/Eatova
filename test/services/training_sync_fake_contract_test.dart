@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase/supabase.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../outbox/outbox_test_helpers.dart' show FakeServer;
 import '../training_qa/fixtures.dart';
 

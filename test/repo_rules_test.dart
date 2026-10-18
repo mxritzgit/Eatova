@@ -382,6 +382,7 @@ const List<String> _migriertePfade = <String>[
   'lib/src/screens/onboarding_screen.dart',
   'lib/src/screens/onboarding/',
   'lib/src/models/user_profile.dart',
+  'lib/src/models/food_preferences.dart',
   'lib/src/services/kcal_calculator.dart',
   'lib/src/services/sync_error_messages.dart',
   'lib/src/services/coach_chat_service.dart',

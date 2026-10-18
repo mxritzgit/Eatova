@@ -20,7 +20,7 @@ must be counted together with any smoke run against the approved total.
 
 ```sh
 deno run --allow-env --allow-net=api.anthropic.com --no-remote --no-npm \
-  supabase/eval/coach_eval.ts --live --budget-usd=2.06 --smoke
+  supabase/eval/coach_eval.ts --live --budget-usd=2.23 --smoke
 ```
 
 The run evaluates the deployed configuration: the harness removes
@@ -34,7 +34,7 @@ does not lower them: classifier 1,024, answer 4,096, recipe and /log drafts
 The harness rejects concurrent calls, other hosts or models, tools, MCP,
 fallbacks, sampling or routing fields, images and documents, and input over
 16,384 UTF-8 bytes (system prompt, messages and output schema together; the
-largest synthetic request measured 7,480). Response bodies are bounded to the
+largest synthetic request measured 8,787). Response bodies are bounded to the
 server's own 512 KiB; redirects, retries and fallbacks are disabled. An outage
 stops the run.
 
@@ -48,14 +48,14 @@ the full output cap is priced as output. Rounded up to whole cents:
 | Call | Current requests | At the 16,384-byte input limit |
 |---|---|---|
 | Classifier (1,024) | 4 cents (about 4.0 KB) | 7 cents |
-| Answer (4,096) | 7 cents (about 7.0-7.5 KB) | 10 cents |
+| Answer (4,096) | 8 cents (about 7.7-8.8 KB) | 10 cents |
 | Recipe / log draft (4,096) | 6 / 7 cents (2.2 / 6.3 KB) | 10 cents |
-| Plan (4,500; ceiling 5,000) | 7 cents (3.8 KB) | 10 cents (11 at the ceiling) |
+| Plan (4,500; ceiling 5,000) | 7 cents (4.3 KB) | 10 cents (11 at the ceiling) |
 
-Batch caps assume every call at the input limit. The standard batch allows 24
-calls and $2.06: 12 classifiers, 9 answers (refusal cases may pass their
+Batch caps assume every call at the input limit. The standard batch allows 26
+calls and $2.23: 13 classifiers, 10 answers (refusal cases may pass their
 classifier), the recipe and 2 plans (`injury-plan` too). With the current
-prompts all 24 calls reserve $1.31 (measured offline on 2026-10-08). Cache
+prompts all 26 calls reserve $1.52 (measured offline on 2026-10-18). Cache
 reads and shorter answers make the real spend lower still; neither number is
 an estimate of it. This assumes the provider honours its
 token contract; it is not an independently enforced credit limit on the shared

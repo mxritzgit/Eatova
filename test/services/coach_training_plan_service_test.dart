@@ -133,6 +133,9 @@ Future<CoachPlanReply> _request(CoachChatService service) =>
 String _frame(String name, Object data) =>
     'event: $name\ndata: ${jsonEncode(data)}\n\n';
 
+/// 2100-01-01T00:00:00Z: a session that stays valid whenever the suite runs.
+const int _gueltigBis = 4102444800;
+
 Future<void> _signIn(SupabaseClient client, String id) async {
   await client.auth.recoverSession(
     jsonEncode({
@@ -140,7 +143,7 @@ Future<void> _signIn(SupabaseClient client, String id) async {
       'refresh_token': 'refresh-$id',
       'token_type': 'bearer',
       'expires_in': 3600,
-      'expires_at': DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600,
+      'expires_at': _gueltigBis,
       'user': {
         'id': id,
         'aud': 'authenticated',

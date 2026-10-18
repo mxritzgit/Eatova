@@ -17,6 +17,7 @@ import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/planned_meal.dart';
 import '../models/recipe_pick.dart';
+import '../models/reminder_time.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart' show isValidWeightLogKg;
@@ -27,6 +28,7 @@ import '../models/training_history.dart';
 import '../models/training_insights.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import '../services/coach_week_summary.dart';
 import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
 import '../services/energy_check.dart';
@@ -41,6 +43,7 @@ import '../services/meals_sync.dart' show MealsSync;
 import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/recipe_save_result.dart';
+import '../services/reminder_prompt.dart';
 import '../services/rest_alert_plan.dart';
 import '../services/rest_alerts.dart' show PlannedRestAlert;
 import '../services/search_credentials.dart';
@@ -114,7 +117,7 @@ Duration durationUntilNextLocalMidnight(DateTime now) {
 /// Edge Function truncates `user_context` (tail dropped). Documented bound for
 /// the [_HomeStoreBase.coachContext] length tests only — the store never caps,
 /// the server stays authoritative. A test keeps the mirror in sync.
-const int kCoachContextCapChars = 1200;
+const int kCoachContextCapChars = 2000;
 
 /// Shared core of the [HomeStore] parts: constructor dependencies, state used
 /// by several parts, and the pure helpers/views on it. Part mixins attach via
@@ -426,14 +429,18 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     return parts.first.characters.first.toUpperCase();
   }
 
+  /// The diet line of [coachContext]; lives in `_HomeStoreProfilePart`.
+  String? _foodPreferencesContext();
+
   /// Compact day/profile snapshot for the AI coach, so it can advise on
   /// concrete numbers.
   ///
   /// Order is FIXED because the Edge Function truncates the TAIL of
   /// `user_context` at [kCoachContextCapChars]: language hint, core values
-  /// (weight, effective weight goal, balance, open macros), per-slot macros
-  /// ([_todaysSlotSummary]), then the food list ([_todaysFoodSummary]) — the
-  /// only line the cap may hit.
+  /// (weight, effective weight goal, balance, open macros), food preferences
+  /// ([_foodPreferencesContext]), the last seven days ([_coachWeekSummary]),
+  /// per-slot macros ([_todaysSlotSummary]), then
+  /// the food list ([_todaysFoodSummary]) — the only line the cap may hit.
   String get coachContext {
     final p = profile;
     final balance = DailyCalorieBalance(
@@ -468,6 +475,13 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
           'Fett $remFat g.',
     ];
+    // Diet and avoided foods right after the core values: constraints, so the
+    // cap must never reach them ([_foodPreferencesContext]).
+    final preferences = _foodPreferencesContext();
+    if (preferences != null) lines.add(preferences);
+    // The last seven days (C2) next, before the per-slot and food lines of
+    // today.
+    lines.add(_coachWeekSummary());
     // Slot totals BEFORE the food list: short, capped at four slots, and the
     // only source for per-meal macros.
     final perSlot = _todaysSlotSummary();
@@ -477,6 +491,43 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     final foods = _todaysFoodSummary();
     if (foods != null) lines.add(foods);
     return lines.join(' ');
+  }
+
+  /// The seven-day block of [coachContext] ([coachWeekSummary]) from local
+  /// state only, built on send without a network round trip.
+  ///
+  /// [loggedMeals] holds the 35-day boot window with pending outbox writes
+  /// applied, so a day whose entry still waits for delivery counts (the
+  /// server-only trend rows would miss it, TRN-9). Past activity credit is
+  /// the pinned [burnedKcalForFoodDate] value, as in Trends.
+  String _coachWeekSummary() {
+    final p = profile;
+    return coachWeekSummary(
+      today: clock.now(),
+      loggedDay: (day) {
+        final meals = mealsForFoodDate(day);
+        if (meals.isEmpty) return null;
+        final m = meals.fold(
+          MacroProgress.empty,
+          (sum, meal) => sum.add(meal.result),
+        );
+        return (
+          kcal: m.kcal,
+          proteinG: m.proteinG,
+          budgetKcal: DailyCalorieBalance(
+            goalKcal: p.dailyKcalGoal,
+            consumedKcal: m.kcal,
+            burnedKcal: burnedKcalForFoodDate(day),
+          ).budgetKcal,
+        );
+      },
+      goalKcal: p.dailyKcalGoal,
+      proteinGoalG: p.proteinGoalG,
+      weightLog: weightLog,
+      trainingsFinishedAt: trainingHistory.isEmpty
+          ? null
+          : trainingHistory.map((entry) => entry.finishedAt),
+    );
   }
 
   /// Today's kcal and macros per meal slot, or null if nothing is logged

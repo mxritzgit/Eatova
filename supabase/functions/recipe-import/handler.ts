@@ -1,7 +1,9 @@
+import { AiCallLog, aiAnswerOutcome, aiOutcomeOf } from '../_shared/ai_telemetry.ts';
 import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
 import {
   cachedSystem,
   CLAUDE_MESSAGES_URL,
+  CLAUDE_MODEL,
   claudeHeaders,
   claudeRequestBody,
   claudeText,
@@ -9,8 +11,11 @@ import {
   finishReasonFromStop,
 } from '../_shared/claude.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
+import { allowedOriginsFromEnv, jsonResponse, responseHeaders } from '../_shared/http.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
 import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
+import { consumeRateLimits, retryAfterSeconds } from '../_shared/rate_limit.ts';
+import type { RateLimitGate } from '../_shared/rate_limit.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { extractionPrompt, parseExtraction } from './extraction.ts';
 import { loadSource } from './source.ts';
@@ -32,7 +37,6 @@ const MAX_TOKENS = 4500;
 const MAX_BODY_BYTES = 90_000;
 const MAX_TEXT_CHARS = 20_000;
 type Secrets = { supabaseUrl: string; anonKey: string; serviceKey: string; providerKey: string };
-type Gate = { scope: string; subject: string; limit: number; window_seconds: number };
 
 class ImportError extends Error {
   constructor(readonly status: number, readonly code: string, readonly retryAfter?: number) {
@@ -44,26 +48,13 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// Origins are read per request here, unlike the other functions.
 function headers(request: Request): Headers {
-  const result = new Headers({
-    'Content-Type': 'application/json', 'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  });
-  const origins = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '').split(',').map((value) => value.trim()).filter(Boolean);
-  const origin = request.headers.get('origin');
-  if (origin && origins.includes(origin)) {
-    result.set('Access-Control-Allow-Origin', origin);
-    result.set('Vary', 'Origin');
-  }
-  return result;
+  return responseHeaders(request, { methods: 'POST, OPTIONS', origins: allowedOriginsFromEnv() });
 }
 
 function json(request: Request, data: unknown, status = 200, retryAfter?: number): Response {
-  const responseHeaders = headers(request);
-  if (retryAfter) responseHeaders.set('Retry-After', String(retryAfter));
-  return new Response(JSON.stringify(data), { status, headers: responseHeaders });
+  return jsonResponse(data, status, headers(request), retryAfter ? { 'Retry-After': String(retryAfter) } : {});
 }
 
 function stepSignal(total: AbortSignal, milliseconds: number): AbortSignal {
@@ -115,30 +106,17 @@ async function authenticate(request: Request, secrets: Secrets, total: AbortSign
   return user.id;
 }
 
-async function consumeGates(secrets: Secrets, gates: Gate[], total: AbortSignal): Promise<void> {
-  const signal = stepSignal(total, 5000);
-  let data: unknown;
-  try {
-    const response = await fetch(`${secrets.supabaseUrl}/rest/v1/rpc/consume_edge_rate_limits`, {
-      method: 'POST', signal, redirect: 'error',
-      headers: { apikey: secrets.serviceKey, authorization: `Bearer ${secrets.serviceKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ p_gates: gates }),
-    });
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => {});
-      throw new Error('unavailable');
-    }
-    data = await boundedJson(response, 12_000, signal);
-  } catch { throw new ImportError(503, 'rate_limit_unavailable'); }
-  if (!Array.isArray(data) || !data.length || data.length > gates.length) throw new ImportError(503, 'rate_limit_unavailable');
-  for (const [index, value] of data.entries()) {
-    if (!record(value) || typeof value.allowed !== 'boolean') throw new ImportError(503, 'rate_limit_unavailable');
-    if (!value.allowed) {
-      const remaining = typeof value.resetAt === 'string' ? Math.ceil((Date.parse(value.resetAt) - Date.now()) / 1000) : NaN;
-      throw new ImportError(429, 'rate_limited', Number.isFinite(remaining) ? Math.max(1, Math.min(remaining, 86_400)) : gates[index].window_seconds);
-    }
+// Shared fail-closed client (../_shared/rate_limit.ts). This endpoint answers
+// an outage with 503 and caps Retry-After at one day.
+async function consumeGates(secrets: Secrets, gates: RateLimitGate[], total: AbortSignal): Promise<void> {
+  const outcome = await consumeRateLimits({
+    supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, gates, signal: stepSignal(total, 5000),
+  });
+  if (outcome.kind === 'unavailable') throw new ImportError(503, 'rate_limit_unavailable');
+  if (outcome.kind === 'denied') {
+    throw new ImportError(429, 'rate_limited',
+      retryAfterSeconds(outcome.denied.resetAt, gates[outcome.deniedIndex].windowSeconds, 86_400));
   }
-  if (data.length !== gates.length) throw new ImportError(503, 'rate_limit_unavailable');
 }
 
 async function parseBody(request: Request, total: AbortSignal): Promise<{ text: string; locale: 'de' | 'en'; version: number }> {
@@ -172,8 +150,8 @@ export async function handleRequest(request: Request): Promise<Response> {
     if (Object.values(secrets).some((value) => !value)) throw new ImportError(503, 'not_configured');
     const userId = await authenticate(request, secrets, total);
     await consumeGates(secrets, [
-      { scope: 'recipe-import:ip', subject: clientIpSubject(request, userId), limit: 60, window_seconds: 600 },
-      { scope: 'recipe-import:user', subject: userId, limit: 20, window_seconds: 3600 },
+      { scope: 'recipe-import:ip', subject: clientIpSubject(request, userId), limit: 60, windowSeconds: 600 },
+      { scope: 'recipe-import:user', subject: userId, limit: 20, windowSeconds: 3600 },
     ], total);
     const input = await parseBody(request, total);
     const source = await loadSource(input.text, stepSignal(total, 10_000));
@@ -184,7 +162,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     // No recipe/user-data writes occur here. Rate gates and the shared, durable
     // paid-call reservation protect this endpoint just like existing AI flows.
     await consumeGates(secrets, [
-      { scope: 'recipe-import:user-day', subject: userId, limit: 20, window_seconds: 86_400 },
+      { scope: 'recipe-import:user-day', subject: userId, limit: 20, windowSeconds: 86_400 },
     ], total);
     const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId, signal: total });
     // One attempt gets the whole provider window: output grows with the
@@ -197,9 +175,15 @@ export async function handleRequest(request: Request): Promise<Response> {
     const retryPossible = () =>
       !providerDeadline.aborted && window - (Date.now() - providerStarted) >= PROVIDER_TIMINGS_MS.retryMin;
     let lastError = new ImportError(502, 'provider_invalid_response');
+    // One ai_call line per attempt (../_shared/ai_telemetry.ts); no refund here.
+    const calls = new AiCallLog('recipe-import');
     for (let attempt = 0; attempt < 2; attempt++) {
       await budget('coach_recipe');
       const signal = providerDeadline;
+      const call = calls.start({
+        route: 'import', provider: 'anthropic', model: CLAUDE_MODEL, effort: RECIPE_IMPORT_EFFORT, attempt: attempt + 1,
+      });
+      let status: number | null = null;
       let provider: unknown;
       try {
         const response = await fetch(CLAUDE_MESSAGES_URL, {
@@ -211,7 +195,9 @@ export async function handleRequest(request: Request): Promise<Response> {
             maxTokens: MAX_TOKENS, effort: RECIPE_IMPORT_EFFORT, schema: extractionSchema,
           })),
         });
+        status = response.status;
         if (!response.ok) {
+          call.settle({ outcome: 'error', httpStatus: status });
           void response.body?.cancel().catch(() => {});
           if (attempt === 0 && (response.status === 429 || response.status >= 500) && retryPossible()) {
             lastError = new ImportError(502, 'provider_unavailable');
@@ -221,6 +207,7 @@ export async function handleRequest(request: Request): Promise<Response> {
         }
         provider = await boundedJson(response, 192_000, signal);
       } catch (error) {
+        call.settle({ outcome: aiOutcomeOf(error), httpStatus: status });
         if (error instanceof ImportError) throw error;
         // A timeout leaves no time for a second attempt.
         if (signal.aborted) throw new ImportError(504, 'request_timeout');
@@ -228,6 +215,12 @@ export async function handleRequest(request: Request): Promise<Response> {
         if (attempt === 0 && retryPossible()) continue;
         throw lastError;
       }
+      call.settle({
+        outcome: aiAnswerOutcome(record(provider) ? provider.stop_reason : undefined),
+        httpStatus: status,
+        stopReason: record(provider) ? provider.stop_reason : undefined,
+        usage: record(provider) ? provider.usage : undefined,
+      });
       const stop = record(provider) ? finishReasonFromStop(provider.stop_reason) : undefined;
       // Too much recipe content for one answer: the same text would be cut
       // again, so the user is asked for fewer recipes, not for a retry.

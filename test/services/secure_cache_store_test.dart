@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart'
+    show SecretBox, SecretKeyData;
+import 'package:cryptography/dart.dart' show DartAesGcm;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/api.dart' show InvalidCipherTextException;
@@ -55,6 +58,47 @@ class _FakeCipher implements CacheCipher {
     if (parts[1] != key) throw const FormatException('AAD passt nicht');
     return parts[2] as String;
   }
+}
+
+/// Real tier-2 algorithm that counts its calls. It is a static of THIS
+/// isolate and `compute()` runs in a fresh one, so an unmoved counter proves
+/// the crypto left the caller's stack (the seam of
+/// secure_cache_store_tiers_test.dart).
+class _ZaehlendesDartAesGcm extends DartAesGcm {
+  _ZaehlendesDartAesGcm() : super(secretKeyLength: 32);
+
+  int aufrufe = 0;
+
+  @override
+  SecretBox encryptSync(
+    List<int> clearText, {
+    required SecretKeyData secretKeyData,
+    List<int>? nonce,
+    List<int> aad = const <int>[],
+  }) {
+    aufrufe++;
+    return super.encryptSync(clearText,
+        secretKeyData: secretKeyData, nonce: nonce, aad: aad);
+  }
+
+  @override
+  List<int> decryptSync(
+    SecretBox secretBox, {
+    required SecretKeyData secretKeyData,
+    List<int> aad = const <int>[],
+  }) {
+    aufrufe++;
+    return super.decryptSync(secretBox,
+        secretKeyData: secretKeyData, aad: aad);
+  }
+}
+
+/// Installs a counting tier-2 algorithm for the current test.
+_ZaehlendesDartAesGcm _zaehlerInstallieren() {
+  final zaehler = _ZaehlendesDartAesGcm();
+  AesGcmCacheCipher.debugSetDartAlgorithm(zaehler);
+  addTearDown(AesGcmCacheCipher.debugResetDartAlgorithm);
+  return zaehler;
 }
 
 /// Counting fake keystore for the single-flight test; the delay in read()
@@ -423,45 +467,42 @@ void main() {
 
     test('encrypt gibt den Stack vor der Krypto frei', () async {
       final cipher = AesGcmCacheCipher(_hardCodedDek);
+      final zaehler = _zaehlerInstallieren();
 
-      final sw = Stopwatch()..start();
       final pending = cipher.encrypt(key, big);
-      final syncMicros = sw.elapsedMicroseconds;
-      sw.stop();
-      await pending;
+      expect(zaehler.aufrufe, 0,
+          reason: 'Krypto im Tap-Handler. Vor dem Fix lief sie hier synchron '
+              '(~220 ms) — eingefrorene UI bei jedem Mahlzeit-Log.');
+      final armored = await pending;
 
-      expect(syncMicros / 1000, lessThan(20),
-          reason: 'Synchron im Tap-Handler verbrachte Zeit. Vor dem Fix sind '
-              'das ~220 ms — eingefrorene UI bei jedem Mahlzeit-Log.');
+      expect(zaehler.aufrufe, 0, reason: 'die Arbeit lief im fremden Isolate');
+      expect(await cipher.decrypt(key, armored), big);
     });
 
     test('decrypt gibt den Stack vor der Krypto frei', () async {
       final cipher = AesGcmCacheCipher(_hardCodedDek);
       final armored = await cipher.encrypt(key, big);
+      final zaehler = _zaehlerInstallieren();
 
-      final sw = Stopwatch()..start();
       final pending = cipher.decrypt(key, armored);
-      final syncMicros = sw.elapsedMicroseconds;
-      sw.stop();
-      expect(await pending, big);
-
-      expect(syncMicros / 1000, lessThan(20),
+      expect(zaehler.aufrufe, 0,
           reason: 'Der Kaltstart-Pfad (_hydrateFromCache) waehrend der '
               'Welcome-Animation.');
+      expect(await pending, big);
+      expect(zaehler.aufrufe, 0);
     });
 
     test('EncryptedKeyValueStore.setString gibt den Stack frei', () async {
       final raw = InMemoryKeyValueStore();
       final store =
           EncryptedKeyValueStore(raw, AesGcmCacheCipher(_hardCodedDek));
+      final zaehler = _zaehlerInstallieren();
 
-      final sw = Stopwatch()..start();
       final pending = store.setString(key, big);
-      final syncMicros = sw.elapsedMicroseconds;
-      sw.stop();
+      expect(zaehler.aufrufe, 0);
       await pending;
 
-      expect(syncMicros / 1000, lessThan(20));
+      expect(zaehler.aufrufe, 0);
       expect(await store.getString(key), big);
     });
 
@@ -543,21 +584,25 @@ void main() {
           reason: 'Sonst taucht der Blob NACH dem Logout wieder auf.');
     });
 
-    test('verschiedene Slots blockieren sich nicht gegenseitig', () async {
+    test('verschiedene Slots laufen in Aufrufreihenfolge durch die eine Queue',
+        () async {
+      const meals = 'eatova.v1.logged_meals.user-1';
+      const favorites = 'eatova.v1.favorites.user-1';
       final raw = InMemoryKeyValueStore();
       final cipher = _FakeCipher('dek-a')
-        ..encryptDelays.add(const Duration(milliseconds: 60));
+        ..encryptDelays.addAll([
+          const Duration(milliseconds: 40), // the FIRST one takes longer
+          Duration.zero,
+        ]);
       final store = EncryptedKeyValueStore(raw, cipher);
 
-      final sw = Stopwatch()..start();
-      await Future.wait([
-        store.setString('eatova.v1.logged_meals.user-1', '{"items":[]}'),
-        store.setString('eatova.v1.favorites.user-1', '{"items":[]}'),
-      ]);
-      sw.stop();
+      final first = store.setString(meals, '{"items":[]}');
+      await store.setString(favorites, '{"items":[]}');
 
-      // ~60 ms in parallel vs. >= 120 ms serialised; loose against CI jitter.
-      expect(sw.elapsedMilliseconds, lessThan(200));
+      expect(raw.snapshot.containsKey(meals), isTrue,
+          reason: 'Batch and single writes share one queue (#98): a fast '
+              'write on another slot must not overtake a slow one.');
+      await first;
       expect(raw.snapshot, hasLength(2));
     });
 

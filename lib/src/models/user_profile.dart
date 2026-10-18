@@ -1,7 +1,10 @@
 import 'package:intl/intl.dart';
 
 import '../l10n/l10n.dart';
+import 'food_preferences.dart';
 import 'model_limits.dart';
+
+export 'food_preferences.dart';
 
 enum BiologicalSex { male, female, neutral }
 
@@ -80,6 +83,43 @@ extension DietPreferenceInfo on DietPreference {
         DietPreference.vegan => l10n.commonDietDescVegan,
         DietPreference.pescetarian => l10n.commonDietDescPescetarian,
       };
+}
+
+/// What the user eats and avoids, edited together in the profile and handed
+/// to the coach: diet form, avoided foods and a short dislikes text.
+///
+/// Considered by recipes and the coach, never an allergy guarantee.
+class FoodPreferences {
+  const FoodPreferences({
+    this.diet = DietPreference.none,
+    this.avoidances = const <FoodAvoidance>{},
+    this.dislikes = '',
+  });
+
+  final DietPreference diet;
+  final Set<FoodAvoidance> avoidances;
+
+  /// Normalized ([normalizeFoodDislikes]); empty when not set.
+  final String dislikes;
+
+  /// Nothing set: the coach gets no preference line or field at all.
+  bool get isEmpty =>
+      diet == DietPreference.none && avoidances.isEmpty && dislikes.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      other is FoodPreferences &&
+      other.diet == diet &&
+      other.dislikes == dislikes &&
+      other.avoidances.length == avoidances.length &&
+      other.avoidances.containsAll(avoidances);
+
+  @override
+  int get hashCode => Object.hash(
+    diet,
+    dislikes,
+    Object.hashAllUnordered(avoidances),
+  );
 }
 
 /// Energy content of one kilogram of body mass (Wishnofsky rule of thumb).
@@ -324,6 +364,8 @@ class UserProfile {
     this.fatGoalG = 70,
     this.weightGoal = WeightGoal.maintain,
     this.diet = DietPreference.none,
+    this.foodAvoidances = const <FoodAvoidance>{},
+    this.foodDislikes = '',
     this.onboardingCompleted = false,
     this.manualEnergy = false,
     this.energyAdjustmentKcal = 0,
@@ -355,6 +397,19 @@ class UserProfile {
   /// Diet preference for recipe recommendations. Default
   /// [DietPreference.none]. Mirrored to public.profiles.diet_preference.
   final DietPreference diet;
+
+  /// Foods the user avoids. Mirrored to public.profiles.food_avoidances.
+  final Set<FoodAvoidance> foodAvoidances;
+
+  /// Short dislikes text, normalized. Mirrored to public.profiles.food_dislikes.
+  final String foodDislikes;
+
+  /// Diet, avoidances and dislikes as one value for the editor and the coach.
+  FoodPreferences get foodPreferences => FoodPreferences(
+    diet: diet,
+    avoidances: foodAvoidances,
+    dislikes: foodDislikes,
+  );
 
   /// True once the mandatory onboarding is done. Drives the gate in
   /// `EatovaHomePage`; mirrored to public.profiles.onboarding_completed.
@@ -393,6 +448,8 @@ class UserProfile {
     int? fatGoalG,
     WeightGoal? weightGoal,
     DietPreference? diet,
+    Set<FoodAvoidance>? foodAvoidances,
+    String? foodDislikes,
     bool? onboardingCompleted,
     bool? manualEnergy,
     int? energyAdjustmentKcal,
@@ -415,6 +472,12 @@ class UserProfile {
       fatGoalG: fatGoalG ?? this.fatGoalG,
       weightGoal: weightGoal ?? this.weightGoal,
       diet: diet ?? this.diet,
+      foodAvoidances: foodAvoidances == null
+          ? this.foodAvoidances
+          : Set<FoodAvoidance>.unmodifiable(foodAvoidances),
+      foodDislikes: foodDislikes == null
+          ? this.foodDislikes
+          : normalizeFoodDislikes(foodDislikes),
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
       manualEnergy: manualEnergy ?? this.manualEnergy,
       energyAdjustmentKcal: energyAdjustmentKcal ?? this.energyAdjustmentKcal,

@@ -247,7 +247,7 @@ void main() {
         ]);
         final s = setup(kv: kv);
         s.server.mealRows[id] = serverMealRow(id)
-          ..['logged_at'] = DateTime.now()
+          ..['logged_at'] = clock.now()
               .subtract(Duration(days: days))
               .toIso8601String();
         s.server.poisonMealWrites = true;

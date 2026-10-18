@@ -160,6 +160,29 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
 - The goals screen shows a non-zero adjustment in live mode and can reset it
   to 0, which takes effect on save.
 
+### Other readers
+
+The Coach's seven-day block (2026-10-18) reads the same weight change through
+`EnergyCheck.weightRate`: same window, typo filter and minimum of weigh-ins.
+Its ± band is the two-standard-error noise guard, in kg/week. Without the
+minimum the block says so instead of naming a rate.
+
+### Progress on Today (2026-10-18)
+
+- Under the macros, today only: a weight chip with the latest weigh-in, or
+  "Log weight" without one. It opens the profile's weigh-in sheet.
+- Beside it, `EnergyCheck.progress` on the same inputs, rules and source
+  gate as the proposal: "Weekly check in 5 days at the earliest · 2 more
+  weigh-ins". The day assumes that every day from today on gets logged and
+  that the weigh-ins fall on the days they are needed; weigh-ins still to
+  come are assumed to be no typos. After an answer it names the end of the
+  7-day pause.
+- With enough data and no proposal: "Weekly check active · enough data". It
+  does not claim that the goal fits, since a cap or the floor can hold back a
+  step the data asks for.
+- While the proposal card shows, the card speaks for the check and the line
+  is hidden. On cached data alone there is neither.
+
 ### Storage and rollout
 
 - `profiles.energy_adjustment_kcal smallint not null default 0`, with a check

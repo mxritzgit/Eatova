@@ -1,0 +1,9 @@
+# Dart test files that may read the wall clock (DateTime.now/timestamp).
+# Checked by wall_clock_rule_test.py; at most 10 entries, and an entry whose
+# file no longer reads the wall clock fails the rule.
+#
+# Format, one per line:   test/path/to/file.dart | reason
+#
+# Empty on purpose: every test pins its clock, uses fixed dates, or measures
+# durations with Stopwatch/fake_async. Add an entry only when the code under
+# test reads the real clock in a way no injected clock can reach, and say why.

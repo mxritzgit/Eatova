@@ -843,6 +843,11 @@ Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
   // wrote that none to the server for good. Key name mirrors the column
   // profiles.diet_preference.
   'diet_preference': p.diet.name,
+  // Food preferences (20261018100000), normalized so the server checks
+  // cannot reject the whole profile op. Mirror profiles.food_avoidances and
+  // profiles.food_dislikes; a missing key keeps the server value.
+  'food_avoidances': foodAvoidancesToWire(p.foodAvoidances),
+  'food_dislikes': normalizeFoodDislikes(p.foodDislikes),
   'onboarding_completed': p.onboardingCompleted,
   // F7-01: the manual/live switch must survive the cache and the outbox,
   // or an offline goal edit would be healed back to the calculator on the
@@ -919,6 +924,11 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
       j['diet_preference'],
       DietPreference.none,
     ),
+    // Missing (older cache blob or payload): nothing avoided, no dislikes.
+    foodAvoidances: parseFoodAvoidances(j['food_avoidances']),
+    foodDislikes: j['food_dislikes'] is String
+        ? normalizeFoodDislikes(j['food_dislikes'] as String)
+        : '',
     onboardingCompleted: j['onboarding_completed'] == true,
     // Missing (blob from an older build) counts as live, like the column
     // default — never reconstructed from the numbers.

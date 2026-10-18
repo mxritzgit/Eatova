@@ -188,8 +188,8 @@ nur für die Bibliothekswidgets:
    braucht also **ein** Paar, das in beiden Paletten trägt. Farbige Signale
    (Toast-Tonspur) müssen zusätzlich **untereinander** unterscheidbar bleiben
    — vier Töne, die alle 3:1 schaffen und gleich aussehen, sagen nichts.
-   Nachgerechnet und festgenagelt in `test/review0829_selection_contrast_test.dart`
-   und `test/fixwelle_p9_snack_tone_contrast_test.dart`.
+   Nachgerechnet und festgenagelt in `test/theme/review0829_selection_contrast_test.dart`
+   und `test/theme/fixwelle_p9_snack_tone_contrast_test.dart`.
 3. **Tippziel 44 pt**, auch wenn die gemalte Fläche kleiner bleibt. Der
    zusätzliche Rand ist transparent und muss trotzdem treffen
    (`HitTestBehavior.opaque`) und im Semantik-Knoten liegen. Ein bloßer

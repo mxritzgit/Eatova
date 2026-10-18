@@ -10,13 +10,16 @@ import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/harness.dart';
+import '../support/pinned_clock.dart';
 
 // Widget tests for the trend view, with injected fake loaders, no Supabase.
 
-DateTime _daysAgo(int n) {
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day - n);
-}
+/// Tests with day-relative data pin the clock here; the days count back
+/// from it, so "today" in the data and on screen is the same day.
+final DateTime _jetzt = DateTime(2026, 9, 25, 12);
+
+DateTime _daysAgo(int n) =>
+    DateTime(_jetzt.year, _jetzt.month, _jetzt.day - n);
 
 TrendDayTotals _day(
   int daysAgo, {
@@ -59,7 +62,7 @@ List<TrendDayTotals> _sechsTage() => <TrendDayTotals>[
 ];
 
 void main() {
-  testWidgets('zeigt Lade-Zustand bis der Loader antwortet', (tester) async {
+  testWidgets('zeigt Lade-Zustand bis der Loader antwortet', (tester) => withClockAt(_jetzt, () async {
     final completer = Completer<List<TrendDayTotals>>();
     await _pumpTrends(tester, loader: () => completer.future);
 
@@ -71,7 +74,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('trends-loading')), findsNothing);
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-  });
+  }));
 
   testWidgets('Empty State ohne getrackte Tage', (tester) async {
     await _pumpTrends(
@@ -115,7 +118,7 @@ void main() {
 
   testWidgets('rendert Kennzahlen (Ø kcal, Treffer-Quote, Ø Makros)', (
     tester,
-  ) async {
+  ) => withClockAt(_jetzt, () async {
     // Today 2200, yesterday 2000 (hit), 10 days ago 1000 (miss). Gaps must
     // NOT pull the average to 0; today is excluded (B6) but stays charted.
     final totals = [
@@ -136,9 +139,9 @@ void main() {
     expect(find.text('140 g'), findsOneWidget);
     expect(find.text('60 g'), findsOneWidget);
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-  });
+  }));
 
-  testWidgets('Zeitraum-Umschalter filtert die Kennzahlen', (tester) async {
+  testWidgets('Zeitraum-Umschalter filtert die Kennzahlen', (tester) => withClockAt(_jetzt, () async {
     final totals = [
       _day(0, kcal: 2200),
       _day(1, kcal: 2000),
@@ -158,11 +161,11 @@ void main() {
     expect(find.text('2.000 kcal'), findsOneWidget);
     expect(find.text('100 %'), findsOneWidget);
     expect(find.text('1 von 1 Tag (±10 %)'), findsOneWidget);
-  });
+  }));
 
   testWidgets('B6: der laufende Teiltag verwaessert die Kennzahlen nicht', (
     tester,
-  ) async {
+  ) => withClockAt(_jetzt, () async {
     // Six days on target, then a 350 kcal breakfast this morning, which used
     // to dilute the view to 1,936 kcal / 86 %.
     final totals = [
@@ -187,11 +190,11 @@ void main() {
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
     // And the label says today does not count.
     expect(find.byKey(const ValueKey('trends-metrics-note')), findsOneWidget);
-  });
+  }));
 
   testWidgets(
     'B6: nur heute im Fenster -> Kennzahlen leer statt NaN, Chart bleibt',
-    (tester) async {
+    (tester) => withClockAt(_jetzt, () async {
       // Two totals, so not the empty state, but only today is in the window.
       final totals = [_day(0, kcal: 1800), _day(40, kcal: 2000)];
       await _pumpTrends(tester, loader: () => Future.value(totals));
@@ -207,10 +210,10 @@ void main() {
       expect(find.text('noch kein abgeschlossener Tag'), findsNWidgets(2));
       expect(find.textContaining('NaN'), findsNothing);
       expect(find.text('0 von 0 Tagen (±10 %)'), findsNothing);
-    },
+    }),
   );
 
-  testWidgets('Fehler-Zustand mit funktionierendem Retry', (tester) async {
+  testWidgets('Fehler-Zustand mit funktionierendem Retry', (tester) => withClockAt(_jetzt, () async {
     var calls = 0;
     Future<List<TrendDayTotals>> loader() {
       calls++;
@@ -234,7 +237,7 @@ void main() {
     expect(find.byKey(const ValueKey('trends-error')), findsNothing);
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
     expect(calls, 2);
-  });
+  }));
 
   // Design contract §7.2: both modes must render, and the painter's five
   // colours are parameters, so a drop shows up here. The old trio (both
@@ -242,7 +245,7 @@ void main() {
   // `en` with 2.0 for the first time.
   renderMatrix(
     'Die Trend-Ansicht rendert overflow-frei',
-    (tester, c) async {
+    (tester, c) => withClockAt(_jetzt, () async {
       pinPhoneViewport(tester);
       await c.pump(
         tester,
@@ -265,7 +268,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('trends-range-7')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-    },
+    }),
     locales: const <Locale>[Locale('de'), Locale('en')],
     textScales: const <double>[1.0, 2.0],
   );
@@ -288,7 +291,7 @@ void main() {
 
   testWidgets('unter en steht die englische Kennzahl-Beschriftung im Baum', (
     tester,
-  ) async {
+  ) => withClockAt(_jetzt, () async {
     // Counter-check to the matrix above: the label must really CHANGE with
     // the language, not just resolve to whatever the ARB lookup returns.
     pinPhoneViewport(tester);
@@ -302,7 +305,7 @@ void main() {
 
     expect(find.text('AVG CALORIES'), findsOneWidget);
     expect(find.text('Ø KALORIEN'), findsNothing);
-  });
+  }));
 
   // Light pass (2026-10-04): a month of full iris bars weighed on the white
   // card; the bars take `progressAccent`, which IS the accent in dark.
@@ -312,7 +315,7 @@ void main() {
   ]) {
     testWidgets('${helligkeit.name}: die Balken tragen progressAccent', (
       tester,
-    ) async {
+    ) => withClockAt(_jetzt, () async {
       await _pumpTrends(
         tester,
         brightness: helligkeit,
@@ -324,7 +327,7 @@ void main() {
         find.byKey(const ValueKey('trends-chart')),
         paints..rrect(color: t.progressAccent.withValues(alpha: 0.92)),
       );
-    });
+    }));
   }
   // The goal label sat on the bars ("Goal 2,200" half covered when a day
   // went over), later on a card-coloured pill that still hid the latest
@@ -336,7 +339,7 @@ void main() {
   ]) {
     testWidgets('${helligkeit.name}: das Ziel steht als Legende im Kopf', (
       tester,
-    ) async {
+    ) => withClockAt(_jetzt, () async {
       await _pumpTrends(
         tester,
         brightness: helligkeit,
@@ -379,12 +382,12 @@ void main() {
           ),
         ),
       );
-    });
+    }));
   }
 
   testWidgets('die Zeitraum-Pillen zentrieren ihre Beschriftung', (
     tester,
-  ) async {
+  ) => withClockAt(_jetzt, () async {
     await _pumpTrends(tester, loader: () async => _sechsTage());
     await tester.pump();
     await tester.pumpAndSettle();
@@ -402,7 +405,7 @@ void main() {
         reason: '$range Tage',
       );
     }
-  });
+  }));
   test('dunkel bleiben die Balken der Akzent', () {
     expect(AppTokens.dark.progressAccent, AppTokens.dark.accent);
   });

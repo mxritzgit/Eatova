@@ -327,11 +327,23 @@ void main() {
       await tester.pumpAndSettle();
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
-      expect(find.byType(MealSuggestionItem), findsNWidgets(4));
+      // E3: the matching recent leads as "Your foods" above the products.
+      expect(_key('food-history-section'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is MealSuggestionItem && w.productPresentation,
+        ),
+        findsNWidgets(4),
+      );
       await _scrollTo(tester, _key('kcal-product-suggestion-0'));
       await captureDesignShot(tester, 'add-items-search');
 
-      await tester.tap(find.text('Greek yoghurt with vanilla'));
+      await tester.tap(
+        find.descendant(
+          of: _key('kcal-product-suggestion-0'),
+          matching: find.text('Greek yoghurt with vanilla'),
+        ),
+      );
       await tester.pumpAndSettle();
       await _scrollTo(tester, _key('kcal-product-suggestion-0'));
       await captureDesignShot(tester, 'add-items-search-expanded');

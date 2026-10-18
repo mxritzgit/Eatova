@@ -4,6 +4,7 @@ import '../../app/home_store.dart' show ReminderState;
 import '../../l10n/l10n.dart';
 import '../../models/model_limits.dart';
 import '../../models/number_input.dart';
+import '../../models/reminder_time.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../services/secure_screen.dart';
@@ -11,11 +12,13 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/shared/reminder_time_picker.dart';
 import '../../widgets/shared/settings_sheet.dart' show SettingsResult;
 import '../../widgets/shared/target_bmi_hint.dart';
 import 'settings_controls.dart';
 import 'settings_pickers.dart';
 import 'settings_plan_hero.dart';
+import 'settings_reminder_row.dart';
 import 'settings_studio_widgets.dart';
 
 /// The goal settings, a full page rather than a modal bottom sheet.
@@ -32,6 +35,7 @@ class GoalsScreen extends StatefulWidget {
     required this.profile,
     this.notificationsEnabled = false,
     this.reminderState,
+    this.reminderTime = ReminderTime.standard,
     this.onOpenSystemSettings,
     this.onSave,
     this.weightTrendKg,
@@ -57,6 +61,10 @@ class GoalsScreen extends StatefulWidget {
   final bool notificationsEnabled;
 
   final ReminderState? reminderState;
+
+  /// The chosen reminder time, shown in the status line. It is set in the
+  /// settings' reminder row; this page only names it (C4).
+  final ReminderTime reminderTime;
 
   /// Route into the system notification settings. Without it the blocked state
   /// shows the hint and NO button — a button that opens nothing is the same
@@ -512,12 +520,13 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   /// Text for the current reminder state (D11). Three states, three sentences;
-  /// "blocked" is a system setting, not an error.
-  String get _reminderText => switch (_reminder) {
-    ReminderState.off => context.l10n.goalsReminderTextOff,
-    ReminderState.active => context.l10n.goalsReminderTextActive,
-    ReminderState.blocked => context.l10n.goalsReminderTextBlocked,
-  };
+  /// "blocked" is a system setting, not an error. The same sentences as the
+  /// settings row, with the chosen time (C4).
+  String get _reminderText => reminderStatusText(
+    context.l10n,
+    _reminder,
+    formatReminderTime(context, widget.reminderTime),
+  );
 
   /// In live mode, refill the energy fields from the fresh calculation to keep
   /// the page consistent, then redraw.

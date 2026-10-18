@@ -6,6 +6,7 @@ import '../../models/day_nutrition.dart';
 import '../../models/lifetime_stats.dart';
 import '../../models/logged_meal.dart';
 import '../../models/recipe_pick.dart';
+import '../../models/reminder_time.dart';
 import '../../models/training_insights.dart';
 import '../../models/training_session.dart';
 import '../../models/user_profile.dart';
@@ -14,14 +15,18 @@ import '../../services/energy_check.dart';
 import '../../services/meal_totals.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
+import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/profile/profile_widgets.dart' show showWeightEntrySheet;
 import 'today_day_strip.dart';
 import 'today_energy_check.dart';
 import 'today_glyphs.dart';
 import 'today_hero.dart';
 import 'today_macros.dart';
+import 'today_reminder_prompt.dart';
 import 'today_sections.dart';
 import 'today_texts.dart';
+import 'today_weigh.dart';
 
 /// The day dashboard tab (dark redesign, 2026-09-28): header with streak and
 /// profile, the 7-day strip, the calorie card, macro tiles, the recipe pick,
@@ -58,6 +63,13 @@ class TodayScreen extends StatelessWidget {
     this.energyCheck,
     this.onAcceptEnergyCheck,
     this.onDismissEnergyCheck,
+    this.reminderPrompt,
+    this.onAcceptReminderPrompt,
+    this.onDismissReminderPrompt,
+    this.onChangeReminderTime,
+    this.energyCheckProgress,
+    this.latestWeightKg,
+    this.onLogWeight,
   });
 
   final String userName;
@@ -124,6 +136,25 @@ class TodayScreen extends StatelessWidget {
   final Future<void> Function()? onAcceptEnergyCheck;
   final Future<void> Function()? onDismissEnergyCheck;
 
+  /// The one-time reminder offer at this time (C4); null hides it. Today only,
+  /// under the meals it is about.
+  final ReminderTime? reminderPrompt;
+  final Future<void> Function()? onAcceptReminderPrompt;
+  final Future<void> Function()? onDismissReminderPrompt;
+  final ValueChanged<ReminderTime>? onChangeReminderTime;
+
+  /// How far the weekly check is from an estimate
+  /// (`HomeStore.energyCheckProgress`); its line shows on today only, and
+  /// not next to a proposal.
+  final EnergyCheckProgress? energyCheckProgress;
+
+  /// The latest weigh-in for the weight chip; null shows "Log weight".
+  final double? latestWeightKg;
+
+  /// Saves a weigh-in from the chip's sheet, the profile's entry path
+  /// (`showWeightEntrySheet`). Null hides the chip; today only.
+  final PersistValueChanged<double>? onLogWeight;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -140,6 +171,12 @@ class TodayScreen extends StatelessWidget {
     final workout = istHeute ? nextWorkout : null;
     final session = istHeute ? activeSession : null;
     final check = istHeute && !dayLoading ? energyCheck : null;
+    final reminder = istHeute && !dayLoading ? reminderPrompt : null;
+    final showCheckCard =
+        check != null &&
+        onAcceptEnergyCheck != null &&
+        onDismissEnergyCheck != null;
+    final logWeight = istHeute ? onLogWeight : null;
     final healthMissing = steps == null && healthConnect;
     final showActivity =
         !dayLoading &&
@@ -192,9 +229,21 @@ class TodayScreen extends StatelessWidget {
               TodayCalorieCard(summary: summary, isToday: istHeute),
               const SizedBox(height: 16),
               TodayMacros(summary: summary),
-              if (check != null &&
-                  onAcceptEnergyCheck != null &&
-                  onDismissEnergyCheck != null) ...<Widget>[
+              if (logWeight != null) ...<Widget>[
+                const SizedBox(height: 12),
+                TodayWeighRow(
+                  key: const ValueKey('today-weigh'),
+                  latestKg: latestWeightKg,
+                  onTap: () => showWeightEntrySheet(
+                    context,
+                    initial: latestWeightKg ?? profile.weightKg.toDouble(),
+                    onSave: logWeight,
+                  ),
+                  // The proposal card speaks for the check while it shows.
+                  progress: showCheckCard ? null : energyCheckProgress,
+                ),
+              ],
+              if (showCheckCard) ...<Widget>[
                 const SizedBox(height: 16),
                 TodayEnergyCheckCard(
                   proposal: check,
@@ -224,6 +273,17 @@ class TodayScreen extends StatelessWidget {
                 accentSlot: nextSlot,
                 onAdd: onOpenMealSlot,
               ),
+            if (reminder != null &&
+                onAcceptReminderPrompt != null &&
+                onDismissReminderPrompt != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayReminderPromptCard(
+                time: reminder,
+                onAccept: onAcceptReminderPrompt!,
+                onDismiss: onDismissReminderPrompt!,
+                onChangeTime: onChangeReminderTime,
+              ),
+            ],
             if (showActivity) ...<Widget>[
               const SizedBox(height: 16),
               TodayActivityCard(

@@ -71,12 +71,12 @@ Deno.test("eval gateway blocks other hosts/models/tools/routing/sampling/images 
   assert(Number(calls) === 1 && gateway.calls[0].inputBytes === EVAL_LIMITS.inputBytes);
 });
 
-Deno.test("eval hard reservation stops request 25 even when all previous requests failed", async () => {
+Deno.test("eval hard reservation stops request 27 even when all previous requests failed", async () => {
   let calls = 0;
   const gateway = providerGateway((() => { calls++; return Promise.reject(new Error("synthetic transport failure")); }) as typeof fetch, "dummy");
-  for (let i = 0; i < 24; i++) await rejects(() => gateway.send("test", URL, INPUT));
+  for (let i = 0; i < 26; i++) await rejects(() => gateway.send("test", URL, INPUT));
   await rejects(() => gateway.send("test", URL, INPUT));
-  assert(calls === 24 && cents(gateway.reservedUsd) === 24 * reservationCents(bytesOf(INPUT), 4096), `${calls} calls, $${gateway.reservedUsd}`);
+  assert(calls === 26 && cents(gateway.reservedUsd) === 26 * reservationCents(bytesOf(INPUT), 4096), `${calls} calls, $${gateway.reservedUsd}`);
 });
 
 Deno.test("eval sends the server request unchanged to the Messages API without fallback", async () => {
@@ -126,7 +126,7 @@ Deno.test("eval reservation prices every input token at the cache-write rate plu
 Deno.test("eval batch caps are the worst case of their call mix at the full input budget", () => {
   const at = (cap: number) => reservationCents(EVAL_LIMITS.inputBytes, cap);
   const [classifier, answer, plan] = [at(1024), at(4096), at(5000)];
-  const standard = COACH_EVAL_CASES.length * classifier + 9 * answer + answer /* recipe */ + 2 * plan;
+  const standard = COACH_EVAL_CASES.length * classifier + 10 * answer + answer /* recipe */ + 2 * plan;
   assert(cents(EVAL_LIMITS.totalUsd) === standard && EVAL_LIMITS.requests === 2 * COACH_EVAL_CASES.length, `standard ${standard}`);
   const remainder = 5 * classifier + 3 * answer + answer + plan;
   assert(cents(REMAINDER_EVAL_LIMITS.totalUsd) === remainder && REMAINDER_EVAL_LIMITS.requests === 10, `remainder ${remainder}`);
@@ -283,7 +283,7 @@ for (const mode of ["standard", "remainder"] as const) Deno.test(`eval exercises
     assert(report.failure === null, `Unexpected harness failure: ${report.failure}`);
     assert(report.results.length === selection.length, `Only ${report.results.length} cases executed`);
     assert(report.results.every((r) => r.technicalPass === true), JSON.stringify(report.results.filter((r) => !r.technicalPass).map((r) => ({ id: r.id, status: r.status, error: r.error }))));
-    assert(calls <= 24 && calls === report.calls.length && report.imagesSkipped === 1);
+    assert(calls <= EVAL_LIMITS.requests && calls === report.calls.length && report.imagesSkipped === 1);
     // No harness truncation: every call keeps the server's own output cap.
     const caps = { classifier: 1024, answer: 4096 };
     for (const call of report.calls) {

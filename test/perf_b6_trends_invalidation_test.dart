@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -191,8 +192,8 @@ void main() {
     await store.addResultToDailyTotal(_meal('Bowl'));
     await _fillCache();
 
-    store.consumedKcalForFoodDate(DateTime.now());
-    store.macroProgressForFoodDate(DateTime.now());
+    store.consumedKcalForFoodDate(clock.now());
+    store.macroProgressForFoodDate(clock.now());
 
     expect(TrendTotalsCache.instance.debugHasEntry, isTrue);
   });

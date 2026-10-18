@@ -7,7 +7,7 @@ import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_dispatcher.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 
 // Receipt ticks are local-first: the store commits them to the outbox and
 // publishes them at once; delivery runs behind and never gates the next tick.

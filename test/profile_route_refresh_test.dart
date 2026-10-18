@@ -1,5 +1,6 @@
 import 'support/food_navigation.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -51,7 +52,7 @@ class _StepsHealthService implements HealthService {
   @override
   Future<HealthSnapshot?> readSnapshot() async {
     snapshotReads++;
-    return HealthSnapshot(stepsToday: nextSteps, fetchedAt: DateTime.now());
+    return HealthSnapshot(stepsToday: nextSteps, fetchedAt: clock.now());
   }
 
   @override

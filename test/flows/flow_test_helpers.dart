@@ -22,7 +22,7 @@ import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 
 // The flows use the shared wrapper (viewport pin + overflow filter).
 export '../support/harness.dart' show testWidgetsRobust;

@@ -7,6 +7,7 @@
 
 import 'support/food_navigation.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,6 +20,7 @@ import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 
 import 'support/harness.dart';
+import 'support/pinned_clock.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 const _resultat = MealAnalysisResult(
@@ -34,6 +36,9 @@ const _resultat = MealAnalysisResult(
   sourceLabel: 'Foto-KI',
 );
 
+/// Noon of a fixed day; tests whose meals must count as today pin the clock.
+final DateTime _mittag = DateTime(2026, 8, 12, 12);
+
 LoggedMeal _mahlzeit({
   required MealSlot slot,
   String id = 'm1',
@@ -43,7 +48,7 @@ LoggedMeal _mahlzeit({
     LoggedMeal(
       id: id,
       result: _resultat,
-      loggedAt: loggedAt ?? DateTime.now(),
+      loggedAt: loggedAt ?? clock.now(),
       forcedSlot: slot,
       localDay: localDay,
     );
@@ -102,7 +107,7 @@ void main() {
   // assertions read the ARB, so they hold in every language.
   renderMatrix(
     'Der Food-Tab rendert overflow-frei',
-    (tester, c) async {
+    (tester, c) => withClockAt(_mittag, () async {
       await _pumpFall(
         tester,
         c,
@@ -121,7 +126,7 @@ void main() {
       expect(find.byKey(const ValueKey('food-slot-empty-lunch')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-slot-empty-dinner')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-slot-kcal-breakfast')), findsOneWidget);
-    },
+    }),
     locales: const <Locale>[Locale('de'), Locale('en')],
     textScales: const <double>[1.0, 2.0],
   );
@@ -174,7 +179,7 @@ void main() {
   });
 
   testWidgets('Ein gefuellter Slot zeigt Summe und Anzahl statt des Leertexts',
-      (tester) async {
+      (tester) => withClockAt(_mittag, () async {
     await _pumpFoodTab(
       tester,
       meals: [_mahlzeit(slot: MealSlot.lunch)],
@@ -193,7 +198,7 @@ void main() {
       find.byKey(const ValueKey('food-slot-empty-dinner')),
       findsOneWidget,
     );
-  });
+  }));
 
   testWidgets(
       'Der Plus-Knopf einer Slot-Karte oeffnet das Add-Sheet in genau diesem Slot',
@@ -246,7 +251,7 @@ void main() {
     // A blur over a flat surface costs every frame while showing nothing.
     renderMatrix(
       'Der Food-Tab rastert nichts Teures',
-      (tester, c) async {
+      (tester, c) => withClockAt(_mittag, () async {
         await _pumpFall(
           tester,
           c,
@@ -263,7 +268,7 @@ void main() {
           find.descendant(of: tab, matching: find.byType(ImageFiltered)),
           findsNothing,
         );
-      },
+      }),
     );
   });
 
@@ -271,8 +276,8 @@ void main() {
   // `mealsForFoodDate`, not `isSameDay(loggedAt)`, or a 23:45 meal counts in
   // the tile but vanishes from the diary.
   testWidgets('Eine Mahlzeit mit persistiertem local_day steht im Tagebuch '
-      'des Tages, den ihr Schluessel nennt', (tester) async {
-    final heute = DateTime.now();
+      'des Tages, den ihr Schluessel nennt', (tester) => withClockAt(_mittag, () async {
+    final heute = clock.now();
     final gestern = DateTime(heute.year, heute.month, heute.day - 1, 23, 45);
 
     await _pumpFoodTab(
@@ -292,5 +297,5 @@ void main() {
     await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(find.textContaining('Empfohlen '), findsNWidgets(3));
-  });
+  }));
 }

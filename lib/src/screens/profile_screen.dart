@@ -13,6 +13,7 @@ import '../services/secure_screen.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/design/design.dart';
+import '../widgets/profile/food_preferences_sheet.dart';
 import '../widgets/profile/profile_widgets.dart';
 
 /// Profile screen: identity, key figures, plan, body, daily goals,
@@ -42,6 +43,7 @@ class ProfileScreen extends StatelessWidget {
     this.healthConnect = false,
     this.healthSyncing = false,
     this.onHealthSettings,
+    this.onSaveFoodPreferences,
   });
 
   final String name;
@@ -71,6 +73,10 @@ class ProfileScreen extends StatelessWidget {
   final bool healthConnect;
   final bool healthSyncing;
   final VoidCallback? onHealthSettings;
+
+  /// Saves the diet editor's result (`HomeStore.updateFoodPreferences`); null
+  /// shows the card without its edit button.
+  final PersistValueChanged<FoodPreferences>? onSaveFoodPreferences;
 
   @override
   Widget build(BuildContext context) {
@@ -186,6 +192,14 @@ class ProfileScreen extends StatelessWidget {
                       dailyKcal: dailyConsumedKcal,
                       dailySteps: dailySteps,
                       onEdit: onEditProfile,
+                    ),
+                    const SizedBox(height: 32),
+                    // F8: the onboarding promised that the diet can change
+                    // later; this is where.
+                    ProfileSectionLabel(l10n.foodPrefsSectionLabel),
+                    FoodPreferencesCard(
+                      preferences: profile.foodPreferences,
+                      onSave: onSaveFoodPreferences,
                     ),
                     const SizedBox(height: 32),
                     ProfileSectionLabel(l10n.profileSectionConnections),

@@ -152,13 +152,18 @@ mixin _HomeStoreMealsPart
         // change in the running app moved the entry to another day.
         localDay: localDayKey(targetDate),
       );
-      final recentId = FavoriteMeal.idFor(result);
-      final old = favorites.where((f) => f.id == recentId).firstOrNull;
+      // FOOD-6: an entry stored under the other UPC-A spelling is the same
+      // product and keeps its key; stored keys are not migrated.
+      final old = FavoriteMeal.findFor(favorites, result);
+      final recentId = old?.id ?? FavoriteMeal.idFor(result);
       final recent = FavoriteMeal(
         id: recentId,
         result: FavoriteMeal.keepImage(result, old?.result),
         addedAt: addedAt,
-        pinned: old?.pinned ?? false,
+        // E5: a product entered for an unknown barcode is remembered, so the
+        // next scan finds it; the recents cap would drop it. An unpin by the
+        // user stands.
+        pinned: old?.pinned ?? result.isOwnProduct,
       );
       final before = [recent, ...favorites.where((f) => f.id != recentId)];
       final after = _cappedFavorites(before);
@@ -289,8 +294,10 @@ mixin _HomeStoreMealsPart
     await _commitSyncIntents(
       [
         update,
-        if (recordToday) SyncOp.trackingDay(updated.effectiveLocalDay)
-            .withPredecessor(update.operationId),
+        if (recordToday)
+          SyncOp.trackingDay(
+            updated.effectiveLocalDay,
+          ).withPredecessor(update.operationId),
       ],
       publish: () {
         loggedMeals = [updated, ...loggedMeals.where((m) => m.id != updated.id)]
@@ -371,9 +378,200 @@ mixin _HomeStoreMealsPart
     );
   }
 
+  // --- Copy meals -----------------------------------------------------------
+
+  /// Day+slot keys of a repeat in flight, so a double tap copies once.
+  final Set<String> _repeatsInFlight = <String>{};
+
+  /// True when the meals of the day before [day] in memory are that whole
+  /// day: inside a complete boot window, or loaded on demand. Only such a
+  /// day is a repeat source, or a partial day would be copied as complete.
+  bool previousFoodDayComplete(DateTime day) {
+    final previous = addDays(DateUtils.dateOnly(day), -1);
+    return _loadedArchiveDays.contains(localDayKey(previous)) ||
+        !_needsFoodDayLoad(previous);
+  }
+
+  /// The meals of the day before [day], or none while that day is not
+  /// completely known ([previousFoodDayComplete]); the diary's repeat source.
+  List<LoggedMeal> repeatableMealsBefore(DateTime day) {
+    if (!previousFoodDayComplete(day)) return const <LoggedMeal>[];
+    return mealsForFoodDate(addDays(DateUtils.dateOnly(day), -1));
+  }
+
+  /// "Repeat yesterday": copies the entries of [slot] on the day before [day]
+  /// onto [day], into the same slot. A no-op (empty result) once [slot] on
+  /// [day] holds anything, which also absorbs a double tap.
+  ///
+  /// Returns the ids of the copies.
+  Future<List<String>> repeatPreviousDaySlot(
+    MealSlot slot,
+    DateTime day,
+  ) async {
+    final target = DateUtils.dateOnly(day);
+    final key = '${localDayKey(target)}:${slot.name}';
+    if (_repeatsInFlight.contains(key) ||
+        mealsForFoodDate(target).any((m) => m.slot == slot)) {
+      return const <String>[];
+    }
+    final sources = repeatableMealsBefore(
+      target,
+    ).where((m) => m.slot == slot).toList(growable: false);
+    if (sources.isEmpty) throw StateError('Nothing to repeat');
+    _repeatsInFlight.add(key);
+    try {
+      final today = _isSameFoodDate(target, clock.now());
+      return await _copyMeals(
+        sources,
+        target,
+        slot,
+        today
+            ? _l10n.foodCopyRepeatedYesterday(sources.length)
+            : _l10n.foodCopyRepeatedPreviousDay(sources.length),
+      );
+    } finally {
+      _repeatsInFlight.remove(key);
+    }
+  }
+
+  /// "Copy to…" of the edit sheet: copies the logged meals [ids] onto [day],
+  /// into [slot] or each one's own slot. The originals stay untouched.
+  ///
+  /// Returns the ids of the copies; ids no longer logged are skipped.
+  Future<List<String>> copyLoggedMeals(
+    List<String> ids, {
+    required DateTime day,
+    MealSlot? slot,
+  }) async {
+    final wanted = ids.toSet();
+    final sources = loggedMeals
+        .where((m) => wanted.contains(m.id))
+        .toList(growable: false);
+    if (sources.isEmpty) throw StateError('Meal no longer exists');
+    final target = DateUtils.dateOnly(day);
+    return _copyMeals(
+      sources,
+      target,
+      slot,
+      _l10n.foodCopyDone(sources.length, _moveDayLabel(target)),
+    );
+  }
+
+  /// Shared core: each source becomes a NEW entry through the add path's
+  /// commit (fresh UUID, one `mealInsert` per copy in one atomic local
+  /// commit, outbox, server row caps, lifetime count and streak day). No AI
+  /// call and no quota.
+  ///
+  /// Recents and favorites stay as they are: the sources were already logged
+  /// once, and a repeated slot of four entries would otherwise push four of
+  /// the five recents out. The product photo is an immutable Open Food Facts
+  /// URL inside the result value (logged meals keep no local files), so the
+  /// copy shares that value and deleting either entry leaves the other whole.
+  Future<List<String>> _copyMeals(
+    List<LoggedMeal> sources,
+    DateTime target,
+    MealSlot? slot,
+    String message,
+  ) async {
+    final now = clock.now();
+    if (daysBetween(target, now) > 0) {
+      throw ArgumentError.value(target, 'day', 'must not be in the future');
+    }
+    final today = _isSameFoodDate(target, now);
+    final copies = _notAfter(now, [
+      for (final source in sources) _copyOnto(source, target, slot),
+    ]);
+    await _commitSyncIntents(
+      [for (final copy in copies) SyncOp.mealInsert(copy, trackDay: today)],
+      publish: () {
+        for (var i = 0; i < copies.length; i++) {
+          lifetimeStats = lifetimeStats.incrementMeals();
+        }
+        if (today) lifetimeStats = lifetimeStats.recordTrackedDay(target);
+        loggedMeals = [...copies, ...loggedMeals]
+          ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+        _refreshMealTotals();
+      },
+    );
+    HapticFeedback.lightImpact();
+    if (today) unawaited(_rescheduleStreakReminder());
+    final ids = [for (final copy in copies) copy.id];
+    Future<void>? undo;
+    _emitSnack(
+      message,
+      icon: Icons.check_circle_rounded,
+      tone: SnackTone.positive,
+      action: SnackBarAction(
+        label: _l10n.commonUndo,
+        onPressed: () => _undoMutation(() => undo ??= _removeCopies(ids)),
+      ),
+    );
+    return ids;
+  }
+
+  /// A new entry with [source]'s result on [target], in [slot] or the
+  /// source's own slot. The move's day pattern: the local wall-clock time
+  /// moves to the target day (seconds included, so copies keep their order
+  /// within the slot) and [LoggedMeal.localDay] gets the target's key.
+  LoggedMeal _copyOnto(LoggedMeal source, DateTime target, MealSlot? slot) {
+    final local = source.loggedAt.toLocal();
+    return LoggedMeal(
+      id: uuidV4(),
+      result: source.result,
+      loggedAt: DateTime(
+        target.year,
+        target.month,
+        target.day,
+        local.hour,
+        local.minute,
+        local.second,
+        local.millisecond,
+      ),
+      forcedSlot: slot ?? source.slot,
+      localDay: localDayKey(target),
+    );
+  }
+
+  /// Copies whose wall-clock time lies after [now] (yesterday's dinner
+  /// repeated in the morning) move to just before [now], in their order, so
+  /// no entry is logged in the future. Earlier times stay as they are.
+  List<LoggedMeal> _notAfter(DateTime now, List<LoggedMeal> copies) {
+    final ahead = copies.where((c) => c.loggedAt.isAfter(now)).toList()
+      ..sort((a, b) => a.loggedAt.compareTo(b.loggedAt));
+    if (ahead.isEmpty) return copies;
+    final moved = <String, DateTime>{
+      for (var i = 0; i < ahead.length; i++)
+        ahead[i].id: now.subtract(Duration(milliseconds: ahead.length - 1 - i)),
+    };
+    return [
+      for (final copy in copies)
+        moved.containsKey(copy.id)
+            ? copy.copyWith(loggedAt: moved[copy.id])
+            : copy,
+    ];
+  }
+
+  /// Undo of a copy: deletes exactly the copies still logged, in one commit.
+  /// The lifetime count stays, as for any deleted entry.
+  Future<void> _removeCopies(List<String> ids) async {
+    final present = ids
+        .where((id) => loggedMeals.any((m) => m.id == id))
+        .toList(growable: false);
+    if (present.isEmpty) return;
+    await _commitSyncIntents(
+      [for (final id in present) SyncOp.mealDelete(id)],
+      publish: () {
+        loggedMeals = loggedMeals
+            .where((m) => !present.contains(m.id))
+            .toList();
+        _refreshMealTotals();
+      },
+    );
+  }
+
   // --- Favorites / recents --------------------------------------------------
 
-  static const int _maxAutoRecents = 5;
+  static const int _maxAutoRecents = FavoriteMeal.maxAutoRecents;
 
   List<FavoriteMeal> _cappedFavorites(List<FavoriteMeal> source) {
     final pinned = source.where((f) => f.pinned).toList(growable: false);
@@ -384,16 +582,13 @@ mixin _HomeStoreMealsPart
     return [...pinned, ...recents];
   }
 
-  bool isFavorite(MealAnalysisResult result) {
-    final id = FavoriteMeal.idFor(result);
-    final matches = favorites.where((f) => f.id == id);
-    return matches.isNotEmpty && matches.first.pinned;
-  }
+  bool isFavorite(MealAnalysisResult result) =>
+      FavoriteMeal.findFor(favorites, result)?.pinned ?? false;
 
   Future<void> toggleFavorite(MealAnalysisResult result) =>
       _serializeFavoriteMutation(() async {
-        final id = FavoriteMeal.idFor(result);
-        final old = favorites.where((f) => f.id == id).firstOrNull;
+        final old = FavoriteMeal.findFor(favorites, result);
+        final id = old?.id ?? FavoriteMeal.idFor(result);
         // The stored portion stays; only a missing photo is taken over.
         final entry =
             old?.copyWith(
@@ -500,7 +695,10 @@ mixin _HomeStoreMealsPart
     final cancelsPendingDelete =
         !requireExisting && _pendingRecipeDeletes.contains(recipe.slug);
     final pendingDeleteRevision = cancelsPendingDelete
-        ? _userRecipes.where((r) => r.slug == recipe.slug).firstOrNull?.serverRevision
+        ? _userRecipes
+              .where((r) => r.slug == recipe.slug)
+              .firstOrNull
+              ?.serverRevision
         : null;
     final operation = SyncOp.recipeUpsert(
       validated,
@@ -516,7 +714,8 @@ mixin _HomeStoreMealsPart
       notifyQueued: false,
       publish: () {
         if (cancelsPendingDelete) {
-          _pendingRecipeDeletes = {..._pendingRecipeDeletes}..remove(recipe.slug);
+          _pendingRecipeDeletes = {..._pendingRecipeDeletes}
+            ..remove(recipe.slug);
         }
         _userRecipes = [
           validated,

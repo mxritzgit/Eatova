@@ -25,13 +25,22 @@ import {
 } from '../_shared/claude.ts';
 import type { ClaudeEffort, ClaudeImageBlock, ClaudeTextBlock } from '../_shared/claude.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
+import { AiCallLog, aiAnswerOutcome, aiOutcomeOf } from '../_shared/ai_telemetry.ts';
 import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
 import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
 import type { AuthFailGateResult } from '../_shared/auth_fail_gate.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
+import {
+  allowedOriginsFromEnv,
+  HttpError,
+  jsonResponse as sharedJsonResponse,
+  responseHeaders as sharedResponseHeaders,
+} from '../_shared/http.ts';
 import { loggableFinishReason } from '../_shared/provider_log.ts';
+import { consumeRateLimits as consumeEdgeRateLimits, retryAfterSeconds } from '../_shared/rate_limit.ts';
+import type { RateLimitGate, RateLimitVerdict } from '../_shared/rate_limit.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import { imageContainerFromBytes } from './image_type.ts';
 import {
@@ -60,10 +69,7 @@ const ANALYZE_MEAL_EFFORT = effortFromEnv('ANALYZE_MEAL_EFFORT', 'medium');
 // amounts out of a sentence needs far less reasoning than judging portions on
 // a photo. Not yet measured live; ANALYZE_MEAL_DESCRIBE_EFFORT raises it.
 const ANALYZE_MEAL_DESCRIBE_EFFORT = effortFromEnv('ANALYZE_MEAL_DESCRIBE_EFFORT', 'low');
-const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const ALLOWED_ORIGINS = allowedOriginsFromEnv();
 
 const MAX_CONTENT_LENGTH = 7_000_000;
 // Ceiling for the provider roundtrip. Not the whole story: the effective value
@@ -299,20 +305,13 @@ Ausgabe (strikt JSON, kein Fließtext daneben):
 }`;
 
 type AuthUser = { id: string; email?: string };
-type RateLimitResult = {
-  allowed: boolean;
-  limit: number;
-  remaining: number;
-  resetAt: string;
-  windowSeconds: number;
-};
+type RateLimitResult = RateLimitVerdict;
 /** authenticateUser either identifies the caller or, after too many failed
  *  introspections from one IP, asks for a 429 instead of the 401. */
 type AuthOutcome = { user: AuthUser } | { rateLimited: RateLimitResult };
 
-/** One gate of a batched limiter call; the field names are the element shape
- *  of public.consume_edge_rate_limits(jsonb), not ours to rename. */
-type GateSpec = { scope: string; subject: string; limit: number; windowSeconds: number };
+/** One gate of a batched limiter call (../_shared/rate_limit.ts). */
+type GateSpec = RateLimitGate;
 
 /**
  * Outcome of ONE batched limiter call: either every gate of the batch was
@@ -353,6 +352,8 @@ type ProviderRequest = {
   content: (ClaudeTextBlock | ClaudeImageBlock)[];
   effort: ClaudeEffort;
   schema: Record<string, unknown>;
+  /** Telemetry route (../_shared/ai_telemetry.ts). */
+  route: 'analyze' | 'describe';
   /** Extra fields of the request log line: counts only, never content. */
   logMeta: Record<string, string | number>;
 };
@@ -900,124 +901,31 @@ function authFailureOutcome(gate: AuthFailGateResult): AuthOutcome {
 }
 
 /**
- * Consumes a batch of gates in ONE roundtrip (A4, performance audit 2026-09-01).
- *
- * public.consume_edge_rate_limits(jsonb) does per element exactly what the
- * single-gate RPC did — window floor, sha256 subject, upsert +1, allowed =
- * count <= limit — and STOPS AT THE FIRST DENIAL, which is what the early
- * `return`s between the old sequential calls provided (P6-02: a request that
- * already lost at an earlier gate must not spend a later one). The answer is
- * therefore SHORT exactly when a gate denied, and a missing trailing element
- * means "never consumed", never "allowed".
+ * Consumes a batch of gates in ONE roundtrip (A4, performance audit 2026-09-01)
+ * through the shared client (../_shared/rate_limit.ts): it stops at the first
+ * denial, so a later gate is never spent on a request an earlier one refused
+ * (P6-02), and every limiter failure is an outage that fails closed.
  *
  * The single-gate consume_edge_rate_limit stays in the database:
  * ../_shared/auth_fail_gate.ts still calls it, and it is the rollback path.
  * Deploy order matters — the migration has to be live BEFORE this function,
  * or PostgREST answers 404 and every scan gets `rate_limit_unavailable`.
- *
- * Error handling is unchanged from the single-gate version: every failure
- * mode of the limiter — hang, non-2xx, stalled body, unreadable shape — is an
- * OUTAGE and fails closed, because a limiter that cannot answer must not let
- * a request through to the paid call.
  */
 async function consumeRateLimits(
   secrets: Secrets,
   gates: GateSpec[],
   deadline: Deadline,
 ): Promise<BatchOutcome> {
-  const scopes = gates.map((gate) => gate.scope).join(',');
-  let response: Response;
-  try {
-    response = await fetch(`${secrets.supabaseUrl}/rest/v1/rpc/consume_edge_rate_limits`, {
-      method: 'POST',
-      headers: {
-        apikey: secrets.serviceKey,
-        authorization: `Bearer ${secrets.serviceKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        p_gates: gates.map((gate) => ({
-          scope: gate.scope,
-          subject: gate.subject,
-          limit: gate.limit,
-          window_seconds: gate.windowSeconds,
-        })),
-      }),
-      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
-    });
-  } catch (error) {
-    // P6-07: a hanging limiter is the same case as a failing one (E6) — an
-    // outage, not a measured limit. The request must not slip through to the
-    // paid call, so it fails closed.
-    if (isTimeout(error)) {
-      console.error(`consume_edge_rate_limits (${scopes}) timeout`);
-      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
-    }
-    throw error;
-  }
-
-  if (!response.ok) {
-    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
-  }
-
-  let data: unknown;
-  try {
-    data = await response.json();
-  } catch (error) {
-    // Same case as the hanging fetch above: PostgREST sends 200 and its
-    // headers, then stalls on the row. Outside this try the step signal's
-    // DOMException reached the outer catch as 500 internal_error — the right
-    // status by accident, the wrong code, and no operator line naming the
-    // limiter. It still fails CLOSED: no slipping through to the paid call.
-    if (isTimeout(error)) {
-      console.error(`consume_edge_rate_limits (${scopes}) body timeout`);
-      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
-    }
-    throw error;
-  }
-
-  // Sentinel E6, same guard as search-key and coach-chat: a broken response
-  // shape is a limiter outage, not a measured limit. For the batch that also
-  // covers the LENGTH — more elements than gates is a different RPC than the
-  // one we called.
-  if (!Array.isArray(data) || data.length === 0 || data.length > gates.length) {
-    console.error('consume_edge_rate_limits: 200 ohne lesbares Ergebnis');
-    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
-  }
-
-  const results: RateLimitResult[] = [];
-  for (const [index, entry] of (data as unknown[]).entries()) {
-    const gate = gates[index];
-    if (!isRecord(entry) || typeof entry.allowed !== 'boolean') {
-      console.error(
-        `consume_edge_rate_limits: 200 ohne lesbares allowed (${gate.scope})`,
-      );
-      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
-    }
-    const result: RateLimitResult = {
-      allowed: entry.allowed,
-      limit: Number(entry.limit ?? gate.limit),
-      remaining: Number(entry.remaining ?? 0),
-      resetAt: String(entry.resetAt ?? new Date(Date.now() + gate.windowSeconds * 1000).toISOString()),
-      windowSeconds: Number(entry.windowSeconds ?? gate.windowSeconds),
-    };
-    if (!result.allowed) {
-      // Nothing behind this gate ran, so nothing behind it is reported.
-      // Trailing elements cannot exist by contract; ignoring them is the safe
-      // reading either way.
-      return { denied: result, deniedScope: gate.scope };
-    }
-    results.push(result);
-  }
-
-  // Every element said allowed, so the array has to be COMPLETE: a short
-  // all-allowed answer would mean gates silently went unconsumed, and the
-  // caller would spend a paid call on an unmetered request.
-  if (results.length !== gates.length) {
-    console.error(`consume_edge_rate_limits: unvollstaendiges Ergebnis (${scopes}: ${results.length}/${gates.length})`);
-    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
-  }
-  return { allowed: results };
+  const outcome = await consumeEdgeRateLimits({
+    supabaseUrl: secrets.supabaseUrl,
+    serviceKey: secrets.serviceKey,
+    gates,
+    signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+  });
+  if (outcome.kind === 'allowed') return { allowed: outcome.verdicts };
+  if (outcome.kind === 'denied') return { denied: outcome.denied, deniedScope: outcome.deniedScope };
+  // A limiter that cannot answer must not let a request through to the paid call.
+  throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
 }
 
 const REQUEST_FIELDS = new Set(['imageBase64', 'portionHint', 'freeTextHint', 'language', 'mealText']);
@@ -1191,6 +1099,7 @@ function providerRequest(body: ParsedBody): ProviderRequest {
       content: [{ type: 'text', text: JSON.stringify({ mealText: body.mealText }) }],
       effort: ANALYZE_MEAL_DESCRIBE_EFFORT,
       schema: DESCRIBE_OUTPUT_SCHEMA,
+      route: 'describe',
       logMeta: { mode: 'describe', textChars: body.mealText.length },
     };
   }
@@ -1202,6 +1111,7 @@ function providerRequest(body: ParsedBody): ProviderRequest {
     ],
     effort: ANALYZE_MEAL_EFFORT,
     schema: MEAL_OUTPUT_SCHEMA,
+    route: 'analyze',
     logMeta: {},
   };
 }
@@ -1220,6 +1130,14 @@ async function callProvider(
   // preliminary steps have already spent part of the 60 s the client waits.
   const timeoutMs = Math.max(1, Math.min(PROVIDER_TIMEOUT_MS, deadline.remainingMs()));
   const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(timeoutMs)]);
+  // One ai_call line (../_shared/ai_telemetry.ts); there is no refund here.
+  const telemetry = new AiCallLog('analyze-meal').start({
+    route: call.route,
+    provider: 'anthropic',
+    model: CLAUDE_MODEL,
+    effort: call.effort,
+  });
+  let status: number | null = null;
   let response: Response;
   let text: string;
   try {
@@ -1242,10 +1160,12 @@ async function callProvider(
         schema: call.schema,
       })),
     });
+    status = response.status;
     const bounded = await readProviderBody(response, 512 * 1024, signal);
     if (bounded === null) throw new HttpError(502, 'provider_response_too_large', 'Analyse-Antwort war zu gross.');
     text = bounded;
   } catch (error) {
+    telemetry.settle({ outcome: requestSignal.aborted ? 'aborted' : aiOutcomeOf(error), httpStatus: status });
     if (requestSignal.aborted) {
       throw new HttpError(499, 'request_aborted', 'Anfrage abgebrochen.');
     }
@@ -1264,6 +1184,7 @@ async function callProvider(
     throw error;
   }
   if (!response.ok) {
+    telemetry.settle({ outcome: 'error', httpStatus: status });
     // Never log the raw error body (CWE-532): provider errors can mirror
     // user input. Status, length and digest prefix suffice for diagnosis.
     console.error('Provider error', {
@@ -1278,8 +1199,17 @@ async function callProvider(
   try {
     completion = JSON.parse(text) as Record<string, unknown>;
   } catch (_) {
+    telemetry.settle({ outcome: 'error', httpStatus: status });
     throw new HttpError(502, 'provider_invalid_response', 'Analyse-Antwort war ungültig.');
   }
+  // The provider call is complete; what the answer is worth is decided below.
+  const envelope = isRecord(completion) ? completion : {};
+  telemetry.settle({
+    outcome: aiAnswerOutcome(envelope.stop_reason),
+    httpStatus: status,
+    stopReason: envelope.stop_reason,
+    usage: envelope.usage,
+  });
 
   const finishReason = finishReasonFromStop(completion.stop_reason);
   const rawContent = claudeText(completion);
@@ -1330,10 +1260,7 @@ function extractJson(raw: string): string {
 }
 
 function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId: string): Response {
-  const resetAt = new Date(limit.resetAt).getTime();
-  const retryAfter = Number.isFinite(resetAt)
-    ? Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))
-    : limit.windowSeconds;
+  const retryAfter = retryAfterSeconds(limit.resetAt, limit.windowSeconds);
   return jsonResponse(
     request,
     {
@@ -1353,44 +1280,9 @@ function jsonResponse(
   status: number,
   extraHeaders: HeadersInit = {},
 ): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...Object.fromEntries(responseHeaders(request)),
-      'content-type': 'application/json; charset=utf-8',
-      ...extraHeaders,
-    },
-  });
+  return sharedJsonResponse(body, status, responseHeaders(request), extraHeaders);
 }
 
 function responseHeaders(request: Request): Headers {
-  const headers = new Headers({
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff',
-    'x-frame-options': 'DENY',
-    'referrer-policy': 'no-referrer',
-    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
-    'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-    'access-control-allow-methods': 'POST, OPTIONS',
-    'access-control-allow-headers': 'authorization, apikey, content-type, x-client-info',
-    'access-control-max-age': '86400',
-  });
-
-  const origin = request.headers.get('origin');
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    headers.set('access-control-allow-origin', origin);
-    headers.set('vary', 'Origin');
-  }
-
-  return headers;
-}
-
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    readonly publicMessage: string,
-  ) {
-    super(code);
-  }
+  return sharedResponseHeaders(request, { methods: 'POST, OPTIONS', origins: ALLOWED_ORIGINS });
 }

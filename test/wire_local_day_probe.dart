@@ -72,7 +72,7 @@ DateTime _zeitpunktMitAbweichendemTag() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  final offset = DateTime.now().timeZoneOffset;
+  final offset = DateTime.utc(2026, 6, 15, 12).toLocal().timeZoneOffset;
 
   test('die Sonde laeuft in einer Zone ungleich UTC', () {
     expect(

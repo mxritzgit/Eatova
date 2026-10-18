@@ -83,7 +83,7 @@ class ProfileSync {
 
   /// Every column [load] reads and [save] writes. A new column needs a grant
   /// in supabase/migrations (column grants since 20260819100000) — guarded by
-  /// test/fixlauf_g_manual_energy_migration_test.dart.
+  /// test/migrations/fixlauf_g_manual_energy_migration_test.dart.
   static const _columns =
       'weight_kg, height_cm, age_years, sex, '
       'activity_level, target_weight_kg, '
@@ -92,7 +92,8 @@ class ProfileSync {
       'protein_goal_g, carbs_goal_g, fat_goal_g, weight_goal, '
       'diet_preference, '
       'onboarding_completed, manual_energy, '
-      'energy_adjustment_kcal, energy_checked_on';
+      'energy_adjustment_kcal, energy_checked_on, '
+      'food_avoidances, food_dislikes';
 
   Future<UserProfile?> load() async {
     lastLoadHealed = false;
@@ -137,6 +138,12 @@ class ProfileSync {
         fatGoalG: leseZahl('fat_goal_g'),
         weightGoal: _parseGoal(row['weight_goal']?.toString()),
         diet: _parseDiet(row['diet_preference']?.toString()),
+        // Lenient like the enums: unknown codes drop, a missing column
+        // (older row) reads as nothing avoided.
+        foodAvoidances: parseFoodAvoidances(row['food_avoidances']),
+        foodDislikes: row['food_dislikes'] is String
+            ? normalizeFoodDislikes(row['food_dislikes'] as String)
+            : '',
         onboardingCompleted: row['onboarding_completed'] == true,
         // Missing (older row, pre-migration) counts as live — the default the
         // column carries too. Never reconstructed by comparing numbers.

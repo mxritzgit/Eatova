@@ -32,7 +32,7 @@ import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../flows/flow_test_helpers.dart'
     show FakeProductLookupService, pumpUntil, settleFrames, storeOf;
 import '../support/design_capture.dart';

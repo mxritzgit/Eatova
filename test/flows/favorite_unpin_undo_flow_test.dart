@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
@@ -45,13 +46,13 @@ void main() {
       await _bootFood(tester);
       final store = storeOf(tester);
 
-      // Pinned long ago, then five meals logged since: an unpin sorts the
-      // soup behind five newer recents and the cap drops it.
+      // Pinned long ago, then a full cap of meals logged since: an unpin
+      // sorts the soup behind them and the cap drops it.
       await withClock(
         Clock.fixed(DateTime(2026, 9, 1, 12)),
         () => store.toggleFavorite(_soup),
       );
-      for (var i = 0; i < 5; i++) {
+      for (var i = 0; i < FavoriteMeal.maxAutoRecents; i++) {
         await withClock(
           Clock.fixed(DateTime(2026, 10, 1 + i, 12)),
           () => store.addResultToDailyTotal(

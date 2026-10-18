@@ -74,7 +74,7 @@ void main() {
             hasTapAction: true,
             isFocusable: true,
             hasFocusAction: true,
-            label: 'Manuell eintragen\nVom Etikett, pro 100 g',
+            label: 'Manuell eintragen\nVom Etikett oder nur die Gesamtwerte',
             textDirection: TextDirection.ltr,
           ),
         );

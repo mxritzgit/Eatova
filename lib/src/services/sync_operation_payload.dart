@@ -53,7 +53,14 @@ Map<String, dynamic> encodeSyncOperationPayload(SyncOp op) {
         },
       };
     case SyncOpKind.profileUpsert:
-      return {'row': userProfileToJson(op.profile ?? corrupt())};
+      final row = userProfileToJson(op.profile ?? corrupt());
+      // An op an older build queued has no food-preference keys. Omitting
+      // them lets the server keep the stored values instead of clearing them.
+      final stored = op.payload['profile'];
+      for (final key in const ['food_avoidances', 'food_dislikes']) {
+        if (stored is Map && !stored.containsKey(key)) row.remove(key);
+      }
+      return {'row': row};
     case SyncOpKind.trainingPlanUpsert:
       return {
         'row': (op.trainingPlan ?? corrupt()).toRow(),

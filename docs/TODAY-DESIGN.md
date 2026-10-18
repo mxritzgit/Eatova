@@ -15,6 +15,9 @@ file records the data and interaction contract behind it.
 3. Calorie card: eaten share, 270° arc with the kcal left in its centre,
    Eaten / Goal / Activity. The Activity stat is omitted without a credit.
 4. Three macro tiles (compact names; screen readers hear the full name).
+   Below them, today only, the weight chip (opens the weigh-in sheet) with
+   the weekly check's progress line, or its proposal card
+   ([WEIGHT-TREND.md](WEIGHT-TREND.md#progress-on-today-2026-10-18)).
 5. Recipe pick for today's next open main meal (`HomeStore.nextMealPick`),
    opening the recipe's detail page. Hidden without a pick, on archive days
    and while a day loads.

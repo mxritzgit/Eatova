@@ -10,11 +10,13 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/favorite_meal.dart';
+import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/dictation_language.dart';
 import '../../services/favorites_view.dart';
+import '../../services/food_history_search.dart';
 import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
@@ -24,6 +26,7 @@ import '../../services/meal_photo_input.dart';
 import '../../services/meal_scan_identity.dart';
 import '../../services/meals_sync.dart';
 import '../../services/open_food_facts_product_service.dart';
+import '../../services/own_products.dart';
 import '../../services/screen_awake.dart';
 import '../../services/speech_input.dart';
 import '../../theme/app_tokens.dart';
@@ -35,6 +38,7 @@ import '../design/design.dart';
 import 'edit_meal_sheet.dart';
 import 'existing_meals_list.dart';
 import 'food_glyphs.dart';
+import 'food_history_results.dart';
 import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
@@ -76,6 +80,8 @@ class FoodStoreScope extends InheritedWidget {
     required this.mealsForDay,
     required this.favorites,
     this.favoriteUseCounts,
+    this.diaryMeals,
+    this.ownRecipes,
     required super.child,
   });
 
@@ -98,6 +104,11 @@ class FoodStoreScope extends InheritedWidget {
   /// Logs per favorite id for the favorites sheet's "Frequent" order
   /// ([favoriteUseCounts]); asked when the sheet opens.
   final Map<String, int> Function()? favoriteUseCounts;
+
+  /// Every diary row the store holds and the own recipes outside an undo
+  /// window, for the search's "From you" section (E3); read per rebuild.
+  final List<LoggedMeal> Function()? diaryMeals;
+  final List<FitnessRecipe> Function()? ownRecipes;
 
   /// Deliberately without dependency registration (like [MealEditScope]): the
   /// lookup happens in the sheet opener, outside build.
@@ -168,6 +179,8 @@ Future<void> showAddMealSheet(
           onRemoveMeal: onRemoveMeal,
           onUpdateMealDetails: resolvedUpdateDetails,
           favoriteUseCounts: live?.favoriteUseCounts,
+          diaryMeals: live?.diaryMeals,
+          ownRecipes: live?.ownRecipes,
           describer: describer,
           describeMatcher: describeMatcher,
           speechInput: speechInput,
@@ -270,6 +283,8 @@ class AddMealSheet extends StatefulWidget {
     this.onRemoveMeal,
     this.onUpdateMealDetails,
     this.favoriteUseCounts,
+    this.diaryMeals,
+    this.ownRecipes,
     this.describer = const EdgeFunctionMealDescriber(),
     this.describeMatcher,
     this.speechInput = const SpeechInput(),
@@ -314,6 +329,12 @@ class AddMealSheet extends StatefulWidget {
   /// Logs per favorite id for the favorites sheet's "Frequent" order; null
   /// (previews, standalone tests) orders "Frequent" by recency.
   final Map<String, int> Function()? favoriteUseCounts;
+
+  /// Sources of the search's "From you" section beyond the favorites; null
+  /// (previews, standalone tests) searches the opening day's rows and no
+  /// recipes.
+  final List<LoggedMeal> Function()? diaryMeals;
+  final List<FitnessRecipe> Function()? ownRecipes;
 
   /// Describe-a-meal path (docs/MEAL-DESCRIBE.md): `analyze-meal` in
   /// describe mode, then the match against favorites and [productService]
@@ -399,6 +420,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
   bool _explicitSearchRequested = false;
 
   String? _expandedItemKey;
+
+  /// The recents list past its first [kFoodHistoryVisibleRecents] rows.
+  bool _showAllRecents = false;
   final Set<String> _justAddedKeys = <String>{};
   final Map<String, Timer> _justAddedTimers = <String, Timer>{};
 
@@ -1001,9 +1025,15 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // header would show one slot while the hit went to another.
     _selectSlot(scan.slot);
 
+    // The user's own product first (E5), from the sheet's live list.
+    final own = ownProductFor(_favorites, scan.code);
     // As for the photo scan: offline the lookup fails before the sheet
     // listens, which must not surface as an unhandled zone error.
-    final lookup = widget.productService.lookupBarcode(scan.code)..ignore();
+    final lookup =
+        (own != null
+              ? Future<MealAnalysisResult>.value(own)
+              : widget.productService.lookupBarcode(scan.code))
+          ..ignore();
     // No retry/cancel: a lookup is cheap and its "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
@@ -1015,10 +1045,17 @@ class _AddMealSheetState extends State<AddMealSheet> {
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
+      offerEditValues: own != null,
     );
-    if (outcome == MealAnalysisSheetOutcome.manualEntry && mounted) {
-      await _openManualEntry();
-    }
+    if (outcome != MealAnalysisSheetOutcome.manualEntry || !mounted) return;
+    // Remembered under its code only when the database does not know the
+    // product; after a network error the entry stays a one-off.
+    final remember = own != null || await barcodeLookupMissedProduct(lookup);
+    if (!mounted) return;
+    await _openManualEntry(
+      barcode: remember ? scan.code : null,
+      initial: own,
+    );
   }
 
   // ─── Manual entry ─────────────────────────────────────────────────────
@@ -1026,12 +1063,19 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// Entry point for own nutrition values (spec 2026-08-13). The form only
   /// builds the result; logging happens here via [_logAndMirror], plus the
   /// success snack. A manual 0 kcal is measured (explicitZeroKcal), so no
-  /// sentinel guard applies. [initialName] comes from the search CTA.
-  Future<void> _openManualEntry({String? initialName}) async {
+  /// sentinel guard applies. [initialName] comes from the search CTA,
+  /// [barcode] and [initial] from a scan (own product, E5).
+  Future<void> _openManualEntry({
+    String? initialName,
+    String? barcode,
+    MealAnalysisResult? initial,
+  }) async {
     var slot = _selectedSlot;
     final result = await showManualMealSheet(
       context,
       initialName: initialName,
+      barcode: barcode,
+      initial: initial,
       initialSlot: _selectedSlot,
       onSlotChanged: (value) => slot = value,
       onSave: (result) async {
@@ -1322,7 +1366,49 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  Widget _buildSearchResults() {
+  /// "From you" first (E3), then the product database as before.
+  Widget _buildSearchResults() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      FoodHistoryResults(
+        query: _searchController,
+        favorites: _favorites,
+        diary: widget.diaryMeals?.call() ?? _existing,
+        recipes: widget.ownRecipes?.call() ?? const <FitnessRecipe>[],
+        expandedKey: _expandedItemKey,
+        labelBuilder: (text) => _SectionLabel(text),
+        itemBuilder: _historyItem,
+        gap: _kSectionGap,
+      ),
+      _buildProductResults(),
+    ],
+  );
+
+  /// One own food: the favorites sheet's row, whose "+" adds the shown
+  /// portion in one tap through the same [_handleAdd] as every row here.
+  Widget _historyItem(FoodHistoryHit hit, int index) {
+    final key = foodHistoryItemKey(hit);
+    final id = FavoriteMeal.idFor(hit.result);
+    return MealSuggestionItem(
+      key: ValueKey('food-history-hit-$index'),
+      savedPresentation: true,
+      result: hit.result,
+      expanded: _expandedItemKey == key,
+      justAdded: _justAddedKeys.contains(key),
+      onTap: () => _toggleExpanded(key),
+      onAdd: (result) => _handleAdd(key, result),
+      addButtonKey: ValueKey('food-history-hit-add-$index'),
+      isFavorite: _favorites.any((f) => f.pinned && f.id == id),
+      onToggleFavorite: widget.onToggleFavorite == null
+          ? null
+          : (result) => _handleToggleFavorite(result),
+      favoriteButtonKey: ValueKey('food-history-hit-fav-$index'),
+      quickAddSlotLabel: _selectedSlot.label(context.l10n),
+      quickAddKey: ValueKey('food-history-hit-quick-$index'),
+    );
+  }
+
+  Widget _buildProductResults() {
     final l10n = context.l10n;
     if (_isSearchingProducts && _productSuggestions.isEmpty) {
       return Column(
@@ -1481,6 +1567,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // the favorites menu, which holds all of them.
     final pinnedCount = _pinned.length;
     final recents = _recents;
+    // The store keeps more recents than fit here; the rest sits behind
+    // "Show all" and in the search's "From you".
+    final shortened = recents.length > kFoodHistoryVisibleRecents;
+    final shown = shortened && !_showAllRecents
+        ? recents.sublist(0, kFoodHistoryVisibleRecents)
+        : recents;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1492,14 +1584,20 @@ class _AddMealSheetState extends State<AddMealSheet> {
           _SectionLabel(context.l10n.foodSectionRecentMeals),
           const SizedBox(height: _kLabelGap),
           SavedMealCollection(
-            expandedIndex: recents.indexWhere(
+            expandedIndex: shown.indexWhere(
               (f) => _expandedItemKey == 'favorite:${f.id}',
             ),
             children: [
-              for (var i = 0; i < recents.length; i++)
-                _recentItem(recents[i], i),
+              for (var i = 0; i < shown.length; i++) _recentItem(shown[i], i),
             ],
           ),
+          if (shortened)
+            FoodHistoryShowAllToggle(
+              key: const ValueKey('add-meal-recents-toggle'),
+              count: recents.length,
+              expanded: _showAllRecents,
+              onTap: () => setState(() => _showAllRecents = !_showAllRecents),
+            ),
         ],
       ],
     );

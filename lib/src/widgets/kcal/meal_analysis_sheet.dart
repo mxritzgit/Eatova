@@ -162,7 +162,7 @@ MealPortionAdjustment? mealPortionAdjustment(
   List<MealComponent>? adjustment,
 ) {
   if (adjustment == null || adjustment.isEmpty) return null;
-  if (current.isRecipeWithoutCookedWeight) return null;
+  if (current.hasNoPortionWeight) return null;
   final grams = _weightOnlyGrams(current, adjustment);
   if (grams != null) {
     return MealPortionAdjustment.weight(current.adjustedToGrams(grams));
@@ -206,8 +206,9 @@ int? _weightOnlyGrams(
 
 /// What the sheet was closed with. Null = plain close.
 enum MealAnalysisSheetOutcome {
-  /// The user chose "enter manually" from the error state; the caller opens
-  /// the manual entry sheet.
+  /// The user chose "enter manually" from the error state, or "change
+  /// values" on an own product ([MealAnalysisSheet.offerEditValues]); the
+  /// caller opens the manual entry sheet.
   manualEntry,
 }
 
@@ -231,6 +232,7 @@ Future<MealAnalysisSheetOutcome?> showMealAnalysisSheet(
   PersistValueChanged<MealAnalysisResult>? onToggleFavorite,
   Future<MealAnalysisResult> Function()? retry,
   MealAnalysisCancellation? cancellation,
+  bool offerEditValues = false,
 }) {
   return showModalBottomSheet<MealAnalysisSheetOutcome>(
     context: context,
@@ -249,6 +251,7 @@ Future<MealAnalysisSheetOutcome?> showMealAnalysisSheet(
         onToggleFavorite: onToggleFavorite,
         retry: retry,
         cancellation: cancellation,
+        offerEditValues: offerEditValues,
       );
     },
   );
@@ -267,6 +270,7 @@ class MealAnalysisSheet extends StatefulWidget {
     this.onToggleFavorite,
     this.retry,
     this.cancellation,
+    this.offerEditValues = false,
   });
 
   /// After this long without an answer the loading card gets a "taking
@@ -299,6 +303,11 @@ class MealAnalysisSheet extends StatefulWidget {
 
   /// Cancelled on dispose while a request is still running.
   final MealAnalysisCancellation? cancellation;
+
+  /// The result is the user's own product (E5): until it is added, a "change
+  /// values" pill closes with [MealAnalysisSheetOutcome.manualEntry] and the
+  /// caller opens the form prefilled with it.
+  final bool offerEditValues;
 
   @override
   State<MealAnalysisSheet> createState() => _MealAnalysisSheetState();
@@ -568,7 +577,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
                     onRetry: widget.retry == null ? null : _retry,
                     onManualEntry: _manualEntry,
                   )
-                else if (_result != null)
+                else if (_result != null) ...[
                   MealResultCard(
                     result: _result!,
                     previewImage: widget.previewImage,
@@ -581,6 +590,20 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
                         ? null
                         : _handleToggleFavorite,
                   ),
+                  // Once added, the values belong to the diary row and are
+                  // changed there.
+                  if (widget.offerEditValues && !_addedToDailyTotal) ...[
+                    const SizedBox(height: 12),
+                    SoftPillButton(
+                      key: const ValueKey('analyse-edit-values'),
+                      label: context.l10n.foodQuickEditValues,
+                      icon: Icons.edit_outlined,
+                      onTap: _saving ? null : _manualEntry,
+                      tone: SoftPillTone.neutral,
+                      expand: true,
+                    ),
+                  ],
+                ],
               ],
             ),
           ),

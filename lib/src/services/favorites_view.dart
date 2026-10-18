@@ -46,8 +46,10 @@ List<FavoriteMeal> filterFavoritesByQuery(
 enum FavoriteSort { recent, frequent, alphabetical }
 
 /// How often each favorite was logged since local midnight [days] days
-/// before [now], keyed like [FavoriteMeal.idFor] (barcode, else name). Only
-/// the meals the store holds count, which covers its boot window.
+/// before [now], keyed by [FavoriteMeal.canonicalId] of [FavoriteMeal.idFor]
+/// (barcode, else name), so both UPC-A spellings count for one product
+/// (FOOD-6). Only the meals the store holds count, which covers its boot
+/// window.
 Map<String, int> favoriteUseCounts(
   Iterable<LoggedMeal> meals, {
   required DateTime now,
@@ -59,7 +61,7 @@ Map<String, int> favoriteUseCounts(
   final counts = <String, int>{};
   for (final meal in meals) {
     if (meal.loggedAt.isBefore(since)) continue;
-    final id = FavoriteMeal.idFor(meal.result);
+    final id = FavoriteMeal.canonicalId(FavoriteMeal.idFor(meal.result));
     counts[id] = (counts[id] ?? 0) + 1;
   }
   return counts;
@@ -85,9 +87,10 @@ List<FavoriteMeal> sortFavorites(
     if (sort == FavoriteSort.alphabetical)
       for (final f in pinnedByRecency) f.id: _sortKey(nameOf(f)),
   };
+  int uses(FavoriteMeal f) => useCounts[FavoriteMeal.canonicalId(f.id)] ?? 0;
   indexed.sort((a, b) {
     final order = sort == FavoriteSort.frequent
-        ? (useCounts[b.$2.id] ?? 0).compareTo(useCounts[a.$2.id] ?? 0)
+        ? uses(b.$2).compareTo(uses(a.$2))
         : keys[a.$2.id]!.compareTo(keys[b.$2.id]!);
     return order != 0 ? order : a.$1.compareTo(b.$1);
   });

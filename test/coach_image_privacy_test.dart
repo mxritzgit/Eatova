@@ -115,6 +115,9 @@ class _RecordingPicker extends ImagePicker {
   Completer<void>? readGate;
   String? delayedPath;
 
+  /// Path of the returned in-memory file; the screen deletes it in `finally`.
+  String path = 'foto.jpg';
+
   @override
   Future<XFile?> pickImage({
     required ImageSource source,
@@ -134,7 +137,7 @@ class _RecordingPicker extends ImagePicker {
             bytes,
             mimeType: 'image/jpeg',
             name: 'foto.jpg',
-            path: 'foto.jpg',
+            path: path,
           )
         : _DelayedXFile(bytes, gate, delayedPath!);
   }
@@ -243,18 +246,43 @@ Future<void> _pumpCoach(
   );
 }
 
-/// Triggers the gallery path and waits REAL time: compression runs via
-/// `compute()` in a real isolate, which the widget test's fake clock never
-/// reaches.
-Future<void> _sendFromGallery(WidgetTester tester) async {
+/// A real file as the picker's cache copy, so the end of the pick path is
+/// observable: the screen deletes it in `finally`, once the photo was read,
+/// scrubbed and sent or dropped.
+File _pickerKopie(_RecordingPicker picker) {
+  final directory = Directory.systemTemp.createTempSync('coach-photo-');
+  final photo = File('${directory.path}/photo.jpg')
+    ..writeAsBytesSync(picker.bytes);
+  addTearDown(() {
+    if (photo.existsSync()) photo.deleteSync();
+    if (directory.existsSync()) directory.deleteSync();
+  });
+  picker.path = photo.path;
+  return photo;
+}
+
+/// Waits REAL time until the pick path is done with [photo]: compression runs
+/// via `compute()` in a real isolate, which the widget test's fake clock never
+/// reaches. Bounded, so a path that never ends falls through to the caller's
+/// failing expectations instead of hanging the suite.
+Future<void> _bisFotoVerarbeitet(WidgetTester tester, File photo) async {
+  final uhr = Stopwatch()..start();
+  while (photo.existsSync() && uhr.elapsed < const Duration(seconds: 10)) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+  }
+  await tester.pumpAndSettle();
+}
+
+/// Triggers the gallery path and waits until it has finished.
+Future<void> _sendFromGallery(WidgetTester tester, File photo) async {
   await tester.tap(find.byKey(const ValueKey('coach-attach')));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('coach-gallery')));
   await tester.pump();
-  await tester.runAsync(
-    () => Future<void>.delayed(const Duration(seconds: 2)),
-  );
-  await tester.pumpAndSettle();
+  await _bisFotoVerarbeitet(tester, photo);
 }
 
 void main() {
@@ -345,9 +373,10 @@ void main() {
       (tester) async {
     final service = _CapturingService.create();
     final picker = _RecordingPicker(_geotaggedJpeg());
+    final foto = _pickerKopie(picker);
     await _pumpCoach(tester, service: service, picker: picker);
 
-    await _sendFromGallery(tester);
+    await _sendFromGallery(tester, foto);
 
     expect(service.sendCalls, 1);
     expect(service.sentImageBase64, isNotNull);
@@ -371,9 +400,10 @@ void main() {
       (tester) async {
     final service = _CapturingService.create();
     final picker = _RecordingPicker(_geotaggedJpeg());
+    final foto = _pickerKopie(picker);
     await _pumpCoach(tester, service: service, picker: picker);
 
-    await _sendFromGallery(tester);
+    await _sendFromGallery(tester, foto);
 
     expect(service.sentMimeType, 'image/jpeg');
   });
@@ -382,9 +412,10 @@ void main() {
       'auf HEIC ins Leere', (tester) async {
     final service = _CapturingService.create();
     final picker = _RecordingPicker(_geotaggedJpeg());
+    final foto = _pickerKopie(picker);
     await _pumpCoach(tester, service: service, picker: picker);
 
-    await _sendFromGallery(tester);
+    await _sendFromGallery(tester, foto);
 
     expect(picker.source, ImageSource.gallery);
     expect(picker.imageQuality, isNotNull);
@@ -403,6 +434,7 @@ void main() {
     final service = _CapturingService.create()
       ..tor = Completer<CoachChatReply>();
     final picker = _RecordingPicker(_geotaggedJpeg())..tor = Completer<void>();
+    final foto = _pickerKopie(picker);
     await _pumpCoach(tester, service: service, picker: picker);
 
     // 1. Der Bildweg startet und wartet auf die Galerie.
@@ -425,10 +457,7 @@ void main() {
     // 3. Erst jetzt kommt das Foto zurueck. Der Scrubber laeuft ueber
     //    `compute()` in einem echten Isolate, das die Fake-Uhr nie erreicht.
     picker.tor!.complete();
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(seconds: 2)),
-    );
-    await tester.pumpAndSettle();
+    await _bisFotoVerarbeitet(tester, foto);
 
     expect(service.sendCalls, 1,
         reason: 'zwei parallele Anfragen sind zwei der fuenf Tagesslots fuer '
@@ -457,6 +486,7 @@ void main() {
         dailyLimit: 5,
       );
     final picker = _RecordingPicker(_geotaggedJpeg())..tor = Completer<void>();
+    final foto = _pickerKopie(picker);
     await _pumpCoach(tester, service: service, picker: picker);
 
     await tester.tap(find.byKey(const ValueKey('coach-attach')));
@@ -476,10 +506,7 @@ void main() {
         reason: 'Vorbedingung: das Kontingent ist jetzt nachweislich leer');
 
     picker.tor!.complete();
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(seconds: 2)),
-    );
-    await tester.pumpAndSettle();
+    await _bisFotoVerarbeitet(tester, foto);
 
     expect(service.sendCalls, 1,
         reason: 'der Server wuerde das Bild mit 429 abweisen — der Upload und '

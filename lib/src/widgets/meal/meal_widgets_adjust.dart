@@ -13,12 +13,19 @@ Future<List<MealComponent>?> showWeightAdjustmentSheet(
   BuildContext context,
   MealAnalysisResult result,
 ) {
-  if (result.isRecipeWithoutCookedWeight) {
+  if (result.hasNoPortionWeight) {
+    final quick = result.isQuickEntry;
     return showEatovaDialog<List<MealComponent>>(
       context: context,
       builder: (dialogContext) => EatovaDialog(
-        title: context.l10n.recipeCalcSavedPortion,
-        content: Text(context.l10n.recipeCalcNoCookedWeight),
+        title: quick
+            ? context.l10n.foodQuickDefaultName
+            : context.l10n.recipeCalcSavedPortion,
+        content: Text(
+          quick
+              ? context.l10n.foodQuickNoWeightHint
+              : context.l10n.recipeCalcNoCookedWeight,
+        ),
         icon: Icons.info_outline_rounded,
         actions: [
           EatovaDialogAction(

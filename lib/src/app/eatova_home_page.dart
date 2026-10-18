@@ -59,6 +59,7 @@ import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
 import '../widgets/recipes/recipe_pick_actions.dart';
+import '../widgets/shared/reminder_time_picker.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
@@ -404,7 +405,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       MaterialPageRoute<SettingsResult>(
         builder: (_) => StoreSelector(
           store: _store,
-          selector: () => _store.reminderState,
+          selector: () => (_store.reminderState, _store.reminderTime),
           builder: (_) => GoalsScreen(
             profile: _store.profile,
             weightTrendKg: _store.weightLog.planWeightKg(clock.now()),
@@ -412,6 +413,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             notificationsEnabled: _store.notificationsEnabled,
             // Resume may change permission while this route remains open.
             reminderState: _store.reminderState,
+            reminderTime: _store.reminderTime,
             onSave: (result) async {
               if (!_isStoreSessionCurrent(ownerStore)) {
                 throw StateError('Profile owner changed');
@@ -445,7 +447,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       MaterialPageRoute<void>(
         builder: (_) => StoreSelector(
           store: ownerStore,
-          selector: () => (ownerStore.pendingOutbox.length, ownerStore.syncBlockedReason, ownerStore.syncStatusReadable),
+          selector: () => (ownerStore.pendingOutbox.length, ownerStore.syncBlockedReason, ownerStore.syncStatusReadable, ownerStore.reminderState, ownerStore.reminderTime),
           builder: (_) => SettingsScreen(
           pendingSyncCount: ownerStore.pendingOutbox.length,
           syncStatusReadable: ownerStore.syncStatusReadable,
@@ -453,6 +455,20 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           onSyncNow: widget.sync == null ? null : () async {
             if (!_isStoreSessionCurrent(ownerStore)) throw StateError('Settings owner changed');
             await ownerStore.syncPendingWrites(retryBlocked: true);
+          },
+          // C4: the reminder where settings are looked for; same store
+          // state and opt-in as the switch in "Profil & Ziele".
+          reminderState: ownerStore.reminderState,
+          reminderTime: ownerStore.reminderTime,
+          onReminderEnabledChanged: (enabled) {
+            if (_isStoreSessionCurrent(ownerStore)) {
+              unawaited(ownerStore.setNotificationsEnabled(enabled));
+            }
+          },
+          onReminderTimeChanged: (time) {
+            if (_isStoreSessionCurrent(ownerStore)) {
+              unawaited(ownerStore.setReminderTime(time));
+            }
           },
           // No "linked account" row: the app does not know which provider
           // carried the sign-in, and a guessed row is worse than none.
@@ -545,6 +561,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // ARCH-1/PERF-2: while open, the store listener bumps _profileRefresh so
     // mid-route state changes reach the ProfileScreen.
     _profileRouteOpen = true;
+    final ownerStore = _store;
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -567,6 +584,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onOpenSettings: _openSettings,
               onConnectHealth: _store.connectHealth,
               onRefreshHealth: _store.refreshHealthSteps,
+              onSaveFoodPreferences: (preferences) {
+                if (!_isStoreSessionCurrent(ownerStore)) {
+                  throw StateError('Profile owner changed');
+                }
+                return ownerStore.updateFoodPreferences(preferences);
+              },
               // Sign-out, deletion, export and "about" hang off
               // [_openSettings]; the profile block duplicated them.
             ),
@@ -801,9 +824,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.loggedMeals,
       _store.profile,
       // The weekly energy check also reads the weight log, and waits for its
-      // step backfill.
+      // step backfill and server answers (the gate itself, not only the
+      // inputs that change with it today).
       _store.weightLog,
       _store.energyCheckStepsReady,
+      _store.energyCheckSourcesReady,
       _store.stepsForFoodDate(_store.selectedFoodDate),
       // Map identity as fingerprint (G11): an upsert replaces the map.
       _store.dailyActivity,
@@ -822,9 +847,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.selectedTrainingPlanId,
       _store.trainingHistory,
       _store.trainingSession,
+      // The one-time reminder card (C4).
+      _store.reminderPromptVisible,
+      _store.reminderTime,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
+      final ownerStore = _store;
       final tag = _store.selectedFoodDate;
       final today = _store.selectedFoodDateIsToday;
       return TodayScreen(
@@ -869,9 +898,55 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               : _store.acceptEnergyCheck(proposal);
         },
         onDismissEnergyCheck: _store.dismissEnergyCheck,
+        reminderPrompt: today && _store.reminderPromptVisible
+            ? _store.reminderTime
+            : null,
+        onAcceptReminderPrompt: _acceptReminderPrompt,
+        onDismissReminderPrompt: _store.dismissReminderPrompt,
+        onChangeReminderTime: (time) => unawaited(_store.setReminderTime(time)),
+        energyCheckProgress: today ? _store.energyCheckProgress : null,
+        // The weight chip: the profile's weigh-in path, for this session.
+        latestWeightKg: _store.weightLog.latest?.weightKg,
+        onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,
       );
     },
   );
+
+  /// The reminder card's "yes" (C4): the store's opt-in, then one honest
+  /// line. A refused permission is said once, the card is gone either way,
+  /// and the settings row shows the blocked state from here on.
+  Future<void> _acceptReminderPrompt() async {
+    final ownerStore = _store;
+    final state = await ownerStore.acceptReminderPrompt();
+    if (!mounted || !_isStoreSessionCurrent(ownerStore)) return;
+    final l10n = context.l10n;
+    switch (state) {
+      case ReminderState.active:
+        _emitSnack(
+          l10n.reminderTimeEnabledSnack(
+            formatReminderTime(context, ownerStore.reminderTime),
+          ),
+          icon: Icons.notifications_active_outlined,
+        );
+      case ReminderState.blocked:
+        _emitSnack(
+          l10n.reminderTimeDeniedSnack,
+          icon: Icons.notifications_off_outlined,
+          tone: SnackTone.warning,
+        );
+      case ReminderState.off:
+        break;
+    }
+  }
+
+  Future<void> _logWeightFromToday(HomeStore ownerStore, double kg) async {
+    // A sheet opened before an account change must not write into the new
+    // session; the sheet then names the failed save.
+    if (!_isStoreSessionCurrent(ownerStore)) {
+      throw StateError('Weight owner changed');
+    }
+    await ownerStore.logWeight(kg);
+  }
 
   /// "Tonight's pick" through the shared pick actions: a suggestion opens
   /// its recipe detail (adding there logs to the shown day), a planned meal
@@ -920,6 +995,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.userRecipes,
       _store.pendingRecipeDeletes,
       _store.mealPlansRevision,
+      // The repeat offers' source: whether the previous day is complete.
+      _store.previousFoodDayComplete(_store.selectedFoodDate),
     ),
     builder: (context) {
       assert(_countTabBuild(_tabFood));
@@ -934,9 +1011,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         favorites: () => _store.favorites,
         favoriteUseCounts: () =>
             favoriteUseCounts(_store.loggedMeals, now: clock.now()),
+        // The search's "From you" (E3): local only, no network.
+        diaryMeals: () => _store.loggedMeals,
+        ownRecipes: () => _store.visibleUserRecipes,
         child: MealEditScope(
           onUpdateMeal: _store.updateLoggedMealDetails,
           onRemoveMeal: _store.removeLoggedMeal,
+          onCopyMeals: _store.copyLoggedMeals,
           child: MealAnalysisScreen(
             analyzer: widget.mealAnalyzer,
             productService: widget.productService,
@@ -982,6 +1063,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 unawaited(MealPlanScreen.open(context, ownerStore));
               }
             },
+            previousDayMeals: _store.repeatableMealsBefore(
+              _store.selectedFoodDate,
+            ),
+            onRepeatSlot: _store.repeatPreviousDaySlot,
           ),
         ),
       );
@@ -1612,6 +1697,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         _store.burnedKcalForFoodDate(clock.now()),
         _store.macroProgress,
         _store.loggedMeals,
+        // The seven-day block: weigh-ins, past activity credit and the day
+        // the window ends on.
+        _store.weightLog,
+        _store.dailyActivity,
+        DateUtils.dateOnly(clock.now()),
         // Deleting in the recipes tab must re-enable the card button —
         // already while the delete sits in its undo window (2026-09-02).
         _store.userRecipes,
@@ -1639,6 +1729,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             nextMainSlot: _store.nextOpenMainSlot(),
           ),
           userContext: widget.sync != null ? _store.coachContext : null,
+          // /recipe's only profile data (C3); `_store.profile` above is in
+          // the selector, so an edit reaches the next request.
+          recipePreferences: widget.sync != null
+              ? _store.coachRecipePreferences
+              : null,
           // Confirmed /recipe suggestions take the manual form's path.
           onCreateRecipe: widget.sync == null ? null : _store.createUserRecipe,
           // `visibleUserRecipes`, not `userRecipes`: a recipe inside the

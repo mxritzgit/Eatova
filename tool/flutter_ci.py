@@ -377,7 +377,7 @@ def main(argv=None) -> int:
     parser.add_argument("--timings", type=Path, default=TIMINGS)
     parser.add_argument("--output", type=Path, default=Path(".dart_tool/flutter-ci"))
     parser.add_argument("--flutter", default="flutter")
-    parser.add_argument("--floor", type=float, default=88.0)
+    parser.add_argument("--floor", type=float, default=95.0)
     parser.add_argument("--run-attempt", type=int,
                         help="GitHub run attempt; artifacts are then named shard-N-attempt-K")
     args = parser.parse_args(argv)
@@ -425,8 +425,8 @@ def main(argv=None) -> int:
             print("Selected shard artifacts: " + ", ".join(path.name for _, path in selected.values()), flush=True)
         coverage = validate_shards(manifest, output, root, args.run_attempt)
         percentage = coverage_percent(coverage)
-        if not math.isfinite(args.floor) or not 88 <= args.floor <= 100:
-            raise ValueError("Coverage floor may not be lowered below 88%")
+        if not math.isfinite(args.floor) or not 95 <= args.floor <= 100:
+            raise ValueError("Coverage floor may not be lowered below 95%")
         merged = output.parent / "lcov.info"
         merged.write_text(_lcov_text(coverage), encoding="utf-8")
         summary = f"All {len(manifest['tests'])} test files verified; global coverage {percentage:.2f}% (floor {args.floor:g}%)."

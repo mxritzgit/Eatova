@@ -45,8 +45,9 @@ class MealsSync {
   /// Crossing this bound fails the load rather than presenting partial totals.
   static const int _archiveDayMaxPages = 20;
 
-  /// Favourites cap: the client only keeps 5 auto-recents plus pinned
-  /// favourites, so 200 is far above any realistic pin count.
+  /// Favourites cap: the client only keeps [FavoriteMeal.maxAutoRecents]
+  /// auto-recents plus pinned favourites, so 200 is far above any realistic
+  /// pin count.
   static const int favoritesLimit = 200;
 
   // ---------- logged_meals ----------

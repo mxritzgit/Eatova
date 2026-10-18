@@ -1,0 +1,186 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/onboarding_screen.dart';
+
+import '../support/harness.dart';
+
+// Fix run 2026-08-27, package B:
+//  * F2-04 — stepper buttons carry a label, the slider speaks "75 kg" instead
+//    of a percentage, selection cards announce button + selected.
+//  * F8-09 — the sex tiles and the picker unit no longer shrink their text
+//    with FittedBox; the tiles stack at large system fonts instead.
+//  * F2-08 — the progress names the real number of questions; since
+//    2026-10-04 that number depends on the goal (target and pace are asked
+//    only for a direction).
+
+Future<void> _pump(
+  WidgetTester tester, {
+  required UserProfile profile,
+  double textScale = 1.0,
+}) async {
+  tester.view.physicalSize = const Size(1179, 2556);
+  tester.view.devicePixelRatio = 3.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  await pumpLocalized(
+    tester,
+    OnboardingScreen(
+      // Fresh state per pump: without a new key a second pump in the same
+      // test would keep the first profile's state.
+      key: UniqueKey(),
+      firstName: 'Moritz',
+      initialProfile: profile,
+      onComplete: (_) {},
+    ),
+    brightness: Brightness.light,
+    textScale: textScale,
+    scaffold: false,
+    safeArea: false,
+  );
+  await tester.pumpAndSettle();
+}
+
+/// The Slider's own node sits below the nearest ancestor node that
+/// `getSemantics` returns; search the subtree for the spoken value.
+bool _subtreeHasValue(SemanticsNode node, String value) {
+  if (node.value == value) return true;
+  var found = false;
+  node.visitChildren((child) {
+    if (_subtreeHasValue(child, value)) found = true;
+    return !found;
+  });
+  return found;
+}
+
+Future<void> _next(WidgetTester tester, [int times = 1]) async {
+  for (var i = 0; i < times; i++) {
+    await tester.tap(find.byKey(const ValueKey('onboarding-next')));
+    await tester.pumpAndSettle();
+  }
+}
+
+void main() {
+  testWidgets('progress names the real steps', (tester) async {
+    await _pump(tester, profile: const UserProfile());
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
+    expect(find.text('1 / 6'), findsOneWidget);
+    await _next(tester);
+    expect(find.text('2 / 6'), findsOneWidget);
+
+    await _pump(
+      tester,
+      profile: const UserProfile(weightGoal: WeightGoal.lose05kg),
+    );
+    expect(find.text('1 / 8'), findsOneWidget,
+        reason: 'losing weight adds the target and pace questions');
+  });
+
+  testWidgets('F2-04: Auswahlkarten sind Knoepfe mit selected-Status',
+      (tester) async {
+    await _pump(tester, profile: const UserProfile());
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('onboarding-goal-maintain'))),
+      isSemantics(isButton: true, isSelected: true, isInMutuallyExclusiveGroup: true),
+    );
+    await _next(tester); // goal -> basics
+
+    await tester.tap(find.byKey(const ValueKey('onboarding-sex-male')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('onboarding-sex-male'))),
+      isSemantics(isButton: true, isSelected: true),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('onboarding-sex-female'))),
+      isSemantics(isButton: true, isSelected: false),
+    );
+
+    await _next(tester, 2); // basics, body -> activity
+    final moderate = find.byKey(const ValueKey('onboarding-activity-moderate'));
+    await tester.ensureVisible(moderate);
+    await tester.pumpAndSettle();
+    await tester.tap(moderate);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(
+          find.byKey(const ValueKey('onboarding-activity-moderate'))),
+      isSemantics(isButton: true, isSelected: true),
+    );
+  });
+
+  testWidgets('F2-04: Stepper haben Labels, der Slider spricht den Wert',
+      (tester) async {
+    await _pump(tester, profile: const UserProfile(weightKg: 75));
+    await _next(tester, 2); // goal, basics -> body
+
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('onboarding-weight-dec'))),
+      isSemantics(isButton: true, label: deL10n.onboardingStepDownSemanticLabel),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('onboarding-weight-inc'))),
+      isSemantics(isButton: true, label: deL10n.onboardingStepUpSemanticLabel),
+    );
+    final slider =
+        tester.getSemantics(find.byKey(const ValueKey('onboarding-weight-slider')));
+    expect(_subtreeHasValue(slider, '75 ${deL10n.commonUnitKg}'), isTrue,
+        reason: 'ein Screenreader muss "75 kg" hoeren, nicht Prozent');
+  });
+
+  testWidgets('F8-09: keine FittedBox um Beschriftungen, Kacheln stapeln '
+      'bei 2.0 ohne Overflow', (tester) async {
+    final overflows = <String>[];
+    final prior = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exception.toString().contains('overflowed')) {
+        overflows.add(details.summary.toString());
+        return;
+      }
+      prior?.call(details);
+    };
+    try {
+      await _pump(tester, profile: const UserProfile(), textScale: 2.0);
+      await _next(tester); // goal -> basics
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('onboarding-sex-male')),
+          matching: find.byType(FittedBox),
+        ),
+        findsNothing,
+        reason: 'FittedBox neutralisiert die Textskalierung',
+      );
+      // At 200 % a third of the row cannot hold the label: the tiles stack.
+      final male = tester.getRect(find.byKey(const ValueKey('onboarding-sex-male')));
+      final female =
+          tester.getRect(find.byKey(const ValueKey('onboarding-sex-female')));
+      expect(female.top, greaterThan(male.bottom - 1),
+          reason: 'gestapelt statt eingedampft');
+
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('onboarding-step-basics')),
+          matching: find.byType(FittedBox),
+        ),
+        findsOneWidget,
+        reason: 'nur die Hero-Zahl darf noch schrumpfen, die Einheit nicht',
+      );
+    } finally {
+      FlutterError.onError = prior;
+    }
+    expect(overflows, isEmpty, reason: overflows.join('\n'));
+  });
+
+  testWidgets('bei 1.0 stehen die drei Kacheln nebeneinander', (tester) async {
+    await _pump(tester, profile: const UserProfile());
+    await _next(tester); // goal -> basics
+    final male = tester.getRect(find.byKey(const ValueKey('onboarding-sex-male')));
+    final female =
+        tester.getRect(find.byKey(const ValueKey('onboarding-sex-female')));
+    expect(female.top, male.top);
+  });
+}

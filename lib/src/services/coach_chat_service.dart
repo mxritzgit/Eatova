@@ -17,10 +17,23 @@ import '../models/coach_recipe_proposal.dart';
 import '../models/coach_training_proposal.dart';
 import '../models/coach_training_context.dart';
 import '../models/coach_workout_log.dart';
+import '../models/user_profile.dart';
 import 'crash_reporter.dart';
 import 'local_day.dart';
 import 'sync_error_messages.dart';
 import 'user_rpc.dart';
+
+/// Wire form of the /recipe `preferences` field: only what is set, codes for
+/// diet and avoided foods, the normalized dislikes text. coach-chat validates
+/// the same shape (`parseRecipePreferences` in recipe.ts).
+Map<String, Object> recipePreferencesPayload(FoodPreferences preferences) => {
+  if (preferences.diet != DietPreference.none) 'diet': preferences.diet.name,
+  if (preferences.avoidances.isNotEmpty)
+    'avoid': foodAvoidancesToWire(preferences.avoidances),
+  if (normalizeFoodDislikes(preferences.dislikes) case final dislikes
+      when dislikes.isNotEmpty)
+    'dislikes': dislikes,
+};
 
 /// Coach-chat backend bridge.
 ///
@@ -858,11 +871,35 @@ class CoachChatService {
   /// and the names of today's logged foods travelled to the server without
   /// ever being read. Data minimisation beats sending on spec — making the
   /// recipe respect the remaining balance is a server change and a product
-  /// decision, not a client one.
+  /// decision, not a client one. The one exception is
+  /// [requestRecipeWithPreferences].
   Future<CoachRecipeReply> requestRecipe(
     String wish, {
     required String sessionId,
     required String locale,
+  }) => _requestRecipe(wish, sessionId: sessionId, locale: locale);
+
+  /// [requestRecipe] with the user's food preferences (C3): diet, avoided
+  /// foods and dislikes as their own narrow `preferences` field, which the
+  /// recipe prompt reads as hard requirements. Nothing else of the profile
+  /// travels; empty preferences send no field at all.
+  Future<CoachRecipeReply> requestRecipeWithPreferences(
+    String wish, {
+    required String sessionId,
+    required String locale,
+    required FoodPreferences preferences,
+  }) => _requestRecipe(
+    wish,
+    sessionId: sessionId,
+    locale: locale,
+    preferences: preferences,
+  );
+
+  Future<CoachRecipeReply> _requestRecipe(
+    String wish, {
+    required String sessionId,
+    required String locale,
+    FoodPreferences? preferences,
   }) async {
     // As in [send]: reference point for [_nachzuegler].
     final begonnen = clock.now();
@@ -877,6 +914,8 @@ class CoachChatService {
             'mode': 'recipe',
             'locale': _requestLocale(locale),
             'session_id': sessionId,
+            if (preferences != null && !preferences.isEmpty)
+              'preferences': recipePreferencesPayload(preferences),
           },
           abortSignal: abbruch,
         ),

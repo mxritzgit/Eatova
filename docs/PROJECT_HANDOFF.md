@@ -37,7 +37,7 @@ inspection or test run. Follow the specific PR/source links for each checkpoint.
 
 ### PR #66 follow-up, 2026-09-06
 
-The failed test was `test/review_31/f_coach_frist_nachzuegler_test.dart`: it still
+The failed test was `test/coach/f_coach_frist_nachzuegler_test.dart` (then under `test/review_31/`): it still
 expected the old 135-second recipe deadline and 30-second image budget. Commit
 `b9ed6bb` updates the ledger to 165/60 seconds and adds a behavior test for a
 recipe response with image after 145 seconds, without history fallback or retry.
@@ -3747,3 +3747,73 @@ preferences and a 7-day context. Technically: per-call AI usage telemetry
 (`coach-chat` never logs `usage`), a CI deploy workflow for functions, shared
 Edge modules and a Coach controller. This is a recommendation, not an approved
 roadmap; only documentation changed.
+
+## Review items built with ten agents, 2026-10-18
+
+Owner request: build blocks 2–6 of the
+[improvement review](IMPROVEMENT-REVIEW-2026-10-18.md) "mit 10 Subagents",
+merge after CI and deploy the functions; the owner also approved applying
+the profile migration live. Ten agents worked in their own worktrees from
+`ea2722e6`; the orchestrator read every report, cherry-picked onto
+`feat/improvements-2026-10-18`, resolved the overlaps by hand and added
+three fixes of its own.
+
+**Built:**
+- **Today:** a weight chip (latest weigh-in, opens the profile's sheet) and
+  `EnergyCheck.progress`: when the weekly check can first propose a goal and
+  how many logged days and weigh-ins it still needs, on the same window and
+  gates as `evaluate` ([weight trend](WEIGHT-TREND.md)).
+- **Reminders:** a chosen time per account on the device (default 20:00), a
+  Settings row, and a one-time Today offer after two logged days.
+- **Logging:** "Repeat yesterday" per slot and "Copy to…" (new ids, one
+  `mealInsert` each, recents untouched); "Your foods" first in the add-sheet
+  search; 30 auto-recents (5 visible); a quick entry with total kcal only
+  (0 g, guarded against re-portioning); an unknown barcode saved by hand is
+  pinned as an own product; FOOD-6 normalizes to GTIN-13 and still matches
+  stored 12-digit keys.
+- **Coach:** migration `20261018100000_profiles_food_preferences.sql`
+  (`food_avoidances` with 13 closed codes, `food_dislikes` up to 120
+  characters; written only through `apply_sync_operation`, no column
+  grants), a Nutrition section in the profile (also F8), a preference line in
+  the chat context and a narrow `preferences` field for `/recipe` (P5-02
+  kept; suspected conflicts are flagged, not re-asked). A seven-day block in
+  the context; `MAX_USER_CONTEXT_CHARS` 1200 → 2000. Order: core values,
+  preferences, week, slots, foods.
+- **Engineering:** `_shared/rate_limit.ts` and `_shared/http.ts` replace four
+  copies (analyze-meal and search-key now say `rate_limit_unavailable` on a
+  limiter transport error); one allowlisted `ai_call` line per paid provider
+  call ([operations](OPERATIONS.md)); `deploy-functions.yml` with
+  `scripts/operations/deploy_functions.py`; `CoachChatController` holds the
+  Coach state (screen 3,470 → about 2,000 lines, `setState` 64 → 13); 81
+  review-named test files moved into feature folders (helpers in
+  `test/support/`); no wall clock in tests (`wall_clock_rule_test.py`, empty
+  allowlist); coverage floor 95 %.
+
+**Orchestrator fixes:** a copy onto today is never logged in the future;
+the recipe preferences go through `CoachRequestInputs` after the controller
+move; the parallel-slots cache test, which measured a parallelism the global
+write queue removed (#98), now pins that queue. Each fix has a test seen
+failing on the faulty code.
+
+**Decisions made without the owner (open for review):** copies keep recents
+and count as logged meals; own products are pinned automatically and "Edit
+values" logs again; 13 avoidance codes without sulphites and lupin;
+"lactose" allows lactose-free products; dislikes are free text, filtered and
+framed; with enough data and no proposal Today says "Weekly check active ·
+enough data"; reminder time and offer answer are cleared on sign-out like
+the opt-in.
+
+**Rollout:** apply the migration live before the merge (dry run with
+rollback passed on 2026-10-18 against 55 registered migrations), merge,
+deploy all four functions from the merged `main` (`coach-chat` first: the old
+one rejects `preferences` with 400), then an app build. The new deploy
+workflow needs the `supabase-deploy` environment with a required reviewer
+and `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF` and `SUPABASE_ANON_KEY`;
+its first run is the first real check of its CLI steps. The website's privacy
+policy should name the food preferences (health data, art. 9 GDPR) and the
+seven-day Coach context.
+
+**Known limits:** the DST-gap reminder test runs only in a zone with a gap
+(skipped on UTC CI); TRN-9 is avoided in the Coach context but still open in
+the Trends screen; `bootstrap` in the Coach controller checks only
+`_disposed` after its awaits, as before.

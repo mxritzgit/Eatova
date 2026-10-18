@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -8,11 +9,15 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
+import '../support/pinned_clock.dart';
 import 'outbox_test_helpers.dart';
 
 // The replay itself: per-entity order, idempotent delivery, one blocked entity not
 // holding up the others, and gap B — the op is on disk BEFORE the live write,
 // so a kill in that window costs nothing and the replay does not double up.
+
+/// Noon of a fixed day: "yesterday" is computed and checked on one date.
+final DateTime _mittag = DateTime(2026, 8, 12, 12);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -134,7 +139,7 @@ void main() {
 
   test('Bearbeiten (Slot+Tag) offline: Aenderung landet als mealUpsert in der '
       'Outbox, der Replay schreibt logged_at/local_day/forced_slot — und '
-      'zaehlt KEINE neue Mahlzeit', () async {
+      'zaehlt KEINE neue Mahlzeit', () => withClockAt(_mittag, () async {
     final s = setup();
     await boot(s.store);
 
@@ -144,7 +149,7 @@ void main() {
 
     s.server.offline = true;
     final yesterday = DateUtils.dateOnly(
-      DateTime.now(),
+      clock.now(),
     ).subtract(const Duration(days: 1));
     await s.store.updateLoggedMealDetails(
       id,
@@ -182,17 +187,17 @@ void main() {
     s.store.flushPendingWrites();
     await settle();
     expect(s.server.mealsCounted, 1);
-  });
+  }));
 
   test('Bearbeiten online: der mealUpsert traegt logged_at + local_day — die '
-      'Tag-Verschiebung erreicht den Server auch ohne Outbox', () async {
+      'Tag-Verschiebung erreicht den Server auch ohne Outbox', () => withClockAt(_mittag, () async {
     final s = setup();
     await boot(s.store);
     final id = await s.store.addResultToDailyTotal(mealResult('Bowl'));
     await settle();
 
     final yesterday = DateUtils.dateOnly(
-      DateTime.now(),
+      clock.now(),
     ).subtract(const Duration(days: 1));
     await s.store.updateLoggedMealDetails(id, day: yesterday);
     await settle();
@@ -203,7 +208,7 @@ void main() {
     expect(row['local_day'], localDayKey(yesterday));
     final loggedAt = DateTime.parse(row['logged_at'] as String).toLocal();
     expect(DateUtils.isSameDay(loggedAt, yesterday), isTrue);
-  });
+  }));
 
   // --- Gap B: the outbox op exists BEFORE the network write -----------------
   //

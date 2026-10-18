@@ -140,12 +140,13 @@ enum MealResultConfidence {
   }
 }
 
-/// Language-neutral markers for the four hardcoded fallback texts written to
+/// Language-neutral markers for the five hardcoded fallback texts written to
 /// `portionNotes` — three from [MealAnalysisResult.fromEdgeFunction] when the
 /// model returns no `explanation`, plus [manual] for
-/// [MealAnalysisResult.manualEntry].
+/// [MealAnalysisResult.manualEntry] and [quick] for
+/// [MealAnalysisResult.quickEntry].
 ///
-/// Only these four, not `portionNotes` in general: the field otherwise carries
+/// Only these five, not `portionNotes` in general: the field otherwise carries
 /// real model free text (effectively user data, never translated) or the
 /// adjustment sentences of `adjustedToGrams`/`adjustedToItems`
 /// ([MealResultAdjustmentNote]).
@@ -171,6 +172,11 @@ enum MealResultPortionNote {
   manual(
     'manualEntryNote',
     legacyDe: 'Nährwerte manuell nach Etikett eingetragen (pro 100 g).',
+  ),
+  // legacyDe is only a resolve alias — no legacy rows carry it.
+  quick(
+    'quickEntryNote',
+    legacyDe: 'Gesamtwerte ohne Grammangabe eingetragen.',
   );
 
   const MealResultPortionNote(this.code, {required this.legacyDe});
@@ -187,6 +193,7 @@ enum MealResultPortionNote {
     MealResultPortionNote.itemized => l10n.foodScanNoteItemized,
     MealResultPortionNote.plain => l10n.foodScanNotePlain,
     MealResultPortionNote.manual => l10n.foodManualEntryNote,
+    MealResultPortionNote.quick => l10n.foodQuickEntryNote,
   };
 
   /// Maps a raw persisted `portionNotes` to a known fallback text, or `null`
@@ -601,9 +608,27 @@ class MealAnalysisResult {
   /// Origin value in the language of [l10n]. Known raw values resolve via
   /// [MealResultSource]; unknown ones are shown unchanged (pass-through).
   String resolvedSourceLabel(AppLocalizations l10n) {
+    if (isOwnProduct) return l10n.foodOwnProductSource;
     final source = MealResultSource.resolve(sourceLabel);
     return source == null ? sourceLabel : source.label(l10n);
   }
+
+  /// A product the user entered by hand for a barcode the database did not
+  /// know (E5). Stays `manual` on the wire, so older builds read it too.
+  bool get isOwnProduct =>
+      MealResultSource.resolve(sourceLabel) == MealResultSource.manual &&
+      (barcode?.isNotEmpty ?? false);
+
+  /// Totals typed without a weight ([MealAnalysisResult.quickEntry], E4).
+  /// The per-100 g form always stores at least 1 g.
+  bool get isQuickEntry =>
+      MealResultSource.resolve(sourceLabel) == MealResultSource.manual &&
+      estimatedGrams <= 0;
+
+  /// No weight to rescale from: a recipe logged by servings or a quick
+  /// entry. Gram adjustments keep the snapshot instead of turning its
+  /// calories into the 0 sentinel.
+  bool get hasNoPortionWeight => isRecipeWithoutCookedWeight || isQuickEntry;
 
   /// Portion label in the language of [l10n]. Unlike [sourceLabel] this text is
   /// never persisted (only [estimatedGrams] is), so there is no legacy-row
@@ -669,6 +694,11 @@ class MealAnalysisResult {
         sourceLabel != null &&
         MealResultSource.resolve(sourceLabel) == MealResultSource.recipe) {
       return l10n.recipesOwnTitle;
+    }
+    if (name == PersistedLabels.quickEntryName &&
+        sourceLabel != null &&
+        MealResultSource.resolve(sourceLabel) == MealResultSource.manual) {
+      return l10n.foodQuickDefaultName;
     }
     return PersistedLabels.resolveProductName(name, barcode, l10n) ?? name;
   }
@@ -757,7 +787,7 @@ class MealAnalysisResult {
   MealAnalysisResult adjustedToGrams(int grams) {
     // Without a cooked mass/density there is no conversion factor. Retain the
     // snapshot instead of replacing its measured calories with the 0 sentinel.
-    if (isRecipeWithoutCookedWeight) return this;
+    if (hasNoPortionWeight) return this;
     final zielGramm = clampPortionGrams(grams);
     final dichte = effectiveKcalPer100G;
     final ausDichte = densityScalesPortion(
@@ -1092,7 +1122,8 @@ class MealAnalysisResult {
 
   /// Builds the result of a MANUALLY entered food (manual_meal_sheet): label
   /// values per 100 g plus the eaten portion. Inputs are form-validated, so the
-  /// clamps here are defensive only, not repair.
+  /// clamps here are defensive only, not repair. [barcode] makes it the
+  /// user's own product for that code ([isOwnProduct]).
   factory MealAnalysisResult.manualEntry({
     required String name,
     required int kcalPer100G,
@@ -1100,6 +1131,7 @@ class MealAnalysisResult {
     int? proteinPer100G,
     int? carbsPer100G,
     int? fatPer100G,
+    String? barcode,
   }) {
     final zielGramm = clampPortionGrams(grams);
     final dichte = clampKcalPer100G(kcalPer100G);
@@ -1115,12 +1147,48 @@ class MealAnalysisResult {
       confidence: _MealResultConfidenceCodes.manual,
       portionNotes: MealResultPortionNote.manual.code,
       sourceLabel: _MealResultSourceCodes.manual,
+      barcode: clampBarcode(barcode),
       // An EXPLICITLY entered 0 (water, zero drink) is a measurement, not the
       // unknown sentinel — only it may pass the log guard.
       explicitZeroKcal: kcalPer100G == 0,
       proteinPer100G: proteinPer100G?.toDouble(),
       carbsPer100G: carbsPer100G?.toDouble(),
       fatPer100G: fatPer100G?.toDouble(),
+    );
+  }
+
+  /// A quick entry (E4): totals typed by hand without a weight, such as a
+  /// restaurant meal. No AI quota, no lookup.
+  ///
+  /// Stored with 0 g and no density, so [hasNoPortionWeight] keeps its
+  /// calories through every gram adjustment. An empty [name] stores
+  /// [PersistedLabels.quickEntryName], resolved per language on display.
+  /// Macros are optional totals in grams; a missing one stays unknown.
+  factory MealAnalysisResult.quickEntry({
+    required String name,
+    required int caloriesKcal,
+    double? proteinG,
+    double? carbsG,
+    double? fatG,
+    String? barcode,
+  }) {
+    final kalorien = clampMealCaloriesKcal(caloriesKcal);
+    String makro(double? gramm) =>
+        gramm == null || !gramm.isFinite ? _makroUnbekannt : _formatMacroG(gramm);
+    return MealAnalysisResult(
+      mealName: clampMealName(name, fallback: PersistedLabels.quickEntryName),
+      caloriesKcal: kalorien,
+      estimatedGrams: 0,
+      kcalPer100G: 0,
+      protein: makro(proteinG),
+      carbs: makro(carbsG),
+      fat: makro(fatG),
+      confidence: _MealResultConfidenceCodes.manual,
+      portionNotes: MealResultPortionNote.quick.code,
+      sourceLabel: _MealResultSourceCodes.manual,
+      barcode: clampBarcode(barcode),
+      // A typed 0 is a statement (black coffee), not the unknown sentinel.
+      explicitZeroKcal: kalorien == 0,
     );
   }
 

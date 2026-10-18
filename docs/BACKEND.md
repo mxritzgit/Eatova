@@ -145,8 +145,15 @@ does not gain a meaningful text-classifier check; the model's semantic safety
 still requires separate evaluation. See the scoped [security checkbook](../SECURITY_AUDIT.md).
 
 Chat receives a bounded nutrition/profile snapshot and recent messages. Recipe
-drafting uses the explicit recipe wish; image generation uses the generated
-title/description. Training can receive an explicit brief and selected-plan
+drafting uses the explicit recipe wish plus, when the user set any, a narrow
+`preferences` field `{diet?, avoid?, dislikes?}`: closed codes shared with
+`profiles_food_avoidances_check`, at most 120 characters of dislikes, and
+`400 invalid_preferences` for anything else or outside `recipe` mode. The codes
+become hard requirements in the uncached system tail; the dislikes pass Layer 1
+and travel as framed data. An obvious break is labelled in the description and
+listed in `preference_conflicts`, never re-drafted
+([recipe_preferences.ts](../supabase/functions/coach-chat/recipe_preferences.ts)).
+Image generation uses the generated title/description. Training can receive an explicit brief and selected-plan
 snapshot. Proposals are returned/persisted as chat data, but user recipes and
 training plans are adopted only after confirmation in the client.
 
@@ -307,7 +314,9 @@ Use a separate project or disposable local Postgres for development and RLS
 tests. Follow [CONTRIBUTING.md](../CONTRIBUTING.md) before a code PR. A production
 rollout requires verifying the target project, the exact reviewed revision,
 pending migrations and function configuration. Do not infer the target's role
-from a credential-store environment name such as `dev`.
+from a credential-store environment name such as `dev`. Deploy Edge Functions
+with the approved workflow, which also verifies the live source and keeps a
+deploy record ([Edge Function deploys](OPERATIONS.md#edge-function-deploys)).
 
 Source history records the Gemini switch in [PR #74](https://github.com/mxritzgit/Eatova/pull/74),
 the six-feature backend rollout in [PR #77](https://github.com/mxritzgit/Eatova/pull/77),

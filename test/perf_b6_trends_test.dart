@@ -13,6 +13,7 @@ import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 import 'support/harness.dart';
+import 'support/pinned_clock.dart';
 
 // Performance package B6 — two separate problems of the trends view:
 //
@@ -34,10 +35,11 @@ List<TrendDayTotals> _zweiTage() => <TrendDayTotals>[
   _day(DateTime(2026, 8, 31)),
 ];
 
-DateTime _heuteMinus(int tage) {
-  final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day - tage);
-}
+/// The chart test pins its clock here; its days count back from it.
+final DateTime _jetzt = DateTime(2026, 8, 31, 12);
+
+DateTime _heuteMinus(int tage) =>
+    DateTime(_jetzt.year, _jetzt.month, _jetzt.day - tage);
 
 /// Loader that counts its calls — the stand-in for the server round trip.
 class _ZaehlenderLader {
@@ -437,7 +439,7 @@ void main() {
   group('TrendsScreen Aufbau-Animation', () {
     testWidgets('legt ueber die Frames hinweg keine Beschriftung neu an', (
       tester,
-    ) async {
+    ) => withClockAt(_jetzt, () async {
       final totals = <TrendDayTotals>[
         for (var i = 0; i < 7; i++)
           _day(_heuteMinus(6 - i), kcal: 1800 + i * 50),
@@ -473,6 +475,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(TrendChartLabels.debugLayoutCount, nachErstemFrame);
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-    });
+    }));
   });
 }

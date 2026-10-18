@@ -16,7 +16,7 @@ import 'fitness_recipe.dart';
 /// items count, plus eggs at 55 g each, `ca.` figures, 1/2 banana 50 g,
 /// 1/2 tomato 60 g, 1/4 cucumber 75 g, 1 bell pepper 150 g, 1/2 bell pepper
 /// 75 g; aromatics, herbs and spoon measures are ignored. Per-recipe
-/// arithmetic: test/fixlauf_i_recipe_catalog_test.dart.
+/// arithmetic: test/models/fixlauf_i_recipe_catalog_test.dart.
 ///
 /// `categories` are language-neutral. Most are editorial, but two are RULES:
 ///  * `High Protein` follows [HighProteinRule] — >= 20 % of the energy from

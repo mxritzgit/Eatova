@@ -15,7 +15,9 @@ import '../../screens/today/today_day_strip.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
 import 'food_date_picker.dart';
+import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
+import 'meal_copy_sheet.dart';
 import 'saved_meal_presentation.dart' show SavedMealNutrients;
 import 'slot_selector.dart';
 
@@ -42,11 +44,15 @@ class MealEditScope extends InheritedWidget {
     super.key,
     required this.onUpdateMeal,
     required this.onRemoveMeal,
+    this.onCopyMeals,
     required super.child,
   });
 
   final UpdateMealDetails onUpdateMeal;
   final PersistValueChanged<String> onRemoveMeal;
+
+  /// "Copy to…" in the edit sheet; null hides the action.
+  final CopyMeals? onCopyMeals;
 
   /// Deliberately without dependency registration (getInherited…): the
   /// callbacks are stable store tear-offs and the lookup also happens outside
@@ -57,7 +63,8 @@ class MealEditScope extends InheritedWidget {
   @override
   bool updateShouldNotify(MealEditScope oldWidget) =>
       onUpdateMeal != oldWidget.onUpdateMeal ||
-      onRemoveMeal != oldWidget.onRemoveMeal;
+      onRemoveMeal != oldWidget.onRemoveMeal ||
+      onCopyMeals != oldWidget.onCopyMeals;
 }
 
 /// Edit-sheet result for callers holding a local list copy (AddMealSheet):
@@ -72,12 +79,14 @@ class MealEditOutcome {
 }
 
 /// Opens the edit sheet for a logged meal. A null [onRemoveMeal] means no
-/// delete button, e.g. when the caller has no remove path wired up.
+/// delete button, e.g. when the caller has no remove path wired up; a null
+/// [onCopyMeals] means no "Copy to…".
 Future<MealEditOutcome?> showEditMealSheet(
   BuildContext context, {
   required LoggedMeal meal,
   required UpdateMealDetails onUpdateMeal,
   PersistValueChanged<String>? onRemoveMeal,
+  CopyMeals? onCopyMeals,
 }) {
   return showModalBottomSheet<MealEditOutcome>(
     showDragHandle: false,
@@ -90,6 +99,7 @@ Future<MealEditOutcome?> showEditMealSheet(
         meal: meal,
         onUpdateMeal: onUpdateMeal,
         onRemoveMeal: onRemoveMeal,
+        onCopyMeals: onCopyMeals,
       );
     },
   );
@@ -164,11 +174,13 @@ class EditMealSheet extends StatefulWidget {
     required this.meal,
     required this.onUpdateMeal,
     this.onRemoveMeal,
+    this.onCopyMeals,
   });
 
   final LoggedMeal meal;
   final UpdateMealDetails onUpdateMeal;
   final PersistValueChanged<String>? onRemoveMeal;
+  final CopyMeals? onCopyMeals;
 
   @override
   State<EditMealSheet> createState() => _EditMealSheetState();
@@ -209,6 +221,22 @@ class _EditMealSheetState extends State<EditMealSheet> {
     if (applied == null) return;
     setState(() {
       _result = applied.result;
+      _resultChanged = true;
+    });
+  }
+
+  /// A quick entry has no weight to rescale (E4): its totals are changed in
+  /// the manual form instead, prefilled, and like a portion change they only
+  /// land on "save".
+  Future<void> _editQuickValues() async {
+    final edited = await showManualMealSheet(
+      context,
+      initial: _result,
+      barcode: _result.barcode,
+    );
+    if (!mounted || edited == null) return;
+    setState(() {
+      _result = edited;
       _resultChanged = true;
     });
   }
@@ -254,6 +282,22 @@ class _EditMealSheetState extends State<EditMealSheet> {
     Navigator.of(
       context,
     ).pop(updated == null ? null : MealEditOutcome.saved(updated!));
+  }
+
+  /// "Copy to…": copies the SAVED meal, so it is only offered on a clean
+  /// sheet. The original stays; after the copy the sheet closes unchanged.
+  Future<void> _copy() async {
+    final copyMeals = widget.onCopyMeals;
+    if (copyMeals == null || _saving || _dirty) return;
+    final copied = await showMealCopySheet(
+      context,
+      meal: widget.meal,
+      onCopy: (day, slot) async {
+        await copyMeals([widget.meal.id], day: day, slot: slot);
+      },
+    );
+    if (!mounted || copied != true) return;
+    Navigator.of(context).pop();
   }
 
   Future<void> _delete() async {
@@ -358,7 +402,21 @@ class _EditMealSheetState extends State<EditMealSheet> {
                 children: [
                   _SummaryCard(result: _result, adjusted: _resultChanged),
                   const SizedBox(height: 10),
-                  if (_result.isRecipeWithoutCookedWeight)
+                  if (_result.isQuickEntry) ...[
+                    Text(
+                      l10n.foodQuickNoWeightHint,
+                      key: const ValueKey('edit-meal-quick-hint'),
+                      style: AppType.ui(13.5, color: t.ink2, height: 1.4),
+                    ),
+                    const SizedBox(height: 10),
+                    SoftPillButton(
+                      key: const ValueKey('edit-meal-quick-values'),
+                      onTap: _saving ? null : _editQuickValues,
+                      icon: Icons.edit_outlined,
+                      label: l10n.foodQuickEditValues,
+                      expand: true,
+                    ),
+                  ] else if (_result.isRecipeWithoutCookedWeight)
                     Text(
                       l10n.recipeCalcNoCookedWeight,
                       key: const ValueKey('edit-meal-no-cooked-weight'),
@@ -413,6 +471,31 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     icon: Icons.check_rounded,
                     label: l10n.commonSave,
                   ),
+                  if (widget.onCopyMeals != null) ...[
+                    const SizedBox(height: 10),
+                    SoftPillButton(
+                      key: const ValueKey('edit-meal-copy-button'),
+                      onTap: _dirty || _saving ? null : _copy,
+                      icon: Icons.content_copy_rounded,
+                      label: l10n.foodCopyAction,
+                      semanticLabel: _dirty
+                          ? '${l10n.foodCopyAction} ${l10n.foodCopySaveFirst}'
+                          : null,
+                      tone: SoftPillTone.neutral,
+                      expand: true,
+                    ),
+                    if (_dirty) ...[
+                      const SizedBox(height: 6),
+                      ExcludeSemantics(
+                        child: Text(
+                          l10n.foodCopySaveFirst,
+                          key: const ValueKey('edit-meal-copy-save-first'),
+                          textAlign: TextAlign.center,
+                          style: AppType.ui(12.5, color: t.ink2, height: 1.4),
+                        ),
+                      ),
+                    ],
+                  ],
                   if (widget.onRemoveMeal != null) ...[
                     const SizedBox(height: 10),
                     SoftPillButton(
@@ -489,6 +572,8 @@ class _SummaryCard extends StatelessWidget {
                 Text(
                   result.isRecipeWithoutCookedWeight
                       ? '${result.caloriesKcal}\u00a0kcal · ${context.l10n.recipeCalcSavedPortion}'
+                      : result.isQuickEntry
+                      ? '${result.caloriesKcal}\u00a0kcal · ${context.l10n.foodPortionFallback}'
                       : '${result.caloriesKcal}\u00a0kcal · ${result.estimatedGrams}\u00a0g',
                   key: const ValueKey('edit-meal-summary-figure'),
                   style: AppType.display(16, color: t.ink),

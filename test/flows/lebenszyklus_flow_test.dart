@@ -26,7 +26,7 @@ import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import 'flow_test_helpers.dart';
 
 /// Pumps until [finder] is gone; fails with [what] instead of hanging.

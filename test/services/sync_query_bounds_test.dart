@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -74,7 +75,9 @@ void main() {
   group('MealsSync.loadLoggedMeals', () {
     test('sendet Datumsfenster, order desc und explizites Limit', () async {
       final c = _recordingClient(const <dynamic>[]);
-      await MealsSync(c.client, 'user-1').loadLoggedMeals();
+      final jetzt = DateTime.utc(2026, 8, 12, 12);
+      await withClock(Clock.fixed(jetzt),
+          () => MealsSync(c.client, 'user-1').loadLoggedMeals());
 
       final req = c.requests.single;
       _erwarteGedeckelt(req,
@@ -86,7 +89,7 @@ void main() {
       expect(gte, isNotNull, reason: 'Datumsfilter fehlt auf dem Wire');
       expect(gte, startsWith('gte.'));
       final cutoff = DateTime.parse(gte!.substring('gte.'.length));
-      final age = DateTime.now().toUtc().difference(cutoff);
+      final age = jetzt.difference(cutoff);
       expect(
         age.inDays,
         inInclusiveRange(

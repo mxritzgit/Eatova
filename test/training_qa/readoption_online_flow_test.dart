@@ -9,7 +9,7 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../support/harness.dart';
 import 'fixtures.dart';
 

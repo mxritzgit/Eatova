@@ -19,7 +19,7 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import 'flow_test_helpers.dart';
 
 /// Pinned "now": a plain midday, far from any midnight or DST edge.

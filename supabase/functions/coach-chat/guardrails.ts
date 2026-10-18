@@ -143,8 +143,16 @@ export function layer2RefusalReason(options: {
 // is reachable without a tampered client
 // (_todaysFoodSummary feeds in user-chosen meal names). On a hit the CONTEXT
 // is dropped, not the request — the slot is claimed either way.
+//
+// 2000 since the seven-day block (C2, 2026-10-18), up from 1200. The block
+// adds about 400 characters ahead of the food list, which the old cap then
+// cut first. The extra 800 characters are roughly 250-350 input tokens per
+// answer, small next to the system prompt and up to ten history turns. The
+// context is a user message after the prompt-cache breakpoint
+// (`cachedSystem`), so it never changes the cached prefix. Layer 1 below
+// still checks every character that is kept.
 
-export const MAX_USER_CONTEXT_CHARS = 1200;
+export const MAX_USER_CONTEXT_CHARS = 2000;
 
 /**
  * Cleans the app context. `dropped` carries the Layer-1 reason for the server

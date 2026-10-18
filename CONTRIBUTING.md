@@ -64,7 +64,7 @@ start longer suites first so shorter files can run alongside them. Every
 new `test/**/*_test.dart` is discovered automatically. The required check remains
 **Flutter analyze + test** and passes only after strict analysis, the Python
 contracts, all four successful shards, complete JSON test reports and the merged
-88% coverage floor. Coverage merges each source/line once, with a hit in any
+95% coverage floor. Coverage merges each source/line once, with a hit in any
 shard counting as covered; it does not average shard percentages.
 
 To reproduce a shard after `flutter pub get`, use a fresh output directory:
@@ -73,9 +73,18 @@ To reproduce a shard after `flutter pub get`, use a fresh output directory:
 python3 tool/flutter_ci.py plan --output .dart_tool/flutter-ci-plan
 python3 tool/flutter_ci.py run --shards 4 --shard 0 --output .dart_tool/flutter-ci
 # Run shard 1, 2 and 3 as well before checking the complete result:
-python3 tool/flutter_ci.py aggregate --shards 4 --output .dart_tool/flutter-ci --floor 88
+python3 tool/flutter_ci.py aggregate --shards 4 --output .dart_tool/flutter-ci --floor 95
 python3 -m unittest discover -s test/tooling -p flutter_ci_test.py -v
+python3 -m unittest discover -s test/tooling -p wall_clock_rule_test.py -v
 ```
+
+Tests never read the wall clock: `DateTime.now()` is rejected in `test/**` by
+`test/tooling/wall_clock_rule_test.py` (CI step *Test clock rule*). Pin
+date-dependent tests with `withClock(Clock.fixed(...))` or `withClockAt(...)`
+from `test/support/pinned_clock.dart` (pinned day, time still advances), use
+fixed `DateTime` values for plain data, and `Stopwatch`/fake_async for
+durations. A justified exception goes into
+`test/tooling/wall_clock_allowlist.txt` with its reason.
 
 Shard artifacts include the exact checkout/test manifest, JSON reporter output,
 LCOV, content hashes and covered source/line inventory. Missing, changed,
@@ -98,7 +107,7 @@ of a PR or push, the full history weekly; a reviewed false positive goes into
 migrations against PostgreSQL to test real cross-user access and
 account-deletion reauthentication.
 
-The line-coverage floor is **88%**, excluding `lib/src/l10n/generated/`.
+The line-coverage floor is **95%**, excluding `lib/src/l10n/generated/`.
 The Deno job also runs the Python operations readiness and loopback transport
 regressions, then `scripts/security/local_edge_auth_probe.py --auth-lifecycle
 --prove-detection --require-provider-budgets` against digest-pinned disposable

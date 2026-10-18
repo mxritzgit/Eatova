@@ -735,6 +735,7 @@ class _CoachInfoSheet extends StatelessWidget {
               _InfoBullet(l10n.coachInfoBulletWeight),
               _InfoBullet(l10n.coachInfoBulletMacros),
               _InfoBullet(l10n.coachInfoBulletMeals),
+              _InfoBullet(l10n.foodPrefsCoachInfoBullet),
               const SizedBox(height: 12),
               Text(
                 l10n.coachInfoProvider,

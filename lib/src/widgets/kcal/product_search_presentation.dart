@@ -32,7 +32,7 @@ class ProductSearchHeader extends StatelessWidget {
     final (title, brand) = mealTitleAndBrand(result, context.l10n);
     // The same authority as the expanded preview: the raw kcalPer100G field
     // counts only where it reproduces caloriesKcal at estimatedGrams.
-    final density = result.isRecipeWithoutCookedWeight
+    final density = result.hasNoPortionWeight
         ? 0
         : result.adjustedToGrams(100).caloriesKcal;
     final hasDensity = density > 0 || result.explicitZeroKcal;

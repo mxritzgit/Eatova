@@ -3,7 +3,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'fixlauf_a_helpers.dart';
+import 'support/fixlauf_a_helpers.dart';
 
 class _Notifications extends NoopNotificationService {
   int requests = 0;
