@@ -18,7 +18,7 @@ import 'package:eatova/src/services/secure_screen.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-import 'fixlauf_a_helpers.dart';
+import 'support/fixlauf_a_helpers.dart';
 import 'flows/flow_test_helpers.dart';
 
 const _channel = MethodChannel('eatova/secure_screen');

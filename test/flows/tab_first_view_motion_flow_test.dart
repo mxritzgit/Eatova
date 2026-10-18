@@ -15,7 +15,7 @@ import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/widgets/common/lively.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../support/harness.dart';
 import 'flow_test_helpers.dart'
     show FakeProductLookupService, pumpUntil, settleFrames, storeOf;

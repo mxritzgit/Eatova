@@ -1,0 +1,228 @@
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:eatova/src/app/auth_gate.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
+
+import '../support/fixlauf_a_helpers.dart';
+
+// Review 2026-08-27, F1-02: no lifecycle fence around the cache. A running
+// snapshot write or a late live-op callback kept writing PII after logout /
+// session loss / account deletion — into slots the purge had just cleared
+// (audit M-1).
+//
+// Pinned here:
+//   1. `clear()` closes the instance: every later write is a no-op.
+//   2. `LocalCache.closeInstancesFor` lets the AuthGate's purge (a SECOND
+//      instance) silence the store's own instance first.
+//   3. logout during the boot snapshot leaves every PII slot empty.
+//   4. late live-op callbacks write nothing after `HomeStore.dispose()`.
+
+/// Counts committed writes per key and can delay the real atomic batch.
+class _ZaehlenderStore extends InMemoryKeyValueStore {
+  _ZaehlenderStore({this.writeDelay = Duration.zero});
+
+  final Duration writeDelay;
+  final Map<String, int> writes = {};
+  Completer<void>? holdProfile;
+  final profileWriteEntered = Completer<void>();
+
+  int writesFuer(String key) => writes[key] ?? 0;
+  int get totalWrites => writes.values.fold(0, (a, b) => a + b);
+
+  @override
+  Future<KeyValueCommit> writeBatch(Map<String, String?> changes,
+      {Map<String, int> expectedVersions = const {}}) async {
+    if (writeDelay > Duration.zero) await Future<void>.delayed(writeDelay);
+    if (holdProfile != null && changes.keys.any((key) => key.contains('.profile.'))) {
+      if (!profileWriteEntered.isCompleted) profileWriteEntered.complete();
+      await holdProfile!.future;
+    }
+    final receipt = await super.writeBatch(changes, expectedVersions: expectedVersions);
+    for (final key in changes.keys) {
+      writes[key] = (writes[key] ?? 0) + 1;
+    }
+    return receipt;
+  }
+}
+
+LoggedMeal _meal(String id) => LoggedMeal(
+      id: id,
+      result: mealResult('Bowl'),
+      loggedAt: DateTime.now(),
+    );
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('LocalCache: clear() schliesst die Instanz', () {
+    test('nach clear() sind alle Write-Pfade No-ops', () async {
+      final kv = _ZaehlenderStore();
+      final cache = LocalCache(kv, 'u');
+      await cache.writeProfile(const UserProfile(weightKg: 90));
+
+      await cache.clear();
+      expect(cache.isClosed, isTrue);
+
+      await cache.writeProfile(const UserProfile(weightKg: 91));
+      await cache.writeLoggedMeals([_meal('m-1')]);
+      await cache.writeFavorites(const []);
+      final durable = await cache.writeOutbox([SyncOp.mealDelete('m-1')]);
+      await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
+
+      expect(kv.snapshot, isEmpty,
+          reason: 'eine geschlossene Instanz darf nichts mehr zurueckschreiben');
+      expect(durable, isFalse,
+          reason: 'der durable Write meldet ehrlich, dass nichts auf Platte '
+              'liegt');
+    });
+
+    test('closeInstancesFor schliesst die Store-Instanz desselben Nutzers, '
+        'fremde Nutzer bleiben offen', () async {
+      final kv = _ZaehlenderStore();
+      final a = LocalCache(kv, 'u');
+      final fremd = LocalCache(kv, 'anderer');
+      await a.writeLoggedMeals([_meal('m-privat')]);
+      await fremd.writeLoggedMeals([_meal('m-fremd')]);
+
+      // The AuthGate purge path: a SECOND instance for the same user.
+      // Awaited since P3-01 — the call also settles running writes.
+      await LocalCache.closeInstancesFor('u');
+      await purgePersonalCache(LocalCache(kv, 'u'));
+      // A late write of the store's own instance.
+      await a.writeLoggedMeals([_meal('m-spaet')]);
+
+      expect(a.isClosed, isTrue);
+      expect(fremd.isClosed, isFalse);
+      expect(kv.snapshot.keys, isNot(contains('eatova.v1.logged_meals.u')),
+          reason: 'die Store-Instanz darf nach der Purge nicht mehr '
+              'schreiben');
+      expect(kv.snapshot.keys, contains('eatova.v1.logged_meals.anderer'));
+    });
+
+    test('purgePersonalCacheFor schliesst die Store-Instanz auch dann, wenn '
+        'die zweite Instanz nicht gebaut werden kann', () async {
+      final kv = _ZaehlenderStore();
+      final a = LocalCache(kv, 'u');
+
+      // In tests `LocalCache.create` returns null (no plugin channel), so the
+      // purge itself cannot run — closing the live instance must not depend
+      // on it.
+      await purgePersonalCacheFor('u');
+      await a.writeLoggedMeals([_meal('m-privat')]);
+
+      expect(a.isClosed, isTrue);
+      expect(kv.snapshot, isEmpty);
+    });
+  });
+
+  group('HomeStore: Logout waehrend des Snapshots', () {
+    test('signOutCleanup direkt nach dem Boot: jeder PII-Slot bleibt leer, '
+        'auch nachdem der laufende Snapshot durch ist', () async {
+      // Hold the actual multi-slot transaction, not a now-obsolete sequence
+      // of per-slot writes or a completed profileReady future.
+      final kv = _ZaehlenderStore()..holdProfile = Completer<void>();
+      final cache = LocalCache(kv, kFixlaufUser);
+      final s = fixlaufSetup(cache: cache);
+      s.server.profileRow = serverProfileRow(completedProfile);
+      s.server.mealRows['m1'] = serverMealRow('m1');
+      s.store.start();
+      await kv.profileWriteEntered.future.timeout(const Duration(seconds: 3));
+
+      final cleanup = s.store.signOutCleanup();
+      await settle();
+      kv.holdProfile!.complete();
+      await cleanup;
+      // Give every straggler the chance to land.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await settle();
+
+      for (final key in piiSlotKeys) {
+        expect(kv.snapshot.containsKey(key), isFalse,
+            reason: '$key darf den Logout nicht ueberleben');
+      }
+    });
+
+    test('deleteAccount: ebenfalls keine Nach-Writes', () async {
+      final kv = _ZaehlenderStore(writeDelay: const Duration(milliseconds: 20));
+      final cache = LocalCache(kv, kFixlaufUser);
+      final s = fixlaufSetup(cache: cache);
+      s.server.profileRow = serverProfileRow(completedProfile);
+      s.store.start();
+      await s.store.profileReady;
+
+      // An UNDELIVERED op, so the outbox slot the reason below names really
+      // lies on disk. The logout preserves that slot on purpose (A2); the
+      // account deletion must not — there is no target left to replay to.
+      // Without this the assertion never touched the slot at all.
+      s.server.rejectMealWrites = true;
+      await s.store.addResultToDailyTotal(mealResult('Nie zugestellt'));
+      await settle();
+      // This store delays every setString by 20 ms of REAL time, which
+      // pumpEventQueue does not advance.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(s.store.pendingOutbox, isNotEmpty, reason: 'Vorbedingung');
+      expect(kv.snapshot.keys, contains('eatova.v1.outbox.$kFixlaufUser'),
+          reason: 'Vorbedingung: der Slot liegt auf Platte');
+
+      expect(await s.store.deleteAccount(), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      await settle();
+
+      expect(kv.snapshot, isEmpty,
+          reason: 'nach der Kontoloeschung darf gar nichts mehr im Store '
+              'liegen — auch nicht der Outbox-Slot');
+    });
+  });
+
+  group('HomeStore.dispose(): Zaun fuer spaete Writes', () {
+    test('eine nach dispose zugestellte Live-Op schreibt weder Outbox- noch '
+        'Stats-Slot neu', () async {
+      final kv = _ZaehlenderStore();
+      final cache = LocalCache(kv, kFixlaufUser);
+      final s = fixlaufSetup(cache: cache, autoDispose: false);
+      s.server.profileRow = serverProfileRow(completedProfile);
+      await bootStore(s.store);
+
+      s.server.holdWrites = true;
+      final mutation = expectLater(
+          s.store.addResultToDailyTotal(mealResult('Spaete Zustellung')),
+          throwsStateError);
+      await settle();
+      expect(s.server.heldWrites, greaterThanOrEqualTo(1), reason: 'Vorbedingung');
+      const outboxKey = 'eatova.v1.outbox.$kFixlaufUser';
+      const statsKey = 'eatova.v1.pending_stats.$kFixlaufUser';
+      final outboxVorher = kv.writesFuer(outboxKey);
+      final statsVorher = kv.writesFuer(statsKey);
+
+      s.store.dispose();
+      s.server.releaseWrites();
+      await mutation;
+      await settle();
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await settle();
+
+      expect(kv.writesFuer(outboxKey), outboxVorher,
+          reason: 'Outbox-Commit nach dispose');
+      expect(kv.writesFuer(statsKey), statsVorher,
+          reason: 'Stats-Slot-Commit nach dispose');
+      expect(s.server.requestsTo('/rpc/increment_lifetime_stats'), isEmpty,
+          reason: 'kein Stats-Timer mit abgemeldetem Client');
+    });
+  });
+
+  test('Sanity: die Fixes lassen den regulaeren Boot-Snapshot in Ruhe',
+      () async {
+    final kv = _ZaehlenderStore();
+    final cache = LocalCache(kv, kFixlaufUser);
+    final s = fixlaufSetup(cache: cache);
+    s.server.profileRow = serverProfileRow(completedProfile);
+    await bootStore(s.store);
+    expect(kv.snapshot.keys, contains('eatova.v1.profile.$kFixlaufUser'));
+    expect(cache.isClosed, isFalse);
+  });
+}

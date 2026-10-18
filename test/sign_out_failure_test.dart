@@ -12,7 +12,7 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-import 'fixlauf_a_helpers.dart';
+import 'support/fixlauf_a_helpers.dart';
 import 'flows/flow_test_helpers.dart'
     show FakeProductLookupService, settleFrames;
 

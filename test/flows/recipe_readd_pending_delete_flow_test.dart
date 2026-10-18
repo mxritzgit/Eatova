@@ -10,7 +10,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../support/harness.dart';
 import 'flow_test_helpers.dart';
 

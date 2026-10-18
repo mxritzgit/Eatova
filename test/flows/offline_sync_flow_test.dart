@@ -20,7 +20,7 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import 'flow_test_helpers.dart';
 
 /// What `WidgetsBinding` does on a resume, without the state-machine prelude.

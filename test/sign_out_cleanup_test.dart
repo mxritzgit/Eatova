@@ -18,7 +18,7 @@ import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-import 'fixlauf_a_helpers.dart' show fixlaufSetup;
+import 'support/fixlauf_a_helpers.dart' show fixlaufSetup;
 
 // Audit 2026-06-09, M-1: the local PII cache used to be cleared only on account
 // deletion, not on a normal sign-out, so health/profile data stayed in

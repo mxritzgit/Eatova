@@ -14,7 +14,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'fixlauf_a_helpers.dart';
+import 'support/fixlauf_a_helpers.dart';
 
 class _PausedClear extends InMemoryKeyValueStore {
   final started = Completer<void>();

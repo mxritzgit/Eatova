@@ -17,7 +17,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../support/harness.dart';
 import '../support/sync_session_fixture.dart';
 import 'fixtures.dart';

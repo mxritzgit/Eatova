@@ -14,7 +14,7 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 
-import 'fixlauf_a_helpers.dart';
+import 'support/fixlauf_a_helpers.dart';
 import 'flows/flow_test_helpers.dart'
     show FakeProductLookupService, pumpUntil, settleFrames;
 import 'support/sync_session_fixture.dart';

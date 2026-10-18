@@ -31,7 +31,7 @@ import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/widgets/design/design.dart' show AppToggle;
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import 'flow_test_helpers.dart';
 
 /// The server row the returning user boots from (78 kg, sedentary, maintain,

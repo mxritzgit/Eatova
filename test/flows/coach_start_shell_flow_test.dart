@@ -27,7 +27,7 @@ import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/kcal_format.dart';
 import 'package:eatova/src/services/local_cache.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../support/harness.dart';
 import 'flow_test_helpers.dart'
     show FakeProductLookupService, pumpUntil, settleFrames, storeOf;

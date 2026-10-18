@@ -9,7 +9,7 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import 'flow_test_helpers.dart';
 
 final _now = DateTime(2026, 9, 10, 12);
