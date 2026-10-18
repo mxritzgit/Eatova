@@ -75,7 +75,16 @@ python3 tool/flutter_ci.py run --shards 4 --shard 0 --output .dart_tool/flutter-
 # Run shard 1, 2 and 3 as well before checking the complete result:
 python3 tool/flutter_ci.py aggregate --shards 4 --output .dart_tool/flutter-ci --floor 95
 python3 -m unittest discover -s test/tooling -p flutter_ci_test.py -v
+python3 -m unittest discover -s test/tooling -p wall_clock_rule_test.py -v
 ```
+
+Tests never read the wall clock: `DateTime.now()` is rejected in `test/**` by
+`test/tooling/wall_clock_rule_test.py` (CI step *Test clock rule*). Pin
+date-dependent tests with `withClock(Clock.fixed(...))` or `withClockAt(...)`
+from `test/support/pinned_clock.dart` (pinned day, time still advances), use
+fixed `DateTime` values for plain data, and `Stopwatch`/fake_async for
+durations. A justified exception goes into
+`test/tooling/wall_clock_allowlist.txt` with its reason.
 
 Shard artifacts include the exact checkout/test manifest, JSON reporter output,
 LCOV, content hashes and covered source/line inventory. Missing, changed,
