@@ -271,7 +271,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       service: widget.service,
       hooks: _CoachScreenHooks(this),
       // Read when a request starts, so it follows the current widget.
-      requestInputs: () => CoachRequestInputs(userContext: widget.userContext),
+      requestInputs: () => CoachRequestInputs(
+        userContext: widget.userContext,
+        recipePreferences: widget.recipePreferences,
+      ),
       inBackground: () => switch (WidgetsBinding.instance.lifecycleState) {
         AppLifecycleState.paused ||
         AppLifecycleState.hidden ||

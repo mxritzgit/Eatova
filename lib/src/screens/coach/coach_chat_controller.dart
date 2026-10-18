@@ -19,6 +19,7 @@ import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../models/coach_training_context.dart';
 import '../../models/fitness_recipe.dart';
+import '../../models/user_profile.dart' show FoodPreferences;
 import '../../services/coach_chat_service.dart';
 import '../../services/recipe_image_store.dart';
 import '../../services/sync_error_messages.dart';
@@ -60,12 +61,16 @@ class CoachChatViewHooks {
 /// and into the matching service call in [CoachChatController].
 @immutable
 class CoachRequestInputs {
-  const CoachRequestInputs({this.userContext});
+  const CoachRequestInputs({this.userContext, this.recipePreferences});
 
   /// Compact snapshot of profile + daily balance for chat mode only. /recipe
   /// deliberately gets none (P5-02): the function's recipe branch never reads
   /// it, so it would be health data sent for nothing.
   final String? userContext;
+
+  /// Diet, avoided foods and dislikes for /recipe (C3): the only profile data
+  /// a recipe request carries, as its own narrow field. Null sends none.
+  final FoodPreferences? recipePreferences;
 }
 
 /// A send attempt that never reached the server — marker and retry job.
@@ -1273,11 +1278,20 @@ class CoachChatController extends ChangeNotifier {
     try {
       // No `userContext` (P5-02): the function's recipe mode never reads it,
       // so sending profile and daily balance would be data without a purpose.
-      final res = await svc.requestRecipe(
-        wish,
-        sessionId: sessionId,
-        locale: l10n.localeName,
-      );
+      // Only the food preferences, which the recipe prompt does read.
+      final preferences = _requestInputs().recipePreferences;
+      final res = preferences == null
+          ? await svc.requestRecipe(
+              wish,
+              sessionId: sessionId,
+              locale: l10n.localeName,
+            )
+          : await svc.requestRecipeWithPreferences(
+              wish,
+              sessionId: sessionId,
+              locale: l10n.localeName,
+              preferences: preferences,
+            );
       // As in [send]: the slot is spent even if the card is discarded.
       if (_disposed || !identical(_service, svc)) return;
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
