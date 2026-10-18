@@ -95,9 +95,68 @@ class _Coach extends CoachChatService {
     return histories[sessionId] ?? const <ChatMessage>[];
   }
 
+  int quotaLoads = 0;
+
   @override
-  Future<ChatQuotaSnapshot> loadQuotaToday() async =>
-      const ChatQuotaSnapshot(used: 1, remaining: 4, dailyLimit: 5);
+  Future<ChatQuotaSnapshot> loadQuotaToday() async {
+    quotaLoads++;
+    return const ChatQuotaSnapshot(used: 1, remaining: 4, dailyLimit: 5);
+  }
+
+  /// Every chat send waits here until the test answers it.
+  final List<_Send> sends = <_Send>[];
+
+  @override
+  Future<CoachChatReply> send(
+    String message, {
+    required String sessionId,
+    String? imageBase64,
+    String? imageMimeType,
+    String? userContext,
+    void Function(String text)? onPartialReply,
+  }) {
+    final send = _Send(message, sessionId, userContext, onPartialReply);
+    sends.add(send);
+    return send.reply.future;
+  }
+
+  /// Every /recipe request waits here.
+  final List<Completer<CoachRecipeReply>> recipes =
+      <Completer<CoachRecipeReply>>[];
+  final List<String> recipeWishes = <String>[];
+
+  @override
+  Future<CoachRecipeReply> requestRecipe(
+    String wish, {
+    required String sessionId,
+    required String locale,
+  }) {
+    recipeWishes.add(wish);
+    final reply = Completer<CoachRecipeReply>();
+    recipes.add(reply);
+    return reply.future;
+  }
+}
+
+class _Send {
+  _Send(this.message, this.sessionId, this.userContext, this.partial);
+
+  final String message;
+  final String sessionId;
+  final String? userContext;
+  final void Function(String text)? partial;
+  final Completer<CoachChatReply> reply = Completer<CoachChatReply>();
+
+  void answer(String text, {String? sessionId, int? remaining, int? limit}) =>
+      reply.complete(
+        CoachChatReply(
+          reply: text,
+          refusal: false,
+          sessionId: sessionId ?? this.sessionId,
+          remaining: remaining,
+          dailyLimit: limit,
+        ),
+      );
 }
 
 class _Hooks extends CoachChatViewHooks {
@@ -108,6 +167,37 @@ class _Hooks extends CoachChatViewHooks {
 
   @override
   void conversationReplaced() => calls.add('replaced');
+
+  @override
+  void questionSent() => calls.add('sent');
+
+  @override
+  void previewStarted() => calls.add('preview');
+
+  @override
+  void answerArrived() => calls.add('answer');
+
+  @override
+  void sendFinished() => calls.add('finished');
+
+  @override
+  void draftReturned(String text) => calls.add('draft:$text');
+}
+
+/// A controller on [svc] with the bootstrap done (session `a` open).
+Future<CoachChatController> _ready(
+  _Coach svc, {
+  _Hooks? hooks,
+  CoachRequestInputs Function()? inputs,
+}) async {
+  final coach = CoachChatController(
+    service: svc,
+    hooks: hooks ?? _Hooks(),
+    requestInputs: inputs,
+  );
+  addTearDown(coach.dispose);
+  await coach.bootstrap();
+  return coach;
 }
 
 const CoachDataUnavailable _offline = CoachDataUnavailable('offline');
@@ -247,6 +337,263 @@ void main() {
       expect(coach.sessions.map((s) => s.id), ['b']);
       expect(coach.activeSessionId, 'b');
       expect(coach.messages.map((m) => m.id), ['b1']);
+    });
+  });
+
+  group('sending', () {
+    test('a question becomes a bubble at once and its answer follows',
+        () async {
+      final svc = _Coach();
+      final hooks = _Hooks();
+      final coach = await _ready(
+        svc,
+        hooks: hooks,
+        inputs: () => const CoachRequestInputs(userContext: 'Kontext'),
+      );
+      hooks.calls.clear();
+
+      unawaited(coach.send('  Wie viel Protein?  '));
+      expect(coach.messages.single.content, 'Wie viel Protein?');
+      expect(coach.messages.single.role, ChatRole.user);
+      expect(coach.sendingInActiveSession, isTrue);
+      expect(coach.canInteract, isFalse, reason: 'one request per user');
+      expect(coach.canType, isTrue, reason: 'typing stays allowed');
+      expect(hooks.calls, ['sent']);
+      expect(svc.sends.single.userContext, 'Kontext');
+
+      svc.sends.single.partial!('Etwa');
+      expect(coach.preview.value, 'Etwa');
+      expect(coach.previewShown, isTrue);
+      svc.sends.single.answer('Etwa 25 g.', remaining: 2, limit: 10);
+      await pumpEventQueue();
+
+      expect(coach.messages.map((m) => m.content),
+          ['Wie viel Protein?', 'Etwa 25 g.']);
+      expect(coach.sending, isFalse);
+      expect(coach.preview.value, isEmpty);
+      expect(hooks.calls, ['sent', 'preview', 'answer', 'finished']);
+      // The quota the answer named, a real limit now.
+      expect(coach.quota?.remaining, 2);
+      expect(coach.quota?.dailyLimit, 10);
+      expect(coach.quota?.limitAssumed, isFalse);
+    });
+
+    test('an answer for A never lands in B, not even as a preview', () async {
+      final svc = _Coach();
+      final hooks = _Hooks();
+      final coach = await _ready(svc, hooks: hooks);
+      unawaited(coach.send('Frage in A'));
+      await coach.switchToSession('b');
+      expect(coach.sending, isTrue);
+      expect(coach.sendingInActiveSession, isFalse);
+      hooks.calls.clear();
+
+      svc.sends.single.partial!('Antwort');
+      expect(coach.preview.value, isEmpty);
+      svc.sends.single.answer('Antwort für A', remaining: 3, limit: 5);
+      await pumpEventQueue();
+
+      expect(coach.activeSessionId, 'b');
+      expect(coach.messages, isEmpty);
+      expect(coach.error, isNull);
+      expect(coach.failedSend, isNull);
+      expect(coach.sending, isFalse, reason: 'the counter is freed anyway');
+      expect(hooks.calls, isEmpty);
+      // The slot was spent by this user, whichever chat is open.
+      expect(coach.quota?.remaining, 3);
+    });
+
+    test('an error of A does not follow the user into B', () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      unawaited(coach.send('Frage in A'));
+      await coach.switchToSession('b');
+
+      svc.sends.single.reply.completeError(
+        CoachChatException(deL10n.coachErrorNoConnection),
+      );
+      await pumpEventQueue();
+      expect(coach.error, isNull);
+      expect(coach.failedSend, isNull);
+      expect(coach.messages, isEmpty);
+    });
+
+    test('A→B→A: the late answer comes from the reloaded history, once',
+        () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      unawaited(coach.send('Frage'));
+      await coach.switchToSession('b');
+      await coach.switchToSession('a');
+      expect(coach.messages, isEmpty, reason: 'the new visit loaded A');
+
+      // Meanwhile the server stored the exchange.
+      svc.histories['a'] = [
+        _message('q1', 'Frage', role: ChatRole.user),
+        _message('r1', 'Antwort'),
+      ];
+      svc.sends.single.answer('Antwort');
+      await pumpEventQueue();
+      expect(coach.messages.map((m) => m.id), ['q1', 'r1']);
+      expect(coach.error, isNull);
+    });
+
+    test('A→B→A: a failed question comes back with its marker', () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      unawaited(coach.send('Frage'));
+      await coach.switchToSession('b');
+      await coach.switchToSession('a');
+
+      svc.sends.single.reply.completeError(
+        CoachChatException(deL10n.coachErrorNoConnection),
+      );
+      await pumpEventQueue();
+      expect(coach.error, deL10n.coachErrorNoConnection);
+      expect(coach.failedSend?.text, 'Frage');
+      expect(coach.messages.map((m) => m.content), ['Frage']);
+    });
+
+    test('an account switch fences answer, quota and error out', () async {
+      final svc = _Coach();
+      final hooks = _Hooks();
+      final coach = await _ready(svc, hooks: hooks);
+      unawaited(coach.send('Frage'));
+      final quotaBefore = coach.quota;
+      final loadsBefore = svc.quotaLoads;
+      coach.updateService(_Coach());
+      expect(coach.accountRevision, 1);
+      hooks.calls.clear();
+
+      svc.sends.single.answer('Antwort des alten Kontos', remaining: 0, limit: 5);
+      await pumpEventQueue();
+      expect(
+        coach.messages.where((m) => m.role == ChatRole.assistant),
+        isEmpty,
+      );
+      expect(coach.quota, same(quotaBefore));
+      expect(coach.quotaExhausted, isFalse);
+      expect(coach.error, isNull);
+      expect(coach.sending, isFalse);
+      expect(svc.quotaLoads, loadsBefore);
+      expect(hooks.calls, isEmpty);
+    });
+
+    test('an answer without a count asks the server for the quota', () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      final loads = svc.quotaLoads;
+      unawaited(coach.send('Frage'));
+      svc.sends.single.answer('Antwort');
+      await pumpEventQueue();
+      expect(svc.quotaLoads, loads + 1);
+    });
+
+    test('a failure that may have spent the slot asks for the quota too',
+        () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      final loads = svc.quotaLoads;
+      unawaited(coach.send('Frage'));
+      svc.sends.single.reply.completeError(
+        CoachChatException(deL10n.coachErrorTimeout),
+      );
+      await pumpEventQueue();
+      expect(svc.quotaLoads, loads + 1);
+      expect(coach.error, deL10n.coachErrorTimeout);
+      expect(coach.failedSend?.text, 'Frage');
+      expect(coach.canInteract, isTrue);
+    });
+
+    test('a quota 429 locks the composer and keeps the marker', () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      unawaited(coach.send('Frage'));
+      svc.sends.single.reply.completeError(
+        const CoachQuotaExceeded(message: 'Limit erreicht', dailyLimit: 5),
+      );
+      await pumpEventQueue();
+      expect(coach.quotaExhausted, isTrue);
+      expect(coach.canType, isFalse);
+      expect(coach.error, 'Limit erreicht');
+      expect(coach.failedSend, isNotNull);
+
+      // A known-empty quota blocks locally: no request, no slot.
+      await coach.send('Noch eine');
+      expect(svc.sends, hasLength(1));
+      expect(coach.error, deL10n.coachErrorDailyLimitReached(5));
+    });
+
+    test('the retry replaces the failed bubble instead of adding one',
+        () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      unawaited(coach.send('Frage'));
+      svc.sends.single.reply.completeError(
+        CoachChatException(deL10n.coachErrorNoConnection),
+      );
+      await pumpEventQueue();
+
+      final job = coach.withdrawFailedSend()!;
+      expect(coach.messages, isEmpty);
+      expect(coach.error, isNull);
+      unawaited(coach.send(job.text));
+      svc.sends.last.answer('Antwort');
+      await pumpEventQueue();
+      expect(coach.messages.map((m) => m.content), ['Frage', 'Antwort']);
+      expect(coach.failedSend, isNull);
+    });
+
+    test('commands without a wish stay local and cost nothing', () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      await coach.send('/recipe');
+      expect(coach.error, deL10n.coachRecipeEmptyHint);
+      await coach.send('/unbekannt');
+      expect(coach.error, deL10n.coachPlanUnknownCommandHint);
+      expect(svc.sends, isEmpty);
+      expect(svc.recipes, isEmpty);
+      expect(coach.messages, isEmpty);
+    });
+
+    test('/recipe sends only the wish and fences the card like chat',
+        () async {
+      final svc = _Coach();
+      final coach = await _ready(svc);
+      unawaited(coach.send('/recipe Bowl mit Reis'));
+      expect(svc.recipeWishes, ['Bowl mit Reis']);
+      expect(coach.messages.single.content, '/recipe Bowl mit Reis');
+      await coach.switchToSession('b');
+
+      svc.recipes.single.complete(
+        const CoachRecipeReply(
+          reply: 'Hier ist dein Rezept.',
+          refusal: true,
+          sessionId: 'a',
+          remaining: 1,
+          dailyLimit: 5,
+        ),
+      );
+      await pumpEventQueue();
+      expect(coach.messages, isEmpty);
+      expect(coach.quota?.remaining, 1);
+      expect(coach.sending, isFalse);
+    });
+
+    test('an answer after dispose touches nothing', () async {
+      final svc = _Coach();
+      final hooks = _Hooks();
+      final coach = CoachChatController(service: svc, hooks: hooks);
+      await coach.bootstrap();
+      unawaited(coach.send('Frage'));
+      final calls = List<String>.of(hooks.calls);
+      coach.dispose();
+
+      svc.sends.single.partial!('Ant');
+      svc.sends.single.answer('Antwort', remaining: 0, limit: 5);
+      await pumpEventQueue();
+      expect(hooks.calls, calls);
+      expect(svc.quotaLoads, 1, reason: 'only the bootstrap asked');
     });
   });
 }
