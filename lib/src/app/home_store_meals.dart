@@ -545,7 +545,7 @@ mixin _HomeStoreMealsPart
 
   // --- Favorites / recents --------------------------------------------------
 
-  static const int _maxAutoRecents = 5;
+  static const int _maxAutoRecents = FavoriteMeal.maxAutoRecents;
 
   List<FavoriteMeal> _cappedFavorites(List<FavoriteMeal> source) {
     final pinned = source.where((f) => f.pinned).toList(growable: false);

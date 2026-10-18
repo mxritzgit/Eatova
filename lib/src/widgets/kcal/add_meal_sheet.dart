@@ -10,11 +10,13 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/favorite_meal.dart';
+import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/dictation_language.dart';
 import '../../services/favorites_view.dart';
+import '../../services/food_history_search.dart';
 import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
@@ -35,6 +37,7 @@ import '../design/design.dart';
 import 'edit_meal_sheet.dart';
 import 'existing_meals_list.dart';
 import 'food_glyphs.dart';
+import 'food_history_results.dart';
 import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
@@ -76,6 +79,8 @@ class FoodStoreScope extends InheritedWidget {
     required this.mealsForDay,
     required this.favorites,
     this.favoriteUseCounts,
+    this.diaryMeals,
+    this.ownRecipes,
     required super.child,
   });
 
@@ -98,6 +103,11 @@ class FoodStoreScope extends InheritedWidget {
   /// Logs per favorite id for the favorites sheet's "Frequent" order
   /// ([favoriteUseCounts]); asked when the sheet opens.
   final Map<String, int> Function()? favoriteUseCounts;
+
+  /// Every diary row the store holds and the own recipes outside an undo
+  /// window, for the search's "From you" section (E3); read per rebuild.
+  final List<LoggedMeal> Function()? diaryMeals;
+  final List<FitnessRecipe> Function()? ownRecipes;
 
   /// Deliberately without dependency registration (like [MealEditScope]): the
   /// lookup happens in the sheet opener, outside build.
@@ -168,6 +178,8 @@ Future<void> showAddMealSheet(
           onRemoveMeal: onRemoveMeal,
           onUpdateMealDetails: resolvedUpdateDetails,
           favoriteUseCounts: live?.favoriteUseCounts,
+          diaryMeals: live?.diaryMeals,
+          ownRecipes: live?.ownRecipes,
           describer: describer,
           describeMatcher: describeMatcher,
           speechInput: speechInput,
@@ -270,6 +282,8 @@ class AddMealSheet extends StatefulWidget {
     this.onRemoveMeal,
     this.onUpdateMealDetails,
     this.favoriteUseCounts,
+    this.diaryMeals,
+    this.ownRecipes,
     this.describer = const EdgeFunctionMealDescriber(),
     this.describeMatcher,
     this.speechInput = const SpeechInput(),
@@ -314,6 +328,12 @@ class AddMealSheet extends StatefulWidget {
   /// Logs per favorite id for the favorites sheet's "Frequent" order; null
   /// (previews, standalone tests) orders "Frequent" by recency.
   final Map<String, int> Function()? favoriteUseCounts;
+
+  /// Sources of the search's "From you" section beyond the favorites; null
+  /// (previews, standalone tests) searches the opening day's rows and no
+  /// recipes.
+  final List<LoggedMeal> Function()? diaryMeals;
+  final List<FitnessRecipe> Function()? ownRecipes;
 
   /// Describe-a-meal path (docs/MEAL-DESCRIBE.md): `analyze-meal` in
   /// describe mode, then the match against favorites and [productService]
@@ -399,6 +419,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
   bool _explicitSearchRequested = false;
 
   String? _expandedItemKey;
+
+  /// The recents list past its first [kFoodHistoryVisibleRecents] rows.
+  bool _showAllRecents = false;
   final Set<String> _justAddedKeys = <String>{};
   final Map<String, Timer> _justAddedTimers = <String, Timer>{};
 
@@ -1322,7 +1345,49 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  Widget _buildSearchResults() {
+  /// "From you" first (E3), then the product database as before.
+  Widget _buildSearchResults() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      FoodHistoryResults(
+        query: _searchController,
+        favorites: _favorites,
+        diary: widget.diaryMeals?.call() ?? _existing,
+        recipes: widget.ownRecipes?.call() ?? const <FitnessRecipe>[],
+        expandedKey: _expandedItemKey,
+        labelBuilder: (text) => _SectionLabel(text),
+        itemBuilder: _historyItem,
+        gap: _kSectionGap,
+      ),
+      _buildProductResults(),
+    ],
+  );
+
+  /// One own food: the favorites sheet's row, whose "+" adds the shown
+  /// portion in one tap through the same [_handleAdd] as every row here.
+  Widget _historyItem(FoodHistoryHit hit, int index) {
+    final key = foodHistoryItemKey(hit);
+    final id = FavoriteMeal.idFor(hit.result);
+    return MealSuggestionItem(
+      key: ValueKey('food-history-hit-$index'),
+      savedPresentation: true,
+      result: hit.result,
+      expanded: _expandedItemKey == key,
+      justAdded: _justAddedKeys.contains(key),
+      onTap: () => _toggleExpanded(key),
+      onAdd: (result) => _handleAdd(key, result),
+      addButtonKey: ValueKey('food-history-hit-add-$index'),
+      isFavorite: _favorites.any((f) => f.pinned && f.id == id),
+      onToggleFavorite: widget.onToggleFavorite == null
+          ? null
+          : (result) => _handleToggleFavorite(result),
+      favoriteButtonKey: ValueKey('food-history-hit-fav-$index'),
+      quickAddSlotLabel: _selectedSlot.label(context.l10n),
+      quickAddKey: ValueKey('food-history-hit-quick-$index'),
+    );
+  }
+
+  Widget _buildProductResults() {
     final l10n = context.l10n;
     if (_isSearchingProducts && _productSuggestions.isEmpty) {
       return Column(
@@ -1481,6 +1546,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // the favorites menu, which holds all of them.
     final pinnedCount = _pinned.length;
     final recents = _recents;
+    // The store keeps more recents than fit here; the rest sits behind
+    // "Show all" and in the search's "From you".
+    final shortened = recents.length > kFoodHistoryVisibleRecents;
+    final shown = shortened && !_showAllRecents
+        ? recents.sublist(0, kFoodHistoryVisibleRecents)
+        : recents;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1492,14 +1563,20 @@ class _AddMealSheetState extends State<AddMealSheet> {
           _SectionLabel(context.l10n.foodSectionRecentMeals),
           const SizedBox(height: _kLabelGap),
           SavedMealCollection(
-            expandedIndex: recents.indexWhere(
+            expandedIndex: shown.indexWhere(
               (f) => _expandedItemKey == 'favorite:${f.id}',
             ),
             children: [
-              for (var i = 0; i < recents.length; i++)
-                _recentItem(recents[i], i),
+              for (var i = 0; i < shown.length; i++) _recentItem(shown[i], i),
             ],
           ),
+          if (shortened)
+            FoodHistoryShowAllToggle(
+              key: const ValueKey('add-meal-recents-toggle'),
+              count: recents.length,
+              expanded: _showAllRecents,
+              onTap: () => setState(() => _showAllRecents = !_showAllRecents),
+            ),
         ],
       ],
     );

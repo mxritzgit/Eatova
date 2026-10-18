@@ -3441,5 +3441,11 @@
   "@foodCopySaveFirst": {"description": "Under the disabled copy button while the edit sheet holds unsaved changes."},
   "foodCopySheetTitle": "Mahlzeit kopieren",
   "foodCopyOriginalStays": "Das Original bleibt unverändert.",
-  "foodCopyConfirm": "Kopieren"
+  "foodCopyConfirm": "Kopieren",
+  "foodHistorySectionTitle": "Von dir",
+  "@foodHistorySectionTitle": {"description": "Add sheet search: the section above the product database with the user's own favorites, recents, diary entries and recipes."},
+  "foodHistoryShowAll": "Alle {count} anzeigen",
+  "@foodHistoryShowAll": {"description": "Under a shortened list of own foods or recent meals in the add sheet: shows every row.", "placeholders": {"count": {"type": "int", "format": "decimalPattern"}}},
+  "foodHistoryShowLess": "Weniger anzeigen",
+  "@foodHistoryShowLess": {"description": "Collapses the list again after Show all."}
 }

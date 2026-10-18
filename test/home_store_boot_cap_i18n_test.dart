@@ -250,12 +250,16 @@ void main() {
   group('Befund 2 — der Recents-Deckel gilt auch serverseitig', () {
     test('der Boot kappt die geladene Favoritenliste auf den Deckel', () async {
       final s = _setup();
-      // The server knows no cap: eight auto recents plus one pinned favorite.
+      // The server knows no cap: three auto recents past it plus one pinned
+      // favorite.
+      const cap = FavoriteMeal.maxAutoRecents;
       s.server.favoriteRows.add(_favoriteRow('Angeheftet',
           addedAt: DateTime.utc(2026, 8, 19, 12), pinned: true));
-      for (var i = 0; i < 8; i++) {
+      for (var i = 0; i < cap + 3; i++) {
         s.server.favoriteRows.add(_favoriteRow('Gericht $i',
-            addedAt: DateTime.utc(2026, 8, 19, 11 - i)));
+            addedAt: DateTime.utc(2026, 8, 19, 11).subtract(
+              Duration(minutes: i),
+            )));
       }
 
       s.store.start();
@@ -264,11 +268,7 @@ void main() {
 
       expect(s.store.favorites.map((f) => f.result.mealName).toList(), [
         'Angeheftet',
-        'Gericht 0',
-        'Gericht 1',
-        'Gericht 2',
-        'Gericht 3',
-        'Gericht 4',
+        for (var i = 0; i < cap; i++) 'Gericht $i',
       ],
           reason: 'ohne das Kappen zeigte das Add-Sheet nach jedem Kaltstart '
               'die komplette Historie; Angeheftetes steht ausserhalb der '
@@ -283,13 +283,13 @@ void main() {
       await s.store.profileReady.timeout(const Duration(seconds: 3));
       await pumpEventQueue(times: 60);
 
-      // Six distinct meals -> the oldest falls out of the 5-item cap.
-      for (var i = 0; i < 6; i++) {
+      // One distinct meal past the cap -> the oldest falls out.
+      for (var i = 0; i < FavoriteMeal.maxAutoRecents + 1; i++) {
         await s.store.addResultToDailyTotal(_meal('Gericht $i'));
         await pumpEventQueue(times: 60);
       }
 
-      expect(s.store.favorites.length, 5);
+      expect(s.store.favorites.length, FavoriteMeal.maxAutoRecents);
       expect(s.server.geloeschteFavoriten,
           [FavoriteMeal.idFor(_meal('Gericht 0'))],
           reason: 'fuer den herausgefallenen Recent entstand bis zum Review '
@@ -305,7 +305,7 @@ void main() {
 
       await s.store.toggleFavorite(_meal('Liebling'));
       await pumpEventQueue(times: 60);
-      for (var i = 0; i < 6; i++) {
+      for (var i = 0; i < FavoriteMeal.maxAutoRecents + 1; i++) {
         await s.store.addResultToDailyTotal(_meal('Gericht $i'));
         await pumpEventQueue(times: 60);
       }
@@ -316,6 +316,28 @@ void main() {
           isNot(contains(FavoriteMeal.idFor(_meal('Liebling')))),
           reason: 'eine Loeschung, die der Nutzer nie angeordnet hat, waere '
               'der teurere Fehler');
+    });
+
+    // E3 (2026-10-18): every evicted recent costs a favoriteDelete op and a
+    // permanent receipt. At the old cap of 5 a rotation of twenty meals
+    // evicted on every log; at 30 it settles and evicts nothing.
+    test('zwanzig wechselnde Gerichte erzeugen keine Loeschungen mehr',
+        () async {
+      final s = _setup();
+      s.store.start();
+      await s.store.profileReady.timeout(const Duration(seconds: 3));
+      await pumpEventQueue(times: 60);
+
+      for (var round = 0; round < 3; round++) {
+        for (var i = 0; i < 20; i++) {
+          await s.store.addResultToDailyTotal(_meal('Gericht $i'));
+          await pumpEventQueue(times: 20);
+        }
+      }
+
+      expect(s.server.geloeschteFavoriten, isEmpty,
+          reason: 'jede Verdraengung kostet ein lebenslanges Receipt');
+      expect(s.store.favorites, hasLength(20));
     });
   });
 

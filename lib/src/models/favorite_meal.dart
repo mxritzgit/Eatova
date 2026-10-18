@@ -8,6 +8,16 @@ class FavoriteMeal {
     this.pinned = false,
   });
 
+  /// How many auto-recents the store keeps (E3, 2026-10-18; was 5).
+  ///
+  /// Each recent is a synced `favorite_meals` row, and every recent pushed
+  /// out of the cap costs a favoriteDelete op plus a permanent receipt
+  /// (docs/OFFLINE_SYNC.md). Least-recently-used eviction never evicts more
+  /// at a larger cap, so 30 lowers that cost: a varied week of meals stops
+  /// churning, and the raise itself writes nothing. 30 keeps the boot read
+  /// (`MealsSync.favoritesLimit` = 200) clear for 170 pinned favorites.
+  static const int maxAutoRecents = 30;
+
   final String id;
   final MealAnalysisResult result;
   final DateTime addedAt;

@@ -936,6 +936,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         favorites: () => _store.favorites,
         favoriteUseCounts: () =>
             favoriteUseCounts(_store.loggedMeals, now: clock.now()),
+        // The search's "From you" (E3): local only, no network.
+        diaryMeals: () => _store.loggedMeals,
+        ownRecipes: () => _store.visibleUserRecipes,
         child: MealEditScope(
           onUpdateMeal: _store.updateLoggedMealDetails,
           onRemoveMeal: _store.removeLoggedMeal,
