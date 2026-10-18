@@ -39,6 +39,63 @@ class EnergyCheckProposal {
   final int weighInDays;
 }
 
+/// How far the data is from a weekly check, counted from the inputs
+/// [EnergyCheck.evaluate] reads and with its rules ([EnergyCheck.progress]).
+class EnergyCheckProgress {
+  const EnergyCheckProgress({
+    required this.today,
+    required this.loggedDays,
+    required this.weighInDays,
+    required this.weighInSpanDays,
+    required this.pausedUntil,
+    required this.earliestDay,
+    required this.loggedDaysToGo,
+    required this.weighInsToGo,
+  });
+
+  /// The local day this progress was measured on.
+  final DateTime today;
+
+  /// Logged days and weigh-in days in today's window, as the check counts
+  /// them.
+  final int loggedDays;
+  final int weighInDays;
+
+  /// Days between the window's first and last weigh-in day; 0 below two.
+  final int weighInSpanDays;
+
+  /// The day the pause after an answered check ends, while it lasts.
+  final DateTime? pausedUntil;
+
+  /// The earliest day the check can estimate: [today] when [ready].
+  ///
+  /// Otherwise the best case: every day from today on gets logged and the
+  /// user weighs in on the days [weighInsToGo] needs. Weigh-ins still to
+  /// come are assumed to be no typos, so this is a lower bound.
+  final DateTime earliestDay;
+
+  /// What that best case still needs, today included.
+  final int loggedDaysToGo;
+  final int weighInsToGo;
+
+  int get missingLoggedDays =>
+      math.max(0, EnergyCheck.minLoggedDays - loggedDays);
+  int get missingWeighInDays =>
+      math.max(0, EnergyCheck.minWeighInDays - weighInDays);
+  bool get spanReached => weighInSpanDays >= EnergyCheck.minWeighInSpanDays;
+
+  /// Today's window holds enough data for the estimate.
+  bool get dataReady =>
+      missingLoggedDays == 0 && missingWeighInDays == 0 && spanReached;
+
+  /// The check estimates today. [EnergyCheck.evaluate] then returns a
+  /// proposal unless the goal fits within the noise or a cap holds it.
+  bool get ready => dataReady && pausedUntil == null;
+
+  /// Days until [earliestDay]; 0 when [ready].
+  int get daysUntil => daysBetween(earliestDay, today);
+}
+
 /// The weekly expenditure check (docs/WEIGHT-TREND.md, stage 2), pure.
 ///
 /// Compares the expenditure the logged intake and the weight change imply
@@ -93,26 +150,24 @@ class EnergyCheck {
     bool stepSourceToday = false,
   }) {
     if (profile.manualEnergy || !profile.onboardingCompleted) return null;
-    final checkedOn = profile.energyCheckedOn;
-    if (checkedOn != null && daysBetween(today, checkedOn) < recheckDays) {
-      return null;
-    }
+    if (_pausedUntil(profile, today) != null) return null;
+
+    // The same window and gates as [progress]: "ready" there is an estimate
+    // here.
+    final window = _Window.of(
+      profile: profile,
+      today: today,
+      intakeKcal: intakeKcal,
+      burnedKcal: burnedKcal,
+      weightLog: weightLog,
+      stepSourceToday: stepSourceToday,
+    );
+    if (!window.dataReady) return null;
 
     const calculator = KcalCalculator();
-    final targets = calculator.calculate(profile);
-    final days = [for (var n = windowDays; n >= 1; n--) addDays(today, -n)];
-
-    final threshold = targets.kcal * loggedDayShare;
-    final steps = stepSourceToday || days.any((day) => burnedKcal(day) != null);
-    final logged = [
-      for (final day in days)
-        if (intakeKcal(day) >= threshold && (!steps || burnedKcal(day) != null))
-          day,
-    ];
-    if (logged.length < minLoggedDays) return null;
-
-    final weighIns = _weighInDays(weightLog, days.first, days.last);
-    if (!_enoughWeighIns(weighIns)) return null;
+    final targets = window.targets;
+    final logged = window.logged;
+    final weighIns = window.weighIns;
     final (slopeKgPerDay, slopeError) = _slope(weighIns);
 
     double mean(Iterable<int> values) =>
@@ -186,6 +241,126 @@ class EnergyCheck {
       weighIns.length >= minWeighInDays &&
       daysBetween(weighIns.last.$1, weighIns.first.$1) >= minWeighInSpanDays;
 
+  /// How far [evaluate] is from an estimate on the same inputs, or null when
+  /// the check does not apply (manual goal, unfinished onboarding).
+  ///
+  /// [EnergyCheckProgress.ready] holds exactly when [evaluate] gets past its
+  /// data and pause gates; the thresholds are this class's constants.
+  EnergyCheckProgress? progress({
+    required UserProfile profile,
+    required DateTime today,
+    required int Function(DateTime day) intakeKcal,
+    required int? Function(DateTime day) burnedKcal,
+    required WeightLog weightLog,
+    bool stepSourceToday = false,
+  }) {
+    if (profile.manualEnergy || !profile.onboardingCompleted) return null;
+    final pausedUntil = _pausedUntil(profile, today);
+    final window = _Window.of(
+      profile: profile,
+      today: today,
+      intakeKcal: intakeKcal,
+      burnedKcal: burnedKcal,
+      weightLog: weightLog,
+      stepSourceToday: stepSourceToday,
+    );
+    final ready = window.dataReady && pausedUntil == null;
+    final best = ready
+        ? (days: 0, logged: 0, weighIns: 0)
+        : _bestCase(
+            today: today,
+            window: window,
+            weightLog: weightLog,
+            notBeforeDays: pausedUntil == null
+                ? 1
+                : math.max(1, daysBetween(pausedUntil, today)),
+          );
+    return EnergyCheckProgress(
+      today: today,
+      loggedDays: window.logged.length,
+      weighInDays: window.weighIns.length,
+      weighInSpanDays: window.weighInSpanDays,
+      pausedUntil: pausedUntil,
+      earliestDay: addDays(today, best.days),
+      loggedDaysToGo: best.logged,
+      weighInsToGo: best.weighIns,
+    );
+  }
+
+  /// The day the seven-day pause after the last answer ends, or null when
+  /// [today] is past it.
+  static DateTime? _pausedUntil(UserProfile profile, DateTime today) {
+    final checkedOn = profile.energyCheckedOn;
+    if (checkedOn == null || daysBetween(today, checkedOn) >= recheckDays) {
+      return null;
+    }
+    return addDays(
+      DateTime(checkedOn.year, checkedOn.month, checkedOn.day),
+      recheckDays,
+    );
+  }
+
+  /// The first day, at least [notBeforeDays] after [today], whose window
+  /// can hold enough data if every day from today on is logged and the user
+  /// weighs in where needed; with what that still takes.
+  ///
+  /// Logging every open day is the best case for the count. For the
+  /// weigh-ins only the count and the span matter, and the latest possible
+  /// day (the window's last) gives the widest span.
+  static ({int days, int logged, int weighIns}) _bestCase({
+    required DateTime today,
+    required _Window window,
+    required WeightLog weightLog,
+    required int notBeforeDays,
+  }) {
+    final loggedOffsets = [
+      for (final day in window.logged) daysBetween(day, today),
+    ];
+    final loggedToday = window.isLogged(today);
+    // Found by day 15 or the first allowed day, whichever is later: from
+    // then on the window holds at least 14 new days, whose first and last
+    // weigh-in are 14 days apart.
+    for (var k = notBeforeDays; k <= notBeforeDays + windowDays; k++) {
+      // The window of day today + k: offsets first..k - 1 from today.
+      final first = k - windowDays;
+      final todayInWindow = first <= 0;
+      final open = k - math.max(0, first);
+
+      final keptLogged =
+          loggedOffsets.where((o) => o >= first).length +
+          (todayInWindow && loggedToday ? 1 : 0);
+      final loggedToGo = math.max(0, minLoggedDays - keptLogged);
+      if (loggedToGo > open - (todayInWindow && loggedToday ? 1 : 0)) {
+        continue;
+      }
+
+      final kept = _weighInDays(weightLog, addDays(today, first), today);
+      final weighedToday =
+          kept.isNotEmpty && daysBetween(kept.last.$1, today) == 0;
+      final free = open - (weighedToday ? 1 : 0);
+      final int weighInsToGo;
+      if (kept.isEmpty) {
+        // The first new weigh-in at the window's first open day, the last
+        // at its last day.
+        if (k - 1 - math.max(0, first) < minWeighInSpanDays) continue;
+        weighInsToGo = minWeighInDays;
+      } else if (daysBetween(kept.last.$1, kept.first.$1) >=
+          minWeighInSpanDays) {
+        weighInsToGo = math.max(0, minWeighInDays - kept.length);
+      } else {
+        // One new weigh-in late enough for the span.
+        if (daysBetween(addDays(today, k - 1), kept.first.$1) <
+            minWeighInSpanDays) {
+          continue;
+        }
+        weighInsToGo = math.max(1, minWeighInDays - kept.length);
+      }
+      if (weighInsToGo > free) continue;
+      return (days: k, logged: loggedToGo, weighIns: weighInsToGo);
+    }
+    throw StateError('A full window of new days always qualifies');
+  }
+
   /// The last weigh-in of each local day in [first]..[last], typos dropped:
   /// days further than [weighInOutlierShare] from the median.
   static List<(DateTime, double)> _weighInDays(
@@ -237,4 +412,55 @@ class EnergyCheck {
     final noise = math.max(math.sqrt(sse / (n - 2)), weighInNoiseFloorKg);
     return (slope, noise / math.sqrt(sxx));
   }
+}
+
+/// Today's window as the check counts it, shared by [EnergyCheck.evaluate]
+/// and [EnergyCheck.progress] so that the two never disagree on the gates.
+class _Window {
+  _Window._({
+    required this.targets,
+    required this.isLogged,
+    required this.logged,
+    required this.weighIns,
+  });
+
+  factory _Window.of({
+    required UserProfile profile,
+    required DateTime today,
+    required int Function(DateTime day) intakeKcal,
+    required int? Function(DateTime day) burnedKcal,
+    required WeightLog weightLog,
+    required bool stepSourceToday,
+  }) {
+    final targets = const KcalCalculator().calculate(profile);
+    final days = [
+      for (var n = EnergyCheck.windowDays; n >= 1; n--) addDays(today, -n),
+    ];
+    final threshold = targets.kcal * EnergyCheck.loggedDayShare;
+    final steps = stepSourceToday || days.any((day) => burnedKcal(day) != null);
+    bool isLogged(DateTime day) =>
+        intakeKcal(day) >= threshold && (!steps || burnedKcal(day) != null);
+    return _Window._(
+      targets: targets,
+      isLogged: isLogged,
+      logged: [for (final day in days) if (isLogged(day)) day],
+      weighIns: EnergyCheck._weighInDays(weightLog, days.first, days.last),
+    );
+  }
+
+  final KcalTargets targets;
+
+  /// Whether a day counts as logged: from [EnergyCheck.loggedDayShare] of
+  /// the goal on and, with a step source, only with a step value.
+  final bool Function(DateTime day) isLogged;
+  final List<DateTime> logged;
+  final List<(DateTime, double)> weighIns;
+
+  int get weighInSpanDays => weighIns.isEmpty
+      ? 0
+      : daysBetween(weighIns.last.$1, weighIns.first.$1);
+
+  bool get dataReady =>
+      logged.length >= EnergyCheck.minLoggedDays &&
+      EnergyCheck._enoughWeighIns(weighIns);
 }
