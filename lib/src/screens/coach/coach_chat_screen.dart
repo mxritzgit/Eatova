@@ -55,6 +55,7 @@ import '../../widgets/recipes/recipe_sections.dart';
 import '../today/today_texts.dart' show greetingForHour;
 import '../training/training_log_editor.dart';
 import '../training/training_plan_editor.dart';
+import 'coach_chat_controller.dart';
 import 'coach_training_brief.dart';
 
 part 'coach_speech.dart';
@@ -222,48 +223,44 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// answer takes its place without a second entrance.
   bool _vorschauGezeigt = false;
 
-  List<ChatMessage> _messages = const <ChatMessage>[];
-  List<ChatSession> _sessions = const <ChatSession>[];
+  /// Sessions, history and the banner (see [CoachChatController]).
+  late final CoachChatController _coach;
 
-  /// The last undelivered question — marker and retry job in one; null means
-  /// everything in the history went out.
-  ///
-  /// The message stays in the history (it is user content). Only ONE job is
-  /// held, the newest; an older one loses its marker but keeps its bubble.
-  _FehlgeschlageneSendung? _fehlgeschlagen;
+  // Bridge while the send paths still live in the screen.
+  List<ChatMessage> get _messages => _coach.messages;
+  set _messages(List<ChatMessage> value) => _coach.messages = value;
+  List<ChatSession> get _sessions => _coach.sessions;
+  set _sessions(List<ChatSession> value) => _coach.sessions = value;
+  CoachFailedSend? get _fehlgeschlagen => _coach.failedSend;
+  set _fehlgeschlagen(CoachFailedSend? value) => _coach.failedSend = value;
+  ChatQuotaSnapshot? get _quota => _coach.quota;
+  set _quota(ChatQuotaSnapshot? value) => _coach.quota = value;
+  int get _quotaRevision => _coach.quotaRevision;
+  set _quotaRevision(int value) => _coach.quotaRevision = value;
+  String? get _activeSessionId => _coach.activeSessionId;
+  set _activeSessionId(String? value) => _coach.activeSessionId = value;
+  int get _conversationRevision => _coach.conversationRevision;
+  set _conversationRevision(int value) => _coach.conversationRevision = value;
+  int get _sessionListRevision => _coach.sessionListRevision;
+  set _sessionListRevision(int value) => _coach.sessionListRevision = value;
+  bool get _loading => _coach.loading;
+  set _loading(bool value) => _coach.loading = value;
+  String? get _error => _coach.error;
+  set _error(String? value) => _coach.error = value;
+  bool get _historyUnavailable => _coach.historyUnavailable;
+  set _historyUnavailable(bool value) => _coach.historyUnavailable = value;
+  ValueNotifier<String> get _streamVorschau => _coach.preview;
 
-  /// `null` means "unknown" — neither full nor empty. A snapshot exists only
-  /// once the server actually named numbers; a failed RPC must not refill an
-  /// exhausted quota and lift the block (Review D2).
-  ChatQuotaSnapshot? _quota;
-  int _quotaRevision = 0;
-  String? _activeSessionId;
-  int _conversationRevision = 0;
-  int _sessionListRevision = 0;
-  bool _loading = true;
   bool _listening = false;
 
   /// Current recording; also its native token. Drawn from [_speechSeq].
   int _speechGeneration = 0;
-  String? _error;
 
   /// Draft text as a [ValueNotifier], deliberately NOT screen state: its only
   /// consumers are the composer and the command menu, and a per-keystroke
   /// `setState` rebuilt the whole screen including every visible bubble (perf
   /// finding 3, 2026-08-31). The send paths read `_input.text` directly.
   final ValueNotifier<String> _draft = ValueNotifier<String>('');
-
-  /// The coach answer as it streams in, empty while nothing has arrived.
-  ///
-  /// A notifier for the same reason as [_draft]: the deltas arrive dozens of
-  /// times a second and only the one preview bubble may rebuild for them. It
-  /// is a PREVIEW — `send` returns the authoritative text and the finished
-  /// bubble replaces this one, so nothing here is ever the record.
-  final ValueNotifier<String> _streamVorschau = ValueNotifier<String>('');
-
-  /// The active session's history failed to load — the hero empty state must
-  /// then not present it as "empty".
-  bool _historyUnavailable = false;
 
   /// An add is running (confirm sheet, store image, createUserRecipe) — locks
   /// all card buttons until it finishes.
@@ -357,6 +354,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   @override
   void initState() {
     super.initState();
+    _coach = CoachChatController(
+      service: widget.service,
+      hooks: _CoachScreenHooks(this),
+    );
     WidgetsBinding.instance.addObserver(this);
     _antwortWarten.binden(widget.service);
     // ValueNotifier dedupes identical assignments, so no equality check here.
@@ -380,6 +381,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void didUpdateWidget(covariant CoachChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(widget.service, oldWidget.service)) {
+      _coach.updateService(widget.service);
       // The old account's wait ends here; its result is fenced out anyway.
       _antwortWarten.loesen(oldWidget.service);
       _antwortWarten.binden(widget.service);
@@ -443,10 +445,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // The controller's banner texts follow the app language.
+    _coach.l10n = context.l10n;
     if (widget.service == null && !_notEingeloggtGemeldet) {
       _notEingeloggtGemeldet = true;
-      _loading = false;
-      _error = context.l10n.coachErrorNotLoggedIn;
+      _coach.reportSignedOut();
     }
     final sichtbar = TickerMode.valuesOf(context).enabled;
     final wurdeSichtbar = sichtbar && !_sichtbar;
@@ -533,165 +536,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     _cancelSpeechInput();
     _input.dispose();
     _draft.dispose();
-    _streamVorschau.dispose();
+    _coach.dispose();
     _scroll.dispose();
     _inputFocus.dispose();
     super.dispose();
   }
 
-  /// Never runs twice concurrently — [_beiRueckkehr]'s healing path can
-  /// restart the bootstrap, so this is a real case.
-  bool _bootstrapLaeuft = false;
+  Future<void> _bootstrap() => _coach.bootstrap();
 
-  Future<void> _bootstrap() async {
-    if (_bootstrapLaeuft) return;
-    _bootstrapLaeuft = true;
-    try {
-      await _bootstrapIntern();
-    } finally {
-      _bootstrapLaeuft = false;
-    }
-  }
+  Future<void> _refreshQuota(CoachChatService svc) => _coach.refreshQuota(svc);
 
-  Future<void> _bootstrapIntern() async {
-    final svc = widget.service;
-    final sessionBeforeLoad = _activeSessionId;
-    // Safety net only: both callers already guarantee a non-null service, so
-    // this branch needs no `context.l10n` before the first `await`.
-    if (svc == null) return;
-    // Only on a repeat run: show spinner, clear old banner. The first run from
-    // initState already has `_loading == true` and must not call setState.
-    if (!_loading) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
-
-    List<ChatSession> sessions;
-    try {
-      sessions = await svc.loadSessions();
-    } on CoachDataUnavailable {
-      // Offline: "no list" is not "no sessions". The next step asks for a
-      // default session anyway.
-      sessions = const <ChatSession>[];
-    }
-    if (!mounted || _activeSessionId != sessionBeforeLoad) return;
-    final activeId = sessions.isNotEmpty
-        ? sessions.first.id
-        : await svc.ensureDefaultSession();
-    if (activeId == null) {
-      if (!mounted || _activeSessionId != sessionBeforeLoad) return;
-      // After at least one `await`: Localizations is guaranteed to be there.
-      setState(() {
-        _loading = false;
-        // No session means no history to have failed (a retry after one).
-        _historyUnavailable = false;
-        _error = context.l10n.coachErrorNoSession;
-      });
-      return;
-    }
-    // These reads are independent once the active session is known. Start
-    // quota alongside history so a slow quota RPC does not add a round-trip
-    // to the first coach render.
-    final knownQuota = _quota;
-    final quotaFuture = () async {
-      try {
-        return await svc.loadQuotaToday();
-      } on CoachDataUnavailable {
-        return knownQuota;
-      }
-    }();
-
-    List<ChatMessage> history;
-    try {
-      history = await svc.loadHistory(activeId);
-    } on CoachDataUnavailable {
-      // Consume the parallel task on this early exit to avoid an unhandled
-      // failure while retaining the existing history error state.
-      await quotaFuture;
-      // "Not loadable" is not "empty": an empty _messages would show the hero
-      // state and present the history as deleted.
-      if (!mounted || _activeSessionId != sessionBeforeLoad) return;
-      setState(() {
-        // The list did load: the sheet shows it, and picking a conversation
-        // there retries the history load and unlocks the composer.
-        if (sessions.isNotEmpty) _sessions = sessions;
-        _loading = false;
-        _historyUnavailable = true;
-        _error = context.l10n.coachErrorHistoryUnavailable;
-      });
-      return;
-    }
-    if (!mounted || _activeSessionId != sessionBeforeLoad) return;
-    _historyUnavailable = false;
-    history = await _hydrateProposalImages(history);
-    // Unknown stays unknown: the last known state survives instead of being
-    // replaced by a guess.
-    // The quota RPC has been running alongside history; preserve the previous
-    // snapshot when it is unavailable rather than inventing a value.
-    final quota = await quotaFuture;
-    var refreshedSessions = sessions;
-    if (sessions.isEmpty) {
-      try {
-        refreshedSessions = await svc.loadSessions();
-      } on CoachDataUnavailable {
-        refreshedSessions = _sessions;
-      }
-    }
-    // A newly created or selected conversation takes precedence over bootstrap.
-    if (!mounted || _activeSessionId != sessionBeforeLoad) return;
-    setState(() {
-      _sessions = refreshedSessions;
-      _activeSessionId = activeId;
-      _messages = history;
-      _quota = quota;
-      _loading = false;
-      // Fresh history from the server: a retry job pointing at a local bubble
-      // that no longer exists would target nothing.
-      _fehlgeschlagen = null;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
-  }
-
-  /// Reloads the daily counter into the display.
-  ///
-  /// Rule: a network outage must neither consume nor refill the quota —
-  /// [CoachChatService.loadQuotaToday] throws instead of inventing a snapshot.
-  Future<void> _refreshQuota(CoachChatService svc) async {
-    final revision = ++_quotaRevision;
-    final ChatQuotaSnapshot frisch;
-    try {
-      frisch = await svc.loadQuotaToday();
-    } on CoachDataUnavailable {
-      return;
-    }
-    if (mounted &&
-        identical(widget.service, svc) &&
-        revision == _quotaRevision) {
-      setState(() => _quota = frisch);
-    }
-  }
-
-  Future<void> _refreshSessions() async {
-    final svc = widget.service;
-    if (svc == null) return;
-    final revision = ++_sessionListRevision;
-    final List<ChatSession> sessions;
-    try {
-      sessions = await svc.loadSessions();
-    } on CoachDataUnavailable {
-      // Keep the last known state: an outage must not empty the sessions
-      // sheet and claim there are no conversations.
-      return;
-    }
-    if (!mounted ||
-        !identical(widget.service, svc) ||
-        revision != _sessionListRevision) {
-      return;
-    }
-    setState(() => _sessions = sessions);
-  }
+  Future<void> _refreshSessions() => _coach.refreshSessions();
 
   bool _matchesConversation(
     CoachChatService svc,
@@ -703,67 +558,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _activeSessionId == sessionId &&
       _conversationRevision == revision;
 
-  /// Switches the displayed conversation.
-  ///
-  /// A visit revision fences slow loads, including an A→B→A return to the same
-  /// session id. The screen stays mounted across switches.
-  ///
-  /// [keepNotice] keeps the banner that explains the switch itself.
-  Future<void> _switchToSession(
-    String sessionId, {
-    bool keepNotice = false,
-  }) async {
-    final svc = widget.service;
-    if (svc == null) return;
-    // Picking the open conversation again is the retry for a history that
-    // failed to load; otherwise there is nothing to do.
-    final retry = _activeSessionId == sessionId;
-    if (retry && !_historyUnavailable) return;
-    final revision = ++_conversationRevision;
-    _streamVorschau.value = '';
-    setState(() {
-      _loading = true;
-      _activeSessionId = sessionId;
-      // A retry keeps what is on screen until the reload answers.
-      if (!retry) {
-        _messages = const <ChatMessage>[];
-        // The undelivered question and the banner belong to the session
-        // being left; the retry job would otherwise land in the new one.
-        _fehlgeschlagen = null;
-        if (!keepNotice) _error = null;
-      }
-      // So does a cue still waiting behind the sessions sheet.
-      _dropAnswerCue();
-    });
-    List<ChatMessage> history;
-    try {
-      history = await svc.loadHistory(sessionId);
-    } on CoachDataUnavailable {
-      // The error belongs to the session that caused it, or C would carry A's
-      // banner and `_historyUnavailable` state.
-      if (!_matchesConversation(svc, sessionId, revision)) {
-        return;
-      }
-      setState(() {
-        _loading = false;
-        _historyUnavailable = true;
-        _error = context.l10n.coachErrorHistoryUnavailable;
-      });
-      return;
-    }
-    history = await _hydrateProposalImages(history);
-    if (!_matchesConversation(svc, sessionId, revision)) {
-      return;
-    }
-    setState(() {
-      _messages = history;
-      // A successful retry answers the history banner.
-      if (retry) _error = null;
-      _historyUnavailable = false;
-      _loading = false;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
-  }
+  Future<void> _switchToSession(String sessionId, {bool keepNotice = false}) =>
+      _coach.switchToSession(sessionId, keepNotice: keepNotice);
 
   bool _sameCompletedAnswer(ChatMessage row, ChatMessage answer) {
     if (row.role != ChatRole.assistant ||
@@ -854,105 +650,32 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final svc = widget.service;
     if (svc == null) return;
     HapticFeedback.selectionClick();
-    // Same check as [_switchToSession], against the state before creating: if
-    // the user switched meanwhile, the view is theirs — the new session is in
-    // the list, one tap away.
-    final vorher = _activeSessionId;
-    final revision = _conversationRevision;
     final l10n = context.l10n;
-    final id = await svc.createSession(
-      title: l10n.coachSessionDefaultTitle,
-    );
-    if (id == null) {
-      // The sheet has closed; without this the tap simply did nothing.
-      if (mounted && identical(widget.service, svc)) {
-        showAppSnack(
-          context,
-          l10n.coachErrorNewSessionFailed,
-          icon: Icons.error_outline_rounded,
-          tone: SnackTone.error,
-          duration: kSnackError,
-        );
-      }
-      return;
-    }
-    await _refreshSessions();
-    if (!_matchesConversation(svc, vorher, revision)) return;
-    setState(() {
-      _conversationRevision++;
-      _activeSessionId = id;
-      _messages = const <ChatMessage>[];
-      _loading = false;
-      _historyUnavailable = false;
-      _error = null;
-      _fehlgeschlagen = null;
-      _dropAnswerCue();
-    });
-  }
-
-  Future<void> _deleteSession(String sessionId) async {
-    final svc = widget.service;
-    if (svc == null) return;
-    try {
-      await svc.deleteSession(sessionId);
-    } on CoachDataUnavailable {
-      // S8: not deleted is not deleted — the session stays in the list and the
-      // user is told (snack sits above the still-open sessions sheet).
-      if (!mounted) return;
+    final created = await _coach.startNewSession();
+    // The sheet has closed; without this the tap simply did nothing.
+    if (!created && mounted && identical(widget.service, svc)) {
       showAppSnack(
         context,
-        context.l10n.coachErrorDeleteFailed,
+        l10n.coachErrorNewSessionFailed,
         icon: Icons.error_outline_rounded,
         tone: SnackTone.error,
         duration: kSnackError,
       );
-      return;
     }
-    if (!mounted || !identical(widget.service, svc)) return;
-    setState(() {
-      _sessions = _sessions.where((s) => s.id != sessionId).toList();
-    });
-    await _refreshSessions();
-    if (!mounted || !identical(widget.service, svc)) return;
-    // Ignore a list response that still contains the confirmed deletion.
-    if (_sessions.any((s) => s.id == sessionId)) {
-      setState(() {
-        _sessions = _sessions.where((s) => s.id != sessionId).toList();
-      });
-    }
-    if (_activeSessionId == sessionId) {
-      if (_sessions.isNotEmpty) {
-        await _switchToSession(_sessions.first.id);
-      } else {
-        // Last session deleted: recreate the default AND reload, so list and
-        // sheet show the new session instead of being empty.
-        final fallback = await svc.ensureDefaultSession();
-        if (!mounted ||
-            !identical(widget.service, svc) ||
-            _activeSessionId != sessionId) {
-          return;
-        }
-        if (fallback == null) {
-          _conversationRevision++;
-          _streamVorschau.value = '';
-          setState(() {
-            _activeSessionId = null;
-            _messages = const <ChatMessage>[];
-            _loading = false;
-            _error = context.l10n.coachErrorNoSession;
-            _dropAnswerCue();
-          });
-          return;
-        }
-        await _refreshSessions();
-        if (!mounted ||
-            !identical(widget.service, svc) ||
-            _activeSessionId != sessionId) {
-          return;
-        }
-        await _switchToSession(fallback);
-      }
-    }
+  }
+
+  Future<void> _deleteSession(String sessionId) async {
+    if (widget.service == null) return;
+    final deleted = await _coach.deleteSession(sessionId);
+    // S8: the snack sits above the still-open sessions sheet.
+    if (deleted || !mounted) return;
+    showAppSnack(
+      context,
+      context.l10n.coachErrorDeleteFailed,
+      icon: Icons.error_outline_rounded,
+      tone: SnackTone.error,
+      duration: kSnackError,
+    );
   }
 
   /// Pins the chat to its end and moves there: gliding after a send
@@ -1179,7 +902,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // Retry job built before the request: same bubble, text and image.
     // [_wiederholen] removes the message from the history and resends exactly
     // this, instead of creating a second bubble with the same content.
-    final auftrag = _FehlgeschlageneSendung(
+    final auftrag = CoachFailedSend(
       messageId: userMsg.id,
       text: displayText,
       imageBytes: imageBytes,
@@ -1340,7 +1063,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     required CoachChatService svc,
     required String sessionId,
     required String message,
-    required _FehlgeschlageneSendung auftrag,
+    required CoachFailedSend auftrag,
     required ChatMessage frage,
     required String stored,
   }) {
@@ -1357,7 +1080,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _error = message;
       if (gespeichert) {
         // The reload shows the stored question: the marker belongs to it.
-        _fehlgeschlagen = _FehlgeschlageneSendung(
+        _fehlgeschlagen = CoachFailedSend(
           messageId: letzte.id,
           text: auftrag.text,
           imageBytes: auftrag.imageBytes,
@@ -1808,7 +1531,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     );
     // As in [_send]: [displayText] carries the command, so a retry lands in
     // this branch again by itself.
-    final auftrag = _FehlgeschlageneSendung(
+    final auftrag = CoachFailedSend(
       messageId: userMsg.id,
       text: displayText,
     );
@@ -2060,7 +1783,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       content: displayText,
       createdAt: DateTime.now(),
     );
-    final retry = _FehlgeschlageneSendung(
+    final retry = CoachFailedSend(
       messageId: userMsg.id,
       text: displayText,
       trainingContext: trainingContext,
@@ -2943,8 +2666,16 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     _warAmLaden = _loading;
   }
 
+  /// Rebuilds for the screen's own state and for every controller change.
+  /// The builder keeps this State's context, so the screen's dependencies
+  /// stay where they were before the controller.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _coach,
+    builder: (_, _) => _buildCoach(context),
+  );
+
+  Widget _buildCoach(BuildContext context) {
     // No hero when the history merely failed to load (S3): the empty state
     // would claim "no conversation yet". Empty conversation + banner instead.
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
@@ -3228,29 +2959,18 @@ typedef _ProposalAnswer = ({
   int? dailyLimit,
 });
 
-/// A send attempt that never reached the server — marker and retry job.
-///
-/// Holds everything the second attempt needs instead of reconstructing it from
-/// the input field: [text] is the displayed text, [imageBytes] the already
-/// scrubbed image. Keeps the retry bit-identical and free of a second
-/// compression/EXIF scrub.
-class _FehlgeschlageneSendung {
-  const _FehlgeschlageneSendung({
-    required this.messageId,
-    required this.text,
-    this.imageBytes,
-    this.imageMimeType,
-    this.trainingContext,
-  });
+/// The screen's reactions to controller transitions.
+class _CoachScreenHooks extends CoachChatViewHooks {
+  _CoachScreenHooks(this._state);
 
-  /// Id of the bubble in the history; the retry removes exactly this one, so
-  /// no duplicate appears.
-  final String messageId;
+  final _CoachChatScreenState _state;
 
-  final String text;
-  final Uint8List? imageBytes;
-  final String? imageMimeType;
-  final CoachTrainingContext? trainingContext;
+  @override
+  void conversationShown() =>
+      WidgetsBinding.instance.addPostFrameCallback((_) => _state._scrollToEnd());
+
+  @override
+  void conversationReplaced() => _state._dropAnswerCue();
 }
 
 /// [CoachChatService.answerWaiter] of this screen (COACH-4): after a lost
