@@ -1224,7 +1224,6 @@
   "goalsReminderBlockedSemantics": "Lokale Erinnerungen — vom System blockiert",
   "goalsReminderActiveSemantics": "Lokale Erinnerungen aktivieren",
   "goalsReminderTextOff": "Aus. Schalter umlegen, um lokale Erinnerungen zu aktivieren.",
-  "goalsReminderTextActive": "Aktiv. Jeden Abend um 20 Uhr, wenn du noch nichts geloggt hast.",
   "goalsReminderTextBlocked": "Vom System blockiert. Eatova darf keine Mitteilungen senden — erlaube sie in den Systemeinstellungen.",
   "goalsOpenSystemSettings": "Systemeinstellungen öffnen",
   "goalsDiscardChangesBody": "Deine Eingaben in „Profil & Ziele\" sind noch nicht gespeichert.",

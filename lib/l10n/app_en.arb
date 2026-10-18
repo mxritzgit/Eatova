@@ -1173,7 +1173,6 @@
   "goalsReminderBlockedSemantics": "Local reminders — blocked by the system",
   "goalsReminderActiveSemantics": "Enable local reminders",
   "goalsReminderTextOff": "Off. Flip the switch to enable local reminders.",
-  "goalsReminderTextActive": "Active. Every evening at 8 pm, if you haven't logged anything yet.",
   "goalsReminderTextBlocked": "Blocked by the system. Eatova isn't allowed to send notifications — enable them in system settings.",
   "goalsOpenSystemSettings": "Open system settings",
   "goalsDiscardChangesBody": "Your entries in \"Profile & Goals\" haven't been saved yet.",
