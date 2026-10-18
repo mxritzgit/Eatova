@@ -12,6 +12,7 @@ mixin _HomeStoreEnergyCheckPart
         _HomeStoreMealsPart {
   /// The server answered the meal load in this session; set by the boot in
   /// [HomeStore], cleared by a re-hydration that brings back other meals.
+  @override
   bool get _serverMealsLoaded;
 
   Object? _energyCheckKey;

@@ -54,7 +54,8 @@ import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
 import '../services/sync_dispatcher.dart';
 import '../services/sync_execution_guard.dart';
-import '../services/trend_service.dart' show TrendTotalsCache;
+import '../services/trend_service.dart'
+    show TrendDayTotals, TrendService, TrendTotalsCache;
 import '../services/training_plans_sync.dart';
 import '../services/training_history_sync.dart';
 import '../services/training_session_source.dart';

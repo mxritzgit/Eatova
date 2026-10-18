@@ -26,6 +26,7 @@ import 'today_macros.dart';
 import 'today_reminder_prompt.dart';
 import 'today_sections.dart';
 import 'today_texts.dart';
+import 'today_trends.dart';
 import 'today_weigh.dart';
 
 /// The day dashboard tab (dark redesign, 2026-09-28): header with streak and
@@ -70,6 +71,8 @@ class TodayScreen extends StatelessWidget {
     this.energyCheckProgress,
     this.latestWeightKg,
     this.onLogWeight,
+    this.trendsPreview,
+    this.onOpenTrends,
   });
 
   final String userName;
@@ -155,6 +158,11 @@ class TodayScreen extends StatelessWidget {
   /// (`showWeightEntrySheet`). Null hides the chip; today only.
   final PersistValueChanged<double>? onLogWeight;
 
+  /// The last seven completed days for the trends card; null hides it
+  /// (archive days). Today only, at the end of the page.
+  final TodayTrendsPreview? trendsPreview;
+  final VoidCallback? onOpenTrends;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -177,6 +185,7 @@ class TodayScreen extends StatelessWidget {
         onAcceptEnergyCheck != null &&
         onDismissEnergyCheck != null;
     final logWeight = istHeute ? onLogWeight : null;
+    final trends = istHeute && !dayLoading ? trendsPreview : null;
     final healthMissing = steps == null && healthConnect;
     final showActivity =
         !dayLoading &&
@@ -297,6 +306,10 @@ class TodayScreen extends StatelessWidget {
                 onOpenTraining: onOpenTraining,
                 onResumeWorkout: onResumeWorkout,
               ),
+            ],
+            if (trends != null && onOpenTrends != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayTrendsCard(preview: trends, onOpen: onOpenTrends!),
             ],
         ]),
         ),

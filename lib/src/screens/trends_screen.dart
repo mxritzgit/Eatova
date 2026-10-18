@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:clock/clock.dart';
@@ -7,31 +8,77 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../l10n/l10n.dart';
+import '../models/weight_log.dart';
 import '../services/day_math.dart';
 import '../services/kcal_format.dart';
+import '../services/trend_report.dart';
 import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/common/motion.dart';
 import '../widgets/design/design.dart';
 
-/// No step bonus: the trend goal is the base goal on every day.
-int noTrendStepBonus(DateTime _) => 0;
+export '../services/trend_report.dart' show noTrendStepBonus;
 
 /// From 150 % text on, side-by-side tiles break words and numbers mid-way,
 /// so the page stacks them instead.
 bool _largeText(BuildContext context) =>
     MediaQuery.textScalerOf(context).scale(14) > 21;
 
-/// Long-term trend view: daily calorie bars with target line and corridor, a
-/// 7/30/90-day range switch, and metrics. Data comes from the injected
-/// [TrendTotalsLoader], INDEPENDENT of HomeStore's 35-day window.
+/// What the trends page reads from the app's store besides the server's
+/// window, at the moment it builds.
+class TrendLocalData {
+  const TrendLocalData({
+    this.dayTotals = const <String, TrendDayTotals?>{},
+    this.stepsByDay = const <String, int>{},
+    this.stepsToday,
+    this.hasStepSource = false,
+    this.weighIns = const <WeightLogEntry>[],
+    this.workoutsFinishedAt = const <DateTime>[],
+    this.proteinGoalG = 0,
+    this.stepsGoal = 0,
+  });
+
+  /// Days the store knows completely, laid over the server's rows
+  /// ([overlayTrendTotals]); they include writes still in the outbox.
+  final Map<String, TrendDayTotals?> dayTotals;
+
+  /// Steps per local day key ([HomeStore.dailyActivity]) and today's live
+  /// value.
+  final Map<String, int> stepsByDay;
+  final int? stepsToday;
+
+  /// Whether a health source delivers steps at all; without one the steps
+  /// section explains where the values come from instead of showing gaps.
+  final bool hasStepSource;
+  final List<WeightLogEntry> weighIns;
+  final Iterable<DateTime> workoutsFinishedAt;
+  final int proteinGoalG;
+  final int stepsGoal;
+}
+
+/// The store side of the trends page: [read] is called on every build, and
+/// [changes] rebuilds the page when the store moves (a step backfill landing,
+/// a weigh-in, a meal logged in another tab).
+class TrendLocalSource {
+  const TrendLocalSource({required this.changes, required this.read});
+
+  final Listenable changes;
+  final TrendLocalData Function() read;
+}
+
+/// Long-term trends: calories with target line and corridor, macros, steps,
+/// weight and training over 7, 30 or 90 days or six months. Calories and
+/// macros come from the injected [TrendTotalsLoader], INDEPENDENT of
+/// HomeStore's 35-day window; everything else from [local].
 class TrendsScreen extends StatefulWidget {
   const TrendsScreen({
     super.key,
     required this.kcalGoal,
     required this.loadTotals,
     this.burnedKcalFor = noTrendStepBonus,
+    this.local,
+    this.onBackfillSteps,
   });
 
   /// Daily target in kcal, passed through from the profile.
@@ -45,17 +92,30 @@ class TrendsScreen extends StatefulWidget {
   /// default [noTrendStepBonus] keeps the corridor on the base goal.
   final int Function(DateTime day) burnedKcalFor;
 
+  /// Steps, weight, training, goals and the local day overlay; null shows
+  /// calories and macros only.
+  final TrendLocalSource? local;
+
+  /// Reads missing step days of the last N days from the health store
+  /// (`HomeStore.backfillStepsForTrends`); called once per range per open.
+  final Future<void> Function(int days)? onBackfillSteps;
+
   @override
   State<TrendsScreen> createState() => _TrendsScreenState();
 }
 
 class _TrendsScreenState extends State<TrendsScreen> {
-  static const List<int> _ranges = [7, 30, 90];
+  static final List<int> _ranges = [
+    for (final range in TrendRange.values) range.days,
+  ];
 
-  int _rangeDays = 30;
+  int _rangeDays = TrendRange.month.days;
   bool _loading = true;
   Object? _error;
   List<TrendDayTotals> _totals = const [];
+
+  /// Ranges whose steps were already requested from the health store.
+  final Set<int> _backfilled = <int>{};
 
   @override
   void initState() {
@@ -63,6 +123,22 @@ class _TrendsScreenState extends State<TrendsScreen> {
     // No setState needed: _loading starts true and _fetch only setStates
     // after an await.
     _fetch();
+    _backfillSteps(_rangeDays);
+  }
+
+  void _selectRange(int days) {
+    setState(() => _rangeDays = days);
+    _backfillSteps(days);
+  }
+
+  /// A shorter range is covered by a longer one already read.
+  void _backfillSteps(int days) {
+    final backfill = widget.onBackfillSteps;
+    if (backfill == null || _backfilled.any((done) => done >= days)) return;
+    _backfilled.add(days);
+    // Fire and forget: the store notifies per found day, and the page
+    // rebuilds through [TrendLocalSource.changes].
+    unawaited(backfill(days).catchError((Object _) {}));
   }
 
   /// Retry entry point: back to the loading state, then reload.
@@ -117,10 +193,19 @@ class _TrendsScreenState extends State<TrendsScreen> {
                   _RangeSelector(
                     ranges: _ranges,
                     selected: _rangeDays,
-                    onSelected: (days) => setState(() => _rangeDays = days),
+                    onSelected: _selectRange,
                   ),
                   const SizedBox(height: 14),
-                  ..._buildContent(context),
+                  if (widget.local case final local?)
+                    ListenableBuilder(
+                      listenable: local.changes,
+                      builder: (context, _) => Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: _buildContent(context, local.read()),
+                      ),
+                    )
+                  else
+                    ..._buildContent(context, null),
                 ],
               ),
             ),
@@ -130,49 +215,71 @@ class _TrendsScreenState extends State<TrendsScreen> {
     );
   }
 
-  List<Widget> _buildContent(BuildContext context) {
+  List<Widget> _buildContent(BuildContext context, TrendLocalData? local) {
     final l10n = context.l10n;
     if (_loading) {
       return const [_TrendsSkeleton(key: ValueKey('trends-loading'))];
     }
+    final data = local ?? const TrendLocalData();
+    final range = TrendRange.ofDays(_rangeDays);
+    final today = clock.now();
+    final totals = overlayTrendTotals(_totals, data.dayTotals);
+    final report = TrendReport.build(
+      range: range,
+      today: today,
+      totals: totals,
+      goals: TrendGoals(
+        kcal: widget.kcalGoal,
+        proteinG: data.proteinGoalG,
+        stepsPerDay: data.stepsGoal,
+        burnedKcalFor: widget.burnedKcalFor,
+      ),
+      stepsByDay: data.stepsByDay,
+      stepsToday: data.stepsToday,
+      weighIns: data.weighIns,
+      workoutsFinishedAt: data.workoutsFinishedAt,
+    );
+    // The store's sections stay readable when the server window fails or is
+    // empty: steps, weight and training do not come from it.
+    final localSections = local == null
+        ? const <Widget>[]
+        : <Widget>[
+            const SizedBox(height: 14),
+            _StepsCard(report: report, hasStepSource: data.hasStepSource),
+            const SizedBox(height: 14),
+            _WeightCard(report: report),
+            const SizedBox(height: 14),
+            _TrainingCard(report: report),
+          ];
     if (_error != null) {
-      return [_ErrorCard(onRetry: _load)];
+      return [_ErrorCard(onRetry: _load), ...localSections];
     }
-    if (_totals.isEmpty) {
+    if (totals.isEmpty &&
+        (local == null ||
+            (report.stepDays == 0 &&
+                report.weight == null &&
+                report.workouts == 0))) {
       return const [_EmptyCard()];
     }
 
-    final today = clock.now();
-    final window = denseTrendWindow(_totals, today: today, days: _rangeDays);
     // B6: the CHART includes today; the METRICS exclude it, or a partial day
     // would count as a full one.
-    final completed = completedDaysOf(window);
-    final avgKcal = averageKcalOf(completed);
-    final hits = goalHitsOf(
-      completed,
-      goalKcal: widget.kcalGoal,
-      burnedKcalFor: widget.burnedKcalFor,
-    );
-    final macros = averageMacrosOf(completed);
-    // B5: calendar arithmetic (DST-safe), as in denseTrendWindow.
-    final firstDay = addDays(startOfDay(today), -(_rangeDays - 1));
-    // Per-slot goal for the chart: base plus that day's step bonus (F7-05).
-    final goalPerDay = <int>[
-      for (var i = 0; i < window.length; i++)
-        widget.kcalGoal + widget.burnedKcalFor(addDays(firstDay, i)),
-    ];
-    final hatBonus = goalPerDay.any((g) => g != widget.kcalGoal);
-
+    final avgKcal = report.avgKcal;
+    final hits = report.hits;
+    final macros = report.macros;
+    final hatBonus = report.goalPerDay.any((g) => g != widget.kcalGoal);
     return [
       _ChartCard(
-        window: window,
+        // From 90 days on one bar is a week ([TrendRange.weekly]).
+        values: [for (final bar in report.kcalBars) bar.value],
         rangeDays: _rangeDays,
         kcalGoal: widget.kcalGoal,
-        goalPerDay: goalPerDay,
+        goalPerDay: [for (final bar in report.kcalBars) bar.goal],
         avgKcal: avgKcal,
-        // Counts drawn bars so the a11y announcement matches the chart.
-        trackedDays: trackedDaysOf(window),
-        firstDay: firstDay,
+        // Counts logged days so the a11y announcement matches the chart.
+        trackedDays: trackedDaysOf(report.window),
+        firstDay: report.firstDay,
+        weekly: range.weekly,
       ),
       const SizedBox(height: 14),
       _StatPair(
@@ -199,10 +306,16 @@ class _TrendsScreenState extends State<TrendsScreen> {
         ),
       ),
       const SizedBox(height: 12),
-      _MacroAveragesCard(macros: macros),
+      _MacroAveragesCard(
+        macros: macros,
+        proteinGoalDays: data.proteinGoalG > 0 && hits.tracked > 0
+            ? (hit: report.proteinGoalDays, tracked: hits.tracked)
+            : null,
+      ),
+      ...localSections,
       const SizedBox(height: 10),
       // B6: the label must match the maths, which excludes the current day.
-      _MetricsNote(showBonusNote: hatBonus),
+      _MetricsNote(showBonusNote: hatBonus, weekly: range.weekly),
     ];
   }
 }
@@ -210,11 +323,12 @@ class _TrendsScreenState extends State<TrendsScreen> {
 /// Footnote saying the current day is excluded from the averages and hit
 /// rate (B6). One line for all three tiles, since the sublabels would wrap it
 /// three times. With a step bonus in the window a second line explains the
-/// per-day goal (F7-05).
+/// per-day goal (F7-05); from 90 days on a third says what a bar is.
 class _MetricsNote extends StatelessWidget {
-  const _MetricsNote({required this.showBonusNote});
+  const _MetricsNote({required this.showBonusNote, this.weekly = false});
 
   final bool showBonusNote;
+  final bool weekly;
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +346,14 @@ class _MetricsNote extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(l10n.trendsMetricsNote, style: style),
+          if (weekly) ...[
+            const SizedBox(height: 6),
+            Text(
+              l10n.trendsWeeklyBarsNote,
+              key: const ValueKey('trends-weekly-note'),
+              style: style,
+            ),
+          ],
           if (showBonusNote) ...[
             const SizedBox(height: 6),
             Text(
@@ -246,7 +368,11 @@ class _MetricsNote extends StatelessWidget {
   }
 }
 
-/// Range switch: three equally wide filter pills.
+/// Range switch: one segmented track, the pattern Apple Health uses for time
+/// ranges. Four pills of the screen's filter size did not fit 390 px ("30
+/// Tage" broke onto two lines, "6 Monate" mid-word). Each segment is 44 px
+/// high; a label shrinks rather than wraps. From 150 % text the segments give
+/// way to pills that keep their natural width and wrap.
 class _RangeSelector extends StatelessWidget {
   const _RangeSelector({
     required this.ranges,
@@ -260,61 +386,144 @@ class _RangeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final l10n = context.l10n;
-    final large = _largeText(context);
+    // The longest range reads in months: "182 days" is a number to decode.
+    final months = TrendRange.halfYear.days ~/ 30;
+    String label(int days) => days == TrendRange.halfYear.days
+        ? l10n.trendsRangeMonthsLabel(months)
+        : l10n.trendsRangeDaysLabel(days);
     // Key on the Semantics wrapper so tests keep their finder and the
     // screen reader its descriptive name.
-    Widget pill(int days) => Semantics(
+    Widget semantics(int days, Widget child) => Semantics(
       key: ValueKey('trends-range-$days'),
       button: true,
       selected: days == selected,
-      label: l10n.trendsRangeSemanticsLabel(days),
-      child: FilterChipPill(
-        label: l10n.trendsRangeDaysLabel(days),
-        selected: days == selected,
-        onTap: () => onSelected(days),
-        expand: !large,
-      ),
+      label: days == TrendRange.halfYear.days
+          ? l10n.trendsRangeMonthsSemantics(months)
+          : l10n.trendsRangeSemanticsLabel(days),
+      excludeSemantics: true,
+      child: child,
     );
-    // Equal thirds break "Tage" mid-word at large text; the pills keep their
-    // natural width and wrap instead.
-    if (large) {
+    if (_largeText(context)) {
       return Wrap(
         spacing: 8,
         runSpacing: 8,
-        children: [for (final days in ranges) pill(days)],
+        children: [
+          for (final days in ranges)
+            semantics(
+              days,
+              FilterChipPill(
+                label: label(days),
+                selected: days == selected,
+                onTap: () => onSelected(days),
+              ),
+            ),
+        ],
       );
     }
-    return Row(
-      children: [
-        for (var i = 0; i < ranges.length; i++) ...[
-          Expanded(child: pill(ranges[i])),
-          if (i != ranges.length - 1) const SizedBox(width: 8),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: t.surf,
+        borderRadius: BorderRadius.circular(rPill),
+        border: Border.all(color: t.lineStrong),
+      ),
+      child: Row(
+        children: [
+          for (final days in ranges)
+            Expanded(
+              child: semantics(
+                days,
+                _RangeSegment(
+                  label: label(days),
+                  selected: days == selected,
+                  onTap: () => onSelected(days),
+                ),
+              ),
+            ),
         ],
-      ],
+      ),
+    );
+  }
+}
+
+/// One segment of [_RangeSelector]: the whole 44 px is the tap target, the
+/// selection a pill inset by 3 px.
+class _RangeSegment extends StatelessWidget {
+  const _RangeSegment({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(rPill),
+      child: SizedBox(
+        height: 44,
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: AnimatedContainer(
+            duration: motionDuration(
+              context,
+              const Duration(milliseconds: 180),
+            ),
+            curve: Curves.easeOutCubic,
+            decoration: BoxDecoration(
+              color: selected ? t.selectedFill : Colors.transparent,
+              borderRadius: BorderRadius.circular(rPill),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            alignment: Alignment.center,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                style: AppType.ui(
+                  13.5,
+                  weight: FontWeight.w700,
+                  color: selected ? t.onSelected : t.inkMuted,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
 class _ChartCard extends StatefulWidget {
   const _ChartCard({
-    required this.window,
+    required this.values,
     required this.rangeDays,
     required this.kcalGoal,
     required this.goalPerDay,
     required this.avgKcal,
     required this.trackedDays,
     required this.firstDay,
+    this.weekly = false,
   });
 
-  final List<TrendDayTotals?> window;
+  /// kcal per slot: a day, or a week's average with [weekly].
+  final List<int?> values;
   final int rangeDays;
+  final bool weekly;
 
   /// Base goal — what the a11y announcement names.
   final int kcalGoal;
 
-  /// Effective goal per window slot (base + step bonus), what the painter
-  /// draws as a stepped line and corridor.
+  /// Effective goal per slot (base + step bonus), what the painter draws as
+  /// a stepped line and corridor.
   final List<int> goalPerDay;
   final double? avgKcal;
   final int trackedDays;
@@ -335,8 +544,8 @@ class _ChartCardState extends State<_ChartCard> {
     final l10n = context.l10n;
     final labels = _labels = TrendChartLabels.resolve(
       _labels,
-      window: widget.window,
-      goalPerDay: widget.goalPerDay,
+      values: widget.values,
+      goals: widget.goalPerDay,
       firstDay: widget.firstDay,
       axisTextColor: t.ink2,
       l10n: l10n,
@@ -368,7 +577,7 @@ class _ChartCardState extends State<_ChartCard> {
             spokenGoal,
           );
     final title = Text(
-      l10n.trendsChartTitle,
+      widget.weekly ? l10n.trendsChartTitleWeekly : l10n.trendsChartTitle,
       style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
     );
     final legend = legendGoal > 0
@@ -430,9 +639,9 @@ class _ChartCardState extends State<_ChartCard> {
                   curve: Curves.easeOutCubic,
                   builder: (context, value, _) => CustomPaint(
                     key: const ValueKey('trends-chart'),
-                    painter: _KcalTrendPainter(
-                      window: widget.window,
-                      goalPerDay: widget.goalPerDay,
+                    painter: _TrendBarPainter(
+                      values: widget.values,
+                      goals: widget.goalPerDay,
                       labels: labels,
                       progress: value,
                       gridColor: t.line,
@@ -594,9 +803,13 @@ class _StatCard extends StatelessWidget {
 }
 
 class _MacroAveragesCard extends StatelessWidget {
-  const _MacroAveragesCard({required this.macros});
+  const _MacroAveragesCard({required this.macros, this.proteinGoalDays});
 
   final ({double proteinG, double carbsG, double fatG})? macros;
+
+  /// Logged completed days that reached the protein goal; null without a
+  /// goal or a logged day.
+  final ({int hit, int tracked})? proteinGoalDays;
 
   @override
   Widget build(BuildContext context) {
@@ -641,6 +854,14 @@ class _MacroAveragesCard extends StatelessWidget {
             )
           else
             Row(children: [for (final cell in cells) Expanded(child: cell)]),
+          if (proteinGoalDays case final days?) ...[
+            const SizedBox(height: 10),
+            Text(
+              l10n.trendsProteinGoalDays(days.hit, days.tracked),
+              key: const ValueKey('trends-protein-goal-days'),
+              style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
+            ),
+          ],
         ],
       ),
     );
@@ -697,6 +918,404 @@ class _MacroAvg extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A section card of the store's metrics: eyebrow title, one large value
+/// with its line underneath, then [child].
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.sub,
+    this.child,
+  });
+
+  final String title;
+  final String value;
+  final String sub;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppType.eyebrow(t.ink2)),
+          const SizedBox(height: 6),
+          Text(value, style: AppType.display(20, color: t.ink)),
+          const SizedBox(height: 2),
+          Text(
+            sub,
+            style: AppType.ui(11, weight: FontWeight.w500, color: t.ink2),
+          ),
+          if (child case final child?) ...[const SizedBox(height: 12), child],
+        ],
+      ),
+    );
+  }
+}
+
+/// A quiet line of a section ("Best day: …").
+class _Fact extends StatelessWidget {
+  const _Fact(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 6),
+    child: Text(
+      text,
+      style: AppType.ui(11.5, weight: FontWeight.w500, color: context.t.ink2),
+    ),
+  );
+}
+
+/// Steps: the average of the completed days with a value, a bar chart
+/// slotted like the calories (weekly from 90 days) with the step goal as a
+/// line, the best day and the days at goal. Without a health source it says
+/// where steps come from instead of showing an empty chart.
+class _StepsCard extends StatelessWidget {
+  const _StepsCard({required this.report, required this.hasStepSource});
+
+  final TrendReport report;
+  final bool hasStepSource;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final locale = l10n.localeName;
+    final avg = report.avgSteps;
+    final anyBar = report.stepBars.any((bar) => bar.value != null);
+    if (avg == null && !anyBar) {
+      return _SectionCard(
+        key: const ValueKey('trends-steps'),
+        title: l10n.trendsStepsTitle,
+        value: '–',
+        sub: hasStepSource ? l10n.trendsStepsEmpty : l10n.trendsStepsNoSource,
+      );
+    }
+    final goal = report.stepBars.isEmpty ? 0 : report.stepBars.last.goal;
+    final best = report.bestStepDay;
+    return _SectionCard(
+      key: const ValueKey('trends-steps'),
+      title: l10n.trendsStepsTitle,
+      value: avg == null ? '–' : formatThousands(avg.round(), locale),
+      sub: avg == null
+          ? l10n.trendsNoCompletedDay
+          : l10n.trendsStepsAvgSub(report.stepDays, report.completedDays),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StepsChart(report: report),
+          if (best != null)
+            _Fact(
+              l10n.trendsStepsBest(
+                formatThousands(best.steps, locale),
+                trendDayMonthFormat(locale).format(best.day),
+              ),
+              key: const ValueKey('trends-steps-best'),
+            ),
+          if (goal > 0 && report.stepDays > 0)
+            _Fact(
+              l10n.trendsStepsGoalDays(report.stepGoalDays, report.stepDays),
+              key: const ValueKey('trends-steps-goal-days'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The steps bars, with their own laid-out labels (as [_ChartCard]).
+class _StepsChart extends StatefulWidget {
+  const _StepsChart({required this.report});
+
+  final TrendReport report;
+
+  @override
+  State<_StepsChart> createState() => _StepsChartState();
+}
+
+class _StepsChartState extends State<_StepsChart> {
+  TrendChartLabels? _labels;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final report = widget.report;
+    final values = [for (final bar in report.stepBars) bar.value];
+    final goals = [for (final bar in report.stepBars) bar.goal];
+    final labels = _labels = TrendChartLabels.resolve(
+      _labels,
+      values: values,
+      goals: goals,
+      firstDay: report.firstDay,
+      axisTextColor: t.ink2,
+      l10n: l10n,
+      emptyHint: l10n.trendsStepsEmpty,
+    );
+    final avg = report.avgSteps;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 150,
+          child: Semantics(
+            label: l10n.trendsStepsChartSemanticsLabel,
+            value: avg == null
+                ? l10n.trendsChartSemanticsEmpty
+                : l10n.trendsStepsChartSemanticsValue(
+                    avg.round(),
+                    report.stepDays,
+                  ),
+            child: RepaintBoundary(
+              child: TweenAnimationBuilder<double>(
+                key: ValueKey('trends-steps-anim-${report.range.days}'),
+                tween: Tween(begin: 0, end: 1),
+                duration: motionDuration(
+                  context,
+                  const Duration(milliseconds: 550),
+                ),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) => CustomPaint(
+                  key: const ValueKey('trends-steps-chart'),
+                  painter: _TrendBarPainter(
+                    values: values,
+                    goals: goals,
+                    labels: labels,
+                    progress: value,
+                    corridor: false,
+                    gridColor: t.line,
+                    barColor: t.activity,
+                    goalLineColor: t.ink.withValues(alpha: 0.6),
+                    bandColor: t.ink.withValues(alpha: 0.05),
+                  ),
+                  size: Size.infinite,
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (report.range.days > 7) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 40, right: 8),
+            child: Row(
+              children: [
+                _Caption(
+                  trendDayMonthFormat(l10n.localeName).format(report.firstDay),
+                ),
+                const Spacer(),
+                _Caption(l10n.todayDateToday),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Weight: the change from the first to the last weigh-in day of the range,
+/// both values, the number of weigh-ins and the weekly rate, with a line of
+/// the weigh-ins. Raw weigh-ins, not the smoothed trend: the section reports
+/// what was measured.
+class _WeightCard extends StatelessWidget {
+  const _WeightCard({required this.report});
+
+  final TrendReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final weight = report.weight;
+    if (weight == null) {
+      return _SectionCard(
+        key: const ValueKey('trends-weight'),
+        title: l10n.trendsWeightTitle,
+        value: '–',
+        sub: l10n.trendsWeightEmpty,
+      );
+    }
+    final change = weight.changeKg;
+    final rate = weight.kgPerWeek;
+    return _SectionCard(
+      key: const ValueKey('trends-weight'),
+      title: l10n.trendsWeightTitle,
+      value: change == null
+          ? '${_kg(weight.last.kg, l10n)} kg'
+          : '${_signedKg(change, l10n)} kg',
+      sub: change == null
+          ? l10n.trendsWeightSingle
+          : l10n.trendsWeightFromTo(
+              _kg(weight.first.kg, l10n),
+              _kg(weight.last.kg, l10n),
+              weight.points.length,
+            ),
+      child: weight.points.length < 2
+          ? null
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: 72,
+                  child: ExcludeSemantics(
+                    child: CustomPaint(
+                      key: const ValueKey('trends-weight-line'),
+                      painter: _WeightLinePainter(
+                        points: weight.points,
+                        firstDay: report.firstDay,
+                        days: report.range.days,
+                        lineColor: context.t.ink,
+                        dotColor: context.t.ink,
+                        gridColor: context.t.line,
+                      ),
+                      size: Size.infinite,
+                    ),
+                  ),
+                ),
+                if (rate != null)
+                  _Fact(
+                    l10n.trendsWeightRate(_signedKg(rate, l10n, digits: 2)),
+                    key: const ValueKey('trends-weight-rate'),
+                  ),
+              ],
+            ),
+    );
+  }
+
+  static String _kg(double kg, AppLocalizations l10n) =>
+      NumberFormat('0.0', l10n.localeName).format((kg * 10).round() / 10);
+
+  /// U+2212 as minus, as everywhere else in the app.
+  static String _signedKg(
+    double kg,
+    AppLocalizations l10n, {
+    int digits = 1,
+  }) {
+    final factor = math.pow(10, digits);
+    final rounded = (kg * factor).round() / factor;
+    final text = NumberFormat(
+      digits == 1 ? '0.0' : '0.00',
+      l10n.localeName,
+    ).format(rounded.abs());
+    if (rounded == 0) return text;
+    return '${rounded > 0 ? '+' : '−'}$text';
+  }
+}
+
+/// The weigh-ins of the range as a line with dots, placed on the range's
+/// calendar so gaps between weigh-ins stay visible as distance.
+class _WeightLinePainter extends CustomPainter {
+  _WeightLinePainter({
+    required this.points,
+    required this.firstDay,
+    required this.days,
+    required this.lineColor,
+    required this.dotColor,
+    required this.gridColor,
+  });
+
+  final List<({DateTime day, double kg})> points;
+  final DateTime firstDay;
+  final int days;
+  final Color lineColor, dotColor, gridColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2 || size.width <= 0 || size.height <= 0) return;
+    const pad = 6.0;
+    final inner = Rect.fromLTRB(
+      pad,
+      pad,
+      size.width - pad,
+      size.height - pad,
+    );
+    var lo = points.first.kg;
+    var hi = points.first.kg;
+    for (final point in points) {
+      lo = math.min(lo, point.kg);
+      hi = math.max(hi, point.kg);
+    }
+    // At least a kilogram of height, so 0.1 kg of noise is no cliff.
+    final mid = (lo + hi) / 2;
+    final half = math.max((hi - lo) / 2, 0.5);
+    lo = mid - half;
+    hi = mid + half;
+    final span = math.max(1, days - 1);
+    Offset at(({DateTime day, double kg}) point) => Offset(
+      inner.left + inner.width * (daysBetween(point.day, firstDay) / span),
+      inner.bottom - inner.height * ((point.kg - lo) / (hi - lo)),
+    );
+    canvas.drawLine(
+      Offset(inner.left, inner.bottom),
+      Offset(inner.right, inner.bottom),
+      Paint()
+        ..color = gridColor
+        ..strokeWidth = 1,
+    );
+    final path = Path();
+    for (final (i, point) in points.indexed) {
+      final offset = at(point);
+      if (i == 0) {
+        path.moveTo(offset.dx, offset.dy);
+      } else {
+        path.lineTo(offset.dx, offset.dy);
+      }
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = lineColor.withValues(alpha: 0.75)
+        ..strokeWidth = 1.6
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round,
+    );
+    final dot = Paint()..color = dotColor;
+    for (final point in points) {
+      canvas.drawCircle(at(point), 2.4, dot);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WeightLinePainter old) =>
+      !listEquals(old.points, points) ||
+      old.firstDay != firstDay ||
+      old.days != days ||
+      old.lineColor != lineColor ||
+      old.dotColor != dotColor ||
+      old.gridColor != gridColor;
+}
+
+/// Training: the workouts finished in the range and their weekly average.
+class _TrainingCard extends StatelessWidget {
+  const _TrainingCard({required this.report});
+
+  final TrendReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final workouts = report.workouts;
+    return _SectionCard(
+      key: const ValueKey('trends-training'),
+      title: l10n.trendsTrainingTitle,
+      value: l10n.trendsTrainingCount(workouts),
+      sub: workouts == 0
+          ? l10n.trendsTrainingEmpty
+          : l10n.trendsTrainingPerWeek(
+              NumberFormat('0.0', l10n.localeName).format(
+                report.workoutsPerWeek,
+              ),
+            ),
     );
   }
 }
@@ -827,34 +1446,39 @@ class _ErrorCard extends StatelessWidget {
   }
 }
 
-/// Daily calorie bars (one series, so no legend), growing from the 0
-/// baseline; gap days stay gaps, since "not tracked" is not a 0 kcal day.
+/// Bars of one series (kcal or steps, so no legend), growing from the 0
+/// baseline; gaps stay gaps, since "not tracked" is not a 0 kcal day.
 /// All four colours arrive as fields and are checked in [shouldRepaint].
 ///
-/// Target line and corridor are STEPPED per slot ([goalPerDay], F7-05): on a
-/// day with a step bonus the goal sits higher, exactly as the Today tab
+/// Target line and corridor are STEPPED per slot ([goals], F7-05): on a day
+/// with a step bonus the kcal goal sits higher, exactly as the Today tab
 /// steered it. Without a bonus every slot carries the base goal and the line
-/// is straight, as before.
+/// is straight. The corridor belongs to the kcal goal only ([corridor]).
 ///
 /// The text is NOT built here: [labels] arrives pre-laid-out from the card, so
 /// a frame of the build-up costs no `TextPainter.layout`, no `NumberFormat`
 /// and no `DateFormat` at all.
-class _KcalTrendPainter extends CustomPainter {
-  _KcalTrendPainter({
-    required this.window,
-    required this.goalPerDay,
+class _TrendBarPainter extends CustomPainter {
+  _TrendBarPainter({
+    required this.values,
+    required this.goals,
     required this.labels,
     required this.progress,
     required this.gridColor,
     required this.barColor,
     required this.goalLineColor,
     required this.bandColor,
-  }) : assert(goalPerDay.length == window.length);
+    this.corridor = true,
+  }) : assert(goals.length == values.length);
 
-  final List<TrendDayTotals?> window;
+  /// Value per slot, null for a gap.
+  final List<int?> values;
 
-  /// Effective goal per slot, same length as [window].
-  final List<int> goalPerDay;
+  /// Goal per slot, same length as [values]; 0 draws no line there.
+  final List<int> goals;
+
+  /// Whether the [trendGoalTolerance] band surrounds the goal line.
+  final bool corridor;
 
   /// Tick labels and weekday row, plus the axis maximum they were laid out
   /// for. Shared by every frame of one build-up.
@@ -875,8 +1499,8 @@ class _KcalTrendPainter extends CustomPainter {
     if (inner.width <= 0 || inner.height <= 0) return;
 
     var tracked = 0;
-    for (final day in window) {
-      if (day != null) tracked++;
+    for (final value in values) {
+      if (value != null) tracked++;
     }
     final niceMax = labels.niceMax;
 
@@ -901,7 +1525,7 @@ class _KcalTrendPainter extends CustomPainter {
       return;
     }
 
-    final n = window.length;
+    final n = values.length;
     final slotW = inner.width / n;
     double yOf(num kcal) => (inner.bottom - (kcal / niceMax) * inner.height)
         .clamp(inner.top, inner.bottom)
@@ -909,8 +1533,8 @@ class _KcalTrendPainter extends CustomPainter {
 
     // Target corridor (±10 %) as a quiet area behind the bars, per slot.
     final bandPaint = Paint()..color = bandColor;
-    for (var i = 0; i < n; i++) {
-      final goal = goalPerDay[i];
+    for (var i = 0; corridor && i < n; i++) {
+      final goal = goals[i];
       if (goal <= 0) continue;
       final band = Rect.fromLTRB(
         inner.left + slotW * i,
@@ -926,9 +1550,9 @@ class _KcalTrendPainter extends CustomPainter {
     final barW = math.min(24.0, math.max(slotW - gapW, slotW * 0.55));
     final barPaint = Paint()..color = barColor.withValues(alpha: 0.92);
     for (var i = 0; i < n; i++) {
-      final day = window[i];
-      if (day == null || day.kcal <= 0) continue;
-      final h = (day.kcal / niceMax) * inner.height * progress;
+      final value = values[i];
+      if (value == null || value <= 0) continue;
+      final h = (value / niceMax) * inner.height * progress;
       final x = inner.left + slotW * i + (slotW - barW) / 2;
       final r = math.min(3.0, barW / 2);
       canvas.drawRRect(
@@ -943,14 +1567,14 @@ class _KcalTrendPainter extends CustomPainter {
 
     // Target line: brighter than the grid, solid, stepped per slot. Its
     // legend sits in the card header, so no label covers the latest bars.
-    if (goalPerDay.any((g) => g > 0)) {
+    if (goals.any((g) => g > 0)) {
       final goalPaint = Paint()
         ..color = goalLineColor
         ..strokeWidth = 1.4;
       final path = Path();
       var offen = false;
       for (var i = 0; i < n; i++) {
-        final goal = goalPerDay[i];
+        final goal = goals[i];
         if (goal <= 0) {
           offen = false;
           continue;
@@ -1013,11 +1637,12 @@ class _KcalTrendPainter extends CustomPainter {
   /// is not one. [labels] is compared by identity on purpose — it is only ever
   /// replaced when its own signature changed (see [TrendChartLabels.resolve]).
   @override
-  bool shouldRepaint(covariant _KcalTrendPainter old) =>
+  bool shouldRepaint(covariant _TrendBarPainter old) =>
       old.progress != progress ||
+      old.corridor != corridor ||
       !identical(old.labels, labels) ||
-      !listEquals(old.window, window) ||
-      !listEquals(old.goalPerDay, goalPerDay) ||
+      !listEquals(old.values, values) ||
+      !listEquals(old.goals, goals) ||
       old.gridColor != gridColor ||
       old.barColor != barColor ||
       old.goalLineColor != goalLineColor ||
@@ -1116,28 +1741,31 @@ class TrendChartLabels {
   /// otherwise lays the labels out anew.
   static TrendChartLabels resolve(
     TrendChartLabels? previous, {
-    required List<TrendDayTotals?> window,
-    required List<int> goalPerDay,
+    required List<int?> values,
+    required List<int> goals,
     required DateTime firstDay,
     required Color axisTextColor,
     required AppLocalizations l10n,
+    String? emptyHint,
   }) {
-    var maxKcal = 0;
-    for (final day in window) {
-      if (day != null) maxKcal = math.max(maxKcal, day.kcal);
+    var maxValue = 0;
+    for (final value in values) {
+      if (value != null) maxValue = math.max(maxValue, value);
     }
     var maxGoal = 0;
-    for (final goal in goalPerDay) {
+    for (final goal in goals) {
       maxGoal = math.max(maxGoal, goal);
     }
-    final niceMax = _niceMax(math.max(maxKcal, maxGoal));
-    final showWeekdays = window.length == 7;
+    final niceMax = _niceMax(math.max(maxValue, maxGoal));
+    final showWeekdays = values.length == 7;
+    final hint = emptyHint ?? l10n.trendsChartEmptyHintPainter;
     final signature = (
       locale: l10n.localeName,
       color: axisTextColor,
       niceMax: niceMax,
       // Only the weekday row depends on the date, and only in the 7-day view.
       firstDay: showWeekdays ? firstDay : null,
+      hint: hint,
     );
     if (previous != null && previous._signature == signature) return previous;
 
@@ -1156,14 +1784,14 @@ class TrendChartLabels {
       ],
       weekdayLabels: <TextPainter>[
         if (showWeekdays)
-          for (var i = 0; i < window.length; i++)
+          for (var i = 0; i < values.length; i++)
             // B5: calendar-day shift; a Duration would slip a day across DST.
             _laidOut(
               trendWeekdayFormat(locale).format(addDays(firstDay, i)),
               style,
             ),
       ],
-      emptyHintText: l10n.trendsChartEmptyHintPainter,
+      emptyHintText: hint,
       emptyHintStyle: AppType.ui(
         12,
         weight: FontWeight.w500,

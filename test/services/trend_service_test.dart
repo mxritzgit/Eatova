@@ -287,18 +287,13 @@ void main() {
   });
 
   group('TrendService Query-Grenzen', () {
-    test('90-Tage-Fenster mit deterministischem Zeilen-Deckel', () {
-      // Own data path, larger than the diary's boot window, with an explicit
-      // limit against silent PostgREST truncation.
-      expect(TrendService.trendWindowDays, 90);
+    test('Sechs-Monats-Fenster, groesser als das Boot-Fenster', () {
+      // Own data path, larger than the diary's boot window; paging and its
+      // bounds are pinned in test/trends/trend_service_paging_test.dart.
+      expect(TrendService.trendWindowDays, 182);
       expect(
         TrendService.trendWindowDays,
         greaterThan(MealsSync.loggedMealsWindowDays),
-      );
-      expect(TrendService.trendMaxRows, 2500);
-      expect(
-        TrendService.trendMaxRows / TrendService.trendWindowDays,
-        greaterThanOrEqualTo(20),
       );
     });
   });

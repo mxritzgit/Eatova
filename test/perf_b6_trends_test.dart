@@ -388,8 +388,8 @@ void main() {
           AppLocalizations l10n,
         ) => TrendChartLabels.resolve(
           vorher,
-          window: window,
-          goalPerDay: goals,
+          values: [for (final day in window) day?.kcal],
+          goals: goals,
           firstDay: DateTime(2026, 8, 25),
           axisTextColor: const Color(0xFF888888),
           l10n: l10n,
@@ -418,8 +418,8 @@ void main() {
         TrendChartLabels bauen(TrendChartLabels? vorher, Color farbe) =>
             TrendChartLabels.resolve(
               vorher,
-              window: window,
-              goalPerDay: const [2200],
+              values: [for (final day in window) day?.kcal],
+              goals: const [2200],
               firstDay: DateTime(2026, 8, 30),
               axisTextColor: farbe,
               l10n: deL10n,

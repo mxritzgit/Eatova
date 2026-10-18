@@ -31,11 +31,16 @@ TextStyle foodText(
   height: AppType.normalHeight,
 );
 
-/// "Food" title and the round calendar button that opens the date picker.
+/// "Food" title, the round trends button (2026-10-18: before, only a tap on
+/// the day card with no visible hint led there) and the calendar button that
+/// opens the date picker.
 class FoodPageHeader extends StatelessWidget {
-  const FoodPageHeader({super.key, required this.onCalendar});
+  const FoodPageHeader({super.key, required this.onCalendar, this.onTrends});
 
   final VoidCallback onCalendar;
+
+  /// Opens the trends page; null hides the button.
+  final VoidCallback? onTrends;
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +58,15 @@ class FoodPageHeader extends StatelessWidget {
             ),
           ),
         ),
+        if (onTrends case final open?) ...[
+          const SizedBox(width: 12),
+          HeaderIconButton(
+            key: const ValueKey('food-trends'),
+            icon: Icons.insights_rounded,
+            semanticLabel: l10n.foodTrendsButtonSemantics,
+            onTap: open,
+          ),
+        ],
         const SizedBox(width: 12),
         HeaderIconButton.custom(
           key: const ValueKey('food-date-calendar'),

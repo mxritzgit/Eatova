@@ -3850,3 +3850,51 @@ the Trends screen; `bootstrap` in the Coach controller checks only
   in the function logs after the first real requests; the
   `supabase-deploy` environment and its secrets before the first workflow
   run; the privacy-policy sentence on the website.
+
+## Trends page, 2026-10-18
+
+Owner request: the trends were hard to find; a clean trends page with
+averages of steps, calories, protein and more over a week up to six months,
+not as its own tab, placement left to me.
+
+**Decisions:**
+- **Entry points:** a quiet card at the end of Today with the last seven
+  completed days (calories, protein, steps; the steps column drops without a
+  source) opens the page; the Food tab gets a round trends button next to the
+  calendar. The Food day card still opens it. A visible link inside that card
+  was tried and dropped: it wrapped the macro legend on phones and pushed the
+  dinner card out of a flow test's viewport.
+- **Ranges:** 7, 30 and 90 days and 6 months (182 days) in one segmented
+  track: four filter pills did not fit 390 px ("6 Monate" broke mid-word).
+  From 90 days a chart bar is one week, the average of its logged completed
+  days; today never counts in an average (B6), but its bar shows.
+- **Sections:** calories (chart, average, goal rate), macros with
+  protein-goal days, steps (average over days with a value, best day, days
+  at goal, a bar chart with the goal line), weight (raw weigh-ins: change,
+  first and last, weekly rate from a week's span on, a line on the range's
+  calendar) and workouts with a weekly average. Without a step source the
+  steps section says where steps come from.
+- **Data:** `TrendReport` (`lib/src/services/trend_report.dart`) is pure.
+  The server window grew from 90 to 182 days and is read in pages of 1000 rows
+  keyset by id: PostgREST's live `max_rows` is 1000 (Management API,
+  2026-10-18), so the former single `limit(2500)` silently returned at most
+  1000 rows and dropped the oldest days of heavy loggers. Ten pages are the
+  bound; beyond it the load fails instead of showing partial sums. Days the
+  store knows completely are laid over the server rows, so entries still in
+  the outbox count (TRN-9 on the trends page); only after this session's
+  meal load answered, so a stale cache cannot hide another device's entries.
+  Opening a range reads missing step days from Health once per session
+  (`HomeStore.backfillStepsForTrends`); Health Connect still only gives 30
+  days of history without the history permission.
+
+**Verification:** strict analyzer clean; new tests in `test/trends/` (report
+maths, paging against a fake that caps at 1000 rows like PostgREST, store
+overlay and backfill, sections, Today card, and a shell flow through Today's
+card and the Food button with a meal held in the outbox), each critical
+guard seen failing on mutated code (week bar counting today, overlay keeping
+a deleted day, single-page read, backfill re-reading known days, missing
+overlay wiring). Affected existing suites (trends, Today, Food, flows,
+layout, a11y, repo rules) green. Captures checked in dark and light, at
+390 px and at 320 px with 2x text.
+
+**Rollout:** app build only; no migration, no function deploy.
