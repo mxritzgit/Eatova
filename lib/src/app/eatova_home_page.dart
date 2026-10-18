@@ -59,6 +59,7 @@ import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
 import '../widgets/recipes/recipe_pick_actions.dart';
+import '../widgets/shared/reminder_time_picker.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
@@ -404,7 +405,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       MaterialPageRoute<SettingsResult>(
         builder: (_) => StoreSelector(
           store: _store,
-          selector: () => _store.reminderState,
+          selector: () => (_store.reminderState, _store.reminderTime),
           builder: (_) => GoalsScreen(
             profile: _store.profile,
             weightTrendKg: _store.weightLog.planWeightKg(clock.now()),
@@ -412,6 +413,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             notificationsEnabled: _store.notificationsEnabled,
             // Resume may change permission while this route remains open.
             reminderState: _store.reminderState,
+            reminderTime: _store.reminderTime,
             onSave: (result) async {
               if (!_isStoreSessionCurrent(ownerStore)) {
                 throw StateError('Profile owner changed');
@@ -445,7 +447,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       MaterialPageRoute<void>(
         builder: (_) => StoreSelector(
           store: ownerStore,
-          selector: () => (ownerStore.pendingOutbox.length, ownerStore.syncBlockedReason, ownerStore.syncStatusReadable),
+          selector: () => (ownerStore.pendingOutbox.length, ownerStore.syncBlockedReason, ownerStore.syncStatusReadable, ownerStore.reminderState, ownerStore.reminderTime),
           builder: (_) => SettingsScreen(
           pendingSyncCount: ownerStore.pendingOutbox.length,
           syncStatusReadable: ownerStore.syncStatusReadable,
@@ -453,6 +455,20 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           onSyncNow: widget.sync == null ? null : () async {
             if (!_isStoreSessionCurrent(ownerStore)) throw StateError('Settings owner changed');
             await ownerStore.syncPendingWrites(retryBlocked: true);
+          },
+          // C4: the reminder where settings are looked for; same store
+          // state and opt-in as the switch in "Profil & Ziele".
+          reminderState: ownerStore.reminderState,
+          reminderTime: ownerStore.reminderTime,
+          onReminderEnabledChanged: (enabled) {
+            if (_isStoreSessionCurrent(ownerStore)) {
+              unawaited(ownerStore.setNotificationsEnabled(enabled));
+            }
+          },
+          onReminderTimeChanged: (time) {
+            if (_isStoreSessionCurrent(ownerStore)) {
+              unawaited(ownerStore.setReminderTime(time));
+            }
           },
           // No "linked account" row: the app does not know which provider
           // carried the sign-in, and a guessed row is worse than none.
@@ -822,6 +838,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.selectedTrainingPlanId,
       _store.trainingHistory,
       _store.trainingSession,
+      // The one-time reminder card (C4).
+      _store.reminderPromptVisible,
+      _store.reminderTime,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
@@ -869,9 +888,42 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               : _store.acceptEnergyCheck(proposal);
         },
         onDismissEnergyCheck: _store.dismissEnergyCheck,
+        reminderPrompt: today && _store.reminderPromptVisible
+            ? _store.reminderTime
+            : null,
+        onAcceptReminderPrompt: _acceptReminderPrompt,
+        onDismissReminderPrompt: _store.dismissReminderPrompt,
+        onChangeReminderTime: (time) => unawaited(_store.setReminderTime(time)),
       );
     },
   );
+
+  /// The reminder card's "yes" (C4): the store's opt-in, then one honest
+  /// line. A refused permission is said once, the card is gone either way,
+  /// and the settings row shows the blocked state from here on.
+  Future<void> _acceptReminderPrompt() async {
+    final ownerStore = _store;
+    final state = await ownerStore.acceptReminderPrompt();
+    if (!mounted || !_isStoreSessionCurrent(ownerStore)) return;
+    final l10n = context.l10n;
+    switch (state) {
+      case ReminderState.active:
+        _emitSnack(
+          l10n.reminderTimeEnabledSnack(
+            formatReminderTime(context, ownerStore.reminderTime),
+          ),
+          icon: Icons.notifications_active_outlined,
+        );
+      case ReminderState.blocked:
+        _emitSnack(
+          l10n.reminderTimeDeniedSnack,
+          icon: Icons.notifications_off_outlined,
+          tone: SnackTone.warning,
+        );
+      case ReminderState.off:
+        break;
+    }
+  }
 
   /// "Tonight's pick" through the shared pick actions: a suggestion opens
   /// its recipe detail (adding there logs to the shown day), a planned meal

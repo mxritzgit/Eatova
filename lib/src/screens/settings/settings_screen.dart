@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../config/legal_links.dart';
+import '../../app/home_store.dart' show ReminderState;
 import '../../app/locale_controller.dart';
 import '../../auth/auth_repository.dart';
 import '../../l10n/l10n.dart';
+import '../../models/reminder_time.dart';
 import '../../services/crash_reporter.dart';
 import '../../services/secure_screen.dart';
 import '../../services/sync_outbox.dart';
@@ -21,9 +23,10 @@ import '../../widgets/shared/eatova_wordmark.dart';
 import 'account_change_messages.dart';
 import 'account_change_sheets.dart';
 import 'settings_controls.dart';
+import 'settings_reminder_row.dart';
 import 'settings_studio_widgets.dart';
 
-/// Settings — account, appearance, data, danger zone.
+/// Settings — account, appearance, reminder, data, danger zone.
 ///
 /// Body data, activity, goals and daily targets live on their own page
 /// ([GoalsScreen], reachable via "Profil & Ziele"); this page keeps what
@@ -54,6 +57,10 @@ class SettingsScreen extends StatefulWidget {
     this.syncStatusReadable = true,
     this.syncBlockedReason,
     this.onSyncNow,
+    this.reminderState,
+    this.reminderTime = ReminderTime.standard,
+    this.onReminderEnabledChanged,
+    this.onReminderTimeChanged,
   });
 
   /// Session mail address. Null in previews/tests without auth — the row is
@@ -79,6 +86,13 @@ class SettingsScreen extends StatefulWidget {
   final bool syncStatusReadable;
   final SyncBlockedReason? syncBlockedReason;
   final Future<void> Function()? onSyncNow;
+
+  /// The reminder row (C4); it drops out without a state and both callbacks,
+  /// like the other rows without a controller.
+  final ReminderState? reminderState;
+  final ReminderTime reminderTime;
+  final ValueChanged<bool>? onReminderEnabledChanged;
+  final ValueChanged<ReminderTime>? onReminderTimeChanged;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -352,6 +366,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Same guard for the language row: without [LocaleScope] nothing could set
     // the override.
     final localeController = LocaleScope.maybeOf(context);
+    final reminderState = widget.reminderState;
+    final onReminderEnabled = widget.onReminderEnabledChanged;
+    final onReminderTime = widget.onReminderTimeChanged;
     return _gruppe(l10n.settingsStudioPreferences, <Widget>[
       if (widget.onOpenGoals != null)
         SettingsStudioRow(
@@ -360,6 +377,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: l10n.goalsPageTitle,
           subtitle: l10n.settingsOpenGoalsSubtitle,
           onTap: widget.onOpenGoals,
+        ),
+      if (reminderState != null &&
+          onReminderEnabled != null &&
+          onReminderTime != null)
+        SettingsReminderRow(
+          key: const ValueKey('settings-reminder'),
+          state: reminderState,
+          time: widget.reminderTime,
+          onEnabledChanged: onReminderEnabled,
+          onTimeChanged: onReminderTime,
         ),
       // NO `onTap` on these two rows, unlike the Manual row in the goals
       // screen — and that is the decision, not an oversight. That row is a

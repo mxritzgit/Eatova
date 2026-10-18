@@ -86,7 +86,7 @@ void main() {
     expect(reminderSwitch(tester).value, isTrue);
     expect(
       find.text(
-        'Aktiv. Jeden Abend um 20 Uhr, wenn du noch nichts geloggt hast.',
+        'Aktiv. Täglich um 20:00, wenn du noch nichts eingetragen hast.',
       ),
       findsOneWidget,
     );
@@ -169,7 +169,7 @@ void main() {
     expect(reminderSwitch(tester).value, isTrue);
     expect(
       find.text(
-        'Aktiv. Jeden Abend um 20 Uhr, wenn du noch nichts geloggt hast.',
+        'Aktiv. Täglich um 20:00, wenn du noch nichts eingetragen hast.',
       ),
       findsOneWidget,
     );

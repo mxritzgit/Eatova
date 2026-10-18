@@ -6,6 +6,7 @@ import '../../models/day_nutrition.dart';
 import '../../models/lifetime_stats.dart';
 import '../../models/logged_meal.dart';
 import '../../models/recipe_pick.dart';
+import '../../models/reminder_time.dart';
 import '../../models/training_insights.dart';
 import '../../models/training_session.dart';
 import '../../models/user_profile.dart';
@@ -20,6 +21,7 @@ import 'today_energy_check.dart';
 import 'today_glyphs.dart';
 import 'today_hero.dart';
 import 'today_macros.dart';
+import 'today_reminder_prompt.dart';
 import 'today_sections.dart';
 import 'today_texts.dart';
 
@@ -58,6 +60,10 @@ class TodayScreen extends StatelessWidget {
     this.energyCheck,
     this.onAcceptEnergyCheck,
     this.onDismissEnergyCheck,
+    this.reminderPrompt,
+    this.onAcceptReminderPrompt,
+    this.onDismissReminderPrompt,
+    this.onChangeReminderTime,
   });
 
   final String userName;
@@ -124,6 +130,13 @@ class TodayScreen extends StatelessWidget {
   final Future<void> Function()? onAcceptEnergyCheck;
   final Future<void> Function()? onDismissEnergyCheck;
 
+  /// The one-time reminder offer at this time (C4); null hides it. Today only,
+  /// under the meals it is about.
+  final ReminderTime? reminderPrompt;
+  final Future<void> Function()? onAcceptReminderPrompt;
+  final Future<void> Function()? onDismissReminderPrompt;
+  final ValueChanged<ReminderTime>? onChangeReminderTime;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -140,6 +153,7 @@ class TodayScreen extends StatelessWidget {
     final workout = istHeute ? nextWorkout : null;
     final session = istHeute ? activeSession : null;
     final check = istHeute && !dayLoading ? energyCheck : null;
+    final reminder = istHeute && !dayLoading ? reminderPrompt : null;
     final healthMissing = steps == null && healthConnect;
     final showActivity =
         !dayLoading &&
@@ -224,6 +238,17 @@ class TodayScreen extends StatelessWidget {
                 accentSlot: nextSlot,
                 onAdd: onOpenMealSlot,
               ),
+            if (reminder != null &&
+                onAcceptReminderPrompt != null &&
+                onDismissReminderPrompt != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayReminderPromptCard(
+                time: reminder,
+                onAccept: onAcceptReminderPrompt!,
+                onDismiss: onDismissReminderPrompt!,
+                onChangeTime: onChangeReminderTime,
+              ),
+            ],
             if (showActivity) ...<Widget>[
               const SizedBox(height: 16),
               TodayActivityCard(

@@ -358,14 +358,14 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(rSheet),
       ),
     ),
-    // UNREACHED TODAY, kept as a net — same reasoning as `chipTheme`, and here
-    // DELETING would have been the worse option: Material's M3 defaults take
+    // Reached by the reminder time picker (C4, `pickReminderTime`). Kept when
+    // it was still unreached, and DELETING would have been the worse option:
+    // Material's M3 defaults take
     // the dial hand from `ColorScheme.primary`, which this file pins to
     // `forest`, so the exact defect below would come straight back through the
     // scheme (forest vs surfaceContainerHighest = surf2: 1.16:1 dark) and the
     // hour/minute box would arrive in an unvetted `primaryContainer` out of
-    // `fromSeed`. `lib/` has no `showTimePicker` yet; a settable reminder time
-    // (today the fixed `streakReminderHour` = 20:00) is the obvious caller.
+    // `fromSeed`.
     //
     // What was broken (P9-02c), all three pinned in
     // review0829_selection_contrast_test.dart:
