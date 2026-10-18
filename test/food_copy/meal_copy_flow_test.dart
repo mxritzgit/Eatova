@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
-import '../fixlauf_a_helpers.dart';
+import '../support/fixlauf_a_helpers.dart';
 import '../flows/flow_test_helpers.dart';
 import '../support/food_navigation.dart';
 
