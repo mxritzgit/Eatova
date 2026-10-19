@@ -68,6 +68,8 @@ class DataExportService {
     'chat_messages': 'id',
     'chat_quota_usage': 'day',
     'ai_provider_user_usage': 'usage_date',
+    'ai_consents': 'id',
+    'ai_reports': 'id',
   };
 
   /// Format tag in every export header; [exportUmfangAus] uses it to tell an
