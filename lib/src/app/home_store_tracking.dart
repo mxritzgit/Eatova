@@ -53,6 +53,11 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// date would pass an old reading off as a current one.
   static const Duration _healthWeightOfferMaxAge = Duration(days: 7);
 
+  /// Instants (microseconds) of weigh-ins deleted in this session: a scale's
+  /// Health sample behind a deleted import is not offered again right away.
+  /// Not persisted; after a restart a recent one may be offered once more.
+  final Set<int> _deletedWeighIns = <int>{};
+
   // --- Health ---------------------------------------------------------------
 
   /// Called once the account's encrypted cache has been resolved at boot.
@@ -382,6 +387,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (clock.now().difference(measuredAt) > _healthWeightOfferMaxAge) {
       return false;
     }
+    if (_deletedWeighIns.contains(measuredAt.microsecondsSinceEpoch)) {
+      return false;
+    }
     final latest = weightLog.latest;
     return latest == null ||
         (measuredAt.isAfter(latest.timestamp) &&
@@ -425,8 +433,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   // --- Body data (profile) --------------------------------------------------
 
   /// Manual weigh-in: logs locally, syncs, and writes back to HealthKit.
-  Future<void> logWeight(double kg) =>
-      _logWeightInternal(kg, writeToHealth: true);
+  /// [at] dates it (the sheet's time row); null is now, and a moment in the
+  /// future becomes now.
+  Future<void> logWeight(double kg, {DateTime? at}) =>
+      _logWeightInternal(kg, writeToHealth: true, recordedAt: at);
 
   /// Import FROM Apple Health: like [logWeight] but WITHOUT
   /// `health.writeWeight` — writing back would create an echo duplicate.
@@ -461,8 +471,8 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     await _settledLocalMutations();
     final now = clock.now();
     final ts = recordedAt == null || recordedAt.isAfter(now) ? now : recordedAt;
-    final entry = WeightLogEntry(timestamp: ts, weightKg: kg);
     final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: ts);
+    final entry = WeightLogEntry(timestamp: ts, weightKg: kg, id: op.entityId);
     final before = profile;
     final reanchored = _reanchoredProfile(before, weightLog.addEntry(entry));
     final syncHintShown = _syncHintShown;
@@ -483,6 +493,139 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (reanchored != null && !raisedSyncHint) {
       _announceReanchor(before, reanchored);
     }
+  }
+
+  // --- Correcting weigh-ins (review 2026-10-19) ------------------------------
+
+  /// Corrects the value and the moment of the weigh-in with row id [id]. The
+  /// trend re-anchors through the same path as a new weigh-in, in the same
+  /// local commit, so a corrected typo moves the plan back. A moment in the
+  /// future becomes now. Eatova's own Apple Health sample follows.
+  Future<void> updateWeighIn(
+    String id, {
+    required double kg,
+    required DateTime at,
+  }) async {
+    final clean = WeightLog.sanitizeKg(kg);
+    if (clean == null) throw const FormatException('Invalid weight');
+    await _settledLocalMutations();
+    final previous = weightLog.entryWithId(id);
+    if (previous == null) throw StateError('Weigh-in no longer exists');
+    final now = clock.now();
+    final ts = at.isAfter(now) ? now : at;
+    if (previous.weightKg == clean && previous.timestamp.isAtSameMomentAs(ts)) {
+      return;
+    }
+    final entry = WeightLogEntry(timestamp: ts, weightKg: clean, id: id);
+    await _commitWeighInChange(
+      SyncOp.weightUpsert(id: id, weightKg: clean, recordedAt: ts),
+      (log) => log.putEntry(entry),
+      announce: true,
+    );
+    HapticFeedback.lightImpact();
+    unawaited(_moveOwnHealthWeight(previous, entry));
+  }
+
+  /// Deletes the weigh-in with row id [id], with an undo. The delete is
+  /// terminal for the id; the undo restores the value under a new one.
+  Future<void> deleteWeighIn(String id) async {
+    await _settledLocalMutations();
+    final removed = weightLog.entryWithId(id);
+    if (removed == null) return;
+    await _commitWeighInChange(
+      SyncOp.weightDelete(id),
+      (log) => log.removeEntry(id),
+    );
+    _deletedWeighIns.add(removed.timestamp.microsecondsSinceEpoch);
+    HapticFeedback.lightImpact();
+    // Awaited only by an undo; a failure means no sample to write back.
+    final healthSample = _deleteOwnHealthWeight(
+      removed.timestamp,
+    ).catchError((Object _, StackTrace _) => false);
+    Future<void>? restore;
+    // The undo outranks a goal notice: a changed goal shows in the plan.
+    _showUndoSnackBar(
+      _l10n.weighInDeleted,
+      () => unawaited(
+        (restore ??= _restoreWeighIn(removed, healthSample)).catchError((
+          Object error,
+          StackTrace stack,
+        ) {
+          _reportSyncError('undo', error, stack);
+        }),
+      ),
+    );
+  }
+
+  /// Undo of [deleteWeighIn]: the same value and moment under a new id,
+  /// without counting another weigh-in. Eatova's Health sample comes back
+  /// only if the delete took one.
+  Future<void> _restoreWeighIn(
+    WeightLogEntry removed,
+    Future<bool> healthSample,
+  ) async {
+    await _settledLocalMutations();
+    final op = SyncOp.weightUpsert(
+      id: uuidV4(),
+      weightKg: removed.weightKg,
+      recordedAt: removed.timestamp,
+    );
+    final entry = WeightLogEntry(
+      timestamp: removed.timestamp,
+      weightKg: removed.weightKg,
+      id: op.entityId,
+    );
+    await _commitWeighInChange(op, (log) => log.putEntry(entry), announce: true);
+    _deletedWeighIns.remove(removed.timestamp.microsecondsSinceEpoch);
+    if (await healthSample && !_disposed && !_healthSessionEnded) {
+      unawaited(health.writeWeight(removed.weightKg, removed.timestamp));
+    }
+  }
+
+  /// One local commit for a weigh-in change and the profile it re-anchors,
+  /// as [_logWeightInternal] does for a new one. [announce] names a changed
+  /// live goal unless the commit just raised the "syncs later" hint.
+  Future<void> _commitWeighInChange(
+    SyncOp op,
+    WeightLog Function(WeightLog log) apply, {
+    bool announce = false,
+  }) async {
+    final before = profile;
+    final reanchored = _reanchoredProfile(before, apply(weightLog));
+    final syncHintShown = _syncHintShown;
+    await _commitSyncIntents(
+      [op, if (reanchored != null) SyncOp.profileUpsert(reanchored)],
+      publish: () {
+        weightLog = apply(weightLog);
+        if (reanchored != null) profile = reanchored;
+      },
+    );
+    final raisedSyncHint = _syncHintShown && !syncHintShown;
+    if (announce && reanchored != null && !raisedSyncHint) {
+      _announceReanchor(before, reanchored);
+    }
+  }
+
+  /// Eatova's Health sample of an edited weigh-in moves with it. A weigh-in
+  /// imported from another source has none of Eatova's, so Health keeps the
+  /// source's sample as it is.
+  Future<void> _moveOwnHealthWeight(
+    WeightLogEntry previous,
+    WeightLogEntry next,
+  ) async {
+    if (!await _deleteOwnHealthWeight(previous.timestamp)) return;
+    if (_disposed || _healthSessionEnded) return;
+    await health.writeWeight(next.weightKg, next.timestamp);
+  }
+
+  /// Whether Eatova's own Health sample at [at] was deleted; false without
+  /// the capability (Android, tests) or without such a sample.
+  Future<bool> _deleteOwnHealthWeight(DateTime at) async {
+    final service = health;
+    if (_disposed || _healthSessionEnded || service is! HealthWeightCorrection) {
+      return false;
+    }
+    return (service as HealthWeightCorrection).deleteOwnWeight(at);
   }
 
   // --- Weight trend re-anchoring (docs/WEIGHT-TREND.md) ---------------------

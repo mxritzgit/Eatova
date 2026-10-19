@@ -192,6 +192,7 @@ extension LocalCacheMutations on LocalCache {
     SyncOpKind.recipeUpsert ||
     SyncOpKind.recipeDelete => {_userRecipesKey, _recipeVersionsKey},
     SyncOpKind.weightInsert => {_weightLogKey, _statsKey},
+    SyncOpKind.weightUpsert || SyncOpKind.weightDelete => {_weightLogKey},
     SyncOpKind.mealPlanUpsert || SyncOpKind.shoppingCheck => {_mealPlansKey},
     SyncOpKind.mealPlanConvert => {_mealPlansKey, _loggedMealsKey, _statsKey},
     SyncOpKind.trainingPlanUpsert || SyncOpKind.trainingPlanDelete => {
@@ -299,6 +300,10 @@ extension LocalCacheMutations on LocalCache {
               .where((old) => old.entityKey == op.entityKey)
               .lastOrNull;
           if (previous != null) op = op.withPredecessor(previous.operationId);
+        }
+        if (op.kind == SyncOpKind.weightUpsert ||
+            op.kind == SyncOpKind.weightDelete) {
+          _dropLegacyWeighInRows(state, queue, op.entityId);
         }
         if (op.kind == SyncOpKind.mealDelete ||
             op.kind == SyncOpKind.mealUpsert) {
@@ -563,6 +568,11 @@ extension LocalCacheMutations on LocalCache {
               delivered.entityId,
               null,
             );
+          case SyncOpKind.weightUpsert:
+          case SyncOpKind.weightDelete:
+            // Deleted here or on another device: the row goes. A newer
+            // queued edit of the id gets the same answer when delivered.
+            _put(state, _weightLogKey, 'items', 'id', delivered.entityId, null);
           case SyncOpKind.trainingPlanUpsert:
           case SyncOpKind.trainingPlanDelete:
             break;
@@ -684,6 +694,8 @@ extension LocalCacheMutations on LocalCache {
         SyncOpKind.mealUpsert ||
         SyncOpKind.mealDelete => {if (result.entityDeleted) _loggedMealsKey},
         SyncOpKind.weightInsert => const {},
+        SyncOpKind.weightUpsert ||
+        SyncOpKind.weightDelete => {if (result.entityDeleted) _weightLogKey},
         SyncOpKind.mealPlanConvert => {_mealPlansKey},
         _ => _keysForOperation(op),
       };
@@ -1187,6 +1199,31 @@ extension LocalCacheMutations on LocalCache {
     };
   }
 
+  /// Rows an older build cached without ids for the queued insert of [id].
+  /// They would otherwise still read as that weigh-in after its edit or
+  /// delete ([LocalCache._queuedWeighInOf]).
+  void _dropLegacyWeighInRows(
+    Map<String, Map<String, dynamic>?> state,
+    List<SyncOp> queue,
+    String id,
+  ) {
+    final insert = queue
+        .where((op) => op.kind == SyncOpKind.weightInsert && op.entityId == id)
+        .firstOrNull;
+    if (insert == null) return;
+    final rows = _rows(state, _weightLogKey, 'items');
+    final legacy = [
+      for (final row in rows)
+        if (row['id'] == null &&
+            LocalCache._queuedWeighInOf(row, [insert]) != null)
+          row,
+    ];
+    if (legacy.isEmpty) return;
+    state[_weightLogKey] = {
+      'items': rows.where((row) => !legacy.contains(row)).toList(),
+    };
+  }
+
   void _deleteHistory(Map<String, Map<String, dynamic>?> state, String id) {
     final ids = ((state[_trainingHistoryDeletionsKey]?['ids'] as List?) ?? [])
         .cast<String>()
@@ -1376,6 +1413,27 @@ extension LocalCacheMutations on LocalCache {
             );
           }
         }
+      case SyncOpKind.weightUpsert:
+        final kg = op.weightKg, ts = op.recordedAt;
+        if (kg == null || ts == null) {
+          throw const FormatException('Invalid weight');
+        }
+        // An edit counts nothing; the row moves to its new instant.
+        final rows = _rows(state, _weightLogKey, 'items')
+          ..removeWhere((row) => row['id'] == op.entityId)
+          ..add({
+            'id': op.entityId,
+            't': LocalCache._weighInTime(ts),
+            'kg': kg,
+          })
+          ..sort((a, b) => DateTime.parse(a['t'] as String)
+              .compareTo(DateTime.parse(b['t'] as String)));
+        if (rows.length > WeightLog.maxEntries) {
+          rows.removeRange(0, rows.length - WeightLog.maxEntries);
+        }
+        state[_weightLogKey] = {'items': rows};
+      case SyncOpKind.weightDelete:
+        _put(state, _weightLogKey, 'items', 'id', op.entityId, null);
       case SyncOpKind.mealPlanUpsert:
         final plan = op.plannedMeal;
         if (plan == null) throw const FormatException('Invalid meal plan');

@@ -32,6 +32,17 @@ abstract interface class HealthConnectAccess {
   void restoreConnection();
 }
 
+/// Optional: the health store can take back a weight sample this app wrote
+/// itself, so an edited or deleted weigh-in does not stay behind there.
+/// Samples of other sources (a scale) are never touched; the store only
+/// lets an app delete what it wrote.
+abstract interface class HealthWeightCorrection {
+  /// Deletes this app's weight samples at [when] (within a second). Returns
+  /// whether one was deleted; false when there was none, it was not this
+  /// app's, or the store could not be read.
+  Future<bool> deleteOwnWeight(DateTime when);
+}
+
 /// A single weight sample from the health store, used by the import path to
 /// prefill the last known weight on connect.
 class WeightSample {

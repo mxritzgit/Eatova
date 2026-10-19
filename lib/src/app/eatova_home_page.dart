@@ -62,6 +62,7 @@ import '../widgets/common/store_selector.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
+import '../widgets/profile/profile_widgets.dart' show WeighInActions;
 import '../widgets/recipes/recipe_pick_actions.dart';
 import '../widgets/shared/reminder_time_picker.dart';
 import '../widgets/shared/settings_sheet.dart';
@@ -588,6 +589,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               healthSyncing: _store.healthSyncing,
               onHealthSettings: _store.openHealthSettings,
               onLogWeight: _store.logWeight,
+              weighIns: _weighInActions(ownerStore),
               onEditProfile: _openGoals,
               onOpenSettings: _openSettings,
               onConnectHealth: _store.connectHealth,
@@ -916,6 +918,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // The weight chip: the profile's weigh-in path, for this session.
         latestWeightKg: _store.weightLog.latest?.weightKg,
         onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,
+        weighIns: today ? _weighInActions(ownerStore) : null,
         trendsPreview: today ? _todayTrendsPreview() : null,
         onOpenTrends: _openTrends,
       );
@@ -1038,6 +1041,34 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       throw StateError('Weight owner changed');
     }
     await ownerStore.logWeight(kg);
+  }
+
+  /// Dated weigh-ins and the history with edit and delete, bound to
+  /// [ownerStore]: a sheet opened before an account change fails its save
+  /// instead of writing into the new session.
+  WeighInActions _weighInActions(HomeStore ownerStore) {
+    void ensureOwner() {
+      if (!_isStoreSessionCurrent(ownerStore)) {
+        throw StateError('Weight owner changed');
+      }
+    }
+
+    return WeighInActions(
+      changes: ownerStore,
+      log: () => ownerStore.weightLog,
+      logAt: (kg, at) async {
+        ensureOwner();
+        await ownerStore.logWeight(kg, at: at);
+      },
+      update: (id, kg, at) async {
+        ensureOwner();
+        await ownerStore.updateWeighIn(id, kg: kg, at: at);
+      },
+      delete: (id) async {
+        ensureOwner();
+        await ownerStore.deleteWeighIn(id);
+      },
+    );
   }
 
   /// "Tonight's pick" through the shared pick actions: a suggestion opens

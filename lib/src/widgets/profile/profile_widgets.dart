@@ -21,6 +21,7 @@ import '../../models/model_limits.dart';
 import '../../models/number_input.dart';
 import '../../models/user_profile.dart';
 import '../../models/weight_log.dart';
+import '../../screens/today/today_day_strip.dart';
 import '../../services/health_service.dart';
 import '../../services/kcal_calculator.dart';
 import '../../services/kcal_format.dart';
@@ -34,6 +35,7 @@ part 'profile_widgets_body.dart';
 part 'profile_widgets_goals.dart';
 part 'profile_widgets_stats.dart';
 part 'profile_widgets_actions.dart';
+part 'profile_widgets_weigh_ins.dart';
 
 /// Short locale-aware day.month label (`de` "28.8.", `en` "8/28") for the
 /// weight captions and the health timestamp (F7-09). `DateFormat.Md('de')`

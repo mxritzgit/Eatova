@@ -44,6 +44,7 @@ class ProfileScreen extends StatelessWidget {
     this.healthSyncing = false,
     this.onHealthSettings,
     this.onSaveFoodPreferences,
+    this.weighIns,
   });
 
   final String name;
@@ -77,6 +78,9 @@ class ProfileScreen extends StatelessWidget {
   /// Saves the diet editor's result (`HomeStore.updateFoodPreferences`); null
   /// shows the card without its edit button.
   final PersistValueChanged<FoodPreferences>? onSaveFoodPreferences;
+
+  /// Dated weigh-ins and the weigh-in history for the weight card.
+  final WeighInActions? weighIns;
 
   @override
   Widget build(BuildContext context) {
@@ -182,6 +186,7 @@ class ProfileScreen extends StatelessWidget {
                       profile: profile,
                       log: weightLog,
                       onLogWeight: onLogWeight,
+                      weighIns: weighIns,
                     ),
                     const SizedBox(height: 12),
                     BmiCard(profile: profile, log: weightLog),

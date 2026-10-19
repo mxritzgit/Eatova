@@ -17,7 +17,8 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
-import '../../widgets/profile/profile_widgets.dart' show showWeightEntrySheet;
+import '../../widgets/profile/profile_widgets.dart'
+    show WeighInActions, showWeightEntrySheet;
 import 'today_day_strip.dart';
 import 'today_energy_check.dart';
 import 'today_glyphs.dart';
@@ -71,6 +72,7 @@ class TodayScreen extends StatelessWidget {
     this.energyCheckProgress,
     this.latestWeightKg,
     this.onLogWeight,
+    this.weighIns,
     this.trendsPreview,
     this.onOpenTrends,
   });
@@ -157,6 +159,9 @@ class TodayScreen extends StatelessWidget {
   /// Saves a weigh-in from the chip's sheet, the profile's entry path
   /// (`showWeightEntrySheet`). Null hides the chip; today only.
   final PersistValueChanged<double>? onLogWeight;
+
+  /// The weigh-in sheet's date row and history link; null keeps "log now".
+  final WeighInActions? weighIns;
 
   /// The last seven completed days for the trends card; null hides it
   /// (archive days). Today only, at the end of the page.
@@ -247,6 +252,7 @@ class TodayScreen extends StatelessWidget {
                     context,
                     initial: latestWeightKg ?? profile.weightKg.toDouble(),
                     onSave: logWeight,
+                    actions: weighIns,
                   ),
                   // The proposal card speaks for the check while it shows.
                   progress: showCheckCard ? null : energyCheckProgress,

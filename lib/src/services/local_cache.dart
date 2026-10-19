@@ -730,10 +730,13 @@ class LocalCache {
   // wall clock without offset; such a legacy row reads in the current zone,
   // the only reading without its lost offset, unless it shows a queued
   // weigh-in ([_queuedWeighInOf]), whose operation keeps the exact instant.
+  // Since 2026-10-19 rows keep their `weight_log` id, which an edit or a
+  // delete addresses; rows of older builds have none until the next load.
   static Map<String, dynamic> _weightLogToJson(WeightLog log) =>
       <String, dynamic>{
         'items': log.entries
             .map((e) => <String, dynamic>{
+                  if (e.id != null) 'id': e.id,
                   't': _weighInTime(e.timestamp),
                   'kg': e.weightKg,
                 })
@@ -795,19 +798,28 @@ class LocalCache {
       final entries = <WeightLogEntry>[];
       for (final j in items) {
         final kg = (j['kg'] as num).toDouble();
+        final cached = DateTime.parse(j['t'] as String);
+        final id = j['id'] is String ? j['id'] as String : null;
         final op = _queuedWeighInOf(
           j,
           queued.where((op) => !shown.contains(op.entityId)),
         );
         if (op != null) {
           shown.add(op.entityId);
-          entries.add(WeightLogEntry(timestamp: op.recordedAt!, weightKg: kg));
-        } else if (_queuedWeighInOf(j, queued) == null) {
           entries.add(
             WeightLogEntry(
-              timestamp: DateTime.parse(j['t'] as String).toLocal(),
+              // A row carrying the id is exact (UTC) and may hold an edit
+              // queued behind the insert; a legacy row takes the insert's.
+              timestamp: id == op.entityId && cached.isUtc
+                  ? cached.toLocal()
+                  : op.recordedAt!,
               weightKg: kg,
+              id: op.entityId,
             ),
+          );
+        } else if (_queuedWeighInOf(j, queued) == null) {
+          entries.add(
+            WeightLogEntry(timestamp: cached.toLocal(), weightKg: kg, id: id),
           );
         }
         // Otherwise another row of an already shown queued weigh-in.

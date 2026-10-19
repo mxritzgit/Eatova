@@ -403,6 +403,25 @@ class SyncOperationFake {
         weights.putIfAbsent(entity, () => row('row'));
         incrementStats(_statsId(entity), 0, 1);
         result = {'lifetime_stats': readStats()};
+      case 'weightUpsert':
+        // 20261019110000: an edit or a restore, never counted; a deleted id
+        // stays deleted.
+        final weight = row('row');
+        if (weight['id'] != entity) {
+          throw const PostgrestException(
+            message: 'EX_INVALID_WEIGHT',
+            code: '22023',
+          );
+        }
+        if (deleted.contains('weight:$entity')) {
+          result = {'entity_deleted': true};
+        } else {
+          weights[entity] = weight;
+        }
+      case 'weightDelete':
+        weights.remove(entity);
+        deleted.add('weight:$entity');
+        result = {'entity_deleted': true};
       case 'favoriteUpsert':
         favorites[entity] = row('row');
       case 'favoriteDelete':
@@ -539,6 +558,8 @@ class SyncOperationFake {
       state['training_plan'] = plan;
     } else if (kind.startsWith('trainingHistory')) {
       state['entity_deleted'] = !trainingHistory.containsKey(entity);
+    } else if (kind == 'weightUpsert' || kind == 'weightDelete') {
+      state['entity_deleted'] = !weights.containsKey(entity);
     }
     response['current_state'] = _copy(state);
     return response;

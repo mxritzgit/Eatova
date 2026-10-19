@@ -277,6 +277,8 @@ class SyncOperationReceipt {
       SyncOpKind.mealPlanUpsert => plan != null,
       SyncOpKind.mealUpsert ||
       SyncOpKind.mealDelete ||
+      SyncOpKind.weightUpsert ||
+      SyncOpKind.weightDelete ||
       SyncOpKind.trainingPlanUpsert ||
       SyncOpKind.trainingPlanDelete ||
       SyncOpKind.trainingHistoryInsert ||

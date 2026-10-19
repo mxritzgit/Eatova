@@ -22,7 +22,7 @@ class TrackingSync {
     try {
       final rows = await _client
           .from('weight_log')
-          .select('recorded_at, weight_kg')
+          .select('id, recorded_at, weight_kg')
           .eq('user_id', _userId)
           .order('recorded_at', ascending: false)
           .limit(weightLogLimit);
@@ -31,6 +31,8 @@ class TrackingSync {
           timestamp:
               DateTime.parse(row['recorded_at'] as String).toLocal(),
           weightKg: (row['weight_kg'] as num).toDouble(),
+          // The row id an edit or a delete addresses.
+          id: row['id'] as String?,
         );
       }).toList()
         // Back to the ascending order WeightLog expects (latest ==

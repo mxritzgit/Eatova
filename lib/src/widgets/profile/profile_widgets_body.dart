@@ -8,11 +8,16 @@ class WeightCard extends StatelessWidget {
     required this.profile,
     required this.log,
     required this.onLogWeight,
+    this.weighIns,
   });
 
   final UserProfile profile;
   final WeightLog log;
   final PersistValueChanged<double> onLogWeight;
+
+  /// Dated weigh-ins and the history with edit and delete; null keeps the
+  /// plain "log now" sheet.
+  final WeighInActions? weighIns;
 
   double get _current => log.latest?.weightKg ?? profile.weightKg.toDouble();
 
@@ -186,6 +191,17 @@ class WeightCard extends StatelessWidget {
             height: 48,
             onTap: () => _promptWeight(context),
           ),
+          if (weighIns != null && entries.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            SoftPillButton(
+              key: const ValueKey('weigh-in-history-open'),
+              label: l10n.weightLogHistoryOpen,
+              icon: Icons.history_rounded,
+              tone: SoftPillTone.neutral,
+              expand: true,
+              onTap: () => showWeighInHistorySheet(context, weighIns!),
+            ),
+          ],
         ],
       ),
     );
@@ -281,8 +297,12 @@ class WeightCard extends StatelessWidget {
   /// NEXT TO the builder child, where no sheet can reach it. Drawn inside the
   /// sheet instead: a [SheetHandle] with the dismiss action. The shell
   /// (scrim, edge, keyboard inset, height cap) is [showEatovaSheet]'s.
-  Future<void> _promptWeight(BuildContext context) =>
-      showWeightEntrySheet(context, initial: _current, onSave: onLogWeight);
+  Future<void> _promptWeight(BuildContext context) => showWeightEntrySheet(
+    context,
+    initial: _current,
+    onSave: onLogWeight,
+    actions: weighIns,
+  );
 
   static String _formatShort(DateTime d, AppLocalizations l10n) {
     final now = clock.now();
@@ -607,21 +627,39 @@ class _ZoneRow extends StatelessWidget {
 /// The weigh-in sheet ([WeightCard._promptWeight] explains its shape): one
 /// field prefilled with [initial], saved through [onSave], closed on
 /// success. The profile's weight card and Today's weight chip share it.
+///
+/// With [actions] it also dates the weigh-in (default now) and links the
+/// history, which opens once this sheet has closed.
 Future<void> showWeightEntrySheet(
   BuildContext context, {
   required double initial,
   required PersistValueChanged<double> onSave,
-}) => showEatovaSheet<double>(
-  context,
-  _ProfileWeightInputSheet(initial: initial, onSave: onSave),
-  dragHandle: false,
-);
+  WeighInActions? actions,
+}) async {
+  final result = await showEatovaSheet<Object>(
+    context,
+    _ProfileWeightInputSheet(initial: initial, onSave: onSave, actions: actions),
+    dragHandle: false,
+  );
+  if (result is _OpenWeighInHistory && actions != null && context.mounted) {
+    await showWeighInHistorySheet(context, actions);
+  }
+}
 
 class _ProfileWeightInputSheet extends StatefulWidget {
-  const _ProfileWeightInputSheet({required this.initial, required this.onSave});
+  const _ProfileWeightInputSheet({
+    required this.initial,
+    required this.onSave,
+    this.actions,
+    this.editing,
+  });
 
   final double initial;
   final PersistValueChanged<double> onSave;
+  final WeighInActions? actions;
+
+  /// The weigh-in being corrected; null logs a new one.
+  final WeightLogEntry? editing;
 
   @override
   State<_ProfileWeightInputSheet> createState() =>
@@ -634,6 +672,47 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
   TextEditingController? _field;
   TextEditingController get _controller => _field!;
   final FocusNode _focus = FocusNode();
+
+  /// The weigh-in's day and time; a null time is "now" for a new one.
+  late DateTime _day;
+  TimeOfDay? _time;
+
+  /// An edit keeps the exact original moment until day or time change.
+  bool _whenChanged = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final editing = widget.editing;
+    if (editing == null) {
+      _day = DateUtils.dateOnly(clock.now());
+    } else {
+      final local = editing.timestamp.toLocal();
+      _day = DateUtils.dateOnly(local);
+      _time = TimeOfDay.fromDateTime(local);
+    }
+  }
+
+  /// The chosen moment, never after now; null is "now" for a new weigh-in.
+  DateTime? get _at {
+    final editing = widget.editing;
+    if (editing != null && !_whenChanged) return editing.timestamp;
+    final now = clock.now();
+    final time = _time;
+    if (time == null && DateUtils.isSameDay(_day, now)) return null;
+    final t = time ?? TimeOfDay.fromDateTime(now);
+    final at = DateTime(_day.year, _day.month, _day.day, t.hour, t.minute);
+    return at.isAfter(now) ? now : at;
+  }
+
+  /// A year back, or the edited weigh-in's day if that is older.
+  DateTime get _firstDate {
+    final bound = DateUtils.dateOnly(clock.now().subtract(kWeighInMaxBackdate));
+    final editing = widget.editing;
+    if (editing == null) return bound;
+    final own = DateUtils.dateOnly(editing.timestamp.toLocal());
+    return own.isBefore(bound) ? own : bound;
+  }
 
   @override
   void didChangeDependencies() {
@@ -682,11 +761,33 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
     final v = _value;
     if (v == null || !isValidWeightLogKg(v) || _saving) return;
     setState(() => _saving = true);
-    final saved = await tryPersistChange(context, () => widget.onSave(v));
+    final actions = widget.actions;
+    final editing = widget.editing;
+    final id = editing?.id;
+    final at = _at;
+    final saved = await tryPersistChange(context, () {
+      if (actions != null && id != null) {
+        return actions.update(id, v, at ?? editing!.timestamp);
+      }
+      if (actions != null) return actions.logAt(v, at);
+      return widget.onSave(v);
+    });
     if (!mounted) return;
     setState(() => _saving = false);
     if (!saved) return;
     Navigator.pop(context, v);
+  }
+
+  /// Deletes the edited weigh-in; the store's snack offers the undo.
+  Future<void> _delete() async {
+    final actions = widget.actions;
+    final id = widget.editing?.id;
+    if (actions == null || id == null || _saving) return;
+    setState(() => _saving = true);
+    final deleted = await tryPersistChange(context, () => actions.delete(id));
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (deleted) Navigator.pop(context);
   }
 
   @override
@@ -717,7 +818,9 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
             HeadingSemantics(
               level: 1,
               child: Text(
-                l10n.profileLogWeightCta,
+                widget.editing == null
+                    ? l10n.profileLogWeightCta
+                    : l10n.weighInEditTitle,
                 style: AppType.display(24, color: t.ink),
               ),
             ),
@@ -772,6 +875,22 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
                 ),
               ),
             ],
+            if (widget.actions != null) ...<Widget>[
+              const SizedBox(height: 18),
+              _WeighInWhen(
+                day: _day,
+                time: _time,
+                firstDate: _firstDate,
+                onDay: (day) => setState(() {
+                  _day = day;
+                  _whenChanged = true;
+                }),
+                onTime: (time) => setState(() {
+                  _time = time;
+                  _whenChanged = true;
+                }),
+              ),
+            ],
             const SizedBox(height: 16),
             Semantics(
               // Same pattern as the goals page. The button dims itself when
@@ -786,6 +905,31 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
                 onTap: gesperrt ? null : _save,
               ),
             ),
+            if (widget.actions != null && widget.editing == null) ...<Widget>[
+              const SizedBox(height: 8),
+              SoftPillButton(
+                key: const ValueKey('weigh-in-history-link'),
+                label: l10n.weighInHistoryLink,
+                icon: Icons.history_rounded,
+                tone: SoftPillTone.neutral,
+                expand: true,
+                onTap: _saving
+                    ? null
+                    : () => Navigator.pop(context, const _OpenWeighInHistory()),
+              ),
+            ],
+            if (widget.actions != null &&
+                widget.editing?.id != null) ...<Widget>[
+              const SizedBox(height: 8),
+              SoftPillButton(
+                key: const ValueKey('weigh-in-delete'),
+                label: l10n.weighInDelete,
+                icon: Icons.delete_outline_rounded,
+                tone: SoftPillTone.danger,
+                expand: true,
+                onTap: _saving ? null : _delete,
+              ),
+            ],
           ],
         ),
       ),

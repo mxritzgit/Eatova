@@ -5,10 +5,19 @@ import 'package:clock/clock.dart';
 import 'model_limits.dart';
 
 class WeightLogEntry {
-  const WeightLogEntry({required this.timestamp, required this.weightKg});
+  const WeightLogEntry({
+    required this.timestamp,
+    required this.weightKg,
+    this.id,
+  });
 
   final DateTime timestamp;
   final double weightKg;
+
+  /// The `weight_log` row UUID, which an edit or a delete addresses. Null
+  /// only for a row an older build cached without it; the next server load
+  /// supplies it.
+  final String? id;
 }
 
 /// Weight history, ascending (oldest first, [latest] == `entries.last`).
@@ -83,9 +92,9 @@ class WeightLog {
   /// weigh-ins. Use [planWeightKg] for goals and forecast.
   ///
   /// A time-aware exponentially weighted moving average over the LAST
-  /// weigh-in of each local calendar day (a later entry corrects an earlier
-  /// one; there is no delete): a day `Δ` days after the last counted one
-  /// moves the trend by `1 − (1 − trendAlphaPerDay)^Δ`.
+  /// weigh-in of each local calendar day (a later entry of the same day
+  /// counts instead of an earlier one): a day `Δ` days after the last
+  /// counted one moves the trend by `1 − (1 − trendAlphaPerDay)^Δ`.
   ///
   /// An outlier day ([trendOutlierShare]) is held back. If the next day lies
   /// within the share of it, the jump is real and the trend moves to that
@@ -169,5 +178,33 @@ class WeightLog {
   WeightLog addEntry(WeightLogEntry entry) {
     if (!entry.weightKg.isFinite || entry.weightKg <= 0) return this;
     return WeightLog.capped([...entries, entry]);
+  }
+
+  /// The entry with row id [id], or null.
+  WeightLogEntry? entryWithId(String id) =>
+      entries.where((e) => e.id == id).firstOrNull;
+
+  /// [entry] in place of the entry with its id, or added when no entry has
+  /// it (an edit, or the undo of a delete under a new id). Re-sorted, so an
+  /// edited time moves the point.
+  WeightLog putEntry(WeightLogEntry entry) {
+    final id = entry.id;
+    if (id == null || !entry.weightKg.isFinite || entry.weightKg <= 0) {
+      return this;
+    }
+    return WeightLog.capped([
+      for (final e in entries)
+        if (e.id != id) e,
+      entry,
+    ]);
+  }
+
+  /// Without the entry whose row id is [id].
+  WeightLog removeEntry(String id) {
+    if (!entries.any((e) => e.id == id)) return this;
+    return WeightLog(entries: [
+      for (final e in entries)
+        if (e.id != id) e,
+    ]);
   }
 }

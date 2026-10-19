@@ -354,6 +354,12 @@ void main() {
           weightKg: 80,
           recordedAt: DateTime(2026, 8, 6),
         ),
+        SyncOp.weightUpsert(
+          id: 'w-1',
+          weightKg: 79.5,
+          recordedAt: DateTime(2026, 8, 5),
+        ),
+        SyncOp.weightDelete('w-1'),
         SyncOp.favoriteUpsert(testFavorite('fav-1', result: _result())),
         SyncOp.favoriteDelete('fav-1'),
         SyncOp.recipeUpsert(_recipe()),
