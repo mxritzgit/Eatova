@@ -2,9 +2,18 @@ part of 'recipes_screen.dart';
 
 /// Open photo rows continue the Food diary's restrained list treatment.
 class _RecipeListTile extends StatelessWidget {
-  const _RecipeListTile({super.key, required this.recipe, required this.onTap});
+  const _RecipeListTile({
+    super.key,
+    required this.recipe,
+    required this.onTap,
+    this.avoided = const <FoodAvoidance>{},
+  });
   final FitnessRecipe recipe;
   final VoidCallback onTap;
+
+  /// The user's avoided foods; a recipe containing some gets a
+  /// [RecipeAvoidHint] under its figures.
+  final Set<FoodAvoidance> avoided;
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +54,10 @@ class _RecipeListTile extends StatelessWidget {
                       _recipeSummary(recipe, context.l10n),
                       style: AppType.ui(13, color: t.ink2, height: 1.4),
                     ),
+                    if (recipe.avoidedFoods(avoided).isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      RecipeAvoidHint(recipe: recipe, avoided: avoided),
+                    ],
                   ],
                 ),
               ),

@@ -15,9 +15,14 @@ class RecipeDetailScreen extends StatefulWidget {
     this.isSessionCurrent,
     this.productService,
     this.showAddAction = true,
+    this.avoidances = const <FoodAvoidance>{},
   });
 
   final FitnessRecipe recipe;
+
+  /// The user's avoided foods: a recipe containing some says so under its
+  /// hero ([RecipeAvoidHint]).
+  final Set<FoodAvoidance> avoidances;
   final FutureOr<void> Function(MealAnalysisResult result, MealSlot slot)
   onAddMeal;
   final Future<bool> Function(String slug)? onOpenHistory;
@@ -389,6 +394,10 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     ],
                   ),
                 ),
+                if (recipe.avoidedFoods(widget.avoidances).isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  RecipeAvoidHint(recipe: recipe, avoided: widget.avoidances),
+                ],
                 if (recipe.displayCategories.length > 1) ...[
                   const SizedBox(height: 14),
                   Wrap(

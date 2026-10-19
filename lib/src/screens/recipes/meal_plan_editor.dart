@@ -152,6 +152,8 @@ class _PlanEditorState extends State<_PlanEditor> {
               ).contains(foldRecipeSearchText(_query)),
             )
             .toList();
+    // A picker, not a suggestion: avoided foods stay listed with a hint.
+    final avoided = widget.store.profile.foodAvoidances;
     // showEatovaSheet supplies the keyboard inset and the height cap; the
     // form only keeps clear of the home indicator.
     return SafeArea(
@@ -240,6 +242,13 @@ class _PlanEditorState extends State<_PlanEditor> {
                                     height: 1.4,
                                   ),
                                 ),
+                                if (recipe.avoidedFoods(avoided).isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  RecipeAvoidHint(
+                                    recipe: recipe,
+                                    avoided: avoided,
+                                  ),
+                                ],
                               ],
                             ),
                           ),

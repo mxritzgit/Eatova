@@ -1,4 +1,5 @@
 import 'fitness_recipe.dart';
+import 'food_preferences.dart';
 
 /// English catalog of the 30 built-in recipes.
 ///
@@ -25,6 +26,10 @@ import 'fitness_recipe.dart';
 ///  * `Fisch`/`Vegetarisch`/`Vegan` decide `matchesDiet`, which treats
 ///    everything else as meat. A meat-free dish that carries none of them is
 ///    withheld from vegetarians; a meat dish must carry none (P2-03).
+///
+/// `avoidanceTags` are language-neutral too: the same reviewed sets as
+/// [recipeCatalogDe] (see the rule there and
+/// test/models/recipe_avoidance_tags_test.dart).
 const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
   FitnessRecipe(
     slug: "hahnchen_mit_reis_and_brokkoli",
@@ -41,6 +46,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 12,
     estimatedGrams: 530,
     categories: <String>["High Protein", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{},
   ),
   FitnessRecipe(
     slug: "lachs_mit_sukartoffel_and_spargel",
@@ -57,6 +63,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 29,
     estimatedGrams: 595,
     categories: <String>["Fisch", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.fish, FoodAvoidance.mustard},
   ),
   FitnessRecipe(
     slug: "putensteak_mit_quinoa_and_ofengemuse",
@@ -73,6 +80,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 15,
     estimatedGrams: 560,
     categories: <String>["High Protein", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{},
   ),
   FitnessRecipe(
     slug: "rindersteak_mit_kartoffeln_and_bohnen",
@@ -89,6 +97,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 28,
     estimatedGrams: 610,
     categories: <String>["High Protein", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{},
   ),
   FitnessRecipe(
     slug: "garnelen_mit_vollkornnudeln_and_zucchini",
@@ -105,6 +114,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 11,
     estimatedGrams: 570,
     categories: <String>["Fisch", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.shellfish},
   ),
   FitnessRecipe(
     slug: "omelett_mit_spinat_and_avocado",
@@ -121,6 +131,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 44,
     estimatedGrams: 600,
     categories: <String>["Frühstück", "Vegetarisch", "Low Carb", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.egg},
   ),
   FitnessRecipe(
     slug: "thunfisch_mit_couscous_and_gemuse",
@@ -137,6 +148,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 15,
     estimatedGrams: 585,
     categories: <String>["Fisch", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.soy, FoodAvoidance.fish, FoodAvoidance.sesame, FoodAvoidance.celery, FoodAvoidance.alcohol},
   ),
   FitnessRecipe(
     slug: "tofu_mit_reis_and_edamame",
@@ -153,6 +165,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 18,
     estimatedGrams: 530,
     categories: <String>["Vegetarisch", "Vegan", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.soy, FoodAvoidance.sesame, FoodAvoidance.alcohol},
   ),
   FitnessRecipe(
     slug: "hahnchen_mit_sukartoffel_and_bohnen",
@@ -169,6 +182,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 16,
     estimatedGrams: 620,
     categories: <String>["High Protein", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{},
   ),
   FitnessRecipe(
     slug: "putenballchen_mit_reis_and_gemuse",
@@ -185,6 +199,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 18,
     estimatedGrams: 660,
     categories: <String>["High Protein", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.egg, FoodAvoidance.mustard},
   ),
   FitnessRecipe(
     slug: "protein_pancakes_mit_beeren",
@@ -201,6 +216,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 13,
     estimatedGrams: 470,
     categories: <String>["Frühstück", "High Protein", "Vegetarisch"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.gluten, FoodAvoidance.egg},
   ),
   FitnessRecipe(
     slug: "overnight_oats_mit_skyr_and_banane",
@@ -217,6 +233,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 9,
     estimatedGrams: 445,
     categories: <String>["Frühstück", "Vegetarisch", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.gluten, FoodAvoidance.soy},
   ),
   FitnessRecipe(
     slug: "skyr_bowl_mit_beeren_and_granola",
@@ -233,6 +250,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 9,
     estimatedGrams: 410,
     categories: <String>["Frühstück", "High Protein", "Vegetarisch"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.gluten, FoodAvoidance.nuts, FoodAvoidance.peanuts},
   ),
   FitnessRecipe(
     slug: "shakshuka_mit_eiern_and_feta",
@@ -249,6 +267,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 30,
     estimatedGrams: 750,
     categories: <String>["Frühstück", "Vegetarisch", "Low Carb"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.egg},
   ),
   FitnessRecipe(
     slug: "ruhrei_mit_vollkornbrot_and_avocado",
@@ -265,6 +284,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 31,
     estimatedGrams: 375,
     categories: <String>["Frühstück", "Vegetarisch"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.gluten, FoodAvoidance.egg},
   ),
   FitnessRecipe(
     slug: "chicken_wrap_mit_joghurt_dressing",
@@ -281,6 +301,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 16,
     estimatedGrams: 425,
     categories: <String>["Hauptgericht", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.gluten, FoodAvoidance.mustard},
   ),
   FitnessRecipe(
     slug: "hahnchen_curry_mit_reis",
@@ -297,6 +318,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 16,
     estimatedGrams: 635,
     categories: <String>["Hauptgericht", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.fish, FoodAvoidance.shellfish, FoodAvoidance.celery, FoodAvoidance.mustard},
   ),
   FitnessRecipe(
     slug: "rinderhack_chili_mit_bohnen",
@@ -313,6 +335,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 22,
     estimatedGrams: 610,
     categories: <String>["Hauptgericht", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose},
   ),
   FitnessRecipe(
     slug: "rinderstreifen_stir_fry_mit_reis",
@@ -329,6 +352,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 18,
     estimatedGrams: 525,
     categories: <String>["Hauptgericht", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.soy, FoodAvoidance.sesame, FoodAvoidance.alcohol},
   ),
   FitnessRecipe(
     slug: "schweinefilet_mit_kartoffeln_and_brokkoli",
@@ -345,6 +369,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 18,
     estimatedGrams: 610,
     categories: <String>["Hauptgericht", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.mustard, FoodAvoidance.pork},
   ),
   FitnessRecipe(
     slug: "hahnchen_pesto_pasta",
@@ -361,6 +386,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 22,
     estimatedGrams: 515,
     categories: <String>["Hauptgericht", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.gluten, FoodAvoidance.nuts},
   ),
   FitnessRecipe(
     slug: "hahnchen_caesar_salat",
@@ -377,6 +403,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 22,
     estimatedGrams: 345,
     categories: <String>["Hauptgericht", "High Protein", "Low Carb"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.gluten, FoodAvoidance.fish, FoodAvoidance.mustard},
   ),
   FitnessRecipe(
     slug: "thunfisch_vollkornpasta",
@@ -393,6 +420,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 13,
     estimatedGrams: 600,
     categories: <String>["Fisch", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.fish},
   ),
   FitnessRecipe(
     slug: "kabeljau_mit_kartoffelpuree_and_erbsen",
@@ -409,6 +437,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 12,
     estimatedGrams: 570,
     categories: <String>["Fisch", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose, FoodAvoidance.fish},
   ),
   FitnessRecipe(
     slug: "lachs_poke_bowl",
@@ -425,6 +454,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 20,
     estimatedGrams: 590,
     categories: <String>["Fisch", "High Protein"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.soy, FoodAvoidance.fish, FoodAvoidance.sesame, FoodAvoidance.alcohol},
   ),
   FitnessRecipe(
     slug: "linsen_dal_mit_reis",
@@ -441,6 +471,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 10,
     estimatedGrams: 660,
     categories: <String>["Vegetarisch", "Vegan", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.celery, FoodAvoidance.mustard},
   ),
   FitnessRecipe(
     slug: "kichererbsen_curry_mit_reis",
@@ -457,6 +488,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 12,
     estimatedGrams: 680,
     categories: <String>["Vegetarisch", "Vegan", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.celery, FoodAvoidance.mustard},
   ),
   FitnessRecipe(
     slug: "falafel_bowl_mit_hummus",
@@ -473,6 +505,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 26,
     estimatedGrams: 520,
     categories: <String>["Vegetarisch", "Vegan"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.sesame},
   ),
   FitnessRecipe(
     slug: "tempeh_stir_fry_mit_reis",
@@ -489,6 +522,7 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 20,
     estimatedGrams: 550,
     categories: <String>["Vegetarisch", "Vegan", "High Protein", "Hauptgericht"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.gluten, FoodAvoidance.soy, FoodAvoidance.sesame, FoodAvoidance.alcohol},
   ),
   FitnessRecipe(
     slug: "halloumi_avocado_bowl",
@@ -505,5 +539,6 @@ const List<FitnessRecipe> recipeCatalogEn = <FitnessRecipe>[
     fatG: 38,
     estimatedGrams: 455,
     categories: <String>["Vegetarisch", "Low Carb"],
+    avoidanceTags: <FoodAvoidance>{FoodAvoidance.lactose},
   ),
 ];

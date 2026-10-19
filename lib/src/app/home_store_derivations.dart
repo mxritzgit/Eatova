@@ -42,8 +42,8 @@ mixin _HomeStoreDerivationsPart on _HomeStoreBase {
 
   /// The recipe for today's next open main meal ([pickRecipeForNextMeal]):
   /// the user's visible recipes plus the catalog of [localeName]
-  /// (`context.l10n.localeName`), filtered by the profile's diet, against
-  /// today's remaining kcal (budget incl. activity credit).
+  /// (`context.l10n.localeName`), filtered by the profile's diet and avoided
+  /// foods, against today's remaining kcal (budget incl. activity credit).
   ///
   /// Selector inputs: [loggedMeals], [profile], [dailyActivity],
   /// `stepsForFoodDate(now)`, [userRecipes], [pendingRecipeDeletes],
@@ -59,6 +59,7 @@ mixin _HomeStoreDerivationsPart on _HomeStoreBase {
         ...recipeCatalogForLocale(localeName),
       ],
       diet: profile.diet,
+      avoidances: profile.foodAvoidances,
       plannedMeals: plannedMeals,
     );
   }

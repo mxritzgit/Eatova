@@ -26,6 +26,7 @@ import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/kcal/food_date_picker.dart';
 import '../../widgets/kcal/meal_slot_picker.dart';
+import '../../widgets/recipes/recipe_avoid_hint.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
 import '../today/today_texts.dart' show kcalThousands, todayWeekdayShort;

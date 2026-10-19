@@ -1199,8 +1199,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // "Picked for tonight": the pick Today and Food show too.
         mealPick: _store.nextMealPick(localeName: context.l10n.localeName),
         // Promoted lists (shelves, fallback hero) follow the profile diet
-        // like the pick does.
+        // and avoided foods like the pick does.
         diet: _store.profile.diet,
+        avoidances: _store.profile.foodAvoidances,
         todayOverBudget: today.remainingKcal <= 0,
         // The pick is for today, so it logs to today whatever day the food
         // tab shows.

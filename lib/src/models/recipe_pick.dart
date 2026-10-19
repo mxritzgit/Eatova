@@ -90,6 +90,7 @@ RecipePick? pickRecipeForNextMeal({
   required int remainingKcal,
   required List<FitnessRecipe> recipes,
   DietPreference diet = DietPreference.none,
+  Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
   List<PlannedMeal> plannedMeals = const <PlannedMeal>[],
 }) {
   final slot = nextOpenMainMealSlot(now: now, todaysMeals: todaysMeals);
@@ -100,6 +101,7 @@ RecipePick? pickRecipeForNextMeal({
     remainingKcal: remainingKcal,
     recipes: recipes,
     diet: diet,
+    avoidances: avoidances,
     plannedMeals: plannedMeals,
     alreadyEaten: todaysMeals,
   );
@@ -112,7 +114,8 @@ RecipePick? pickRecipeForNextMeal({
 ///     for [day] and [slot] (list order; the store keeps newest first) is
 ///     returned as planned, even when it does not fit ([RecipePick.fits]).
 ///  2. **Otherwise a fitting suggestion.** Candidates are [recipes] that match
-///     [diet] ([FitnessRecipe.matchesDiet]), suit the slot
+///     [diet] ([FitnessRecipe.matchesDiet]), contain none of [avoidances]
+///     ([FitnessRecipe.fitsAvoidances]), suit the slot
 ///     ([recipeSuitsSlot]), are loggable with known kcal > 0, need no more
 ///     than [remainingKcal], and are not already eaten today (same meal name
 ///     as an entry in [alreadyEaten]).
@@ -127,6 +130,7 @@ RecipePick? pickRecipeForSlot({
   required int remainingKcal,
   required List<FitnessRecipe> recipes,
   DietPreference diet = DietPreference.none,
+  Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
   List<PlannedMeal> plannedMeals = const <PlannedMeal>[],
   Iterable<LoggedMeal> alreadyEaten = const <LoggedMeal>[],
 }) {
@@ -154,7 +158,11 @@ RecipePick? pickRecipeForSlot({
   };
   _Candidate? best;
   for (final recipe in recipes) {
-    if (!recipe.matchesDiet(diet) || !recipeSuitsSlot(recipe, slot)) continue;
+    if (!recipe.matchesDiet(diet) ||
+        !recipe.fitsAvoidances(avoidances) ||
+        !recipeSuitsSlot(recipe, slot)) {
+      continue;
+    }
     final portion = _loggedPortion(recipe, 1);
     if (portion == null ||
         portion.kcal <= 0 ||

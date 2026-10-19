@@ -491,6 +491,18 @@
   "recipesFilterVegan": "Vegan",
   "recipesFilterLowCarb": "Low carb",
   "recipesCategoryOwn": "Own",
+  "recipesAvoidContains": "Contains: {foods}",
+  "@recipesAvoidContains": {
+    "placeholders": {
+      "foods": { "type": "String" }
+    }
+  },
+  "recipesAvoidContainsSemantics": "Contains foods you avoid: {foods}",
+  "@recipesAvoidContainsSemantics": {
+    "placeholders": {
+      "foods": { "type": "String" }
+    }
+  },
   "recipesResultsCount": "{count, plural, one{1 match} other{{count} matches}}",
   "@recipesResultsCount": {
     "placeholders": {

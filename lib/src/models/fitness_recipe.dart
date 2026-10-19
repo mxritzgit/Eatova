@@ -86,6 +86,7 @@ class FitnessRecipe {
     required this.fatG,
     required this.estimatedGrams,
     required this.categories,
+    this.avoidanceTags,
     this.userCreated = false,
     this.structuredIngredients = const [],
     this.batchServings = 1,
@@ -110,6 +111,29 @@ class FitnessRecipe {
   final int fatG;
   final int estimatedGrams;
   final List<String> categories;
+
+  /// The [FoodAvoidance] codes this recipe contains, reviewed per catalog
+  /// recipe from its ingredients and preparation, optional and "or" items
+  /// included (`test/models/recipe_avoidance_tags_test.dart` cross-checks the
+  /// text). Null means unreviewed: user recipes, whose free text the app does
+  /// not parse. Client-side only, never part of the row.
+  final Set<FoodAvoidance>? avoidanceTags;
+
+  /// Which of [avoided] this recipe contains, in display order. Empty for user
+  /// recipes: the user wrote them. An unreviewed catalog recipe counts as
+  /// containing all of them (fail-safe).
+  List<FoodAvoidance> avoidedFoods(Set<FoodAvoidance> avoided) {
+    if (avoided.isEmpty || userCreated) return const <FoodAvoidance>[];
+    final tags = avoidanceTags;
+    return sortedFoodAvoidances(
+      tags == null ? avoided : avoided.where(tags.contains),
+    );
+  }
+
+  /// True when the recipe contains nothing of [avoided]: the suggestion filter
+  /// next to [matchesDiet]. A recommendation aid, not an allergy guarantee.
+  bool fitsAvoidances(Set<FoodAvoidance> avoided) =>
+      avoidedFoods(avoided).isEmpty;
 
   /// Whole-batch raw ingredient weights, independent of cooked portion weight.
   final List<RecipeIngredient> structuredIngredients;
@@ -261,6 +285,7 @@ class FitnessRecipe {
     fatG: fatG ?? this.fatG,
     estimatedGrams: estimatedGrams ?? this.estimatedGrams,
     categories: List.unmodifiable(categories ?? this.categories),
+    avoidanceTags: avoidanceTags,
     userCreated: userCreated,
     structuredIngredients: List.unmodifiable(
       structuredIngredients ?? this.structuredIngredients,

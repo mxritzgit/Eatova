@@ -37,6 +37,7 @@ import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/recipes/recipe_avoid_hint.dart';
 import '../../widgets/recipes/recipe_glyphs.dart';
 import '../../widgets/recipes/recipe_ingredient_editor.dart';
 import '../../widgets/recipes/recipe_portion_selector.dart';
@@ -62,6 +63,7 @@ class RecipesScreen extends StatefulWidget {
     required this.onAddMeal,
     this.remainingMacros,
     this.diet = DietPreference.none,
+    this.avoidances = const <FoodAvoidance>{},
     this.onCreateRecipe,
     this.onUpdateRecipe,
     this.onLoadRecipeHistory,
@@ -127,6 +129,11 @@ class RecipesScreen extends StatefulWidget {
   /// filters stay untouched. Default [DietPreference.none] recommends
   /// everything.
   final DietPreference diet;
+
+  /// Foods the user avoids (`UserProfile.foodAvoidances`). Filters the same
+  /// promoted lists as [diet]; the main list and the detail keep such
+  /// recipes and show a [RecipeAvoidHint] instead.
+  final Set<FoodAvoidance> avoidances;
 
   /// Optional hook reporting a self-created recipe to the caller (persisted
   /// via user_recipes); null keeps the recipe local to this session. Returns
@@ -319,7 +326,7 @@ class _RecipeIndex {
 
   String? _filterQuery;
   String? _filterName;
-  DietPreference? _filterDiet;
+  _SuggestionKey? _filterDiet;
   List<FitnessRecipe>? _filtered;
 
   /// The main list: [recipes] narrowed by the selected chip and by [query],
@@ -330,14 +337,17 @@ class _RecipeIndex {
   /// stops folding recipes a category filter has already dropped.
   ///
   /// [leanShelfFilter] is the "See all" list of the lean shelf: the shelf is
-  /// diet-filtered, so its full list is too, and only then does [diet] join
-  /// the key.
+  /// diet- and avoidance-filtered, so its full list is too, and only then do
+  /// [diet] and [avoidances] join the key.
   List<FitnessRecipe> filtered({
     required String query,
     required String filter,
     DietPreference diet = DietPreference.none,
+    Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
   }) {
-    final dietKey = filter == leanShelfFilter ? diet : null;
+    final dietKey = filter == leanShelfFilter
+        ? _suggestionKey(diet, avoidances)
+        : null;
     final cached = _filtered;
     if (cached != null &&
         _filterQuery == query &&
@@ -354,7 +364,9 @@ class _RecipeIndex {
         "Alle" => true,
         "Eigene" => recipe.userCreated,
         leanShelfFilter =>
-          recipe.matchesDiet(diet) && isLeanHighProtein(recipe),
+          recipe.matchesDiet(diet) &&
+              recipe.fitsAvoidances(avoidances) &&
+              isLeanHighProtein(recipe),
         lightMealFilter => isUnder600Kcal(recipe),
         _ => recipe.categories.contains(filter),
       };
@@ -364,41 +376,56 @@ class _RecipeIndex {
     }).toList(growable: false);
   }
 
-  DietPreference? _dietKey;
+  _SuggestionKey? _dietKey;
   List<FitnessRecipe>? _dietRecipes;
 
   /// Actively promoted recipes: [recipes] pre-filtered by diet preference
-  /// (PROD-6). Feeds the goal matches; the main list stays unfiltered.
-  List<FitnessRecipe> forDiet(DietPreference diet) {
+  /// (PROD-6) and avoided foods. Feeds the goal matches; the main list stays
+  /// unfiltered.
+  List<FitnessRecipe> forDiet(
+    DietPreference diet, [
+    Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
+  ]) {
+    final key = _suggestionKey(diet, avoidances);
     final cached = _dietRecipes;
-    if (cached != null && _dietKey == diet) return cached;
+    if (cached != null && _dietKey == key) return cached;
     RecipeMemoStats.dietRuns++;
-    _dietKey = diet;
-    return _dietRecipes =
-        recipes.where((r) => r.matchesDiet(diet)).toList(growable: false);
+    _dietKey = key;
+    return _dietRecipes = recipes
+        .where((r) => r.matchesDiet(diet) && r.fitsAvoidances(avoidances))
+        .toList(growable: false);
   }
 
-  DietPreference? _poolKey;
+  _SuggestionKey? _poolKey;
   List<FitnessRecipe>? _pool;
 
   /// Carousel pool: catalogue only (an own recipe with a placeholder stripe is
   /// no "recommendation"), diet pre-filtered with a fallback to the whole
-  /// catalogue so the section never looks empty. The day-based ROTATION stays
-  /// outside — that one has to keep turning while this list does not.
-  List<FitnessRecipe> catalogPool(DietPreference diet) {
+  /// catalogue so the section never looks empty. Avoided foods are a hard
+  /// filter: the fallback never brings them back, so the pool may be empty.
+  /// The day-based ROTATION stays outside — that one has to keep turning
+  /// while this list does not.
+  List<FitnessRecipe> catalogPool(
+    DietPreference diet, [
+    Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
+  ]) {
+    final key = _suggestionKey(diet, avoidances);
     final cached = _pool;
-    if (cached != null && _poolKey == diet) return cached;
-    _poolKey = diet;
+    if (cached != null && _poolKey == key) return cached;
+    _poolKey = key;
+    final allowed = catalog
+        .where((r) => r.fitsAvoidances(avoidances))
+        .toList(growable: false);
     final matching =
-        catalog.where((r) => r.matchesDiet(diet)).toList(growable: false);
-    return _pool = matching.isEmpty ? catalog : matching;
+        allowed.where((r) => r.matchesDiet(diet)).toList(growable: false);
+    return _pool = matching.isEmpty ? allowed : matching;
   }
 
   // The macro remainder is keyed by its four VALUES, not by identity:
   // [MacroProgress] declares no `==` and the home shell builds a fresh one out
   // of `goal - progress` on every build, so an identity key would miss every
   // single time and the memo would never pay for itself.
-  DietPreference? _goalDiet;
+  _SuggestionKey? _goalDiet;
   double? _goalProtein;
   double? _goalCarbs;
   double? _goalFat;
@@ -406,14 +433,16 @@ class _RecipeIndex {
   List<FitnessRecipe>? _goalMatches;
 
   /// Up to three recipes with the highest macro match; only scores above 0
-  /// count. The diet pre-filter runs before the ranking.
+  /// count. The diet and avoidance pre-filter runs before the ranking.
   List<FitnessRecipe> goalMatches(
     MacroProgress remaining,
-    DietPreference diet,
-  ) {
+    DietPreference diet, [
+    Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
+  ]) {
+    final key = _suggestionKey(diet, avoidances);
     final cached = _goalMatches;
     if (cached != null &&
-        _goalDiet == diet &&
+        _goalDiet == key &&
         _goalProtein == remaining.proteinG &&
         _goalCarbs == remaining.carbsG &&
         _goalFat == remaining.fatG &&
@@ -421,12 +450,12 @@ class _RecipeIndex {
       return cached;
     }
     RecipeMemoStats.goalRuns++;
-    _goalDiet = diet;
+    _goalDiet = key;
     _goalProtein = remaining.proteinG;
     _goalCarbs = remaining.carbsG;
     _goalFat = remaining.fatG;
     _goalKcal = remaining.kcal;
-    final scored = forDiet(diet)
+    final scored = forDiet(diet, avoidances)
         .map((r) => (r, r.matchScore(remaining)))
         .where((pair) => pair.$2 > 0)
         .toList(growable: false)
@@ -435,6 +464,19 @@ class _RecipeIndex {
         scored.take(3).map((pair) => pair.$1).toList(growable: false);
   }
 }
+
+/// The value key of the suggestion pre-filters: the diet plus the avoided
+/// foods as a bit mask. A `Set` has no value `==`, and the profile hands out
+/// a new one per copy.
+typedef _SuggestionKey = (DietPreference, int);
+
+_SuggestionKey _suggestionKey(
+  DietPreference diet,
+  Set<FoodAvoidance> avoidances,
+) => (
+  diet,
+  avoidances.fold<int>(0, (mask, food) => mask | (1 << food.index)),
+);
 
 /// Element-wise identity of two recipe lists — the "did the set change" check
 /// that no future mutation site can forget to trigger.
@@ -890,6 +932,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     query: foldRecipeSearchText(query.trim()),
     filter: selectedFilter,
     diet: widget.diet,
+    avoidances: widget.avoidances,
   );
 
   /// [readOnly]: a planned meal's snapshot — viewing only; it is logged by
@@ -900,6 +943,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
         builder: (_) => RecipeDetailScreen(
           recipe: recipe,
           onAddMeal: widget.onAddMeal,
+          avoidances: widget.avoidances,
           showAddAction: !readOnly,
           onEdit: recipe.userCreated && !readOnly ? _editRecipe : null,
           onOpenHistory:
@@ -1137,7 +1181,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     final remaining = widget.remainingMacros;
     final goalMatches = remaining == null
         ? const <FitnessRecipe>[]
-        : index.goalMatches(remaining, widget.diet);
+        : index.goalMatches(remaining, widget.diet, widget.avoidances);
     final own = !_forYou && selectedFilter == "Eigene";
 
     Widget gutter(Widget child) => Padding(
@@ -1151,6 +1195,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           _RecipeListTile(
             key: ValueKey('recipe-tile-${rows[i].slug}'),
             recipe: rows[i],
+            avoided: widget.avoidances,
             onTap: () => _openRecipe(rows[i]),
           ),
         ),
@@ -1170,8 +1215,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
         index.recipes,
         now: clock.now(),
         diet: widget.diet,
+        avoidances: widget.avoidances,
         excludeSlug: heroSlug,
       );
+      final pool = index.catalogPool(widget.diet, widget.avoidances);
       final goalShelf = goalMatches
           .where((recipe) => recipe.slug != heroSlug)
           .toList(growable: false);
@@ -1213,19 +1260,22 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ],
         yourRecipes,
         // Below the design's last card, For you keeps what it had: the
-        // recipe list, then the goal matches at its end.
-        const SizedBox(height: 24),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _kGutter + 4),
-          child: _ShelfHeading(
-            title: l10n.recipesMoreRecommendations,
-            actionLabel: l10n.recipesSeeAll,
-            actionKey: const ValueKey('recipes-more-see-all'),
-            onAction: () => _seeAll(recipeFilters.first),
+        // recipe list, then the goal matches at its end. Avoided foods can
+        // empty the pool; then the heading goes too.
+        if (pool.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: _kGutter + 4),
+            child: _ShelfHeading(
+              title: l10n.recipesMoreRecommendations,
+              actionLabel: l10n.recipesSeeAll,
+              actionKey: const ValueKey('recipes-more-see-all'),
+              onAction: () => _seeAll(recipeFilters.first),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        ...rowsOf(index.catalogPool(widget.diet)),
+          const SizedBox(height: 4),
+          ...rowsOf(pool),
+        ],
         if (goalShelf.isNotEmpty) ...[
           const SizedBox(height: 24),
           _RecipeShelf(
