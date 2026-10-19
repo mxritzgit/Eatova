@@ -107,8 +107,8 @@ and [Backend](BACKEND.md) for persistence details.
   current training history is a separate implemented feature.
 - The login UI offers email/password and Google. The repository's Apple OAuth
   enum is not an exposed Sign in with Apple product flow.
-- Dietary preference can be chosen during onboarding; the current Profile and
-  Settings screens do not expose a later diet editor.
+- Dietary preference can be chosen during onboarding and changed later in the
+  Profile's Nutrition section, together with avoided foods and dislikes.
 - JSON export is available through **Today → avatar (Profile) → gear
   (Settings) → Export data**. Copying the JSON is wired; native file sharing has a prepared callback but no app
   wiring. It is not an import/restore feature. Unreadable or capped sections are

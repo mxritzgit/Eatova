@@ -90,6 +90,7 @@ provider name here is not a current roadmap or configuration declaration.
 - [Eatova – Review wichtiger Feature-Lücken](FEATURE-REVIEW-2026-09-10.md)
 - [Eatova – Feature-Lücken, zweite Runde (2026-10-10)](FEATURE-REVIEW-2026-10-10.md)
 - [Eatova – Verbesserungs-Review mit zwei Agenten (2026-10-18)](IMPROVEMENT-REVIEW-2026-10-18.md)
+- [Eatova – Was die App noch braucht, zwei Agenten (2026-10-19)](IMPROVEMENT-REVIEW-2026-10-19.md)
 - [App design review, 2026-09-07](DESIGN-REVIEW-2026-09-07.md)
 - [Eatova — Vollständiger Code-Review](REVIEW-2026-08-08.md)
 - [Projektreview Eatova — 2026-09-07](REVIEW-2026-09-07.md)
