@@ -2424,6 +2424,20 @@
   "mealPlanNextWeek": "Nächste Woche",
   "mealPlanAdd": "Mahlzeit planen",
   "mealPlanEdit": "Planung bearbeiten",
+  "mealPlanAddRecipe": "Zum Speiseplan",
+  "mealPlanDayKcal": "{planned} von {goal} kcal geplant",
+  "@mealPlanDayKcal": {
+    "placeholders": {
+      "planned": { "type": "int", "format": "decimalPattern" },
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanDayKcalUnknown": "{count, plural, =1{1 Mahlzeit ohne kcal} other{{count} Mahlzeiten ohne kcal}}",
+  "@mealPlanDayKcalUnknown": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "mealPlanEatToday": "Als heute gegessen abhaken",
   "mealPlanEatenOn": "Am {date} eingetragen",
   "@mealPlanEatenOn": {

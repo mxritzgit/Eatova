@@ -2372,6 +2372,20 @@
   "mealPlanNextWeek": "Next week",
   "mealPlanAdd": "Plan a meal",
   "mealPlanEdit": "Edit planned meal",
+  "mealPlanAddRecipe": "Add to meal plan",
+  "mealPlanDayKcal": "{planned} of {goal} kcal planned",
+  "@mealPlanDayKcal": {
+    "placeholders": {
+      "planned": { "type": "int", "format": "decimalPattern" },
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanDayKcalUnknown": "{count, plural, =1{1 meal without kcal} other{{count} meals without kcal}}",
+  "@mealPlanDayKcalUnknown": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "mealPlanEatToday": "Mark as eaten today",
   "mealPlanEatenOn": "Logged on {date}",
   "@mealPlanEatenOn": {

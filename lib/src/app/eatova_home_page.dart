@@ -1256,6 +1256,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             unawaited(MealPlanScreen.open(context, ownerStore));
           }
         },
+        onPlanRecipe: (context, recipe) async {
+          if (_isStoreSessionCurrent(ownerStore)) {
+            await MealPlanScreen.planRecipe(context, ownerStore, recipe);
+          }
+        },
         onDeleteRecipe: widget.sync == null ? null : _store.deleteUserRecipe,
         // Always wired: the undo window must hide the recipe from the
         // coach card even when nothing is persisted (2026-09-02).

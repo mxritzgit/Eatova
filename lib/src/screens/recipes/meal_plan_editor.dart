@@ -8,10 +8,19 @@ String _mealPlanErrorText(Object error, AppLocalizations l) => switch (error) {
 };
 
 class _PlanEditor extends StatefulWidget {
-  const _PlanEditor({required this.store, required this.day, this.plan});
+  const _PlanEditor({
+    required this.store,
+    required this.day,
+    this.plan,
+    this.recipe,
+  });
   final HomeStore store;
   final DateTime day;
   final PlannedMeal? plan;
+
+  /// A new plan's recipe chosen beforehand (a recipe detail's "Zum
+  /// Speiseplan"); the editor opens on its details, still changeable.
+  final FitnessRecipe? recipe;
   @override
   State<_PlanEditor> createState() => _PlanEditorState();
 }
@@ -21,7 +30,13 @@ class _PlanEditorState extends State<_PlanEditor> {
   // Filled on the first dependency pass with the locale's separator.
   final _servings = TextEditingController();
   bool _servingsFilled = false;
-  late MealSlot _slot = widget.plan?.slot ?? MealSlot.dinner;
+  // A breakfast dish chosen beforehand starts on breakfast.
+  late MealSlot _slot =
+      widget.plan?.slot ??
+      (widget.recipe != null &&
+              recipeSuitsSlot(widget.recipe!, MealSlot.breakfast)
+          ? MealSlot.breakfast
+          : MealSlot.dinner);
   late DateTime _day = widget.day;
   FitnessRecipe? _recipe;
   bool _saving = false;
@@ -31,7 +46,7 @@ class _PlanEditorState extends State<_PlanEditor> {
   @override
   void initState() {
     super.initState();
-    _recipe = widget.plan?.recipe;
+    _recipe = widget.plan?.recipe ?? widget.recipe;
   }
 
   @override

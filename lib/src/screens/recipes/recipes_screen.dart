@@ -70,6 +70,7 @@ class RecipesScreen extends StatefulWidget {
     this.onRestoreRecipe,
     this.isSessionCurrent,
     this.onOpenMealPlan,
+    this.onPlanRecipe,
     this.onImport,
     this.productService,
     this.onDeleteRecipe,
@@ -144,6 +145,11 @@ class RecipesScreen extends StatefulWidget {
   final RecipeVersionRestorer? onRestoreRecipe;
   final bool Function()? isSessionCurrent;
   final VoidCallback? onOpenMealPlan;
+
+  /// "Zum Speiseplan" on a recipe detail: the plan editor with that recipe
+  /// chosen. Null hides the action.
+  final Future<void> Function(BuildContext context, FitnessRecipe recipe)?
+  onPlanRecipe;
   final VoidCallback? onImport;
   final ProductLookupService? productService;
 
@@ -945,6 +951,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           onAddMeal: widget.onAddMeal,
           avoidances: widget.avoidances,
           showAddAction: !readOnly,
+          onPlan: readOnly ? null : widget.onPlanRecipe,
           onEdit: recipe.userCreated && !readOnly ? _editRecipe : null,
           onOpenHistory:
               !readOnly &&

@@ -16,7 +16,13 @@ class RecipeDetailScreen extends StatefulWidget {
     this.productService,
     this.showAddAction = true,
     this.avoidances = const <FoodAvoidance>{},
+    this.onPlan,
   });
+
+  /// "Zum Speiseplan": opens the plan editor with this recipe chosen
+  /// (`MealPlanScreen.planRecipe`). Null hides the action.
+  final Future<void> Function(BuildContext context, FitnessRecipe recipe)?
+  onPlan;
 
   final FitnessRecipe recipe;
 
@@ -410,13 +416,24 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   ),
                 ],
                 if ((widget.onEdit != null && recipe.userCreated) ||
-                    widget.onOpenHistory != null) ...[
+                    widget.onOpenHistory != null ||
+                    widget.onPlan != null) ...[
                   const SizedBox(height: 14),
                   // One row of soft pills; at large text they wrap.
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
+                      if (widget.onPlan case final plan?)
+                        SoftPillButton(
+                          key: const ValueKey('recipe-detail-plan'),
+                          onTap: _canUseRecipe &&
+                                  widget.isSessionCurrent?.call() != false
+                              ? () => plan(context, recipe)
+                              : null,
+                          icon: Icons.event_note_outlined,
+                          label: l10n.mealPlanAddRecipe,
+                        ),
                       if (widget.onEdit != null && recipe.userCreated)
                         SoftPillButton(
                           key: const ValueKey('recipe-detail-edit'),
