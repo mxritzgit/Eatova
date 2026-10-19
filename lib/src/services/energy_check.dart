@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import 'complete_day.dart';
 import 'day_math.dart';
 import 'kcal_calculator.dart';
 
@@ -107,8 +108,9 @@ class EnergyCheck {
   /// Local days before today that form the window; today is incomplete.
   static const int windowDays = 21;
 
-  /// A day counts as logged from this share of the current daily goal on.
-  static const double loggedDayShare = 0.5;
+  /// A day counts as logged from this share of the current daily goal on:
+  /// the shared complete-day rule ([isCompleteDay]).
+  static const double loggedDayShare = completeDayShare;
   static const int minLoggedDays = 14;
   static const int minWeighInDays = 4;
   static const int minWeighInSpanDays = 14;
@@ -436,10 +438,12 @@ class _Window {
     final days = [
       for (var n = EnergyCheck.windowDays; n >= 1; n--) addDays(today, -n),
     ];
-    final threshold = targets.kcal * EnergyCheck.loggedDayShare;
     final steps = stepSourceToday || days.any((day) => burnedKcal(day) != null);
+    // The shared complete-day rule; the step value on top is this model's
+    // own need, since it subtracts the day's step kcal.
     bool isLogged(DateTime day) =>
-        intakeKcal(day) >= threshold && (!steps || burnedKcal(day) != null);
+        isCompleteDay(intakeKcal: intakeKcal(day), goalKcal: targets.kcal) &&
+        (!steps || burnedKcal(day) != null);
     return _Window._(
       targets: targets,
       isLogged: isLogged,
@@ -450,8 +454,8 @@ class _Window {
 
   final KcalTargets targets;
 
-  /// Whether a day counts as logged: from [EnergyCheck.loggedDayShare] of
-  /// the goal on and, with a step source, only with a step value.
+  /// Whether a day counts as logged: complete ([isCompleteDay]) and, with a
+  /// step source, only with a step value.
   final bool Function(DateTime day) isLogged;
   final List<DateTime> logged;
   final List<(DateTime, double)> weighIns;

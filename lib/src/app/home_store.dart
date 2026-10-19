@@ -30,6 +30,7 @@ import '../models/training_insights.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/coach_week_summary.dart';
+import '../services/complete_day.dart';
 import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
 import '../services/energy_check.dart';

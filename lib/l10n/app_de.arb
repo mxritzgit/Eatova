@@ -281,7 +281,7 @@
       "proposed": { "type": "int", "format": "decimalPattern" }
     }
   },
-  "todayEnergyCheckBasis": "Grundlage: {days} Tage mit Einträgen, {weighIns} Wiegungen",
+  "todayEnergyCheckBasis": "Grundlage: {days} vollständige Tage, {weighIns} Wiegungen",
   "@todayEnergyCheckBasis": {
     "placeholders": {
       "days": { "type": "int" },
@@ -1005,7 +1005,23 @@
   "trendsTitle": "Trends",
   "trendsStatAvgKcalLabel": "Ø KALORIEN",
   "trendsNoCompletedDay": "noch kein abgeschlossener Tag",
-  "trendsStatAvgKcalSub": "pro getracktem Tag",
+  "trendsNoCompleteDay": "noch kein vollständiger Tag",
+  "@trendsNoCompleteDay": {
+    "description": "Average tiles when completed days exist but none passes the complete-day rule (half the daily goal)."
+  },
+  "trendsStatAvgKcalFrom": "aus {full, plural, one{1 vollständigen Tag} other{{full} vollständigen Tagen}}",
+  "@trendsStatAvgKcalFrom": {
+    "placeholders": {
+      "full": { "type": "int" }
+    }
+  },
+  "trendsStatAvgKcalFromSkipped": "aus {full, plural, one{1 vollständigen Tag} other{{full} vollständigen Tagen}} · {skipped, plural, one{1 unvollständiger ausgelassen} other{{skipped} unvollständige ausgelassen}}",
+  "@trendsStatAvgKcalFromSkipped": {
+    "placeholders": {
+      "full": { "type": "int" },
+      "skipped": { "type": "int" }
+    }
+  },
   "trendsStatGoalRateLabel": "ZIEL GETROFFEN",
   "trendsStatGoalRateSub": "{hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} (±10 %)",
   "@trendsStatGoalRateSub": {
@@ -1014,7 +1030,7 @@
       "tracked": { "type": "int" }
     }
   },
-  "trendsMetricsNote": "Kennzahlen zählen nur abgeschlossene Tage. Heute läuft noch und ist nur im Verlauf oben enthalten.",
+  "trendsMetricsNote": "Kennzahlen zählen nur vollständige Tage, also ab der Hälfte deines Tagesziels eingetragen; unvollständige Tage sind im Verlauf blass. Heute läuft noch und ist nur im Verlauf oben enthalten.",
   "trendsGoalBonusNote": "Ziel je Tag = Basisziel plus die an dem Tag durch Schritte verbrannten kcal — wie im Heute-Tab.",
   "@trendsGoalBonusNote": {
     "description": "Footnote under the trend metrics when at least one day in the window carries a step bonus."
@@ -1033,7 +1049,7 @@
   },
   "trendsChartTitle": "Kalorien pro Tag",
   "trendsChartSemanticsEmpty": "Keine Einträge in diesem Zeitraum",
-  "trendsChartSemanticsNoAvg": "{tracked} von {range} Tagen mit Einträgen, noch kein abgeschlossener Tag für den Durchschnitt, Tagesziel {goal} Kilokalorien",
+  "trendsChartSemanticsNoAvg": "{tracked} von {range} Tagen mit Einträgen, noch kein vollständiger Tag für den Durchschnitt, Tagesziel {goal} Kilokalorien",
   "@trendsChartSemanticsNoAvg": {
     "placeholders": {
       "tracked": { "type": "int" },
@@ -1041,7 +1057,7 @@
       "goal": { "type": "int" }
     }
   },
-  "trendsChartSemanticsWithAvg": "{tracked} von {range} Tagen mit Einträgen, im Schnitt {avg} Kilokalorien pro abgeschlossenem Tag, Tagesziel {goal} Kilokalorien",
+  "trendsChartSemanticsWithAvg": "{tracked} von {range} Tagen mit Einträgen, im Schnitt {avg} Kilokalorien pro vollständigem Tag, Tagesziel {goal} Kilokalorien",
   "@trendsChartSemanticsWithAvg": {
     "placeholders": {
       "tracked": { "type": "int" },
@@ -2871,6 +2887,13 @@
   "todayDayStripLabel": "Tag wählen",
   "todayDayStripEarlier": "Frühere Tage",
   "todayDayStripLater": "Spätere Tage",
+  "todayDayCellComplete": "{day}, vollständig eingetragen",
+  "@todayDayCellComplete": {
+    "description": "Screen-reader label of a day-strip cell whose day passes the complete-day rule; day is the cell's normal label.",
+    "placeholders": {
+      "day": { "type": "String" }
+    }
+  },
   "todayStreakSemantics": "{count, plural, =1{Serie: 1 Tag in Folge} other{Serie: {count} Tage in Folge}}",
   "@todayStreakSemantics": {"placeholders": {"count": {"type": "int"}}},
   "todayProfileAndSettings": "Profil und Einstellungen",
@@ -3640,7 +3663,7 @@
   "@todayWeighChipSemantics": {"description": "Screen reader label of Today's weight chip (a button).", "placeholders": {"kg": {"type": "String"}}},
   "todayWeighCheckIn": "{days, plural, =1{Wochen-Check frühestens morgen} other{Wochen-Check frühestens in {days} Tagen}}",
   "@todayWeighCheckIn": {"description": "Today's progress line: the earliest day the weekly check can run if every day gets logged and weighed as needed.", "placeholders": {"days": {"type": "int"}}},
-  "todayWeighLoggedToGo": "{count, plural, =1{noch 1 Tag eintragen} other{noch {count} Tage eintragen}}",
+  "todayWeighLoggedToGo": "{count, plural, =1{noch 1 vollständiger Tag} other{noch {count} vollständige Tage}}",
   "@todayWeighLoggedToGo": {"description": "Part of Today's progress line: logged days the weekly check still needs, today included.", "placeholders": {"count": {"type": "int"}}},
   "todayWeighWeighInsToGo": "{count, plural, =1{noch 1 Wiegung} other{noch {count} Wiegungen}}",
   "@todayWeighWeighInsToGo": {"description": "Part of Today's progress line: weigh-in days the weekly check still needs.", "placeholders": {"count": {"type": "int"}}},
@@ -3683,7 +3706,7 @@
   "trendsRangeMonthsSemantics": "Zeitraum {count} Monate",
   "@trendsRangeMonthsSemantics": {"placeholders": {"count": {"type": "int"}}},
   "trendsChartTitleWeekly": "Wochenschnitt",
-  "trendsWeeklyBarsNote": "Ab 90 Tagen steht ein Balken für eine Woche: Ø je erfasstem Tag dieser Woche.",
+  "trendsWeeklyBarsNote": "Ab 90 Tagen steht ein Balken für eine Woche: Ø je vollständigem Tag dieser Woche.",
   "trendsProteinGoalDays": "Proteinziel an {hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} erreicht",
   "@trendsProteinGoalDays": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}}},
   "trendsStepsTitle": "Ø SCHRITTE",
@@ -3712,10 +3735,10 @@
   "@trendsTrainingPerWeek": {"placeholders": {"count": {"type": "String"}}},
   "trendsTrainingEmpty": "In diesem Zeitraum hast du kein Training gespeichert.",
   "todayTrendsTitle": "Trends",
-  "todayTrendsSub": "Ø der letzten 7 Tage",
+  "todayTrendsSub": "Ø der vollständigen Tage, letzte 7",
   "todayTrendsKcalLabel": "Kalorien",
   "todayTrendsStepsLabel": "Schritte",
-  "todayTrendsEmpty": "Sobald ein Tag abgeschlossen ist, siehst du hier deinen Schnitt.",
+  "todayTrendsEmpty": "Sobald ein Tag vollständig eingetragen ist, siehst du hier deinen Schnitt.",
   "todayTrendsOpenHint": "Öffnet Kalorien, Makros, Schritte, Gewicht und Training über bis zu 6 Monate",
   "foodTrendsButtonSemantics": "Trends öffnen"
 }

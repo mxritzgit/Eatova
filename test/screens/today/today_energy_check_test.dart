@@ -97,7 +97,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.text('Grundlage: 19 Tage mit Einträgen, 8 Wiegungen'),
+        find.text('Grundlage: 19 vollständige Tage, 8 Wiegungen'),
         findsOneWidget,
       );
     });

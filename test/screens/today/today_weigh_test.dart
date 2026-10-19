@@ -119,12 +119,12 @@ void main() {
           _progress(daysUntil: 15, loggedToGo: 14, weighInsToGo: 4),
           l,
         ),
-        'Wochen-Check frühestens in 15 Tagen · noch 14 Tage eintragen · '
+        'Wochen-Check frühestens in 15 Tagen · noch 14 vollständige Tage · '
         'noch 4 Wiegungen',
       );
       expect(
         todayWeighProgressText(_progress(loggedToGo: 1), l),
-        'Wochen-Check frühestens morgen · noch 1 Tag eintragen',
+        'Wochen-Check frühestens morgen · noch 1 vollständiger Tag',
       );
       // Only the pause after an answer is left.
       expect(
@@ -148,7 +148,7 @@ void main() {
       );
       expect(
         todayWeighProgressText(_progress(loggedToGo: 1, weighInsToGo: 1), l),
-        'Weekly check tomorrow at the earliest · log 1 more day · '
+        'Weekly check tomorrow at the earliest · 1 more complete day · '
         '1 more weigh-in',
       );
       expect(

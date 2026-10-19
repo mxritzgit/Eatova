@@ -5,6 +5,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'complete_day.dart';
 import 'day_math.dart';
 import 'local_day.dart';
 
@@ -392,6 +393,20 @@ List<TrendDayTotals?> completedDaysOf(List<TrendDayTotals?> window) {
   if (window.isEmpty) return const <TrendDayTotals?>[];
   return window.sublist(0, window.length - 1);
 }
+
+/// [window] with every logged day below the complete-day rule
+/// ([isCompleteDay] for [goalKcal]) turned into a gap (2026-10-19). Fed to
+/// the averages below, they count complete days only: a half-logged day
+/// would drag them down like a missing breakfast. Gaps stay gaps.
+List<TrendDayTotals?> fullyLoggedDaysOf(
+  Iterable<TrendDayTotals?> window, {
+  required int goalKcal,
+}) => [
+  for (final day in window)
+    day != null && isCompleteDay(intakeKcal: day.kcal, goalKcal: goalKcal)
+        ? day
+        : null,
+];
 
 /// Days with at least one entry. A 0-kcal day counts as tracked.
 int trackedDaysOf(Iterable<TrendDayTotals?> window) {

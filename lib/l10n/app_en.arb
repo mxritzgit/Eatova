@@ -281,7 +281,7 @@
       "proposed": { "type": "int", "format": "decimalPattern" }
     }
   },
-  "todayEnergyCheckBasis": "Based on {days} logged days and {weighIns} weigh-ins",
+  "todayEnergyCheckBasis": "Based on {days} complete days and {weighIns} weigh-ins",
   "@todayEnergyCheckBasis": {
     "placeholders": {
       "days": { "type": "int" },
@@ -968,7 +968,20 @@
   "trendsTitle": "Trends",
   "trendsStatAvgKcalLabel": "AVG CALORIES",
   "trendsNoCompletedDay": "no completed day yet",
-  "trendsStatAvgKcalSub": "per tracked day",
+  "trendsNoCompleteDay": "no complete day yet",
+  "trendsStatAvgKcalFrom": "from {full, plural, one{1 complete day} other{{full} complete days}}",
+  "@trendsStatAvgKcalFrom": {
+    "placeholders": {
+      "full": { "type": "int" }
+    }
+  },
+  "trendsStatAvgKcalFromSkipped": "from {full, plural, one{1 complete day} other{{full} complete days}} · {skipped, plural, one{1 incomplete left out} other{{skipped} incomplete left out}}",
+  "@trendsStatAvgKcalFromSkipped": {
+    "placeholders": {
+      "full": { "type": "int" },
+      "skipped": { "type": "int" }
+    }
+  },
   "trendsStatGoalRateLabel": "GOAL HIT RATE",
   "trendsStatGoalRateSub": "{hit} of {tracked, plural, one{1 day} other{{tracked} days}} (±10 %)",
   "@trendsStatGoalRateSub": {
@@ -977,7 +990,7 @@
       "tracked": { "type": "int" }
     }
   },
-  "trendsMetricsNote": "Metrics only count completed days. Today is still running and only appears in the chart above.",
+  "trendsMetricsNote": "Metrics only count complete days, with at least half your daily goal logged; incomplete days are faded in the chart. Today is still running and only appears in the chart above.",
   "trendsGoalBonusNote": "Goal per day = base goal plus the kcal burned by steps on that day — same as the Today tab.",
   "@trendsGoalBonusNote": {
     "description": "Footnote under the trend metrics when at least one day in the window carries a step bonus."
@@ -996,7 +1009,7 @@
   },
   "trendsChartTitle": "Calories per day",
   "trendsChartSemanticsEmpty": "No entries in this range",
-  "trendsChartSemanticsNoAvg": "{tracked} of {range} days with entries, no completed day yet for the average, daily goal {goal} kilocalories",
+  "trendsChartSemanticsNoAvg": "{tracked} of {range} days with entries, no complete day yet for the average, daily goal {goal} kilocalories",
   "@trendsChartSemanticsNoAvg": {
     "placeholders": {
       "tracked": { "type": "int" },
@@ -1004,7 +1017,7 @@
       "goal": { "type": "int" }
     }
   },
-  "trendsChartSemanticsWithAvg": "{tracked} of {range} days with entries, averaging {avg} kilocalories per completed day, daily goal {goal} kilocalories",
+  "trendsChartSemanticsWithAvg": "{tracked} of {range} days with entries, averaging {avg} kilocalories per complete day, daily goal {goal} kilocalories",
   "@trendsChartSemanticsWithAvg": {
     "placeholders": {
       "tracked": { "type": "int" },
@@ -2823,6 +2836,12 @@
   "todayDayStripLabel": "Pick a day",
   "todayDayStripEarlier": "Earlier days",
   "todayDayStripLater": "Later days",
+  "todayDayCellComplete": "{day}, fully logged",
+  "@todayDayCellComplete": {
+    "placeholders": {
+      "day": { "type": "String" }
+    }
+  },
   "todayStreakSemantics": "{count, plural, =1{Streak: 1 day in a row} other{Streak: {count} days in a row}}",
   "todayProfileAndSettings": "Profile and settings",
   "todayCaloriesTitle": "Calories",
@@ -3573,7 +3592,7 @@
   "@todayWeighChipSemantics": {"description": "Screen reader label of Today's weight chip (a button).", "placeholders": {"kg": {"type": "String"}}},
   "todayWeighCheckIn": "{days, plural, =1{Weekly check tomorrow at the earliest} other{Weekly check in {days} days at the earliest}}",
   "@todayWeighCheckIn": {"description": "Today's progress line: the earliest day the weekly check can run if every day gets logged and weighed as needed.", "placeholders": {"days": {"type": "int"}}},
-  "todayWeighLoggedToGo": "{count, plural, =1{log 1 more day} other{log {count} more days}}",
+  "todayWeighLoggedToGo": "{count, plural, =1{1 more complete day} other{{count} more complete days}}",
   "@todayWeighLoggedToGo": {"description": "Part of Today's progress line: logged days the weekly check still needs, today included.", "placeholders": {"count": {"type": "int"}}},
   "todayWeighWeighInsToGo": "{count, plural, =1{1 more weigh-in} other{{count} more weigh-ins}}",
   "@todayWeighWeighInsToGo": {"description": "Part of Today's progress line: weigh-in days the weekly check still needs.", "placeholders": {"count": {"type": "int"}}},
@@ -3614,7 +3633,7 @@
   "trendsRangeMonthsLabel": "{count} months",
   "trendsRangeMonthsSemantics": "Range {count} months",
   "trendsChartTitleWeekly": "Weekly average",
-  "trendsWeeklyBarsNote": "From 90 days on, one bar is one week: the average per logged day of that week.",
+  "trendsWeeklyBarsNote": "From 90 days on, one bar is one week: the average per complete day of that week.",
   "trendsProteinGoalDays": "Protein goal reached on {hit} of {tracked, plural, one{1 day} other{{tracked} days}}",
   "trendsStepsTitle": "AVG STEPS",
   "trendsStepsAvgSub": "per day, values for {days} of {total, plural, one{1 day} other{{total} days}}",
@@ -3634,10 +3653,10 @@
   "trendsTrainingPerWeek": "Avg {count} per week",
   "trendsTrainingEmpty": "You saved no workout in this range.",
   "todayTrendsTitle": "Trends",
-  "todayTrendsSub": "Average of the last 7 days",
+  "todayTrendsSub": "Average of complete days, last 7",
   "todayTrendsKcalLabel": "Calories",
   "todayTrendsStepsLabel": "Steps",
-  "todayTrendsEmpty": "Once a day is complete, your average shows here.",
+  "todayTrendsEmpty": "Once a day is fully logged, your average shows here.",
   "todayTrendsOpenHint": "Opens calories, macros, steps, weight and training over up to 6 months",
   "foodTrendsButtonSemantics": "Open trends"
 }

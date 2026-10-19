@@ -117,10 +117,14 @@ void main() {
         await settleFrames(tester);
         await _openFromTodayCard(tester);
         expect(find.byType(TrendsScreen), findsOneWidget);
+        // 252 kcal is below half the goal: a logged but incomplete day. The
+        // tile names it instead of "no completed day", so the page knows
+        // the day although the server window is empty (TRN-9).
+        expect(find.byKey(const ValueKey('trends-empty')), findsNothing);
         expect(
           find.descendant(
             of: find.byKey(const ValueKey('trends-avg-kcal')),
-            matching: find.text('252 kcal'),
+            matching: find.text('no complete day yet'),
           ),
           findsOneWidget,
           reason: 'the server window is empty; the outbox day counts (TRN-9)',

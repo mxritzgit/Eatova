@@ -428,6 +428,25 @@ mixin _HomeStoreMealsPart
     return known;
   }
 
+  /// Whether [day] passes the complete-day rule ([isCompleteDay] against
+  /// the daily goal): the day strip's marker. A day this store does not
+  /// know completely (outside the boot window, a capped boot, still loading)
+  /// is never marked, rather than judged on part of its entries.
+  bool isCompleteFoodDay(DateTime day) {
+    final target = DateUtils.dateOnly(day);
+    final key = localDayKey(target);
+    if (_loadingArchiveDays.contains(key) ||
+        (!_loadedArchiveDays.contains(key) && _needsFoodDayLoad(target))) {
+      return false;
+    }
+    final meals = mealsForFoodDate(target);
+    if (meals.isEmpty) return false;
+    return isCompleteDay(
+      intakeKcal: consumedKcalForFoodDate(target),
+      goalKcal: profile.dailyKcalGoal,
+    );
+  }
+
   // --- Copy meals -----------------------------------------------------------
 
   /// Day+slot keys of a repeat in flight, so a double tap copies once.

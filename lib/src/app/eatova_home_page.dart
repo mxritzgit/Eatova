@@ -972,6 +972,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             : null,
         trendsPreview: today ? _todayTrendsPreview() : null,
         onOpenTrends: _openTrends,
+        isCompleteDay: _store.isCompleteFoodDay,
       );
     },
   );

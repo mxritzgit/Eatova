@@ -119,19 +119,21 @@ void main() {
   testWidgets('rendert Kennzahlen (Ø kcal, Treffer-Quote, Ø Makros)', (
     tester,
   ) => withClockAt(_jetzt, () async {
-    // Today 2200, yesterday 2000 (hit), 10 days ago 1000 (miss). Gaps must
-    // NOT pull the average to 0; today is excluded (B6) but stays charted.
+    // Today 2200, yesterday 2000 (hit), 10 days ago 1200 (miss, but above
+    // half the goal: complete). Gaps must NOT pull the average to 0; today
+    // is excluded (B6) but stays charted.
     final totals = [
       _day(0, kcal: 2200, p: 120, c: 200, f: 60),
       _day(1, kcal: 2000, p: 100, c: 180, f: 80),
-      _day(10, kcal: 1000, p: 80, c: 100, f: 40),
+      _day(10, kcal: 1200, p: 80, c: 100, f: 40),
     ];
     await _pumpTrends(tester, loader: () => Future.value(totals));
     await tester.pump();
     await tester.pumpAndSettle();
 
-    // Default range 30 days, without today: average (2000+1000)/2 = 1500.
-    expect(find.text('1.500 kcal'), findsOneWidget);
+    // Default range 30 days, without today: average (2000+1200)/2 = 1600.
+    expect(find.text('1.600 kcal'), findsOneWidget);
+    expect(find.text('aus 2 vollständigen Tagen'), findsOneWidget);
     expect(find.text('50 %'), findsOneWidget);
     expect(find.text('1 von 2 Tagen (±10 %)'), findsOneWidget);
     // Avg macros without today: P (100+80)/2, C (180+100)/2, F (80+40)/2.
@@ -145,14 +147,14 @@ void main() {
     final totals = [
       _day(0, kcal: 2200),
       _day(1, kcal: 2000),
-      _day(10, kcal: 1000), // outside the 7-day window
+      _day(10, kcal: 1200), // outside the 7-day window
     ];
     await _pumpTrends(tester, loader: () => Future.value(totals));
     await tester.pump();
     await tester.pumpAndSettle();
 
-    // 30 days without today: (2000+1000)/2 = 1500.
-    expect(find.text('1.500 kcal'), findsOneWidget);
+    // 30 days without today: (2000+1200)/2 = 1600.
+    expect(find.text('1.600 kcal'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('trends-range-7')));
     await tester.pumpAndSettle();
@@ -191,6 +193,50 @@ void main() {
     // And the label says today does not count.
     expect(find.byKey(const ValueKey('trends-metrics-note')), findsOneWidget);
   }));
+
+  // 2026-10-19: one rule for a complete day. Half-logged days (below half
+  // the goal) leave the averages and the tile says how many were left out.
+  testWidgets(
+    'unvollstaendige Tage fallen aus den Kennzahlen und werden genannt',
+    (tester) => withClockAt(_jetzt, () async {
+      final totals = [
+        _day(0, kcal: 350),
+        for (var d = 1; d <= 4; d++) _day(d, kcal: 2200, p: 120, c: 200, f: 60),
+        _day(5, kcal: 600, p: 20, c: 60, f: 20),
+        _day(6, kcal: 1099, p: 40, c: 100, f: 30),
+      ];
+      await _pumpTrends(tester, loader: () => Future.value(totals));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('trends-range-7')));
+      await tester.pumpAndSettle();
+
+      // Over every logged day it was (4 x 2200 + 600 + 1099) / 6 = 1750.
+      expect(find.text('2.200 kcal'), findsOneWidget);
+      expect(
+        find.text('aus 4 vollständigen Tagen · 2 unvollständige ausgelassen'),
+        findsOneWidget,
+      );
+      expect(find.text('4 von 4 Tagen (±10 %)'), findsOneWidget);
+      expect(find.text('120 g'), findsOneWidget);
+      // The chart keeps every day (TrendReport marks the two to fade).
+      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+    }),
+  );
+
+  testWidgets(
+    'nur unvollstaendige Tage: die Kacheln sagen das statt "kein Tag"',
+    (tester) => withClockAt(_jetzt, () async {
+      final totals = [_day(1, kcal: 400), _day(2, kcal: 900)];
+      await _pumpTrends(tester, loader: () => Future.value(totals));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.text('noch kein vollständiger Tag'), findsNWidgets(2));
+      expect(find.text('noch kein abgeschlossener Tag'), findsNothing);
+      expect(find.textContaining('NaN'), findsNothing);
+    }),
+  );
 
   testWidgets(
     'B6: nur heute im Fenster -> Kennzahlen leer statt NaN, Chart bleibt',

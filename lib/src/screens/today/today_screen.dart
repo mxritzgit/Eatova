@@ -77,6 +77,7 @@ class TodayScreen extends StatelessWidget {
     this.healthPrompt,
     this.trendsPreview,
     this.onOpenTrends,
+    this.isCompleteDay,
   });
 
   final String userName;
@@ -175,6 +176,11 @@ class TodayScreen extends StatelessWidget {
   final TodayTrendsPreview? trendsPreview;
   final VoidCallback? onOpenTrends;
 
+  /// Whether a day passes the complete-day rule
+  /// (`HomeStore.isCompleteFoodDay`); the day strip marks those days. Null
+  /// shows no markers.
+  final bool Function(DateTime day)? isCompleteDay;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -243,6 +249,7 @@ class TodayScreen extends StatelessWidget {
               selectedDate: selectedDate,
               today: heute,
               onSelected: onDateSelected,
+              isComplete: isCompleteDay,
             ),
             const SizedBox(height: 16),
             // While an archive day loads its numbers are still zero; the one

@@ -270,7 +270,7 @@ void main() {
       expect(find.text('2.104 kcal'), findsOneWidget);
       expect(find.text('118 g'), findsOneWidget);
       expect(find.text('8.432'), findsOneWidget);
-      expect(find.text('Ø der letzten 7 Tage'), findsOneWidget);
+      expect(find.text('Ø der vollständigen Tage, letzte 7'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('today-trends')));
       expect(opened, 1);
       final node = tester.getSemantics(
