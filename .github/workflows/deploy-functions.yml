@@ -5,7 +5,9 @@ name: Deploy Edge Functions
 # redeploy; docs/OPERATIONS.md, "Edge Function deploys"). Each run deploys the
 # chosen functions from one commit on main, downloads the live source and
 # compares it with that commit, runs the boot probe and keeps a deploy record.
-# An older commit on main is a rollback. Migrations are not deployed here.
+# An older commit on main is a rollback. Migrations are not deployed here: the
+# run refuses a commit whose migrations are not all registered live, and a
+# rollback below a function's lowest safe commit without the override.
 on:
   workflow_dispatch:
     inputs:
@@ -19,6 +21,11 @@ on:
         required: false
         default: ''
         type: string
+      allow_below_floor:
+        description: 'Deploy a commit older than a function''s lowest safe rollback commit (ROLLBACK_FLOORS in deploy_functions.py); only after checking compatibility'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -81,6 +88,33 @@ jobs:
           python3 scripts/operations/deploy_functions.py plan --functions "$FUNCTIONS" \
             --root "$RUNNER_TEMP/target" --output "$RUNNER_TEMP/deploy/plan.json" \
             --github-output "$GITHUB_OUTPUT"
+
+      # An older handler can break current clients (coach-chat below a3a7263b
+      # rejects their `preferences` with 400). Ancestry comes from main's
+      # full history; the override is an explicit input and is recorded.
+      - name: Rollback floor
+        env:
+          SLUGS: ${{ steps.plan.outputs.slugs }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          ALLOW_BELOW_FLOOR: ${{ inputs.allow_below_floor }}
+        run: |
+          set -euo pipefail
+          override=()
+          if [ "$ALLOW_BELOW_FLOOR" = "true" ]; then
+            override=(--allow-below-floor)
+          fi
+          python3 scripts/operations/deploy_functions.py guard --slugs "$SLUGS" \
+            --target-sha "$TARGET_SHA" --repo . --output "$RUNNER_TEMP/deploy/guard.json" "${override[@]}"
+
+      # The drift job's query against the target's own migrations: a function
+      # deployed before its migration answers its RPCs with 5xx.
+      - name: Target migrations registered live
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          python3 scripts/operations/deploy_functions.py migrations --root "$RUNNER_TEMP/target" \
+            --output "$RUNNER_TEMP/deploy/migrations.json"
 
       - name: Fetch verified Supabase CLI
         run: |

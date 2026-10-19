@@ -2,6 +2,9 @@
 
   deploy_functions.py plan     --functions all|a,b --root <checkout> --output plan.json
                                [--github-output FILE]
+  deploy_functions.py guard    --slugs a,b --target-sha SHA --repo <git checkout>
+                               --output guard.json [--allow-below-floor]
+  deploy_functions.py migrations --root <checkout> --output migrations.json
   deploy_functions.py metadata --slugs a,b --output state.json
   deploy_functions.py compare  --slug a --live <download dir> --root <checkout>
                                --output compare.json [--ignore-crlf]
@@ -9,15 +12,20 @@
   deploy_functions.py record   --dir <dir> --deploy-outcome <outcome> --source-sha SHA
                                --main-sha SHA --output record.json [--summary FILE]
 
-`metadata` reads SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF, `probe` reads
-SUPABASE_PROJECT_REF and SUPABASE_ANON_KEY, all from the process environment.
-None of them is printed or written: errors are fixed categories, and the
-record holds no project ref, key, token or response body.
+`metadata` and `migrations` read SUPABASE_ACCESS_TOKEN and
+SUPABASE_PROJECT_REF, `probe` reads SUPABASE_PROJECT_REF and
+SUPABASE_ANON_KEY, all from the process environment. None of them is printed
+or written: errors are fixed categories, and the record holds no project ref,
+key, token or response body.
 
-`compare` checks the downloaded live source against the import graph of the
-checked-out function, file by file. `record` decides the result: every
-function deployed, ACTIVE, verify_jwt on, a new version, live source equal to
-the checkout and the boot probe answered as expected.
+`guard` refuses a target older than a function's lowest safe rollback commit
+(ROLLBACK_FLOORS) unless --allow-below-floor is given. `migrations` refuses a
+target whose repository migrations are not all registered live: a function
+without its migration answers its RPCs with 5xx. `compare` checks the
+downloaded live source against the import graph of the checked-out function,
+file by file. `record` decides the result: every function deployed, ACTIVE,
+verify_jwt on, a new version, live source equal to the checkout and the boot
+probe answered as expected.
 """
 
 import argparse
@@ -28,6 +36,7 @@ import os
 from pathlib import Path
 import re
 import ssl
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -58,6 +67,23 @@ PROBES = {
     'recipe-import': ('POST', frozenset({'unauthorized'})),
     'search-key': ('GET', frozenset({'missing_bearer_token', 'user_token_required', 'invalid_user_token'})),
 }
+
+# The oldest commit each function may be deployed from: a rollback target must
+# contain it. A new function needs an entry before the workflow deploys it.
+ROLLBACK_FLOORS = {
+    # #155 clients send `preferences` to /recipe; older handlers answer 400.
+    'coach-chat': ('a3a7263bc9e915b99ac7984ff106d3d74dee8142', 'clients_send_recipe_preferences'),
+    # The last source verified live with today's schema and clients: all three
+    # were byte-identical to ea2722e6 right before the #155 deploy (2026-10-18).
+    'analyze-meal': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
+    'recipe-import': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
+    'search-key': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
+}
+
+# The query of the drift job in security.yml: registered versions, one string.
+MIGRATION_QUERY = ("select coalesce(string_agg(version, ',' order by version), '') as v "
+                   "from supabase_migrations.schema_migrations")
+MIGRATION_VERSION = re.compile(r'[0-9]{1,32}')
 
 COMMENT_BLOCK = re.compile(r'/\*.*?\*/', re.S)
 COMMENT_LINE = re.compile(r'(?m)^\s*//.*$')
@@ -179,6 +205,75 @@ def plan(functions, root):
 
 
 # --------------------------------------------------------------------------
+# Guard: the lowest safe rollback commit of each function.
+# --------------------------------------------------------------------------
+
+def git_is_ancestor(repo, ancestor, descendant, runner=subprocess.run):
+    """True when [ancestor] is [descendant] or one of its ancestors."""
+    if not SHA.fullmatch(ancestor or '') or not SHA.fullmatch(descendant or ''):
+        raise DeployError('invalid_commit_sha')
+    try:
+        done = runner(['git', '-C', str(repo), 'merge-base', '--is-ancestor', ancestor, descendant],
+                      capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        raise DeployError('git_unavailable') from None
+    if done.returncode in (0, 1):
+        return done.returncode == 0
+    # 128: a commit the checkout does not have (shallow clone, unknown SHA).
+    raise DeployError('git_ancestry_unknown')
+
+
+def rollback_guard(slugs, target_sha, is_ancestor, allow_below_floor=False):
+    """Which functions the target would roll back below their floor."""
+    functions = {}
+    for slug in slugs:
+        if slug not in ROLLBACK_FLOORS:
+            raise DeployError('no_rollback_floor_defined:' + slug)
+        floor, reason = ROLLBACK_FLOORS[slug]
+        functions[slug] = {'floor_sha': floor, 'reason': reason,
+                           'target_contains_floor': is_ancestor(floor, target_sha) is True}
+    below = [slug for slug, item in functions.items() if not item['target_contains_floor']]
+    return {
+        'schema': 1,
+        'target_sha': target_sha,
+        'functions': functions,
+        'below_floor': below,
+        'override': bool(below) and allow_below_floor is True,
+        'allowed': not below or allow_below_floor is True,
+    }
+
+
+def repo_migration_versions(root):
+    """Versions of the checkout's migrations, read like the drift job does."""
+    base = Path(root) / 'supabase' / 'migrations'
+    if not base.is_dir():
+        raise DeployError('migrations_directory_missing')
+    versions = []
+    for entry in sorted(base.iterdir()):
+        if entry.is_file() and entry.suffix == '.sql':
+            version = entry.name.split('_', 1)[0]
+            if not MIGRATION_VERSION.fullmatch(version):
+                raise DeployError('unparseable_migration_name')
+            versions.append(version)
+    if not versions:
+        raise DeployError('no_repository_migrations')
+    return versions
+
+
+def migration_drift(registered, repo_versions):
+    """Repository migrations of the target that the live database lacks."""
+    live = set(registered)
+    missing = [version for version in repo_versions if version not in live]
+    return {
+        'schema': 1,
+        'repo_migrations': len(repo_versions),
+        'registered_migrations': len(live),
+        'missing': missing,
+        'registered': not missing,
+    }
+
+
+# --------------------------------------------------------------------------
 # Compare: downloaded live source against the checkout's import graph.
 # --------------------------------------------------------------------------
 
@@ -271,6 +366,23 @@ class Management:
         self.ref = valid_ref(project_ref)
         self.open = open_url or opener().open
 
+    def _fetch(self, request):
+        """Parsed JSON of one response; errors are fixed categories."""
+        try:
+            with self.open(request, timeout=TIMEOUT_SECONDS) as response:
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+        except urllib.error.HTTPError as error:
+            error.close()
+            raise DeployError('management_http_' + str(error.code)) from None
+        except (OSError, ValueError):
+            raise DeployError('management_transport_failure') from None
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise DeployError('management_response_too_large')
+        try:
+            return json.loads(raw)
+        except ValueError:
+            raise DeployError('management_invalid_json') from None
+
     def function(self, slug):
         """Allowlisted metadata of one function; None if it does not exist."""
         if not SLUG.fullmatch(slug):
@@ -280,21 +392,11 @@ class Management:
             headers={'Authorization': 'Bearer ' + self.token, 'Accept': 'application/json',
                      'Accept-Encoding': 'identity', 'User-Agent': USER_AGENT})
         try:
-            with self.open(request, timeout=TIMEOUT_SECONDS) as response:
-                raw = response.read(MAX_RESPONSE_BYTES + 1)
-        except urllib.error.HTTPError as error:
-            error.close()
-            if error.code == 404:
+            data = self._fetch(request)
+        except DeployError as error:
+            if str(error) == 'management_http_404':
                 return None
-            raise DeployError('management_http_' + str(error.code)) from None
-        except (OSError, ValueError):
-            raise DeployError('management_transport_failure') from None
-        if len(raw) > MAX_RESPONSE_BYTES:
-            raise DeployError('management_response_too_large')
-        try:
-            data = json.loads(raw)
-        except ValueError:
-            raise DeployError('management_invalid_json') from None
+            raise
         if not isinstance(data, dict):
             raise DeployError('management_invalid_json')
         version, status = data.get('version'), data.get('status')
@@ -305,6 +407,23 @@ class Management:
             'verify_jwt': data.get('verify_jwt') is True,
             'updated_at': updated if type(updated) is int else None,
         }
+
+    def registered_migrations(self):
+        """Versions in supabase_migrations.schema_migrations (read-only query)."""
+        request = urllib.request.Request(
+            'https://api.supabase.com/v1/projects/' + self.ref + '/database/query',
+            data=json.dumps({'query': MIGRATION_QUERY}).encode(), method='POST',
+            headers={'Authorization': 'Bearer ' + self.token, 'Accept': 'application/json',
+                     'Content-Type': 'application/json', 'Accept-Encoding': 'identity',
+                     'User-Agent': USER_AGENT})
+        data = self._fetch(request)
+        if not (isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict)
+                and isinstance(data[0].get('v'), str)):
+            raise DeployError('migration_history_unreadable')
+        versions = [version for version in data[0]['v'].split(',') if version]
+        if not versions or not all(MIGRATION_VERSION.fullmatch(version) for version in versions):
+            raise DeployError('migration_history_unreadable')
+        return versions
 
 
 def metadata(api, slugs):
@@ -377,6 +496,19 @@ def probe(slugs, project_ref, anon_key, open_url=None):
     return results
 
 
+def probe_markdown(results):
+    """Statuses and verdicts only; the probe keeps no response body."""
+    lines = ['### Boot probe: ' + ('OK' if results and all(
+        item.get('passed') for item in results.values()) else 'FAILED'), '',
+             '| Function | Preflight | Without token | Anon key | Passed |', '| --- | --- | --- | --- | --- |']
+    for slug, item in sorted(results.items()):
+        statuses = item.get('statuses') or {}
+        lines.append('| `{}` | {} | {} | {} | {} |'.format(
+            slug, statuses.get('preflight'), statuses.get('no_token'), statuses.get('anon_key'),
+            mark(item.get('passed') is True)))
+    return '\n'.join(lines) + '\n'
+
+
 # --------------------------------------------------------------------------
 # Record: one JSON document per run, and the verdict.
 # --------------------------------------------------------------------------
@@ -403,6 +535,8 @@ def build_record(directory, deploy_outcome, source_sha, main_sha, environ, now):
     before = load(directory / 'before.json', {}) or {}
     after = load(directory / 'after.json', {}) or {}
     probes = load(directory / 'probe.json', {}) or {}
+    guard = load(directory / 'guard.json', {}) or {}
+    migrations = load(directory / 'migrations.json', {}) or {}
     functions = []
     for slug in slugs:
         old, new = before.get(slug) or {}, after.get(slug) or {}
@@ -448,6 +582,12 @@ def build_record(directory, deploy_outcome, source_sha, main_sha, environ, now):
         'recorded_at': now.isoformat(timespec='seconds'),
         'run_url': (server + '/' + repository + '/actions/runs/' + run_id) if server and repository and run_id.isdigit() else None,
         'run_attempt': environ.get('GITHUB_RUN_ATTEMPT') or None,
+        # A deploy below a function's floor needs the explicit override.
+        'below_rollback_floor': [slug for slug in guard.get('below_floor', [])
+                                 if isinstance(slug, str) and SLUG.fullmatch(slug)],
+        'rollback_floor_override': guard.get('override') is True,
+        'migrations_registered': migrations.get('registered') if isinstance(
+            migrations.get('registered'), bool) else None,
         'functions': functions,
     }
 
@@ -458,8 +598,11 @@ def mark(ok):
 
 def markdown(record):
     lines = ['### Edge Function deploy: ' + record['result'].upper(), '',
-             'Source `' + str(record['source_sha']) + '`' + (' (rollback)' if record['rollback'] else ''), '',
-             '| Function | Version | Deployed | Active | verify_jwt | Source | Boot probe |',
+             'Source `' + str(record['source_sha']) + '`' + (' (rollback)' if record['rollback'] else ''), '']
+    if record.get('rollback_floor_override'):
+        lines += ['Deployed below the lowest safe rollback commit of: ' + ', '.join(
+            '`' + slug + '`' for slug in record['below_rollback_floor']) + ' (override)', '']
+    lines += ['| Function | Version | Deployed | Active | verify_jwt | Source | Boot probe |',
              '| --- | --- | --- | --- | --- | --- | --- |']
     for item in record['functions']:
         checks = item['checks']
@@ -486,6 +629,15 @@ def main(argv=None):
     p.add_argument('--root', required=True)
     p.add_argument('--output', required=True)
     p.add_argument('--github-output')
+    g = commands.add_parser('guard')
+    g.add_argument('--slugs', required=True)
+    g.add_argument('--target-sha', required=True)
+    g.add_argument('--repo', required=True)
+    g.add_argument('--output', required=True)
+    g.add_argument('--allow-below-floor', action='store_true')
+    n = commands.add_parser('migrations')
+    n.add_argument('--root', required=True)
+    n.add_argument('--output', required=True)
     m = commands.add_parser('metadata')
     m.add_argument('--slugs', required=True)
     m.add_argument('--output', required=True)
@@ -498,6 +650,7 @@ def main(argv=None):
     b = commands.add_parser('probe')
     b.add_argument('--slugs', required=True)
     b.add_argument('--output', required=True)
+    b.add_argument('--summary')
     r = commands.add_parser('record')
     r.add_argument('--dir', required=True)
     r.add_argument('--deploy-outcome', required=True)
@@ -508,6 +661,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     def slug_list(raw):
+        if raw.strip() == 'all':
+            return sorted(PROBES)
         slugs = [slug.strip() for slug in raw.split(',') if slug.strip()]
         if not slugs or not all(SLUG.fullmatch(slug) for slug in slugs):
             raise DeployError('invalid_slug')
@@ -522,6 +677,34 @@ def main(argv=None):
                     handle.write('slugs=' + ','.join(result['slugs']) + '\n')
             print('Planned: ' + ', '.join(result['slugs']))
             return 0
+        if args.command == 'guard':
+            if not SHA.fullmatch(args.target_sha or ''):
+                raise DeployError('invalid_commit_sha')
+            result = rollback_guard(
+                slug_list(args.slugs), args.target_sha,
+                lambda ancestor, descendant: git_is_ancestor(args.repo, ancestor, descendant),
+                args.allow_below_floor)
+            write_json(args.output, result)
+            for slug in result['below_floor']:
+                floor, reason = ROLLBACK_FLOORS[slug]
+                print(('::warning::' if result['allowed'] else '::error::') + slug
+                      + ': the target is older than its lowest safe rollback commit ' + floor
+                      + ' (' + reason + ')' + ('; deployed on override' if result['allowed'] else ''),
+                      file=sys.stderr)
+            if not result['below_floor']:
+                print('Every function stays at or above its lowest safe rollback commit.')
+            return 0 if result['allowed'] else 1
+        if args.command == 'migrations':
+            versions = repo_migration_versions(args.root)
+            api = Management(secret('SUPABASE_ACCESS_TOKEN'), secret('SUPABASE_PROJECT_REF'))
+            result = migration_drift(api.registered_migrations(), versions)
+            write_json(args.output, result)
+            if result['missing']:
+                print('::error::migrations: not registered live: ' + ', '.join(result['missing'])
+                      + '; apply them before deploying this commit (docs/OPERATIONS.md)', file=sys.stderr)
+                return 1
+            print('All ' + str(len(versions)) + ' migrations of the target are registered live.')
+            return 0
         if args.command == 'metadata':
             api = Management(secret('SUPABASE_ACCESS_TOKEN'), secret('SUPABASE_PROJECT_REF'))
             result = metadata(api, slug_list(args.slugs))
@@ -535,6 +718,9 @@ def main(argv=None):
         if args.command == 'probe':
             result = probe(slug_list(args.slugs), secret('SUPABASE_PROJECT_REF'), secret('SUPABASE_ANON_KEY'))
             write_json(args.output, result)
+            if args.summary:
+                with open(args.summary, 'a', encoding='utf-8') as handle:
+                    handle.write(probe_markdown(result))
             return 0 if all(item['passed'] for item in result.values()) else 1
         record = build_record(args.dir, args.deploy_outcome, args.source_sha, args.main_sha,
                               os.environ, dt.datetime.now(UTC))

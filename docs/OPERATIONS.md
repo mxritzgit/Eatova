@@ -446,6 +446,7 @@ Actions, Deploy Edge Functions, Run workflow on `main`:
 - `functions`: comma-separated slugs (`coach-chat,search-key`) or `all`.
 - `sha`: empty deploys the current `main` head; a full 40-character SHA
   deploys that commit, which must be on `main`.
+- `allow_below_floor`: off by default; see [Rollback](#rollback).
 
 After the environment approval the run:
 
@@ -455,24 +456,31 @@ After the environment approval the run:
    `supabase/config.toml` sets `verify_jwt = false` (there is none today, so
    the CLI default `verify_jwt = true` applies; the workflow never passes
    `--no-verify-jwt`);
-3. reads each function's version and downloads its live source, compared with
+3. refuses a commit older than a chosen function's lowest safe rollback
+   commit (below), and a commit with a migration that is not registered in
+   the live `supabase_migrations.schema_migrations` (the drift job's query,
+   against the target's own `supabase/migrations/`): a function deployed
+   before its migration answers its RPCs with 5xx. Apply the migration first;
+4. reads each function's version and downloads its live source, compared with
    the commit ignoring CRLF; a mismatch here only shows what was live before;
-4. deploys one function after another with the pinned CLI and `--use-api`;
-5. reads back ACTIVE, `verify_jwt = true` and a new version, downloads the live
+5. deploys one function after another with the pinned CLI and `--use-api`;
+6. reads back ACTIVE, `verify_jwt = true` and a new version, downloads the live
    source again and compares it byte for byte with the function's import
    graph in the commit: a missing, changed or unexpected file fails;
-6. runs the boot probe: preflight 204, 401 from the gateway without a token,
+7. runs the boot probe: preflight 204, 401 from the gateway without a token,
    and the handler's own 401 with the anon key, which proves it booted and
    passed its configuration check. No user token, no paid call; a key that
    reaches the Auth lookup counts one failed lookup for the runner's address;
-7. writes the deploy record and the job summary.
+8. writes the deploy record and the job summary.
 
 The record (artifact `deploy-record-<run>-attempt-<n>`, kept 90 days) holds the
 source and `main` SHAs, the rollback flag, the slugs, versions before and
-after, each check, the CLI version, times and the run URL; no project ref, key
-or response body. Copy its essentials into the handoff entry of the rollout.
-Any failed check fails the run. A failure after step 4 may mean some functions
-are already live: read the record, then fix forward or roll back.
+after, each check, whether the target's migrations were registered, which
+functions went below their floor on an override, the CLI version, times and
+the run URL; no project ref, key or response body. Copy its essentials into
+the handoff entry of the rollout. Any failed check fails the run. A failure
+after step 5 may mean some functions are already live: read the record, then
+fix forward or roll back.
 
 Only one run is active at a time and a running deploy is never cancelled.
 GitHub keeps at most one waiting run per group: queuing another one cancels
@@ -486,6 +494,22 @@ older function must work with the current schema (migrations are
 forward-only, see the RPCs it calls) and with installed app builds. When in
 doubt, fix forward with a reviewed PR. `_shared` code is part of every
 function's graph, so roll back all functions that need the older version.
+
+Each function has a lowest safe rollback commit (`ROLLBACK_FLOORS` in
+[deploy_functions.py](../scripts/operations/deploy_functions.py)); a target
+that does not contain it is refused:
+
+| Function | Floor | Why |
+| --- | --- | --- |
+| `coach-chat` | `a3a7263b` | Clients from #155 send `preferences` to `/recipe`; older handlers reject it with 400 |
+| `analyze-meal`, `recipe-import`, `search-key` | `ea2722e6` | The last source verified live with today's schema and clients (identical before the #155 deploy); nothing older was checked against them |
+
+Only set `allow_below_floor` after checking that the older handler works with
+the installed clients and the live schema; the record names the functions
+deployed below their floor. Raise a floor in the same PR that makes older
+handlers incompatible (a new required request field, a renamed RPC, a
+migration the old code breaks on), and give a new function its floor before
+its first deploy.
 
 ## Client release and rollback gate
 

@@ -168,6 +168,145 @@ class ImportGraphTest(unittest.TestCase):
             self.assertEqual(sorted(plan['graphs']), ['coach-chat', 'search-key'])
 
 
+def git(repo, *args):
+    """Runs git in a throwaway repository with a fixed identity."""
+    import subprocess
+    done = subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                           '-c', 'commit.gpgsign=false', *args], capture_output=True, text=True, check=True)
+    return done.stdout.strip()
+
+
+class RollbackGuardTest(unittest.TestCase):
+    def test_every_function_has_a_full_floor_and_coach_chat_needs_preferences(self):
+        self.assertEqual(sorted(deploy.ROLLBACK_FLOORS), sorted(deploy.PROBES))
+        for slug, (sha, reason) in deploy.ROLLBACK_FLOORS.items():
+            self.assertRegex(sha, r'^[0-9a-f]{40}$', slug)
+            self.assertRegex(reason, r'^[a-z_]+$', slug)
+        # Older coach-chat handlers reject the `preferences` field of #155 clients.
+        self.assertEqual(deploy.ROLLBACK_FLOORS['coach-chat'][0], 'a3a7263bc9e915b99ac7984ff106d3d74dee8142')
+
+    def test_a_target_below_a_floor_is_refused_unless_overridden(self):
+        floors = {'coach-chat': (SHA_A, 'reason'), 'search-key': (SHA_B, 'reason')}
+        contains = {(SHA_A, 'c' * 40): False, (SHA_B, 'c' * 40): True}
+        with mock.patch.object(deploy, 'ROLLBACK_FLOORS', floors):
+            refused = deploy.rollback_guard(['coach-chat', 'search-key'], 'c' * 40,
+                                            lambda floor, target: contains[(floor, target)])
+            self.assertEqual(refused['below_floor'], ['coach-chat'])
+            self.assertFalse(refused['allowed'])
+            self.assertFalse(refused['override'])
+            allowed = deploy.rollback_guard(['coach-chat'], 'c' * 40,
+                                            lambda floor, target: contains[(floor, target)], True)
+            self.assertTrue(allowed['allowed'])
+            self.assertTrue(allowed['override'])
+            fine = deploy.rollback_guard(['search-key'], 'c' * 40,
+                                         lambda floor, target: contains[(floor, target)], True)
+            self.assertEqual((fine['below_floor'], fine['override'], fine['allowed']), ([], False, True))
+            with self.assertRaises(deploy.DeployError) as caught:
+                deploy.rollback_guard(['recipe-import'], 'c' * 40, lambda *args: True)
+            self.assertEqual(str(caught.exception), 'no_rollback_floor_defined:recipe-import')
+
+    def test_ancestry_comes_from_git_and_an_unknown_commit_is_an_error(self):
+        with tempfile.TemporaryDirectory() as repo:
+            git(repo, 'init', '-q')
+            shas = []
+            for name in ('old', 'floor', 'head'):
+                write(repo, name + '.txt', name + '\n')
+                git(repo, 'add', name + '.txt')
+                git(repo, 'commit', '-q', '-m', name)
+                shas.append(git(repo, 'rev-parse', 'HEAD'))
+            old, floor, head = shas
+            self.assertTrue(deploy.git_is_ancestor(repo, floor, head))
+            self.assertTrue(deploy.git_is_ancestor(repo, floor, floor))
+            self.assertFalse(deploy.git_is_ancestor(repo, floor, old))
+            with self.assertRaises(deploy.DeployError) as caught:
+                deploy.git_is_ancestor(repo, 'f' * 40, head)
+            self.assertEqual(str(caught.exception), 'git_ancestry_unknown')
+            with self.assertRaises(deploy.DeployError):
+                deploy.git_is_ancestor(repo, 'HEAD~1', head)
+            # The command refuses the rollback below the floor and records why.
+            output = Path(repo) / 'out/guard.json'
+            stderr = io.StringIO()
+            with mock.patch.object(deploy, 'ROLLBACK_FLOORS', {'coach-chat': (floor, 'reason')}), \
+                    mock.patch('sys.stderr', stderr), mock.patch('sys.stdout', io.StringIO()):
+                code = deploy.main(['guard', '--slugs', 'coach-chat', '--target-sha', old,
+                                    '--repo', repo, '--output', str(output)])
+                self.assertEqual(code, 1)
+                self.assertIn('::error::coach-chat', stderr.getvalue())
+                self.assertEqual(json.loads(output.read_text(encoding='utf-8'))['below_floor'], ['coach-chat'])
+                code = deploy.main(['guard', '--slugs', 'coach-chat', '--target-sha', old, '--repo', repo,
+                                    '--output', str(output), '--allow-below-floor'])
+                self.assertEqual(code, 0)
+                self.assertTrue(json.loads(output.read_text(encoding='utf-8'))['override'])
+                code = deploy.main(['guard', '--slugs', 'coach-chat', '--target-sha', head,
+                                    '--repo', repo, '--output', str(output)])
+                self.assertEqual(code, 0)
+
+
+class MigrationGuardTest(unittest.TestCase):
+    def tree(self, base, names):
+        for name in names:
+            write(base, 'supabase/migrations/' + name, 'select 1;\n')
+        return Path(base)
+
+    def api(self, handler):
+        requests = []
+
+        def open_url(request, timeout):
+            requests.append(request)
+            return handler(request)
+        return deploy.Management(TOKEN, REF, open_url), requests
+
+    def test_repository_versions_are_read_like_the_drift_job(self):
+        with tempfile.TemporaryDirectory() as base:
+            tree = self.tree(base, ['20260516150000_create_profiles.sql', '20261018100000_food.sql'])
+            write(tree, 'supabase/migrations/README.md', 'notes\n')
+            self.assertEqual(deploy.repo_migration_versions(tree), ['20260516150000', '20261018100000'])
+            write(tree, 'supabase/migrations/draft_without_version.sql', 'select 1;\n')
+            with self.assertRaises(deploy.DeployError):
+                deploy.repo_migration_versions(tree)
+        versions = deploy.repo_migration_versions(ROOT)
+        self.assertEqual(len(versions), len(list((ROOT / 'supabase/migrations').glob('*.sql'))))
+
+    def test_live_history_is_read_with_the_fixed_query_and_parsed_strictly(self):
+        body = json.dumps([{'v': '20260516150000,20261018100000'}]).encode()
+        api, requests = self.api(lambda request: FakeResponse(201, body))
+        self.assertEqual(api.registered_migrations(), ['20260516150000', '20261018100000'])
+        request = requests[0]
+        self.assertEqual(request.full_url, 'https://api.supabase.com/v1/projects/' + REF + '/database/query')
+        self.assertEqual(request.get_method(), 'POST')
+        self.assertEqual(json.loads(request.data)['query'], deploy.MIGRATION_QUERY)
+        self.assertIn('supabase_migrations.schema_migrations', deploy.MIGRATION_QUERY)
+        self.assertTrue(request.get_header('User-agent').startswith('Mozilla/5.0'))
+        for bad in (b'[]', b'[{"v": ""}]', b'[{"v": "2026,drop table"}]', b'{"v": "1"}', b'<html>'):
+            api, _ = self.api(lambda request: FakeResponse(201, bad))
+            with self.assertRaises(deploy.DeployError, msg=bad):
+                api.registered_migrations()
+        api, _ = self.api(lambda request: (_ for _ in ()).throw(http_error(request.full_url, 403, TOKEN.encode())))
+        with self.assertRaises(deploy.DeployError) as caught:
+            api.registered_migrations()
+        self.assertEqual(str(caught.exception), 'management_http_403')
+
+    def test_a_target_migration_missing_live_refuses_the_deploy(self):
+        drift = deploy.migration_drift(['1', '2'], ['1', '2', '3'])
+        self.assertEqual((drift['missing'], drift['registered']), (['3'], False))
+        # A rollback target has fewer migrations than live: nothing is missing.
+        self.assertTrue(deploy.migration_drift(['1', '2', '3'], ['1', '2'])['registered'])
+        with tempfile.TemporaryDirectory() as base:
+            tree = self.tree(base, ['1_a.sql', '2_b.sql', '3_c.sql'])
+            output = Path(base) / 'out/migrations.json'
+            body = json.dumps([{'v': '1,2'}]).encode()
+            stderr = io.StringIO()
+            with mock.patch.dict(os.environ, {'SUPABASE_ACCESS_TOKEN': TOKEN, 'SUPABASE_PROJECT_REF': REF}), \
+                    mock.patch.object(deploy, 'opener', lambda: mock.Mock(open=lambda request, timeout: FakeResponse(201, body))), \
+                    mock.patch('sys.stderr', stderr), mock.patch('sys.stdout', io.StringIO()):
+                code = deploy.main(['migrations', '--root', str(tree), '--output', str(output)])
+            self.assertEqual(code, 1)
+            self.assertIn('not registered live: 3', stderr.getvalue())
+            self.assertNotIn(TOKEN, stderr.getvalue())
+            self.assertNotIn(REF, output.read_text(encoding='utf-8'))
+            self.assertEqual(json.loads(output.read_text(encoding='utf-8'))['missing'], ['3'])
+
+
 class CompareTest(unittest.TestCase):
     def live_copy(self, tree, live, slug, prefix='supabase/functions', newline='\n'):
         for relative in deploy.import_graph(tree / 'supabase/functions', slug):
@@ -383,6 +522,28 @@ class RecordTest(unittest.TestCase):
             record = deploy.build_record(self.directory(base), 'success', SHA_B, SHA_A, self.ENV, self.NOW)
             self.assertTrue(record['rollback'])
             self.assertEqual((record['source_sha'], record['main_head_sha']), (SHA_B, SHA_A))
+            self.assertEqual((record['below_rollback_floor'], record['rollback_floor_override'],
+                              record['migrations_registered']), ([], False, None))
+
+    def test_guard_results_and_an_override_are_recorded(self):
+        with tempfile.TemporaryDirectory() as base:
+            directory = self.directory(base)
+            deploy.write_json(directory / 'guard.json', {'below_floor': ['coach-chat', '../x'], 'override': True})
+            deploy.write_json(directory / 'migrations.json', {'registered': True, 'missing': []})
+            record = deploy.build_record(directory, 'success', SHA_B, SHA_A, self.ENV, self.NOW)
+            self.assertEqual(record['below_rollback_floor'], ['coach-chat'])
+            self.assertTrue(record['rollback_floor_override'])
+            self.assertTrue(record['migrations_registered'])
+            self.assertIn('lowest safe rollback commit of: `coach-chat` (override)', deploy.markdown(record))
+
+    def test_probe_summary_holds_statuses_only(self):
+        results = {'coach-chat': {'passed': True, 'statuses': {'preflight': 204, 'no_token': 401, 'anon_key': 401}},
+                   'search-key': {'passed': False, 'statuses': {'preflight': None, 'no_token': None, 'anon_key': None}}}
+        text = deploy.probe_markdown(results)
+        self.assertIn('Boot probe: FAILED', text)
+        self.assertIn('| `coach-chat` | 204 | 401 | 401 | yes |', text)
+        self.assertIn('| `search-key` | None | None | None | **no** |', text)
+        self.assertIn('Boot probe: OK', deploy.probe_markdown({'coach-chat': results['coach-chat']}))
 
     def test_record_command_exit_code_and_summary(self):
         with tempfile.TemporaryDirectory() as base:
@@ -476,6 +637,27 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertNotIn('verify_jwt = false', self.code)
         for step in ('compare --slug', 'probe --slugs', 'record --dir', 'upload-artifact'):
             self.assertIn(step, self.text)
+
+    def test_floor_and_migration_guards_run_before_the_first_deploy(self):
+        deploy_step = self.text.index('      - name: Deploy\n')
+        floor = self.text.index('deploy_functions.py guard --slugs "$SLUGS"')
+        migrations = self.text.index('deploy_functions.py migrations --root "$RUNNER_TEMP/target"')
+        self.assertLess(floor, deploy_step)
+        self.assertLess(migrations, deploy_step)
+        self.assertLess(self.text.index('python3 scripts/operations/deploy_functions.py plan'), floor)
+        self.assertIn('--target-sha "$TARGET_SHA" --repo .', self.text)
+        # The override is a typed input, reaches the shell only through env and
+        # is off by default.
+        self.assertRegex(self.text, r"(?ms)      allow_below_floor:\n.*?default: false\n        type: boolean")
+        self.assertIn('ALLOW_BELOW_FLOOR: ${{ inputs.allow_below_floor }}', self.text)
+        self.assertIn('if [ "$ALLOW_BELOW_FLOOR" = "true" ]; then', self.text)
+        # Neither guard step tolerates its own failure.
+        for name in ('Rollback floor', 'Target migrations registered live'):
+            step = self.text[self.text.index('- name: ' + name):]
+            step = step[:step.index('\n      - ')]
+            self.assertNotIn('|| true', step, name)
+            self.assertNotIn('continue-on-error', step, name)
+            self.assertNotIn('if:', step, name)
 
     def test_secrets_come_from_the_environment_into_step_env_only(self):
         names = set(re.findall(r'\$\{\{\s*secrets\.(\w+)\s*\}\}', self.text))
