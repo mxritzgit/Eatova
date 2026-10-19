@@ -307,8 +307,9 @@ agents (error 1010).
 
 The tool itself installs no schedule, notification route or paid resource; the
 [ops watch](#ops-watch) schedules it. Run it from a trusted operator host or
-protected deployment environment; never expose the token to PR code. Add a heartbeat/dead-man check and approved routing
-for exit `1`, exit `2`, and missed runs. Test those routes separately with
+protected deployment environment; never expose the token to PR code. Add a
+heartbeat/dead-man check and approved routing for exit `1`, exit `2`, and
+missed runs. Test those routes separately with
 synthetic results before a specifically authorized delivery test. If staging
 is omitted it is explicitly unchecked. Two distinct verified project identities
 alone do not prove separate credentials, data, billing or deployment isolation.
