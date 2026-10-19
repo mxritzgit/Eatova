@@ -100,12 +100,20 @@ incomplete. The attempt recorded in `result.json` must match the artifact name.
 Local runs omit `--run-attempt` and keep the plain `shard-N` directories.
 
 Step 3 is required whenever you touch `supabase/functions/`; it is cheap
-enough to run every time. CI additionally builds a debug APK and a release
-AAB (R8 + AOT, throwaway keystore), scans secrets with gitleaks (every commit
+enough to run every time. CI additionally builds a release AAB (R8 + AOT,
+throwaway keystore) and requires its merged manifest to request exactly the
+permissions in `android/permissions_allowlist.txt` (a plugin that adds one
+fails the build until the list and Play's Data Safety form are updated). The
+job still named "Android Debug-Build (APK)" no longer compiles; it prepares
+Gradle and inventories and scans the release dependencies. CI scans secrets
+with gitleaks (every commit
 of a PR or push, the full history weekly; a reviewed false positive goes into
 `.gitleaksignore` by fingerprint) and dependencies with OSV, and replays all
 migrations against PostgreSQL to test real cross-user access and
-account-deletion reauthentication.
+account-deletion reauthentication. A new push to a PR cancels that PR's
+running `security` workflow; runs on `main` are never cancelled. `pub
+outdated` runs on `main` and on the weekly schedule only (Dependabot covers
+PRs).
 
 The line-coverage floor is **95%**, excluding `lib/src/l10n/generated/`.
 The Deno job also runs the Python operations readiness and loopback transport
