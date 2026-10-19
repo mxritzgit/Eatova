@@ -208,10 +208,19 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   bool _ingredientsChanged = false;
   bool _nutritionBasisConfirmed = false;
 
+  /// Picked [ownRecipeCategoryChoices]; empty keeps today's plain "Eigene".
+  late final Set<String> _initialCategories;
+  late Set<String> _categories;
+
   @override
   void initState() {
     super.initState();
     final recipe = widget.initialRecipe;
+    _initialCategories = {
+      for (final category in recipe?.categories ?? const <String>[])
+        if (ownRecipeCategoryChoices.contains(category)) category,
+    };
+    _categories = {..._initialCategories};
     _draftSlug = recipe?.slug ?? FitnessRecipe.userRecipeSlug();
     _structuredIngredients = List.of(recipe?.structuredIngredients ?? []);
     _structured = recipe?.hasStructuredIngredients ?? false;
@@ -332,6 +341,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       _structured !=
           (widget.initialRecipe?.hasStructuredIngredients ?? false) ||
       _batchServings != (widget.initialRecipe?.batchServings ?? 1) ||
+      _categories.length != _initialCategories.length ||
+      !_categories.containsAll(_initialCategories) ||
       _felder.any((feld) => feld.veraendert) ||
       _photoBytes != null ||
       _photoRemoved;
@@ -523,6 +534,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final ingredientContextChanged = original != null &&
         (ingredients != original.ingredients || portion != original.portion ||
             _structured != original.hasStructuredIngredients);
+    // Kept choices stay where they were, so an untouched edit stores the same
+    // list; new ones follow in the picker's order.
+    final pickedCategories = {..._categories};
 
     // The store names the image cryptographically at random, not from the slug
     // (Security review 2026-08-11, finding 5: `user_<ms>` was guessable). If
@@ -575,8 +589,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
           if ((!category.startsWith(recipeIngredientsBasisPrefix) || !ingredientContextChanged) &&
               (!isRecipeNutritionMetadata(category) ||
               _pendingNutritionUnchanged ||
-              (category == recipeNutritionPendingCategory && _structured && !(_calculation?.isComplete ?? false))))
+              (category == recipeNutritionPendingCategory && _structured && !(_calculation?.isComplete ?? false))) &&
+              (!ownRecipeCategoryChoices.contains(category) ||
+                  pickedCategories.remove(category)))
             category,
+        for (final category in ownRecipeCategoryChoices)
+          if (pickedCategories.contains(category)) category,
         if (ingredientContextChanged && original.hasImportedIngredientContext)
           '${recipeIngredientsBasisPrefix}unspecified',
       ],
@@ -1010,6 +1028,17 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                       showLabel: false,
                     ),
                   ),
+                  // Optional and last, so nothing above it moves.
+                  const SizedBox(height: 24),
+                  _RecipeCategoryPicker(
+                    selected: _categories,
+                    enabled: !_saving,
+                    onToggle: (category) => setState(() {
+                      if (!_categories.remove(category)) {
+                        _categories.add(category);
+                      }
+                    }),
+                  ),
                   ],
                 ],
               ),
@@ -1355,6 +1384,54 @@ class _PreviewMacro extends StatelessWidget {
               forceStrutHeight: true,
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The catalog categories an own recipe can join ([ownRecipeCategoryChoices]),
+/// as the app's choice chips. None picked keeps the plain "Eigene" recipe.
+class _RecipeCategoryPicker extends StatelessWidget {
+  const _RecipeCategoryPicker({
+    required this.selected,
+    required this.enabled,
+    required this.onToggle,
+  });
+
+  final Set<String> selected;
+  final bool enabled;
+  final ValueChanged<String> onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final t = context.t;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.recipeCategoryPickerLabel,
+          style: _RecipeSheetField.labelStyle(context),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          l10n.recipeCategoryPickerHint,
+          style: AppType.ui(12, color: t.ink2, height: 1.4),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final category in ownRecipeCategoryChoices)
+              FilterChipPill(
+                key: ValueKey('recipe-create-category-$category'),
+                label: recipeCategoryLabel(category, l10n),
+                selected: selected.contains(category),
+                onTap: enabled ? () => onToggle(category) : null,
+              ),
+          ],
         ),
       ],
     );

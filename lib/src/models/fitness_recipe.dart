@@ -741,6 +741,20 @@ const recipeFilters = <String>[
   "Low Carb",
 ];
 
+/// The catalog categories an own recipe may carry besides "Eigene": the
+/// editorial ones of [recipeFilters]. [highProteinCategory] is derived from
+/// the numbers ([HighProteinRule]) and never picked by hand. Plain strings in
+/// the existing `categories` array, so row, cache, outbox and export keep
+/// their shape; the server only caps count and length.
+const ownRecipeCategoryChoices = <String>[
+  "Hauptgericht",
+  "Frühstück",
+  "Fisch",
+  "Vegetarisch",
+  "Vegan",
+  "Low Carb",
+];
+
 /// Search normalisation: lower case plus a simple umlaut fold, so "Haehnchen"
 /// finds "Hähnchen" and vice versa. Applied to query AND fields.
 ///

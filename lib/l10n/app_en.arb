@@ -2347,6 +2347,8 @@
   "recipeEditTitle": "Edit recipe",
   "recipeEditIntro": "Update your recipe. Previously logged meals stay unchanged.",
   "recipeEditDescription": "Description",
+  "recipeCategoryPickerLabel": "Categories",
+  "recipeCategoryPickerHint": "Optional. Lets you find the recipe through the filters too.",
   "recipeEditSave": "Save changes",
   "recipeEditSaved": "Recipe updated",
   "recipeEditPreparationHint": "Describe the preparation step by step.",

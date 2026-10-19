@@ -2399,6 +2399,8 @@
   "recipeEditTitle": "Rezept bearbeiten",
   "recipeEditIntro": "Passe dein Rezept an. Bereits eingetragene Mahlzeiten bleiben unverändert.",
   "recipeEditDescription": "Beschreibung",
+  "recipeCategoryPickerLabel": "Kategorien",
+  "recipeCategoryPickerHint": "Optional. So findest du das Rezept auch über die Filter.",
   "recipeEditSave": "Änderungen speichern",
   "recipeEditSaved": "Rezept aktualisiert",
   "recipeEditPreparationHint": "Beschreibe die Zubereitung Schritt für Schritt.",
