@@ -15,6 +15,7 @@ import '../models/training_plan.dart';
 import '../models/training_session.dart';
 import '../services/crash_reporter.dart';
 import '../services/data_export.dart';
+import '../services/day_math.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
 import '../services/favorites_view.dart' show favoriteUseCounts;
@@ -973,9 +974,24 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         trendsPreview: today ? _todayTrendsPreview() : null,
         onOpenTrends: _openTrends,
         isCompleteDay: _store.isCompleteFoodDay,
+        onFillYesterday: today && _store.yesterdayRescuesStreak
+            ? _fillYesterday
+            : null,
       );
     },
   );
+
+  /// Today's streak hint: the Food tab on yesterday with its add sheet open.
+  /// The request waits a frame, so the tab has rebuilt on the new day when
+  /// its listener opens the sheet.
+  void _fillYesterday() {
+    _store.setFoodDate(addDays(startOfDay(clock.now()), -1));
+    _store.setTab(_tabFood);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _addSlotRequest.value = mealSlotForHour(clock.now().hour);
+    });
+  }
 
   // --- Trends -----------------------------------------------------------
 

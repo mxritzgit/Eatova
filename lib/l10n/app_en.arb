@@ -2850,6 +2850,7 @@
     }
   },
   "todayStreakSemantics": "{count, plural, =1{Streak: 1 day in a row} other{Streak: {count} days in a row}}",
+  "streakYesterdayHint": "Yesterday is still empty – logging it keeps your streak.",
   "todayProfileAndSettings": "Profile and settings",
   "todayCaloriesTitle": "Calories",
   "todayEatenPercent": "{percent}% eaten",

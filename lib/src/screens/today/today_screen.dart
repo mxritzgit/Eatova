@@ -27,6 +27,7 @@ import 'today_hero.dart';
 import 'today_macros.dart';
 import 'today_reminder_prompt.dart';
 import 'today_sections.dart';
+import 'today_streak_hint.dart';
 import 'today_texts.dart';
 import 'today_trends.dart';
 import 'today_weigh.dart';
@@ -78,6 +79,7 @@ class TodayScreen extends StatelessWidget {
     this.trendsPreview,
     this.onOpenTrends,
     this.isCompleteDay,
+    this.onFillYesterday,
   });
 
   final String userName;
@@ -181,6 +183,11 @@ class TodayScreen extends StatelessWidget {
   /// shows no markers.
   final bool Function(DateTime day)? isCompleteDay;
 
+  /// Opens the add flow on yesterday; non-null only while yesterday is empty
+  /// and an entry for it would save the streak
+  /// (`HomeStore.yesterdayRescuesStreak`). Today only.
+  final VoidCallback? onFillYesterday;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -205,6 +212,7 @@ class TodayScreen extends StatelessWidget {
     final logWeight = istHeute ? onLogWeight : null;
     final health = istHeute && !dayLoading ? healthPrompt : null;
     final trends = istHeute && !dayLoading ? trendsPreview : null;
+    final fillYesterday = istHeute && !dayLoading ? onFillYesterday : null;
     final healthMissing = steps == null && healthConnect;
     final showActivity =
         !dayLoading &&
@@ -290,6 +298,10 @@ class TodayScreen extends StatelessWidget {
                       : () => onOpenPick!(shownPick),
                 ),
               ],
+            ],
+            if (fillYesterday != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayYesterdayHint(onTap: fillYesterday),
             ],
             const SizedBox(height: 16),
             TodayMealsHeader(onOpenFoodLog: onOpenFoodLog),

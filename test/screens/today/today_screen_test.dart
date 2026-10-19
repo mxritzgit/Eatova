@@ -176,6 +176,7 @@ TodayScreen _today({
   VoidCallback? onOpenTraining,
   VoidCallback? onResumeWorkout,
   bool Function(DateTime day)? isCompleteDay,
+  VoidCallback? onFillYesterday,
 }) => TodayScreen(
   userName: userName,
   profile: profile,
@@ -203,6 +204,7 @@ TodayScreen _today({
   onOpenTraining: onOpenTraining,
   onResumeWorkout: onResumeWorkout,
   isCompleteDay: isCompleteDay,
+  onFillYesterday: onFillYesterday,
 );
 
 /// The loading card spins forever, so `pumpAndSettle` would never settle;
@@ -636,6 +638,52 @@ void main() {
           expect(_addFill(tester, slot), t.accentTint, reason: '$day $slot');
         }
       }
+    });
+  });
+
+  // 2026-10-19: before today's first entry, an empty yesterday that would
+  // save the streak gets one quiet, tappable line; the shell decides when.
+  group('Hinweis auf gestern', () {
+    testWidgets('steht heute ueber den Mahlzeiten und meldet den Tipp', (
+      tester,
+    ) async {
+      var taps = 0;
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(tester, _today(onFillYesterday: () => taps++));
+        expect(
+          find.text('Gestern ist noch leer – nachtragen hält deine Serie.'),
+          findsOneWidget,
+        );
+        final hint = tester.getRect(
+          find.byKey(const ValueKey('today-yesterday-hint')),
+        );
+        expect(hint.height, greaterThanOrEqualTo(44));
+        await _tap(tester, 'today-yesterday-hint');
+      });
+      expect(taps, 1);
+    });
+
+    testWidgets('nicht auf einem Archivtag und nicht beim Laden', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          _today(
+            selectedDate: DateTime(2026, 8, 7),
+            onFillYesterday: () {},
+          ),
+        );
+        expect(find.byKey(const ValueKey('today-yesterday-hint')), findsNothing);
+        await _pump(
+          tester,
+          _today(dayLoading: true, onFillYesterday: () {}),
+          settle: false,
+        );
+        expect(find.byKey(const ValueKey('today-yesterday-hint')), findsNothing);
+        await _pump(tester, _today());
+        expect(find.byKey(const ValueKey('today-yesterday-hint')), findsNothing);
+      });
     });
   });
 

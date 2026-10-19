@@ -2907,6 +2907,10 @@
   },
   "todayStreakSemantics": "{count, plural, =1{Serie: 1 Tag in Folge} other{Serie: {count} Tage in Folge}}",
   "@todayStreakSemantics": {"placeholders": {"count": {"type": "int"}}},
+  "streakYesterdayHint": "Gestern ist noch leer – nachtragen hält deine Serie.",
+  "@streakYesterdayHint": {
+    "description": "Quiet Today line before the first entry of the day when yesterday is empty and an entry for yesterday would save the streak; opens the add flow on yesterday."
+  },
   "todayProfileAndSettings": "Profil und Einstellungen",
   "todayCaloriesTitle": "Kalorien",
   "todayEatenPercent": "{percent} % gegessen",
