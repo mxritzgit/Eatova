@@ -306,9 +306,12 @@ void main() {
         'test-anon-key',
         httpClient: MockClient((req) async {
           if (req.url.path.endsWith('/rest/v1/logged_meals')) anfragen++;
+          // Only an empty page ends a read: the page after the cursor is it.
+          final nachCursor = req.url.queryParameters.containsKey('id');
           return http.Response(
-            jsonEncode(const [
+            jsonEncode(nachCursor ? const [] : const [
               {
+                'id': 'a',
                 'local_day': '2026-08-30',
                 'logged_at': '2026-08-30T08:00:00Z',
                 'calories_kcal': 700,
@@ -317,6 +320,7 @@ void main() {
                 'fat_g': 20,
               },
               {
+                'id': 'b',
                 'local_day': '2026-08-31',
                 'logged_at': '2026-08-31T08:00:00Z',
                 'calories_kcal': 800,
@@ -349,14 +353,15 @@ void main() {
         cache: cache,
       ).loadDailyTotals();
 
-      expect(anfragen, 1);
+      // One read: the page with rows and the empty page that ends it.
+      expect(anfragen, 2);
       expect(erst, hasLength(2));
       expect(zweit, hasLength(2));
 
       // After a write the next open really goes to the server again.
       cache.invalidate();
       await TrendService(client, 'u1', cache: cache).loadDailyTotals();
-      expect(anfragen, 2);
+      expect(anfragen, 4);
     });
   });
 

@@ -33,10 +33,13 @@ class TrendService {
   /// which is 1000 live (Management API, 2026-10-18): the former single
   /// `limit(2500)` came back with at most 1000 rows and dropped whole days.
   /// So the window is read in pages of exactly that size, keyset by id.
+  /// Only an EMPTY page ends the read: a short page proves nothing once
+  /// `db-max-rows` is lowered below this size.
   static const int trendPageRows = 1000;
 
-  /// Bound on the pages, about 55 entries a day over the window. Crossing it
-  /// fails the load (retry state) instead of presenting partial totals.
+  /// Bound on the non-empty pages, about 55 entries a day over the window.
+  /// Crossing it fails the load (retry state) instead of presenting partial
+  /// totals; the closing empty page does not count.
   static const int trendMaxPages = 10;
 
   /// Most rows one load reads.
@@ -76,9 +79,6 @@ class TrendService {
       final rows = <Map<String, dynamic>>[];
       String? cursor;
       for (var page = 0; ; page++) {
-        if (page == trendMaxPages) {
-          throw StateError('Trend window exceeds its page bound');
-        }
         var query = _client
             .from('logged_meals')
             .select(_projection)
@@ -88,10 +88,15 @@ class TrendService {
         final batch = await query
             .order('id', ascending: true)
             .limit(trendPageRows);
+        // Only an empty page is the end: a server capping below
+        // [trendPageRows] answers short pages while rows remain.
+        if (batch.isEmpty) break;
+        if (page == trendMaxPages) {
+          throw StateError('Trend window exceeds its page bound');
+        }
         rows.addAll(batch);
-        if (batch.length < trendPageRows) break;
-        // A full page: the next one starts after its last id, which must be
-        // a string past the previous cursor, or the loop could repeat rows.
+        // The next page starts after this one's last id, which must be a
+        // string past the previous cursor, or the loop could repeat rows.
         final last = batch.last['id'];
         if (last is! String ||
             last.isEmpty ||

@@ -2,6 +2,8 @@
 // answer at db-max-rows, 1000 live, so the former single limit(2500) came
 // back with at most 1000 rows and dropped whole days without a sign. The
 // fake below caps like the live server; the window must still be complete.
+// Since 2026-10-19 only an empty page ends the read, so a server whose cap
+// is lowered below the page size cannot truncate the window either.
 
 import 'dart:convert';
 
@@ -98,7 +100,8 @@ void main() {
     final totals = await _load(server.client);
 
     expect(_kcal(totals), 2500 * 100);
-    expect(server.requests, hasLength(3));
+    // Three pages with rows, then the empty page that ends the read.
+    expect(server.requests, hasLength(4));
     final first = server.requests.first.queryParameters;
     expect(first['limit'], '1000');
     expect(first['order'], startsWith('id.asc'));
@@ -107,13 +110,25 @@ void main() {
     expect(first.containsKey('id'), isFalse);
     expect(server.requests[1].queryParameters['id'], 'gt.id-00999');
     expect(server.requests[2].queryParameters['id'], 'gt.id-01999');
+    expect(server.requests[3].queryParameters['id'], 'gt.id-02499');
   });
 
-  test('eine kurze erste Seite braucht keinen zweiten Abruf', () async {
+  test('eine kurze Seite endet erst mit einer leeren Seite', () async {
     final server = _server(_rows(40));
     final totals = await _load(server.client);
     expect(_kcal(totals), 40 * 100);
-    expect(server.requests, hasLength(1));
+    expect(server.requests, hasLength(2));
+    expect(server.requests[1].queryParameters['id'], 'gt.id-00039');
+  });
+
+  // A lowered db-max-rows answers short pages while rows remain; stopping
+  // at the first short page brought the silent truncation back.
+  test('ein Server mit max_rows 500 liefert trotzdem alle Zeilen', () async {
+    final server = _server(_rows(2500), maxRows: 500);
+    final totals = await _load(server.client);
+    expect(_kcal(totals), 2500 * 100);
+    expect(server.requests, hasLength(6));
+    expect(server.requests[1].queryParameters['id'], 'gt.id-00499');
   });
 
   test('genau eine volle Seite fragt einmal leer nach', () async {
@@ -142,7 +157,14 @@ void main() {
     () async {
       final server = _server(_rows(TrendService.trendMaxRows + 1));
       await expectLater(_load(server.client), throwsStateError);
-      expect(server.requests, hasLength(TrendService.trendMaxPages));
+      expect(server.requests, hasLength(TrendService.trendMaxPages + 1));
     },
   );
+
+  test('genau an der Seitengrenze endet das Laden mit der leeren Seite', () async {
+    final server = _server(_rows(TrendService.trendMaxRows));
+    final totals = await _load(server.client);
+    expect(_kcal(totals), TrendService.trendMaxRows * 100);
+    expect(server.requests, hasLength(TrendService.trendMaxPages + 1));
+  });
 }
