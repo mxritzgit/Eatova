@@ -770,6 +770,9 @@ class HomeStore extends _HomeStoreBase
   @override
   bool get _serverAnsweredWeightLog => _serverWeightLogLoaded;
 
+  @override
+  bool get _needsOnboardingForHealth => needsOnboarding;
+
   /// The meal load answered in this session — the weekly check's third
   /// source (docs/WEIGHT-TREND.md); same lifecycle as the two above.
   @override

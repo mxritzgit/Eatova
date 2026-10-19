@@ -22,6 +22,7 @@ import '../../widgets/profile/profile_widgets.dart'
 import 'today_day_strip.dart';
 import 'today_energy_check.dart';
 import 'today_glyphs.dart';
+import 'today_health_prompt.dart';
 import 'today_hero.dart';
 import 'today_macros.dart';
 import 'today_reminder_prompt.dart';
@@ -73,6 +74,7 @@ class TodayScreen extends StatelessWidget {
     this.latestWeightKg,
     this.onLogWeight,
     this.weighIns,
+    this.healthPrompt,
     this.trendsPreview,
     this.onOpenTrends,
   });
@@ -163,6 +165,11 @@ class TodayScreen extends StatelessWidget {
   /// The weigh-in sheet's date row and history link; null keeps "log now".
   final WeighInActions? weighIns;
 
+  /// Apple Health's intro card (`HomeStore.healthIntroVisible`); null hides
+  /// it. Today only.
+  final ({Future<void> Function() connect, Future<void> Function() dismiss})?
+  healthPrompt;
+
   /// The last seven completed days for the trends card; null hides it
   /// (archive days). Today only, at the end of the page.
   final TodayTrendsPreview? trendsPreview;
@@ -190,6 +197,7 @@ class TodayScreen extends StatelessWidget {
         onAcceptEnergyCheck != null &&
         onDismissEnergyCheck != null;
     final logWeight = istHeute ? onLogWeight : null;
+    final health = istHeute && !dayLoading ? healthPrompt : null;
     final trends = istHeute && !dayLoading ? trendsPreview : null;
     final healthMissing = steps == null && healthConnect;
     final showActivity =
@@ -297,6 +305,13 @@ class TodayScreen extends StatelessWidget {
                 onAccept: onAcceptReminderPrompt!,
                 onDismiss: onDismissReminderPrompt!,
                 onChangeTime: onChangeReminderTime,
+              ),
+            ],
+            if (health != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayHealthPromptCard(
+                onConnect: health.connect,
+                onDismiss: health.dismiss,
               ),
             ],
             if (showActivity) ...<Widget>[

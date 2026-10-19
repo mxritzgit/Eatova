@@ -210,7 +210,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           // Production restores only after its account cache has been read.
           if (widget.sync == null) unawaited(_store.restoreHealthConnection());
         } else {
-          unawaited(_store.connectHealth());
+          // HealthKit asks once the onboarding is known complete, never
+          // over it (review 2026-10-19); [_onStoreChanged] retries.
+          _healthAutoConnectPending = true;
+          _maybeAutoConnectHealth();
         }
       });
     }
@@ -267,6 +270,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   void _onStoreChanged() {
     _scheduleRecipeImport();
     _resumeAfterRestAlert();
+    _maybeAutoConnectHealth();
     if (_profileRouteOpen && mounted) _profileRefresh.value++;
     // B3b: the midnight rollover keeps `dailySteps`, so pull one refresh per
     // calendar day or yesterday's steps feed `burnedKcal` all day.
@@ -281,6 +285,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _backgroundSyncRequested = true;
       unawaited(widget.backgroundSyncScheduler?.request());
     }
+  }
+
+  /// HealthKit's first connect of this session still waits for
+  /// `HomeStore.healthAutoConnectAllowed`.
+  bool _healthAutoConnectPending = false;
+
+  void _maybeAutoConnectHealth() {
+    if (!_healthAutoConnectPending || !_store.healthAutoConnectAllowed) return;
+    _healthAutoConnectPending = false;
+    unawaited(_store.connectHealth());
   }
 
   /// Calendar day of the last health refresh (guard for [_onStoreChanged]).
@@ -301,9 +315,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     HealthAuthState.noData ||
     HealthAuthState.updateRequired ||
     HealthAuthState.error => true,
+    // Not over the onboarding or past Today's unanswered Health intro.
     HealthAuthState.unknown =>
       widget.healthService != null &&
-          widget.healthService is! HealthConnectAccess,
+          widget.healthService is! HealthConnectAccess &&
+          _store.healthAutoConnectAllowed,
     HealthAuthState.unsupported || HealthAuthState.unavailable => false,
   };
 
@@ -860,6 +876,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       // The one-time reminder card (C4).
       _store.reminderPromptVisible,
       _store.reminderTime,
+      // Apple Health's intro card (2026-10-19).
+      _store.healthIntroVisible,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
@@ -919,6 +937,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         latestWeightKg: _store.weightLog.latest?.weightKg,
         onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,
         weighIns: today ? _weighInActions(ownerStore) : null,
+        healthPrompt: today && _store.healthIntroVisible
+            ? (
+                connect: _store.acceptHealthIntro,
+                dismiss: _store.dismissHealthIntro,
+              )
+            : null,
         trendsPreview: today ? _todayTrendsPreview() : null,
         onOpenTrends: _openTrends,
       );

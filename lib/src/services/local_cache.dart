@@ -231,6 +231,19 @@ class LocalCache {
   Future<bool> readHealthConnectEnabled() async =>
       (await _readJson(_healthConnectKey))?['enabled'] == true;
 
+  /// Today's Apple Health intro card for this account (2026-10-19):
+  /// `pending`, `connected` or `dismissed`; missing for accounts onboarded
+  /// by an older build. Cleared in [clear].
+  String get _healthPromptKey => 'eatova.v1.health_prompt.$_userId';
+
+  Future<void> writeHealthPrompt(String state) =>
+      _writeJson(_healthPromptKey, <String, dynamic>{'state': state});
+
+  Future<String?> readHealthPrompt() async {
+    final state = (await _readJson(_healthPromptKey))?['state'];
+    return state is String ? state : null;
+  }
+
   // DATA-7 offline persistence: diary, favorites and weight log are mirrored
   // so an offline cold start does not begin with an empty diary. Plus the
   // write outbox and the pending lifetime-stats deltas, both of which must
@@ -995,6 +1008,7 @@ class LocalCache {
       await _store.remove(_reminderTimeKey);
       await _store.remove(_reminderPromptKey);
       await _store.remove(_healthConnectKey);
+      await _store.remove(_healthPromptKey);
       await _store.remove(_loggedMealsKey);
       await _store.remove(_favoritesKey);
       await _store.remove(_weightLogKey);

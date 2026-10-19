@@ -495,7 +495,8 @@ mixin _HomeStoreProfilePart
   /// through the outbox now.
   ///
   /// The entered weight also becomes the first weigh-in when the account has
-  /// none (2026-10-19), in the same commit.
+  /// none (2026-10-19), in the same commit, and Apple Health waits for
+  /// Today's intro card instead of asking unprompted.
   Future<void> completeOnboarding(UserProfile finished) {
     final pending = _onboardingCompletion;
     if (pending != null) return pending;
@@ -515,6 +516,7 @@ mixin _HomeStoreProfilePart
                 weightLog = weightLog.addEntry(weighIn.entry);
                 lifetimeStats = lifetimeStats.incrementWeightLogs();
               }
+              _deferHealthToIntro();
             },
           );
         }).whenComplete(() {
