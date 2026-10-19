@@ -2,7 +2,7 @@
   "recipeNutritionBasisCheck": "Portionsbasis prüfen",
   "recipeNutritionComplete": "Nährwerte ergänzen",
   "recipeNutritionBasisBeforeLog": "Alle Werte sind vorhanden. Bestätige noch die Portionsbasis, dann wähle deine Mahlzeit.",
-  "recipeNutritionBasisExplanation": "Alle vier Nährwerte sind vorhanden. Für wie viele Portionen gelten diese Angaben? Danach kannst du deine gegessene Menge im Tracker auswählen.",
+  "recipeNutritionBasisExplanation": "Alle vier Nährwerte sind vorhanden. Für wie viele Portionen gelten diese Angaben? Danach kannst du deine gegessene Menge im Tagebuch auswählen.",
   "recipeNutritionBasisServings": "Diese Werte gelten für so viele Portionen",
   "recipeNutritionBasisInvalid": "Prüfe die Portionszahl. Die Werte pro Portion müssen innerhalb des zulässigen Bereichs liegen.",
   "recipeNutritionBasisContinue": "Bestätigen und Mahlzeit wählen",
@@ -98,7 +98,7 @@
       "count": { "type": "int" }
     }
   },
-  "todayMealSlotEmpty": "Noch nichts geloggt",
+  "todayMealSlotEmpty": "Noch nichts eingetragen",
   "todayMacrosTitle": "Makros",
   "todayMacroProtein": "Protein",
   "todayMacroCarbs": "Kohlenhydrate",
@@ -122,7 +122,7 @@
   },
   "todayDayLoading": "Tag wird geladen…",
   "foodDayLoadFailedTitle": "Dieser Tag konnte nicht geladen werden",
-  "foodDayLoadFailedBody": "Bereits geloggte Mahlzeiten dieses Tages fehlen hier vielleicht. Versuch es erneut, sobald du online bist, damit nichts doppelt landet.",
+  "foodDayLoadFailedBody": "Bereits eingetragene Mahlzeiten dieses Tages fehlen hier vielleicht. Versuch es erneut, sobald du online bist, damit nichts doppelt landet.",
   "foodDayLoadRetry": "Erneut versuchen",
   "foodSlotNotLoaded": "Nicht geladen",
   "todaySemanticsDatePrev": "Tag zurück",
@@ -178,8 +178,8 @@
   "foodOtherDateCalendarSemantics": "Anderes Datum im Kalender wählen",
   "foodOtherDateLine1": "Anderes",
   "foodOtherDateLine2": "Datum…",
-  "foodSuggestionWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts loggen. Der Eintrag stammt noch aus einer älteren Version — entferne ihn und leg ihn über Suche oder Barcode neu an.",
-  "foodMealWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts loggen. Trag die Bestandteile über „Anpassen\" ein.",
+  "foodSuggestionWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts eintragen. Der Eintrag stammt noch aus einer älteren Version — entferne ihn und leg ihn über Suche oder Barcode neu an.",
+  "foodMealWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts eintragen. Trag die Bestandteile über „Anpassen\" ein.",
   "foodSearchMinCharsHint": "Mindestens 2 Zeichen, z.B. Dr Oetker Salami.",
   "foodSearchNoResultsHint": "Keine passenden Produkte gefunden. Versuche Marke + Produktname.",
   "foodSearchUnreachableHint": "OpenFoodFacts gerade nicht erreichbar.",
@@ -326,7 +326,7 @@
       "count": { "type": "int" }
     }
   },
-  "foodMacroTileCarbsLabel": "Carbs",
+  "foodMacroTileCarbsLabel": "KH",
   "foodInfoBrandLabel": "Marke",
   "foodInfoBarcodeLabel": "Barcode",
   "foodInfoSourceLabel": "Quelle",
@@ -538,7 +538,7 @@
   "recipesOwnTitle": "Eigenes Rezept",
   "recipesBrandTitle": "Eatova Rezept",
   "recipesDeleteSemantics": "Rezept löschen",
-  "recipesAddToTrackerTitle": "Zum Tracker hinzufügen",
+  "recipesAddToTrackerTitle": "Ins Tagebuch eintragen",
   "recipesKcalProteinSummary": "{kcal} kcal · {protein} g Protein",
   "@recipesKcalProteinSummary": {
     "placeholders": {
@@ -824,7 +824,7 @@
   },
   "coachErrorSpeechEmpty": "Ich habe nichts verstanden. Versuch es nochmal.",
   "profileTitle": "Mein Profil",
-  "profileLabelStreak": "Streak",
+  "profileLabelStreak": "Serie",
   "profileLabelMeals": "Mahlzeiten",
   "profileUnitTotal": "gesamt",
   "profileLabelRecord": "Rekord",
@@ -1069,7 +1069,7 @@
   "trendsChartSemanticsLabel": "Kalorienverlauf",
   "trendsMacroAvgTitle": "Ø MAKROS PRO TAG",
   "trendsEmptyTitle": "Noch zu wenig Daten",
-  "trendsEmptyBody": "Logge deine Mahlzeiten an mindestens zwei Tagen,\num hier deinen Verlauf zu sehen.",
+  "trendsEmptyBody": "Trag deine Mahlzeiten an mindestens zwei Tagen ein,\num hier deinen Verlauf zu sehen.",
   "trendsErrorTitle": "Trends konnten nicht geladen werden",
   "trendsErrorBody": "Prüfe deine Internetverbindung und versuche es erneut.",
   "trendsRetryCta": "Erneut versuchen",
@@ -1300,7 +1300,7 @@
   "goalsUnitPerDay": "/Tag",
   "goalsDailyTargetsNote": "Das Schrittziel steuert nur die Schritte-Karte – dein Kalorienziel ändert es nicht.",
   "goalsGroupReminders": "Erinnerungen",
-  "goalsFieldReminders": "Streak-Erinnerung",
+  "goalsFieldReminders": "Serien-Erinnerung",
   "goalsRemindersSubtitle": "Lokal auf diesem Gerät, ohne Server.",
   "goalsReminderBlockedSemantics": "Lokale Erinnerungen — vom System blockiert",
   "goalsReminderActiveSemantics": "Lokale Erinnerungen aktivieren",
@@ -1381,7 +1381,7 @@
   "aiConsentSaving": "Wird gespeichert …",
   "aiConsentNotNow": "Nicht jetzt",
   "aiConsentSaveFailed": "Die Einwilligung konnte nicht gespeichert werden. Prüfe deine Verbindung und versuch es noch einmal. Bis dahin wird nichts gesendet.",
-  "settingsSignOutTitle": "Ausloggen",
+  "settingsSignOutTitle": "Abmelden",
   "settingsSignOutFailed": "Abmelden fehlgeschlagen. Bitte versuche es erneut.",
   "settingsDeleteAccountTitle": "Konto löschen",
   "settingsDeleteAccountBlockSubtitle": "Entfernt alle Einträge dauerhaft",
@@ -1743,16 +1743,16 @@
   },
 
   "notifChannelName": "Eatova Erinnerungen",
-  "notifChannelDescription": "Tägliche Streak-Erinnerung am Abend.",
-  "notifStreakSaveTitle": "Streak retten",
+  "notifChannelDescription": "Tägliche Serien-Erinnerung am Abend.",
+  "notifStreakSaveTitle": "Serie retten",
   "notifStreakSaveBody": "Deine {streak}-Tage-Serie wartet — ein Foto genügt.",
   "@notifStreakSaveBody": {
     "placeholders": {
       "streak": { "type": "int" }
     }
   },
-  "notifStreakStartTitle": "Streak starten",
-  "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten.",
+  "notifStreakStartTitle": "Serie starten",
+  "notifStreakStartBody": "Ein Eintrag genügt, um deine Serie zu starten.",
   "reminderHalfDayTitle": "Tagebuch für heute",
   "@reminderHalfDayTitle": {
     "description": "Evening reminder when today holds entries but less than half the daily goal (the complete-day rule)."
@@ -2943,7 +2943,7 @@
   "todayOpenFoodLog": "Tagebuch öffnen",
   "todaySlotSuggested": "Empfohlen {min}–{max} kcal",
   "@todaySlotSuggested": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
-  "todaySlotNothingLogged": "Nichts geloggt",
+  "todaySlotNothingLogged": "Nichts eingetragen",
   "todayStepsOfGoal": "/ {goal} Schritte",
   "@todayStepsOfGoal": {"placeholders": {"goal": {"type": "String"}}},
   "todayStepsNoGoal": "Schritte",

@@ -139,7 +139,7 @@ void main() {
         const ReminderTime(7, 15),
       );
       expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 7, 15));
-      expect(specs.first.title, 'Streak starten');
+      expect(specs.first.title, 'Serie starten');
       expect(specs.first.body, isNot(contains('5')));
     });
 
@@ -155,7 +155,7 @@ void main() {
           const ReminderTime(7, 15),
         );
         expect(specs.first.scheduledFor, DateTime(2026, 7, 15, 7, 15));
-        expect(specs.first.title, 'Streak retten');
+        expect(specs.first.title, 'Serie retten');
         expect(specs.first.body, contains('5-Tage-Serie'));
       },
     );

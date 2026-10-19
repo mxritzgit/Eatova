@@ -193,7 +193,7 @@ void main() {
       // formerly profile-action-about
       (key: 'settings-about', text: 'Über Eatova'),
       // formerly profile-action-logout
-      (key: 'settings-sign-out', text: 'Ausloggen'),
+      (key: 'settings-sign-out', text: 'Abmelden'),
       // formerly profile-action-delete
       (key: 'settings-delete-account', text: 'Konto löschen'),
     ]) {

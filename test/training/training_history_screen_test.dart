@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 
 import 'training_timer_fixtures.dart';
 
@@ -27,6 +28,7 @@ Future<void> _host(
   Widget child, {
   String locale = 'en',
   double scale = 1,
+  bool use24Hours = false,
 }) async {
   tester.view.physicalSize = Size(scale == 1 ? 393 : 320, 852);
   tester.view.devicePixelRatio = 1;
@@ -39,9 +41,10 @@ Future<void> _host(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(
-          context,
-        ).copyWith(textScaler: TextScaler.linear(scale)),
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(scale),
+          alwaysUse24HourFormat: use24Hours,
+        ),
         child: RepaintBoundary(key: _capture, child: child),
       ),
       home: Builder(
@@ -650,16 +653,65 @@ void main() {
           ),
         );
         expect(find.text('Logged'), findsOneWidget);
+        // English reads the locale's 12-hour clock (2026-10-19), not a
+        // fixed 24-hour one.
+        final start = DateTime(2026, 10, 1, 17, 45);
+        final end = DateTime(2026, 10, 1, 18, 30);
+        final time = DateFormat.jm('en');
+        final stamp = DateFormat.yMMMd('en').add_jm();
+        expect(
+          find.text('${time.format(start)}–${time.format(end)} · 45 min'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('PM'), findsOneWidget);
+        expect(find.textContaining('17:45'), findsNothing);
+        expect(
+          find.bySemanticsLabel(
+            'Recorded from: ${stamp.format(start)}, 45 min',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.bySemanticsLabel('Finished: ${stamp.format(end)}'),
+          findsOneWidget,
+        );
+        semantics.dispose();
+      });
+    });
+
+    testWidgets('a device on a 24-hour clock keeps 24 hours in English', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(now), () async {
+        final semantics = tester.ensureSemantics();
+        await _host(
+          tester,
+          TrainingHistoryDetail(
+            entry: log(minutes: 45),
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+          use24Hours: true,
+        );
         expect(find.text('17:45–18:30 · 45 min'), findsOneWidget);
         expect(
           find.bySemanticsLabel('Recorded from: Oct 1, 2026 17:45, 45 min'),
           findsOneWidget,
         );
-        expect(
-          find.bySemanticsLabel('Finished: Oct 1, 2026 18:30'),
-          findsOneWidget,
-        );
         semantics.dispose();
+      });
+    });
+
+    testWidgets('German stays on its 24-hour clock', (tester) async {
+      await withClock(Clock.fixed(now), () async {
+        await _host(
+          tester,
+          TrainingHistoryDetail(
+            entry: log(minutes: 45),
+            onDelete: (_) async => SyncDelivery.delivered,
+          ),
+          locale: 'de',
+        );
+        expect(find.textContaining('17:45–18:30'), findsOneWidget);
       });
     });
 

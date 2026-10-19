@@ -258,7 +258,7 @@ void main() {
       'settings-steps-goal': 'Schritte',
       'settings-kcal': 'Kcal Ziel',
       'settings-protein': 'Protein',
-      'settings-carbs': 'Carbs',
+      'settings-carbs': 'KH',
       'settings-fat': 'Fett',
     };
     for (final eintrag in felder.entries) {

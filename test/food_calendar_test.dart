@@ -134,7 +134,7 @@ void main() {
         expect(find.text('Dieser Tag konnte nicht geladen werden'),
             findsOneWidget);
         // No slot claims the day is empty; each says it is not loaded.
-        expect(find.text('Noch nichts geloggt'), findsNothing);
+        expect(find.text('Noch nichts eingetragen'), findsNothing);
         expect(find.text('Nicht geladen'),
             findsNWidgets(MealSlot.values.length));
         // The dock stays enabled: the card is the signal, not a lock.

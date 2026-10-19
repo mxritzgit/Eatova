@@ -177,8 +177,8 @@ void main() {
       );
       final specs = planStreakReminders(wedMorning, stats);
       for (final spec in specs.skip(1)) {
-        expect(spec.title, 'Streak starten');
-        expect(spec.body, 'Ein Log genügt, um deine Serie zu starten.');
+        expect(spec.title, 'Serie starten');
+        expect(spec.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
       }
     });
 
@@ -192,8 +192,8 @@ void main() {
       );
       final specs = planStreakReminders(wedMorning, stats);
       for (final spec in specs) {
-        expect(spec.title, 'Streak starten');
-        expect(spec.body, 'Ein Log genügt, um deine Serie zu starten.');
+        expect(spec.title, 'Serie starten');
+        expect(spec.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
       }
     });
 
@@ -208,13 +208,13 @@ void main() {
       );
       final specs = planStreakReminders(wedEvening, stats);
       expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 20));
-      expect(specs.first.title, 'Streak starten');
-      expect(specs.first.body, 'Ein Log genügt, um deine Serie zu starten.');
+      expect(specs.first.title, 'Serie starten');
+      expect(specs.first.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
     });
 
     test('nie getrackt -> Start-Text', () {
       final specs = planStreakReminders(wedMorning, LifetimeStats());
-      expect(specs.first.body, 'Ein Log genügt, um deine Serie zu starten.');
+      expect(specs.first.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
     });
 
     test('heute getrackt: erster geplanter Tag (morgen) traegt die Zahl', () {
@@ -223,7 +223,7 @@ void main() {
         days: 4,
       );
       final specs = planStreakReminders(wedMorning, stats);
-      expect(specs.first.title, 'Streak retten');
+      expect(specs.first.title, 'Serie retten');
       expect(specs.first.body, contains('4-Tage-Serie'));
     });
   });

@@ -494,7 +494,7 @@ void main() {
       expect(kacheln[0].goal, 130);
       // Visible compact name, full name for screen readers.
       expect(kacheln[1].label, 'Kohlenhydrate');
-      expect(kacheln[1].shortLabel, 'Carbs');
+      expect(kacheln[1].shortLabel, 'KH');
       expect(kacheln[1].goal, 240);
       expect(kacheln[2].label, 'Fett');
       expect(kacheln[2].goal, 70);
@@ -557,7 +557,7 @@ void main() {
         await _pump(tester, _today(selectedDate: DateTime(2026, 8, 4)));
       });
       await _scrollTo(tester, find.byKey(const ValueKey('today-meals-card')));
-      expect(_textOf(tester, 'today-meal-sub-lunch'), 'Nichts geloggt');
+      expect(_textOf(tester, 'today-meal-sub-lunch'), 'Nichts eingetragen');
     });
 
     testWidgets('dayLoading ersetzt die Karte durch die Ladekarte', (
