@@ -1,0 +1,69 @@
+name: Ops watch
+
+# Hourly production watch without paid calls and without user data: the
+# read-only readiness check (project health, AI stop switches and the shared
+# daily AI budget, warning at 80 %) and the boot probe of every Edge Function.
+# A problem fails the run; GitHub mails a failed scheduled run to the person
+# who last changed this schedule. Setup and limits: docs/OPERATIONS.md, "Ops
+# watch".
+on:
+  schedule:
+    # Minute 17, away from the top of the hour when scheduled runs queue longest.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One watch at a time; a late run never cancels the one still reading.
+concurrency:
+  group: ops-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Readiness and boot probe
+    # Forks and other refs never reach the environment's secrets.
+    if: github.repository == 'mxritzgit/Eatova' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: ops-watch
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # Exit 1 is attention (project not healthy, a stop switch, calls or
+      # images at 80 % or exhausted), exit 2 unknown (access, transport or an
+      # invalid response); both fail. Backups join once the repository or
+      # environment variable OPS_WATCH_BACKUP_MAX_AGE_HOURS holds the agreed
+      # RPO; until then the report names them as not checked.
+      - name: Readiness (project and AI budget)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          BACKUP_MAX_AGE_HOURS: ${{ vars.OPS_WATCH_BACKUP_MAX_AGE_HOURS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ]; then
+            echo "::error::Supabase secrets are missing from the ops-watch environment (docs/OPERATIONS.md, Ops watch)."
+            exit 2
+          fi
+          backups=()
+          if [ -n "${BACKUP_MAX_AGE_HOURS:-}" ]; then
+            backups=(--backup-max-age-hours "$BACKUP_MAX_AGE_HOURS")
+          fi
+          python3 scripts/operations/readiness.py --expected-project-ref "$SUPABASE_PROJECT_REF" \
+            --budget-warning-percent 80 "${backups[@]}" --summary "$GITHUB_STEP_SUMMARY"
+
+      # Preflight 204, the gateway's 401 without a token and each handler's
+      # own 401 with the public anon key: every function is deployed, keeps
+      # verify_jwt and boots. No user token, no paid call.
+      - name: Boot probe (all functions)
+        if: ${{ !cancelled() }}
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          python3 scripts/operations/deploy_functions.py probe --slugs all \
+            --output "$RUNNER_TEMP/probe.json" --summary "$GITHUB_STEP_SUMMARY"

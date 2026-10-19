@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 import urllib.error
@@ -198,6 +199,25 @@ class ReadinessTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(report['checks']['budgets']['reason'], 'budget_utc_day_mismatch')
 
+    def test_without_a_max_age_backups_are_named_unchecked_not_green(self):
+        # The hourly ops watch runs before an RPO exists; a Free project
+        # without backups must not turn every run red, nor pass as backed up.
+        self.api.responses['backups'] = {'backups': [], 'pitr_enabled': False}
+        report, code = readiness.check(self.api, REF, NOW, None, 80)
+        self.assertEqual(code, 0)
+        self.assertNotIn('backups', report['checks'])
+        self.assertEqual(report['backups'], 'not_checked_no_max_age_supplied')
+        self.assertEqual(self.api.calls, [(REF, 'project'), (REF, 'budgets')])
+        self.assertIn('| backups | not checked |', readiness.markdown(report))
+        # The budget still fails the run at the warning threshold.
+        self.api.responses['budgets'][0]['calls'] = 800
+        report, code = readiness.check(self.api, REF, NOW, None, 80)
+        self.assertEqual(code, 1)
+        summary = readiness.markdown(report)
+        self.assertIn('### Readiness: ATTENTION', summary)
+        self.assertIn('calls 800/1000, images 2/50; calls_warning', summary)
+        self.assertNotIn(REF, summary)
+
     def test_denied_backup_access_does_not_claim_no_backups(self):
         self.api.responses['backups'] = readiness.CheckError('http_403')
         report, code = self.run_check()
@@ -230,6 +250,8 @@ class TransportTest(unittest.TestCase):
         self.assertNotIn('ai_provider_user_usage', readiness.BUDGET_QUERY)
         self.assertNotIn('auth.users', readiness.BUDGET_QUERY)
         self.assertEqual(self.api.opener.open.call_args.kwargs['timeout'], 30)
+        # A default library agent is blocked by Cloudflare (error 1010).
+        self.assertTrue(request.get_header('User-agent').startswith('Mozilla/5.0'))
         with self.assertRaises(readiness.CheckError):
             self.api.read(REF, 'restore')
         self.assertEqual(self.api.opener.open.call_count, 1)
@@ -280,6 +302,19 @@ class TransportTest(unittest.TestCase):
                 result = json.loads(output.getvalue())
                 self.assertEqual(result['state'], 'unknown')
                 self.assertNotIn('secret-fixture', output.getvalue())
+
+    def test_cli_summary_without_backups_argument(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        summary = Path(directory.name) / 'summary.md'
+        report = ({'checks': {'project': {'state': 'ok'}}, 'backups': 'not_checked_no_max_age_supplied',
+                   'exit_code': 0}, 0)
+        with mock.patch.dict(readiness.os.environ, {'SUPABASE_ACCESS_TOKEN': 'dummy'}, clear=True), \
+                mock.patch.object(readiness, 'check', return_value=report) as check, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(readiness.main(['--expected-project-ref', REF, '--summary', str(summary)]), 0)
+        self.assertIsNone(check.call_args.args[3], 'no max age means no backup check')
+        self.assertIn('### Readiness: OK', summary.read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':
