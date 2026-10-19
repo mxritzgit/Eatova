@@ -565,6 +565,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     )) {
       throw StateError('Account deletion failed');
     }
+    // The account is gone: revoke the device's Google grant too. Best
+    // effort and never awaited; it is queued before the sign-out below.
+    if (widget.authRepository case final ProviderGrantRevocation grants) {
+      unawaited(grants.revokeProviderGrants());
+    }
     if (_isStoreSessionCurrent(ownerStore) && isCurrentSession()) {
       // An INTENTIONAL logout: without the flag [AuthGate] would report an
       // expired session (Review 2026-08-19). Marked again: the local cleanup
