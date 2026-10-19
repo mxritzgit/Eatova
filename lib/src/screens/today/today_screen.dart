@@ -30,6 +30,7 @@ import 'today_sections.dart';
 import 'today_streak_hint.dart';
 import 'today_texts.dart';
 import 'today_trends.dart';
+import 'today_weekly_check.dart';
 import 'today_weigh.dart';
 
 /// The day dashboard tab (dark redesign, 2026-09-28): header with streak and
@@ -80,6 +81,7 @@ class TodayScreen extends StatelessWidget {
     this.onOpenTrends,
     this.isCompleteDay,
     this.onFillYesterday,
+    this.energyCheckResult,
   });
 
   final String userName;
@@ -188,6 +190,11 @@ class TodayScreen extends StatelessWidget {
   /// (`HomeStore.yesterdayRescuesStreak`). Today only.
   final VoidCallback? onFillYesterday;
 
+  /// The week's result when the check estimates without a proposal
+  /// (`HomeStore.energyCheckResult`, once a week); today only, and never
+  /// beside the proposal card, which speaks for the check then.
+  final EnergyCheckEstimate? energyCheckResult;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -211,6 +218,22 @@ class TodayScreen extends StatelessWidget {
         onDismissEnergyCheck != null;
     final logWeight = istHeute ? onLogWeight : null;
     final health = istHeute && !dayLoading ? healthPrompt : null;
+    final result = istHeute && !dayLoading && !showCheckCard
+        ? energyCheckResult
+        : null;
+    // The weekly check explained, from its line and its result card.
+    void explainCheck() => showWeeklyCheckExplainer(
+      context,
+      onOpenFoodLog: onOpenFoodLog,
+      onLogWeight: logWeight == null
+          ? null
+          : () => showWeightEntrySheet(
+              context,
+              initial: latestWeightKg ?? profile.weightKg.toDouble(),
+              onSave: logWeight,
+              actions: weighIns,
+            ),
+    );
     final trends = istHeute && !dayLoading ? trendsPreview : null;
     final fillYesterday = istHeute && !dayLoading ? onFillYesterday : null;
     final healthMissing = steps == null && healthConnect;
@@ -277,8 +300,19 @@ class TodayScreen extends StatelessWidget {
                     onSave: logWeight,
                     actions: weighIns,
                   ),
-                  // The proposal card speaks for the check while it shows.
-                  progress: showCheckCard ? null : energyCheckProgress,
+                  // The proposal or result card speaks for the check while
+                  // it shows.
+                  progress: showCheckCard || result != null
+                      ? null
+                      : energyCheckProgress,
+                  onExplain: explainCheck,
+                ),
+              ],
+              if (result != null) ...<Widget>[
+                const SizedBox(height: 16),
+                TodayWeeklyResultCard(
+                  estimate: result,
+                  onExplain: explainCheck,
                 ),
               ],
               if (showCheckCard) ...<Widget>[

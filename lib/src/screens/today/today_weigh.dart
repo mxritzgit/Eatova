@@ -41,13 +41,15 @@ String todayWeighProgressText(
 ///
 /// The line sits next to the chip while it fits there in two lines;
 /// otherwise (a narrow phone, large text, the wider "Log weight" chip) it
-/// moves under the chip.
+/// moves under the chip. With [onExplain] the line is a button that
+/// explains the weekly check (2026-10-19), marked by an info glyph.
 class TodayWeighRow extends StatelessWidget {
   const TodayWeighRow({
     super.key,
     required this.latestKg,
     required this.onTap,
     this.progress,
+    this.onExplain,
   });
 
   /// The latest weigh-in; null shows "Log weight".
@@ -57,7 +59,13 @@ class TodayWeighRow extends StatelessWidget {
   final VoidCallback? onTap;
   final EnergyCheckProgress? progress;
 
+  /// Opens the weekly check's explainer from the progress line.
+  final VoidCallback? onExplain;
+
   static const double _gap = 12;
+
+  /// The info glyph after a tappable line, with its gap.
+  static const double _glyph = 19;
 
   @override
   Widget build(BuildContext context) {
@@ -78,16 +86,54 @@ class TodayWeighRow extends StatelessWidget {
         if (text == null) {
           return Align(alignment: Alignment.centerLeft, child: chip);
         }
-        final line = Text(
+        final explain = onExplain;
+        final label = Text(
           text,
           key: const ValueKey('today-weigh-progress'),
           style: style,
         );
+        final line = explain == null
+            ? label
+            : Semantics(
+                button: true,
+                hint: l10n.weeklyCheckLineHint,
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: TodayTapTarget(
+                    key: const ValueKey('today-weigh-progress-tap'),
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: explain,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 44),
+                      child: Row(
+                        children: <Widget>[
+                          Flexible(child: label),
+                          const SizedBox(width: 4),
+                          ExcludeSemantics(
+                            child: Icon(
+                              Icons.info_outline_rounded,
+                              size: _glyph - 4,
+                              color: t.ink3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
         final scaler = MediaQuery.textScalerOf(context);
         final beside =
             constraints.maxWidth - _WeighChip.width(value, l10n, scaler) - _gap;
         final stacked =
-            beside < 120 || _lineCount(text, style, scaler, beside) > 2;
+            beside < 120 ||
+            _lineCount(
+                  text,
+                  style,
+                  scaler,
+                  beside - (explain == null ? 0 : _glyph),
+                ) >
+                2;
         if (stacked) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,

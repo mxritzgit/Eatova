@@ -16,7 +16,7 @@ mixin _HomeStoreEnergyCheckPart
   bool get _serverMealsLoaded;
 
   Object? _energyCheckKey;
-  EnergyCheckProposal? _energyCheckProposal;
+  EnergyCheckEstimate? _energyCheckEstimate;
   EnergyCheckProgress? _energyCheckProgress;
 
   /// The local day whose window [_backfillEnergyCheckWindow] last refreshed.
@@ -53,7 +53,22 @@ mixin _HomeStoreEnergyCheckPart
   /// ([energyCheckSourcesReady]).
   EnergyCheckProposal? get energyCheckProposal {
     _refreshEnergyCheck();
-    return energyCheckSourcesReady ? _energyCheckProposal : null;
+    return energyCheckSourcesReady ? _energyCheckEstimate?.proposal : null;
+  }
+
+  /// The week's result for Today's quiet card (2026-10-19): the check's
+  /// estimate on [EnergyCheck.resultWeekday] when it proposes nothing, on
+  /// the same sources and gates as [energyCheckProposal]; else null.
+  EnergyCheckEstimate? get energyCheckResult {
+    _refreshEnergyCheck();
+    final estimate = _energyCheckEstimate;
+    if (!energyCheckSourcesReady ||
+        estimate == null ||
+        estimate.proposal != null ||
+        clock.now().weekday != EnergyCheck.resultWeekday) {
+      return null;
+    }
+    return estimate;
   }
 
   /// How far the weekly check is from an estimate, on the same sources and
@@ -85,7 +100,7 @@ mixin _HomeStoreEnergyCheckPart
     // without one must not count as zero steps.
     int? burnedKcal(DateTime day) => dailyActivity[localDayKey(day)]?.kcal;
     const check = EnergyCheck();
-    _energyCheckProposal = check.evaluate(
+    _energyCheckEstimate = check.estimate(
       profile: profile,
       today: today,
       intakeKcal: consumedKcalForFoodDate,

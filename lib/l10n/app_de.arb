@@ -1639,7 +1639,7 @@
   "onboardingPlanBreakdownTitle": "So entsteht dein Tagesziel",
   "onboardingReviewTarget": "Wunschgewicht",
   "onboardingReviewPace": "Tempo",
-  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Körperdaten und Ziele kannst du später im Profil ändern.",
+  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Ein Wochen-Check gleicht sie später mit deinen Einträgen und Wiegungen ab, dafür wiegst du dich am besten 2–3× pro Woche. Körperdaten und Ziele kannst du später im Profil ändern.",
 
   "coachErrorEmptyReply": "Leere Antwort vom Coach.",
   "coachErrorUnreachable": "Der Coach ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.",
@@ -3686,6 +3686,62 @@
   "@todayWeighJoin": {"description": "Joins two parts of Today's progress line.", "placeholders": {"first": {"type": "String"}, "second": {"type": "String"}}},
   "todayWeighCheckReady": "Wochen-Check aktiv · deine Daten reichen",
   "@todayWeighCheckReady": {"description": "Today's progress line once the weekly check has enough data and proposes nothing."},
+  "weeklyCheckLineHint": "Erklärt den Wochen-Check",
+  "@weeklyCheckLineHint": {
+    "description": "Screen-reader hint of Today's weekly-check line, which opens the explainer sheet."
+  },
+  "weeklyCheckExplainTitle": "So funktioniert der Wochen-Check",
+  "weeklyCheckExplainCompare": "Eatova vergleicht, was du in den letzten {days} Tagen eingetragen hast, mit der Entwicklung deines Gewichts. Daraus schätzt es, was du tatsächlich verbrauchst.",
+  "@weeklyCheckExplainCompare": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "weeklyCheckExplainData": "Dafür braucht es {days} vollständige Tage, also jeweils mindestens die Hälfte deines Tagesziels eingetragen, und {weighIns} Wiegungen, die erste und die letzte mindestens {span} Tage auseinander. Am besten wiegst du dich 2–3× pro Woche morgens vor dem Frühstück.",
+  "@weeklyCheckExplainData": {
+    "placeholders": {
+      "days": { "type": "int" },
+      "weighIns": { "type": "int" },
+      "span": { "type": "int" }
+    }
+  },
+  "weeklyCheckExplainStep": "Weicht dein Verbrauch deutlich von der Rechnung ab, schlägt der Check ein neues Tagesziel vor: höchstens {step} kcal auf einmal und insgesamt höchstens {max} kcal. Ohne dein „Anpassen“ ändert sich nichts.",
+  "@weeklyCheckExplainStep": {
+    "placeholders": {
+      "step": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "weeklyCheckResultTitle": "Dein Wochen-Check",
+  "weeklyCheckResultBurn": "Verbrauch ≈ {kcal} kcal am Tag",
+  "@weeklyCheckResultBurn": {
+    "description": "Expenditure the weekly check estimated from intake and weight change, rounded to 10.",
+    "placeholders": {
+      "kcal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultFits": "Dein Tagesziel von {goal} kcal passt dazu.",
+  "@weeklyCheckResultFits": {
+    "placeholders": {
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultHeld": "Dein Tagesziel bleibt bei {goal} kcal: Es liegt schon an einer Grenze.",
+  "@weeklyCheckResultHeld": {
+    "description": "The data asks for a change, but the adjustment cap, the floor or the ceiling holds the goal.",
+    "placeholders": {
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultRate": "Gemessen: {measured} · Plan: {plan}",
+  "@weeklyCheckResultRate": {
+    "description": "Weight change the check measured over three weeks against the pace the goal plans; both are pace labels like '−0,4 kg/Woche'.",
+    "placeholders": {
+      "measured": { "type": "String" },
+      "plan": { "type": "String" }
+    }
+  },
+  "weeklyCheckResultMore": "So funktioniert’s",
   "foodPrefsAvoidLactose": "Laktose",
   "foodPrefsAvoidGluten": "Gluten",
   "foodPrefsAvoidNuts": "Nüsse",

@@ -961,6 +961,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onDismissReminderPrompt: _store.dismissReminderPrompt,
         onChangeReminderTime: (time) => unawaited(_store.setReminderTime(time)),
         energyCheckProgress: today ? _store.energyCheckProgress : null,
+        energyCheckResult: today ? _store.energyCheckResult : null,
         // The weight chip: the profile's weigh-in path, for this session.
         latestWeightKg: _store.weightLog.latest?.weightKg,
         onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,

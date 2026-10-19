@@ -169,7 +169,10 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
   is not complete yet).
   - At least 14 **logged days**. A day counts when its logged intake reaches
     50 % of the current daily goal, since emptier days are almost certainly
-    incomplete.
+    incomplete. Since 2026-10-19 this is the app's one rule for a complete
+    day (`services/complete_day.dart`): the trends averages, Today's day
+    strip and the evening reminder use it too. The logging streak keeps its
+    own bar of one entry.
   - With a step source (a reading today or any step value in the window),
     a day also needs a step value of its own. Step values are not synced:
     on a new phone, or for days before the permission, a missing value
@@ -230,15 +233,41 @@ minimum the block says so instead of naming a rate.
   "Log weight" without one. It opens the profile's weigh-in sheet.
 - Beside it, `EnergyCheck.progress` on the same inputs, rules and source
   gate as the proposal: "Weekly check in 5 days at the earliest · 2 more
-  weigh-ins". The day assumes that every day from today on gets logged and
-  that the weigh-ins fall on the days they are needed; weigh-ins still to
-  come are assumed to be no typos. After an answer it names the end of the
-  7-day pause.
+  complete days · 2 more weigh-ins". The day assumes that every day from
+  today on gets logged and that the weigh-ins fall on the days they are
+  needed; weigh-ins still to come are assumed to be no typos. After an
+  answer it names the end of the 7-day pause.
 - With enough data and no proposal: "Weekly check active · enough data". It
   does not claim that the goal fits, since a cap or the floor can hold back a
   step the data asks for.
 - While the proposal card shows, the card speaks for the check and the line
   is hidden. On cached data alone there is neither.
+
+### Explained, and the week's result (2026-10-19)
+
+- The progress line is a button (info glyph). It opens a short explainer:
+  what the check compares (the last 21 days of entries against the weight
+  trend), what it needs (14 complete days, 4 weigh-ins 14 days apart,
+  weighing 2–3 times a week), and how far it may move the goal (150 kcal at
+  a time, ±500 in total, nothing without "Adjust"). The numbers come from
+  `EnergyCheck`'s constants. Two ways out: log weight, open the food log.
+- `EnergyCheck.estimate` returns the arithmetic behind `evaluate` with or
+  without a proposal: observed and modelled expenditure, the measured
+  weekly rate, the plan's pace (`KcalTargets.effectiveWeeklyRateKg`), the
+  counts, and whether the difference stayed inside the noise. `evaluate` is
+  its proposal. Nothing new is modelled.
+- Once a week, on Mondays (`EnergyCheck.resultWeekday`), when the check
+  estimates on server data and proposes nothing, Today shows a quiet result
+  card instead of the line: "Verbrauch ≈ 2.350 kcal am Tag", then "Dein
+  Tagesziel von 2.100 kcal passt dazu." (inside the noise) or "… bleibt bei
+  … kcal: Es liegt schon an einer Grenze." (a cap, the floor or the ceiling
+  holds it), and "Gemessen: −0,4 kg/Woche · Plan: −0,5 kg/Woche". It has no
+  answer buttons and changes nothing; it links to the explainer. Monday is a
+  stateless choice: nothing is stored, so a week without opening the app on
+  Monday shows no card, while the line stays tappable every day.
+- The onboarding plan's footnote now says that a weekly check compares the
+  estimate with the entries and weigh-ins, and to weigh in 2–3 times a
+  week.
 
 ### Storage and rollout
 

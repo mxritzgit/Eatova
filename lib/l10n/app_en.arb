@@ -1584,7 +1584,7 @@
   "onboardingPlanBreakdownTitle": "How we got there",
   "onboardingReviewTarget": "Target weight",
   "onboardingReviewPace": "Pace",
-  "onboardingSummaryFootnote": "Estimate based on Mifflin-St Jeor (typically ±10%). You can change body details and goals later in your profile.",
+  "onboardingSummaryFootnote": "Estimate based on Mifflin-St Jeor (typically ±10%). A weekly check later compares it with your entries and weigh-ins, so weigh yourself 2–3 times a week. You can change body details and goals later in your profile.",
 
   "coachErrorEmptyReply": "Empty reply from the coach.",
   "coachErrorUnreachable": "The coach isn't reachable right now. Please try again shortly.",
@@ -3608,6 +3608,56 @@
   "@todayWeighJoin": {"description": "Joins two parts of Today's progress line.", "placeholders": {"first": {"type": "String"}, "second": {"type": "String"}}},
   "todayWeighCheckReady": "Weekly check active · enough data",
   "@todayWeighCheckReady": {"description": "Today's progress line once the weekly check has enough data and proposes nothing."},
+  "weeklyCheckLineHint": "Explains the weekly check",
+  "weeklyCheckExplainTitle": "How the weekly check works",
+  "weeklyCheckExplainCompare": "Eatova compares what you logged over the last {days} days with how your weight moved, and estimates what you actually burn.",
+  "@weeklyCheckExplainCompare": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "weeklyCheckExplainData": "It needs {days} complete days, each with at least half your daily goal logged, and {weighIns} weigh-ins, the first and last at least {span} days apart. Weigh yourself 2–3 times a week, ideally in the morning before breakfast.",
+  "@weeklyCheckExplainData": {
+    "placeholders": {
+      "days": { "type": "int" },
+      "weighIns": { "type": "int" },
+      "span": { "type": "int" }
+    }
+  },
+  "weeklyCheckExplainStep": "If what you burn clearly differs from the calculation, the check proposes a new daily goal: at most {step} kcal at a time and {max} kcal in total. Nothing changes until you tap “Adjust”.",
+  "@weeklyCheckExplainStep": {
+    "placeholders": {
+      "step": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "weeklyCheckResultTitle": "Your weekly check",
+  "weeklyCheckResultBurn": "You burn ≈ {kcal} kcal a day",
+  "@weeklyCheckResultBurn": {
+    "placeholders": {
+      "kcal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultFits": "Your daily goal of {goal} kcal fits.",
+  "@weeklyCheckResultFits": {
+    "placeholders": {
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultHeld": "Your daily goal stays at {goal} kcal: it is already at a limit.",
+  "@weeklyCheckResultHeld": {
+    "placeholders": {
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultRate": "Measured: {measured} · plan: {plan}",
+  "@weeklyCheckResultRate": {
+    "placeholders": {
+      "measured": { "type": "String" },
+      "plan": { "type": "String" }
+    }
+  },
+  "weeklyCheckResultMore": "How it works",
   "foodPrefsAvoidLactose": "Lactose",
   "foodPrefsAvoidGluten": "Gluten",
   "foodPrefsAvoidNuts": "Tree nuts",
