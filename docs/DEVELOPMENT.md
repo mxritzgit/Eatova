@@ -95,12 +95,19 @@ storeFile=upload-keystore.jks
 ```
 
 `storeFile` is relative to `android/app/`. Keep the keystore and passwords backed
-up outside the repository. Then build with your public client configuration:
+up outside the repository. Then build with your public client configuration
+through the helper, from an up-to-date `main`:
 
 ```bash
-flutter build appbundle --release --dart-define-from-file=dart_defines.json
-flutter build apk --release --dart-define-from-file=dart_defines.json
+python3 scripts/operations/device_build.py appbundle
+python3 scripts/operations/device_build.py apk
 ```
+
+The helper passes `dart_defines.json` and sets the build number (Android
+`versionCode`) to the commit count of `HEAD`, the same rule as the
+[release lane](#release-lane). A plain `flutter build appbundle` takes the
+pubspec's build number (`+4`), far below the commit counts Play has already
+seen, so Play rejects it as a lower version.
 
 The Gradle guard rejects release assemble/bundle/package tasks without signing
 configuration. R8 minification and resource shrinking are enabled; plugin keep
@@ -153,6 +160,60 @@ The pubspec build number stays the same across many merges. Reinstalling the
 same release over a running app looks like an OS kill to Sentry's iOS SDK, and
 was reported as a WatchdogTermination (FLUTTER-C on 1.1.0 (2) and 1.1.0 (3)). A
 build number per commit lets Sentry tell an update from a kill.
+
+## Release lane
+
+**Release (Android)** ([release.yml](../.github/workflows/release.yml)) builds
+a store release of the current `main` head, by hand only:
+
+1. refuses any ref but `main` and a shallow checkout; the build number is the
+   commit count of `main` (`device_build.py build-number`), the version name
+   comes from `pubspec.yaml`;
+2. runs the [client release eligibility](OPERATIONS.md#client-release-and-rollback-gate)
+   check of that commit;
+3. writes `dart_defines.json` from the secret `RELEASE_DART_DEFINES` (the
+   JSON content of a release `dart_defines.json`) and masks every value. It
+   stops when `SUPABASE_URL`, `SUPABASE_ANON_KEY` or `SENTRY_DSN` is missing
+   or empty: a release without a DSN would ship with crash reporting off;
+4. writes the upload keystore and `android/key.properties` from four
+   secrets, and stops if one is missing;
+5. builds the signed AAB with `device_build.py appbundle` and checks the R8
+   mapping and that the bundle is not debug-signed;
+6. with `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_PROJECT`: puts a
+   ProGuard id into the app (`sentry-debug-meta.properties`) before the
+   build, then uploads the R8 mapping under that id and the native libraries'
+   debug files with a pinned `sentry-cli`. Without them a warning says so;
+7. keeps the AAB, its SHA-256, the mapping and the eligibility result as the
+   artifact `android-release-<build>` (90 days);
+8. with `PLAY_SERVICE_ACCOUNT_JSON`: uploads the AAB to the internal track in
+   one Play edit, as `draft` (default) or `completed`. Without it, upload the
+   artifact's AAB in the Play Console;
+9. tags the commit `v<name>+<build>` (for example `v1.1.0+405`) through the
+   API; a rerun of the same commit keeps its tag.
+
+One-time setup on GitHub (owner):
+
+- Environment `release`: required reviewer (the owner), deployment branches
+  limited to `main`, no administrator bypass.
+- Environment secrets: `RELEASE_DART_DEFINES`;
+  `ANDROID_UPLOAD_KEYSTORE_BASE64` (the keystore file, base64),
+  `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`,
+  `ANDROID_UPLOAD_KEY_PASSWORD`; optional `SENTRY_AUTH_TOKEN` (project
+  releases and debug files only), `SENTRY_ORG`, `SENTRY_PROJECT`; optional
+  `PLAY_SERVICE_ACCOUNT_JSON` (a service account invited in the Play Console
+  with release rights for this app only).
+- Before the first release with Sentry secrets, pin `SENTRY_CLI_VERSION` and
+  the SHA-256 of that release's `sentry-cli-Linux-x86_64` in the workflow in a
+  reviewed PR; empty values fail the Sentry step.
+- The workflow's first run is the first real check of the Play edit, the
+  Sentry id in the app and the tag; check one test crash in Sentry
+  (deobfuscated Java frames) after it.
+
+The first upload of a new app, Play App Signing enrolment and store listing
+remain Play Console work. iOS has no job: TestFlight, Sign in with Apple and
+a distribution certificate need the paid Apple Developer Program (owner
+decision); a first TestFlight upload stays manual from a Mac with
+`device_build.py ipa`.
 
 ## Checks and delivery
 

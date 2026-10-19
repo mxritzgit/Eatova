@@ -588,9 +588,10 @@ SQLite build without the recovery guard are not eligible rollback targets,
 even if their old CI was green. Port the corrective change onto a compatible
 SQLite build, review/test it and obtain fresh eligibility. The supported process
 does not allow reinstalling an obsolete binary over a migrated installation.
-There is no automated app-store publication pipeline in this repository; this
-gate attests eligibility and cannot physically prevent manual uploads, bypasses
-or sideloads. See the [data preservation and recovery contract](OFFLINE_SYNC.md#client-rollback-contract).
+The Android [release lane](DEVELOPMENT.md#release-lane) runs this check for
+the commit it builds and keeps the result with the signed bundle; the gate
+still attests eligibility only and cannot physically prevent manual uploads,
+bypasses or sideloads. See the [data preservation and recovery contract](OFFLINE_SYNC.md#client-rollback-contract).
 
 Review this runbook after an incident or major platform change. A documented
 procedure must still be exercised; do not mark operational readiness complete

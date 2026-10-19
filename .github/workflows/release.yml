@@ -1,0 +1,273 @@
+name: Release (Android)
+
+# Manual Android release of the current main head, behind the protected
+# `release` environment (required reviewer). The build number is the commit
+# count of main (the device_build.py rule, so versionCode never goes
+# backwards), the version name comes from pubspec.yaml. The run checks the
+# storage release eligibility, refuses release defines without SENTRY_DSN,
+# signs the AAB with the upload key, uploads the R8 mapping and native
+# symbols to Sentry when SENTRY_* secrets exist, uploads to the Play internal
+# track when a service account exists (otherwise the AAB stays an artifact)
+# and tags v<name>+<build>. iOS/TestFlight has no job: it needs the paid
+# Apple Developer Program (owner decision). Setup: docs/DEVELOPMENT.md,
+# "Release lane".
+on:
+  workflow_dispatch:
+    inputs:
+      play_status:
+        description: 'Status of the internal-track release: draft (finish it in the Play Console) or completed (to internal testers)'
+        required: true
+        default: draft
+        type: choice
+        options:
+          - draft
+          - completed
+
+permissions:
+  contents: read
+
+# One release at a time; a running release is never cancelled.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Pin both in a reviewed PR before the first release with Sentry secrets:
+  # the version of getsentry/sentry-cli and the SHA-256 of its
+  # sentry-cli-Linux-x86_64 asset. Empty values fail the Sentry step closed.
+  SENTRY_CLI_VERSION: ''
+  SENTRY_CLI_SHA256: ''
+
+jobs:
+  android:
+    name: Signed Android release
+    # Forks and other refs never reach the release environment.
+    if: github.repository == 'mxritzgit/Eatova' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      # Only for the release tag, created through the API after every check.
+      contents: write
+    steps:
+      - name: Refuse anything but main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::Releases are built from main only, not from $REF."
+            exit 1
+          fi
+
+      # Full history: the build number is the commit count. No persisted
+      # token: the build never needs to push.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+
+      - name: Version and build number
+        id: version
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
+            echo "::error::A shallow checkout would count too few commits for the build number."
+            exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]; then
+            echo "::error::The checkout is not the dispatched main commit."
+            exit 1
+          fi
+          number="$(python3 scripts/operations/device_build.py build-number)"
+          python3 scripts/operations/release.py version --pubspec pubspec.yaml \
+            --build-number "$number" --github-output "$GITHUB_OUTPUT"
+
+      # The trusted validator from main itself (docs/OPERATIONS.md, client
+      # release gate); its result is kept with the signed bundle.
+      - name: Client storage release eligibility
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          python3 scripts/check_storage_release.py --candidate "$RELEASE_SHA" \
+            --output "$RUNNER_TEMP/release/storage-release-eligibility.json"
+
+      - name: pub get
+        run: flutter pub get
+
+      # The release's dart_defines.json, from one secret with its JSON
+      # content. Every value is masked; SENTRY_DSN must be set.
+      - name: Release defines
+        env:
+          RELEASE_DART_DEFINES: ${{ secrets.RELEASE_DART_DEFINES }}
+        run: |
+          set -euo pipefail
+          if [ -e dart_defines.json ]; then
+            echo "::error::dart_defines.json must not exist in the checkout."
+            exit 1
+          fi
+          if [ -z "${RELEASE_DART_DEFINES:-}" ]; then
+            echo "::error::RELEASE_DART_DEFINES is missing from the release environment (docs/DEVELOPMENT.md, Release lane)."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$RELEASE_DART_DEFINES" > dart_defines.json
+          python3 scripts/operations/release.py defines --file dart_defines.json
+
+      # The upload keystore: without all four secrets the run stops here, and
+      # the Gradle guard (E5) never falls back to the debug key.
+      - name: Upload keystore
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          python3 scripts/operations/release.py signing \
+            --keystore "$RUNNER_TEMP/signing/upload-keystore.jks" --properties android/key.properties
+
+      # Sentry matches an uploaded R8 mapping by an id the app must carry: the
+      # Android SDK reads it from this asset. Only with all three secrets.
+      - name: Sentry mapping id
+        id: sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ] || [ -z "${SENTRY_ORG:-}" ] || [ -z "${SENTRY_PROJECT:-}" ]; then
+            echo "::warning::No SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT: the mapping and symbols stay in the release artifact."
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          uuid="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+          mkdir -p android/app/src/main/assets
+          printf 'io.sentry.ProguardUuids=%s\n' "$uuid" > android/app/src/main/assets/sentry-debug-meta.properties
+          {
+            echo "upload=true"
+            echo "proguard_uuid=$uuid"
+          } >> "$GITHUB_OUTPUT"
+
+      # The device_build.py rule: --build-number is the commit count of main.
+      - name: Signed app bundle
+        env:
+          FLUTTER: flutter
+        run: |
+          set -euo pipefail
+          python3 scripts/operations/device_build.py appbundle
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          MAP=build/app/outputs/mapping/release/mapping.txt
+          if [ ! -s "$AAB" ]; then
+            echo "::error::$AAB is missing."
+            exit 1
+          fi
+          if [ ! -s "$MAP" ]; then
+            echo "::error::$MAP is missing or empty: R8 did not run."
+            exit 1
+          fi
+          if keytool -printcert -jarfile "$AAB" | grep -q 'CN=Android Debug'; then
+            echo "::error::The bundle is signed with the debug key."
+            exit 1
+          fi
+
+      - name: Sentry symbols
+        if: ${{ steps.sentry.outputs.upload == 'true' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          PROGUARD_UUID: ${{ steps.sentry.outputs.proguard_uuid }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$SENTRY_CLI_SHA256" | grep -Eq '^[0-9a-f]{64}$' || [ -z "$SENTRY_CLI_VERSION" ]; then
+            echo "::error::SENTRY_CLI_VERSION and SENTRY_CLI_SHA256 are not pinned (docs/DEVELOPMENT.md, Release lane)."
+            exit 1
+          fi
+          curl --fail --silent --show-error --location \
+            "https://github.com/getsentry/sentry-cli/releases/download/${SENTRY_CLI_VERSION}/sentry-cli-Linux-x86_64" \
+            --output "$RUNNER_TEMP/sentry-cli"
+          echo "$SENTRY_CLI_SHA256  $RUNNER_TEMP/sentry-cli" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/sentry-cli"
+          "$RUNNER_TEMP/sentry-cli" upload-proguard --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" \
+            --uuid "$PROGUARD_UUID" build/app/outputs/mapping/release/mapping.txt
+          "$RUNNER_TEMP/sentry-cli" debug-files upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" \
+            build/app/intermediates/merged_native_libs/release
+
+      - name: Checksums and artifact files
+        run: |
+          set -euo pipefail
+          cp build/app/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/release/"
+          cp build/app/outputs/mapping/release/mapping.txt "$RUNNER_TEMP/release/"
+          (cd "$RUNNER_TEMP/release" && sha256sum app-release.aab > app-release.aab.sha256)
+          cat "$RUNNER_TEMP/release/app-release.aab.sha256" >> "$GITHUB_STEP_SUMMARY"
+
+      # The signed bundle, its checksum, the R8 mapping and the eligibility
+      # result, kept whether or not Play receives the bundle.
+      - name: Keep the release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-release-${{ steps.version.outputs.build_number }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Play internal track
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          PLAY_STATUS: ${{ inputs.play_status }}
+          VERSION_CODE: ${{ steps.version.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
+            echo "::notice::No PLAY_SERVICE_ACCOUNT_JSON: upload the AAB from the release artifact in the Play Console."
+            exit 0
+          fi
+          python3 scripts/operations/release.py play-upload --package com.eatova.app \
+            --aab build/app/outputs/bundle/release/app-release.aab \
+            --version-code "$VERSION_CODE" --status "$PLAY_STATUS"
+
+      # A lightweight tag through the API: the checkout keeps no credentials.
+      # Re-running for the same commit keeps its tag; a tag on another commit
+      # fails the run.
+      - name: Tag the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          encoded="${TAG//+/%2B}"
+          existing="$(gh api "repos/$REPOSITORY/git/ref/tags/$encoded" --jq .object.sha 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$RELEASE_SHA" ]; then
+              echo "::error::Tag $TAG already exists on another commit."
+              exit 1
+            fi
+            echo "Tag $TAG already points at this commit."
+          else
+            gh api "repos/$REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$RELEASE_SHA" > /dev/null
+            echo "Tagged $TAG."
+          fi
+          echo "Release \`$TAG\` from \`$RELEASE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove signing files
+        if: ${{ always() }}
+        run: |
+          rm -f android/key.properties dart_defines.json android/app/src/main/assets/sentry-debug-meta.properties
+          rm -rf "$RUNNER_TEMP/signing"
