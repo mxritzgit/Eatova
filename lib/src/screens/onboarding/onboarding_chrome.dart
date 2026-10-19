@@ -20,7 +20,7 @@ const Duration _kProgress = Duration(milliseconds: 260);
 const double _kTitleMaxScale = 1.6;
 
 /// Top bar: the wordmark on the first step, the round back button after it,
-/// the step count, and a segmented progress bar.
+/// the step count, an optional overflow menu, and a segmented progress bar.
 ///
 /// The progress is announced as ONE live region ("Your goal, step 2 of 8"),
 /// so a screen reader hears where it landed after every Next and Back.
@@ -31,6 +31,7 @@ class OnboardingHeader extends StatelessWidget {
     required this.count,
     required this.phaseLabel,
     this.onBack,
+    this.onSignOut,
   });
 
   final int index;
@@ -40,6 +41,10 @@ class OnboardingHeader extends StatelessWidget {
   /// Null on the first step: the root route's system Back closes the app,
   /// and an arrow that does nothing would lie.
   final VoidCallback? onBack;
+
+  /// AUTH-3: "Sign out" in a quiet overflow menu, so a wrong account is not
+  /// stuck in onboarding. Null hides the menu (no auth, or while saving).
+  final VoidCallback? onSignOut;
 
   @override
   Widget build(BuildContext context) {
@@ -76,6 +81,29 @@ class OnboardingHeader extends StatelessWidget {
                   style: AppType.ui(13, weight: FontWeight.w700, color: t.ink3),
                 ),
               ),
+              if (onSignOut case final signOut?) ...<Widget>[
+                const SizedBox(width: 4),
+                PopupMenuButton<String>(
+                  key: const ValueKey('onboarding-menu'),
+                  tooltip: l10n.onboardingSignOutMenuLabel,
+                  position: PopupMenuPosition.under,
+                  // The back button's 44 px, so the header keeps its height.
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size.square(HeaderIconButton.size),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: Icon(Icons.more_horiz_rounded, color: t.ink3),
+                  onSelected: (_) => signOut(),
+                  itemBuilder: (_) => <PopupMenuEntry<String>>[
+                    eatovaMenuItem(
+                      key: const ValueKey('onboarding-sign-out'),
+                      value: 'sign-out',
+                      icon: Icons.logout_rounded,
+                      label: l10n.onboardingSignOutAction,
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),

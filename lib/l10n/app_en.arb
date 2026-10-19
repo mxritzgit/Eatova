@@ -1446,6 +1446,11 @@
   },
 
   "onboardingBackSemanticLabel": "Back",
+  "onboardingSignOutMenuLabel": "More options",
+  "onboardingSignOutAction": "Sign out",
+  "onboardingSignOutConfirmTitle": "Sign out?",
+  "onboardingSignOutConfirmBody": "Your answers here are not saved. You can then sign in with another account.",
+  "onboardingSignOutConfirm": "Sign out",
   "onboardingActivatePlanCta": "Activate plan",
   "onboardingNextCta": "Next",
   "onboardingBodyTitle": "Your starting point.",

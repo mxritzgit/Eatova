@@ -40,6 +40,7 @@ class OnboardingScreen extends StatefulWidget {
     required this.firstName,
     required this.initialProfile,
     required this.onComplete,
+    this.onSignOut,
   });
 
   final String firstName;
@@ -48,6 +49,10 @@ class OnboardingScreen extends StatefulWidget {
   /// Receives the finished profile with computed daily target and
   /// onboardingCompleted = true. The caller persists it and leaves the gate.
   final PersistValueChanged<UserProfile> onComplete;
+
+  /// The shell's sign-out (AUTH-3), offered after a confirmation. Null
+  /// without auth.
+  final Future<void> Function()? onSignOut;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -365,6 +370,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     count: steps.length,
                     phaseLabel: _step.phaseLabel(l10n),
                     onBack: atStart ? null : _back,
+                    onSignOut: widget.onSignOut == null || _saving
+                        ? null
+                        : _confirmSignOut,
                   ),
                   const SizedBox(height: 6),
                   Expanded(child: _stepSwitcher(context)),
@@ -385,6 +393,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ),
       ),
     );
+  }
+
+  /// Nothing of the onboarding is saved before the plan is activated, so the
+  /// decision card says that before the sign-out runs.
+  Future<void> _confirmSignOut() async {
+    final abmelden = widget.onSignOut;
+    if (abmelden == null) return;
+    final l10n = context.l10n;
+    final bestaetigt = await showEatovaDialog<bool>(
+      context: context,
+      builder: (dialogContext) => EatovaConfirmDialog(
+        key: const ValueKey('onboarding-sign-out-dialog'),
+        title: l10n.onboardingSignOutConfirmTitle,
+        body: l10n.onboardingSignOutConfirmBody,
+        icon: Icons.logout_rounded,
+        confirmKey: const ValueKey('onboarding-sign-out-confirm'),
+        confirmLabel: l10n.onboardingSignOutConfirm,
+        cancelKey: const ValueKey('onboarding-sign-out-cancel'),
+        cancelLabel: l10n.commonCancel,
+        onConfirm: () => Navigator.of(dialogContext).pop(true),
+        onCancel: () => Navigator.of(dialogContext).pop(false),
+      ),
+    );
+    if (bestaetigt != true || !mounted || _saving) return;
+    await abmelden();
   }
 
   String _ctaLabel(AppLocalizations l10n) {

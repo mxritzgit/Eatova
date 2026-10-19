@@ -710,6 +710,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             firstName: _store.userName,
             initialProfile: _store.profile,
             onComplete: _store.completeOnboarding,
+            // AUTH-3: the same coordinated sign-out as in the settings.
+            onSignOut: widget.onSignOut != null ? _signOut : null,
           );
         }
 

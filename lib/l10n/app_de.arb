@@ -1501,6 +1501,11 @@
   },
 
   "onboardingBackSemanticLabel": "Zurück",
+  "onboardingSignOutMenuLabel": "Weitere Optionen",
+  "onboardingSignOutAction": "Abmelden",
+  "onboardingSignOutConfirmTitle": "Abmelden?",
+  "onboardingSignOutConfirmBody": "Deine Antworten hier werden nicht gespeichert. Danach kannst du dich mit einem anderen Konto anmelden.",
+  "onboardingSignOutConfirm": "Abmelden",
   "onboardingActivatePlanCta": "Plan aktivieren",
   "onboardingNextCta": "Weiter",
   "onboardingBodyTitle": "Dein Körper.",
