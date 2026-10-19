@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/sync_error_messages.dart';
@@ -46,6 +47,57 @@ void main() {
       );
       expect(isNetworkSyncError(const CertificateException('bad certificate')),
           isTrue);
+    });
+
+    test(
+        'SYNC-5: eine 2xx-Antwort ohne JSON (Captive Portal) ist ein '
+        'Netzfehler, jede andere Statuszahl nicht', () {
+      for (final code in ['200', '201', '203', '299']) {
+        final portal = PostgrestException(
+          message: '<html><title>WLAN-Anmeldung</title></html>',
+          code: code,
+        );
+        expect(isUnreadableSuccessResponse(portal), isTrue, reason: code);
+        expect(isNetworkSyncError(portal), isTrue, reason: code);
+      }
+      for (final code in ['199', '300', '401', '500', '503', '20000', '2001',
+          'PGRST200', '', null]) {
+        final server = PostgrestException(message: 'x', code: code);
+        expect(isUnreadableSuccessResponse(server), isFalse, reason: code);
+        expect(isNetworkSyncError(server), isFalse, reason: code);
+      }
+      expect(isUnreadableSuccessResponse(const FormatException('200')),
+          isFalse);
+    });
+
+    test(
+        'SYNC-5: postgrest wirft die HTML-200-Seite eines Portals als genau '
+        'diesen Fall', () async {
+      final client = SupabaseClient(
+        'https://portal-test.invalid',
+        'dummy-anon-key',
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+        httpClient: MockClient((request) async => http.Response(
+              '<html><body>Bitte im Hotel-WLAN anmelden</body></html>',
+              200,
+              headers: const {'content-type': 'text/html'},
+              request: request,
+            )),
+      );
+      addTearDown(client.dispose);
+      Object? caught;
+      try {
+        await client
+            .rpc<dynamic>('apply_sync_operation', params: {'p_op': 1})
+            .retry(enabled: false);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught, isA<PostgrestException>());
+      expect(isNetworkSyncError(caught!), isTrue,
+          reason: 'sonst zaehlt das Portal gegen das Acht-Versuche-Budget');
+      expect(classifyOutboxFailure(caught, kOutboxMaxAttempts - 1),
+          OutboxVerdict.retryFree);
     });
 
     test('Server-Fehler und Programmfehler sind KEINE Netzwerk-Fehler', () {
@@ -205,6 +257,25 @@ void main() {
       // The budget stays the emergency brake: not even a 23514 loops forever.
       expect(classifyOutboxFailure(pg('23514'), kOutboxMaxAttempts - 1),
           OutboxVerdict.drop);
+    });
+
+    test(
+        'SYNC-5: eine Portal-200 verbraucht kein Budget, auch nicht am Rand '
+        'und nicht bei Loeschungen', () {
+      final portal = pg('200');
+      for (final attempts in [0, kOutboxMaxAttempts - 1, kOutboxMaxAttempts + 5]) {
+        expect(classifyOutboxFailure(portal, attempts), OutboxVerdict.retryFree,
+            reason: 'Versuch $attempts');
+      }
+      expect(
+        classifyOutboxFailure(portal, kOutboxDeleteMaxAttempts - 1,
+            kind: SyncOpKind.mealDelete),
+        OutboxVerdict.retryFree,
+      );
+      // The 5xx policy stays as it was: counted, dropped at the budget edge.
+      expect(classifyOutboxFailure(pg('502'), kOutboxMaxAttempts - 1),
+          OutboxVerdict.drop);
+      expect(queuedDelivery(portal), SyncDelivery.queuedOffline);
     });
 
     test('500 verbrennt Versuche und faellt erst am Budget-Rand raus', () {
