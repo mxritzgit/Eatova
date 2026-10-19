@@ -115,15 +115,26 @@ class _StrengerPostgrest {
       );
     }
 
-    final vorhanden = zeilen[tabelle] ?? 0;
+    // Keyset paging like PostgREST: ordered by the requested column, rows
+    // after `<key>=gt.<value>`, at most `limit`. No Content-Range, so the
+    // service reads without a server count.
+    final schluessel =
+        (req.url.queryParameters['order'] ?? 'id.asc').split('.').first;
+    final nach = (req.url.queryParametersAll[schluessel] ?? const <String>[])
+        .where((wert) => wert.startsWith('gt.'))
+        .map((wert) => wert.substring(3))
+        .firstOrNull;
+    final passend = <Map<String, dynamic>>[
+      for (var i = 0; i < (zeilen[tabelle] ?? 0); i++)
+        <String, dynamic>{
+          schluessel: '$tabelle-${i.toString().padLeft(6, '0')}',
+          'user_id': 'user-export',
+        },
+    ].where((zeile) => nach == null || (zeile[schluessel] as String).compareTo(nach) > 0);
     final limit =
-        int.tryParse(req.url.queryParameters['limit'] ?? '') ?? vorhanden;
-    final anzahl = vorhanden < limit ? vorhanden : limit;
+        int.tryParse(req.url.queryParameters['limit'] ?? '') ?? passend.length;
     return http.Response(
-      jsonEncode(List.generate(
-        anzahl,
-        (i) => <String, dynamic>{'id': '$tabelle-$i', 'user_id': 'user-export'},
-      )),
+      jsonEncode(passend.take(limit).toList()),
       200,
       headers: const {'Content-Type': 'application/json'},
       request: req,
@@ -312,7 +323,10 @@ void main() {
   });
 
   group('die Quelle des Sheets gegen einen strikten Server', () {
-    DataExportService service(_StrengerPostgrest server) {
+    DataExportService service(
+      _StrengerPostgrest server, {
+      int grenze = DataExportService.standardGrenzeProSektion,
+    }) {
       final client = SupabaseClient(
         'https://example.supabase.co',
         'test-anon-key',
@@ -320,7 +334,12 @@ void main() {
         authOptions: const AuthClientOptions(autoRefreshToken: false),
       );
       addTearDown(client.dispose);
-      return DataExportService(client, 'user-export');
+      return DataExportService(
+        client,
+        'user-export',
+        pageSize: 2,
+        grenzeProSektion: grenze,
+      );
     }
 
     test(
@@ -354,14 +373,12 @@ void main() {
     });
 
     test(
-        'liegen mehr Zeilen auf dem Server, als eine Seite fasst, steht die '
-        'Kappung im Export', () async {
+        'liegen mehr Zeilen auf dem Server, als die Grenze pro Sektion '
+        'erlaubt, steht die Kappung im Export', () async {
       final server = _StrengerPostgrest(
-        zeilen: const <String, int>{
-          'chat_messages': DataExportService.einSeitenLimit + 1,
-        },
+        zeilen: const <String, int>{'chat_messages': 6},
       );
-      final json = jsonDecode(await service(server).buildExportJson())
+      final json = jsonDecode(await service(server, grenze: 5).buildExportJson())
           as Map<String, dynamic>;
 
       final gekappt = json['gekappt'] as Map<String, dynamic>?;
@@ -373,9 +390,8 @@ void main() {
             'Datenbestand',
       );
       expect(gekappt!['sektionen'], contains('chat_messages'));
-      expect(gekappt['grenzeProSektion'], DataExportService.einSeitenLimit);
-      expect(
-          json['chat_messages'], hasLength(DataExportService.einSeitenLimit));
+      expect(gekappt['grenzeProSektion'], 5);
+      expect(json['chat_messages'], hasLength(5));
       expect(
         json.containsKey('unvollstaendig'),
         isFalse,
@@ -385,19 +401,16 @@ void main() {
     });
 
     test(
-        'genau eine volle Seite ist KEINE Kappung — sonst waere der Hinweis '
+        'genau die Grenze ist KEINE Kappung — sonst waere der Hinweis '
         'derselbe Dauerlaeufer wie das alte unvollstaendig', () async {
       final server = _StrengerPostgrest(
-        zeilen: const <String, int>{
-          'chat_messages': DataExportService.einSeitenLimit,
-        },
+        zeilen: const <String, int>{'chat_messages': 5},
       );
-      final json = jsonDecode(await service(server).buildExportJson())
+      final json = jsonDecode(await service(server, grenze: 5).buildExportJson())
           as Map<String, dynamic>;
 
       expect(json.containsKey('gekappt'), isFalse);
-      expect(
-          json['chat_messages'], hasLength(DataExportService.einSeitenLimit));
+      expect(json['chat_messages'], hasLength(5));
     });
   });
 }

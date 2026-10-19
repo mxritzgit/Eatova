@@ -397,8 +397,9 @@ You can, at any time:
   reports of Coach answers. The app can copy the full returned export or share
   it as a file through your device's share sheet; the file is written to the
   app's temporary folder for the share and deleted afterwards. Device-only pictures and unsynced changes
-  are not part of this server export. The diary is paginated; other sections
-  have a 10,000-row client limit and may be capped lower by the server. Missing
+  are not part of this server export. Every section is read page by page
+  until the server has no more rows; outside the diary a section stops at a
+  safety bound of 100,000 rows. Missing
   or truncated sections are explicitly identified. You can also request your
   data by email.
 - **Correct** supported editable values in the app, or contact us for other
