@@ -335,6 +335,33 @@ mixin _HomeStoreMealsPart
       // reminder's text is planned from.
       _replanIfToday([before, updated]);
     }
+    if (!identical(before.result, updated.result)) {
+      await _serializeFavoriteMutation(
+        () => _takePortionIntoRecent(updated.result),
+      );
+    }
+  }
+
+  /// FOOD-7: a re-portioned meal's auto-recent takes the new portion, the
+  /// last one used, as a fresh log would; an undo hands the old one back.
+  /// Identity and cap stay: the entry keeps its key, place and date, a
+  /// pinned favorite keeps its stored portion (as [toggleFavorite] does),
+  /// and a recent that already left the list is not brought back.
+  Future<void> _takePortionIntoRecent(MealAnalysisResult result) async {
+    final old = FavoriteMeal.findFor(favorites, result);
+    if (old == null || old.pinned || identical(old.result, result)) return;
+    final next = old.copyWith(
+      result: FavoriteMeal.keepImage(result, old.result),
+    );
+    await _commitSyncIntents(
+      [SyncOp.favoriteUpsert(next)],
+      publish: () {
+        favorites = [
+          for (final favorite in favorites)
+            favorite.id == next.id ? next : favorite,
+        ];
+      },
+    );
   }
 
   /// Re-plans the evening reminders when one of [meals] lies on today: the
