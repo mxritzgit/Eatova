@@ -3916,3 +3916,81 @@ live 1,000-row cap; no alerting for the shared daily AI cap; backups and the
 Supabase plan need a decision before launch. `docs/FEATURES.md` no longer
 claims there is no later diet editor. This is a recommendation, not an
 approved roadmap; only documentation changed.
+
+## Review items built with five agents, 2026-10-20
+
+Owner request: do everything from the
+[review of 2026-10-19](IMPROVEMENT-REVIEW-2026-10-19.md) that needs no owner
+account or decision, "mit 5 Subagents", the main session as orchestrator.
+Five agents worked in their own worktrees from `5f1f0b81` with fixed file
+ownership; the orchestrator cherry-picked them onto
+`feat/review-items-2026-10-19`, resolved the overlaps (RLS include order,
+cache slots, the import gate, the describe prefill, Today, ARB, OPERATIONS,
+PRIVACY), added the export keys for the two new logs and regenerated
+`SCHEMA_STATE.md`.
+
+**Built:**
+- **Trust (P1):** a versioned AI consent per account before the first scan,
+  description, Coach request or import (one gate,
+  `lib/src/widgets/shared/ai_consent_sheet.dart`), with an unticked
+  health-data checkbox; append-only `ai_consents` and `ai_reports` (migration
+  `20261019100000`, per-user daily caps); Settings "KI & Daten" and "Feedback &
+  Support"; reports on Coach answers and recipe pictures; the export as a
+  shared file (`share_plus` 12.0.2, the only new dependency); the Coach limit
+  in local time; `PRIVACY.md` and the Health Connect rationale.
+- **Recipes (P2):** avoidance tags on every catalog recipe, filtered from the
+  suggestions and shown as a chip elsewhere; honest import copy and a local
+  stop for non-TikTok links; categories for own recipes; day totals and
+  "Zum Speiseplan" in the meal plan; copy as text.
+- **Retention (P3):** `complete_day.dart` (50 % of the base goal) for trends
+  and the weekly check; trends paging ends on an empty page; a half-day
+  reminder; a filled-in yesterday continues the streak while today is
+  unlogged; the weekly-check explainer and a Monday result card; Describe from
+  an empty search; FOOD-7; one German vocabulary; the English clock in
+  training history.
+- **Weigh-ins (P4):** history with edit, delete (undo) and dates, through
+  `weightUpsert`/`weightDelete` and a `weight` tombstone family (migration
+  `20261019110000`; the orchestrator diffed `apply_sync_operation` and
+  `sync_operation_current_state` against their previous bodies: only the new
+  kinds changed); the onboarding weight as the first weigh-in; HealthKit
+  asked after the onboarding behind a Today card; a one-commit step backfill,
+  30 days on Android; truthful iOS Health texts.
+- **Engineering (P5):** `device_build.py` installs in place (`adb install -r`,
+  `devicectl`), no more data loss; export keyset paging for every section;
+  Google sign-out/revocation; sign-out in the onboarding; SYNC-5 for 2xx
+  without JSON (5xx policy unchanged); deploy guards (unregistered migrations,
+  rollback floors); `ops-watch.yml`; `release.yml` for Android; CI
+  concurrency, no duplicate debug compile, merged-manifest permission check.
+
+**Decisions made without the owner (open for review):** conservative tags
+(soy sauce counts as gluten and alcohol; with lactose avoided no catalog
+breakfast remains); planned meals win the pick even with an avoided food;
+reports keep session id and one of four reasons; daily caps of 20 consents
+and 30 reports; the report's legal basis is legitimate interest; the
+complete-day rule uses the base goal without step credit; the result card
+shows on Mondays without a dismiss; "Nicht jetzt" on the Health card is
+final until the profile card connects; weigh-ins date back one year; edits
+get no undo; rollback floors `a3a7263b` (coach-chat) and `ea2722e6` (the
+other three); export bound 100,000 rows per section; the debug CI job no
+longer compiles.
+
+**Not done (owner or external):** Sign in with Apple and TestFlight (paid
+Apple program), backups and the Supabase plan, Play Console declarations,
+the website privacy text, server-side consent enforcement (after old builds
+retire), Coach dictation on Android, automatic scale import, the 5xx alert
+and daily `ai_call` totals, pinning `sentry-cli` in `release.yml`.
+
+**Verification:** strict analyzer clean; the full Flutter suite on the
+integrated head passed 8,232 tests. One failure,
+`recipes_redesign_details_test.dart` "a very long shelf title…", also fails
+alone on `main`: it depends on earlier tests in its file, so only a
+within-file split (local `--total-shards`) shows it; CI shards whole files.
+136 Python operations tests and the tooling tests passed. No Edge Function
+changed. The Postgres RLS suite (including both new SQL files) runs in CI;
+locally Docker was off.
+
+**Rollout order:** apply `20261019100000` and `20261019110000` live before
+the merge (without them the new client sends no AI request and weigh-in
+edits are rejected with 22023), merge, then an app build. No function
+deploy. GitHub environments `ops-watch` and `release` (names and secrets in
+[operations](OPERATIONS.md)) are owner setup.
