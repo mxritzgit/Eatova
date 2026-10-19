@@ -14,6 +14,7 @@ import '../../widgets/common/motion.dart';
 import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_sections.dart';
+import '../../widgets/shared/ai_consent_sheet.dart';
 import 'recipe_import_nutrition.dart';
 import 'recipes_screen.dart' show showRecipeNutritionDraftEditor;
 
@@ -181,6 +182,17 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       return;
     }
     if (!_checkSession()) return;
+    // AI consent before the text goes to recipe-import (2026-10-19); a
+    // decline keeps the text in the field.
+    if (!aiConsentSettled(context)) {
+      if (!await ensureAiConsent(context) || !mounted) return;
+      if (_busy ||
+          _text.text.trim().isEmpty ||
+          _textTooLong ||
+          !_checkSession()) {
+        return;
+      }
+    }
     final text = _text.text.trim();
     FocusScope.of(context).unfocus();
     setState(() {

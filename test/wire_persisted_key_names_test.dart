@@ -97,6 +97,7 @@ void main() {
         await c.writeUserRecipes(const <FitnessRecipe>[]);
         await c.writeReminderTime(const ReminderTime(21, 30));
         await c.writeReminderPromptAnswered();
+        await c.writeAiConsent(const <String, dynamic>{'granted': false});
       }
 
       test('jeder Slot traegt exakt seinen erwarteten Namen', () async {
@@ -122,6 +123,9 @@ void main() {
           // already answered reminder card again.
           'eatova.v1.reminder_time.user-42',
           'eatova.v1.reminder_prompt.user-42',
+          // Renamed, every account is asked for AI consent again (and the
+          // old slot would outlive the cleanup).
+          'eatova.v1.ai_consent.user-42',
         };
 
         expect(store.snapshot.keys.toSet(), erwartet,

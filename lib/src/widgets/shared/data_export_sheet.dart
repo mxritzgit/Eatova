@@ -171,6 +171,16 @@ class _DataExportSheetState extends State<DataExportSheet> {
         stackTrace: st,
         name: 'data_export_sheet',
       );
+      // A silent failure looked like a dead button, as with copying.
+      if (mounted) {
+        showAppSnack(
+          context,
+          context.l10n.exportShareFailed,
+          icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
+          duration: kSnackError,
+        );
+      }
     }
   }
 

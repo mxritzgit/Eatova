@@ -26,6 +26,7 @@ import '../services/secure_screen.dart';
 import '../services/sync_connectivity.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_mode_controller.dart';
+import 'ai_trust.dart';
 import 'auth_gate.dart';
 import 'eatova_home_page.dart';
 import 'locale_controller.dart';
@@ -99,6 +100,9 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
   late final bool _eigenerLocale;
   late final RecipeImportInbox _recipeInbox;
 
+  /// The signed-in shell binds its account's AI consent here (2026-10-19).
+  final AiTrustBinding _aiTrust = AiTrustBinding();
+
   @override
   void initState() {
     super.initState();
@@ -153,10 +157,15 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
       listenable: Listenable.merge([_themeMode, _locale]),
       builder: (context, _) => _buildApp(context, repository),
     );
-    return LocaleScope(
-      controller: _locale,
-      // Without a ThemeModeScope the settings page drops its appearance row.
-      child: ThemeModeScope(controller: _themeMode, child: app),
+    // Above the MaterialApp: the AI entry points open sheets and routes on
+    // the root Navigator, which must reach the account's consent too.
+    return AiTrustScope(
+      binding: _aiTrust,
+      child: LocaleScope(
+        controller: _locale,
+        // Without a ThemeModeScope the settings page drops its appearance row.
+        child: ThemeModeScope(controller: _themeMode, child: app),
+      ),
     );
   }
 

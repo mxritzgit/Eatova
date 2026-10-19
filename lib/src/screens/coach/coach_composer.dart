@@ -741,13 +741,22 @@ class _CoachInfoSheet extends StatelessWidget {
                 l10n.coachInfoProvider,
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
+              const SizedBox(height: 12),
+              Text(
+                l10n.coachReportHint,
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
+              ),
               const SizedBox(height: 20),
               Container(height: 1, color: t.line),
               const SizedBox(height: 18),
               _InfoLabel(l10n.coachInfoLimitLabel),
               const SizedBox(height: 6),
               Text(
-                l10n.coachInfoLimitBody(remaining, dailyLimit),
+                l10n.coachInfoLimitBody(
+                  remaining,
+                  dailyLimit,
+                  coachQuotaResetLabel(l10n.localeName),
+                ),
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
               const SizedBox(height: 14),

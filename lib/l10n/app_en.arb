@@ -679,14 +679,31 @@
   "coachInfoBulletMeals": "The names of the meals you've logged today",
   "coachInfoProvider": "The coach uses Anthropic's Claude models. Depending on your request, this includes your question, the details listed above, up to ten previous chat messages, an attached photo or selected training plan information. Pictures for recipe cards are created by a Google image model via OpenRouter, from the recipe's title and description only. Data may also be processed outside the EU, including in the USA. The privacy policy explains the recipients and how they use the data.",
   "coachInfoLimitLabel": "Coach limit",
-  "coachInfoLimitBody": "{remaining} of {dailyLimit} questions left today. Resets at midnight (UTC).",
+  "coachInfoLimitBody": "{remaining} of {dailyLimit} questions left today. New questions from {resetTime}.",
   "@coachInfoLimitBody": {
     "placeholders": {
       "remaining": { "type": "int" },
-      "dailyLimit": { "type": "int" }
+      "dailyLimit": { "type": "int" },
+      "resetTime": { "type": "String" }
     }
   },
   "coachRefusalLabel": "Note",
+  "coachReportAction": "Report answer",
+  "coachReportImageAction": "Report picture",
+  "coachReportTitle": "Report answer",
+  "coachReportIntro": "What is wrong with this answer? Only the message ID and the reason are stored, not the text.",
+  "coachReportImageTitle": "Report AI picture",
+  "coachReportImageIntro": "What is wrong with this AI picture? Only the message ID and the reason are stored.",
+  "coachReportReasonIncorrect": "Wrong or misleading",
+  "coachReportReasonHarmful": "Dangerous or harmful",
+  "coachReportReasonInappropriate": "Inappropriate or offensive",
+  "coachReportReasonOther": "Something else",
+  "coachReportSubmit": "Report",
+  "coachReportSending": "Reporting …",
+  "coachReportDone": "Thanks! The answer was reported.",
+  "coachReportImageDone": "Thanks! The picture was reported.",
+  "coachReportFailed": "Reporting didn't work. Check your connection and try again.",
+  "coachReportHint": "Press and hold an answer to copy or report it.",
   "coachSessionsTitle": "Coach sessions",
   "coachSessionsNewLabel": "New",
   "coachSessionsEmpty": "No conversations yet. Ask your coach the first question.",
@@ -751,10 +768,11 @@
   "coachErrorNewSessionFailed": "The new conversation could not be created. Check your connection and try again.",
   "coachSessionSwitchedNotice": "This conversation no longer exists. Your question and the answer are now in another conversation — it is open.",
   "coachImageDefaultCaption": "Analyze this image in a fitness context.",
-  "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More tomorrow.",
+  "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More at {resetTime}.",
   "@coachErrorDailyLimitReached": {
     "placeholders": {
-      "limit": { "type": "int" }
+      "limit": { "type": "int" },
+      "resetTime": { "type": "String" }
     }
   },
   "coachErrorImageTooLarge": "The image is too large for the coach. Please send a smaller one.",
@@ -1244,6 +1262,58 @@
   "settingsLegalImprint": "Imprint",
   "settingsAboutTitle": "About Eatova",
   "settingsAboutSubtitle": "Version, sources & privacy",
+  "settingsAiDataTitle": "AI & data",
+  "settingsAiDataConsentTitle": "AI consent",
+  "settingsAiDataConsentGiven": "Given on {date}",
+  "@settingsAiDataConsentGiven": {
+    "placeholders": {
+      "date": { "type": "String" }
+    }
+  },
+  "settingsAiDataConsentWithdrawn": "Withdrawn on {date}. AI features ask first.",
+  "@settingsAiDataConsentWithdrawn": {
+    "placeholders": {
+      "date": { "type": "String" }
+    }
+  },
+  "settingsAiDataConsentNotGiven": "Not given. AI features ask first.",
+  "settingsAiDataConsentOutdated": "The information has changed. We ask again on the next AI use.",
+  "settingsAiDataConsentLoading": "Loading …",
+  "settingsAiDataConsentPending": "Withdrawn. Uploaded once you are online.",
+  "settingsAiDataWithdrawAction": "Withdraw",
+  "settingsAiDataGrantAction": "Give consent",
+  "settingsAiDataWithdrawTitle": "Withdraw AI consent?",
+  "settingsAiDataWithdrawBody": "Photo scan, describing, the Coach and recipe import then ask again before they send anything. Requests already sent are not affected.",
+  "settingsAiDataWithdrawConfirm": "Withdraw",
+  "settingsAiDataWithdrawnSnack": "Consent withdrawn.",
+  "settingsAiDataWithdrawnPendingSnack": "Withdrawn. Eatova sends nothing anymore; the record is uploaded once you are online.",
+  "settingsAiDataGrantedSnack": "Consent given.",
+  "settingsSupportTitle": "Feedback & support",
+  "settingsSupportSubtitle": "Write to us at support@eatova.de",
+  "settingsSupportMailSubject": "Eatova feedback – version {version} ({build})",
+  "@settingsSupportMailSubject": {
+    "placeholders": {
+      "version": { "type": "String" },
+      "build": { "type": "String" }
+    }
+  },
+  "settingsSupportMailFailed": "No mail app found. Write to us at support@eatova.de.",
+  "aiConsentTitle": "Consent for AI features",
+  "aiConsentIntro": "Photo scan, describing a meal, the Coach and recipe import run on AI. For that, Eatova sends data to AI providers, but only once you agree here.",
+  "aiConsentFeaturesLabel": "These features use AI",
+  "aiConsentFeaturesBody": "Meal photo scan (camera or gallery), describing a meal by text or voice, the Coach with questions, photos, /recipe, /plan and /log, and recipe import.",
+  "aiConsentDataLabel": "What is sent",
+  "aiConsentDataBody": "Depending on the feature: your photos, texts and dictated sentences (as text), meals and nutrition values, your goals from the profile, your diet and the foods you avoid (such as intolerances), your weight and weight trend, and for the Coach an overview of the last seven days. This is health data.",
+  "aiConsentProvidersLabel": "Who processes the data",
+  "aiConsentProvidersBody": "Anthropic (Claude) reads texts and photos and writes the answers. The pictures for recipe cards come from a Google image model via OpenRouter, made from the recipe's title and description only. Processing can take place in the USA, where your rights are harder to enforce than in the EU.",
+  "aiConsentVoluntaryLabel": "Voluntary and revocable",
+  "aiConsentVoluntaryBody": "Without consent, everything except the AI features works. You can withdraw it at any time in Settings → AI & data; Eatova then sends nothing to the AI providers until you agree again.",
+  "aiConsentPrivacyLink": "Open privacy policy",
+  "aiConsentHealthCheckbox": "I expressly consent to Eatova sending my health data to the AI providers named above for these features (Art. 9(2)(a) GDPR).",
+  "aiConsentAccept": "Agree and continue",
+  "aiConsentSaving": "Saving …",
+  "aiConsentNotNow": "Not now",
+  "aiConsentSaveFailed": "Your consent could not be saved. Check your connection and try again. Until then nothing is sent.",
   "settingsSignOutTitle": "Sign out",
   "settingsSignOutFailed": "Sign-out failed. Please try again.",
   "settingsDeleteAccountTitle": "Delete account",
@@ -1508,7 +1578,12 @@
   "coachErrorTimeout": "The coach took too long to answer. Please try again.",
   "coachErrorNoConnection": "No connection to the coach. Check your internet connection and try again.",
   "coachErrorSessionExpired": "Your session has expired. Please sign in again, then the coach will respond again.",
-  "coachErrorQuotaFallback": "Daily limit reached. More tomorrow.",
+  "coachErrorQuotaFallback": "Daily limit reached. More at {resetTime}.",
+  "@coachErrorQuotaFallback": {
+    "placeholders": {
+      "resetTime": { "type": "String" }
+    }
+  },
   "coachErrorTooManyRequests": "Too many requests. Please try again shortly.",
   "coachErrorRequestFailed": "The coach couldn't process your request.",
 
@@ -1770,7 +1845,12 @@
   "authCodeErrorRejected": "The code is wrong or has expired. Just request a new one below.",
   "authCodePasswordUpdated": "Password updated. Sign in with your new password.",
   "authCodeSignupConfirmed": "Email confirmed. Sign in to continue.",
-  "coachInfoLimitUnknown": "How many questions are left today can't be retrieved right now. Resets at midnight (UTC).",
+  "coachInfoLimitUnknown": "How many questions are left today can't be retrieved right now. New questions from {resetTime}.",
+  "@coachInfoLimitUnknown": {
+    "placeholders": {
+      "resetTime": { "type": "String" }
+    }
+  },
   "settingsAccountEmailNotAvailable": "We can't switch to this address. If an account already exists for it, sign in with that one; otherwise please check the spelling.",
   "settingsDeleteAccountCheckingCta": "Checking…",
   "settingsDeleteAccountCodeFieldLabel": "Confirmation code",
@@ -1841,6 +1921,8 @@
   "coachMessageNotSent": "Not sent",
   "coachMessageRetry": "Send again",
   "exportShareFile": "Share as file",
+  "exportShareFailed": "The file could not be shared.",
+  "exportShareSubject": "Eatova data export",
   "exportPreviewShortened": "The preview is shortened. Copy and share always include all loaded data.",
   "exportNothingLoaded": "Not a single section could be loaded. Are you online?",
   "searchRateLimited": "Too many searches — try again in a moment.",

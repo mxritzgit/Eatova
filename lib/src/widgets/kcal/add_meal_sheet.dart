@@ -48,6 +48,7 @@ import 'meal_scan_preview_sheet.dart';
 import 'meal_slot_picker.dart';
 import 'meal_suggestion_item.dart';
 import 'saved_meal_presentation.dart';
+import '../shared/ai_consent_sheet.dart';
 
 /// Message when a search/favorite/recent row without calories is logged —
 /// `l10n.foodSuggestionWithoutCaloriesMessage`.
@@ -957,6 +958,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // ─── Photo / gallery / barcode ────────────────────────────────────────
 
   Future<void> _pickAndAnalyze(ImageSource source) async {
+    // AI consent before the camera or gallery opens (2026-10-19).
+    if (!await ensureAiConsent(context) || !mounted) return;
     final identity = MealScanIdentity();
     final analyzer = widget.analyzer;
     MealPhotoSelection? selection;
@@ -1105,6 +1108,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// (docs/MEAL-DESCRIBE.md). Like manual entry, the sheet closes on Add and
   /// the confirmation lands here.
   Future<void> _openDescribe() async {
+    // AI consent before the describe sheet: its only purpose is analyze-meal.
+    if (!await ensureAiConsent(context) || !mounted) return;
     final outcome = await showMealDescribeSheet(
       context,
       initialSlot: _selectedSlot,

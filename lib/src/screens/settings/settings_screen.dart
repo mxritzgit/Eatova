@@ -11,6 +11,7 @@ import '../../auth/auth_repository.dart';
 import '../../l10n/l10n.dart';
 import '../../models/reminder_time.dart';
 import '../../services/crash_reporter.dart';
+import '../../services/export_file_share.dart';
 import '../../services/secure_screen.dart';
 import '../../services/sync_outbox.dart';
 import '../../theme/app_tokens.dart';
@@ -22,6 +23,7 @@ import '../../widgets/shared/data_export_sheet.dart';
 import '../../widgets/shared/eatova_wordmark.dart';
 import 'account_change_messages.dart';
 import 'account_change_sheets.dart';
+import 'settings_ai_data.dart';
 import 'settings_controls.dart';
 import 'settings_reminder_row.dart';
 import 'settings_studio_widgets.dart';
@@ -61,6 +63,7 @@ class SettingsScreen extends StatefulWidget {
     this.reminderTime = ReminderTime.standard,
     this.onReminderEnabledChanged,
     this.onReminderTimeChanged,
+    this.shareExportFile,
   });
 
   /// Session mail address. Null in previews/tests without auth — the row is
@@ -93,6 +96,10 @@ class SettingsScreen extends StatefulWidget {
   final ReminderTime reminderTime;
   final ValueChanged<bool>? onReminderEnabledChanged;
   final ValueChanged<ReminderTime>? onReminderTimeChanged;
+
+  /// Hands the export to the system share sheet as a file (F9); null uses
+  /// [ExportFileSharer]. Tests pass their own.
+  final ExportDateiTeiler? shareExportFile;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -185,6 +192,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ..._kontoGruppe(t, l10n),
                   ..._praeferenzenGruppe(l10n),
                   ..._syncGruppe(t, l10n),
+                  ..._kiGruppe(l10n),
                   ..._datenGruppe(l10n),
                   ..._gefahrenzone(t, l10n),
                 ],
@@ -430,6 +438,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ]);
   }
 
+  // --- AI & DATA ------------------------------------------------------------
+
+  /// The account's AI consent (2026-10-19). Drops out without a consent
+  /// controller, like the other rows without one.
+  List<Widget> _kiGruppe(AppLocalizations l10n) {
+    final controller = settingsAiTrust(context);
+    return _gruppe(l10n.settingsAiDataTitle, <Widget>[
+      if (controller != null) SettingsAiConsentRow(controller: controller),
+    ]);
+  }
+
   // --- DATA & PRIVACY -------------------------------------------------------
 
   List<Widget> _datenGruppe(AppLocalizations l10n) {
@@ -462,6 +481,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: l10n.settingsLegalImprint,
         url: kImprintUrl,
       ),
+      // Mail with version and build in the subject; the body is the user's.
+      SettingsStudioRow(
+        key: const ValueKey('settings-support'),
+        leading: const SettingsRowTile(icon: Icons.mail_outline_rounded),
+        title: l10n.settingsSupportTitle,
+        subtitle: l10n.settingsSupportSubtitle,
+        chevron: false,
+        endIcon: Icons.open_in_new_rounded,
+        onTap: () => unawaited(openSupportMail(context)),
+      ),
       // Version, data provenance (ODbL attribution for OpenFoodFacts) and the
       // privacy link — in this group because the sheet is entirely about data.
       SettingsStudioRow(
@@ -477,7 +506,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openExport() async {
     final bauen = widget.onExportData;
     if (bauen == null) return;
-    await showDataExportSheet(context, snapshot: bauen);
+    final subject = context.l10n.exportShareSubject;
+    await showDataExportSheet(
+      context,
+      snapshot: bauen,
+      // F9: the full export as a temporary file; copying stays as it was.
+      dateiTeilen:
+          widget.shareExportFile ??
+          (inhalt, dateiname) =>
+              ExportFileSharer().share(inhalt, dateiname, subject: subject),
+    );
   }
 
   // --- DANGER ZONE ----------------------------------------------------------

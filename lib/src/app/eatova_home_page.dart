@@ -66,6 +66,7 @@ import '../widgets/profile/profile_widgets.dart' show WeighInActions;
 import '../widgets/recipes/recipe_pick_actions.dart';
 import '../widgets/shared/reminder_time_picker.dart';
 import '../widgets/shared/settings_sheet.dart';
+import 'ai_trust.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
 import 'home_tab_switcher.dart';
@@ -150,6 +151,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   HomeStore get debugStore => _store;
 
   late final HomeStore _store;
+
+  /// The account's AI consent and Coach reports (2026-10-19), bound into the
+  /// app-level [AiTrustScope] while this shell lives. Without sync (preview,
+  /// tests) nothing can be logged, so nothing is asked.
+  late final AiTrustController _aiTrust;
+  AiTrustBinding? _aiTrustBinding;
   ReconnectSyncCoordinator? _reconnectSync;
   bool _backgroundSyncRequested = false;
 
@@ -201,6 +208,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       emitSnack: _emitSnack,
     );
     _store.addListener(_onStoreChanged);
+    final sync = widget.sync;
+    _aiTrust = sync == null
+        ? AiTrustController.preview()
+        : AiTrustController(
+            cache: _store,
+            consentLog: sync.aiTrust,
+            reportLog: sync.aiTrust,
+          );
     widget.recipeImportInbox?.addListener(_scheduleRecipeImport);
     // No sync (preview/test) means no boot/welcome phase.
     _welcomeFinished = widget.sync == null;
@@ -244,6 +259,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // The store holds no BuildContext (ARCH-4). Re-pushed on every call, so
     // store-built snack texts follow the active locale.
     _store.setLocalizations(context.l10n);
+    // Bound before the first frame, so no AI entry point can act unbound.
+    final binding = AiTrustScope.maybeOf(context);
+    if (!identical(binding, _aiTrustBinding)) {
+      _aiTrustBinding?.unbind(_aiTrust);
+      _aiTrustBinding = binding;
+      if (binding != null) {
+        binding.bind(_aiTrust);
+        unawaited(_aiTrust.load());
+      }
+    }
     _scheduleRecipeImport();
   }
 
@@ -259,6 +284,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _planDraftRequest.dispose();
     _logDraftRequest.dispose();
     _localHours.dispose();
+    _aiTrustBinding?.unbind(_aiTrust);
+    _aiTrust.dispose();
     _store.dispose();
     super.dispose();
   }

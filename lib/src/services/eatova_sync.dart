@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'ai_trust_sync.dart';
 import 'coach_chat_service.dart';
 import 'lifetime_stats_sync.dart';
 import 'meals_sync.dart';
@@ -29,6 +30,7 @@ class EatovaSync {
     required this.mealPlans,
     required this.trainingHistory,
     required this.operations,
+    required this.aiTrust,
   });
 
   /// [coachChat] is a test seam: [CoachChatService] talks to an edge function,
@@ -52,6 +54,7 @@ class EatovaSync {
       mealPlans: MealPlansSync(client, userId),
       trainingHistory: TrainingHistorySync(client, userId),
       operations: SyncOperationSync(client, userId),
+      aiTrust: AiTrustSync(client, userId),
     );
   }
 
@@ -70,6 +73,9 @@ class EatovaSync {
   final MealPlansSync mealPlans;
   final TrainingHistorySync trainingHistory;
   final SyncOperationSync operations;
+
+  /// AI consent log and Coach answer reports (`ai_consents`, `ai_reports`).
+  final AiTrustSync aiTrust;
 
   /// GDPR Art. 17: deletes the user's auth.users row, app tables cascade, and
   /// the client must log out afterwards. Not freely movable — the RPC needs a

@@ -315,6 +315,18 @@ class LocalCache {
   Future<bool> readReminderPromptAnswered() async =>
       (await _readJson(_reminderPromptKey))?['answered'] == true;
 
+  // ---- AI consent (2026-10-19) ---------------------------------------------
+  // The account's latest AI consent decision, cached so the AI entry points
+  // need no round trip. The server log (`ai_consents`) is the record; this
+  // slot is cleared with the other account slots and refilled from it.
+  String get _aiConsentKey => 'eatova.v1.ai_consent.$_userId';
+
+  Future<void> writeAiConsent(Map<String, dynamic> record) =>
+      _writeJson(_aiConsentKey, record);
+
+  /// Missing or corrupt -> null (no consent known).
+  Future<Map<String, dynamic>?> readAiConsent() => _readJson(_aiConsentKey);
+
   // ---- Profile ------------------------------------------------------------
 
   // The wire format (userProfileToJson/-FromJson) lives in sync_outbox.dart:
@@ -1007,6 +1019,7 @@ class LocalCache {
       await _store.remove(_notificationsKey);
       await _store.remove(_reminderTimeKey);
       await _store.remove(_reminderPromptKey);
+      await _store.remove(_aiConsentKey);
       await _store.remove(_healthConnectKey);
       await _store.remove(_healthPromptKey);
       await _store.remove(_loggedMealsKey);
