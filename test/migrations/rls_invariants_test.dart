@@ -221,6 +221,25 @@ const Map<String, Erwartung> _erwartet = {
     grund: 'Idempotenz-Journal von increment_lifetime_stats; RLS an und '
         'BEWUSST ohne Policy — nur der Funktionseigentuemer schreibt.',
   ),
+  'ai_consents': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select', 'insert'},
+    spaltenRechte: {
+      'insert': {'version', 'granted', 'health_data'},
+    },
+    grund: 'Append-only AI consent log (2026-10-19): the client chooses only '
+        'version and decision; owner, id and timestamp come from defaults, '
+        'and no row can be changed or deleted.',
+  ),
+  'ai_reports': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select', 'insert'},
+    spaltenRechte: {
+      'insert': {'message_id', 'session_id', 'target', 'reason'},
+    },
+    grund: 'Reports of Coach output without content (2026-10-19); owner, id '
+        'and timestamp come from defaults, append-only.',
+  ),
 };
 
 /// What one function in schema `public` is allowed to be.
@@ -376,6 +395,10 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
       grund: 'Trigger-Rumpf der Zeilen-Obergrenzen (P7-03). EXECUTE wird nur '
           'beim CREATE TRIGGER geprueft, der Trigger feuert also ohne '
           'Client-Recht.'),
+  'enforce_user_daily_row_cap': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Trigger-Rumpf der Tagesgrenze von ai_consents und ai_reports; '
+          'feuert wie enforce_user_row_cap ohne Client-Recht.'),
   'handle_new_user_profile': FunktionsErwartung.nurServer(
       definer: true, grund: 'Bootstrap-Trigger auf auth.users.'),
   'handle_new_user_stats': FunktionsErwartung.nurServer(

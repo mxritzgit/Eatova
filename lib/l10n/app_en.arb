@@ -3185,6 +3185,8 @@
   "exportMessages": "Coach messages",
   "exportQuota": "Coach usage",
   "exportAiUsage": "AI usage",
+  "exportAiConsents": "AI consents",
+  "exportAiReports": "Reported AI answers",
   "exportMissing": "Sections not loaded",
   "exportCapped": "Truncated sections",
   "exportCompletenessUnknown": "Completeness unknown",

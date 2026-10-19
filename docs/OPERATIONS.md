@@ -306,6 +306,20 @@ alone do not prove separate credentials, data, billing or deployment isolation.
 The checker does not establish an Anthropic or OpenRouter money limit, external backups,
 Storage-file coverage, provider retention, Sentry rules or end-to-end recovery.
 
+### Reported Coach answers
+
+Users report Coach answers and generated recipe pictures in the app
+(`public.ai_reports`, see [Backend](BACKEND.md#ai-consent-and-answer-reports)).
+Review them from a trusted operator connection, read-only, newest first, e.g.
+`select created_at, reason, target, message_id, session_id from
+public.ai_reports order by created_at desc limit 50`. A `message_id` that is a
+UUID is `chat_messages.id`; a `local-…` id is an answer the device had not
+reloaded yet, found through `session_id` and the closest assistant message
+before `created_at`. Open message content only as far as the case needs it and
+record the outcome (prompt or guardrail change, provider report) in a
+restricted case record, not in this repository. Nothing alerts on new reports
+yet; who reviews them and how often is an open owner decision.
+
 ### Account export and deletion outside the app
 
 Use a restricted case record, not a public GitHub issue. Record a case reference,

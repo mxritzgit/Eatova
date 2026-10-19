@@ -65,6 +65,8 @@ class DataExportService {
     'chat_messages',
     'chat_quota_usage',
     'ai_provider_user_usage',
+    'ai_consents',
+    'ai_reports',
   ];
 
   /// Every section a complete export must contain. The completeness test

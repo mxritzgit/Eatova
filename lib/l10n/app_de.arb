@@ -3248,6 +3248,8 @@
   "exportMessages": "Coach-Nachrichten",
   "exportQuota": "Coach-Nutzung",
   "exportAiUsage": "KI-Nutzung",
+  "exportAiConsents": "KI-Einwilligungen",
+  "exportAiReports": "Gemeldete KI-Antworten",
   "exportMissing": "Nicht geladene Bereiche",
   "exportCapped": "Gekürzte Bereiche",
   "exportCompletenessUnknown": "Vollständigkeit unbekannt",

@@ -55,6 +55,8 @@ const Set<String> _tabellenLautMigrationen = <String>{
   'chat_messages',
   'chat_quota_usage',
   'ai_provider_user_usage',
+  'ai_consents',
+  'ai_reports',
 };
 
 /// Exists but belongs in no export: `edge_rate_limits` has no `user_id`, only a
