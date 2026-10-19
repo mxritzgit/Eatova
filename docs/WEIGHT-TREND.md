@@ -23,8 +23,9 @@ therefore showed two different "current" weights.
 
 - **Trend** (`WeightLog.trendKg`): an exponentially weighted moving average
   over the weigh-ins, with these rules:
-  - Each local day counts once, with its **last** weigh-in. There is no
-    delete, so a later entry corrects an earlier one, for example a typo.
+  - Each local day counts once, with its **last** weigh-in. A later entry of
+    the same day counts instead of an earlier one. Since 2026-10-19 a
+    weigh-in can also be edited or deleted (see "Correcting weigh-ins").
   - The smoothing is 10 % per day and time-aware: a day `Δ` days after the
     last counted one moves the trend by `1 − 0.9^Δ`. A weekly weigh-in
     therefore counts about 52 %, and a weigh-in after a month almost fully.
@@ -46,9 +47,9 @@ therefore showed two different "current" weights.
   refresh it) and the rounded value fits `ProfileLimits` (30–300 kg). Otherwise there is no plan weight and the
   profile weight stays in charge. This also covers a user who stopped
   weighing in and later typed a weight on the goals screen.
-- **Re-anchoring:** after a weigh-in (manual or Apple Health import) and after
-  the boot load, the store sets `profile.weightKg` to the rounded plan weight
-  when they differ.
+- **Re-anchoring:** after a weigh-in (manual or Apple Health import), after
+  an edit or a delete of one, and after the boot load, the store sets
+  `profile.weightKg` to the rounded plan weight when they differ.
   - It requires a completed onboarding.
   - It requires that the server answered both the profile and the
     weight-log load in this session. A full profile row is never written from
@@ -86,7 +87,58 @@ therefore showed two different "current" weights.
   it, because a typed value would immediately be smoothed back. It is titled
   "Weight trend", and its helper names a differing last weigh-in in the same
   words. Its hidden energy fields use the same weight. Without a plan weight
-  the row stays editable. Onboarding does not create a weigh-in.
+  the row stays editable. Since 2026-10-19 the onboarding weight becomes the
+  first weigh-in (see below).
+
+## Correcting weigh-ins (2026-10-19)
+
+Review [2026-10-19](IMPROVEMENT-REVIEW-2026-10-19.md), section 3: a typo
+could only be outvoted by later weigh-ins, and the onboarding weight was no
+weigh-in.
+
+- **History:** the profile's weight card ("All weigh-ins") and the weigh-in
+  sheet ("History", also from Today's weight chip) open all weigh-ins,
+  newest first. A row opens the edit sheet: value, day (the 7-day strip,
+  swipe for earlier weeks) and time, and "Delete weigh-in".
+- **Dated weigh-ins:** the weigh-in sheet takes a day and a time, default
+  now, at most a year back and never in the future (a future moment
+  becomes now). An edit keeps its exact original moment until the day or
+  time is changed.
+- **Edit:** `weightUpsert` with the row's id. The plan re-anchors through
+  the same path and in the same local commit as a new weigh-in, so a
+  corrected typo moves the profile back (`updateWeighIn`).
+- **Delete:** `weightDelete`, terminal for the id; the snack's undo restores
+  value and moment under a new id. The plan re-anchors in the same commit.
+  Known limit: when the deleted weigh-in was the only one the plan rested on,
+  there is no plan weight left and the profile keeps the weight it was last
+  anchored to; the goals screen's weight row is editable again then. With the
+  onboarding weigh-in this needs an account onboarded before 2026-10-19.
+- **Lifetime counter:** `lifetime_stats.weight_logs` counts weigh-ins logged
+  (`weightInsert`), like `meals_logged`. An edit, a delete and its undo
+  neither add nor subtract.
+- **Apple Health:** Eatova wrote a sample for each manual weigh-in. An edit
+  deletes Eatova's own sample at the old moment (by its UUID, found by
+  source and time) and writes the corrected one; a delete removes it, and
+  the undo writes it back. A weigh-in imported from a scale has no sample of
+  Eatova's: the scale's sample stays as it is (HealthKit lets an app delete
+  only its own samples), and nothing is written instead. A deleted import is
+  not offered again in the same session; after a restart a reading of the
+  last 7 days may be offered once more. Android writes no weight.
+- **Rows without an id:** builds before 2026-10-19 cached weigh-ins without
+  their row id. Such a row shows "Editable after the next sync" until the
+  next server load supplies it.
+- **Onboarding weigh-in:** completing the onboarding records the entered
+  weight as the first weigh-in, in the same local commit as the profile, so
+  the trend and the weekly check start on day one. Only when the server
+  answered an empty weight log in this session: an account with weigh-ins,
+  or one whose log is unknown offline, gets none. An account completes its
+  onboarding once (repeated taps share one completion), so the weigh-in is
+  recorded once.
+
+Server side: [20261019110000](../supabase/migrations/20261019110000_weight_log_edit.sql)
+adds both kinds to `apply_sync_operation`, a `weight` tombstone family and
+the current-state projection; see [durable sync](OFFLINE_SYNC.md#conflict-policy).
+The migration goes live before the client that sends the new kinds.
 
 Measured effect (male, 182 cm, light, −0.5 kg/week): the daily goal goes from
 2100 kcal at 84 kg to 2000 at 76 kg. The visible correction is the forecast and
@@ -108,6 +160,11 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
   this session (full-day totals). A value pinned before its day ended would
   understate the model. A session that runs into a new day re-reads the day
   that just ended before the check may propose again.
+  The trends page's longer backfill (up to six months, 2026-10-19) stores
+  every day it finds in one notify and one encrypted cache write, and on
+  Android reads only the last 30 days: without `READ_HEALTH_DATA_HISTORY`,
+  which Eatova neither declares nor requests, Health Connect answers nothing
+  older than 30 days before the first grant.
 - Enough data in the **window**: the 21 local days that end yesterday (today
   is not complete yet).
   - At least 14 **logged days**. A day counts when its logged intake reaches
