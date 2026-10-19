@@ -1753,6 +1753,17 @@
   },
   "notifStreakStartTitle": "Streak starten",
   "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten.",
+  "reminderHalfDayTitle": "Tagebuch für heute",
+  "@reminderHalfDayTitle": {
+    "description": "Evening reminder when today holds entries but less than half the daily goal (the complete-day rule)."
+  },
+  "reminderHalfDayBody": "Heute erst {kcal} kcal eingetragen – fehlt noch etwas?",
+  "@reminderHalfDayBody": {
+    "description": "Body of that reminder; kcal is today's logged total when the reminder was planned.",
+    "placeholders": {
+      "kcal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
   "trainingRestAlertTitle": "Pause vorbei",
   "trainingRestAlertBody": "Zeit für den nächsten Satz.",
   "trainingIntervalAlertTitle": "Zeit um",

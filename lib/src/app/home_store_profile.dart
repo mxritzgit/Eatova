@@ -297,6 +297,9 @@ mixin _HomeStoreProfilePart
   /// streak_reminder_planner.dart). scheduleAll is cancel-first, so always
   /// pass the full planner list — no duplicates on repeated calls. Guard:
   /// never plans without granted permission.
+  ///
+  /// Today's intake goes along, so a half-logged day keeps its evening
+  /// question; the meal paths re-plan whenever today's entries change.
   Future<void> _rescheduleStreakReminder() async {
     if (_disposed ||
         _notificationSessionEnded ||
@@ -304,8 +307,12 @@ mixin _HomeStoreProfilePart
         !_accountStillSignedIn) {
       return;
     }
+    final now = clock.now();
     await notificationService.scheduleAll(
-      planStreakReminders(clock.now(), lifetimeStats, _l10n, _reminderTime),
+      planStreakReminders(now, lifetimeStats, _l10n, _reminderTime, (
+        kcal: totals.consumedKcalForFoodDate(loggedMeals, now),
+        goalKcal: profile.dailyKcalGoal,
+      )),
     );
   }
 

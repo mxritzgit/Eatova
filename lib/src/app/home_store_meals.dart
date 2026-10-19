@@ -290,7 +290,8 @@ mixin _HomeStoreMealsPart
     LoggedMeal updated, {
     bool recordToday = false,
   }) async {
-    if (!loggedMeals.any((m) => m.id == updated.id)) {
+    final before = loggedMeals.where((m) => m.id == updated.id).firstOrNull;
+    if (before == null) {
       throw StateError('Meal no longer exists');
     }
     final update = SyncOp.mealUpsert(updated);
@@ -311,7 +312,22 @@ mixin _HomeStoreMealsPart
         _refreshMealTotals();
       },
     );
-    if (recordToday) unawaited(_rescheduleStreakReminder());
+    if (recordToday) {
+      unawaited(_rescheduleStreakReminder());
+    } else {
+      // A new portion or a move changes today's total, which the evening
+      // reminder's text is planned from.
+      _replanIfToday([before, updated]);
+    }
+  }
+
+  /// Re-plans the evening reminders when one of [meals] lies on today: the
+  /// half-logged-day question is planned from today's total (C4 planner).
+  void _replanIfToday(Iterable<LoggedMeal> meals) {
+    final today = localDayKey(clock.now());
+    if (meals.any((m) => m.effectiveLocalDay == today)) {
+      unawaited(_rescheduleGuarded('notifications-intake'));
+    }
   }
 
   /// Short label for the target day of the move confirmation.
@@ -344,6 +360,7 @@ mixin _HomeStoreMealsPart
     );
     HapticFeedback.lightImpact();
     if (removed == null) return;
+    _replanIfToday([removed]);
     Future<void>? restore;
     _showUndoSnackBar(
       _l10n.commonMealDeleted,
@@ -371,6 +388,7 @@ mixin _HomeStoreMealsPart
         _refreshMealTotals();
       },
     );
+    _replanIfToday([restored]);
   }
 
   void _undoMutation(Future<void> Function() action) {
@@ -627,6 +645,9 @@ mixin _HomeStoreMealsPart
         .where((id) => loggedMeals.any((m) => m.id == id))
         .toList(growable: false);
     if (present.isEmpty) return;
+    final removed = loggedMeals
+        .where((m) => present.contains(m.id))
+        .toList(growable: false);
     await _commitSyncIntents(
       [for (final id in present) SyncOp.mealDelete(id)],
       publish: () {
@@ -636,6 +657,7 @@ mixin _HomeStoreMealsPart
         _refreshMealTotals();
       },
     );
+    _replanIfToday(removed);
   }
 
   // --- Favorites / recents --------------------------------------------------

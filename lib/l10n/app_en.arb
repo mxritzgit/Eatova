@@ -1698,6 +1698,13 @@
   },
   "notifStreakStartTitle": "Start a streak",
   "notifStreakStartBody": "One log is enough to start your streak.",
+  "reminderHalfDayTitle": "Today's diary",
+  "reminderHalfDayBody": "Only {kcal} kcal logged today – anything missing?",
+  "@reminderHalfDayBody": {
+    "placeholders": {
+      "kcal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
   "trainingRestAlertTitle": "Rest over",
   "trainingRestAlertBody": "Time for your next set.",
   "trainingIntervalAlertTitle": "Time's up",
