@@ -239,27 +239,40 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Upserts the calendar day of [day] with [steps]; kcal are frozen using
   /// the CURRENT profile (the estimate is coarser than the weight drift).
   /// Must run inside a _mutate block; the cache write is fire-and-forget.
-  void _recordDailyActivity(DateTime day, int steps) {
-    if (steps < 0) return;
-    final key = localDayKey(day);
-    final kcal = estimateKcalBurnedFromSteps(
-      steps: steps,
-      weightKg: profile.weightKg,
-      heightCm: profile.heightCm,
-      sex: profile.sex,
-    );
-    // Unchanged -> bail WITHOUT replacing the map: slice selectors compare by
-    // identity, so a resume without new steps must cost neither a rebuild nor
-    // an AES-GCM cache write (guarded by home_page_rebuild_test).
-    if (dailyActivity[key] == (steps: steps, kcal: kcal)) return;
+  void _recordDailyActivity(DateTime day, int steps) =>
+      _recordDailyActivities({day: steps});
+
+  /// [_recordDailyActivity] for several days: one new map and ONE encrypted
+  /// cache write for all of them.
+  void _recordDailyActivities(Map<DateTime, int> days) {
     // YYYY-MM-DD sorts lexicographically = chronologically, so the cutoff is
     // a string compare, not date parsing.
     final cutoff = localDayKey(clock.now().subtract(_dailyActivityRetention));
-    dailyActivity = <String, ({int steps, int kcal})>{
-      for (final e in dailyActivity.entries)
-        if (e.key.compareTo(cutoff) >= 0) e.key: e.value,
-      key: (steps: steps, kcal: kcal),
-    };
+    Map<String, ({int steps, int kcal})>? next;
+    for (final MapEntry(key: day, value: steps) in days.entries) {
+      if (steps < 0) continue;
+      final key = localDayKey(day);
+      final value = (
+        steps: steps,
+        kcal: estimateKcalBurnedFromSteps(
+          steps: steps,
+          weightKg: profile.weightKg,
+          heightCm: profile.heightCm,
+          sex: profile.sex,
+        ),
+      );
+      // Unchanged -> no new map: slice selectors compare by identity, so a
+      // resume without new steps must cost neither a rebuild nor an AES-GCM
+      // cache write (guarded by home_page_rebuild_test).
+      if ((next ?? dailyActivity)[key] == value) continue;
+      next ??= <String, ({int steps, int kcal})>{
+        for (final e in dailyActivity.entries)
+          if (e.key.compareTo(cutoff) >= 0) e.key: e.value,
+      };
+      next[key] = value;
+    }
+    if (next == null) return;
+    dailyActivity = next;
     unawaited(
       _cache?.writeDailyActivity(dailyActivity) ?? Future<void>.value(),
     );
@@ -292,21 +305,49 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return true;
   }
 
+  /// Past days Health Connect can answer: without READ_HEALTH_DATA_HISTORY,
+  /// which Eatova neither declares nor requests, it returns nothing older
+  /// than 30 days before the first grant. Each further day cost a read for
+  /// an empty answer.
+  static const int _healthConnectReadableDays = 30;
+
   /// Fills the step values of the trends page's range: every past day of the
   /// last [days] without a stored value is read from the health store, one
-  /// after another and once per day and session
-  /// ([_maybeBackfillDailyActivity]). Each found day lands in [dailyActivity]
-  /// and notifies, so the page fills in while it reads. Skipped without a
-  /// usable health connection, where every read would come back empty.
+  /// after another and once per day and session. On Android only the last
+  /// [_healthConnectReadableDays] days. The found days land in
+  /// [dailyActivity] together, in one notify and one encrypted cache write,
+  /// instead of one each. Skipped without a usable health connection, where
+  /// every read would come back empty.
   Future<void> backfillStepsForTrends(int days) async {
     if (!_healthReadable) return;
+    final generation = _healthGeneration;
     final today = startOfDay(clock.now());
-    for (var n = 1; n < days; n++) {
-      if (_disposed || _healthSessionEnded || !_healthReadable) return;
+    final span =
+        health is HealthConnectAccess && days > _healthConnectReadableDays + 1
+        ? _healthConnectReadableDays + 1
+        : days;
+    final found = <DateTime, int>{};
+    for (var n = 1; n < span; n++) {
+      if (_disposed || generation != _healthGeneration) return;
+      if (_healthSessionEnded || !_healthReadable) break;
       final day = addDays(today, -n);
-      if (dailyActivity.containsKey(localDayKey(day))) continue;
-      await _maybeBackfillDailyActivity(day);
+      final key = localDayKey(day);
+      if (dailyActivity.containsKey(key) ||
+          !_dailyActivityBackfillAttempted.add(key)) {
+        continue;
+      }
+      final background = _appInBackground;
+      final steps = await health.readStepsOnDay(day);
+      if (_disposed || generation != _healthGeneration) return;
+      if (steps == null && (background || _appInBackground)) {
+        // Deferred outside the foreground, not answered: read it next time.
+        _dailyActivityBackfillAttempted.remove(key);
+        break;
+      }
+      if (steps != null && steps >= 0) found[day] = steps;
     }
+    if (found.isEmpty || _healthSessionEnded) return;
+    _mutate(() => _recordDailyActivities(found));
   }
 
   bool get _healthReadable => switch (health.authState) {
