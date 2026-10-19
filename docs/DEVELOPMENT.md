@@ -115,19 +115,39 @@ the intended debug/upload/Play App Signing identities for their actual use.
 
 Install release builds on a device through the helper. It builds with the
 defines and with the build number set to the commit count of `HEAD`, then
-installs the build (`flutter run` takes no build number):
+installs the build over the one on the device (`flutter run` takes no build
+number):
 
 ```bash
-python3 scripts/operations/device_build.py iphone       # Mac only: build ios + install
-python3 scripts/operations/device_build.py android      # build apk + install
-python3 scripts/operations/device_build.py ipa          # store builds, no install
+python3 scripts/operations/device_build.py iphone -d <id>  # Mac only: build ios + install
+python3 scripts/operations/device_build.py android         # build apk + install
+python3 scripts/operations/device_build.py ipa             # store builds, no install
 python3 scripts/operations/device_build.py appbundle
 ```
 
-Use `-d <device>` to pick the device, and `--dry-run` to print the commands
-without running them. Other arguments go to `flutter build`. iPhone builds need
-macOS with Xcode. On Windows, set `FLUTTER` to the full path of `flutter.bat`
-(PowerShell: `$env:FLUTTER = "C:\path\to\flutter\bin\flutter.bat"`).
+Device builds update the installed app in place and keep its data: Android
+with `adb install -r`, iPhone with `xcrun devicectl device install app`.
+`flutter install` is not used, because Flutter 3.47.2 uninstalls the app
+first, which deleted the unsent outbox, the encrypted cache, reminders and
+Health grants on every install. If the device refuses the update (a lower
+build number than the installed one, or a build signed with another key), the
+install fails and the old build keeps its data; uninstalling is then your own
+decision, after the outbox has been delivered.
+
+Use `-d <device>` to pick the device (required for an iPhone; the id comes
+from `flutter devices`), and `--dry-run` to print the commands without running
+them. Other arguments go to `flutter build`; `--split-per-abi` and `--flavor`
+are refused for an install because they change the APK path. iPhone builds
+need macOS with Xcode. On Windows, set `FLUTTER` to the full path of
+`flutter.bat` (PowerShell: `$env:FLUTTER = "C:\path\to\flutter\bin\flutter.bat"`).
+`adb` comes from `ADB`, else from `ANDROID_HOME`/`ANDROID_SDK_ROOT`
+`platform-tools`, else from `PATH`. `device_build.py build-number` prints the
+number without building.
+
+Device checks after an install include an update over the previous build with
+a pending outbox entry: log a meal offline on the old build, install the new
+one over it, and check that the entry is still queued and reaches the server
+once online.
 
 The pubspec build number stays the same across many merges. Reinstalling the
 same release over a running app looks like an OS kill to Sentry's iOS SDK, and
