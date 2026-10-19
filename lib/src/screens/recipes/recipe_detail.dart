@@ -3,6 +3,37 @@ part of 'recipes_screen.dart';
 // ---------------------------------------------------------------------------
 // Recipe detail view (own route push). [RecipeDetailScreen] is public.
 // ---------------------------------------------------------------------------
+
+/// [recipe] as plain text for the clipboard: title, kcal and protein,
+/// portion, then ingredients and preparation as the detail shows them. A
+/// section an own recipe leaves empty is omitted, not filled with the
+/// detail's placeholder.
+String recipeAsPlainText(FitnessRecipe recipe, AppLocalizations l10n) {
+  final nutrition = recipe.displayNutrition;
+  final kcal = nutrition.caloriesKcal, protein = nutrition.proteinG;
+  final freeIngredients = recipe.ingredients.trim();
+  final ingredients = recipe.hasStructuredIngredients
+      ? [
+          for (final i in recipe.structuredIngredients)
+            '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}',
+          if (freeIngredients.isNotEmpty) freeIngredients,
+        ].join('\n')
+      : freeIngredients.isEmpty
+      ? ''
+      : recipe.displayIngredients(l10n).trim();
+  final preparation = recipe.preparation.trim().isEmpty
+      ? ''
+      : recipe.displayPreparation(l10n).trim();
+  final portion = recipe.displayPortion(l10n).trim();
+  return [
+    recipe.displayTitle(l10n),
+    if (kcal != null && protein != null)
+      l10n.recipesKcalProteinSummary(kcal.round(), protein.round()),
+    if (portion.isNotEmpty) '${l10n.recipesSectionPortion}: $portion',
+    if (ingredients.isNotEmpty) ...['', l10n.recipesSectionIngredients, ingredients],
+    if (preparation.isNotEmpty) ...['', l10n.recipesSectionPreparation, preparation],
+  ].join('\n');
+}
 class RecipeDetailScreen extends StatefulWidget {
   const RecipeDetailScreen({
     super.key,
@@ -149,6 +180,17 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
       icon: Icons.check_circle_rounded,
     );
     return true;
+  }
+
+  /// The recipe as plain text on the clipboard ([recipeAsPlainText]),
+  /// confirmed by a toast.
+  Future<void> _copy() async {
+    final l10n = context.l10n;
+    await Clipboard.setData(
+      ClipboardData(text: recipeAsPlainText(recipe, l10n)),
+    );
+    if (!mounted) return;
+    showAppSnack(context, l10n.recipesCopied, icon: Icons.check_circle_rounded);
   }
 
   Future<bool> _confirmNutritionBasis() async {
@@ -415,53 +457,57 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     ],
                   ),
                 ],
-                if ((widget.onEdit != null && recipe.userCreated) ||
-                    widget.onOpenHistory != null ||
-                    widget.onPlan != null) ...[
-                  const SizedBox(height: 14),
-                  // One row of soft pills; at large text they wrap.
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      if (widget.onPlan case final plan?)
-                        SoftPillButton(
-                          key: const ValueKey('recipe-detail-plan'),
-                          onTap: _canUseRecipe &&
-                                  widget.isSessionCurrent?.call() != false
-                              ? () => plan(context, recipe)
-                              : null,
-                          icon: Icons.event_note_outlined,
-                          label: l10n.mealPlanAddRecipe,
-                        ),
-                      if (widget.onEdit != null && recipe.userCreated)
-                        SoftPillButton(
-                          key: const ValueKey('recipe-detail-edit'),
-                          onTap: _canUseRecipe ? _edit : null,
-                          icon: Icons.edit_outlined,
-                          label: l10n.recipeEditTitle,
-                        ),
-                      if (widget.onOpenHistory != null)
-                        SoftPillButton(
-                          key: const ValueKey('recipe-detail-history'),
-                          tone: SoftPillTone.neutral,
-                          onTap:
-                              _saveHandle?.value.resolving == true ||
-                                  _historySlug == null
-                              ? null
-                              : () async {
-                                  final restored = await widget
-                                      .onOpenHistory!(_historySlug!);
-                                  if (restored && context.mounted) {
-                                    Navigator.pop(context);
-                                  }
-                                },
-                          icon: Icons.history_rounded,
-                          label: l10n.recipeHistoryTitle,
-                        ),
-                    ],
-                  ),
-                ],
+                const SizedBox(height: 14),
+                // One row of soft pills; at large text they wrap. Copying
+                // is always there, so the row is too.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (widget.onEdit != null && recipe.userCreated)
+                      SoftPillButton(
+                        key: const ValueKey('recipe-detail-edit'),
+                        onTap: _canUseRecipe ? _edit : null,
+                        icon: Icons.edit_outlined,
+                        label: l10n.recipeEditTitle,
+                      ),
+                    if (widget.onPlan case final plan?)
+                      SoftPillButton(
+                        key: const ValueKey('recipe-detail-plan'),
+                        onTap: _canUseRecipe &&
+                                widget.isSessionCurrent?.call() != false
+                            ? () => plan(context, recipe)
+                            : null,
+                        icon: Icons.event_note_outlined,
+                        label: l10n.mealPlanAddRecipe,
+                      ),
+                    SoftPillButton(
+                      key: const ValueKey('recipe-detail-copy'),
+                      onTap: _copy,
+                      icon: Icons.copy_rounded,
+                      label: l10n.recipesCopyText,
+                      tone: SoftPillTone.neutral,
+                    ),
+                    if (widget.onOpenHistory != null)
+                      SoftPillButton(
+                        key: const ValueKey('recipe-detail-history'),
+                        tone: SoftPillTone.neutral,
+                        onTap:
+                            _saveHandle?.value.resolving == true ||
+                                _historySlug == null
+                            ? null
+                            : () async {
+                                final restored = await widget
+                                    .onOpenHistory!(_historySlug!);
+                                if (restored && context.mounted) {
+                                  Navigator.pop(context);
+                                }
+                              },
+                        icon: Icons.history_rounded,
+                        label: l10n.recipeHistoryTitle,
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 24),
                 SectionHeading(
                   title: recipe.hasUnclearNutritionBasis

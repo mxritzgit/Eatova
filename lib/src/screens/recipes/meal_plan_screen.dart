@@ -730,6 +730,17 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         const SizedBox(height: 18),
         _receipt(context, receipt, checks),
         const SizedBox(height: 14),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: SoftPillButton(
+            key: const ValueKey('shopping-copy'),
+            label: l.shoppingCopyText,
+            icon: Icons.copy_rounded,
+            tone: SoftPillTone.neutral,
+            onTap: () => _copyShopping(receipt, checks),
+          ),
+        ),
+        const SizedBox(height: 14),
         _Footnote(l.mealPlanShoppingIntro),
         if (combined) ...[
           const SizedBox(height: 6),
@@ -737,6 +748,25 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         ],
       ],
     ];
+  }
+
+  /// The receipt as plain text on the clipboard ([shoppingReceiptText]),
+  /// confirmed by a toast.
+  Future<void> _copyShopping(
+    ShoppingReceipt receipt,
+    Map<String, bool> checks,
+  ) async {
+    final l = context.l10n;
+    final text = shoppingReceiptText(
+      receipt,
+      checks: checks,
+      week: _isoWeek(_week),
+      meals: shoppingPlans(store.plannedMeals, _week).length,
+      l: l,
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    showAppSnack(context, l.shoppingCopied, icon: Icons.check_circle_rounded);
   }
 
   /// Writes the one check a tap on [row] makes; a light tick confirms it
