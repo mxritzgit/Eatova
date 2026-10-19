@@ -1106,8 +1106,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   /// Typed or spoken description -> draft -> one log through [_logAndMirror]
   /// (docs/MEAL-DESCRIBE.md). Like manual entry, the sheet closes on Add and
-  /// the confirmation lands here.
-  Future<void> _openDescribe() async {
+  /// the confirmation lands here. [initialText] prefills the description,
+  /// e.g. a product search that found nothing.
+  Future<void> _openDescribe({String? initialText}) async {
     // AI consent before the describe sheet: its only purpose is analyze-meal.
     if (!await ensureAiConsent(context) || !mounted) return;
     final outcome = await showMealDescribeSheet(
@@ -1133,6 +1134,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
           : MaterialLocalizations.of(
               context,
             ).formatMediumDate(widget.foodDate!),
+      initialText: initialText,
     );
     if (outcome == null || !mounted) return;
     _selectSlot(outcome.slot);
@@ -1457,16 +1459,25 @@ class _AddMealSheetState extends State<AddMealSheet> {
             : Icons.cloud_off_rounded,
         text: message,
         actions: [
-          if (_offerManualEntry)
-            // Definitively nothing found, or the search gave up -> straight
-            // into the form, with the query prefilled as the name.
+          if (_offerManualEntry) ...[
+            // Definitively nothing found, or the search gave up -> describe
+            // the meal (home cooking has no barcode), with the query as the
+            // description, or straight into the form with it as the name.
+            SoftPillButton(
+              key: const ValueKey('search-describe-cta'),
+              icon: Icons.mic_none_rounded,
+              label: l10n.foodDescribeEntryTitle,
+              onTap: () =>
+                  _openDescribe(initialText: _searchController.text.trim()),
+            ),
             SoftPillButton(
               key: const ValueKey('manual-entry-cta'),
               icon: Icons.edit_rounded,
               label: l10n.foodManualEntryCta,
+              tone: SoftPillTone.neutral,
               onTap: manual,
-            )
-          else if (failed) ...[
+            ),
+          ] else if (failed) ...[
             SoftPillButton(
               key: const ValueKey('product-search-retry'),
               icon: Icons.refresh_rounded,
