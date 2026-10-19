@@ -23,6 +23,16 @@ Nothing enters the user's recipe library until the user confirms a specific reci
 The existing Recipes header also has an Import action for pasting a link or text.
 No clipboard is read automatically. Imported photos are not fetched or generated.
 
+The copy promises what works (2026-10-19): a TikTok link, or recipe text copied
+from anywhere, a website included. Input whose links are all non-TikTok and that
+carries at most one short line besides them (a browser share's page title) is
+stopped in the sheet before any request, for typed and shared text alike:
+"Links gehen bisher nur von TikTok. Kopier den Rezepttext von der Seite und füg
+ihn hier ein." The text stays in the field; once recipe text is added, the
+import sends it as before (the server drops the link). The host list mirrors
+`source.ts` in `recipeImportLinkHosts`. Website fetching (schema.org recipes)
+remains a later step that needs SSRF protection and a coverage measurement first.
+
 ## Platform behavior
 
 Android receives bounded `ACTION_SEND` text on cold and warm starts and opens the
