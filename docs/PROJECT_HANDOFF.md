@@ -3898,3 +3898,21 @@ layout, a11y, repo rules) green. Captures checked in dark and light, at
 390 px and at 320 px with 2x text.
 
 **Rollout:** app build only; no migration, no function deploy.
+
+## What the app still needs, two agents, 2026-10-19
+
+The owner asked for another two-agent review of what Eatova still needs. See
+[IMPROVEMENT-REVIEW-2026-10-19.md](IMPROVEMENT-REVIEW-2026-10-19.md), based on
+`aa41c34e`. Two read-only agents covered product/UX/retention and
+engineering/release/privacy/operations; the main session re-read the
+load-bearing evidence in code. Block 1 of the previous review is still open.
+New and strongest: `PRIVACY.md` names an in-app AI/health consent that does
+not exist, while #155 sends more preference data to the Coach; recipe
+suggestions ignore the avoided foods from #155; `device_build.py` uses
+`flutter install`, which uninstalls first and wipes local data on every device
+install; the import copy promises websites but only TikTok links work; the
+export reads every section except the diary as one page and is cut at the
+live 1,000-row cap; no alerting for the shared daily AI cap; backups and the
+Supabase plan need a decision before launch. `docs/FEATURES.md` no longer
+claims there is no later diet editor. This is a recommendation, not an
+approved roadmap; only documentation changed.
