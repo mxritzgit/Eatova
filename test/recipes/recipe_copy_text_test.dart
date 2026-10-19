@@ -54,14 +54,11 @@ void main() {
       '${lachs.preparation}',
     );
     final en = recipeCatalogEn.firstWhere((r) => r.slug == lachs.slug);
-    expect(
-      recipeAsPlainText(en, enL10n).split('\n').take(3),
-      [
-        'Salmon with Sweet Potato & Asparagus',
-        '640 kcal · 43 g protein',
-        'Portion: 1 large fitness plate / 1 main meal',
-      ],
-    );
+    expect(recipeAsPlainText(en, enL10n).split('\n').take(3), [
+      'Salmon with Sweet Potato & Asparagus',
+      '640 kcal · 43 g protein',
+      'Portion: 1 large fitness plate / 1 main meal',
+    ]);
   });
 
   test('leere Abschnitte eines eigenen Rezepts fehlen statt Platzhalter', () {

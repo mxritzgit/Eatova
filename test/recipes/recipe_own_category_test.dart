@@ -122,10 +122,7 @@ void main() {
       ),
     );
     await _tap(tester, breakfastChip);
-    expect(
-      find.byKey(ValueKey('recipe-tile-${recipe.slug}')),
-      findsOneWidget,
-    );
+    expect(find.byKey(ValueKey('recipe-tile-${recipe.slug}')), findsOneWidget);
   });
 
   testWidgets('die Auswahl bricht bei 320 px und doppelter Schrift um', (
@@ -157,7 +154,10 @@ void main() {
     await _tap(tester, _chip('Vegan'));
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('discard-changes-dialog')),
+      findsOneWidget,
+    );
   });
 
   testWidgetsRobust('beim Bearbeiten: Auswahl vorbelegt, Marker bleiben, '

@@ -114,10 +114,7 @@ void main() {
 
       expect(_kcal('2026-09-07'), findsNothing, reason: 'empty day');
       await tester.ensureVisible(_kcal('2026-09-08'));
-      expect(
-        _text(tester, _kcal('2026-09-08')),
-        '1,780 of 2,100 kcal planned',
-      );
+      expect(_text(tester, _kcal('2026-09-08')), '1,780 of 2,100 kcal planned');
       await tester.ensureVisible(_kcal('2026-09-09'));
       expect(
         _text(tester, _kcal('2026-09-09')),
@@ -130,10 +127,7 @@ void main() {
       );
       await store.eatPlannedMeal(pancakes.id);
       await tester.pumpAndSettle();
-      expect(
-        _text(tester, _kcal('2026-09-08')),
-        '1,780 of 2,100 kcal planned',
-      );
+      expect(_text(tester, _kcal('2026-09-08')), '1,780 of 2,100 kcal planned');
       expect(tester.takeException(), isNull);
     });
   });

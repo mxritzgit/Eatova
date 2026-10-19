@@ -30,8 +30,16 @@ String recipeAsPlainText(FitnessRecipe recipe, AppLocalizations l10n) {
     if (kcal != null && protein != null)
       l10n.recipesKcalProteinSummary(kcal.round(), protein.round()),
     if (portion.isNotEmpty) '${l10n.recipesSectionPortion}: $portion',
-    if (ingredients.isNotEmpty) ...['', l10n.recipesSectionIngredients, ingredients],
-    if (preparation.isNotEmpty) ...['', l10n.recipesSectionPreparation, preparation],
+    if (ingredients.isNotEmpty) ...[
+      '',
+      l10n.recipesSectionIngredients,
+      ingredients,
+    ],
+    if (preparation.isNotEmpty) ...[
+      '',
+      l10n.recipesSectionPreparation,
+      preparation,
+    ],
   ].join('\n');
 }
 class RecipeDetailScreen extends StatefulWidget {

@@ -257,7 +257,9 @@ class _PlanEditorState extends State<_PlanEditor> {
                                     height: 1.4,
                                   ),
                                 ),
-                                if (recipe.avoidedFoods(avoided).isNotEmpty) ...[
+                                if (recipe
+                                    .avoidedFoods(avoided)
+                                    .isNotEmpty) ...[
                                   const SizedBox(height: 6),
                                   RecipeAvoidHint(
                                     recipe: recipe,

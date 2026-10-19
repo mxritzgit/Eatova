@@ -20,7 +20,10 @@ const Set<String> recipeImportLinkHosts = {
 };
 
 /// The server's link pattern and trailing punctuation (`loadSource`).
-final RegExp _importLink = RegExp(r'''https?://[^\s<>"']+''', caseSensitive: false);
+final RegExp _importLink = RegExp(
+  r'''https?://[^\s<>"']+''',
+  caseSensitive: false,
+);
 final RegExp _importLinkTail = RegExp(r'[),.!?;]+$');
 
 /// True when [text] holds links the import cannot read and nothing else to

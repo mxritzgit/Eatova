@@ -59,9 +59,8 @@ Future<void> _open(
 Finder get _notice =>
     find.byKey(const ValueKey('recipe-import-link-unsupported'));
 
-PrimaryActionButton _analyze(WidgetTester tester) => tester.widget(
-  find.byKey(const ValueKey('recipe-import-analyze')),
-);
+PrimaryActionButton _analyze(WidgetTester tester) =>
+    tester.widget(find.byKey(const ValueKey('recipe-import-analyze')));
 
 String _field(WidgetTester tester) => tester
     .widget<TextField>(find.byKey(const ValueKey('recipe-import-input')))
@@ -73,7 +72,9 @@ void main() {
     test('ein Website-Link allein oder mit Seitentitel', () {
       expect(recipeImportOnlyUnsupportedLinks(_chefkoch), isTrue);
       expect(
-        recipeImportOnlyUnsupportedLinks('Spaghetti Carbonara | Chefkoch\n$_chefkoch'),
+        recipeImportOnlyUnsupportedLinks(
+          'Spaghetti Carbonara | Chefkoch\n$_chefkoch',
+        ),
         isTrue,
       );
       expect(

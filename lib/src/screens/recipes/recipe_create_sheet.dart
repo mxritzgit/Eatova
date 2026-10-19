@@ -534,8 +534,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final ingredientContextChanged = original != null &&
         (ingredients != original.ingredients || portion != original.portion ||
             _structured != original.hasStructuredIngredients);
-    // Kept choices stay where they were, so an untouched edit stores the same
-    // list; new ones follow in the picker's order.
+    // Kept choices stay where they were (each taken out of this set once,
+    // deselected ones drop), so an untouched edit stores the same list; new
+    // ones follow in the picker's order.
     final pickedCategories = {..._categories};
 
     // The store names the image cryptographically at random, not from the slug

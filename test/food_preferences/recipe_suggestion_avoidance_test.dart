@@ -55,7 +55,8 @@ void main() {
               expect(
                 pick == null || pick.recipe.fitsAvoidances({code}),
                 isTrue,
-                reason: '${code.name}, ${slot.name}, $kcal kcal: '
+                reason:
+                    '${code.name}, ${slot.name}, $kcal kcal: '
                     '${pick?.recipe.slug} enthält es',
               );
               final unfiltered = pickRecipeForSlot(
@@ -180,8 +181,11 @@ void main() {
           count: 30,
         );
         for (final recipe in shelf) {
-          expect(recipe.fitsAvoidances({code}), isTrue,
-              reason: '${code.name}: ${recipe.slug}');
+          expect(
+            recipe.fitsAvoidances({code}),
+            isTrue,
+            reason: '${code.name}: ${recipe.slug}',
+          );
         }
       }
       final all = leanHighProteinRecipes(recipeCatalogDe);

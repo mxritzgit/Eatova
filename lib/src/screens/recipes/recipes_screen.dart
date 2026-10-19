@@ -389,9 +389,9 @@ class _RecipeIndex {
   /// (PROD-6) and avoided foods. Feeds the goal matches; the main list stays
   /// unfiltered.
   List<FitnessRecipe> forDiet(
-    DietPreference diet, [
-    Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
-  ]) {
+    DietPreference diet,
+    Set<FoodAvoidance> avoidances,
+  ) {
     final key = _suggestionKey(diet, avoidances);
     final cached = _dietRecipes;
     if (cached != null && _dietKey == key) return cached;
@@ -412,9 +412,9 @@ class _RecipeIndex {
   /// The day-based ROTATION stays outside — that one has to keep turning
   /// while this list does not.
   List<FitnessRecipe> catalogPool(
-    DietPreference diet, [
-    Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
-  ]) {
+    DietPreference diet,
+    Set<FoodAvoidance> avoidances,
+  ) {
     final key = _suggestionKey(diet, avoidances);
     final cached = _pool;
     if (cached != null && _poolKey == key) return cached;
@@ -442,9 +442,9 @@ class _RecipeIndex {
   /// count. The diet and avoidance pre-filter runs before the ranking.
   List<FitnessRecipe> goalMatches(
     MacroProgress remaining,
-    DietPreference diet, [
-    Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
-  ]) {
+    DietPreference diet,
+    Set<FoodAvoidance> avoidances,
+  ) {
     final key = _suggestionKey(diet, avoidances);
     final cached = _goalMatches;
     if (cached != null &&

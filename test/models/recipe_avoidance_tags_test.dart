@@ -67,9 +67,7 @@ final Map<FoodAvoidance, List<RegExp>> _keywords = {
     'shrimp', 'prawn', r'\bcrab', 'lobster', 'mussel', r'\bclams?\b', 'squid',
     'octopus', 'curry paste',
   ]),
-  FoodAvoidance.sesame: _all([
-    'sesam', 'tahin', 'hummus', 'falafel',
-  ]),
+  FoodAvoidance.sesame: _all(['sesam', 'tahin', 'hummus', 'falafel']),
   FoodAvoidance.celery: _all([
     'sellerie', 'bruehe', 'curry',
     // English
@@ -143,24 +141,27 @@ FitnessRecipe _own({Set<FoodAvoidance>? tags}) => FitnessRecipe(
 
 void main() {
   group('Katalog-Tags', () {
-    test('jedes Katalogrezept ist geprüft, DE und EN tragen dieselben Tags', () {
-      for (final MapEntry(key: lang, value: catalog) in _catalogs.entries) {
-        for (final recipe in catalog) {
+    test(
+      'jedes Katalogrezept ist geprüft, DE und EN tragen dieselben Tags',
+      () {
+        for (final MapEntry(key: lang, value: catalog) in _catalogs.entries) {
+          for (final recipe in catalog) {
+            expect(
+              recipe.avoidanceTags,
+              isNotNull,
+              reason: '$lang/${recipe.slug}: ungeprüft (avoidanceTags fehlt)',
+            );
+          }
+        }
+        for (var i = 0; i < recipeCatalogDe.length; i++) {
           expect(
-            recipe.avoidanceTags,
-            isNotNull,
-            reason: '$lang/${recipe.slug}: ungeprüft (avoidanceTags fehlt)',
+            recipeCatalogEn[i].avoidanceTags,
+            recipeCatalogDe[i].avoidanceTags,
+            reason: recipeCatalogDe[i].slug,
           );
         }
-      }
-      for (var i = 0; i < recipeCatalogDe.length; i++) {
-        expect(
-          recipeCatalogEn[i].avoidanceTags,
-          recipeCatalogDe[i].avoidanceTags,
-          reason: recipeCatalogDe[i].slug,
-        );
-      }
-    });
+      },
+    );
 
     test('jedes Schlüsselwort im Text hat seinen Tag (beide Sprachen)', () {
       for (final MapEntry(key: lang, value: catalog) in _catalogs.entries) {
@@ -170,7 +171,8 @@ void main() {
             expect(
               recipe.avoidanceTags,
               contains(code),
-              reason: '$lang/${recipe.slug} nennt $hits, trägt aber keinen '
+              reason:
+                  '$lang/${recipe.slug} nennt $hits, trägt aber keinen '
                   '${code.name}-Tag',
             );
           }
@@ -186,7 +188,8 @@ void main() {
             expect(
               derived,
               contains(code),
-              reason: '$lang/${recipe.slug}: Tag ${code.name} ohne '
+              reason:
+                  '$lang/${recipe.slug}: Tag ${code.name} ohne '
                   'Schlüsselwort im Text',
             );
           }
@@ -195,10 +198,10 @@ void main() {
     });
 
     test('Stichproben der geprüften Daten', () {
-      expect(
-        _bySlug('lachs_mit_sukartoffel_and_spargel').avoidanceTags,
-        {FoodAvoidance.fish, FoodAvoidance.mustard},
-      );
+      expect(_bySlug('lachs_mit_sukartoffel_and_spargel').avoidanceTags, {
+        FoodAvoidance.fish,
+        FoodAvoidance.mustard,
+      });
       expect(
         _bySlug('skyr_bowl_mit_beeren_and_granola').avoidanceTags,
         containsAll([FoodAvoidance.nuts, FoodAvoidance.peanuts]),
@@ -219,7 +222,8 @@ void main() {
         'Kokosmilch, Schweinefilet und mehligkochend in Ruhe', () {
       expect(_derived(_own()).keys, contains(FoodAvoidance.fish));
       final tricky = _own().copyWith(
-        ingredients: '100 ml Kokosmilch\n200 g Schweinefilet\n'
+        ingredients:
+            '100 ml Kokosmilch\n200 g Schweinefilet\n'
             '300 g Kartoffeln, mehligkochend\n1 Prise Muskatnuss\n'
             '300 g potatoes, floury\n100 ml coconut milk\n1 Eisbergsalat',
       );
@@ -235,15 +239,21 @@ void main() {
       expect(own.fitsAvoidances(const {FoodAvoidance.fish}), isTrue);
     });
 
-    test('ein ungeprüftes Katalogrezept gilt als enthält-alles (fail-safe)', () {
-      final unreviewed = recipeCatalogDe.first.copyWith().toUnreviewed();
-      expect(unreviewed.avoidanceTags, isNull);
-      expect(unreviewed.fitsAvoidances(const {}), isTrue);
-      expect(
-        unreviewed.avoidedFoods(const {FoodAvoidance.pork, FoodAvoidance.egg}),
-        [FoodAvoidance.egg, FoodAvoidance.pork],
-      );
-    });
+    test(
+      'ein ungeprüftes Katalogrezept gilt als enthält-alles (fail-safe)',
+      () {
+        final unreviewed = recipeCatalogDe.first.copyWith().toUnreviewed();
+        expect(unreviewed.avoidanceTags, isNull);
+        expect(unreviewed.fitsAvoidances(const {}), isTrue);
+        expect(
+          unreviewed.avoidedFoods(const {
+            FoodAvoidance.pork,
+            FoodAvoidance.egg,
+          }),
+          [FoodAvoidance.egg, FoodAvoidance.pork],
+        );
+      },
+    );
 
     test('Treffer kommen in Anzeige-Reihenfolge, nur die gemiedenen', () {
       final curry = _bySlug('hahnchen_curry_mit_reis');
