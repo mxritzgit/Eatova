@@ -18,7 +18,9 @@ enum ReminderState {
 
 /// Profile part of [HomeStore]: profile/settings, onboarding and reminders
 /// (PROD-1, evening streak saver). Pure file split, behaviour unchanged.
-mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
+/// Builds on the tracking part: settled commits, the onboarding weigh-in.
+mixin _HomeStoreProfilePart
+    on _HomeStoreBase, _HomeStoreSyncPart, _HomeStoreTrackingPart {
   ReminderState _reminderState = ReminderState.off;
   bool _onboardingDone = false;
   Future<void>? _onboardingCompletion;
@@ -433,9 +435,6 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
 
   // --- Food preferences (F8, C3) -------------------------------------------
 
-  /// Provided by the tracking part; see `_HomeStoreTrackingPart`.
-  Future<void> _settledLocalMutations();
-
   /// Saves diet, avoided foods and dislikes from the profile's editor.
   ///
   /// Derived from the PUBLISHED profile once pending local commits settled,
@@ -494,6 +493,9 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// onboarding was not just forgotten — boot read the bootstrap row, dropped
   /// the entered body data and sent the user through onboarding again. Runs
   /// through the outbox now.
+  ///
+  /// The entered weight also becomes the first weigh-in when the account has
+  /// none (2026-10-19), in the same commit.
   Future<void> completeOnboarding(UserProfile finished) {
     final pending = _onboardingCompletion;
     if (pending != null) return pending;
@@ -502,12 +504,17 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
         Future<void>.sync(() async {
           _ensureMutationActive();
           if (_onboardingDone) return;
+          final weighIn = _onboardingWeighIn(finished);
           await _commitSyncIntents(
-            [SyncOp.profileUpsert(finished)],
+            [SyncOp.profileUpsert(finished), if (weighIn != null) weighIn.op],
             publish: () {
               profile = finished;
               _onboardingDone = true;
               _hydratedFromRealSource = true;
+              if (weighIn != null) {
+                weightLog = weightLog.addEntry(weighIn.entry);
+                lifetimeStats = lifetimeStats.incrementWeightLogs();
+              }
             },
           );
         }).whenComplete(() {

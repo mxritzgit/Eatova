@@ -628,6 +628,23 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return (service as HealthWeightCorrection).deleteOwnWeight(at);
   }
 
+  /// The first weigh-in from the onboarding weight (review 2026-10-19), so
+  /// the trend and the weekly check start on day one. Only while the server
+  /// answered an empty weight log in this session: an account that already
+  /// has weigh-ins, or one whose log is unknown offline, gets none.
+  ({SyncOp op, WeightLogEntry entry})? _onboardingWeighIn(UserProfile done) {
+    if (sync != null && !_serverAnsweredWeightLog) return null;
+    if (weightLog.entries.isNotEmpty) return null;
+    final kg = WeightLog.sanitizeKg(done.weightKg.toDouble());
+    if (kg == null || !isValidWeightLogKg(kg)) return null;
+    final now = clock.now();
+    final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: now);
+    return (
+      op: op,
+      entry: WeightLogEntry(timestamp: now, weightKg: kg, id: op.entityId),
+    );
+  }
+
   // --- Weight trend re-anchoring (docs/WEIGHT-TREND.md) ---------------------
 
   /// Whether the server answered both the profile and the weight-log load in
