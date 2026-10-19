@@ -539,7 +539,7 @@ mixin _HomeStoreMealsPart
     return lifetimeStats.yesterdayRescuesStreak(now) &&
         mealsForFoodDate(now).isEmpty &&
         previousFoodDayComplete(now) &&
-        repeatableMealsBefore(now).isEmpty;
+        mealsForFoodDate(addDays(DateUtils.dateOnly(now), -1)).isEmpty;
   }
 
   /// "Repeat yesterday": copies the entries of [slot] on the day before [day]

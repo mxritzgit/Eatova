@@ -3711,7 +3711,7 @@
   "trendsTrainingPerWeek": "Avg {count} per week",
   "trendsTrainingEmpty": "You saved no workout in this range.",
   "todayTrendsTitle": "Trends",
-  "todayTrendsSub": "Average of complete days, last 7",
+  "todayTrendsSub": "Average of the last 7 days",
   "todayTrendsKcalLabel": "Calories",
   "todayTrendsStepsLabel": "Steps",
   "todayTrendsEmpty": "Once a day is fully logged, your average shows here.",

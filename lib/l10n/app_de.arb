@@ -3806,7 +3806,7 @@
   "@trendsTrainingPerWeek": {"placeholders": {"count": {"type": "String"}}},
   "trendsTrainingEmpty": "In diesem Zeitraum hast du kein Training gespeichert.",
   "todayTrendsTitle": "Trends",
-  "todayTrendsSub": "Ø der vollständigen Tage, letzte 7",
+  "todayTrendsSub": "Ø der letzten 7 Tage",
   "todayTrendsKcalLabel": "Kalorien",
   "todayTrendsStepsLabel": "Schritte",
   "todayTrendsEmpty": "Sobald ein Tag vollständig eingetragen ist, siehst du hier deinen Schnitt.",

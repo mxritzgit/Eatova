@@ -209,7 +209,7 @@ void main() {
           'analyse-add-item-grams': 'Gewicht in Gramm',
           'analyse-add-item-kcal': 'Kalorien in Kilokalorien',
           'analyse-add-item-protein': 'Protein in Gramm',
-          'analyse-add-item-carbs': 'Carbs in Gramm',
+          'analyse-add-item-carbs': 'KH in Gramm',
           'analyse-add-item-fat': 'Fett in Gramm',
         };
         for (final MapEntry(key: key, value: name) in felder.entries) {
