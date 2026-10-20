@@ -3994,3 +3994,34 @@ the merge (without them the new client sends no AI request and weigh-in
 edits are rejected with 22023), merge, then an app build. No function
 deploy. GitHub environments `ops-watch` and `release` (names and secrets in
 [operations](OPERATIONS.md)) are owner setup.
+
+### Rollout of PR #159, 2026-10-20
+
+- **Owner approval:** "Ich gebe dir Freigabe für die Live-Migrationen
+  20261019100000 und 20261019110000 und den Merge von #159".
+- **Migrations:** before: 56 registered, last `20261018100000`, neither
+  `ai_consents` nor `ai_reports` present, `sync_entity_deletions_family_check`
+  allowing `meal` and `training_plan`. Both files passed a dry run with
+  rollback (the state afterwards was unchanged) and were then applied through
+  the Management API, `20261019100000` first, each in one transaction with its
+  `schema_migrations` row. After: 58 registered; both tables with RLS, the
+  four own-row policies and the two daily-cap triggers (the trigger function
+  is SECURITY DEFINER and not executable by `authenticated`); `authenticated`
+  may select and insert only the client columns (`version`, `granted`,
+  `health_data`; `message_id`, `session_id`, `target`, `reason`), never update
+  or delete, and `anon` has no access. The family check now allows `weight`;
+  the live `apply_sync_operation` and `sync_operation_current_state` contain
+  the weight kinds, `authenticated` can still execute only
+  `apply_sync_operation` and `anon` neither.
+- **Merge:** [PR #159](https://github.com/mxritzgit/Eatova/pull/159) was
+  squash-merged as `7695157b` right after the migrations, on the reviewed
+  head `c95a9661` with 17/17 checks finished (two skipped by design), 797 test
+  files and global coverage 97.17 % (floor 95 %).
+- **Functions:** none changed, none deployed.
+- **Still open:** an app build and the device checks (the consent sheet
+  before each AI entry point and its withdrawal in Settings, a report on a
+  Coach answer, the export as a file, avoided foods in the suggestions, the
+  meal-plan totals, the half-day reminder, the Monday result card, editing
+  and deleting a weigh-in including the sync, the Apple Health card after the
+  onboarding, an in-place device install); the `ops-watch` and `release`
+  environments with their secrets; the owner's review of the decisions above.
