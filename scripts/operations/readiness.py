@@ -2,6 +2,8 @@
 
 Requires SUPABASE_ACCESS_TOKEN in the process environment and an independently
 verified project ref. No notification, configuration, restore or dump operation.
+Without --backup-max-age-hours the backup check is skipped and reported as not
+checked (the scheduled ops watch, until an RPO is agreed).
 """
 
 import argparse
@@ -17,6 +19,10 @@ UTC = dt.timezone.utc
 MAX_RESPONSE_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 30
 REF_PATTERN = re.compile(r'[a-z0-9]{20}')
+# A Cloudflare rule in front of the Management API rejects default library
+# user agents (error 1010); same value as deploy_functions.py and security.yml.
+USER_AGENT = ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
 BUDGET_QUERY = """
 select l.enabled, l.coach_enabled, l.analysis_enabled, l.images_enabled,
        l.daily_call_limit, l.daily_image_limit, l.daily_user_limit,
@@ -81,7 +87,7 @@ class Management:
             data=json.dumps(payload).encode() if payload else None,
             headers={'Authorization': 'Bearer ' + self.token,
                      'Content-Type': 'application/json', 'Accept': 'application/json',
-                     'Accept-Encoding': 'identity'})
+                     'Accept-Encoding': 'identity', 'User-Agent': USER_AGENT})
         try:
             with self.opener.open(request, timeout=TIMEOUT_SECONDS) as response:
                 if response.status not in (200, 201):
@@ -225,7 +231,8 @@ def check(api, expected, now, max_age_hours, warning_percent, staging=None):
         valid_ref(staging)
         if staging == expected:
             raise CheckError('staging_matches_production')
-    if now.tzinfo is None or not integer(max_age_hours, 8760) or max_age_hours == 0:
+    if now.tzinfo is None or (max_age_hours is not None and (
+            not integer(max_age_hours, 8760) or max_age_hours == 0)):
         raise CheckError('invalid_check_parameters')
     if not integer(warning_percent, 99) or warning_percent == 0:
         raise CheckError('invalid_check_parameters')
@@ -234,9 +241,12 @@ def check(api, expected, now, max_age_hours, warning_percent, staging=None):
     results = report['checks']
     # Stop all subsequent reads if project identity cannot be established.
     results['project'] = project_identity(api.read(expected, 'project'), expected)
-    for name, evaluate in [
-            ('backups', lambda value: backups(value, now, max_age_hours)),
-            ('budgets', lambda value: budgets(value, now, warning_percent))]:
+    reads = [('budgets', lambda value: budgets(value, now, warning_percent))]
+    if max_age_hours is None:
+        report['backups'] = 'not_checked_no_max_age_supplied'
+    else:
+        reads.insert(0, ('backups', lambda value: backups(value, now, max_age_hours)))
+    for name, evaluate in reads:
         try:
             results[name] = evaluate(api.read(expected, name))
         except CheckError as error:
@@ -256,12 +266,37 @@ def check(api, expected, now, max_age_hours, warning_percent, staging=None):
     return report, code
 
 
+def markdown(report):
+    """States, reasons and counters only; no ref, token or response body."""
+    verdict = {0: 'OK', 1: 'ATTENTION', 2: 'UNKNOWN'}.get(report.get('exit_code'), 'UNKNOWN')
+    lines = ['### Readiness: ' + verdict, '', '| Check | State | Detail |', '| --- | --- | --- |']
+    for name, result in sorted((report.get('checks') or {}).items()):
+        if name == 'budgets' and 'calls' in result:
+            detail = 'calls {}/{}, images {}/{}'.format(
+                result['calls'], result['daily_call_limit'], result['image_calls'],
+                result['daily_image_limit'])
+            if result.get('reasons'):
+                detail += '; ' + ', '.join(result['reasons'])
+        elif name == 'backups' and 'age_hours' in result:
+            detail = 'latest recovery point {} h old'.format(result['age_hours'])
+        else:
+            detail = str(result.get('reason', ''))
+        lines.append('| {} | {} | {} |'.format(name, result.get('state'), detail))
+    if 'reason' in report and 'checks' not in report:
+        lines.append('| run | unknown | {} |'.format(report['reason']))
+    for skipped in ('backups', 'staging'):
+        if isinstance(report.get(skipped), str):
+            lines.append('| {} | not checked | {} |'.format(skipped, report[skipped]))
+    return '\n'.join(lines) + '\n'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--expected-project-ref', required=True)
     parser.add_argument('--staging-project-ref')
-    parser.add_argument('--backup-max-age-hours', type=int, required=True)
+    parser.add_argument('--backup-max-age-hours', type=int)
     parser.add_argument('--budget-warning-percent', type=int, default=80)
+    parser.add_argument('--summary', help='append a Markdown summary to this file')
     args = parser.parse_args(argv)
     try:
         # Validate identities before creating a client or accessing credentials.
@@ -280,6 +315,9 @@ def main(argv=None):
         # Unexpected library errors must not leak exception text with credentials.
         report, code = {'state': 'unknown', 'reason': 'check_failed', 'exit_code': 2}, 2
     print(json.dumps(report, sort_keys=True, indent=2))
+    if args.summary:
+        with open(args.summary, 'a', encoding='utf-8') as handle:
+            handle.write(markdown(report))
     return code
 
 

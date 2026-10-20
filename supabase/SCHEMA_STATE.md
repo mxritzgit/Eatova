@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (56)
+## Migrationen (58)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -90,14 +90,18 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 54. `20261011100000_recipe_recreate_after_delete.sql`
 55. `20261011101000_profile_display_name_clamp.sql`
 56. `20261018100000_profiles_food_preferences.sql`
+57. `20261019100000_ai_consents_reports.sql`
+58. `20261019110000_weight_log_edit.sql`
 
-## Tabellen in `public` (24)
+## Tabellen in `public` (26)
 
 | Tabelle | RLS | `authenticated` | `service_role` | Policies | angelegt in |
 |---|---|---|---|---|---|
+| `ai_consents` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 2 | `20261019100000_ai_consents_reports.sql` |
 | `ai_provider_daily_usage` | an | — | `select` | 0 | `20260915091000_ai_provider_budgets.sql` |
 | `ai_provider_limits` | an | — | `select` | 0 | `20260915091000_ai_provider_budgets.sql` |
 | `ai_provider_user_usage` | an | `select` | `select` | 1 | `20260915091000_ai_provider_budgets.sql` |
+| `ai_reports` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 2 | `20261019100000_ai_consents_reports.sql` |
 | `chat_messages` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 1 | `20260517100000_coach_chat.sql` |
 | `chat_quota_usage` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 1 | `20260517100000_coach_chat.sql` |
 | `chat_sessions` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260517170000_chat_sessions.sql` |
@@ -131,14 +135,20 @@ mit 42501.
 
 | Tabelle | Rolle | Recht | Spalten | Namen |
 |---|---|---|---|---|
+| `ai_consents` | `authenticated` | `insert` | 3 | `granted`, `health_data`, `version` |
+| `ai_reports` | `authenticated` | `insert` | 4 | `message_id`, `reason`, `session_id`, `target` |
 | `profiles` | `authenticated` | `insert` | 18 | `activity_level`, `age_years`, `carbs_goal_g`, `daily_kcal_goal`, `daily_sleep_goal_minutes`, `daily_steps_goal`, `daily_water_goal_ml`, `diet_preference`, `fat_goal_g`, `height_cm`, `id`, `manual_energy`, `onboarding_completed`, `protein_goal_g`, `sex`, `target_weight_kg`, `weight_goal`, `weight_kg` |
 | `profiles` | `authenticated` | `update` | 18 | `activity_level`, `age_years`, `carbs_goal_g`, `daily_kcal_goal`, `daily_sleep_goal_minutes`, `daily_steps_goal`, `daily_water_goal_ml`, `diet_preference`, `fat_goal_g`, `height_cm`, `id`, `manual_energy`, `onboarding_completed`, `protein_goal_g`, `sex`, `target_weight_kg`, `weight_goal`, `weight_kg` |
 
-## Policies (35)
+## Policies (39)
 
 | Tabelle | Policy | Befehl | Rollen | USING | WITH CHECK | aus |
 |---|---|---|---|---|---|---|
+| `ai_consents` | `ai_consents_insert_own` | `insert` | `authenticated` | — | `user_id = (select auth.uid())` | `20261019100000_ai_consents_reports.sql` |
+| `ai_consents` | `ai_consents_select_own` | `select` | `authenticated` | `user_id = (select auth.uid())` | — | `20261019100000_ai_consents_reports.sql` |
 | `ai_provider_user_usage` | `ai_provider_user_usage_select_own` | `select` | `authenticated` | `user_id = (select auth.uid())` | — | `20260915093000_ai_usage_export.sql` |
+| `ai_reports` | `ai_reports_insert_own` | `insert` | `authenticated` | — | `user_id = (select auth.uid())` | `20261019100000_ai_consents_reports.sql` |
+| `ai_reports` | `ai_reports_select_own` | `select` | `authenticated` | `user_id = (select auth.uid())` | — | `20261019100000_ai_consents_reports.sql` |
 | `chat_messages` | `chat_messages_select_own` | `select` | `authenticated` | `auth.uid() = user_id` | — | `20260517100000_coach_chat.sql` |
 | `chat_quota_usage` | `chat_quota_select_own` | `select` | `authenticated` | `auth.uid() = user_id` | — | `20260517100000_coach_chat.sql` |
 | `chat_sessions` | `chat_sessions_delete_own` | `delete` | `authenticated` | `auth.uid() = user_id` | — | `20260517170000_chat_sessions.sql` |
@@ -200,12 +210,12 @@ Policies umzuschreiben. `normalisiereAusdruck` in
 `test/migrations/migration_schema.dart` liest beide Schreibweisen
 als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
-## Funktionen in `public` (50)
+## Funktionen in `public` (51)
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
 | `apply_recipe_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20261011100000_recipe_recreate_after_delete.sql` |
-| `apply_sync_operation` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20261018100000_profiles_food_preferences.sql` |
+| `apply_sync_operation` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20261019110000_weight_log_edit.sql` |
 | `apply_training_plan_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `claim_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
 | `consume_edge_rate_limit` | **Eigentuemers** | `public, extensions` | `service_role` | `20260518000100_fix_edge_rate_limit_pgcrypto_search_path.sql` |
@@ -216,6 +226,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `delete_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `delete_training_history` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260910181000_training_history.sql` |
 | `eat_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
+| `enforce_user_daily_row_cap` | **Eigentuemers** | `''` | `service_role` | `20261019100000_ai_consents_reports.sql` |
 | `enforce_user_row_cap` | **Eigentuemers** | `public` | `service_role` | `20260829120000_row_caps_and_hardening.sql` |
 | `ensure_default_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260609120000_chat_rpc_least_privilege.sql` |
 | `get_chat_quota_today` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260808210000_chat_quota_honesty.sql` |
@@ -250,7 +261,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `save_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
 | `save_shopping_check` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
 | `set_updated_at` | Aufrufers | `public` | `service_role` | `20260516150000_create_profiles.sql` |
-| `sync_operation_current_state` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920101000_sync_operation_receipts.sql` |
+| `sync_operation_current_state` | **Eigentuemers** | `pg_catalog` | `service_role` | `20261019110000_weight_log_edit.sql` |
 | `touch_chat_session` | **Eigentuemers** | `public` | `service_role` | `20260517170000_chat_sessions.sql` |
 | `training_incarnation` | Aufrufers | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `training_plan_head_json` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |

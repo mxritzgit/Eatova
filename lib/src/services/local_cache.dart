@@ -231,6 +231,19 @@ class LocalCache {
   Future<bool> readHealthConnectEnabled() async =>
       (await _readJson(_healthConnectKey))?['enabled'] == true;
 
+  /// Today's Apple Health intro card for this account (2026-10-19):
+  /// `pending`, `connected` or `dismissed`; missing for accounts onboarded
+  /// by an older build. Cleared in [clear].
+  String get _healthPromptKey => 'eatova.v1.health_prompt.$_userId';
+
+  Future<void> writeHealthPrompt(String state) =>
+      _writeJson(_healthPromptKey, <String, dynamic>{'state': state});
+
+  Future<String?> readHealthPrompt() async {
+    final state = (await _readJson(_healthPromptKey))?['state'];
+    return state is String ? state : null;
+  }
+
   // DATA-7 offline persistence: diary, favorites and weight log are mirrored
   // so an offline cold start does not begin with an empty diary. Plus the
   // write outbox and the pending lifetime-stats deltas, both of which must
@@ -301,6 +314,18 @@ class LocalCache {
 
   Future<bool> readReminderPromptAnswered() async =>
       (await _readJson(_reminderPromptKey))?['answered'] == true;
+
+  // ---- AI consent (2026-10-19) ---------------------------------------------
+  // The account's latest AI consent decision, cached so the AI entry points
+  // need no round trip. The server log (`ai_consents`) is the record; this
+  // slot is cleared with the other account slots and refilled from it.
+  String get _aiConsentKey => 'eatova.v1.ai_consent.$_userId';
+
+  Future<void> writeAiConsent(Map<String, dynamic> record) =>
+      _writeJson(_aiConsentKey, record);
+
+  /// Missing or corrupt -> null (no consent known).
+  Future<Map<String, dynamic>?> readAiConsent() => _readJson(_aiConsentKey);
 
   // ---- Profile ------------------------------------------------------------
 
@@ -730,10 +755,13 @@ class LocalCache {
   // wall clock without offset; such a legacy row reads in the current zone,
   // the only reading without its lost offset, unless it shows a queued
   // weigh-in ([_queuedWeighInOf]), whose operation keeps the exact instant.
+  // Since 2026-10-19 rows keep their `weight_log` id, which an edit or a
+  // delete addresses; rows of older builds have none until the next load.
   static Map<String, dynamic> _weightLogToJson(WeightLog log) =>
       <String, dynamic>{
         'items': log.entries
             .map((e) => <String, dynamic>{
+                  if (e.id != null) 'id': e.id,
                   't': _weighInTime(e.timestamp),
                   'kg': e.weightKg,
                 })
@@ -795,19 +823,28 @@ class LocalCache {
       final entries = <WeightLogEntry>[];
       for (final j in items) {
         final kg = (j['kg'] as num).toDouble();
+        final cached = DateTime.parse(j['t'] as String);
+        final id = j['id'] is String ? j['id'] as String : null;
         final op = _queuedWeighInOf(
           j,
           queued.where((op) => !shown.contains(op.entityId)),
         );
         if (op != null) {
           shown.add(op.entityId);
-          entries.add(WeightLogEntry(timestamp: op.recordedAt!, weightKg: kg));
-        } else if (_queuedWeighInOf(j, queued) == null) {
           entries.add(
             WeightLogEntry(
-              timestamp: DateTime.parse(j['t'] as String).toLocal(),
+              // A row carrying the id is exact (UTC) and may hold an edit
+              // queued behind the insert; a legacy row takes the insert's.
+              timestamp: id == op.entityId && cached.isUtc
+                  ? cached.toLocal()
+                  : op.recordedAt!,
               weightKg: kg,
+              id: op.entityId,
             ),
+          );
+        } else if (_queuedWeighInOf(j, queued) == null) {
+          entries.add(
+            WeightLogEntry(timestamp: cached.toLocal(), weightKg: kg, id: id),
           );
         }
         // Otherwise another row of an already shown queued weigh-in.
@@ -982,7 +1019,9 @@ class LocalCache {
       await _store.remove(_notificationsKey);
       await _store.remove(_reminderTimeKey);
       await _store.remove(_reminderPromptKey);
+      await _store.remove(_aiConsentKey);
       await _store.remove(_healthConnectKey);
+      await _store.remove(_healthPromptKey);
       await _store.remove(_loggedMealsKey);
       await _store.remove(_favoritesKey);
       await _store.remove(_weightLogKey);

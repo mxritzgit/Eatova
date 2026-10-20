@@ -15,6 +15,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a PR cancels that PR's superseded run. Pushes to main,
+# schedules and dispatches each get their own group (the run id), so they
+# are never cancelled.
+concurrency:
+  group: security-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   flutter-analyze:
     name: Flutter strict analysis and contracts
@@ -111,6 +118,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The name stays for branch protection. Since 2026-10-19 this job compiles
+  # nothing: the release job's AAB build already covers manifest merge,
+  # Gradle, plugins and the Kotlin sources (the debug source set only adds
+  # INTERNET, which main declares too), so a second debug compile was
+  # duplicate work. This job prepares Gradle and inventories and scans the
+  # release dependencies.
   build-android:
     name: Android Debug-Build (APK)
     runs-on: ubuntu-latest
@@ -132,13 +145,10 @@ jobs:
       - name: pub get
         run: flutter pub get
 
-      # Fast pre-check for manifest-merge, Gradle and plugin breakage. Does NOT
-      # replace the release job: debug runs neither R8 nor Dart AOT (G6).
-      - name: build apk (debug)
-        run: |
-          flutter build apk --debug \
-            --dart-define=SUPABASE_URL=https://ci.invalid \
-            --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+      # The Flutter-generated Gradle wrapper and local.properties the Gradle
+      # steps below need, without building an artifact.
+      - name: Prepare Gradle (no compile)
+        run: flutter build apk --config-only
 
       # Pub's lock does not contain Android plugin transitives. Resolve the
       # actual release graph rather than scanning Gradle's requested versions.
@@ -277,10 +287,22 @@ jobs:
             echo "Das Artefakt ist mit einem Wegwerfschluessel signiert und wird bewusst **nicht** hochgeladen."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Play's Data Safety form has to match the shipped app, and plugins add
+      # permissions in the merge (workmanager, androidx.core): the merged
+      # release manifest must request exactly android/permissions_allowlist.txt.
+      - name: Merged manifest permissions against the allowlist
+        run: |
+          python3 test/tooling/merged_permissions_test.py
+          python3 tool/merged_permissions.py --manifest-dir build/app/intermediates/merged_manifests/release
+
       # No upload-artifact: see the job comment.
 
+  # Dependabot covers PRs; main and the weekly schedule keep the overview. A
+  # job skipped by this condition reports as skipped, which a required check
+  # accepts.
   pub-outdated:
     name: Flutter pub outdated (Info)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3

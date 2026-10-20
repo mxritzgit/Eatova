@@ -14,13 +14,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/semantics.dart'
-    show AccessibilityFocusBlockType, SemanticsService;
+    show AccessibilityFocusBlockType, CustomSemanticsAction, SemanticsService;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/ai_consent.dart' show AiReportTarget;
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../models/coach_day_brief.dart';
@@ -33,6 +34,7 @@ import '../../models/training_history.dart';
 import '../../models/training_plan.dart';
 import '../../models/user_profile.dart' show FoodPreferences;
 import '../../services/coach_chat_service.dart';
+import '../../services/coach_quota_reset.dart';
 import '../../services/dictation_language.dart';
 import '../../services/kcal_format.dart';
 import '../../services/local_day.dart';
@@ -50,6 +52,8 @@ import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_photo.dart' show RecipeArt;
 import '../../widgets/recipes/recipe_sections.dart';
+import '../../widgets/shared/ai_consent_sheet.dart';
+import '../../widgets/shared/ai_report_sheet.dart';
 import '../today/today_texts.dart' show greetingForHour;
 import '../training/training_log_editor.dart';
 import '../training/training_plan_editor.dart';
@@ -579,9 +583,38 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return false;
   }
 
+  /// "Report answer" / "Report picture" (2026-10-19): the message id, the
+  /// conversation and a reason, never the text. The session lets the
+  /// operator find an answer the device still holds under a local id.
+  void _report(ChatMessage message, AiReportTarget target) {
+    _endDictationForSheet();
+    _inputFocus.unfocus();
+    unawaited(
+      reportAiOutput(
+        context,
+        messageId: message.id,
+        sessionId: _coach.activeSessionId,
+        target: target,
+      ),
+    );
+  }
+
+  /// The AI consent before anything leaves for coach-chat (2026-10-19): at
+  /// once when it is known, through the consent sheet otherwise. False means
+  /// the request must not go out.
+  Future<bool> _aiConsentFirst() async {
+    if (aiConsentSettled(context)) return true;
+    final granted = await ensureAiConsent(context);
+    return granted && mounted;
+  }
+
   /// Every send of the screen: the composer, a prepared question, a retry, a
   /// brief or a photo. A running dictation goes first; the controller does
   /// the rest, and clears the composer before its first await.
+  ///
+  /// Nothing passes without the AI consent. Callers that put a draft back
+  /// after the send ask first ([_aiConsentFirst]), so with a known consent
+  /// this stays synchronous up to the controller's clear.
   Future<void> _send({
     String? textOverride,
     Uint8List? imageBytes,
@@ -593,6 +626,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     )) {
       return;
     }
+    if (!aiConsentSettled(context) && !await _aiConsentFirst()) return;
     await _coach.send(
       textOverride ?? _input.text,
       imageBytes: imageBytes,
@@ -645,6 +679,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// Retries the last undelivered question: the same bubble, text and image
   /// go out again ([CoachChatController.withdrawFailedSend]).
   Future<void> _wiederholen() async {
+    if (_coach.failedSend == null || !_coach.canInteract) return;
+    // Before the withdrawal: a declined consent keeps the unsent marker.
+    if (!await _aiConsentFirst()) return;
     final auftrag = _coach.failedSend;
     if (auftrag == null || !_coach.canInteract) return;
     // A newly typed text must survive: [_send] always clears the field, even
@@ -690,6 +727,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// had typed survives — [_send] clears the field on its way out.
   Future<void> _sendPrepared(String prompt) async {
     if (!_coach.canInteract) return;
+    if (!await _aiConsentFirst() || !_coach.canInteract) return;
     final entwurf = _input.text;
     final versand = _send(textOverride: prompt);
     if (mounted) _entwurfZurueck(entwurf);
@@ -747,6 +785,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _coach.showError(locked);
       return;
     }
+    // The consent comes before the form, so a decline loses no typing.
+    _briefingTrainingPlan = true;
+    final bool consented;
+    try {
+      consented = await _aiConsentFirst();
+    } finally {
+      _briefingTrainingPlan = false;
+    }
+    if (!consented || !mounted) return;
     final service = widget.service;
     final revision = _coach.accountRevision;
     final session = _coach.activeSessionId;
@@ -1092,8 +1139,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   Future<void> _pickAndSendImage(ImageSource source) async {
     if (!_coach.canInteract) return;
+    // Before the picker: the photo goes to the provider with the question.
+    if (!await _aiConsentFirst() || !mounted || !_coach.canInteract) return;
     HapticFeedback.selectionClick();
-    // Grabbed before the first `await`: safe context access.
+    // Grabbed after the mounted check and before the picker's `await`: safe
+    // context access.
     final l10n = context.l10n;
     final service = widget.service;
     final sessionId = _coach.activeSessionId;
@@ -1649,6 +1699,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                                   _einblenden.contains(message.id),
                               onEntered: _einblenden.remove,
                               onOpenTraining: widget.onOpenTraining,
+                              onReport: (message) => _report(
+                                message,
+                                AiReportTarget.answer,
+                              ),
+                              onReportImage: (message) => _report(
+                                message,
+                                AiReportTarget.recipeImage,
+                              ),
                             ),
                     ),
                     // Soft edges instead of hard cuts: content fades out under
@@ -1979,13 +2037,20 @@ class _CoachInfoSheetUnbekannt extends StatelessWidget {
                 l10n.coachInfoProvider,
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
+              const SizedBox(height: 12),
+              Text(
+                l10n.coachReportHint,
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
+              ),
               const SizedBox(height: 20),
               Container(height: 1, color: t.line),
               const SizedBox(height: 18),
               _InfoLabel(l10n.coachInfoLimitLabel),
               const SizedBox(height: 6),
               Text(
-                l10n.coachInfoLimitUnknown,
+                l10n.coachInfoLimitUnknown(
+                  coachQuotaResetLabel(l10n.localeName),
+                ),
                 key: const ValueKey('coach-info-limit-unbekannt'),
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),

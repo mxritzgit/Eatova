@@ -10,8 +10,8 @@ import 'today_texts.dart';
 /// Three macro tiles (dark redesign): dot and name, eaten against the goal, a
 /// 6 px bar and the grams still open.
 ///
-/// The visible names are the compact tile labels ("Carbs" in both languages,
-/// as on the goals screens); screen readers hear the full name.
+/// The visible names are the compact tile labels ("KH" in German, "Carbs"
+/// in English, as on the goals screens); screen readers hear the full name.
 class TodayMacros extends StatelessWidget {
   const TodayMacros({super.key, required this.summary});
 

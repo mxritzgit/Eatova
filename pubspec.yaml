@@ -114,6 +114,10 @@ dependencies:
   app_settings: ^9.0.0
   http: ^1.6.0
   supabase: ^2.16.1
+  # The data export as a file through the system share sheet (F9, review
+  # 2026-10-19; export_file_share.dart). No permission: Android shares through
+  # the plugin's own FileProvider, iOS through UIActivityViewController.
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:

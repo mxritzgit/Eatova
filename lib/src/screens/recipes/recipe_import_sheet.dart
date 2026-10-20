@@ -14,6 +14,7 @@ import '../../widgets/common/motion.dart';
 import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_sections.dart';
+import '../../widgets/shared/ai_consent_sheet.dart';
 import 'recipe_import_nutrition.dart';
 import 'recipes_screen.dart' show showRecipeNutritionDraftEditor;
 
@@ -92,10 +93,16 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   // The text whose last import ended as source_too_long. Sending it unchanged
   // would fail the same way and spend another paid import.
   String? _tooLongText;
+  // The text that held only links the import cannot read (no TikTok link,
+  // no recipe text). Caught locally; it stays in the field to complete.
+  String? _unsupportedLinkText;
 
   bool get _busy => _loading || _saving || _reviewingNutrition;
   bool get _textTooLong =>
       _tooLongText != null && _text.text.trim() == _tooLongText;
+  bool get _linkOnly =>
+      _unsupportedLinkText != null &&
+      _text.text.trim() == _unsupportedLinkText;
   bool get _hasUserChanges =>
       _editedCandidates.isNotEmpty ||
       _text.text != (_savedText ?? widget.initialText) ||
@@ -160,11 +167,31 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   }
 
   Future<void> _extract() async {
-    if (_busy ||
-        _text.text.trim().isEmpty ||
-        _textTooLong ||
-        !_checkSession()) {
+    if (_busy || _text.text.trim().isEmpty || _textTooLong || _linkOnly) {
       return;
+    }
+    // A website link alone: say so before any request (the server would only
+    // answer needs_text). Shares arrive here too, via initialText.
+    if (recipeImportOnlyUnsupportedLinks(_text.text)) {
+      setState(() {
+        _unsupportedLinkText = _text.text.trim();
+        _error = null;
+        _showInput = true;
+      });
+      _scrollToTop();
+      return;
+    }
+    if (!_checkSession()) return;
+    // AI consent before the text goes to recipe-import (2026-10-19); a
+    // decline keeps the text in the field.
+    if (!aiConsentSettled(context)) {
+      if (!await ensureAiConsent(context) || !mounted) return;
+      if (_busy ||
+          _text.text.trim().isEmpty ||
+          _textTooLong ||
+          !_checkSession()) {
+        return;
+      }
     }
     final text = _text.text.trim();
     FocusScope.of(context).unfocus();
@@ -584,7 +611,9 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     final l10n = context.l10n;
     final t = context.t;
     final status = _result?.status;
-    final notice = _result?.sourceUnavailable == true
+    final notice = _linkOnly
+        ? l10n.recipeImportLinkUnsupported
+        : _result?.sourceUnavailable == true
         ? l10n.recipeImportSourceUnavailable
         : status == RecipeImportStatus.needsText
         ? l10n.recipeImportNeedsText
@@ -601,9 +630,15 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             icon: Icons.info_outline_rounded,
             iconColor: t.accentText,
             fill: t.accentTint,
-            child: Text(
-              notice,
-              style: AppType.ui(14, color: t.ink, height: 1.45),
+            child: Semantics(
+              liveRegion: _linkOnly,
+              child: Text(
+                notice,
+                key: _linkOnly
+                    ? const ValueKey('recipe-import-link-unsupported')
+                    : null,
+                style: AppType.ui(14, color: t.ink, height: 1.45),
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -644,7 +679,8 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
               ? l10n.recipeImportAnalyze
               : l10n.recipeImportRetry,
           icon: Icons.auto_awesome_outlined,
-          onTap: _busy || _text.text.trim().isEmpty || _textTooLong
+          onTap:
+              _busy || _text.text.trim().isEmpty || _textTooLong || _linkOnly
               ? null
               : _extract,
         ),

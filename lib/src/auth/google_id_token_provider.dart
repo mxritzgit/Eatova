@@ -1,3 +1,5 @@
+import 'dart:developer' as dev;
+
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -8,6 +10,18 @@ import 'auth_exceptions.dart';
 /// cancelled; an exception means the caller falls back to web OAuth.
 abstract class GoogleIdTokenProvider {
   Future<String?> getIdToken();
+}
+
+/// Optional capability of a [GoogleIdTokenProvider]: ends the device's
+/// Google sign-in. Both calls are best effort and never throw.
+abstract interface class GoogleSessionRevoker {
+  /// After the app's sign-out: the next Google sign-in offers the account
+  /// chooser again instead of silently reusing the last account.
+  Future<void> signOut();
+
+  /// After the account was deleted: also revokes the app's Google grant
+  /// where the platform can (iOS); Android clears the credential state.
+  Future<void> disconnect();
 }
 
 /// Remembers a one-shot initialization — but only a SUCCESSFUL one.
@@ -51,15 +65,24 @@ class RetryableInitialization {
 /// `authenticate()` takes none, so any nonce would be a per-process constant
 /// and could not bind a single sign-in — see
 /// docs/superpowers/specs/2026-08-05-google-native-signin-design.md.
-class GoogleSignInIdTokenProvider implements GoogleIdTokenProvider {
+class GoogleSignInIdTokenProvider
+    implements GoogleIdTokenProvider, GoogleSessionRevoker {
   const GoogleSignInIdTokenProvider();
 
   // initialize() may run only once per process — a FAILED attempt is not a run.
   static final RetryableInitialization _initialization =
       RetryableInitialization();
 
-  @override
-  Future<String?> getIdToken() async {
+  /// Sign-out and disconnect run one after another, so a deletion's
+  /// disconnect keeps its user until the sign-out that follows it.
+  static Future<void> _revocations = Future<void>.value();
+
+  /// Upper bound per revocation; a hung platform call must not block the
+  /// next one. Settable only so a test need not wait ten seconds.
+  @visibleForTesting
+  static Duration revokeTimeout = const Duration(seconds: 10);
+
+  static Future<GoogleSignIn> _initialized() async {
     final signIn = GoogleSignIn.instance;
     await _initialization.run(
       () => signIn.initialize(
@@ -71,6 +94,43 @@ class GoogleSignInIdTokenProvider implements GoogleIdTokenProvider {
         serverClientId: EatovaSupabaseConfig.googleWebClientId,
       ),
     );
+    return signIn;
+  }
+
+  @override
+  Future<void> signOut() => _revoke('sign-out', (signIn) => signIn.signOut());
+
+  @override
+  Future<void> disconnect() => _revoke('disconnect', (signIn) async {
+    // iOS keeps the account in the keychain, not in memory, across launches:
+    // restore it silently first, or there is no grant to revoke. Android
+    // would show UI for this, and its disconnect revokes nothing more.
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await signIn.attemptLightweightAuthentication();
+    }
+    await signIn.disconnect();
+  });
+
+  Future<void> _revoke(
+    String action,
+    Future<void> Function(GoogleSignIn signIn) call,
+  ) {
+    final next = _revocations.then((_) async {
+      try {
+        await _initialized().then(call).timeout(revokeTimeout);
+      } catch (error) {
+        // Best effort. Only the type: an exception text may name the account.
+        dev.log('Google $action skipped (${error.runtimeType})',
+            name: 'eatova_auth');
+      }
+    });
+    _revocations = next;
+    return next;
+  }
+
+  @override
+  Future<String?> getIdToken() async {
+    final signIn = await _initialized();
     try {
       final account = await signIn.authenticate();
       return account.authentication.idToken;

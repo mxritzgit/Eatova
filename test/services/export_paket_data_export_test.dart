@@ -11,6 +11,10 @@
 // The fake here therefore behaves like real PostgREST: a `Content-Range` on
 // every GET, the total only under `Prefer: count=exact`, and never more rows
 // than `db-max-rows` allows.
+//
+// Since the 2026-10-19 review every section is keyset-paged until an empty
+// page, so a server cap no longer truncates anything; `gekappt` is left for
+// rows behind the service's own per-section bound.
 
 import 'dart:convert';
 import 'dart:io';
@@ -32,26 +36,35 @@ class _ZaehlenderPostgrest {
     this.statusCode = 200,
     this.serverMax = 1000,
     this.zaehltMit = true,
+    this.ignoriertCursor = false,
+    this.loeschtNachErsterSeite = const <String>{},
   });
 
   /// Table -> rows the user really has on the server.
   final Map<String, int> vorhanden;
 
-  /// What PostgREST hands out at most (`db-max-rows`). Supabase default 1000,
-  /// well below [DataExportService.einSeitenLimit] — that is the whole point
-  /// of the truncation tests. Raised only where OUR OWN cap has to bite.
+  /// What PostgREST hands out at most (`db-max-rows`, live 1000): a page
+  /// never holds more, whatever the client asks for.
   final int serverMax;
 
   /// `false` = a peer that never sends a total (proxy, older PostgREST): the
   /// `Content-Range` stays `*` even under `Prefer: count=exact`, which is the
-  /// only situation the over-fetch fallback exists for.
+  /// only situation the uncounted first-page read exists for.
   final bool zaehltMit;
+
+  /// A faulty peer that ignores the keyset filter and repeats page one.
+  final bool ignoriertCursor;
+
+  /// Tables whose last row another device deletes right after page one.
+  final Set<String> loeschtNachErsterSeite;
 
   /// 200, or an error status for the "nothing loaded at all" case.
   final int statusCode;
 
   /// Requests per table — proof the counting path needs only ONE request.
   final Map<String, int> requests = <String, int>{};
+
+  final Map<String, Set<int>> _geloescht = <String, Set<int>>{};
 
   http.Client client() => MockClient(_handle);
 
@@ -71,31 +84,50 @@ class _ZaehlenderPostgrest {
     final recipe = emptyRecipeReadResponse(req);
     if (recipe != null) return recipe;
 
+    // Like PostgREST: ordered by the requested column, `<key>=gt.<value>`
+    // applied, then `limit` capped at db-max-rows. Keys are zero-padded so
+    // their text order is their row order.
+    final schluessel =
+        (req.url.queryParameters['order'] ?? 'id.asc').split('.').first;
     final gesamt = vorhanden[tabelle] ?? 0;
-    final offset = int.tryParse(req.url.queryParameters['offset'] ?? '') ?? 0;
+    final geloescht = _geloescht[tabelle] ?? const <int>{};
+    var zeilen = <Map<String, dynamic>>[
+      for (var i = 0; i < gesamt; i++)
+        if (!geloescht.contains(i))
+          <String, dynamic>{
+            schluessel: '$tabelle-${i.toString().padLeft(6, '0')}',
+            'user_id': 'user-export',
+          },
+    ];
+    final nach = (req.url.queryParametersAll[schluessel] ?? const <String>[])
+        .where((wert) => wert.startsWith('gt.'))
+        .map((wert) => wert.substring(3))
+        .firstOrNull;
+    if (nach != null && !ignoriertCursor) {
+      zeilen = zeilen
+          .where((zeile) => (zeile[schluessel] as String).compareTo(nach) > 0)
+          .toList();
+    }
     final gewuenscht =
-        int.tryParse(req.url.queryParameters['limit'] ?? '') ?? gesamt;
-    final geliefert = math
-        .min(math.min(gewuenscht, serverMax), math.max(gesamt - offset, 0));
+        int.tryParse(req.url.queryParameters['limit'] ?? '') ?? zeilen.length;
+    final geliefert = zeilen.take(math.min(gewuenscht, serverMax)).toList();
+    if (nach == null && loeschtNachErsterSeite.contains(tabelle)) {
+      _geloescht.putIfAbsent(tabelle, () => <int>{}).add(gesamt - 1);
+    }
 
     final prefer = req.headers['Prefer'] ?? req.headers['prefer'] ?? '';
     final zaehlt = zaehltMit && prefer.contains('count=exact');
+    final summe = zaehlt ? '${zeilen.length}' : '*';
     return http.Response(
-      jsonEncode(List.generate(
-        geliefert,
-        (i) => <String, dynamic>{
-          'id': '$tabelle-${offset + i}',
-          'user_id': 'user-export',
-        },
-      )),
+      jsonEncode(geliefert),
       200,
       headers: <String, String>{
         'Content-Type': 'application/json',
         // PostgREST always answers a GET with Content-Range; the total is in
         // it only under `count=exact`, otherwise a `*`.
-        'content-range': zaehlt
-            ? '$offset-${offset + geliefert - 1}/$gesamt'
-            : '$offset-${offset + geliefert - 1}/*',
+        'content-range': geliefert.isEmpty
+            ? '*/$summe'
+            : '0-${geliefert.length - 1}/$summe',
       },
       request: req,
     );
@@ -120,7 +152,7 @@ String _exportJson({
     if (unvollstaendig.isNotEmpty) 'unvollstaendig': unvollstaendig,
     if (gekappt)
       'gekappt': <String, dynamic>{
-        'grenzeProSektion': DataExportService.einSeitenLimit,
+        'grenzeProSektion': DataExportService.standardGrenzeProSektion,
         'sektionen': <String>['chat_messages'],
       },
   };
@@ -128,7 +160,11 @@ String _exportJson({
 }
 
 void main() {
-  DataExportService service(_ZaehlenderPostgrest server) {
+  DataExportService service(
+    _ZaehlenderPostgrest server, {
+    int pageSize = 1000,
+    int grenze = DataExportService.standardGrenzeProSektion,
+  }) {
     final client = SupabaseClient(
       'https://example.supabase.co',
       'test-anon-key',
@@ -136,12 +172,72 @@ void main() {
       authOptions: const AuthClientOptions(autoRefreshToken: false),
     );
     addTearDown(client.dispose);
-    return DataExportService(client, 'user-export');
+    return DataExportService(
+      client,
+      'user-export',
+      pageSize: pageSize,
+      grenzeProSektion: grenze,
+    );
   }
 
-  group('Kappung, die nicht an unserer eigenen Grenze passiert', () {
-    test('fehlender Zaehler mit niedriger Servergrenze behauptet keine Vollstaendigkeit',
+  List<String> ids(Map<String, dynamic> json, String tabelle) =>
+      (json[tabelle] as List).map((row) => (row as Map)['id'] as String).toList();
+
+  List<String> erwartet(String tabelle, int anzahl) => <String>[
+    for (var i = 0; i < anzahl; i++) '$tabelle-${i.toString().padLeft(6, '0')}',
+  ];
+
+  group('Keyset-Paging: eine Servergrenze schneidet keine Sektion mehr ab', () {
+    test(
+        'max_rows 1000: 4200 Coach-Nachrichten kommen vollstaendig, '
+        'ohne Duplikate und ohne Kappungs-Hinweis an', () async {
+      // 2026-10-19 review: each section was one `limit(10000)` page, live
+      // PostgREST returned 1000 and the export reported the rest as cut.
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'chat_messages': 4200},
+      );
+      final text = await service(server).buildExportJson();
+      final json = jsonDecode(text) as Map<String, dynamic>;
+
+      expect(ids(json, 'chat_messages'), erwartet('chat_messages', 4200));
+      expect(json, isNot(contains('gekappt')));
+      expect(json, isNot(contains('vollstaendigkeitUnbekannt')));
+      expect(json, isNot(contains('unvollstaendig')));
+      expect(exportUmfangAus(text), ExportUmfang.vollstaendig);
+      expect(server.requests['chat_messages'], 6,
+          reason: 'fuenf volle oder kurze Seiten, dann die leere Seite');
+    });
+
+    test('max_rows 500 unter der Seitengroesse: jede Sektion bleibt komplett',
         () async {
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{
+          'weight_log': 1234,
+          'favorite_meals': 501,
+          'chat_quota_usage': 777,
+          'profiles': 1,
+        },
+        serverMax: 500,
+      );
+      final text = await service(server).buildExportJson();
+      final json = jsonDecode(text) as Map<String, dynamic>;
+
+      expect(ids(json, 'weight_log'), erwartet('weight_log', 1234));
+      // Sections keyed by another column page on that column.
+      expect(
+        (json['favorite_meals'] as List).map((row) => (row as Map)['favorite_key']),
+        erwartet('favorite_meals', 501),
+      );
+      expect(
+        (json['chat_quota_usage'] as List).map((row) => (row as Map)['day']),
+        erwartet('chat_quota_usage', 777),
+      );
+      expect(json['profiles'], hasLength(1));
+      expect(exportUmfangAus(text), ExportUmfang.vollstaendig);
+    });
+
+    test('ohne Zaehler und mit niedriger Servergrenze kommt per Keyset '
+        'trotzdem alles an', () async {
       final server = _ZaehlenderPostgrest(
         vorhanden: const {'weight_log': 5},
         serverMax: 2,
@@ -150,44 +246,172 @@ void main() {
       final text = await service(server).buildExportJson();
       final json = jsonDecode(text) as Map<String, dynamic>;
 
-      expect(json['weight_log'], hasLength(2));
-      expect(exportUmfangAus(text), ExportUmfang.teilweise);
-      expect(json['vollstaendigkeitUnbekannt'], contains('weight_log'));
-      expect(json, isNot(contains('gekappt')),
-          reason: 'Ohne Zaehler ist die Kappung nicht nachgewiesen.');
+      expect(ids(json, 'weight_log'), erwartet('weight_log', 5));
+      expect(exportUmfangAus(text), ExportUmfang.vollstaendig,
+          reason: 'erst die leere Seite beweist das Ende, kein Zaehler noetig');
+      expect(server.requests['weight_log'], 5,
+          reason: 'Zaehlversuch, dieselbe Seite ohne Zaehler, zwei weitere, '
+              'dann die leere Seite');
     });
 
-    test(
-        'kappt der SERVER still bei db-max-rows, steht die Kappung trotzdem im '
-        'Export', () async {
-      // 4200 rows exist, PostgREST hands out 1000 — the old probe saw nothing
-      // because 1000 is far below einSeitenLimit + 1.
+    test('jede Folgeseite fragt nach dem letzten Schluessel, nie nach Offsets',
+        () async {
+      final anfragen = <Uri>[];
       final server = _ZaehlenderPostgrest(
-        vorhanden: const <String, int>{'chat_messages': 4200},
+        vorhanden: const <String, int>{'weight_log': 5},
+        serverMax: 2,
       );
-      final json = jsonDecode(await service(server).buildExportJson())
-          as Map<String, dynamic>;
+      final client = SupabaseClient(
+        'https://example.supabase.co',
+        'test-anon-key',
+        httpClient: MockClient((req) {
+          if (req.url.path.endsWith('/weight_log')) anfragen.add(req.url);
+          return server._handle(req);
+        }),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      addTearDown(client.dispose);
+      await DataExportService(client, 'user-export').buildExportJson();
+
+      expect(anfragen.map((url) => url.queryParametersAll['id']), [
+        null,
+        ['gt.weight_log-000001'],
+        ['gt.weight_log-000003'],
+        ['gt.weight_log-000004'],
+      ]);
+      for (final url in anfragen) {
+        expect(url.queryParameters['user_id'], 'eq.user-export');
+        expect(url.queryParameters['order'], startsWith('id.asc'));
+        expect(url.queryParameters, isNot(contains('offset')));
+      }
+    });
+
+    test('ein Server ohne Seitenfortschritt endet als unvollstaendig, nicht '
+        'als Endlosschleife', () async {
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'weight_log': 5},
+        serverMax: 2,
+        ignoriertCursor: true,
+      );
+      final text = await service(server).buildExportJson();
+      final json = jsonDecode(text) as Map<String, dynamic>;
+
+      expect(json['unvollstaendig'], contains('weight_log'));
+      expect(json, isNot(contains('weight_log')));
+      expect(exportUmfangAus(text), ExportUmfang.teilweise);
+      expect(server.requests['weight_log'], 2);
+    });
+
+    test('verschwindet waehrend des Pagings eine Zeile, ist die Sektion nicht '
+        'als vollstaendig belegt', () async {
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'chat_messages': 5},
+        serverMax: 2,
+        loeschtNachErsterSeite: const <String>{'chat_messages'},
+      );
+      final text = await service(server).buildExportJson();
+      final json = jsonDecode(text) as Map<String, dynamic>;
+
+      expect(ids(json, 'chat_messages'), erwartet('chat_messages', 4));
+      expect(json['vollstaendigkeitUnbekannt'], ['chat_messages']);
+      expect(exportUmfangAus(text), ExportUmfang.teilweise);
+    });
+
+    test('jede gepagte Sektion hat eine Schluesselspalte', () {
+      for (final tabelle in <String>[
+        'profiles',
+        ...DataExportService.userIdTabellen.where((t) => t != 'user_recipes'),
+      ]) {
+        expect(DataExportService.schluesselSpalten, contains(tabelle),
+            reason: '$tabelle landet ohne Schluessel in unvollstaendig');
+      }
+    });
+
+    test('die Schluesselspalten sind die Primaerschluessel laut Migrationen',
+        () {
+      // A non-unique keyset column would skip rows that share a value at a
+      // page boundary, so the column must be the primary key without user_id.
+      final sql = Directory('supabase/migrations')
+          .listSync()
+          .whereType<File>()
+          .where((datei) => datei.path.endsWith('.sql'))
+          .map((datei) => datei.readAsStringSync())
+          .join('\n');
+      for (final MapEntry(key: tabelle, value: spalte)
+          in DataExportService.schluesselSpalten.entries) {
+        final block = RegExp(
+          'create table (?:if not exists )?public\\.$tabelle \\((.*?)\\r?\\n\\);',
+          dotAll: true,
+        ).firstMatch(sql);
+        expect(block, isNotNull, reason: tabelle);
+        final spalten = block!.group(1)!;
+        final inline = RegExp('^\\s*$spalte\\s+[a-z]+\\s+primary key',
+                multiLine: true)
+            .hasMatch(spalten);
+        final zusammengesetzt = RegExp(
+          'primary key\\s*\\(\\s*user_id\\s*,\\s*$spalte\\s*\\)',
+        ).hasMatch(spalten);
+        expect(inline || zusammengesetzt, isTrue,
+            reason: '$tabelle.$spalte ist nicht ihr Primaerschluessel');
+      }
+    });
+  });
+
+  group('die eigene Grenze pro Sektion', () {
+    test('eine Zeile hinter der Grenze ist eine Kappung, mit echter '
+        'Serverzahl', () async {
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'weight_log': 11},
+      );
+      final json = jsonDecode(
+        await service(server, pageSize: 4, grenze: 10).buildExportJson(),
+      ) as Map<String, dynamic>;
+
+      expect(ids(json, 'weight_log'), erwartet('weight_log', 10),
+          reason: 'die Pruefzeile ist Messmittel, kein Exportinhalt');
+      final gekappt = json['gekappt'] as Map<String, dynamic>?;
+      expect(gekappt, isNotNull);
+      expect(gekappt!['sektionen'], ['weight_log']);
+      expect(gekappt['grenzeProSektion'], 10);
+      expect((gekappt['zeilenAufDemServer'] as Map)['weight_log'], 11);
+      expect(json, isNot(contains('unvollstaendig')),
+          reason: 'eine gekappte Sektion ist da, nur nicht ganz');
+    });
+
+    test('genau die Grenze ist KEINE Kappung', () async {
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'weight_log': 10},
+      );
+      final text =
+          await service(server, pageSize: 4, grenze: 10).buildExportJson();
+      final json = jsonDecode(text) as Map<String, dynamic>;
+
+      expect(ids(json, 'weight_log'), erwartet('weight_log', 10));
+      expect(json, isNot(contains('gekappt')));
+      expect(exportUmfangAus(text), ExportUmfang.vollstaendig);
+    });
+
+    test('zaehlt der Server gar nicht mit, faengt die Pruefzeile die Grenze '
+        'ohne erfundene Zeilenzahl', () async {
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'weight_log': 15},
+        zaehltMit: false,
+      );
+      final json = jsonDecode(
+        await service(server, pageSize: 4, grenze: 10).buildExportJson(),
+      ) as Map<String, dynamic>;
 
       final gekappt = json['gekappt'] as Map<String, dynamic>?;
+      expect(gekappt, isNotNull, reason: 'die eigene Grenze schneidet ab');
+      expect(gekappt!['sektionen'], contains('weight_log'));
       expect(
-        gekappt,
-        isNotNull,
-        reason: 'ein stilles Abschneiden durch den Server ist genauso '
-            'unauffaellig unvollstaendig wie eines an unserer eigenen Grenze',
+        (gekappt['zeilenAufDemServer'] as Map?)?.containsKey('weight_log'),
+        isNot(isTrue),
+        reason: 'ohne Serverzaehler darf keine Zeilenzahl erfunden werden',
       );
-      expect(gekappt!['sektionen'], contains('chat_messages'));
-      expect(
-        (gekappt['zeilenAufDemServer'] as Map)['chat_messages'],
-        4200,
-        reason: 'ohne die echte Zeilenzahl haelt der Empfaenger wieder eine '
-            'fremde Grenze fuer seinen Datenbestand',
-      );
-      expect(json['chat_messages'], hasLength(1000));
-      expect(
-        json.containsKey('unvollstaendig'),
-        isFalse,
-        reason: 'eine gekappte Sektion ist da, nur nicht ganz',
-      );
+      expect(ids(json, 'weight_log'), erwartet('weight_log', 10));
+      expect(server.requests['weight_log'], 5,
+          reason: 'Zaehlversuch, Rueckfall, zwei Seiten, eine Pruefzeile');
     });
 
     test('stimmt der Zaehler mit den gelieferten Zeilen ueberein, gibt es '
@@ -200,59 +424,6 @@ void main() {
 
       expect(json.containsKey('gekappt'), isFalse);
       expect(json['weight_log'], hasLength(12));
-    });
-
-    test('auch EINE fehlende Zeile ist eine Kappung', () async {
-      // The other side of the same comparison. Both existing cases sit far
-      // apart (4200 vs. 1000 / 12 vs. 12), so the check could drift to
-      // "clearly fewer" and still pass — while an export missing a single
-      // entry would call itself complete.
-      final server = _ZaehlenderPostgrest(
-        vorhanden: const <String, int>{'weight_log': 1001},
-      );
-      final json = jsonDecode(await service(server).buildExportJson())
-          as Map<String, dynamic>;
-
-      expect(json['weight_log'], hasLength(1000));
-      final gekappt = json['gekappt'] as Map<String, dynamic>?;
-      expect(gekappt, isNotNull);
-      expect(gekappt!['sektionen'], contains('weight_log'));
-      expect((gekappt['zeilenAufDemServer'] as Map)['weight_log'], 1001);
-    });
-
-    test('zaehlt der Server gar nicht mit, faengt die Ueberholzeile UNSEREN '
-        'eigenen Deckel', () async {
-      // The only path that exercises einSeitenLimit itself: no total in the
-      // Content-Range, so the counting request throws and the fallback
-      // over-fetches by one. Every other test here stays under db-max-rows
-      // (1000), where our own 10 000 cap is never reached — so all three of
-      // "fetch limit + 1", "report the cut" and "trim the probe row away"
-      // could be removed without a single red test.
-      const grenze = DataExportService.einSeitenLimit;
-      final server = _ZaehlenderPostgrest(
-        vorhanden: const <String, int>{'weight_log': grenze + 5},
-        serverMax: grenze + 5,
-        zaehltMit: false,
-      );
-      final json = jsonDecode(await service(server).buildExportJson())
-          as Map<String, dynamic>;
-
-      final gekappt = json['gekappt'] as Map<String, dynamic>?;
-      expect(gekappt, isNotNull, reason: 'unser eigener Deckel schneidet ab');
-      expect(gekappt!['sektionen'], contains('weight_log'));
-      expect(gekappt['grenzeProSektion'], grenze);
-      expect(
-        (gekappt['zeilenAufDemServer'] as Map?)?.containsKey('weight_log'),
-        isNot(isTrue),
-        reason: 'ohne Serverzaehler darf keine Zeilenzahl erfunden werden',
-      );
-      expect(
-        json['weight_log'],
-        hasLength(grenze),
-        reason: 'die Ueberholzeile ist Messmittel, kein Exportinhalt',
-      );
-      expect(server.requests['weight_log'], 2,
-          reason: 'genau eine Zaehl-Runde und eine Rueckfall-Runde');
     });
 
     test('der Zaehler kommt im SELBEN Request mit — keine zweite Runde pro '

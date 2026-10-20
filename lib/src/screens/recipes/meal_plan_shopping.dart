@@ -1033,6 +1033,35 @@ class _BarcodePainter extends CustomPainter {
       old.color != color || old.seed != seed;
 }
 
+/// The week's receipt as plain text for the clipboard: the receipt's title
+/// line, one line per row as "- 550 g Hähnchenbrustfilet" ("✓" once
+/// bought), then the pantry rows under their heading. Amounts read as on the
+/// receipt.
+String shoppingReceiptText(
+  ShoppingReceipt receipt, {
+  required Map<String, bool> checks,
+  required int week,
+  required int meals,
+  required AppLocalizations l,
+}) {
+  String line(ShoppingRow row) {
+    final amount = _receiptAmount(row, l);
+    final item = amount == null ? row.label : '$amount ${row.label}';
+    return '${row.isChecked(checks) ? '✓' : '-'} $item';
+  }
+
+  return [
+    '${l.mealPlanShopping} · ${l.mealPlanReceiptMeta(week, meals)}',
+    if (receipt.rows.isNotEmpty) '',
+    for (final row in receipt.rows) line(row),
+    if (receipt.pantry.isNotEmpty) ...[
+      '',
+      l.mealPlanPantryTitle,
+      for (final row in receipt.pantry) line(row),
+    ],
+  ].join('\n');
+}
+
 /// A row's amounts and its unparsed ones as the receipt prints them: "550 g",
 /// "2 EL + 1 TL", "300 g + 1 Handvoll"; null when it has none.
 String? _receiptAmount(ShoppingRow row, AppLocalizations l) {

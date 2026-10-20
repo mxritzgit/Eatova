@@ -4,18 +4,28 @@ part of 'meal_plan_screen.dart';
 // toggle, and the "Plan a meal" row of an empty day.
 
 /// A day's heading: weekday, short date and the Today badge, with the
-/// day's add button on the right once it has meals.
+/// day's add button on the right once it has meals, and under it the
+/// planned kcal against the day's goal.
 class _DayHeader extends StatelessWidget {
-  const _DayHeader({required this.day, required this.isToday, this.add});
+  const _DayHeader({
+    required this.day,
+    required this.isToday,
+    this.add,
+    this.kcal,
+  });
 
   final DateTime day;
   final bool isToday;
   final Widget? add;
 
+  /// "1,340 of 2,100 kcal planned"; null for an empty day.
+  final String? kcal;
+
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
+    final kcal = this.kcal;
     return ConstrainedBox(
       // As tall as the add button where there is one.
       constraints: BoxConstraints(minHeight: add == null ? 0 : 44),
@@ -24,59 +34,72 @@ class _DayHeader extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(left: 2),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  HeadingSemantics(
-                    level: 2,
-                    child: Text.rich(
-                      TextSpan(
-                        children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      HeadingSemantics(
+                        level: 2,
+                        child: Text.rich(
                           TextSpan(
-                            text: DateFormat.EEEE(l.localeName).format(day),
-                            style: AppType.display(
-                              19,
-                              weight: FontWeight.w700,
-                              color: t.ink,
-                            ),
+                            children: [
+                              TextSpan(
+                                text: DateFormat.EEEE(l.localeName).format(day),
+                                style: AppType.display(
+                                  19,
+                                  weight: FontWeight.w700,
+                                  color: t.ink,
+                                ),
+                              ),
+                              TextSpan(
+                                text:
+                                    '  ${_keepTogether(DateFormat.MMMd(l.localeName).format(day))}',
+                                style: AppType.ui(
+                                  14,
+                                  weight: FontWeight.w600,
+                                  color: t.ink3,
+                                ),
+                              ),
+                            ],
                           ),
-                          TextSpan(
-                            text:
-                                '  ${_keepTogether(DateFormat.MMMd(l.localeName).format(day))}',
-                            style: AppType.ui(
-                              14,
-                              weight: FontWeight.w600,
-                              color: t.ink3,
-                            ),
-                          ),
-                        ],
-                      ),
-                      semanticsLabel: DateFormat.MMMMEEEEd(
-                        l.localeName,
-                      ).format(day),
-                    ),
-                  ),
-                  if (isToday)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: t.accentTint,
-                        borderRadius: BorderRadius.circular(rPill),
-                      ),
-                      child: Text(
-                        l.mealPlanToday,
-                        style: AppType.ui(
-                          12,
-                          weight: FontWeight.w700,
-                          color: t.accentText,
+                          semanticsLabel: DateFormat.MMMMEEEEd(
+                            l.localeName,
+                          ).format(day),
                         ),
                       ),
+                      if (isToday)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: t.accentTint,
+                            borderRadius: BorderRadius.circular(rPill),
+                          ),
+                          child: Text(
+                            l.mealPlanToday,
+                            style: AppType.ui(
+                              12,
+                              weight: FontWeight.w700,
+                              color: t.accentText,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (kcal != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      kcal,
+                      key: ValueKey('meal-plan-day-kcal-${localDayKey(day)}'),
+                      style: AppType.ui(13, color: t.ink2, height: 1.35),
                     ),
+                  ],
                 ],
               ),
             ),

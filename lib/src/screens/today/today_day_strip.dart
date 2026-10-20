@@ -19,6 +19,10 @@ import 'today_texts.dart';
 /// as with the old back arrow; there is no page after today. A selected day
 /// outside the shown week (e.g. picked in the Food tab's calendar) brings its
 /// week into view.
+///
+/// With [isComplete], a dot under the number marks every day that passes
+/// the complete-day rule (`services/complete_day.dart`), the days the trends
+/// averages and the weekly check count.
 class TodayDayStrip extends StatefulWidget {
   const TodayDayStrip({
     super.key,
@@ -26,10 +30,15 @@ class TodayDayStrip extends StatefulWidget {
     required this.today,
     this.onSelected,
     this.firstDate,
+    this.isComplete,
   });
 
   final DateTime selectedDate, today;
   final ValueChanged<DateTime>? onSelected;
+
+  /// Whether a day is completely logged; null shows no markers (the sheets
+  /// that reuse the strip only pick a day).
+  final bool Function(DateTime day)? isComplete;
 
   /// The earliest pickable day, or null for no bound (the Today tab). Paging
   /// stops at its week and earlier days are disabled, so a sheet whose
@@ -101,6 +110,8 @@ class _TodayDayStripState extends State<TodayDayStrip> {
             child: _DayCell(
               date: addDays(first, i),
               today: widget.today,
+              marks: widget.isComplete != null,
+              complete: widget.isComplete?.call(addDays(first, i)) ?? false,
               selected:
                   daysBetween(addDays(first, i), widget.selectedDate) == 0,
               onTap:
@@ -147,11 +158,18 @@ class _DayCell extends StatelessWidget {
     required this.date,
     required this.today,
     required this.selected,
+    this.marks = false,
+    this.complete = false,
     this.onTap,
   });
 
   final DateTime date, today;
   final bool selected;
+
+  /// The strip shows complete-day dots: the row for one is reserved in
+  /// every cell, so the numbers stay level.
+  final bool marks;
+  final bool complete;
   final VoidCallback? onTap;
 
   @override
@@ -160,11 +178,12 @@ class _DayCell extends StatelessWidget {
     final l10n = context.l10n;
     final isToday = daysBetween(date, today) == 0;
     final radius = BorderRadius.circular(rThumb);
+    final label = todayDayCellLabel(today, date, l10n);
     return Semantics(
       button: onTap != null,
       selected: selected,
       enabled: onTap != null,
-      label: todayDayCellLabel(today, date, l10n),
+      label: complete ? l10n.todayDayCellComplete(label) : label,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: selected ? t.selectedFill : Colors.transparent,
@@ -225,6 +244,24 @@ class _DayCell extends StatelessWidget {
                               height: todayLineHeight,
                             ),
                           ),
+                          if (marks) ...<Widget>[
+                            const SizedBox(height: 3),
+                            Container(
+                              key: complete
+                                  ? ValueKey<String>(
+                                      'today-day-complete-${localDayKey(date)}',
+                                    )
+                                  : null,
+                              width: 4,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: !complete
+                                    ? Colors.transparent
+                                    : (selected ? t.onSelected : t.accentText),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

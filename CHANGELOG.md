@@ -9,7 +9,7 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 ## [Unreleased]
 
 Updated 2026-09-16; the dark redesign entry was added 2026-10-01 and the October
-entries on 2026-10-03, 2026-10-08, 2026-10-11 and 2026-10-18. Changes between
+entries on 2026-10-03, 2026-10-08, 2026-10-11, 2026-10-18 and 2026-10-20. Changes between
 those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
 repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
@@ -17,6 +17,28 @@ the complete current product.
 
 ### October 2026
 
+- **Items from the review of 2026-10-19** (2026-10-20):
+  - AI consent before the first AI use, per account and versioned, with an
+    explicit health-data checkbox; Settings "KI & Daten" withdraws it.
+    Coach answers and recipe pictures can be reported; Feedback & Support
+    in Settings; the export can be shared as a file; the privacy text
+    names the preferences, the seven-day context and both logs.
+  - Avoided foods leave recipe suggestions and show a chip elsewhere; the
+    import says it reads TikTok links or pasted text; own recipes take
+    catalog categories; the meal plan shows day totals and plans from a
+    recipe; shopping list and recipes copy as text.
+  - One rule for a complete day in trends and the weekly check; a
+    half-day reminder; a filled-in yesterday keeps the streak; the weekly
+    check explains itself and shows a Monday result; an empty search
+    offers Describe; FOOD-7; one German vocabulary.
+  - Weigh-ins can be edited, deleted and dated; the onboarding weight is
+    the first weigh-in; Apple Health is asked after the onboarding; the
+    six-month step backfill writes once.
+  - Device builds update in place instead of uninstalling; the export
+    pages every section; Google sign-out and revocation; sign-out in the
+    onboarding; a 2xx answer without JSON no longer spends the outbox
+    budget; deploy guards, an hourly ops watch and an Android release
+    lane; CI cancels superseded PR runs and checks merged permissions.
 - **Trends page** (2026-10-18): a card at the end of Today shows the last
   seven days' averages and opens the page; the Food tab has a trends button
   in its header. 7, 30 or 90 days or 6 months of calories, macros with

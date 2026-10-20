@@ -37,17 +37,24 @@ bool isLeanHighProtein(FitnessRecipe recipe) {
           kcal * HighProteinRule.minEnergyShare;
 }
 
-/// The recipes of [recipes] that match [diet] and [isLeanHighProtein], in
-/// list order: the complete set behind "See all".
+/// The recipes of [recipes] that match [diet], contain none of [avoidances]
+/// and pass [isLeanHighProtein], in list order: the complete set behind
+/// "See all".
 ///
-/// The shelf is actively promoted, so the diet pre-filter applies like on the
-/// other recommendations ([FitnessRecipe.matchesDiet]; own recipes always
-/// pass).
+/// The shelf is actively promoted, so the diet and avoidance pre-filters
+/// apply like on the other recommendations ([FitnessRecipe.matchesDiet],
+/// [FitnessRecipe.fitsAvoidances]; own recipes always pass).
 List<FitnessRecipe> leanHighProteinRecipes(
   List<FitnessRecipe> recipes, {
   DietPreference diet = DietPreference.none,
+  Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
 }) => recipes
-    .where((recipe) => recipe.matchesDiet(diet) && isLeanHighProtein(recipe))
+    .where(
+      (recipe) =>
+          recipe.matchesDiet(diet) &&
+          recipe.fitsAvoidances(avoidances) &&
+          isLeanHighProtein(recipe),
+    )
     .toList(growable: false);
 
 /// The cards of the shelf, at most [count]:
@@ -63,6 +70,7 @@ List<FitnessRecipe> leanHighProteinShelf(
   List<FitnessRecipe> recipes, {
   required DateTime now,
   DietPreference diet = DietPreference.none,
+  Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
   String? excludeSlug,
   int count = leanShelfCount,
 }) {
@@ -70,6 +78,7 @@ List<FitnessRecipe> leanHighProteinShelf(
   final hits = leanHighProteinRecipes(
     recipes,
     diet: diet,
+    avoidances: avoidances,
   ).where((recipe) => recipe.slug != excludeSlug).toList(growable: false);
   final own = hits.where((recipe) => recipe.userCreated);
   final catalog = hits

@@ -2,7 +2,7 @@
   "recipeNutritionBasisCheck": "Portionsbasis prüfen",
   "recipeNutritionComplete": "Nährwerte ergänzen",
   "recipeNutritionBasisBeforeLog": "Alle Werte sind vorhanden. Bestätige noch die Portionsbasis, dann wähle deine Mahlzeit.",
-  "recipeNutritionBasisExplanation": "Alle vier Nährwerte sind vorhanden. Für wie viele Portionen gelten diese Angaben? Danach kannst du deine gegessene Menge im Tracker auswählen.",
+  "recipeNutritionBasisExplanation": "Alle vier Nährwerte sind vorhanden. Für wie viele Portionen gelten diese Angaben? Danach kannst du deine gegessene Menge im Tagebuch auswählen.",
   "recipeNutritionBasisServings": "Diese Werte gelten für so viele Portionen",
   "recipeNutritionBasisInvalid": "Prüfe die Portionszahl. Die Werte pro Portion müssen innerhalb des zulässigen Bereichs liegen.",
   "recipeNutritionBasisContinue": "Bestätigen und Mahlzeit wählen",
@@ -23,13 +23,14 @@
   "recipeImportAction": "Importieren",
   "recipeImportLoading": "Rezepte werden erkannt …",
   "recipeImportReviewHint": "Prüfe Zutaten, Mengen und Zubereitung. Erst mit deiner Bestätigung wird das Rezept gespeichert.",
-  "recipeImportInputLabel": "Link oder Rezepttext",
-  "recipeImportInputPlaceholder": "Link und, wenn vorhanden, die Rezeptbeschreibung …",
+  "recipeImportInputLabel": "TikTok-Link oder Rezepttext",
+  "recipeImportInputPlaceholder": "TikTok-Link oder kopierter Rezepttext, etwa von einer Website …",
   "recipeImportPrivacyHint": "Der verfügbare Rezepttext wird zur Erkennung an unseren KI-Dienst übermittelt.",
   "recipeImportAnalyze": "Rezept erkennen",
   "recipeImportRetry": "Erneut versuchen",
   "recipeImportNeedsText": "Die Caption enthält noch keine verwertbare Zutatenliste. Ergänze den Rezepttext aus der Beschreibung.",
   "recipeImportNoRecipe": "In diesem Text wurde kein Rezept erkannt. Füge die Zutaten aus der Videobeschreibung ein.",
+  "recipeImportLinkUnsupported": "Links gehen bisher nur von TikTok. Kopier den Rezepttext von der Seite und füg ihn hier ein.",
   "recipeImportChoose": "Welches Rezept möchtest du übernehmen?",
   "recipeImportChooseHint": "Es wurden mehrere Rezepte oder Varianten erkannt. Wähle eines für die Vorschau.",
   "recipeImportSourceLabel": "Quelle",
@@ -97,7 +98,7 @@
       "count": { "type": "int" }
     }
   },
-  "todayMealSlotEmpty": "Noch nichts geloggt",
+  "todayMealSlotEmpty": "Noch nichts eingetragen",
   "todayMacrosTitle": "Makros",
   "todayMacroProtein": "Protein",
   "todayMacroCarbs": "Kohlenhydrate",
@@ -121,7 +122,7 @@
   },
   "todayDayLoading": "Tag wird geladen…",
   "foodDayLoadFailedTitle": "Dieser Tag konnte nicht geladen werden",
-  "foodDayLoadFailedBody": "Bereits geloggte Mahlzeiten dieses Tages fehlen hier vielleicht. Versuch es erneut, sobald du online bist, damit nichts doppelt landet.",
+  "foodDayLoadFailedBody": "Bereits eingetragene Mahlzeiten dieses Tages fehlen hier vielleicht. Versuch es erneut, sobald du online bist, damit nichts doppelt landet.",
   "foodDayLoadRetry": "Erneut versuchen",
   "foodSlotNotLoaded": "Nicht geladen",
   "todaySemanticsDatePrev": "Tag zurück",
@@ -177,8 +178,8 @@
   "foodOtherDateCalendarSemantics": "Anderes Datum im Kalender wählen",
   "foodOtherDateLine1": "Anderes",
   "foodOtherDateLine2": "Datum…",
-  "foodSuggestionWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts loggen. Der Eintrag stammt noch aus einer älteren Version — entferne ihn und leg ihn über Suche oder Barcode neu an.",
-  "foodMealWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts loggen. Trag die Bestandteile über „Anpassen\" ein.",
+  "foodSuggestionWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts eintragen. Der Eintrag stammt noch aus einer älteren Version — entferne ihn und leg ihn über Suche oder Barcode neu an.",
+  "foodMealWithoutCaloriesMessage": "Ohne Kalorienangabe lässt sich nichts eintragen. Trag die Bestandteile über „Anpassen\" ein.",
   "foodSearchMinCharsHint": "Mindestens 2 Zeichen, z.B. Dr Oetker Salami.",
   "foodSearchNoResultsHint": "Keine passenden Produkte gefunden. Versuche Marke + Produktname.",
   "foodSearchUnreachableHint": "OpenFoodFacts gerade nicht erreichbar.",
@@ -280,7 +281,7 @@
       "proposed": { "type": "int", "format": "decimalPattern" }
     }
   },
-  "todayEnergyCheckBasis": "Grundlage: {days} Tage mit Einträgen, {weighIns} Wiegungen",
+  "todayEnergyCheckBasis": "Grundlage: {days} vollständige Tage, {weighIns} Wiegungen",
   "@todayEnergyCheckBasis": {
     "placeholders": {
       "days": { "type": "int" },
@@ -325,7 +326,7 @@
       "count": { "type": "int" }
     }
   },
-  "foodMacroTileCarbsLabel": "Carbs",
+  "foodMacroTileCarbsLabel": "KH",
   "foodInfoBrandLabel": "Marke",
   "foodInfoBarcodeLabel": "Barcode",
   "foodInfoSourceLabel": "Quelle",
@@ -491,6 +492,18 @@
   "recipesFilterVegan": "Vegan",
   "recipesFilterLowCarb": "Low Carb",
   "recipesCategoryOwn": "Eigene",
+  "recipesAvoidContains": "Enthält {foods}",
+  "@recipesAvoidContains": {
+    "placeholders": {
+      "foods": { "type": "String" }
+    }
+  },
+  "recipesAvoidContainsSemantics": "Enthält, was du nicht isst: {foods}",
+  "@recipesAvoidContainsSemantics": {
+    "placeholders": {
+      "foods": { "type": "String" }
+    }
+  },
   "recipesResultsCount": "{count} Treffer",
   "@recipesResultsCount": {
     "placeholders": {
@@ -525,7 +538,7 @@
   "recipesOwnTitle": "Eigenes Rezept",
   "recipesBrandTitle": "Eatova Rezept",
   "recipesDeleteSemantics": "Rezept löschen",
-  "recipesAddToTrackerTitle": "Zum Tracker hinzufügen",
+  "recipesAddToTrackerTitle": "Ins Tagebuch eintragen",
   "recipesKcalProteinSummary": "{kcal} kcal · {protein} g Protein",
   "@recipesKcalProteinSummary": {
     "placeholders": {
@@ -540,6 +553,8 @@
   "recipesSectionIngredients": "Zutaten",
   "recipesSectionPreparation": "Zubereitung",
   "recipesSectionProHint": "Profi-Hinweis",
+  "recipesCopyText": "Als Text kopieren",
+  "recipesCopied": "Rezept kopiert.",
   "recipesWhenToLogTitle": "Wann eintragen?",
   "recipesDiscardChangesBody": "Dein Rezept ist noch nicht gespeichert.",
   "recipesPhotoUnreadableError": "Das Foto ließ sich nicht lesen.",
@@ -695,14 +710,31 @@
   "coachInfoBulletMeals": "Die Namen der Mahlzeiten, die du heute geloggt hast",
   "coachInfoProvider": "Der Coach nutzt Claude-Modelle von Anthropic. Je nach Anfrage werden deine Frage, die oben genannten Angaben, bis zu zehn vorherige Chatnachrichten, ein angehängtes Foto oder ausgewählte Trainingsplaninformationen übermittelt. Bilder für Rezeptkarten erstellt ein Bildmodell von Google über OpenRouter, nur aus Titel und Beschreibung des Rezepts. Dabei können Daten auch außerhalb der EU, einschließlich der USA, verarbeitet werden. Mehr zu Empfängern und Datenverwendung steht in der Datenschutzerklärung.",
   "coachInfoLimitLabel": "Coach-Limit",
-  "coachInfoLimitBody": "{remaining} von {dailyLimit} Fragen heute frei. Reset um Mitternacht (UTC).",
+  "coachInfoLimitBody": "{remaining} von {dailyLimit} Fragen heute frei. Neue Fragen ab {resetTime} Uhr.",
   "@coachInfoLimitBody": {
     "placeholders": {
       "remaining": { "type": "int" },
-      "dailyLimit": { "type": "int" }
+      "dailyLimit": { "type": "int" },
+      "resetTime": { "type": "String" }
     }
   },
   "coachRefusalLabel": "Hinweis",
+  "coachReportAction": "Antwort melden",
+  "coachReportImageAction": "Bild melden",
+  "coachReportTitle": "Antwort melden",
+  "coachReportIntro": "Was stimmt mit dieser Antwort nicht? Gespeichert werden nur die Nachrichten-ID und der Grund, nicht der Text.",
+  "coachReportImageTitle": "KI-Bild melden",
+  "coachReportImageIntro": "Was stimmt mit diesem KI-Bild nicht? Gespeichert werden nur die Nachrichten-ID und der Grund.",
+  "coachReportReasonIncorrect": "Falsch oder irreführend",
+  "coachReportReasonHarmful": "Gefährlich oder schädlich",
+  "coachReportReasonInappropriate": "Unangemessen oder anstößig",
+  "coachReportReasonOther": "Etwas anderes",
+  "coachReportSubmit": "Melden",
+  "coachReportSending": "Wird gemeldet …",
+  "coachReportDone": "Danke! Die Antwort wurde gemeldet.",
+  "coachReportImageDone": "Danke! Das Bild wurde gemeldet.",
+  "coachReportFailed": "Melden hat nicht geklappt. Prüfe deine Verbindung und versuch es noch einmal.",
+  "coachReportHint": "Eine Antwort gedrückt halten, um sie zu kopieren oder zu melden.",
   "coachSessionsTitle": "Coach-Sessions",
   "coachSessionsNewLabel": "Neu",
   "coachSessionsEmpty": "Noch keine Unterhaltungen. Stell deinem Coach die erste Frage.",
@@ -772,10 +804,11 @@
   "coachErrorNewSessionFailed": "Die neue Unterhaltung konnte nicht angelegt werden. Prüf deine Verbindung und versuch es nochmal.",
   "coachSessionSwitchedNotice": "Diese Unterhaltung gibt es nicht mehr. Deine Frage und die Antwort stehen jetzt in einer anderen Unterhaltung — sie ist geöffnet.",
   "coachImageDefaultCaption": "Analysiere dieses Bild im Fitness-Kontext.",
-  "coachErrorDailyLimitReached": "Tageslimit erreicht ({limit} Coach-Fragen pro Tag). Morgen geht's weiter.",
+  "coachErrorDailyLimitReached": "Tageslimit erreicht ({limit} Coach-Fragen pro Tag). Weiter geht's um {resetTime} Uhr.",
   "@coachErrorDailyLimitReached": {
     "placeholders": {
-      "limit": { "type": "int" }
+      "limit": { "type": "int" },
+      "resetTime": { "type": "String" }
     }
   },
   "coachErrorImageTooLarge": "Das Bild ist zu groß für den Coach. Bitte schick ein kleineres.",
@@ -791,7 +824,7 @@
   },
   "coachErrorSpeechEmpty": "Ich habe nichts verstanden. Versuch es nochmal.",
   "profileTitle": "Mein Profil",
-  "profileLabelStreak": "Streak",
+  "profileLabelStreak": "Serie",
   "profileLabelMeals": "Mahlzeiten",
   "profileUnitTotal": "gesamt",
   "profileLabelRecord": "Rekord",
@@ -895,6 +928,30 @@
       "max": { "type": "int" }
     }
   },
+  "weighInWhenLabel": "Zeitpunkt",
+  "@weighInWhenLabel": {"description": "Weigh-in sheet: label above the day strip and the time of the weigh-in."},
+  "weighInNow": "Jetzt",
+  "@weighInNow": {"description": "Weigh-in sheet: the time pill while the weigh-in is dated now."},
+  "weighInTimeSemantics": "Uhrzeit ändern, jetzt {time}",
+  "@weighInTimeSemantics": {"description": "Screen reader label of the weigh-in sheet's time pill.", "placeholders": {"time": {"type": "String"}}},
+  "weighInHistoryLink": "Verlauf",
+  "@weighInHistoryLink": {"description": "Weigh-in sheet: opens the list of all weigh-ins."},
+  "weighInEditTitle": "Wiegung bearbeiten",
+  "@weighInEditTitle": {"description": "Title of the sheet that edits a past weigh-in."},
+  "weighInDelete": "Wiegung löschen",
+  "@weighInDelete": {"description": "Edit weigh-in sheet: deletes the weigh-in (with an undo snack)."},
+  "weighInDeleted": "Wiegung gelöscht",
+  "@weighInDeleted": {"description": "Snack after deleting a weigh-in; its action undoes it."},
+  "weightLogHistoryTitle": "Wiegungen",
+  "@weightLogHistoryTitle": {"description": "Title of the weigh-in history sheet."},
+  "weightLogHistoryOpen": "Alle Wiegungen",
+  "@weightLogHistoryOpen": {"description": "Profile weight card: opens the weigh-in history."},
+  "weightLogHistoryEmpty": "Noch keine Wiegungen. Neue erscheinen hier mit Datum und Uhrzeit.",
+  "@weightLogHistoryEmpty": {"description": "Weigh-in history without any weigh-in."},
+  "weightLogHistoryRowSemantics": "{date}, {kg} kg. Bearbeiten",
+  "@weightLogHistoryRowSemantics": {"description": "Screen reader label of one weigh-in row (a button that opens the edit sheet).", "placeholders": {"date": {"type": "String"}, "kg": {"type": "String"}}},
+  "weightLogHistoryNotEditable": "Nach dem nächsten Abgleich bearbeitbar",
+  "@weightLogHistoryNotEditable": {"description": "Weigh-in row cached by an older app version without its server id; editable once the next server load supplies it."},
   "profileGoalsCalories": "Kalorien",
   "profileGoalsSteps": "Schritte",
   "profileGoalsEditCta": "Ziele anpassen",
@@ -919,6 +976,14 @@
   "profileHealthSetupHint": "Apple Health einrichten",
   "profileHealthActionCheck": "Prüfen",
   "profileHealthActionConnect": "Verbinden",
+  "healthPromptTitle": "Schritte aus Apple Health",
+  "@healthPromptTitle": {"description": "Today's one-time card after the onboarding, shown before Apple Health's permission sheet."},
+  "healthPromptBody": "Deine Schritte zählen als Verbrauch: Wer mehr geht, hat mehr im Tagesbudget. Dafür liest Eatova Schritte und Gewicht aus Apple Health und trägt deine Wiegungen dort ein.",
+  "@healthPromptBody": {"description": "Today's Apple Health intro card: what the permission is for."},
+  "healthPromptConnect": "Mit Apple Health verbinden",
+  "@healthPromptConnect": {"description": "Today's Apple Health intro card: opens Apple's permission sheet."},
+  "healthPromptDismiss": "Nicht jetzt",
+  "@healthPromptDismiss": {"description": "Today's Apple Health intro card: hides it; the profile's Health card still connects."},
   "profileHealthRefreshSemantics": "Aktualisieren",
   "profileHealthTimeJustNow": "gerade eben",
   "profileHealthTimeMinutesAgo": "vor {minutes} Min",
@@ -940,7 +1005,23 @@
   "trendsTitle": "Trends",
   "trendsStatAvgKcalLabel": "Ø KALORIEN",
   "trendsNoCompletedDay": "noch kein abgeschlossener Tag",
-  "trendsStatAvgKcalSub": "pro getracktem Tag",
+  "trendsNoCompleteDay": "noch kein vollständiger Tag",
+  "@trendsNoCompleteDay": {
+    "description": "Average tiles when completed days exist but none passes the complete-day rule (half the daily goal)."
+  },
+  "trendsStatAvgKcalFrom": "aus {full, plural, one{1 vollständigen Tag} other{{full} vollständigen Tagen}}",
+  "@trendsStatAvgKcalFrom": {
+    "placeholders": {
+      "full": { "type": "int" }
+    }
+  },
+  "trendsStatAvgKcalFromSkipped": "aus {full, plural, one{1 vollständigen Tag} other{{full} vollständigen Tagen}} · {skipped, plural, one{1 unvollständiger ausgelassen} other{{skipped} unvollständige ausgelassen}}",
+  "@trendsStatAvgKcalFromSkipped": {
+    "placeholders": {
+      "full": { "type": "int" },
+      "skipped": { "type": "int" }
+    }
+  },
   "trendsStatGoalRateLabel": "ZIEL GETROFFEN",
   "trendsStatGoalRateSub": "{hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} (±10 %)",
   "@trendsStatGoalRateSub": {
@@ -949,7 +1030,7 @@
       "tracked": { "type": "int" }
     }
   },
-  "trendsMetricsNote": "Kennzahlen zählen nur abgeschlossene Tage. Heute läuft noch und ist nur im Verlauf oben enthalten.",
+  "trendsMetricsNote": "Kennzahlen zählen nur vollständige Tage, also ab der Hälfte deines Tagesziels eingetragen; unvollständige Tage sind im Verlauf blass. Heute läuft noch und ist nur im Verlauf oben enthalten.",
   "trendsGoalBonusNote": "Ziel je Tag = Basisziel plus die an dem Tag durch Schritte verbrannten kcal — wie im Heute-Tab.",
   "@trendsGoalBonusNote": {
     "description": "Footnote under the trend metrics when at least one day in the window carries a step bonus."
@@ -968,7 +1049,7 @@
   },
   "trendsChartTitle": "Kalorien pro Tag",
   "trendsChartSemanticsEmpty": "Keine Einträge in diesem Zeitraum",
-  "trendsChartSemanticsNoAvg": "{tracked} von {range} Tagen mit Einträgen, noch kein abgeschlossener Tag für den Durchschnitt, Tagesziel {goal} Kilokalorien",
+  "trendsChartSemanticsNoAvg": "{tracked} von {range} Tagen mit Einträgen, noch kein vollständiger Tag für den Durchschnitt, Tagesziel {goal} Kilokalorien",
   "@trendsChartSemanticsNoAvg": {
     "placeholders": {
       "tracked": { "type": "int" },
@@ -976,7 +1057,7 @@
       "goal": { "type": "int" }
     }
   },
-  "trendsChartSemanticsWithAvg": "{tracked} von {range} Tagen mit Einträgen, im Schnitt {avg} Kilokalorien pro abgeschlossenem Tag, Tagesziel {goal} Kilokalorien",
+  "trendsChartSemanticsWithAvg": "{tracked} von {range} Tagen mit Einträgen, im Schnitt {avg} Kilokalorien pro vollständigem Tag, Tagesziel {goal} Kilokalorien",
   "@trendsChartSemanticsWithAvg": {
     "placeholders": {
       "tracked": { "type": "int" },
@@ -988,7 +1069,7 @@
   "trendsChartSemanticsLabel": "Kalorienverlauf",
   "trendsMacroAvgTitle": "Ø MAKROS PRO TAG",
   "trendsEmptyTitle": "Noch zu wenig Daten",
-  "trendsEmptyBody": "Logge deine Mahlzeiten an mindestens zwei Tagen,\num hier deinen Verlauf zu sehen.",
+  "trendsEmptyBody": "Trag deine Mahlzeiten an mindestens zwei Tagen ein,\num hier deinen Verlauf zu sehen.",
   "trendsErrorTitle": "Trends konnten nicht geladen werden",
   "trendsErrorBody": "Prüfe deine Internetverbindung und versuche es erneut.",
   "trendsRetryCta": "Erneut versuchen",
@@ -1219,7 +1300,7 @@
   "goalsUnitPerDay": "/Tag",
   "goalsDailyTargetsNote": "Das Schrittziel steuert nur die Schritte-Karte – dein Kalorienziel ändert es nicht.",
   "goalsGroupReminders": "Erinnerungen",
-  "goalsFieldReminders": "Streak-Erinnerung",
+  "goalsFieldReminders": "Serien-Erinnerung",
   "goalsRemindersSubtitle": "Lokal auf diesem Gerät, ohne Server.",
   "goalsReminderBlockedSemantics": "Lokale Erinnerungen — vom System blockiert",
   "goalsReminderActiveSemantics": "Lokale Erinnerungen aktivieren",
@@ -1248,7 +1329,59 @@
   "settingsLegalImprint": "Impressum",
   "settingsAboutTitle": "Über Eatova",
   "settingsAboutSubtitle": "Version, Quellen & Datenschutz",
-  "settingsSignOutTitle": "Ausloggen",
+  "settingsAiDataTitle": "KI & Daten",
+  "settingsAiDataConsentTitle": "KI-Einwilligung",
+  "settingsAiDataConsentGiven": "Erteilt am {date}",
+  "@settingsAiDataConsentGiven": {
+    "placeholders": {
+      "date": { "type": "String" }
+    }
+  },
+  "settingsAiDataConsentWithdrawn": "Widerrufen am {date}. KI-Funktionen fragen vorher nach.",
+  "@settingsAiDataConsentWithdrawn": {
+    "placeholders": {
+      "date": { "type": "String" }
+    }
+  },
+  "settingsAiDataConsentNotGiven": "Nicht erteilt. KI-Funktionen fragen vorher nach.",
+  "settingsAiDataConsentOutdated": "Die Hinweise haben sich geändert. Beim nächsten KI-Aufruf fragen wir erneut.",
+  "settingsAiDataConsentLoading": "Wird geladen …",
+  "settingsAiDataConsentPending": "Widerrufen. Wird übertragen, sobald du online bist.",
+  "settingsAiDataWithdrawAction": "Widerrufen",
+  "settingsAiDataGrantAction": "Einwilligen",
+  "settingsAiDataWithdrawTitle": "KI-Einwilligung widerrufen?",
+  "settingsAiDataWithdrawBody": "Foto-Scan, Beschreiben, Coach und Rezept-Import fragen dann wieder nach, bevor sie etwas senden. Bereits gesendete Anfragen betrifft das nicht.",
+  "settingsAiDataWithdrawConfirm": "Widerrufen",
+  "settingsAiDataWithdrawnSnack": "Einwilligung widerrufen.",
+  "settingsAiDataWithdrawnPendingSnack": "Widerrufen. Eatova sendet nichts mehr; der Eintrag wird übertragen, sobald du online bist.",
+  "settingsAiDataGrantedSnack": "Einwilligung erteilt.",
+  "settingsSupportTitle": "Feedback & Support",
+  "settingsSupportSubtitle": "Schreib uns an support@eatova.de",
+  "settingsSupportMailSubject": "Eatova Feedback – Version {version} ({build})",
+  "@settingsSupportMailSubject": {
+    "placeholders": {
+      "version": { "type": "String" },
+      "build": { "type": "String" }
+    }
+  },
+  "settingsSupportMailFailed": "Keine Mail-App gefunden. Schreib uns an support@eatova.de.",
+  "aiConsentTitle": "Einwilligung für KI-Funktionen",
+  "aiConsentIntro": "Foto-Scan, Mahlzeit beschreiben, der Coach und der Rezept-Import arbeiten mit KI. Dafür schickt Eatova Daten an KI-Anbieter, aber erst, wenn du hier zustimmst.",
+  "aiConsentFeaturesLabel": "Diese Funktionen nutzen KI",
+  "aiConsentFeaturesBody": "Foto-Scan von Mahlzeiten (Kamera oder Galerie), Mahlzeit beschreiben per Text oder Sprache, der Coach mit Fragen, Fotos, /recipe, /plan und /log sowie der Rezept-Import.",
+  "aiConsentDataLabel": "Was gesendet wird",
+  "aiConsentDataBody": "Je nach Funktion: deine Fotos, Texte und diktierten Sätze (als Text), Mahlzeiten und Nährwerte, deine Ziele aus dem Profil, deine Ernährungsform und was du meidest (etwa Unverträglichkeiten), dein Gewicht und Gewichtsverlauf sowie beim Coach ein Überblick über die letzten sieben Tage. Das sind Gesundheitsdaten.",
+  "aiConsentProvidersLabel": "Wer die Daten verarbeitet",
+  "aiConsentProvidersBody": "Anthropic (Claude) liest Texte und Fotos und schreibt die Antworten. Die Bilder für Rezeptkarten erstellt ein Bildmodell von Google über OpenRouter, nur aus Titel und Beschreibung des Rezepts. Die Verarbeitung kann in den USA stattfinden; dort sind deine Rechte schwerer durchzusetzen als in der EU.",
+  "aiConsentVoluntaryLabel": "Freiwillig und widerrufbar",
+  "aiConsentVoluntaryBody": "Ohne Einwilligung funktioniert alles außer den KI-Funktionen. Du kannst sie jederzeit unter Einstellungen → KI & Daten widerrufen; danach sendet Eatova nichts mehr an die KI-Anbieter, bis du erneut zustimmst.",
+  "aiConsentPrivacyLink": "Datenschutzerklärung öffnen",
+  "aiConsentHealthCheckbox": "Ich willige ausdrücklich ein, dass Eatova für diese Funktionen meine Gesundheitsdaten an die genannten KI-Anbieter übermittelt (Art. 9 Abs. 2 lit. a DSGVO).",
+  "aiConsentAccept": "Zustimmen und fortfahren",
+  "aiConsentSaving": "Wird gespeichert …",
+  "aiConsentNotNow": "Nicht jetzt",
+  "aiConsentSaveFailed": "Die Einwilligung konnte nicht gespeichert werden. Prüfe deine Verbindung und versuch es noch einmal. Bis dahin wird nichts gesendet.",
+  "settingsSignOutTitle": "Abmelden",
   "settingsSignOutFailed": "Abmelden fehlgeschlagen. Bitte versuche es erneut.",
   "settingsDeleteAccountTitle": "Konto löschen",
   "settingsDeleteAccountBlockSubtitle": "Entfernt alle Einträge dauerhaft",
@@ -1368,6 +1501,11 @@
   },
 
   "onboardingBackSemanticLabel": "Zurück",
+  "onboardingSignOutMenuLabel": "Weitere Optionen",
+  "onboardingSignOutAction": "Abmelden",
+  "onboardingSignOutConfirmTitle": "Abmelden?",
+  "onboardingSignOutConfirmBody": "Deine Antworten hier werden nicht gespeichert. Danach kannst du dich mit einem anderen Konto anmelden.",
+  "onboardingSignOutConfirm": "Abmelden",
   "onboardingActivatePlanCta": "Plan aktivieren",
   "onboardingNextCta": "Weiter",
   "onboardingBodyTitle": "Dein Körper.",
@@ -1506,14 +1644,19 @@
   "onboardingPlanBreakdownTitle": "So entsteht dein Tagesziel",
   "onboardingReviewTarget": "Wunschgewicht",
   "onboardingReviewPace": "Tempo",
-  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Körperdaten und Ziele kannst du später im Profil ändern.",
+  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Ein Wochen-Check gleicht sie später mit deinen Einträgen und Wiegungen ab, dafür wiegst du dich am besten 2–3× pro Woche. Körperdaten und Ziele kannst du später im Profil ändern.",
 
   "coachErrorEmptyReply": "Leere Antwort vom Coach.",
   "coachErrorUnreachable": "Der Coach ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.",
   "coachErrorTimeout": "Der Coach hat zu lange gebraucht. Bitte versuch es nochmal.",
   "coachErrorNoConnection": "Keine Verbindung zum Coach. Prüf deine Internetverbindung und versuch es nochmal.",
   "coachErrorSessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich neu an, dann antwortet der Coach wieder.",
-  "coachErrorQuotaFallback": "Tageslimit erreicht. Morgen geht's weiter.",
+  "coachErrorQuotaFallback": "Tageslimit erreicht. Weiter geht's um {resetTime} Uhr.",
+  "@coachErrorQuotaFallback": {
+    "placeholders": {
+      "resetTime": { "type": "String" }
+    }
+  },
   "coachErrorTooManyRequests": "Zu viele Anfragen. Bitte versuch es gleich nochmal.",
   "coachErrorRequestFailed": "Der Coach konnte deine Anfrage nicht verarbeiten.",
 
@@ -1605,16 +1748,27 @@
   },
 
   "notifChannelName": "Eatova Erinnerungen",
-  "notifChannelDescription": "Tägliche Streak-Erinnerung am Abend.",
-  "notifStreakSaveTitle": "Streak retten",
+  "notifChannelDescription": "Tägliche Serien-Erinnerung am Abend.",
+  "notifStreakSaveTitle": "Serie retten",
   "notifStreakSaveBody": "Deine {streak}-Tage-Serie wartet — ein Foto genügt.",
   "@notifStreakSaveBody": {
     "placeholders": {
       "streak": { "type": "int" }
     }
   },
-  "notifStreakStartTitle": "Streak starten",
-  "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten.",
+  "notifStreakStartTitle": "Serie starten",
+  "notifStreakStartBody": "Ein Eintrag genügt, um deine Serie zu starten.",
+  "reminderHalfDayTitle": "Tagebuch für heute",
+  "@reminderHalfDayTitle": {
+    "description": "Evening reminder when today holds entries but less than half the daily goal (the complete-day rule)."
+  },
+  "reminderHalfDayBody": "Heute erst {kcal} kcal eingetragen – fehlt noch etwas?",
+  "@reminderHalfDayBody": {
+    "description": "Body of that reminder; kcal is today's logged total when the reminder was planned.",
+    "placeholders": {
+      "kcal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
   "trainingRestAlertTitle": "Pause vorbei",
   "trainingRestAlertBody": "Zeit für den nächsten Satz.",
   "trainingIntervalAlertTitle": "Zeit um",
@@ -1775,7 +1929,12 @@
   "authCodeErrorRejected": "Der Code stimmt nicht oder ist abgelaufen. Fordere unten einfach einen neuen an.",
   "authCodePasswordUpdated": "Passwort aktualisiert. Melde dich mit deinem neuen Passwort an.",
   "authCodeSignupConfirmed": "E-Mail bestätigt. Melde dich an, um fortzufahren.",
-  "coachInfoLimitUnknown": "Wie viele Fragen heute frei sind, lässt sich gerade nicht abrufen. Reset um Mitternacht (UTC).",
+  "coachInfoLimitUnknown": "Wie viele Fragen heute frei sind, lässt sich gerade nicht abrufen. Neue Fragen ab {resetTime} Uhr.",
+  "@coachInfoLimitUnknown": {
+    "placeholders": {
+      "resetTime": { "type": "String" }
+    }
+  },
   "settingsAccountEmailNotAvailable": "Diese Adresse können wir nicht übernehmen. Falls es dazu schon ein Konto gibt, melde dich damit an; sonst prüfe bitte die Schreibweise.",
   "settingsDeleteAccountCheckingCta": "Wird geprüft…",
   "settingsDeleteAccountCodeFieldLabel": "Bestätigungs-Code",
@@ -1846,6 +2005,8 @@
   "coachMessageNotSent": "Nicht gesendet",
   "coachMessageRetry": "Erneut senden",
   "exportShareFile": "Als Datei teilen",
+  "exportShareFailed": "Die Datei konnte nicht geteilt werden.",
+  "exportShareSubject": "Eatova-Datenexport",
   "exportPreviewShortened": "Die Anzeige ist gekürzt. Kopieren und Teilen enthalten immer alle geladenen Daten.",
   "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
   "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal.",
@@ -2386,6 +2547,8 @@
   "recipeEditTitle": "Rezept bearbeiten",
   "recipeEditIntro": "Passe dein Rezept an. Bereits eingetragene Mahlzeiten bleiben unverändert.",
   "recipeEditDescription": "Beschreibung",
+  "recipeCategoryPickerLabel": "Kategorien",
+  "recipeCategoryPickerHint": "Optional. So findest du das Rezept auch über die Filter.",
   "recipeEditSave": "Änderungen speichern",
   "recipeEditSaved": "Rezept aktualisiert",
   "recipeEditPreparationHint": "Beschreibe die Zubereitung Schritt für Schritt.",
@@ -2409,6 +2572,20 @@
   "mealPlanNextWeek": "Nächste Woche",
   "mealPlanAdd": "Mahlzeit planen",
   "mealPlanEdit": "Planung bearbeiten",
+  "mealPlanAddRecipe": "Zum Speiseplan",
+  "mealPlanDayKcal": "{planned} von {goal} kcal geplant",
+  "@mealPlanDayKcal": {
+    "placeholders": {
+      "planned": { "type": "int", "format": "decimalPattern" },
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanDayKcalUnknown": "{count, plural, =1{1 Mahlzeit ohne kcal} other{{count} Mahlzeiten ohne kcal}}",
+  "@mealPlanDayKcalUnknown": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "mealPlanEatToday": "Als heute gegessen abhaken",
   "mealPlanEatenOn": "Am {date} eingetragen",
   "@mealPlanEatenOn": {
@@ -2726,8 +2903,19 @@
   "todayDayStripLabel": "Tag wählen",
   "todayDayStripEarlier": "Frühere Tage",
   "todayDayStripLater": "Spätere Tage",
+  "todayDayCellComplete": "{day}, vollständig eingetragen",
+  "@todayDayCellComplete": {
+    "description": "Screen-reader label of a day-strip cell whose day passes the complete-day rule; day is the cell's normal label.",
+    "placeholders": {
+      "day": { "type": "String" }
+    }
+  },
   "todayStreakSemantics": "{count, plural, =1{Serie: 1 Tag in Folge} other{Serie: {count} Tage in Folge}}",
   "@todayStreakSemantics": {"placeholders": {"count": {"type": "int"}}},
+  "streakYesterdayHint": "Gestern ist noch leer – nachtragen hält deine Serie.",
+  "@streakYesterdayHint": {
+    "description": "Quiet Today line before the first entry of the day when yesterday is empty and an entry for yesterday would save the streak; opens the add flow on yesterday."
+  },
   "todayProfileAndSettings": "Profil und Einstellungen",
   "todayCaloriesTitle": "Kalorien",
   "todayEatenPercent": "{percent} % gegessen",
@@ -2760,7 +2948,7 @@
   "todayOpenFoodLog": "Tagebuch öffnen",
   "todaySlotSuggested": "Empfohlen {min}–{max} kcal",
   "@todaySlotSuggested": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
-  "todaySlotNothingLogged": "Nichts geloggt",
+  "todaySlotNothingLogged": "Nichts eingetragen",
   "todayStepsOfGoal": "/ {goal} Schritte",
   "@todayStepsOfGoal": {"placeholders": {"goal": {"type": "String"}}},
   "todayStepsNoGoal": "Schritte",
@@ -3185,6 +3373,8 @@
   "exportMessages": "Coach-Nachrichten",
   "exportQuota": "Coach-Nutzung",
   "exportAiUsage": "KI-Nutzung",
+  "exportAiConsents": "KI-Einwilligungen",
+  "exportAiReports": "Gemeldete KI-Antworten",
   "exportMissing": "Nicht geladene Bereiche",
   "exportCapped": "Gekürzte Bereiche",
   "exportCompletenessUnknown": "Vollständigkeit unbekannt",
@@ -3287,7 +3477,7 @@
   "recipesChipMine": "Meine Rezepte",
   "recipesAddChoiceSemantics": "Neues oder importiertes Rezept",
   "recipesAddChoiceTitle": "Rezept hinzufügen",
-  "recipesAddChoiceImportBody": "Von einer Website, aus einer Videobeschreibung oder als Text.",
+  "recipesAddChoiceImportBody": "Aus einem TikTok-Link oder als kopierter Rezepttext, etwa von einer Website.",
   "recipesAddChoiceCreateBody": "Trag dein eigenes Gericht mit seinen Nährwerten ein.",
   "recipesHeroPickedEyebrow": "{slot, select, breakfast{Fürs Frühstück} lunch{Fürs Mittagessen} dinner{Für heute Abend} other{Für dich}}",
   "@recipesHeroPickedEyebrow": {"placeholders": {"slot": {"type": "String"}}},
@@ -3299,7 +3489,7 @@
   "recipesAiImageLabel": "KI-generiertes Bild",
   "recipesShelfLeanTitle": "Viel Protein, unter 500 kcal",
   "recipesYourRecipesTitle": "Deine Rezepte",
-  "recipesYourRecipesBody": "Importiere eins von einer Website oder leg dein eigenes an.",
+  "recipesYourRecipesBody": "Importiere eins aus TikTok oder als Text, oder leg dein eigenes an.",
   "recipesCreateButton": "Erstellen",
   "recipesHeroRecommendedEyebrow": "Empfehlung",
   "recipesChipUnder600": "Unter 600 kcal",
@@ -3309,6 +3499,8 @@
   "mealPlanReceiptOpen": "Noch offen",
   "mealPlanReceiptThanks": "Guten Appetit!",
   "mealPlanReceiptStamp": "Erledigt",
+  "shoppingCopyText": "Als Text kopieren",
+  "shoppingCopied": "Einkaufsliste kopiert.",
   "mealPlanPantryTitle": "Gewürze & Vorrat",
   "mealPlanPantryNote": "Meist schon im Schrank. Hake ab, was du noch hast.",
   "mealPlanPantryExpand": "Einzeln abhaken",
@@ -3491,7 +3683,7 @@
   "@todayWeighChipSemantics": {"description": "Screen reader label of Today's weight chip (a button).", "placeholders": {"kg": {"type": "String"}}},
   "todayWeighCheckIn": "{days, plural, =1{Wochen-Check frühestens morgen} other{Wochen-Check frühestens in {days} Tagen}}",
   "@todayWeighCheckIn": {"description": "Today's progress line: the earliest day the weekly check can run if every day gets logged and weighed as needed.", "placeholders": {"days": {"type": "int"}}},
-  "todayWeighLoggedToGo": "{count, plural, =1{noch 1 Tag eintragen} other{noch {count} Tage eintragen}}",
+  "todayWeighLoggedToGo": "{count, plural, =1{noch 1 vollständiger Tag} other{noch {count} vollständige Tage}}",
   "@todayWeighLoggedToGo": {"description": "Part of Today's progress line: logged days the weekly check still needs, today included.", "placeholders": {"count": {"type": "int"}}},
   "todayWeighWeighInsToGo": "{count, plural, =1{noch 1 Wiegung} other{noch {count} Wiegungen}}",
   "@todayWeighWeighInsToGo": {"description": "Part of Today's progress line: weigh-in days the weekly check still needs.", "placeholders": {"count": {"type": "int"}}},
@@ -3499,6 +3691,62 @@
   "@todayWeighJoin": {"description": "Joins two parts of Today's progress line.", "placeholders": {"first": {"type": "String"}, "second": {"type": "String"}}},
   "todayWeighCheckReady": "Wochen-Check aktiv · deine Daten reichen",
   "@todayWeighCheckReady": {"description": "Today's progress line once the weekly check has enough data and proposes nothing."},
+  "weeklyCheckLineHint": "Erklärt den Wochen-Check",
+  "@weeklyCheckLineHint": {
+    "description": "Screen-reader hint of Today's weekly-check line, which opens the explainer sheet."
+  },
+  "weeklyCheckExplainTitle": "So funktioniert der Wochen-Check",
+  "weeklyCheckExplainCompare": "Eatova vergleicht, was du in den letzten {days} Tagen eingetragen hast, mit der Entwicklung deines Gewichts. Daraus schätzt es, was du tatsächlich verbrauchst.",
+  "@weeklyCheckExplainCompare": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "weeklyCheckExplainData": "Dafür braucht es {days} vollständige Tage, also jeweils mindestens die Hälfte deines Tagesziels eingetragen, und {weighIns} Wiegungen, die erste und die letzte mindestens {span} Tage auseinander. Am besten wiegst du dich 2–3× pro Woche morgens vor dem Frühstück.",
+  "@weeklyCheckExplainData": {
+    "placeholders": {
+      "days": { "type": "int" },
+      "weighIns": { "type": "int" },
+      "span": { "type": "int" }
+    }
+  },
+  "weeklyCheckExplainStep": "Weicht dein Verbrauch deutlich von der Rechnung ab, schlägt der Check ein neues Tagesziel vor: höchstens {step} kcal auf einmal und insgesamt höchstens {max} kcal. Ohne dein „Anpassen“ ändert sich nichts.",
+  "@weeklyCheckExplainStep": {
+    "placeholders": {
+      "step": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "weeklyCheckResultTitle": "Dein Wochen-Check",
+  "weeklyCheckResultBurn": "Verbrauch ≈ {kcal} kcal am Tag",
+  "@weeklyCheckResultBurn": {
+    "description": "Expenditure the weekly check estimated from intake and weight change, rounded to 10.",
+    "placeholders": {
+      "kcal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultFits": "Dein Tagesziel von {goal} kcal passt dazu.",
+  "@weeklyCheckResultFits": {
+    "placeholders": {
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultHeld": "Dein Tagesziel bleibt bei {goal} kcal: Es liegt schon an einer Grenze.",
+  "@weeklyCheckResultHeld": {
+    "description": "The data asks for a change, but the adjustment cap, the floor or the ceiling holds the goal.",
+    "placeholders": {
+      "goal": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "weeklyCheckResultRate": "Gemessen: {measured} · Plan: {plan}",
+  "@weeklyCheckResultRate": {
+    "description": "Weight change the check measured over three weeks against the pace the goal plans; both are pace labels like '−0,4 kg/Woche'.",
+    "placeholders": {
+      "measured": { "type": "String" },
+      "plan": { "type": "String" }
+    }
+  },
+  "weeklyCheckResultMore": "So funktioniert’s",
   "foodPrefsAvoidLactose": "Laktose",
   "foodPrefsAvoidGluten": "Gluten",
   "foodPrefsAvoidNuts": "Nüsse",
@@ -3534,7 +3782,7 @@
   "trendsRangeMonthsSemantics": "Zeitraum {count} Monate",
   "@trendsRangeMonthsSemantics": {"placeholders": {"count": {"type": "int"}}},
   "trendsChartTitleWeekly": "Wochenschnitt",
-  "trendsWeeklyBarsNote": "Ab 90 Tagen steht ein Balken für eine Woche: Ø je erfasstem Tag dieser Woche.",
+  "trendsWeeklyBarsNote": "Ab 90 Tagen steht ein Balken für eine Woche: Ø je vollständigem Tag dieser Woche.",
   "trendsProteinGoalDays": "Proteinziel an {hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} erreicht",
   "@trendsProteinGoalDays": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}}},
   "trendsStepsTitle": "Ø SCHRITTE",
@@ -3566,7 +3814,7 @@
   "todayTrendsSub": "Ø der letzten 7 Tage",
   "todayTrendsKcalLabel": "Kalorien",
   "todayTrendsStepsLabel": "Schritte",
-  "todayTrendsEmpty": "Sobald ein Tag abgeschlossen ist, siehst du hier deinen Schnitt.",
+  "todayTrendsEmpty": "Sobald ein Tag vollständig eingetragen ist, siehst du hier deinen Schnitt.",
   "todayTrendsOpenHint": "Öffnet Kalorien, Makros, Schritte, Gewicht und Training über bis zu 6 Monate",
   "foodTrendsButtonSemantics": "Trends öffnen"
 }

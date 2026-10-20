@@ -13,6 +13,7 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_controller.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/services/coach_quota_reset.dart';
 
 // CoachChatController without widgets: the session, answer and wait fences
 // that the Coach widget tests pin through the screen, here against a scripted
@@ -634,7 +635,10 @@ void main() {
       // A known-empty quota blocks locally: no request, no slot.
       await coach.send('Noch eine');
       expect(svc.sends, hasLength(1));
-      expect(coach.error, deL10n.coachErrorDailyLimitReached(5));
+      expect(
+        coach.error,
+        deL10n.coachErrorDailyLimitReached(5, coachQuotaResetLabel('de')),
+      );
     });
 
     test('the retry replaces the failed bubble instead of adding one',

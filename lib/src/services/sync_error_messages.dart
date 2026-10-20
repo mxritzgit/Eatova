@@ -21,11 +21,28 @@ import 'sync_outbox.dart'
 /// `TlsException` implements it and package:http wraps only Socket/Http; a
 /// [FileSystemException] then also counts as "network", which costs retries,
 /// not data. Server error responses are excluded: the server was reachable.
+/// A 2xx answer without JSON counts as network ([isUnreadableSuccessResponse]).
 bool isNetworkSyncError(Object error) =>
     error is IOException ||
     error is TimeoutException ||
     error is ClientException ||
-    error is AuthRetryableFetchException;
+    error is AuthRetryableFetchException ||
+    isUnreadableSuccessResponse(error);
+
+/// True for a 2xx answer whose body is not JSON (SYNC-5): a captive portal's
+/// login page or a proxy's page served with 200, or a body cut off on the
+/// way. postgrest 2.9.1 throws it as a [PostgrestException] whose `code` is
+/// that 2xx status; a real PostgREST error never carries a success status.
+/// As after a timeout, the server outcome is unknown and the replay is
+/// idempotent, so it retries without spending the outbox budget. 5xx answers
+/// keep their counted retries (owner decision).
+bool isUnreadableSuccessResponse(Object error) {
+  if (error is! PostgrestException) return false;
+  final code = error.code;
+  if (code == null || code.length != 3) return false;
+  final status = int.tryParse(code);
+  return status != null && status >= 200 && status < 300;
+}
 
 /// True for a GoTrue answer that CAME BACK carrying an HTTP status >= 500.
 ///

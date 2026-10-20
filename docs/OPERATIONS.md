@@ -220,8 +220,10 @@ group by route
 order by max_tokens_stops desc;
 ```
 
-Two recommended alerts, as instructions; none is configured by this
-repository. Follow the record and test rules above for each.
+Two recommended alerts, as instructions. The second runs in the
+[ops watch](#ops-watch) once its environment exists; the first is not
+configured by this repository. Follow the record and test rules above for
+each.
 
 1. **Edge Function 5xx rate.** Every 5 minutes, count responses by status in
    `function_edge_logs` (the gateway's view, which also sees boot errors and
@@ -296,15 +298,82 @@ an empty backup inventory. A UTC midnight rollover invalidates that snapshot;
 rerun once for the new day. Output excludes project names/refs, account IDs,
 tokens, payloads and provider error bodies.
 
-No schedule, notification route or paid resource is installed by this tool.
-Run it from a trusted operator host or protected deployment environment; never
-expose the token to PR code. Add a heartbeat/dead-man check and approved routing
-for exit `1`, exit `2`, and missed runs. Test those routes separately with
+Without `--backup-max-age-hours` the backup check is skipped and the report
+says `"backups": "not_checked_no_max_age_supplied"`; that is not a green
+backup. `--summary FILE` appends a Markdown table of states, budget counters
+and reasons. Requests send a browser user agent, as the deploy tooling does:
+a Cloudflare rule in front of the Management API rejects default library
+agents (error 1010).
+
+The tool itself installs no schedule, notification route or paid resource; the
+[ops watch](#ops-watch) schedules it. Run it from a trusted operator host or
+protected deployment environment; never expose the token to PR code. Add a
+heartbeat/dead-man check and approved routing for exit `1`, exit `2`, and
+missed runs. Test those routes separately with
 synthetic results before a specifically authorized delivery test. If staging
 is omitted it is explicitly unchecked. Two distinct verified project identities
 alone do not prove separate credentials, data, billing or deployment isolation.
 The checker does not establish an Anthropic or OpenRouter money limit, external backups,
 Storage-file coverage, provider retention, Sentry rules or end-to-end recovery.
+
+### Reported Coach answers
+
+Users report Coach answers and generated recipe pictures in the app
+(`public.ai_reports`, see [Backend](BACKEND.md#ai-consent-and-answer-reports)).
+Review them from a trusted operator connection, read-only, newest first, e.g.
+`select created_at, reason, target, message_id, session_id from
+public.ai_reports order by created_at desc limit 50`. A `message_id` that is a
+UUID is `chat_messages.id`; a `local-…` id is an answer the device had not
+reloaded yet, found through `session_id` and the closest assistant message
+before `created_at`. Open message content only as far as the case needs it and
+record the outcome (prompt or guardrail change, provider report) in a
+restricted case record, not in this repository. Nothing alerts on new reports
+yet; who reviews them and how often is an open owner decision.
+
+### Ops watch
+
+**Ops watch** ([ops-watch.yml](../.github/workflows/ops-watch.yml)) runs
+hourly (minute 17) and on demand from `main`. It makes no paid call and reads
+no user data:
+
+1. the readiness check above with `--budget-warning-percent 80`: project
+   identity and health, the AI stop switches, the zero account limit, and the
+   shared daily AI calls and images at 80 % or exhausted. Exit 1 (attention)
+   and exit 2 (unknown) fail the run. Backups are checked only once the
+   variable `OPS_WATCH_BACKUP_MAX_AGE_HOURS` holds the agreed RPO in hours;
+   without it the summary names them as not checked, because a project
+   without completed backups would otherwise fail every hour;
+2. the deploy workflow's boot probe for every function (`probe --slugs all`):
+   preflight 204, the gateway's 401 without a token and the handler's own 401
+   with the anon key. A missing, undeployed or crashing function, or one that
+   lost `verify_jwt`, fails the run.
+
+The job summary holds both tables (states, counters, HTTP statuses); the log
+holds the readiness JSON, which has no ref, token or response body. A failed
+run is the alert: GitHub mails it to the person who last changed the
+schedule, if their notification settings send Actions failures.
+
+One-time setup on GitHub (owner):
+
+1. Create the environment `ops-watch`: deployment branches and tags limited
+   to `main`, administrators not allowed to bypass. No required reviewers: an
+   hourly run cannot wait for an approval, and the job only reads.
+2. Add the environment secrets `SUPABASE_ACCESS_TOKEN` (a management token;
+   prefer a separate one so it can be revoked alone), `SUPABASE_PROJECT_REF`
+   and `SUPABASE_ANON_KEY` (the same public key the deploy probe uses).
+   `supabase-drift` lacks the anon key, and `supabase-deploy` requires an
+   approval per run, so neither is reused.
+3. Optional: the variable `OPS_WATCH_BACKUP_MAX_AGE_HOURS` once an RPO is
+   agreed.
+4. Run the workflow once by hand and keep the run URL as delivery evidence;
+   check that a failed run reaches the owner's mail.
+
+Limits: a run that never happens is silent. GitHub delays scheduled runs
+under load and disables the schedule of a public repository after 60 days
+without activity, so check the workflow's run list when the mails stop
+looking routine. Not watched yet: the Edge Function 5xx rate (alert 1 above)
+and daily `ai_call` totals; Sentry and provider-side spend limits stay with
+their own consoles.
 
 ### Account export and deletion outside the app
 
@@ -432,6 +501,7 @@ Actions, Deploy Edge Functions, Run workflow on `main`:
 - `functions`: comma-separated slugs (`coach-chat,search-key`) or `all`.
 - `sha`: empty deploys the current `main` head; a full 40-character SHA
   deploys that commit, which must be on `main`.
+- `allow_below_floor`: off by default; see [Rollback](#rollback).
 
 After the environment approval the run:
 
@@ -441,24 +511,31 @@ After the environment approval the run:
    `supabase/config.toml` sets `verify_jwt = false` (there is none today, so
    the CLI default `verify_jwt = true` applies; the workflow never passes
    `--no-verify-jwt`);
-3. reads each function's version and downloads its live source, compared with
+3. refuses a commit older than a chosen function's lowest safe rollback
+   commit (below), and a commit with a migration that is not registered in
+   the live `supabase_migrations.schema_migrations` (the drift job's query,
+   against the target's own `supabase/migrations/`): a function deployed
+   before its migration answers its RPCs with 5xx. Apply the migration first;
+4. reads each function's version and downloads its live source, compared with
    the commit ignoring CRLF; a mismatch here only shows what was live before;
-4. deploys one function after another with the pinned CLI and `--use-api`;
-5. reads back ACTIVE, `verify_jwt = true` and a new version, downloads the live
+5. deploys one function after another with the pinned CLI and `--use-api`;
+6. reads back ACTIVE, `verify_jwt = true` and a new version, downloads the live
    source again and compares it byte for byte with the function's import
    graph in the commit: a missing, changed or unexpected file fails;
-6. runs the boot probe: preflight 204, 401 from the gateway without a token,
+7. runs the boot probe: preflight 204, 401 from the gateway without a token,
    and the handler's own 401 with the anon key, which proves it booted and
    passed its configuration check. No user token, no paid call; a key that
    reaches the Auth lookup counts one failed lookup for the runner's address;
-7. writes the deploy record and the job summary.
+8. writes the deploy record and the job summary.
 
 The record (artifact `deploy-record-<run>-attempt-<n>`, kept 90 days) holds the
 source and `main` SHAs, the rollback flag, the slugs, versions before and
-after, each check, the CLI version, times and the run URL; no project ref, key
-or response body. Copy its essentials into the handoff entry of the rollout.
-Any failed check fails the run. A failure after step 4 may mean some functions
-are already live: read the record, then fix forward or roll back.
+after, each check, whether the target's migrations were registered, which
+functions went below their floor on an override, the CLI version, times and
+the run URL; no project ref, key or response body. Copy its essentials into
+the handoff entry of the rollout. Any failed check fails the run. A failure
+after step 5 may mean some functions are already live: read the record, then
+fix forward or roll back.
 
 Only one run is active at a time and a running deploy is never cancelled.
 GitHub keeps at most one waiting run per group: queuing another one cancels
@@ -472,6 +549,22 @@ older function must work with the current schema (migrations are
 forward-only, see the RPCs it calls) and with installed app builds. When in
 doubt, fix forward with a reviewed PR. `_shared` code is part of every
 function's graph, so roll back all functions that need the older version.
+
+Each function has a lowest safe rollback commit (`ROLLBACK_FLOORS` in
+[deploy_functions.py](../scripts/operations/deploy_functions.py)); a target
+that does not contain it is refused:
+
+| Function | Floor | Why |
+| --- | --- | --- |
+| `coach-chat` | `a3a7263b` | Clients from #155 send `preferences` to `/recipe`; older handlers reject it with 400 |
+| `analyze-meal`, `recipe-import`, `search-key` | `ea2722e6` | The last source verified live with today's schema and clients (identical before the #155 deploy); nothing older was checked against them |
+
+Only set `allow_below_floor` after checking that the older handler works with
+the installed clients and the live schema; the record names the functions
+deployed below their floor. Raise a floor in the same PR that makes older
+handlers incompatible (a new required request field, a renamed RPC, a
+migration the old code breaks on), and give a new function its floor before
+its first deploy.
 
 ## Client release and rollback gate
 
@@ -496,9 +589,10 @@ SQLite build without the recovery guard are not eligible rollback targets,
 even if their old CI was green. Port the corrective change onto a compatible
 SQLite build, review/test it and obtain fresh eligibility. The supported process
 does not allow reinstalling an obsolete binary over a migrated installation.
-There is no automated app-store publication pipeline in this repository; this
-gate attests eligibility and cannot physically prevent manual uploads, bypasses
-or sideloads. See the [data preservation and recovery contract](OFFLINE_SYNC.md#client-rollback-contract).
+The Android [release lane](DEVELOPMENT.md#release-lane) runs this check for
+the commit it builds and keeps the result with the signed bundle; the gate
+still attests eligibility only and cannot physically prevent manual uploads,
+bypasses or sideloads. See the [data preservation and recovery contract](OFFLINE_SYNC.md#client-rollback-contract).
 
 Review this runbook after an incident or major platform change. A documented
 procedure must still be exercised; do not mark operational readiness complete

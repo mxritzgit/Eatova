@@ -263,15 +263,21 @@ class _TrendsScreenState extends State<TrendsScreen> {
     }
 
     // B6: the CHART includes today; the METRICS exclude it, or a partial day
-    // would count as a full one.
+    // would count as a full one. They also count complete days only, and
+    // say how many logged days they left out (2026-10-19).
     final avgKcal = report.avgKcal;
     final hits = report.hits;
     final macros = report.macros;
     final hatBonus = report.goalPerDay.any((g) => g != widget.kcalGoal);
+    // Logged days exist, none of them complete: say that, not "no day yet".
+    final noMetricDay = report.loggedDays > 0
+        ? l10n.trendsNoCompleteDay
+        : l10n.trendsNoCompletedDay;
     return [
       _ChartCard(
         // From 90 days on one bar is a week ([TrendRange.weekly]).
         values: [for (final bar in report.kcalBars) bar.value],
+        partial: [for (final bar in report.kcalBars) bar.partial],
         rangeDays: _rangeDays,
         kcalGoal: widget.kcalGoal,
         goalPerDay: [for (final bar in report.kcalBars) bar.goal],
@@ -290,8 +296,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
               ? '–'
               : '${formatThousands(avgKcal.round(), l10n.localeName)} kcal',
           sub: avgKcal == null
-              ? l10n.trendsNoCompletedDay
-              : l10n.trendsStatAvgKcalSub,
+              ? noMetricDay
+              : report.partialDays == 0
+              ? l10n.trendsStatAvgKcalFrom(report.fullDays)
+              : l10n.trendsStatAvgKcalFromSkipped(
+                  report.fullDays,
+                  report.partialDays,
+                ),
         ),
         second: _StatCard(
           key: const ValueKey('trends-goal-rate'),
@@ -301,7 +312,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
               ? '–'
               : '${(hits.hit / hits.tracked * 100).round()} %',
           sub: hits.tracked == 0
-              ? l10n.trendsNoCompletedDay
+              ? noMetricDay
               : l10n.trendsStatGoalRateSub(hits.hit, hits.tracked),
         ),
       ),
@@ -505,6 +516,7 @@ class _RangeSegment extends StatelessWidget {
 class _ChartCard extends StatefulWidget {
   const _ChartCard({
     required this.values,
+    this.partial = const <bool>[],
     required this.rangeDays,
     required this.kcalGoal,
     required this.goalPerDay,
@@ -516,6 +528,9 @@ class _ChartCard extends StatefulWidget {
 
   /// kcal per slot: a day, or a week's average with [weekly].
   final List<int?> values;
+
+  /// Per slot: a day below the complete-day rule, drawn faded.
+  final List<bool> partial;
   final int rangeDays;
   final bool weekly;
 
@@ -641,6 +656,7 @@ class _ChartCardState extends State<_ChartCard> {
                     key: const ValueKey('trends-chart'),
                     painter: _TrendBarPainter(
                       values: widget.values,
+                      partial: widget.partial,
                       goals: widget.goalPerDay,
                       labels: labels,
                       progress: value,
@@ -1461,6 +1477,7 @@ class _ErrorCard extends StatelessWidget {
 class _TrendBarPainter extends CustomPainter {
   _TrendBarPainter({
     required this.values,
+    this.partial = const <bool>[],
     required this.goals,
     required this.labels,
     required this.progress,
@@ -1473,6 +1490,9 @@ class _TrendBarPainter extends CustomPainter {
 
   /// Value per slot, null for a gap.
   final List<int?> values;
+
+  /// Slots below the complete-day rule, drawn faded; empty for none.
+  final List<bool> partial;
 
   /// Goal per slot, same length as [values]; 0 draws no line there.
   final List<int> goals;
@@ -1549,6 +1569,8 @@ class _TrendBarPainter extends CustomPainter {
     final gapW = slotW >= 8 ? 2.0 : 1.0;
     final barW = math.min(24.0, math.max(slotW - gapW, slotW * 0.55));
     final barPaint = Paint()..color = barColor.withValues(alpha: 0.92);
+    // A day left out of the averages stays visible, but recedes.
+    final partialPaint = Paint()..color = barColor.withValues(alpha: 0.35);
     for (var i = 0; i < n; i++) {
       final value = values[i];
       if (value == null || value <= 0) continue;
@@ -1561,7 +1583,7 @@ class _TrendBarPainter extends CustomPainter {
           topLeft: Radius.circular(r),
           topRight: Radius.circular(r),
         ),
-        barPaint,
+        i < partial.length && partial[i] ? partialPaint : barPaint,
       );
     }
 
@@ -1642,6 +1664,7 @@ class _TrendBarPainter extends CustomPainter {
       old.corridor != corridor ||
       !identical(old.labels, labels) ||
       !listEquals(old.values, values) ||
+      !listEquals(old.partial, partial) ||
       !listEquals(old.goals, goals) ||
       old.gridColor != gridColor ||
       old.barColor != barColor ||

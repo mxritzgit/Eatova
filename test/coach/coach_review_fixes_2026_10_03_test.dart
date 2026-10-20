@@ -24,6 +24,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/services/coach_quota_reset.dart';
 import 'package:eatova/src/services/dictation_language.dart';
 import 'package:eatova/src/services/screen_awake.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
@@ -621,7 +622,12 @@ void main() {
       await _mount(tester, coach, planDraftRequest: 1);
 
       expect(_briefSubmit, findsNothing);
-      expect(find.text(deL10n.coachErrorDailyLimitReached(5)), findsOneWidget);
+      expect(
+        find.text(
+          deL10n.coachErrorDailyLimitReached(5, coachQuotaResetLabel('de')),
+        ),
+        findsOneWidget,
+      );
       expect(coach.planCalls, isEmpty);
     });
 

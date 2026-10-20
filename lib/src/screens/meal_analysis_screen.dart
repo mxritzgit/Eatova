@@ -40,6 +40,7 @@ import '../widgets/kcal/food_date_picker.dart';
 import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import '../widgets/kcal/meal_scan_preview_sheet.dart';
+import '../widgets/shared/ai_consent_sheet.dart';
 import 'barcode_scanner_sheet.dart';
 import '../widgets/recipes/recipe_pick_actions.dart';
 import 'trends_screen.dart';
@@ -257,6 +258,8 @@ class MealAnalysisScreen extends StatelessWidget {
   // AI scan: in-app camera with slot picker -> photo -> analysis -> result
   // sheet in the chosen slot.
   Future<void> _scanWithCamera(BuildContext context) async {
+    // AI consent before the camera opens (2026-10-19).
+    if (!await ensureAiConsent(context) || !context.mounted) return;
     final identity = MealScanIdentity();
     final add = _addToShownDay();
     final capture = await cameraLauncher.launch(

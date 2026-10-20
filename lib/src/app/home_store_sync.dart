@@ -697,6 +697,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             loggedMeals = loggedMeals
                 .where((meal) => meal.id != op.entityId)
                 .toList();
+          case SyncOpKind.weightUpsert:
+          case SyncOpKind.weightDelete:
+            weightLog = weightLog.removeEntry(op.entityId);
           case SyncOpKind.trainingPlanUpsert:
           case SyncOpKind.trainingPlanDelete:
             if (!result.trainingHeadConflict &&
@@ -774,12 +777,26 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           final kg = op.weightKg;
           final ts = op.recordedAt;
           if (kg == null || ts == null) break;
-          if (weightLog.entries.any((e) => e.timestamp.isAtSameMomentAs(ts))) {
+          // By id: a queued edit may already have moved the entry's time.
+          if (weightLog.entries.any(
+            (e) =>
+                e.id == op.entityId ||
+                e.id == null && e.timestamp.isAtSameMomentAs(ts),
+          )) {
             break;
           }
           weightLog = weightLog.addEntry(
-            WeightLogEntry(timestamp: ts, weightKg: kg),
+            WeightLogEntry(timestamp: ts, weightKg: kg, id: op.entityId),
           );
+        case SyncOpKind.weightUpsert:
+          final kg = op.weightKg;
+          final ts = op.recordedAt;
+          if (kg == null || ts == null) break;
+          weightLog = weightLog.putEntry(
+            WeightLogEntry(timestamp: ts, weightKg: kg, id: op.entityId),
+          );
+        case SyncOpKind.weightDelete:
+          weightLog = weightLog.removeEntry(op.entityId);
         case SyncOpKind.favoriteUpsert:
           final fav = op.favorite;
           if (fav == null) break;

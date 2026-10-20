@@ -312,4 +312,67 @@ void main() {
       expect(p.weeklyRateKg, closeTo(-0.14, 1e-6));
     });
   });
+
+  // 2026-10-19: the estimate behind the proposal, kept when there is none,
+  // so Today can show the week's result. Same arithmetic, same gates.
+  group('estimate', () {
+    EnergyCheckEstimate? estimate({
+      UserProfile? profile,
+      int intake = 2300,
+      int? burned = 200,
+      WeightLog? weights,
+    }) => const EnergyCheck().estimate(
+      profile: profile ?? _profile(),
+      today: _today,
+      intakeKcal: (day) => day == _today ? 0 : intake,
+      burnedKcal: (_) => burned,
+      weightLog: weights ?? _weights(_daily, kgPerDay: -0.02),
+    );
+
+    test('with a proposal it carries it, and evaluate returns just that', () {
+      final e = estimate()!;
+      expect(e.withinNoise, isFalse);
+      expect(e.proposal!.stepKcal, -150);
+      expect(e.observedKcal, closeTo(2454, 1));
+      expect(e.modelledKcal, 2850);
+      expect(e.currentGoalKcal, 2100);
+      expect(e.weeklyRateKg, closeTo(-0.14, 1e-6));
+      expect(
+        e.planWeeklyRateKg,
+        const KcalCalculator().calculate(_profile()).effectiveWeeklyRateKg,
+      );
+      expect(_evaluate()!.newGoalKcal, e.proposal!.newGoalKcal);
+    });
+
+    test('inside the noise: no proposal, the numbers stay', () {
+      final e = estimate(intake: 2700, burned: 0, weights: _weights(_daily))!;
+      expect(e.proposal, isNull);
+      expect(e.withinNoise, isTrue);
+      expect(e.observedKcal, closeTo(2700, 1e-6));
+      expect(e.weeklyRateKg, closeTo(0, 1e-9));
+      expect(e.loggedDays, 21);
+    });
+
+    test('held at the offset cap or the floor: no proposal, not noise', () {
+      final capped = estimate(profile: _profile(adjustment: -500), intake: 1800)!;
+      expect(capped.proposal, isNull);
+      expect(capped.withinNoise, isFalse);
+      final floored = _profile(
+        sex: BiologicalSex.female,
+        weightKg: 50,
+        heightCm: 155,
+        targetWeightKg: 46,
+      );
+      final held = estimate(profile: floored, intake: 1000, burned: 0)!;
+      expect(held.proposal, isNull);
+      expect(held.withinNoise, isFalse);
+      expect(held.currentGoalKcal, 1200);
+    });
+
+    test('no estimate where the check stays quiet', () {
+      expect(estimate(profile: _profile(manual: true)), isNull);
+      expect(estimate(profile: _profile(checkedOn: _daysAgo(2))), isNull);
+      expect(estimate(weights: _weights([21, 1])), isNull);
+    });
+  });
 }

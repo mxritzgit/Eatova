@@ -11,10 +11,13 @@ import 'user_recipe_reads.dart';
 /// `*_select_own` policy via an RLS-filtered `select('*')`.
 ///
 /// Each table gets its own try. An unreadable table must neither break the
-/// export nor silently look empty — it is named under `unvollstaendig`. A
-/// section cut at [einSeitenLimit] is listed separately under `gekappt`, so
-/// the recipient does not mistake the cap for their whole data set.
-/// Nonempty sections without a server count are explicitly unverified.
+/// export nor silently look empty — it is named under `unvollstaendig`. Every
+/// section is read in keyset pages until the server has no more rows, so the
+/// live PostgREST `max_rows` of 1000 no longer cuts it. A section that still
+/// has rows beyond [grenzeProSektion] is listed separately under `gekappt`,
+/// so the recipient does not mistake the bound for their whole data set. A
+/// section that ends with fewer rows than its first page counted (rows
+/// deleted while paging) is explicitly unverified.
 ///
 /// Because every section error is caught, [buildExportJson] never throws
 /// offline; how much actually arrived is what [exportUmfangAus] reports.
@@ -24,27 +27,58 @@ import 'user_recipe_reads.dart';
 /// the rest, which would only wait for the same failure. The user exports
 /// again once online.
 class DataExportService {
-  DataExportService(this._client, this._userId, {this.pageSize = 1000});
+  DataExportService(
+    this._client,
+    this._userId, {
+    this.pageSize = 1000,
+    this.grenzeProSektion = standardGrenzeProSektion,
+  });
 
   final SupabaseClient _client;
   final String _userId;
 
-  /// Page size of the `logged_meals` pagination; small in tests so the loop
-  /// path is actually exercised.
+  /// Rows asked for per page; small in tests so the loop path is actually
+  /// exercised. The server may answer with fewer (`max_rows`): paging
+  /// continues after the last row until a page comes back empty.
   final int pageSize;
 
-  /// One-page cap for all other tables; only the diary grows without bound
-  /// and therefore paginates. If the cap is hit, the section lands in
-  /// `gekappt`.
-  static const int einSeitenLimit = 10000;
+  /// Safety bound per section (the diary excepted): far above any real
+  /// account, it only stops a server that keeps answering. Rows behind it
+  /// put the section into `gekappt`.
+  final int grenzeProSektion;
+
+  static const int standardGrenzeProSektion = 100000;
+
+  /// Keyset column per paged section: the primary key without `user_id`,
+  /// unique within the account, so `key > last` neither skips nor repeats a
+  /// row. `profiles` and `lifetime_stats` hold one row per account. Every
+  /// table read through `_rows` needs an entry, or it ends up in
+  /// `unvollstaendig`.
+  static const Map<String, String> schluesselSpalten = <String, String>{
+    'profiles': 'id',
+    'lifetime_stats': 'user_id',
+    'favorite_meals': 'favorite_key',
+    'weight_log': 'id',
+    'training_plans': 'id',
+    'planned_meals': 'id',
+    'shopping_checks': 'id',
+    'training_history': 'id',
+    'training_history_deletions': 'id',
+    'chat_sessions': 'id',
+    'chat_messages': 'id',
+    'chat_quota_usage': 'day',
+    'ai_provider_user_usage': 'usage_date',
+    'ai_consents': 'id',
+    'ai_reports': 'id',
+  };
 
   /// Format tag in every export header; [exportUmfangAus] uses it to tell an
   /// export of this service apart from any other JSON.
   static const String formatKennung = 'eatova-export/1';
 
   /// `user_id`-filtered tables with a row-owned-by-user policy. `profiles`
-  /// (key `id`) and `logged_meals` (paginated) run separately but are part of
-  /// [alleExportTabellen].
+  /// (filtered by `id`) and `logged_meals` (its own cursor) run separately
+  /// but are part of [alleExportTabellen].
   ///
   /// `edge_rate_limits` is deliberately absent: no `user_id` (only a SHA-256
   /// subject hash), no select policy, revoked from `authenticated`. Any new
@@ -65,6 +99,8 @@ class DataExportService {
     'chat_messages',
     'chat_quota_usage',
     'ai_provider_user_usage',
+    'ai_consents',
+    'ai_reports',
   ];
 
   /// Every section a complete export must contain. The completeness test
@@ -113,7 +149,7 @@ class DataExportService {
 
     await sektion(
       'profiles',
-      () => _rows('profiles', keySpalte: 'id', gekappt: gekappt,
+      () => _rows('profiles', filterSpalte: 'id', gekappt: gekappt,
           ungeprueft: ungeprueft),
     );
     await sektion('logged_meals', _alleLoggedMeals);
@@ -136,11 +172,10 @@ class DataExportService {
           if (eintrag.value != null) eintrag.key: eintrag.value!,
       };
       export['gekappt'] = <String, dynamic>{
-        'grenzeProSektion': einSeitenLimit,
+        'grenzeProSektion': grenzeProSektion,
         'sektionen': gekappt.keys.toList(),
-        // [einSeitenLimit] is only our cap; PostgREST also cuts at
-        // `db-max-rows`. Without the real row count the recipient would again
-        // mistake a foreign cap for their data set.
+        // Without the real row count the recipient would mistake the bound
+        // for their data set.
         if (gezaehlt.isNotEmpty) 'zeilenAufDemServer': gezaehlt,
       };
     }
@@ -161,57 +196,92 @@ class DataExportService {
     return rows;
   }
 
-  /// One section in a single go, detecting truncation from the server's own
-  /// count rather than a guess about it.
+  /// One section, keyset-paged on its [schluesselSpalten] column: each page
+  /// asks for the rows after the previous page's last key, so deleting an
+  /// already read row cannot shift an unread one past a page boundary, and a
+  /// server cap below [pageSize] (PostgREST `max_rows`) only means more
+  /// pages. Paging ends at an empty page, not at a short one.
   ///
-  /// `Prefer: count=exact` makes the server count in the same request
-  /// (`Content-Range`). If it counts more than arrived, something truncated —
-  /// our cap or PostgREST's silent `db-max-rows`, which an over-fetch-by-one
-  /// probe would miss entirely. Reads skip the client's retry backoff (see
-  /// the class comment).
+  /// The first page also asks the server to count (`Prefer: count=exact`,
+  /// same request): when it already holds every counted row the section is
+  /// done in one request. At [grenzeProSektion] one more row decides
+  /// between "exactly the bound" and `gekappt`. Reads skip the client's
+  /// retry backoff (see the class comment).
   Future<List<Map<String, dynamic>>> _rows(
     String tabelle, {
     required Map<String, int?> gekappt,
     required List<String> ungeprueft,
-    String keySpalte = 'user_id',
+    String filterSpalte = 'user_id',
   }) async {
-    final (alle, aufDemServer) = await _seiteMitZaehler(tabelle, keySpalte);
-
-    if (aufDemServer != null && aufDemServer > alle.length) {
-      gekappt[tabelle] = aufDemServer;
-      return alle;
+    final schluessel = schluesselSpalten[tabelle];
+    if (schluessel == null) {
+      throw StateError('No export key column for $tabelle');
     }
-    // Fetch one row past the cap and trim it: without a count that is the
-    // only way to tell "exactly [einSeitenLimit] rows" from "more behind".
-    if (alle.length > einSeitenLimit) {
-      gekappt[tabelle] = null;
-      return alle.sublist(0, einSeitenLimit);
+    final rows = <Map<String, dynamic>>[];
+    final gesehen = <Object>{};
+    Object? nach;
+    int? aufDemServer;
+    var erste = true;
+    while (true) {
+      final rest = grenzeProSektion - rows.length;
+      final limit = rest <= 0 ? 1 : (rest < pageSize ? rest : pageSize);
+      final List<Map<String, dynamic>> seite;
+      if (erste) {
+        (seite, aufDemServer) =
+            await _ersteSeite(tabelle, filterSpalte, schluessel, limit);
+      } else {
+        seite = await _seite(tabelle, filterSpalte, schluessel, limit, nach);
+      }
+      if (seite.isEmpty) break;
+      if (rest <= 0) {
+        // Rows behind the bound; the probe row is no export content.
+        gekappt[tabelle] = aufDemServer;
+        return rows;
+      }
+      final vorher = rows.length;
+      for (final row in seite) {
+        final Object? key = row[schluessel];
+        // Only scalar keys enter the next filter.
+        if (key == null || (key is! String && key is! int)) {
+          throw FormatException('Invalid export cursor in $tabelle');
+        }
+        if (gesehen.add(key)) rows.add(row);
+      }
+      if (rows.length == vorher) {
+        throw FormatException('Export paging of $tabelle made no progress');
+      }
+      if (erste && aufDemServer != null && rows.length >= aufDemServer) {
+        return rows;
+      }
+      erste = false;
+      nach = seite.last[schluessel];
     }
-    // A short nonempty response without a total may be a smaller server cap.
-    // Preserve the data, but do not label unverified completeness as fact.
-    if (aufDemServer == null && alle.isNotEmpty) ungeprueft.add(tabelle);
-    return alle;
+    // Fewer rows than the first page counted: rows were deleted while paging,
+    // so the section is not proven to be the account's current set.
+    if (aufDemServer != null && rows.length < aufDemServer) {
+      ungeprueft.add(tabelle);
+    }
+    return rows;
   }
 
-  /// One page plus the server's row count, if it sent one.
+  /// The first page plus the server's row count, if it sent one.
   ///
   /// The count is `null` when the response carried no total `Content-Range`
   /// (proxy, older peer) — postgrest-dart throws while unpacking, and the
-  /// export must not fail on that. The fallback over-fetches by one and so
-  /// still catches our own cap; a real error (500, RLS) throws again and ends
-  /// up under `unvollstaendig`.
-  Future<(List<Map<String, dynamic>>, int?)> _seiteMitZaehler(
+  /// export must not fail on that: the page is read again without a count,
+  /// and paging to an empty page still proves completeness. A real error
+  /// (500, RLS) throws again and ends up under `unvollstaendig`.
+  Future<(List<Map<String, dynamic>>, int?)> _ersteSeite(
     String tabelle,
-    String keySpalte,
+    String filterSpalte,
+    String schluessel,
+    int limit,
   ) async {
     try {
-      final antwort = await _client
-          .from(tabelle)
-          .select('*')
-          .eq(keySpalte, _userId)
-          .limit(einSeitenLimit)
-          .count(CountOption.exact)
-          .retry(enabled: false);
+      final antwort =
+          await _abfrage(tabelle, filterSpalte, schluessel, limit, null)
+              .count(CountOption.exact)
+              .retry(enabled: false);
       return (
         antwort.data.map((r) => Map<String, dynamic>.of(r)).toList(),
         antwort.count,
@@ -222,14 +292,34 @@ class DataExportService {
       if (isNetworkSyncError(e)) rethrow;
       dev.log('DataExport: $tabelle ohne Server-Zaehler',
           error: e, stackTrace: st, name: 'data_export');
-      final rows = await _client
-          .from(tabelle)
-          .select('*')
-          .eq(keySpalte, _userId)
-          .limit(einSeitenLimit + 1)
-          .retry(enabled: false);
-      return (rows.map((r) => Map<String, dynamic>.of(r)).toList(), null);
+      final rows = await _seite(tabelle, filterSpalte, schluessel, limit, null);
+      return (rows, null);
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _seite(
+    String tabelle,
+    String filterSpalte,
+    String schluessel,
+    int limit,
+    Object? nach,
+  ) async {
+    final rows = await _abfrage(tabelle, filterSpalte, schluessel, limit, nach)
+        .retry(enabled: false);
+    return rows.map((r) => Map<String, dynamic>.of(r)).toList();
+  }
+
+  PostgrestTransformBuilder<PostgrestList> _abfrage(
+    String tabelle,
+    String filterSpalte,
+    String schluessel,
+    int limit,
+    Object? nach,
+  ) {
+    var query = _client.from(tabelle).select('*').eq(filterSpalte, _userId);
+    // A plain `gt` filter takes the value verbatim; no filter grammar.
+    if (nach != null) query = query.gt(schluessel, nach);
+    return query.order(schluessel, ascending: true).limit(limit);
   }
 
   /// Seek after the last (logged_at, id), so deleting a previously read row

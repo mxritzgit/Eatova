@@ -6,6 +6,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:health/health.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'crash_reporter.dart';
 import 'health_service.dart';
@@ -150,21 +151,28 @@ class HealthAuthVerifier {
   }
 }
 
-class AppleHealthService implements HealthService {
+class AppleHealthService implements HealthService, HealthWeightCorrection {
   /// [health] and [debugIsIOS] are test seams: otherwise the plugin hangs off
   /// the MethodChannel and the platform gate off the runner OS, leaving the
-  /// error branches of [requestAuthorization] untestable.
+  /// error branches of [requestAuthorization] untestable. [ownSourceId]
+  /// names the samples this app wrote (its bundle id).
   AppleHealthService({
     HealthAuthVerifier? verifier,
     Health? health,
     bool? debugIsIOS,
     Future<void> Function(Duration duration)? retryDelay,
+    Future<String?> Function()? ownSourceId,
   }) : _verifier = verifier ?? HealthAuthVerifier(),
        _health = health ?? Health(),
        _isIOS = debugIsIOS ?? Platform.isIOS,
-       _retryDelay = retryDelay ?? Future<void>.delayed;
+       _retryDelay = retryDelay ?? Future<void>.delayed,
+       _ownSourceId = ownSourceId ?? _bundleId;
 
   final Health _health;
+  final Future<String?> Function() _ownSourceId;
+
+  static Future<String?> _bundleId() async =>
+      (await PackageInfo.fromPlatform()).packageName;
   final Future<void> Function(Duration duration) _retryDelay;
 
   /// Right after an unlock HealthKit's protected store can be briefly not
@@ -509,6 +517,42 @@ class AppleHealthService implements HealthService {
       );
     } catch (e, st) {
       _reportError('writeWeight', e, st);
+      return false;
+    }
+  }
+
+  /// Deletes the weight samples Eatova wrote at [when] by their UUID. The
+  /// sample written for a weigh-in sits exactly at its time; samples of
+  /// other sources in the same second (a scale's reading that was imported)
+  /// stay, and HealthKit would refuse to delete them anyway.
+  @override
+  Future<bool> deleteOwnWeight(DateTime when) async {
+    if (!_isIOS) return false;
+    try {
+      await _ensureConfigured();
+      final own = await _ownSourceId();
+      if (own == null || own.isEmpty) return false;
+      final points = await _health.getHealthDataFromTypes(
+        types: const [HealthDataType.WEIGHT],
+        startTime: when.subtract(const Duration(seconds: 1)),
+        endTime: when.add(const Duration(seconds: 1)),
+      );
+      var deleted = false;
+      for (final p in points) {
+        if (p.sourceId != own || p.uuid.isEmpty) continue;
+        if (p.dateFrom.difference(when).abs() > const Duration(seconds: 1)) {
+          continue;
+        }
+        if (await _health.deleteByUUID(
+          uuid: p.uuid,
+          type: HealthDataType.WEIGHT,
+        )) {
+          deleted = true;
+        }
+      }
+      return deleted;
+    } catch (e, st) {
+      _reportError('deleteOwnWeight', e, st);
       return false;
     }
   }

@@ -11,3 +11,6 @@ const String kTermsUrl = 'https://eatova.de/agb';
 
 /// Imprint (provider identification per § 5 DDG).
 const String kImprintUrl = 'https://eatova.de/impressum';
+
+/// Support and privacy contact, also named in error texts and PRIVACY.md.
+const String kSupportEmail = 'support@eatova.de';

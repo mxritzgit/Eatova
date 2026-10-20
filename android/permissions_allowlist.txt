@@ -1,0 +1,16 @@
+# Permissions of the merged release manifest. tool/merged_permissions.py fails
+# the release build in CI when the merged manifest requests anything else or
+# drops an entry; keep this list, the source manifest's removals and the Play
+# Data Safety form in step. Sources from the 2026-10-19 manifest merge report
+# (AGP 8.11.1, processReleaseManifest).
+android.permission.ACCESS_NETWORK_STATE  # app manifest, connectivity_plus
+android.permission.CAMERA  # app manifest, camera_android_camerax (stills only)
+android.permission.FOREGROUND_SERVICE  # workmanager_android, androidx.work
+android.permission.FOREGROUND_SERVICE_SHORT_SERVICE  # workmanager_android
+android.permission.INTERNET  # app manifest, google_sign_in_android
+android.permission.POST_NOTIFICATIONS  # app manifest, flutter_local_notifications
+android.permission.RECEIVE_BOOT_COMPLETED  # app manifest, androidx.work
+android.permission.VIBRATE  # app manifest, flutter_local_notifications
+android.permission.WAKE_LOCK  # androidx.work
+android.permission.health.READ_STEPS  # app manifest, Health Connect steps
+com.eatova.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION  # androidx.core, app-private signature permission

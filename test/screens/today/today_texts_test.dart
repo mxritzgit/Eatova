@@ -109,7 +109,7 @@ void main() {
     test('leerer Slot traegt den wortgleichen Leertext', () {
       expect(
         mealSlotSubtitle(const <LoggedMeal>[], _de),
-        'Noch nichts geloggt',
+        'Noch nichts eingetragen',
       );
     });
 

@@ -118,6 +118,7 @@ Future<MealDescribeOutcome?> showMealDescribeSheet(
   DictationLanguageStore dictationLanguageStore =
       const PrefsDictationLanguageStore(),
   String? contextLabel,
+  String? initialText,
 }) {
   // Own shell and handle: a pull on Material's handle would bypass the
   // discard guard (see SheetDismissGuard).
@@ -139,6 +140,7 @@ Future<MealDescribeOutcome?> showMealDescribeSheet(
       screenAwake: screenAwake,
       dictationLanguageStore: dictationLanguageStore,
       contextLabel: contextLabel,
+      initialText: initialText,
     ),
   );
 }
@@ -157,6 +159,7 @@ class MealDescribeSheet extends StatefulWidget {
     this.screenAwake = const MethodChannelScreenAwake(),
     this.dictationLanguageStore = const PrefsDictationLanguageStore(),
     this.contextLabel,
+    this.initialText,
   });
 
   final MealSlot initialSlot;
@@ -173,6 +176,11 @@ class MealDescribeSheet extends StatefulWidget {
 
   /// The diary day when it is not today, shown above the slot picker.
   final String? contextLabel;
+
+  /// Text the field starts with: the product search that came up empty
+  /// (2026-10-19). Capped like typed text; nothing is sent until the user
+  /// submits, and closing with it unchanged asks nothing.
+  final String? initialText;
 
   @override
   State<MealDescribeSheet> createState() => _MealDescribeSheetState();
@@ -247,10 +255,19 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
   /// Under the voice card: why a recording ended or failed.
   _Notice? _voiceNotice;
 
+  /// [MealDescribeSheet.initialText] as the field took it.
+  String _seed = '';
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final seed = _capped(widget.initialText?.trim() ?? '');
+    if (seed.isNotEmpty) {
+      _seed = seed;
+      _lastText = seed;
+      _setText(seed);
+    }
     _text.addListener(_onTextChanged);
     if (_micSupported) {
       unawaited(
@@ -321,8 +338,9 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
   /// No voice control acts while a stop drains (iOS) or the dialog runs.
   bool get _voiceLocked => _speechStopping || _dialogListening;
 
-  /// Typed or dictated content that a close would lose.
-  bool get _dirty => _trimmed.isNotEmpty && !_added;
+  /// Typed or dictated content that a close would lose; an untouched
+  /// [MealDescribeSheet.initialText] is still in the search field.
+  bool get _dirty => _trimmed.isNotEmpty && _trimmed != _seed && !_added;
 
   DictationLanguage get _preferredLanguage =>
       _dictationLanguage ??

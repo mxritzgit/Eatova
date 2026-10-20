@@ -175,6 +175,8 @@ TodayScreen _today({
   VoidCallback? onOpenFoodLog,
   VoidCallback? onOpenTraining,
   VoidCallback? onResumeWorkout,
+  bool Function(DateTime day)? isCompleteDay,
+  VoidCallback? onFillYesterday,
 }) => TodayScreen(
   userName: userName,
   profile: profile,
@@ -201,6 +203,8 @@ TodayScreen _today({
   onOpenFoodLog: onOpenFoodLog,
   onOpenTraining: onOpenTraining,
   onResumeWorkout: onResumeWorkout,
+  isCompleteDay: isCompleteDay,
+  onFillYesterday: onFillYesterday,
 );
 
 /// The loading card spins forever, so `pumpAndSettle` would never settle;
@@ -490,7 +494,7 @@ void main() {
       expect(kacheln[0].goal, 130);
       // Visible compact name, full name for screen readers.
       expect(kacheln[1].label, 'Kohlenhydrate');
-      expect(kacheln[1].shortLabel, 'Carbs');
+      expect(kacheln[1].shortLabel, 'KH');
       expect(kacheln[1].goal, 240);
       expect(kacheln[2].label, 'Fett');
       expect(kacheln[2].goal, 70);
@@ -553,7 +557,7 @@ void main() {
         await _pump(tester, _today(selectedDate: DateTime(2026, 8, 4)));
       });
       await _scrollTo(tester, find.byKey(const ValueKey('today-meals-card')));
-      expect(_textOf(tester, 'today-meal-sub-lunch'), 'Nichts geloggt');
+      expect(_textOf(tester, 'today-meal-sub-lunch'), 'Nichts eingetragen');
     });
 
     testWidgets('dayLoading ersetzt die Karte durch die Ladekarte', (
@@ -637,6 +641,52 @@ void main() {
     });
   });
 
+  // 2026-10-19: before today's first entry, an empty yesterday that would
+  // save the streak gets one quiet, tappable line; the shell decides when.
+  group('Hinweis auf gestern', () {
+    testWidgets('steht heute ueber den Mahlzeiten und meldet den Tipp', (
+      tester,
+    ) async {
+      var taps = 0;
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(tester, _today(onFillYesterday: () => taps++));
+        expect(
+          find.text('Gestern ist noch leer – nachtragen hält deine Serie.'),
+          findsOneWidget,
+        );
+        final hint = tester.getRect(
+          find.byKey(const ValueKey('today-yesterday-hint')),
+        );
+        expect(hint.height, greaterThanOrEqualTo(44));
+        await _tap(tester, 'today-yesterday-hint');
+      });
+      expect(taps, 1);
+    });
+
+    testWidgets('nicht auf einem Archivtag und nicht beim Laden', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          _today(
+            selectedDate: DateTime(2026, 8, 7),
+            onFillYesterday: () {},
+          ),
+        );
+        expect(find.byKey(const ValueKey('today-yesterday-hint')), findsNothing);
+        await _pump(
+          tester,
+          _today(dayLoading: true, onFillYesterday: () {}),
+          settle: false,
+        );
+        expect(find.byKey(const ValueKey('today-yesterday-hint')), findsNothing);
+        await _pump(tester, _today());
+        expect(find.byKey(const ValueKey('today-yesterday-hint')), findsNothing);
+      });
+    });
+  });
+
   group('Tagesleiste', () {
     testWidgets('sieben Tage bis heute, heute gewaehlt, keine Zukunft', (
       tester,
@@ -669,6 +719,68 @@ void main() {
         ),
       );
       handle.dispose();
+    });
+
+    // 2026-10-19: the days the trends and the weekly check count carry a
+    // dot; the strip asks the store's rule and adds nothing of its own.
+    testWidgets('vollstaendige Tage tragen einen Punkt und sagen es', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          _today(
+            onDateSelected: (_) {},
+            isCompleteDay: (day) => day.day == 8 || day.day == 5,
+          ),
+        );
+      });
+      expect(
+        find.byKey(const ValueKey('today-day-complete-2026-08-08')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('today-day-complete-2026-08-05')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('today-day-complete-2026-08-09')),
+        findsNothing,
+      );
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('today-day-2026-08-08'))),
+        isSemantics(
+          label: 'Gestern, Samstag, 8. August, vollständig eingetragen',
+          isButton: true,
+          isSelected: false,
+        ),
+      );
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('today-day-2026-08-07'))),
+        isSemantics(
+          label: 'Vor 2 Tagen, Freitag, 7. August',
+          isButton: true,
+          isSelected: false,
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('ohne Regel zeigt die Leiste keine Punkte', (tester) async {
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(tester, _today(onDateSelected: (_) {}));
+      });
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey<String> &&
+              (w.key! as ValueKey<String>).value.startsWith(
+                'today-day-complete-',
+              ),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('ein Tipp auf gestern meldet genau diesen Tag', (tester) async {

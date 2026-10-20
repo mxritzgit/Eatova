@@ -11,6 +11,7 @@ import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/number_input.dart';
 import '../../models/planned_meal.dart';
+import '../../models/recipe_pick.dart' show recipeSuitsSlot;
 import '../../models/shopping_list.dart';
 import '../../models/shopping_receipt.dart';
 import '../../services/local_day.dart';
@@ -26,6 +27,7 @@ import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/kcal/food_date_picker.dart';
 import '../../widgets/kcal/meal_slot_picker.dart';
+import '../../widgets/recipes/recipe_avoid_hint.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
 import '../today/today_texts.dart' show kcalThousands, todayWeekdayShort;
@@ -41,6 +43,15 @@ DateTime _firstPlanDay(DateTime today) =>
     DateTime(today.year, today.month, today.day - 35);
 DateTime _lastPlanDay(DateTime today) =>
     DateTime(today.year, today.month, today.day + 365);
+
+/// The kcal the diary row of [plan] will get; null when it cannot be logged.
+int? _plannedKcal(PlannedMeal plan, AppLocalizations l) {
+  try {
+    return plan.recipe.toMealResultForServings(plan.servings, l).caloriesKcal;
+  } on FormatException {
+    return null;
+  }
+}
 
 /// From about 1.5x text a row's side-by-side layout leaves its title only a
 /// few characters per line; rows then stack.
@@ -58,6 +69,23 @@ class MealPlanScreen extends StatefulWidget {
       Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => MealPlanScreen(store: store)),
       );
+
+  /// The plan editor with [recipe] already chosen, for today: "Zum
+  /// Speiseplan" on a recipe detail. Day, slot and servings stay open in the
+  /// editor; nothing is written before its save.
+  static Future<void> planRecipe(
+    BuildContext context,
+    HomeStore store,
+    FitnessRecipe recipe,
+  ) => showEatovaSheet<void>(
+    context,
+    _PlanEditor(
+      store: store,
+      day: DateUtils.dateOnly(clock.now()),
+      recipe: recipe,
+    ),
+    dragHandle: false,
+  );
   @override
   State<MealPlanScreen> createState() => _MealPlanScreenState();
 }
@@ -190,6 +218,26 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final key = localDayKey(day);
     return store.plannedMeals.where((p) => p.day == key).toList()
       ..sort((a, b) => a.slot.index.compareTo(b.slot.index));
+  }
+
+  /// "1,340 of 2,100 kcal planned": the day's planned meals, eaten ones
+  /// included, against the profile's daily goal; meals that cannot be logged
+  /// are counted apart. Null for an empty day.
+  String? _dayKcal(List<PlannedMeal> entries, AppLocalizations l) {
+    if (entries.isEmpty) return null;
+    var planned = 0, unknown = 0;
+    for (final plan in entries) {
+      final kcal = _plannedKcal(plan, l);
+      if (kcal == null) {
+        unknown++;
+      } else {
+        planned += kcal;
+      }
+    }
+    final total = l.mealPlanDayKcal(planned, store.profile.dailyKcalGoal);
+    return unknown == 0
+        ? total
+        : '$total · ${l.mealPlanDayKcalUnknown(unknown)}';
   }
 
   /// The week's receipt, rebuilt only when a plan, the week or the language
@@ -550,6 +598,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             _DayHeader(
               day: day,
               isToday: isToday,
+              kcal: coldLoad ? null : _dayKcal(entries, l),
               // One add control per day: the header's for a planned day and
               // during the cold load (a write may race the load), the row
               // below for an empty one.
@@ -589,13 +638,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final t = context.t;
     final recipe = plan.recipe;
     final busy = _busy.contains(plan.id);
-    // The kcal the diary row will get; null when it cannot be logged.
-    int? kcal;
-    try {
-      kcal = recipe.toMealResultForServings(plan.servings, l).caloriesKcal;
-    } on FormatException {
-      kcal = null;
-    }
+    final kcal = _plannedKcal(plan, l);
     final eatenAt = plan.eatenAt?.toLocal();
     final eatenOn = eatenAt == null
         ? null
@@ -687,6 +730,17 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         const SizedBox(height: 18),
         _receipt(context, receipt, checks),
         const SizedBox(height: 14),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: SoftPillButton(
+            key: const ValueKey('shopping-copy'),
+            label: l.shoppingCopyText,
+            icon: Icons.copy_rounded,
+            tone: SoftPillTone.neutral,
+            onTap: () => _copyShopping(receipt, checks),
+          ),
+        ),
+        const SizedBox(height: 14),
         _Footnote(l.mealPlanShoppingIntro),
         if (combined) ...[
           const SizedBox(height: 6),
@@ -694,6 +748,25 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         ],
       ],
     ];
+  }
+
+  /// The receipt as plain text on the clipboard ([shoppingReceiptText]),
+  /// confirmed by a toast.
+  Future<void> _copyShopping(
+    ShoppingReceipt receipt,
+    Map<String, bool> checks,
+  ) async {
+    final l = context.l10n;
+    final text = shoppingReceiptText(
+      receipt,
+      checks: checks,
+      week: _isoWeek(_week),
+      meals: shoppingPlans(store.plannedMeals, _week).length,
+      l: l,
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    showAppSnack(context, l.shoppingCopied, icon: Icons.check_circle_rounded);
   }
 
   /// Writes the one check a tap on [row] makes; a light tick confirms it

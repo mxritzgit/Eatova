@@ -9,6 +9,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/l10n.dart';
+import '../models/ai_consent.dart';
 import '../models/daily_calorie_balance.dart';
 import '../models/day_nutrition.dart';
 import '../models/favorite_meal.dart';
@@ -29,6 +30,7 @@ import '../models/training_insights.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/coach_week_summary.dart';
+import '../services/complete_day.dart';
 import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
 import '../services/energy_check.dart';
@@ -64,6 +66,7 @@ import '../services/uuid.dart';
 import '../widgets/common/app_snack.dart';
 // P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
 // so it is the only place that can hand the sign-out intent back to the gate.
+import 'ai_trust.dart' show AiConsentCache;
 import 'auth_gate.dart' show IntentionalSignOut;
 
 part 'home_store_meals.dart';
@@ -76,6 +79,7 @@ part 'home_store_training.dart';
 part 'home_store_training_history.dart';
 part 'home_store_derivations.dart';
 part 'home_store_energy_check.dart';
+part 'home_store_ai_consent.dart';
 
 /// Context-free snackbar request emitted by [HomeStore].
 ///
@@ -651,7 +655,8 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreTrainingPart,
         _HomeStoreMealPlanPart,
         _HomeStoreTrainingHistoryPart,
-        _HomeStoreDerivationsPart {
+        _HomeStoreDerivationsPart,
+        _HomeStoreAiConsentPart {
   HomeStore({
     required super.sync,
     required super.health,
@@ -769,6 +774,9 @@ class HomeStore extends _HomeStoreBase
 
   @override
   bool get _serverAnsweredWeightLog => _serverWeightLogLoaded;
+
+  @override
+  bool get _needsOnboardingForHealth => needsOnboarding;
 
   /// The meal load answered in this session — the weekly check's third
   /// source (docs/WEIGHT-TREND.md); same lifecycle as the two above.

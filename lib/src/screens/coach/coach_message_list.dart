@@ -26,6 +26,8 @@ class _Conversation extends StatelessWidget {
     required this.entersFor,
     required this.onEntered,
     this.onOpenTraining,
+    this.onReport,
+    this.onReportImage,
   });
 
   final ScrollController controller;
@@ -69,6 +71,12 @@ class _Conversation extends StatelessWidget {
   final bool workoutLogAddEnabled;
   final ValueChanged<ChatMessage> onAddWorkoutLog;
   final VoidCallback? onOpenTraining;
+
+  /// "Report answer" for a coach message; null hides it (2026-10-19).
+  final ValueChanged<ChatMessage>? onReport;
+
+  /// "Report picture" for a generated recipe image; null hides it.
+  final ValueChanged<ChatMessage>? onReportImage;
 
   @override
   Widget build(BuildContext context) {
@@ -149,6 +157,13 @@ class _Conversation extends StatelessWidget {
                   workoutLogAddEnabled: workoutLogAddEnabled,
                   onAddWorkoutLog: () => onAddWorkoutLog(message),
                   onOpenTraining: onOpenTraining,
+                  onReport: onReport == null || message.role == ChatRole.user
+                      ? null
+                      : () => onReport!(message),
+                  onReportImage: onReportImage == null ||
+                          message.recipeProposal?.imageBytes == null
+                      ? null
+                      : () => onReportImage!(message),
                 ),
               );
             },
@@ -241,6 +256,8 @@ class _MessageView extends StatelessWidget {
     this.workoutLogAddEnabled = false,
     this.onAddWorkoutLog,
     this.onOpenTraining,
+    this.onReport,
+    this.onReportImage,
   });
   final ChatMessage message;
   final bool recipeAdded;
@@ -255,8 +272,59 @@ class _MessageView extends StatelessWidget {
   final VoidCallback? onAddWorkoutLog;
   final VoidCallback? onOpenTraining;
 
+  /// Reports this coach message (the long-press menu of an answer, a long
+  /// press on a card, and a screen-reader action); null for own messages and
+  /// the streaming preview.
+  final VoidCallback? onReport;
+
+  /// Reports the generated picture of a recipe card (long press on it).
+  final VoidCallback? onReportImage;
+
+  /// The answer's selection menu: the platform's copy and select-all, plus
+  /// "Report answer" when [onReport] is set.
+  Widget _answerMenu(BuildContext context, SelectableRegionState state) {
+    final report = onReport;
+    if (report == null) {
+      return AdaptiveTextSelectionToolbar.selectableRegion(
+        selectableRegionState: state,
+      );
+    }
+    final items = <ContextMenuButtonItem>[...state.contextMenuButtonItems];
+    // Right after Copy: a narrow toolbar moves its tail into an overflow
+    // menu, and the report must not hide there.
+    final copy = items.indexWhere(
+      (item) => item.type == ContextMenuButtonType.copy,
+    );
+    items.insert(
+      copy + 1,
+      ContextMenuButtonItem(
+        label: context.l10n.coachReportAction,
+        onPressed: () {
+          ContextMenuController.removeAny();
+          report();
+        },
+      ),
+    );
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: state.contextMenuAnchors,
+      buttonItems: items,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bubble = _bubble(context);
+    final report = onReport;
+    if (report == null) return bubble;
+    return Semantics(
+      customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
+        CustomSemanticsAction(label: context.l10n.coachReportAction): report,
+      },
+      child: bubble,
+    );
+  }
+
+  Widget _bubble(BuildContext context) {
     final t = context.t;
     final fromUser = message.role == ChatRole.user;
     final imageBytes = message.imageBytes;
@@ -345,31 +413,41 @@ class _MessageView extends StatelessWidget {
                     if (message.workoutLogProposal != null &&
                         !fromUser &&
                         !message.refusal)
-                      _WorkoutLogProposalCard(
-                        proposal: message.workoutLogProposal!,
-                        status: workoutLogStatus,
-                        safetyLine: _workoutLogSafetyLineIn(message.content),
-                        canAdd: workoutLogAddable,
-                        enabled: workoutLogAddEnabled,
-                        onAdd: onAddWorkoutLog,
-                        onOpenTraining: onOpenTraining,
+                      _CardReport(
+                        onReport: onReport,
+                        child: _WorkoutLogProposalCard(
+                          proposal: message.workoutLogProposal!,
+                          status: workoutLogStatus,
+                          safetyLine: _workoutLogSafetyLineIn(message.content),
+                          canAdd: workoutLogAddable,
+                          enabled: workoutLogAddEnabled,
+                          onAdd: onAddWorkoutLog,
+                          onOpenTraining: onOpenTraining,
+                        ),
                       )
                     else if (message.trainingPlanProposal != null &&
                         !fromUser &&
                         !message.refusal)
-                      _TrainingPlanProposalCard(
-                        proposal: message.trainingPlanProposal!,
-                        added: planAdded,
-                        enabled: planReviewEnabled,
-                        onReview: onReviewPlan,
-                        onOpenTraining: onOpenTraining,
+                      _CardReport(
+                        onReport: onReport,
+                        child: _TrainingPlanProposalCard(
+                          proposal: message.trainingPlanProposal!,
+                          added: planAdded,
+                          enabled: planReviewEnabled,
+                          onReview: onReviewPlan,
+                          onOpenTraining: onOpenTraining,
+                        ),
                       )
                     else if (message.recipeProposal != null)
-                      _RecipeProposalCard(
-                        proposal: message.recipeProposal!,
-                        added: recipeAdded,
-                        enabled: recipeAddEnabled,
-                        onAdd: onAddRecipe,
+                      _CardReport(
+                        onReport: onReport,
+                        child: _RecipeProposalCard(
+                          proposal: message.recipeProposal!,
+                          added: recipeAdded,
+                          enabled: recipeAddEnabled,
+                          onAdd: onAddRecipe,
+                          onReportImage: onReportImage,
+                        ),
                       )
                     else if (fromUser)
                       // Selectable like the coach bubble (P5-03): once the
@@ -388,8 +466,10 @@ class _MessageView extends StatelessWidget {
                       )
                     else
                       // Coach answers are plain text (the prompt forbids
-                      // Markdown) and copyable via long press.
+                      // Markdown) and copyable via long press; the same menu
+                      // reports them.
                       SelectionArea(
+                        contextMenuBuilder: _answerMenu,
                         child: Text(
                           message.content,
                           style: AppType.ui(16, color: t.ink, height: 1.45),
@@ -402,6 +482,28 @@ class _MessageView extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+/// A long press anywhere on a proposal card reports the message, as the
+/// selection menu does for a text answer. Buttons inside keep their taps; the
+/// recipe picture's own long press (report the picture) wins over this one.
+class _CardReport extends StatelessWidget {
+  const _CardReport({required this.onReport, required this.child});
+
+  final VoidCallback? onReport;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final report = onReport;
+    if (report == null) return child;
+    return GestureDetector(
+      key: const ValueKey('coach-card-report'),
+      behavior: HitTestBehavior.translucent,
+      onLongPress: report,
+      child: child,
     );
   }
 }

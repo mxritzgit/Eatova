@@ -34,6 +34,32 @@ Sources: [store and sync](../lib/src/app/home_store_sync.dart),
 [training history](../lib/src/app/home_store_training_history.dart),
 [core feature contracts](CORE-FEATURES-IMPLEMENTATION-2026-09-10.md).
 
+### AI consent and answer reports
+
+Migration `20261019100000_ai_consents_reports.sql` adds two append-only,
+client-written logs with RLS (own rows; insert and select only):
+
+- `ai_consents`: one row per consent decision (`version`, `granted`,
+  `health_data`; withdrawal = `granted false`). The latest row per user is the
+  state. The client may insert only those three columns; `user_id`
+  (`auth.uid()`), `id` and `created_at` come from defaults.
+- `ai_reports`: "Report answer" / "Report picture" on Coach output
+  (`message_id`, optional `session_id`, `target` `answer`/`recipe_image`,
+  `reason` `incorrect`/`harmful`/`inappropriate`/`other`). No message content.
+
+A trigger (`enforce_user_daily_row_cap`) bounds both per user and UTC day
+(20 consents, 30 reports). The app gates every AI entry point through
+`ensureAiConsent` ([sheet](../lib/src/widgets/shared/ai_consent_sheet.dart),
+[controller](../lib/src/app/ai_trust.dart)): a grant counts only after this
+insert succeeded, a withdrawal takes effect on the device at once and is
+uploaded when the server is reachable. The Edge Functions do **not** check
+the consent yet, because builds released before it would break; enforcing it
+server-side (`analyze-meal`, `coach-chat`, `recipe-import` reading the latest
+`ai_consents` row) is a follow-up once those builds are retired. Both tables
+are in the in-app export and cascade with account deletion. Apply the
+migration before shipping an app build that writes them; until then the
+consent insert fails and the app sends no AI request.
+
 ## AI configuration
 
 Text and photo understanding run on the **Anthropic Messages API** (Claude);

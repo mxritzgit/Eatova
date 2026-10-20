@@ -409,6 +409,7 @@ class FakeServer {
         weightRows.values
             .map(
               (r) => <String, dynamic>{
+                'id': r['id'],
                 'recorded_at': r['recorded_at'],
                 'weight_kg': r['weight_kg'],
               },
@@ -444,6 +445,9 @@ class SnackCapture {
   final List<String> messages = <String>[];
   final List<SnackTone> tones = <SnackTone>[];
 
+  /// Each snack's action (an undo), null without one.
+  final List<SnackBarAction?> actions = <SnackBarAction?>[];
+
   void call(
     String message, {
     IconData icon = Icons.info_outline,
@@ -453,6 +457,7 @@ class SnackCapture {
   }) {
     messages.add(message);
     tones.add(tone);
+    actions.add(action);
   }
 
   Iterable<String> get offlineHints =>
@@ -488,6 +493,7 @@ setup({
   // request that never answers would hang the dispose.
   bool disposeClient = true,
   bool disposeStore = true,
+  HealthService health = const NoopHealthService(),
 }) {
   final server = geteilterServer ?? FakeServer();
   final client = SupabaseClient(
@@ -504,7 +510,7 @@ setup({
   final snacks = SnackCapture();
   final store = HomeStore(
     sync: EatovaSync.forUser(client, 'user-outbox'),
-    health: const NoopHealthService(),
+    health: health,
     notificationService: const NoopNotificationService(),
     initialUserName: 'Test',
     emitSnack: snacks.call,

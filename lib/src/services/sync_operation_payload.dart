@@ -25,6 +25,7 @@ Map<String, dynamic> encodeSyncOperationPayload(SyncOp op) {
         if (op.kind == SyncOpKind.mealInsert) 'track_day': op.trackDay,
       };
     case SyncOpKind.weightInsert:
+    case SyncOpKind.weightUpsert:
       final weight = op.weightKg ?? corrupt();
       final recorded = op.recordedAt ?? corrupt();
       return {
@@ -91,6 +92,7 @@ Map<String, dynamic> encodeSyncOperationPayload(SyncOp op) {
       if (op.statsMeals <= 0 && op.statsWeightLogs <= 0) corrupt();
       return {'meals': op.statsMeals, 'weight_logs': op.statsWeightLogs};
     case SyncOpKind.mealDelete:
+    case SyncOpKind.weightDelete:
     case SyncOpKind.favoriteDelete:
     case SyncOpKind.trainingHistoryDelete:
     case SyncOpKind.trackingDay:

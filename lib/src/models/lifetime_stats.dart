@@ -120,6 +120,30 @@ class LifetimeStats {
     );
   }
 
+  /// Whether logging on [day] counts as tracking it although [day] is not
+  /// today (2026-10-19): [day] is yesterday relative to [now] and continues
+  /// the chain, i.e. the last tracked day is the day before yesterday (+1)
+  /// or yesterday itself (idempotent). The server's `record_tracking_day`
+  /// moves the streak the same way for that day.
+  ///
+  /// Every other back-dated day stays a back-fill. Known limit: once today
+  /// is tracked, yesterday lies before the last tracked day and the server
+  /// cannot merge it into the chain, so it stays a back-fill as well.
+  bool backfillContinuesStreak(DateTime day, {required DateTime now}) {
+    final last = lastTrackedDate;
+    if (last == null || daysBetween(now, day) != 1) return false;
+    final gap = daysBetween(day, last);
+    return gap == 0 || gap == 1;
+  }
+
+  /// Whether logging for yesterday would save the chain that just broke: it
+  /// ended the day before yesterday relative to [now], so
+  /// [effectiveStreakOn] already reads 0 and yesterday is the missing link.
+  bool yesterdayRescuesStreak(DateTime now) {
+    final last = lastTrackedDate;
+    return last != null && currentStreak >= 1 && daysBetween(now, last) == 2;
+  }
+
   /// Streak for DISPLAY: currentStreak while the chain is alive (last tracked
   /// day is today or yesterday relative to [now]), else 0. currentStreak itself
   /// stays put until the next log, so without this check a long-broken chain

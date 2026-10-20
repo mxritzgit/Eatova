@@ -53,12 +53,23 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// date would pass an old reading off as a current one.
   static const Duration _healthWeightOfferMaxAge = Duration(days: 7);
 
+  /// Instants (microseconds) of weigh-ins deleted in this session: a scale's
+  /// Health sample behind a deleted import is not offered again right away.
+  /// Not persisted; after a restart a recent one may be offered once more.
+  final Set<int> _deletedWeighIns = <int>{};
+
+  /// Apple Health's first permission sheet waits for this account's answer
+  /// to Today's intro card, see [healthIntroVisible].
+  _HealthIntro _healthIntro = _HealthIntro.unknown;
+
   // --- Health ---------------------------------------------------------------
 
   /// Called once the account's encrypted cache has been resolved at boot.
   Future<void> restoreHealthConnection() async {
     final service = health;
-    if (_disposed || _healthSessionEnded || service is! HealthConnectAccess) {
+    if (_disposed || _healthSessionEnded) return;
+    if (service is! HealthConnectAccess) {
+      await _loadHealthIntro();
       return;
     }
     final generation = _healthGeneration;
@@ -79,10 +90,97 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     await refreshHealthSteps();
   }
 
+  // --- Apple Health intro (review 2026-10-19) ---------------------------------
+
+  /// Whether the shell may ask HealthKit without a tap: Apple's permission
+  /// sheet otherwise appeared over the onboarding, before anything explained
+  /// it. Once this account's onboarding is known complete, and only while
+  /// Today's intro card is not waiting for an answer or was dismissed.
+  /// Accounts onboarded by an older build keep connecting on their own.
+  /// Without sync (tests, previews) there is no onboarding to wait for.
+  bool get healthAutoConnectAllowed {
+    if (sync == null) return true;
+    if (_needsOnboardingForHealth) return false;
+    return _healthIntro == _HealthIntro.none ||
+        _healthIntro == _HealthIntro.connected;
+  }
+
+  /// Today's card that explains Apple Health before its sheet asks: after an
+  /// onboarding in this build, until connected or dismissed.
+  bool get healthIntroVisible =>
+      _healthIntro == _HealthIntro.pending &&
+      !_needsOnboardingForHealth &&
+      !_healthSessionEnded &&
+      health is! HealthConnectAccess &&
+      health.authState != HealthAuthState.unsupported;
+
+  /// Provided by the profile part ([HomeStore.needsOnboarding]).
+  bool get _needsOnboardingForHealth;
+
+  Future<void> _loadHealthIntro() async {
+    final cache = _cache ?? debugCache;
+    final generation = _healthGeneration;
+    final stored = await cache?.readHealthPrompt();
+    if (_disposed || generation != _healthGeneration) return;
+    // A card answered or offered during the read wins.
+    if (_healthIntro != _HealthIntro.unknown) return;
+    final next = switch (stored) {
+      'pending' => _HealthIntro.pending,
+      'dismissed' => _HealthIntro.dismissed,
+      'connected' => _HealthIntro.connected,
+      _ => _HealthIntro.none,
+    };
+    _mutate(() => _healthIntro = next);
+  }
+
+  /// The onboarding is finishing: Apple Health waits for Today's card
+  /// instead of asking unprompted. Called inside the onboarding's publish,
+  /// so the very notify that ends the onboarding already closes the shell's
+  /// unprompted path. Only while HealthKit was never asked in this session;
+  /// Health Connect keeps its own explicit connect.
+  void _deferHealthToIntro() {
+    if (_disposed ||
+        _healthSessionEnded ||
+        health is HealthConnectAccess ||
+        health.authState != HealthAuthState.unknown ||
+        _healthIntro == _HealthIntro.connected) {
+      return;
+    }
+    _healthIntro = _HealthIntro.pending;
+    unawaited((_cache ?? debugCache)?.writeHealthPrompt('pending'));
+  }
+
+  /// The card's connect action: asks HealthKit, which records the answer.
+  Future<void> acceptHealthIntro() => connectHealth();
+
+  /// A connect while the intro waits or was dismissed is the user's own
+  /// (the unprompted path is closed then): from here HealthKit may be asked
+  /// as before, also on the next cold start. Runs inside the mutation that
+  /// marks the connect in flight, so the shell cannot start a second one.
+  void _recordHealthIntroAnswered() {
+    if (_healthIntro != _HealthIntro.pending &&
+        _healthIntro != _HealthIntro.dismissed) {
+      return;
+    }
+    _healthIntro = _HealthIntro.connected;
+    unawaited((_cache ?? debugCache)?.writeHealthPrompt('connected'));
+  }
+
+  /// "Not now": the card goes and HealthKit is not asked unprompted again;
+  /// the profile's Health card still connects.
+  Future<void> dismissHealthIntro() async {
+    if (_disposed || _healthSessionEnded) return;
+    _mutate(() => _healthIntro = _HealthIntro.dismissed);
+    await (_cache ?? debugCache)?.writeHealthPrompt('dismissed');
+  }
+
   Future<void> connectHealth() async {
     if (_disposed || _healthSessionEnded || healthSyncing) return;
     final generation = _healthGeneration;
-    _mutate(() => healthSyncing = true);
+    _mutate(() {
+      healthSyncing = true;
+      if (health is! HealthConnectAccess) _recordHealthIntroAnswered();
+    });
     final state = await health.requestAuthorization();
     if (_disposed || generation != _healthGeneration) return;
     _mutate(() => healthAuthState = state);
@@ -234,27 +332,40 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Upserts the calendar day of [day] with [steps]; kcal are frozen using
   /// the CURRENT profile (the estimate is coarser than the weight drift).
   /// Must run inside a _mutate block; the cache write is fire-and-forget.
-  void _recordDailyActivity(DateTime day, int steps) {
-    if (steps < 0) return;
-    final key = localDayKey(day);
-    final kcal = estimateKcalBurnedFromSteps(
-      steps: steps,
-      weightKg: profile.weightKg,
-      heightCm: profile.heightCm,
-      sex: profile.sex,
-    );
-    // Unchanged -> bail WITHOUT replacing the map: slice selectors compare by
-    // identity, so a resume without new steps must cost neither a rebuild nor
-    // an AES-GCM cache write (guarded by home_page_rebuild_test).
-    if (dailyActivity[key] == (steps: steps, kcal: kcal)) return;
+  void _recordDailyActivity(DateTime day, int steps) =>
+      _recordDailyActivities({day: steps});
+
+  /// [_recordDailyActivity] for several days: one new map and ONE encrypted
+  /// cache write for all of them.
+  void _recordDailyActivities(Map<DateTime, int> days) {
     // YYYY-MM-DD sorts lexicographically = chronologically, so the cutoff is
     // a string compare, not date parsing.
     final cutoff = localDayKey(clock.now().subtract(_dailyActivityRetention));
-    dailyActivity = <String, ({int steps, int kcal})>{
-      for (final e in dailyActivity.entries)
-        if (e.key.compareTo(cutoff) >= 0) e.key: e.value,
-      key: (steps: steps, kcal: kcal),
-    };
+    Map<String, ({int steps, int kcal})>? next;
+    for (final MapEntry(key: day, value: steps) in days.entries) {
+      if (steps < 0) continue;
+      final key = localDayKey(day);
+      final value = (
+        steps: steps,
+        kcal: estimateKcalBurnedFromSteps(
+          steps: steps,
+          weightKg: profile.weightKg,
+          heightCm: profile.heightCm,
+          sex: profile.sex,
+        ),
+      );
+      // Unchanged -> no new map: slice selectors compare by identity, so a
+      // resume without new steps must cost neither a rebuild nor an AES-GCM
+      // cache write (guarded by home_page_rebuild_test).
+      if ((next ?? dailyActivity)[key] == value) continue;
+      next ??= <String, ({int steps, int kcal})>{
+        for (final e in dailyActivity.entries)
+          if (e.key.compareTo(cutoff) >= 0) e.key: e.value,
+      };
+      next[key] = value;
+    }
+    if (next == null) return;
+    dailyActivity = next;
     unawaited(
       _cache?.writeDailyActivity(dailyActivity) ?? Future<void>.value(),
     );
@@ -287,21 +398,49 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return true;
   }
 
+  /// Past days Health Connect can answer: without READ_HEALTH_DATA_HISTORY,
+  /// which Eatova neither declares nor requests, it returns nothing older
+  /// than 30 days before the first grant. Each further day cost a read for
+  /// an empty answer.
+  static const int _healthConnectReadableDays = 30;
+
   /// Fills the step values of the trends page's range: every past day of the
   /// last [days] without a stored value is read from the health store, one
-  /// after another and once per day and session
-  /// ([_maybeBackfillDailyActivity]). Each found day lands in [dailyActivity]
-  /// and notifies, so the page fills in while it reads. Skipped without a
-  /// usable health connection, where every read would come back empty.
+  /// after another and once per day and session. On Android only the last
+  /// [_healthConnectReadableDays] days. The found days land in
+  /// [dailyActivity] together, in one notify and one encrypted cache write,
+  /// instead of one each. Skipped without a usable health connection, where
+  /// every read would come back empty.
   Future<void> backfillStepsForTrends(int days) async {
     if (!_healthReadable) return;
+    final generation = _healthGeneration;
     final today = startOfDay(clock.now());
-    for (var n = 1; n < days; n++) {
-      if (_disposed || _healthSessionEnded || !_healthReadable) return;
+    final span =
+        health is HealthConnectAccess && days > _healthConnectReadableDays + 1
+        ? _healthConnectReadableDays + 1
+        : days;
+    final found = <DateTime, int>{};
+    for (var n = 1; n < span; n++) {
+      if (_disposed || generation != _healthGeneration) return;
+      if (_healthSessionEnded || !_healthReadable) break;
       final day = addDays(today, -n);
-      if (dailyActivity.containsKey(localDayKey(day))) continue;
-      await _maybeBackfillDailyActivity(day);
+      final key = localDayKey(day);
+      if (dailyActivity.containsKey(key) ||
+          !_dailyActivityBackfillAttempted.add(key)) {
+        continue;
+      }
+      final background = _appInBackground;
+      final steps = await health.readStepsOnDay(day);
+      if (_disposed || generation != _healthGeneration) return;
+      if (steps == null && (background || _appInBackground)) {
+        // Deferred outside the foreground, not answered: read it next time.
+        _dailyActivityBackfillAttempted.remove(key);
+        break;
+      }
+      if (steps != null && steps >= 0) found[day] = steps;
     }
+    if (found.isEmpty || _healthSessionEnded) return;
+    _mutate(() => _recordDailyActivities(found));
   }
 
   bool get _healthReadable => switch (health.authState) {
@@ -382,6 +521,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (clock.now().difference(measuredAt) > _healthWeightOfferMaxAge) {
       return false;
     }
+    if (_deletedWeighIns.contains(measuredAt.microsecondsSinceEpoch)) {
+      return false;
+    }
     final latest = weightLog.latest;
     return latest == null ||
         (measuredAt.isAfter(latest.timestamp) &&
@@ -425,8 +567,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   // --- Body data (profile) --------------------------------------------------
 
   /// Manual weigh-in: logs locally, syncs, and writes back to HealthKit.
-  Future<void> logWeight(double kg) =>
-      _logWeightInternal(kg, writeToHealth: true);
+  /// [at] dates it (the sheet's time row); null is now, and a moment in the
+  /// future becomes now.
+  Future<void> logWeight(double kg, {DateTime? at}) =>
+      _logWeightInternal(kg, writeToHealth: true, recordedAt: at);
 
   /// Import FROM Apple Health: like [logWeight] but WITHOUT
   /// `health.writeWeight` — writing back would create an echo duplicate.
@@ -461,8 +605,8 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     await _settledLocalMutations();
     final now = clock.now();
     final ts = recordedAt == null || recordedAt.isAfter(now) ? now : recordedAt;
-    final entry = WeightLogEntry(timestamp: ts, weightKg: kg);
     final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: ts);
+    final entry = WeightLogEntry(timestamp: ts, weightKg: kg, id: op.entityId);
     final before = profile;
     final reanchored = _reanchoredProfile(before, weightLog.addEntry(entry));
     final syncHintShown = _syncHintShown;
@@ -483,6 +627,156 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (reanchored != null && !raisedSyncHint) {
       _announceReanchor(before, reanchored);
     }
+  }
+
+  // --- Correcting weigh-ins (review 2026-10-19) ------------------------------
+
+  /// Corrects the value and the moment of the weigh-in with row id [id]. The
+  /// trend re-anchors through the same path as a new weigh-in, in the same
+  /// local commit, so a corrected typo moves the plan back. A moment in the
+  /// future becomes now. Eatova's own Apple Health sample follows.
+  Future<void> updateWeighIn(
+    String id, {
+    required double kg,
+    required DateTime at,
+  }) async {
+    final clean = WeightLog.sanitizeKg(kg);
+    if (clean == null) throw const FormatException('Invalid weight');
+    await _settledLocalMutations();
+    final previous = weightLog.entryWithId(id);
+    if (previous == null) throw StateError('Weigh-in no longer exists');
+    final now = clock.now();
+    final ts = at.isAfter(now) ? now : at;
+    if (previous.weightKg == clean && previous.timestamp.isAtSameMomentAs(ts)) {
+      return;
+    }
+    final entry = WeightLogEntry(timestamp: ts, weightKg: clean, id: id);
+    await _commitWeighInChange(
+      SyncOp.weightUpsert(id: id, weightKg: clean, recordedAt: ts),
+      (log) => log.putEntry(entry),
+      announce: true,
+    );
+    HapticFeedback.lightImpact();
+    unawaited(_moveOwnHealthWeight(previous, entry));
+  }
+
+  /// Deletes the weigh-in with row id [id], with an undo. The delete is
+  /// terminal for the id; the undo restores the value under a new one.
+  Future<void> deleteWeighIn(String id) async {
+    await _settledLocalMutations();
+    final removed = weightLog.entryWithId(id);
+    if (removed == null) return;
+    await _commitWeighInChange(
+      SyncOp.weightDelete(id),
+      (log) => log.removeEntry(id),
+    );
+    _deletedWeighIns.add(removed.timestamp.microsecondsSinceEpoch);
+    HapticFeedback.lightImpact();
+    // Awaited only by an undo; a failure means no sample to write back.
+    final healthSample = _deleteOwnHealthWeight(
+      removed.timestamp,
+    ).catchError((Object _, StackTrace _) => false);
+    Future<void>? restore;
+    // The undo outranks a goal notice: a changed goal shows in the plan.
+    _showUndoSnackBar(
+      _l10n.weighInDeleted,
+      () => unawaited(
+        (restore ??= _restoreWeighIn(removed, healthSample)).catchError((
+          Object error,
+          StackTrace stack,
+        ) {
+          _reportSyncError('undo', error, stack);
+        }),
+      ),
+    );
+  }
+
+  /// Undo of [deleteWeighIn]: the same value and moment under a new id,
+  /// without counting another weigh-in. Eatova's Health sample comes back
+  /// only if the delete took one.
+  Future<void> _restoreWeighIn(
+    WeightLogEntry removed,
+    Future<bool> healthSample,
+  ) async {
+    await _settledLocalMutations();
+    final op = SyncOp.weightUpsert(
+      id: uuidV4(),
+      weightKg: removed.weightKg,
+      recordedAt: removed.timestamp,
+    );
+    final entry = WeightLogEntry(
+      timestamp: removed.timestamp,
+      weightKg: removed.weightKg,
+      id: op.entityId,
+    );
+    await _commitWeighInChange(op, (log) => log.putEntry(entry), announce: true);
+    _deletedWeighIns.remove(removed.timestamp.microsecondsSinceEpoch);
+    if (await healthSample && !_disposed && !_healthSessionEnded) {
+      unawaited(health.writeWeight(removed.weightKg, removed.timestamp));
+    }
+  }
+
+  /// One local commit for a weigh-in change and the profile it re-anchors,
+  /// as [_logWeightInternal] does for a new one. [announce] names a changed
+  /// live goal unless the commit just raised the "syncs later" hint.
+  Future<void> _commitWeighInChange(
+    SyncOp op,
+    WeightLog Function(WeightLog log) apply, {
+    bool announce = false,
+  }) async {
+    final before = profile;
+    final reanchored = _reanchoredProfile(before, apply(weightLog));
+    final syncHintShown = _syncHintShown;
+    await _commitSyncIntents(
+      [op, if (reanchored != null) SyncOp.profileUpsert(reanchored)],
+      publish: () {
+        weightLog = apply(weightLog);
+        if (reanchored != null) profile = reanchored;
+      },
+    );
+    final raisedSyncHint = _syncHintShown && !syncHintShown;
+    if (announce && reanchored != null && !raisedSyncHint) {
+      _announceReanchor(before, reanchored);
+    }
+  }
+
+  /// Eatova's Health sample of an edited weigh-in moves with it. A weigh-in
+  /// imported from another source has none of Eatova's, so Health keeps the
+  /// source's sample as it is.
+  Future<void> _moveOwnHealthWeight(
+    WeightLogEntry previous,
+    WeightLogEntry next,
+  ) async {
+    if (!await _deleteOwnHealthWeight(previous.timestamp)) return;
+    if (_disposed || _healthSessionEnded) return;
+    await health.writeWeight(next.weightKg, next.timestamp);
+  }
+
+  /// Whether Eatova's own Health sample at [at] was deleted; false without
+  /// the capability (Android, tests) or without such a sample.
+  Future<bool> _deleteOwnHealthWeight(DateTime at) async {
+    final service = health;
+    if (_disposed || _healthSessionEnded || service is! HealthWeightCorrection) {
+      return false;
+    }
+    return (service as HealthWeightCorrection).deleteOwnWeight(at);
+  }
+
+  /// The first weigh-in from the onboarding weight (review 2026-10-19), so
+  /// the trend and the weekly check start on day one. Only while the server
+  /// answered an empty weight log in this session: an account that already
+  /// has weigh-ins, or one whose log is unknown offline, gets none.
+  ({SyncOp op, WeightLogEntry entry})? _onboardingWeighIn(UserProfile done) {
+    if (sync != null && !_serverAnsweredWeightLog) return null;
+    if (weightLog.entries.isNotEmpty) return null;
+    final kg = WeightLog.sanitizeKg(done.weightKg.toDouble());
+    if (kg == null || !isValidWeightLogKg(kg)) return null;
+    final now = clock.now();
+    final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: now);
+    return (
+      op: op,
+      entry: WeightLogEntry(timestamp: now, weightKg: kg, id: op.entityId),
+    );
   }
 
   // --- Weight trend re-anchoring (docs/WEIGHT-TREND.md) ---------------------
@@ -548,4 +842,23 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       tail = _localMutationTail;
     }
   }
+}
+
+/// Where this account stands with Today's Apple Health intro card, kept per
+/// account in the encrypted cache (`health_prompt`).
+enum _HealthIntro {
+  /// Not read from the cache yet.
+  unknown,
+
+  /// Nothing waits: an account onboarded by an older build, or no cache.
+  none,
+
+  /// The card shows; HealthKit is not asked unprompted.
+  pending,
+
+  /// Connected from the card; HealthKit may be asked as before.
+  connected,
+
+  /// "Not now": no card, and no unprompted ask either.
+  dismissed,
 }

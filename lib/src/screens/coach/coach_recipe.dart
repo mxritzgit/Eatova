@@ -15,12 +15,17 @@ class _RecipeProposalCard extends StatelessWidget {
     required this.added,
     required this.enabled,
     required this.onAdd,
+    this.onReportImage,
   });
 
   final CoachRecipeProposal proposal;
   final bool added;
   final bool enabled;
   final VoidCallback? onAdd;
+
+  /// Reports the generated picture (long press on it, or the screen-reader
+  /// action); null without a picture or a report path.
+  final VoidCallback? onReportImage;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +52,9 @@ class _RecipeProposalCard extends StatelessWidget {
             // no categories, so the bowl is the motif.
             child: bytes == null
                 ? const RecipeArt()
-                : Stack(
+                : _ImageReport(
+                    onReport: onReportImage,
+                    child: Stack(
                     // expand, not the default loose fit: the image below has
                     // no intrinsic box of its own here, it fills the 150 px
                     // slot. Loosening would collapse it to the decoded size.
@@ -70,6 +77,7 @@ class _RecipeProposalCard extends StatelessWidget {
                       ),
                       const _AiImageBadgeOverlay(),
                     ],
+                  ),
                   ),
           ),
         ),
@@ -100,6 +108,32 @@ class _RecipeProposalCard extends StatelessWidget {
             onTap: enabled ? onAdd : null,
           ),
       ],
+    );
+  }
+}
+
+/// The generated recipe picture's report path: a long press on it and a
+/// screen-reader action, both "Report picture".
+class _ImageReport extends StatelessWidget {
+  const _ImageReport({required this.onReport, required this.child});
+
+  final VoidCallback? onReport;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final report = onReport;
+    if (report == null) return child;
+    return Semantics(
+      customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
+        CustomSemanticsAction(label: context.l10n.coachReportImageAction):
+            report,
+      },
+      child: GestureDetector(
+        key: const ValueKey('coach-recipe-image-report'),
+        onLongPress: report,
+        child: child,
+      ),
     );
   }
 }

@@ -324,4 +324,81 @@ void main() {
       }
     });
   });
+
+  // 2026-10-19: an entry for yesterday tracks yesterday when it continues
+  // the chain; the server's record_tracking_day moves the streak the same way.
+  group('Nachtrag fuer gestern', () {
+    final now = DateTime(2026, 6, 5, 9); // Friday morning
+
+    test('setzt die Kette fort, wenn sie vorgestern endete', () {
+      final s = LifetimeStats(currentStreak: 3, lastTrackedDate: wed);
+      expect(s.backfillContinuesStreak(thu, now: now), isTrue);
+      expect(s.yesterdayRescuesStreak(now), isTrue);
+      expect(s.effectiveStreakOn(now), 0, reason: 'shown as broken until then');
+      final next = s.recordTrackedDay(thu);
+      expect(next.currentStreak, 4);
+      expect(next.effectiveStreakOn(now), 4);
+    });
+
+    test('gestern schon gezaehlt ist idempotent, rettet aber nichts', () {
+      final s = LifetimeStats(currentStreak: 3, lastTrackedDate: thu);
+      expect(s.backfillContinuesStreak(thu, now: now), isTrue);
+      expect(s.yesterdayRescuesStreak(now), isFalse);
+    });
+
+    test('eine laengst gerissene Kette bleibt ein Nachtrag', () {
+      final s = LifetimeStats(currentStreak: 3, lastTrackedDate: tue);
+      expect(s.backfillContinuesStreak(thu, now: now), isFalse);
+      expect(s.yesterdayRescuesStreak(now), isFalse);
+    });
+
+    test('nach dem ersten Eintrag heute kann gestern nicht mehr zaehlen', () {
+      final s = LifetimeStats(currentStreak: 1, lastTrackedDate: fri);
+      expect(s.backfillContinuesStreak(thu, now: now), isFalse);
+      expect(s.yesterdayRescuesStreak(now), isFalse);
+    });
+
+    test('nur gestern, kein aelterer Tag und ohne Serie keine Rettung', () {
+      final s = LifetimeStats(currentStreak: 3, lastTrackedDate: tue);
+      expect(s.backfillContinuesStreak(wed, now: now), isFalse);
+      expect(LifetimeStats().backfillContinuesStreak(thu, now: now), isFalse);
+      expect(
+        LifetimeStats(lastTrackedDate: wed).yesterdayRescuesStreak(now),
+        isFalse,
+      );
+    });
+
+    test('ueber die Fruehjahrsumstellung zaehlt der Kalendertag', () {
+      // Monday 30.03. 00:30, an hour after the 23-hour Sunday ended: Sunday
+      // is yesterday, Saturday the day before.
+      final s = LifetimeStats(
+        currentStreak: 6,
+        lastTrackedDate: DateTime(2026, 3, 28),
+      );
+      final monday = DateTime(2026, 3, 30, 0, 30);
+      expect(
+        s.backfillContinuesStreak(DateTime(2026, 3, 29), now: monday),
+        isTrue,
+      );
+      expect(s.yesterdayRescuesStreak(monday), isTrue);
+      expect(s.recordTrackedDay(DateTime(2026, 3, 29)).currentStreak, 7);
+    });
+
+    test('jeder Tag eines Jahrzehnts gegen das UTC-Orakel', () {
+      var cursor = DateTime.utc(2024, 1, 1);
+      while (!cursor.isAfter(DateTime.utc(2032, 12, 31))) {
+        final last = DateTime(cursor.year, cursor.month, cursor.day);
+        final s = LifetimeStats(currentStreak: 2, lastTrackedDate: last);
+        final now = addDays(last, 2);
+        expect(
+          s.backfillContinuesStreak(addDays(last, 1), now: now),
+          isTrue,
+          reason: 'yesterday after $last',
+        );
+        expect(s.yesterdayRescuesStreak(now), isTrue, reason: '$last');
+        expect(s.yesterdayRescuesStreak(addDays(last, 3)), isFalse);
+        cursor = cursor.add(const Duration(days: 1));
+      }
+    });
+  });
 }

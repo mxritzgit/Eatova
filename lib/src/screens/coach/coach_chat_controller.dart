@@ -21,6 +21,7 @@ import '../../models/coach_training_context.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/user_profile.dart' show FoodPreferences;
 import '../../services/coach_chat_service.dart';
+import '../../services/coach_quota_reset.dart';
 import '../../services/recipe_image_store.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
@@ -300,7 +301,10 @@ class CoachChatController extends ChangeNotifier {
   String? get lockReason {
     if (_service == null) return _l10n.coachErrorNotLoggedIn;
     if (quotaExhausted) {
-      return _l10n.coachErrorDailyLimitReached(limitForDisplay);
+      return _l10n.coachErrorDailyLimitReached(
+        limitForDisplay,
+        coachQuotaResetLabel(_l10n.localeName),
+      );
     }
     if (_activeSessionId == null) {
       // A failed history load leaves no active session either; its banner
@@ -776,7 +780,10 @@ class CoachChatController extends ChangeNotifier {
     // Only a known-empty quota blocks. If unknown, the attempt goes to the
     // server, which answers 429 if needed (-> CoachQuotaExceeded below).
     if (quotaExhausted) {
-      _error = l10n.coachErrorDailyLimitReached(limitForDisplay);
+      _error = l10n.coachErrorDailyLimitReached(
+        limitForDisplay,
+        coachQuotaResetLabel(l10n.localeName),
+      );
       _notify();
       return;
     }

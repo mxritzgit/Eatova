@@ -15,6 +15,7 @@ import '../models/training_plan.dart';
 import '../models/training_session.dart';
 import '../services/crash_reporter.dart';
 import '../services/data_export.dart';
+import '../services/day_math.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
 import '../services/favorites_view.dart' show favoriteUseCounts;
@@ -62,9 +63,11 @@ import '../widgets/common/store_selector.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
+import '../widgets/profile/profile_widgets.dart' show WeighInActions;
 import '../widgets/recipes/recipe_pick_actions.dart';
 import '../widgets/shared/reminder_time_picker.dart';
 import '../widgets/shared/settings_sheet.dart';
+import 'ai_trust.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
 import 'home_tab_switcher.dart';
@@ -149,6 +152,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   HomeStore get debugStore => _store;
 
   late final HomeStore _store;
+
+  /// The account's AI consent and Coach reports (2026-10-19), bound into the
+  /// app-level [AiTrustScope] while this shell lives. Without sync (preview,
+  /// tests) nothing can be logged, so nothing is asked.
+  late final AiTrustController _aiTrust;
+  AiTrustBinding? _aiTrustBinding;
   ReconnectSyncCoordinator? _reconnectSync;
   bool _backgroundSyncRequested = false;
 
@@ -200,6 +209,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       emitSnack: _emitSnack,
     );
     _store.addListener(_onStoreChanged);
+    final sync = widget.sync;
+    _aiTrust = sync == null
+        ? AiTrustController.preview()
+        : AiTrustController(
+            cache: _store,
+            consentLog: sync.aiTrust,
+            reportLog: sync.aiTrust,
+          );
     widget.recipeImportInbox?.addListener(_scheduleRecipeImport);
     // No sync (preview/test) means no boot/welcome phase.
     _welcomeFinished = widget.sync == null;
@@ -209,7 +226,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           // Production restores only after its account cache has been read.
           if (widget.sync == null) unawaited(_store.restoreHealthConnection());
         } else {
-          unawaited(_store.connectHealth());
+          // HealthKit asks once the onboarding is known complete, never
+          // over it (review 2026-10-19); [_onStoreChanged] retries.
+          _healthAutoConnectPending = true;
+          _maybeAutoConnectHealth();
         }
       });
     }
@@ -240,6 +260,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // The store holds no BuildContext (ARCH-4). Re-pushed on every call, so
     // store-built snack texts follow the active locale.
     _store.setLocalizations(context.l10n);
+    // Bound before the first frame, so no AI entry point can act unbound.
+    final binding = AiTrustScope.maybeOf(context);
+    if (!identical(binding, _aiTrustBinding)) {
+      _aiTrustBinding?.unbind(_aiTrust);
+      _aiTrustBinding = binding;
+      if (binding != null) {
+        binding.bind(_aiTrust);
+        unawaited(_aiTrust.load());
+      }
+    }
     _scheduleRecipeImport();
   }
 
@@ -255,6 +285,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _planDraftRequest.dispose();
     _logDraftRequest.dispose();
     _localHours.dispose();
+    _aiTrustBinding?.unbind(_aiTrust);
+    _aiTrust.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -266,6 +298,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   void _onStoreChanged() {
     _scheduleRecipeImport();
     _resumeAfterRestAlert();
+    _maybeAutoConnectHealth();
     if (_profileRouteOpen && mounted) _profileRefresh.value++;
     // B3b: the midnight rollover keeps `dailySteps`, so pull one refresh per
     // calendar day or yesterday's steps feed `burnedKcal` all day.
@@ -280,6 +313,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _backgroundSyncRequested = true;
       unawaited(widget.backgroundSyncScheduler?.request());
     }
+  }
+
+  /// HealthKit's first connect of this session still waits for
+  /// `HomeStore.healthAutoConnectAllowed`.
+  bool _healthAutoConnectPending = false;
+
+  void _maybeAutoConnectHealth() {
+    if (!_healthAutoConnectPending || !_store.healthAutoConnectAllowed) return;
+    _healthAutoConnectPending = false;
+    unawaited(_store.connectHealth());
   }
 
   /// Calendar day of the last health refresh (guard for [_onStoreChanged]).
@@ -300,9 +343,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     HealthAuthState.noData ||
     HealthAuthState.updateRequired ||
     HealthAuthState.error => true,
+    // Not over the onboarding or past Today's unanswered Health intro.
     HealthAuthState.unknown =>
       widget.healthService != null &&
-          widget.healthService is! HealthConnectAccess,
+          widget.healthService is! HealthConnectAccess &&
+          _store.healthAutoConnectAllowed,
     HealthAuthState.unsupported || HealthAuthState.unavailable => false,
   };
 
@@ -520,6 +565,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     )) {
       throw StateError('Account deletion failed');
     }
+    // The account is gone: revoke the device's Google grant too. Best
+    // effort and never awaited; it is queued before the sign-out below.
+    if (widget.authRepository case final ProviderGrantRevocation grants) {
+      unawaited(grants.revokeProviderGrants());
+    }
     if (_isStoreSessionCurrent(ownerStore) && isCurrentSession()) {
       // An INTENTIONAL logout: without the flag [AuthGate] would report an
       // expired session (Review 2026-08-19). Marked again: the local cleanup
@@ -588,6 +638,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               healthSyncing: _store.healthSyncing,
               onHealthSettings: _store.openHealthSettings,
               onLogWeight: _store.logWeight,
+              weighIns: _weighInActions(ownerStore),
               onEditProfile: _openGoals,
               onOpenSettings: _openSettings,
               onConnectHealth: _store.connectHealth,
@@ -659,6 +710,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             firstName: _store.userName,
             initialProfile: _store.profile,
             onComplete: _store.completeOnboarding,
+            // AUTH-3: the same coordinated sign-out as in the settings.
+            onSignOut: widget.onSignOut != null ? _signOut : null,
           );
         }
 
@@ -858,6 +911,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       // The one-time reminder card (C4).
       _store.reminderPromptVisible,
       _store.reminderTime,
+      // Apple Health's intro card (2026-10-19).
+      _store.healthIntroVisible,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
@@ -913,14 +968,38 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onDismissReminderPrompt: _store.dismissReminderPrompt,
         onChangeReminderTime: (time) => unawaited(_store.setReminderTime(time)),
         energyCheckProgress: today ? _store.energyCheckProgress : null,
+        energyCheckResult: today ? _store.energyCheckResult : null,
         // The weight chip: the profile's weigh-in path, for this session.
         latestWeightKg: _store.weightLog.latest?.weightKg,
         onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,
+        weighIns: today ? _weighInActions(ownerStore) : null,
+        healthPrompt: today && _store.healthIntroVisible
+            ? (
+                connect: _store.acceptHealthIntro,
+                dismiss: _store.dismissHealthIntro,
+              )
+            : null,
         trendsPreview: today ? _todayTrendsPreview() : null,
         onOpenTrends: _openTrends,
+        isCompleteDay: _store.isCompleteFoodDay,
+        onFillYesterday: today && _store.yesterdayRescuesStreak
+            ? _fillYesterday
+            : null,
       );
     },
   );
+
+  /// Today's streak hint: the Food tab on yesterday with its add sheet open.
+  /// The request waits a frame, so the tab has rebuilt on the new day when
+  /// its listener opens the sheet.
+  void _fillYesterday() {
+    _store.setFoodDate(addDays(startOfDay(clock.now()), -1));
+    _store.setTab(_tabFood);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _addSlotRequest.value = mealSlotForHour(clock.now().hour);
+    });
+  }
 
   // --- Trends -----------------------------------------------------------
 
@@ -1038,6 +1117,34 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       throw StateError('Weight owner changed');
     }
     await ownerStore.logWeight(kg);
+  }
+
+  /// Dated weigh-ins and the history with edit and delete, bound to
+  /// [ownerStore]: a sheet opened before an account change fails its save
+  /// instead of writing into the new session.
+  WeighInActions _weighInActions(HomeStore ownerStore) {
+    void ensureOwner() {
+      if (!_isStoreSessionCurrent(ownerStore)) {
+        throw StateError('Weight owner changed');
+      }
+    }
+
+    return WeighInActions(
+      changes: ownerStore,
+      log: () => ownerStore.weightLog,
+      logAt: (kg, at) async {
+        ensureOwner();
+        await ownerStore.logWeight(kg, at: at);
+      },
+      update: (id, kg, at) async {
+        ensureOwner();
+        await ownerStore.updateWeighIn(id, kg: kg, at: at);
+      },
+      delete: (id) async {
+        ensureOwner();
+        await ownerStore.deleteWeighIn(id);
+      },
+    );
   }
 
   /// "Tonight's pick" through the shared pick actions: a suggestion opens
@@ -1199,8 +1306,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // "Picked for tonight": the pick Today and Food show too.
         mealPick: _store.nextMealPick(localeName: context.l10n.localeName),
         // Promoted lists (shelves, fallback hero) follow the profile diet
-        // like the pick does.
+        // and avoided foods like the pick does.
         diet: _store.profile.diet,
+        avoidances: _store.profile.foodAvoidances,
         todayOverBudget: today.remainingKcal <= 0,
         // The pick is for today, so it logs to today whatever day the food
         // tab shows.
@@ -1253,6 +1361,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onOpenMealPlan: () {
           if (_isStoreSessionCurrent(ownerStore)) {
             unawaited(MealPlanScreen.open(context, ownerStore));
+          }
+        },
+        onPlanRecipe: (context, recipe) async {
+          if (_isStoreSessionCurrent(ownerStore)) {
+            await MealPlanScreen.planRecipe(context, ownerStore, recipe);
           }
         },
         onDeleteRecipe: widget.sync == null ? null : _store.deleteUserRecipe,

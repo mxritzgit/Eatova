@@ -30,6 +30,38 @@ Pinned by `test/recipes_redesign_wiring_test.dart`,
 `test/recipes_redesign_details_test.dart` and the captures in
 `test/design/recipes_redesign_capture_test.dart`.
 
+## Avoided foods, own categories, day planning and copy (2026-10-19)
+
+From the [improvement review of 2026-10-19](IMPROVEMENT-REVIEW-2026-10-19.md):
+
+- **Avoided foods.** Every catalog recipe carries reviewed `avoidanceTags`
+  (the 13 `FoodAvoidance` codes), conservative: optional and "or" items count,
+  and so do typical hidden ones (soy sauce: gluten and alcohol; curry paste:
+  shellfish and fish; curry powder: celery and mustard; pesto: nuts;
+  ready-made falafel: gluten; unspecified nuts: peanuts too). Tips in the pro
+  hint do not count. `test/models/recipe_avoidance_tags_test.dart`
+  cross-checks the text in both languages, in both directions. Suggestions
+  filter like the diet: the shared pick (Today, Food, Recipes hero), the lean
+  shelf and its "See all", "More recommendations" (its fallback never brings
+  avoided recipes back) and "Fits your goal". "All recipes", the detail and
+  the plan editor's recipe list keep them with a quiet "Enthält Nüsse" chip
+  (`widgets/recipes/recipe_avoid_hint.dart`). Own recipes are neither filtered
+  nor hinted; `food_dislikes` (free text) stays Coach-only. A recommendation
+  aid, not an allergy guarantee.
+- **Own categories.** The create/edit sheet ends with optional chips for the
+  editorial catalog categories (`ownRecipeCategoryChoices`; "High Protein"
+  stays derived from the numbers). Choices follow "Eigene" in the existing
+  `categories` array, so sync and export keep their shape; an own breakfast
+  dish is offered for breakfast only.
+- **Day planning.** Each planned day says "1.780 von 2.100 kcal geplant"
+  (eaten meals included, the profile's daily goal, unloggable meals counted
+  apart). "Zum Speiseplan" on a recipe detail opens the planner's own editor
+  with the recipe chosen (`MealPlanScreen.planRecipe`); nothing is written
+  before its save. Ticking past or future entries is unchanged (owner decision
+  pending).
+- **Copy as text.** The weekly receipt and every recipe detail copy clean
+  plain text to the clipboard with a toast; no share package.
+
 ## Spotlight, 2026-09-13 (details, plan and shopping still current)
 
 The user selected concept 05, Recipe Spotlight, on 2026-09-13. The recipe family

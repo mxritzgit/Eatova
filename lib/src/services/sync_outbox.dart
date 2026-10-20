@@ -39,6 +39,13 @@ enum SyncOpKind {
   mealUpsert,
   mealDelete,
   weightInsert,
+
+  /// A weigh-in edited, or restored by an undo under a new id
+  /// (20261019110000). Counts nothing; a deleted id stays deleted.
+  weightUpsert,
+
+  /// A deleted weigh-in, terminal for its id (20261019110000).
+  weightDelete,
   favoriteUpsert,
   favoriteDelete,
   recipeUpsert,
@@ -70,6 +77,7 @@ enum SyncOpKind {
 
   bool get isDelete => switch (this) {
     mealDelete ||
+    weightDelete ||
     favoriteDelete ||
     recipeDelete ||
     trainingPlanDelete ||
@@ -316,6 +324,24 @@ class SyncOp {
     },
   );
 
+  /// An edited weigh-in, or one an undo restores under the new [id]. Shares
+  /// the `weight:<id>` entity key with the insert, so it waits for it.
+  factory SyncOp.weightUpsert({
+    required String id,
+    required double weightKg,
+    required DateTime recordedAt,
+  }) => SyncOp._(
+    kind: SyncOpKind.weightUpsert,
+    entityId: id,
+    payload: {
+      'weight_kg': weightKg,
+      'recorded_at': recordedAt.toUtc().toIso8601String(),
+    },
+  );
+
+  factory SyncOp.weightDelete(String id) =>
+      SyncOp._(kind: SyncOpKind.weightDelete, entityId: id, payload: const {});
+
   factory SyncOp.favoriteUpsert(FavoriteMeal fav) => SyncOp._(
     kind: SyncOpKind.favoriteUpsert,
     entityId: fav.id,
@@ -465,7 +491,9 @@ class SyncOp {
     SyncOpKind.mealUpsert ||
     SyncOpKind.mealDelete => 'meal:$entityId',
     SyncOpKind.shoppingCheck => 'shopping_check:$entityId',
-    SyncOpKind.weightInsert => 'weight:$entityId',
+    SyncOpKind.weightInsert ||
+    SyncOpKind.weightUpsert ||
+    SyncOpKind.weightDelete => 'weight:$entityId',
     SyncOpKind.favoriteUpsert ||
     SyncOpKind.favoriteDelete => 'favorite:$entityId',
     SyncOpKind.recipeUpsert || SyncOpKind.recipeDelete => 'recipe:$entityId',

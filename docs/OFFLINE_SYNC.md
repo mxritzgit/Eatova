@@ -151,8 +151,8 @@ exact conflict copy, including a copy deleted after acknowledgement.
 | Own recipes | Server revision CAS; a stale edit creates a deterministic conflict copy; a stale delete preserves the current recipe; a create against a deleted slug recreates it. | Exact original receipt; no second copy or rewrite. |
 | Diary edits, training plan edits, profile settings | Last server arrival wins. These are **not** protected by document CAS. | Never re-applies an older write over a newer operation. |
 | Favorites, shopping checks | Explicit last-arrival register. A new favorite upsert can deliberately re-add a deleted favorite. | An old upsert/delete cannot rewind the register. |
-| Weight samples, training completions | Immutable identity-based inserts. Training completion deletion has a permanent receipt. | Original outcome; no duplicate sample or completion. |
-| Diary and manual training plan deletion through the new dispatcher | Permanent identity tombstone. A distinct replacement needs a new identity. | Original outcome. |
+| Weight samples, training completions | Immutable identity-based inserts. Training completion deletion has a permanent receipt. Since `20261019110000` a weigh-in's edit (`weightUpsert`) is a last-arrival write of its own row that never counts; a deleted id stays deleted. | Original outcome; no duplicate sample or completion. |
+| Diary, weigh-in and manual training plan deletion through the new dispatcher | Permanent identity tombstone (`weight` family since `20261019110000`). A distinct replacement, such as a weigh-in's undo, needs a new identity. | Original outcome. |
 | Coach training plan adoption/deletion | Stable source identity plus an explicit incarnation; deletion is terminal for that incarnation. | Never recreates or deletes a later incarnation. |
 | Planned meals | Removed and consumed states are terminal, including the legacy plan RPC. | Original conversion receipt, including its diary/statistics outcome. |
 | Counters and tracking day | Existing atomic counter and monotone day RPCs; a meal/weight insert counts in the same transaction. | Persistent operation receipt; source-derived counter IDs also match legacy replay follow-ups. |
@@ -247,6 +247,10 @@ Local slots written by older builds are upgraded on read:
 - Weight rows are stored as UTC instants. A legacy row without an offset is read
   as wall-clock time in the current zone, unless it belongs to a queued weigh-in;
   then the operation's exact instant wins, and duplicates collapse into one row.
+  Since 2026-10-19 rows keep their `weight_log` id, which an edit or delete
+  addresses; a queued edit's row wins over its queued insert's instant. An
+  edit or delete of a queued weigh-in also drops an id-less row an older
+  build cached for it, so the row cannot read as that weigh-in again.
 - A #70 (v1) training checkpoint is converted to v2 once and persisted. v1 never
   recorded a start, so its start is the first observation, or an earlier pending
   completion if one exists.
@@ -316,8 +320,8 @@ cannot return; deleting old receipts or tombstones on a timer is unsafe. Account
 erasure remains available even at capacity.
 
 Real PostgreSQL assertions live in `test/migrations/offline_sync_versions.sql`,
-`offline_sync_receipts.sql` and `training_incarnations.sql`; CI runs all three
-through `rls_cross_user.sql`.
+`offline_sync_receipts.sql`, `training_incarnations.sql` and
+`weight_log_edit.sql`; CI runs them through `rls_cross_user.sql`.
 The accompanying
 Python concurrency and migration-upgrade probes test real parallel transactions
 and an existing collection larger than the default history allowance.

@@ -23,8 +23,9 @@ therefore showed two different "current" weights.
 
 - **Trend** (`WeightLog.trendKg`): an exponentially weighted moving average
   over the weigh-ins, with these rules:
-  - Each local day counts once, with its **last** weigh-in. There is no
-    delete, so a later entry corrects an earlier one, for example a typo.
+  - Each local day counts once, with its **last** weigh-in. A later entry of
+    the same day counts instead of an earlier one. Since 2026-10-19 a
+    weigh-in can also be edited or deleted (see "Correcting weigh-ins").
   - The smoothing is 10 % per day and time-aware: a day `Δ` days after the
     last counted one moves the trend by `1 − 0.9^Δ`. A weekly weigh-in
     therefore counts about 52 %, and a weigh-in after a month almost fully.
@@ -46,9 +47,9 @@ therefore showed two different "current" weights.
   refresh it) and the rounded value fits `ProfileLimits` (30–300 kg). Otherwise there is no plan weight and the
   profile weight stays in charge. This also covers a user who stopped
   weighing in and later typed a weight on the goals screen.
-- **Re-anchoring:** after a weigh-in (manual or Apple Health import) and after
-  the boot load, the store sets `profile.weightKg` to the rounded plan weight
-  when they differ.
+- **Re-anchoring:** after a weigh-in (manual or Apple Health import), after
+  an edit or a delete of one, and after the boot load, the store sets
+  `profile.weightKg` to the rounded plan weight when they differ.
   - It requires a completed onboarding.
   - It requires that the server answered both the profile and the
     weight-log load in this session. A full profile row is never written from
@@ -86,7 +87,58 @@ therefore showed two different "current" weights.
   it, because a typed value would immediately be smoothed back. It is titled
   "Weight trend", and its helper names a differing last weigh-in in the same
   words. Its hidden energy fields use the same weight. Without a plan weight
-  the row stays editable. Onboarding does not create a weigh-in.
+  the row stays editable. Since 2026-10-19 the onboarding weight becomes the
+  first weigh-in (see below).
+
+## Correcting weigh-ins (2026-10-19)
+
+Review [2026-10-19](IMPROVEMENT-REVIEW-2026-10-19.md), section 3: a typo
+could only be outvoted by later weigh-ins, and the onboarding weight was no
+weigh-in.
+
+- **History:** the profile's weight card ("All weigh-ins") and the weigh-in
+  sheet ("History", also from Today's weight chip) open all weigh-ins,
+  newest first. A row opens the edit sheet: value, day (the 7-day strip,
+  swipe for earlier weeks) and time, and "Delete weigh-in".
+- **Dated weigh-ins:** the weigh-in sheet takes a day and a time, default
+  now, at most a year back and never in the future (a future moment
+  becomes now). An edit keeps its exact original moment until the day or
+  time is changed.
+- **Edit:** `weightUpsert` with the row's id. The plan re-anchors through
+  the same path and in the same local commit as a new weigh-in, so a
+  corrected typo moves the profile back (`updateWeighIn`).
+- **Delete:** `weightDelete`, terminal for the id; the snack's undo restores
+  value and moment under a new id. The plan re-anchors in the same commit.
+  Known limit: when the deleted weigh-in was the only one the plan rested on,
+  there is no plan weight left and the profile keeps the weight it was last
+  anchored to; the goals screen's weight row is editable again then. With the
+  onboarding weigh-in this needs an account onboarded before 2026-10-19.
+- **Lifetime counter:** `lifetime_stats.weight_logs` counts weigh-ins logged
+  (`weightInsert`), like `meals_logged`. An edit, a delete and its undo
+  neither add nor subtract.
+- **Apple Health:** Eatova wrote a sample for each manual weigh-in. An edit
+  deletes Eatova's own sample at the old moment (by its UUID, found by
+  source and time) and writes the corrected one; a delete removes it, and
+  the undo writes it back. A weigh-in imported from a scale has no sample of
+  Eatova's: the scale's sample stays as it is (HealthKit lets an app delete
+  only its own samples), and nothing is written instead. A deleted import is
+  not offered again in the same session; after a restart a reading of the
+  last 7 days may be offered once more. Android writes no weight.
+- **Rows without an id:** builds before 2026-10-19 cached weigh-ins without
+  their row id. Such a row shows "Editable after the next sync" until the
+  next server load supplies it.
+- **Onboarding weigh-in:** completing the onboarding records the entered
+  weight as the first weigh-in, in the same local commit as the profile, so
+  the trend and the weekly check start on day one. Only when the server
+  answered an empty weight log in this session: an account with weigh-ins,
+  or one whose log is unknown offline, gets none. An account completes its
+  onboarding once (repeated taps share one completion), so the weigh-in is
+  recorded once.
+
+Server side: [20261019110000](../supabase/migrations/20261019110000_weight_log_edit.sql)
+adds both kinds to `apply_sync_operation`, a `weight` tombstone family and
+the current-state projection; see [durable sync](OFFLINE_SYNC.md#conflict-policy).
+The migration goes live before the client that sends the new kinds.
 
 Measured effect (male, 182 cm, light, −0.5 kg/week): the daily goal goes from
 2100 kcal at 84 kg to 2000 at 76 kg. The visible correction is the forecast and
@@ -108,11 +160,19 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
   this session (full-day totals). A value pinned before its day ended would
   understate the model. A session that runs into a new day re-reads the day
   that just ended before the check may propose again.
+  The trends page's longer backfill (up to six months, 2026-10-19) stores
+  every day it finds in one notify and one encrypted cache write, and on
+  Android reads only the last 30 days: without `READ_HEALTH_DATA_HISTORY`,
+  which Eatova neither declares nor requests, Health Connect answers nothing
+  older than 30 days before the first grant.
 - Enough data in the **window**: the 21 local days that end yesterday (today
   is not complete yet).
   - At least 14 **logged days**. A day counts when its logged intake reaches
     50 % of the current daily goal, since emptier days are almost certainly
-    incomplete.
+    incomplete. Since 2026-10-19 this is the app's one rule for a complete
+    day (`services/complete_day.dart`): the trends averages, Today's day
+    strip and the evening reminder use it too. The logging streak keeps its
+    own bar of one entry.
   - With a step source (a reading today or any step value in the window),
     a day also needs a step value of its own. Step values are not synced:
     on a new phone, or for days before the permission, a missing value
@@ -173,15 +233,41 @@ minimum the block says so instead of naming a rate.
   "Log weight" without one. It opens the profile's weigh-in sheet.
 - Beside it, `EnergyCheck.progress` on the same inputs, rules and source
   gate as the proposal: "Weekly check in 5 days at the earliest · 2 more
-  weigh-ins". The day assumes that every day from today on gets logged and
-  that the weigh-ins fall on the days they are needed; weigh-ins still to
-  come are assumed to be no typos. After an answer it names the end of the
-  7-day pause.
+  complete days · 2 more weigh-ins". The day assumes that every day from
+  today on gets logged and that the weigh-ins fall on the days they are
+  needed; weigh-ins still to come are assumed to be no typos. After an
+  answer it names the end of the 7-day pause.
 - With enough data and no proposal: "Weekly check active · enough data". It
   does not claim that the goal fits, since a cap or the floor can hold back a
   step the data asks for.
 - While the proposal card shows, the card speaks for the check and the line
   is hidden. On cached data alone there is neither.
+
+### Explained, and the week's result (2026-10-19)
+
+- The progress line is a button (info glyph). It opens a short explainer:
+  what the check compares (the last 21 days of entries against the weight
+  trend), what it needs (14 complete days, 4 weigh-ins 14 days apart,
+  weighing 2–3 times a week), and how far it may move the goal (150 kcal at
+  a time, ±500 in total, nothing without "Adjust"). The numbers come from
+  `EnergyCheck`'s constants. Two ways out: log weight, open the food log.
+- `EnergyCheck.estimate` returns the arithmetic behind `evaluate` with or
+  without a proposal: observed and modelled expenditure, the measured
+  weekly rate, the plan's pace (`KcalTargets.effectiveWeeklyRateKg`), the
+  counts, and whether the difference stayed inside the noise. `evaluate` is
+  its proposal. Nothing new is modelled.
+- Once a week, on Mondays (`EnergyCheck.resultWeekday`), when the check
+  estimates on server data and proposes nothing, Today shows a quiet result
+  card instead of the line: "Verbrauch ≈ 2.350 kcal am Tag", then "Dein
+  Tagesziel von 2.100 kcal passt dazu." (inside the noise) or "… bleibt bei
+  … kcal: Es liegt schon an einer Grenze." (a cap, the floor or the ceiling
+  holds it), and "Gemessen: −0,4 kg/Woche · Plan: −0,5 kg/Woche". It has no
+  answer buttons and changes nothing; it links to the explainer. Monday is a
+  stateless choice: nothing is stored, so a week without opening the app on
+  Monday shows no card, while the line stays tappable every day.
+- The onboarding plan's footnote now says that a weekly check compares the
+  estimate with the entries and weigh-ins, and to weigh in 2–3 times a
+  week.
 
 ### Storage and rollout
 

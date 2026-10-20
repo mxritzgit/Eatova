@@ -2,12 +2,21 @@
 
 _Repository data-flow update: 2026-09-14; Coach `/log`, workout logging and
 rest alerts: 2026-10-03; text and photo AI moved to Anthropic Claude:
-2026-10-08; describing a meal by text or voice: 2026-10-10_
+2026-10-08; describing a meal by text or voice: 2026-10-10; food preferences
+and the Coach's seven-day context: 2026-10-18; in-app AI consent, Coach
+answer reports and export as a file: 2026-10-19_
 
 > **Pending publication (2026-10-08):** the source now sends coach, meal-scan
 > and recipe-import requests to Anthropic instead of OpenRouter/Google. The
 > published policy at eatova.de still names OpenRouter/Google until it is
 > updated; that update belongs before or with the backend rollout.
+
+> **Pending publication (2026-10-19):** the in-app AI consent with its
+> separate health-data checkbox, its withdrawal under Settings → AI & data,
+> the consent and report logs, the food preferences and the Coach's seven-day
+> context described below are not yet in the published policy at eatova.de.
+> App builds released before this change do not ask for the consent; the
+> consent is requested and enforced by the app, not yet by our server.
 
 > The published German policy for the app and website lives at
 > **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This repository
@@ -44,6 +53,22 @@ You enter and the app stores the following, tied to your account:
   estimate as well (an offset in kcal per day). The check is computed on your
   device from your logged meals, weigh-ins and step counts. Water and sleep
   goals are no longer active profile controls.
+- **Food preferences (optional):** the foods you avoid, chosen from a fixed
+  list (intolerances and allergies such as lactose, gluten, nuts or fish, plus
+  pork and alcohol), and a short free text of foods you dislike. Intolerances
+  and allergies are health data (Art. 9 GDPR). They are stored with your
+  profile and reach the AI coach as described under "Coach chat" and
+  "Recipe generator" below.
+- **AI consent:** your decisions on the in-app AI consent (see "Why (legal
+  basis)"): the version of the consent text, whether you gave or withdrew it,
+  whether you gave the separate health-data consent, and the time. Our server
+  keeps them as a log that cannot be changed or deleted from the app; the app
+  keeps the latest decision in its encrypted local cache.
+- **Reports of Coach answers (optional):** when you report a Coach answer or
+  a generated recipe picture, we store the message's identifier, the
+  conversation's identifier, whether the text or the picture was reported,
+  the reason you picked from a fixed list and the time. The message text is
+  not copied into the report.
 - **Nutrition log:** meals you log (name, calories, macros, portion, barcode/brand
   where applicable, and whether the values came from the AI scan, a meal
   description, a barcode, the product search or your own manual entry), favorites, and your own recipes,
@@ -82,10 +107,14 @@ You enter and the app stores the following, tied to your account:
   progress picture); it is sent to the AI provider only to generate that reply and
   is not stored afterwards. So the coach can give specific rather than generic
   advice, each coach message is automatically accompanied by a short snapshot of
-  your current targets and progress — your body weight and goal weight, today's
-  calorie balance and remaining macros, and a short list of the meals you logged
-  today (meal slot, name and calories, truncated to fit a fixed length limit),
-  as well as per-slot nutrition totals. Recent messages from the same chat can
+  your current targets and progress — your body weight, goal weight and the
+  weight goal in effect, today's calorie balance (including the calories-burned
+  estimate derived from your steps, where a step source is connected) and
+  remaining macros, your diet and the foods you avoid or dislike (see "Food
+  preferences"), an overview of the last seven days (daily calories and protein
+  against your targets, your weight trend and the number of workouts), per-slot
+  nutrition totals and a short list of the meals you logged today (meal slot,
+  name and calories, truncated to fit a fixed length limit). Recent messages from the same chat can
   accompany the request. Before sending any reply text to the app, the server
   buffers and checks the generated reply. Approved text is then delivered in
   short chunks over the streaming connection, or a safe refusal is returned.
@@ -101,7 +130,8 @@ You enter and the app stores the following, tied to your account:
   with the chat and becomes a saved plan only after adoption.
 - **Recipe generator (the `/recipe` command in the coach):** the dish you ask for is sent to
   the AI provider as a normal coach message and is stored in your chat history
-  like any other. The recipe that comes back (title, description, ingredients,
+  like any other. It carries your diet and the foods you avoid or dislike, so
+  the recipe can respect them, but not the rest of the snapshot. The recipe that comes back (title, description, ingredients,
   preparation, nutrition values) is stored with that chat message so the card
   survives a restart; it becomes one of your own recipes only if you confirm it.
   A picture of the dish is generated for the card by a separate **AI image
@@ -138,7 +168,9 @@ You enter and the app stores the following, tied to your account:
   entry when you record a weigh-in. It reads and writes only these categories
   and accesses no other Apple Health data. The step count is used on the device
   for the day's display, the calories-burned estimate and the weekly check
-  (the last three weeks); it is not stored on our servers.
+  (the last three weeks); it is not stored on our servers. If you use the AI
+  coach, the calories-burned estimate derived from it (not the step count) is
+  part of the snapshot sent with your question.
 - **Voice input (optional):** the coach's microphone button (iOS) and the
   meal description's microphone button (iOS and Android) turn speech into
   text. On iOS, audio is captured only while the microphone is active (tap to
@@ -162,8 +194,10 @@ You enter and the app stores the following, tied to your account:
   aggregated steps during foreground refreshes for the selected day's display
   and activity estimate, and for the weekly check (the last three weeks). It
   does not request Android weight access or write health records. Step counts
-  are not persisted to our servers. Availability, permission and an empty
-  source are handled as distinct states.
+  and the daily totals are kept in the encrypted app cache and are not
+  persisted to our servers; as with Apple Health, the calories-burned estimate
+  derived from them is part of the coach snapshot when you use the AI coach.
+  Availability, permission and an empty source are handled as distinct states.
 
 In addition, and **not** tied to your account:
 
@@ -211,8 +245,8 @@ the device, before the photo is uploaded.
   to produce the response. The current source uses **Claude Sonnet 5.5** for:
   - coach-chat messages — together with the profile/progress snapshot and any
     photo you attach, as described above — and the safety/topic classifier;
-  - a recipe you ask the coach for, drafted from your wording alone (no profile
-    snapshot, no photo);
+  - a recipe you ask the coach for, drafted from your wording plus your diet
+    and the foods you avoid or dislike (no other profile data, no photo);
   - training requests, with the explicit brief and any selected-plan context;
   - a workout you describe with `/log`, read from your wording alone (no
     profile snapshot, no photo);
@@ -299,14 +333,15 @@ The configured AI path involves recipients in, or routing to, the United States:
 
 These AI transfers happen when you use coach chat, a coach recipe/training
 proposal, a coach workout log, AI meal analysis, a meal description or
-recipe import. The published policy
+recipe import, and only after you gave the in-app AI consent (see "Why
+(legal basis)"). The published policy
 identifies the **Standard Contractual Clauses** adopted by the EU
 Commission (Art. 46(2)(c) GDPR). Despite these safeguards, a residual risk
 remains that US authorities can access data held by US providers, and that your
 rights may be harder to enforce there than in the EU. If you do not want this,
-simply do not use the coach, the AI meal scan, meal description and recipe
-import; every other
-feature of the app works without them.
+do not give the AI consent, or withdraw it; every other feature of the app
+works without the coach, the AI meal scan, meal description and recipe
+import.
 
 Apple's speech recognition may also process audio on Apple's servers where no
 on-device model is available for your language, and your Android speech
@@ -318,6 +353,32 @@ We process this data to provide the tracking features you ask for — i.e. to pe
 the service you signed up for (GDPR Art. 6(1)(b)), and, for optional Apple Health
 read/write, Health Connect steps, voice input and AI features, on the basis of the permission you
 grant in-app (Art. 6(1)(a), Art. 9 for health data).
+
+**In-app AI consent.** Before the first AI use — the photo scan, describing a
+meal, a Coach message (including `/recipe`, `/plan` and `/log`) or recipe
+import — the app shows a consent sheet. It names the features, what they
+send (photos, text, dictated text, meals and nutrition values, profile goals,
+diet and avoided foods, weight and weight trend, and for the Coach the
+seven-day overview), the providers (Anthropic; OpenRouter with Google's image
+model for recipe pictures) and that processing can happen in the USA. You
+consent by tapping "Agree and continue" (Art. 6(1)(a)) and by ticking a
+separate, unticked checkbox for your health data
+(Art. 9(2)(a)); without the tick you cannot continue, and "Not now" cancels
+the action without sending anything. The decision is logged on our server
+(see "AI consent" above) before the first request goes out; if the server
+cannot be reached, nothing is sent. The consent is per account and per
+version of the text: when what is sent or to whom changes, the app asks
+again.
+
+You can withdraw the consent at any time under Settings → AI & data. The
+withdrawal takes effect on the device at once — the AI features then ask
+again before sending anything — and is logged on our server, at the latest
+the next time the device is online. It does not affect the lawfulness of
+processing before the withdrawal.
+
+Reports of Coach answers rest on our legitimate interest in finding wrong,
+harmful or inappropriate AI output and in meeting app-store rules for AI
+features (Art. 6(1)(f)); filing one is up to you.
 
 Crash diagnostics and the short-lived storage of the hashed IP address for rate
 limiting rest on our legitimate interest in a stable app and in protecting our
@@ -331,11 +392,14 @@ You can, at any time:
   Export data) requests a JSON copy of your stored data directly
   from our servers — every table that belongs to your account: profile, food
   diary, favorites, recipes, weight log, lifetime statistics, training plans,
-  meal plans, shopping checks, training history/deletion receipts, coach chats
-  and daily coach quota counters. The app can copy the full returned JSON;
-  native file sharing is not wired. Device-only pictures and unsynced changes
-  are not part of this server export. The diary is paginated; other sections
-  have a 10,000-row client limit and may be capped lower by the server. Missing
+  meal plans, shopping checks, training history/deletion receipts, coach chats,
+  daily coach quota counters, AI usage counters, your AI consent log and your
+  reports of Coach answers. The app can copy the full returned export or share
+  it as a file through your device's share sheet; the file is written to the
+  app's temporary folder for the share and deleted afterwards. Device-only pictures and unsynced changes
+  are not part of this server export. Every section is read page by page
+  until the server has no more rows; outside the diary a section stops at a
+  safety bound of 100,000 rows. Missing
   or truncated sections are explicitly identified. You can also request your
   data by email.
 - **Correct** supported editable values in the app, or contact us for other
@@ -346,11 +410,14 @@ You can, at any time:
   confirm the deletion with an eight-digit one-time code emailed to you, on top
   of typing the confirmation word — deletion is immediate and irreversible
   once confirmed, there is no grace period.
-- **Withdraw health/voice permission** in the platform privacy settings or
-  Health Connect permissions; stop sending new AI requests by not using those
-  features. Account/data deletion is available as described above.
+- **Withdraw your AI consent** under Settings → AI & data (see "Why (legal
+  basis)"), and **withdraw health/voice permission** in the platform privacy
+  settings or Health Connect permissions. Account/data deletion is available
+  as described above.
 
-To exercise a right or ask a question, contact **support@eatova.de**. You also
+To exercise a right or ask a question, contact **support@eatova.de** (also
+reachable from Settings → Feedback & support, which prefills only the app
+version and build in the subject). You also
 have the right to lodge a complaint with your data-protection authority.
 
 ## Retention
@@ -396,6 +463,12 @@ Exceptions:
   Account deletion removes that account's records. Your own records are included
   in the data export. Separate global counters contain only daily totals and no
   account identifier; the same request-triggered cleanup applies to them.
+- the **AI consent log** and your **reports of Coach answers** are kept as
+  long as your account exists, as evidence of your decisions and for the
+  review of reported output, and are deleted with the account. The app does
+  not offer to delete single entries; both are part of the data export. The
+  copy of your latest consent decision on the device is deleted when you sign
+  out or another account signs in.
 
 Recipe version history preserves previous versions and deleted recipes so you
 can inspect and restore them. Deleting the current recipe removes it from the

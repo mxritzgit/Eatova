@@ -7,6 +7,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/services/coach_quota_reset.dart';
 
 // D2 — error mapping of CoachChatService.send().
 //
@@ -368,7 +369,10 @@ void main() {
 
       expect(failure, isA<CoachQuotaExceeded>());
       expect((failure as CoachQuotaExceeded).dailyLimit, 7);
-      expect(failure.message, deL10n.coachErrorDailyLimitReached(7));
+      expect(
+        failure.message,
+        deL10n.coachErrorDailyLimitReached(7, coachQuotaResetLabel('de')),
+      );
       expect(sprachen, <String?>['de']);
     });
   });

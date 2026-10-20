@@ -55,6 +55,7 @@ class TrendBar {
     required this.days,
     required this.value,
     required this.goal,
+    this.partial = false,
   });
 
   /// First local day of the slot.
@@ -71,16 +72,21 @@ class TrendBar {
   /// Goal for the slot (average over its days for a week); 0 draws none.
   final int goal;
 
+  /// A completed day below the complete-day rule, left out of the averages;
+  /// the chart draws it faded. Never set on today or on a week.
+  final bool partial;
+
   @override
   bool operator ==(Object other) =>
       other is TrendBar &&
       other.start == start &&
       other.days == days &&
       other.value == value &&
-      other.goal == goal;
+      other.goal == goal &&
+      other.partial == partial;
 
   @override
-  int get hashCode => Object.hash(start, days, value, goal);
+  int get hashCode => Object.hash(start, days, value, goal, partial);
 }
 
 /// Weigh-ins inside a trend window.
@@ -112,6 +118,10 @@ class TrendWeight {
 ///
 /// B6 holds for every average: the running day is excluded, or a single
 /// breakfast would count as a whole day. The charts still show today.
+///
+/// The kcal and macro averages, the goal rate and the protein days count
+/// complete days only ([isCompleteDay] against the base goal, 2026-10-19);
+/// [partialDays] says how many logged days they left out.
 class TrendReport {
   TrendReport._({
     required this.range,
@@ -124,6 +134,7 @@ class TrendReport {
     required this.macros,
     required this.proteinGoalDays,
     required this.loggedDays,
+    required this.fullDays,
     required this.stepBars,
     required this.avgSteps,
     required this.stepDays,
@@ -151,6 +162,8 @@ class TrendReport {
       for (final day in days) goals.kcal + goals.burnedKcalFor(day),
     ];
     final completed = completedDaysOf(window);
+    // The averages' days: completed AND complete.
+    final full = fullyLoggedDaysOf(completed, goalKcal: goals.kcal);
 
     final steps = <int?>[
       for (final day in days)
@@ -174,10 +187,11 @@ class TrendReport {
 
     var proteinGoalDays = 0;
     if (goals.proteinG > 0) {
-      for (final day in completed) {
+      for (final day in full) {
         if (day != null && day.proteinG >= goals.proteinG) proteinGoalDays++;
       }
     }
+    final last = window.length - 1;
 
     return TrendReport._(
       range: range,
@@ -188,17 +202,25 @@ class TrendReport {
         range: range,
         days: days,
         values: [for (final day in window) day?.kcal],
+        // A week averages its complete days, like the stat under the chart;
+        // today's slot is never averaged.
+        weekValues: [for (final day in full) day?.kcal, null],
+        partial: [
+          for (var i = 0; i < window.length; i++)
+            i != last && window[i] != null && full[i] == null,
+        ],
         goals: goalPerDay,
       ),
-      avgKcal: averageKcalOf(completed),
+      avgKcal: averageKcalOf(full),
       hits: goalHitsOf(
-        completed,
+        full,
         goalKcal: goals.kcal,
         burnedKcalFor: goals.burnedKcalFor,
       ),
-      macros: averageMacrosOf(completed),
+      macros: averageMacrosOf(full),
       proteinGoalDays: proteinGoalDays,
       loggedDays: trackedDaysOf(completed),
+      fullDays: trackedDaysOf(full),
       stepBars: _bars(
         range: range,
         days: days,
@@ -232,20 +254,26 @@ class TrendReport {
   /// The kcal chart: one bar per day, or per week from three months on.
   final List<TrendBar> kcalBars;
 
-  /// Average kcal over the logged completed days.
+  /// Average kcal over the complete completed days.
   final double? avgKcal;
 
-  /// Logged completed days inside the goal corridor.
+  /// Complete completed days inside the goal corridor.
   final ({int hit, int tracked}) hits;
 
-  /// Average macros over the logged completed days.
+  /// Average macros over the complete completed days.
   final ({double proteinG, double carbsG, double fatG})? macros;
 
-  /// Logged completed days that reached the protein goal.
+  /// Complete completed days that reached the protein goal.
   final int proteinGoalDays;
 
   /// Completed days with at least one entry.
   final int loggedDays;
+
+  /// Completed days that pass the complete-day rule: the averages' days.
+  final int fullDays;
+
+  /// Logged completed days below the rule, left out of the averages.
+  int get partialDays => loggedDays - fullDays;
 
   /// Completed days in the window: every day but today.
   int get completedDays => range.days - 1;
@@ -273,20 +301,30 @@ class TrendReport {
   double get workoutsPerWeek => workouts / range.days * 7;
 
   /// Slots [values] per day, or per week counted back from today. A week's
-  /// value averages its measured COMPLETED days, so today's partial value
-  /// never drags its week down; its goal averages all of its days.
+  /// value averages its measured COMPLETED days of [weekValues] (default
+  /// [values]), so today's partial value never drags its week down; its goal
+  /// averages all of its days. [partial] marks day bars to draw faded.
   static List<TrendBar> _bars({
     required TrendRange range,
     required List<DateTime> days,
     required List<int?> values,
     required List<int> goals,
+    List<int?>? weekValues,
+    List<bool>? partial,
   }) {
     if (!range.weekly) {
       return [
         for (var i = 0; i < days.length; i++)
-          TrendBar(start: days[i], days: 1, value: values[i], goal: goals[i]),
+          TrendBar(
+            start: days[i],
+            days: 1,
+            value: values[i],
+            goal: goals[i],
+            partial: partial?[i] ?? false,
+          ),
       ];
     }
+    final averaged = weekValues ?? values;
     final bars = <TrendBar>[];
     final last = days.length - 1;
     for (var end = days.length; end > 0; end -= 7) {
@@ -296,7 +334,7 @@ class TrendReport {
       var goalSum = 0;
       for (var i = start; i < end; i++) {
         goalSum += goals[i];
-        final value = values[i];
+        final value = averaged[i];
         if (i == last || value == null) continue;
         sum += value;
         measured++;

@@ -108,6 +108,66 @@ void main() {
     });
   });
 
+  // 2026-10-19: one rule for a complete day, the weekly check's: a logged
+  // day below half the base goal leaves every average and is counted.
+  group('Vollstaendige Tage', () {
+    test('ein halber Tag faellt aus allen Schnitten und wird gezaehlt', () {
+      final report = _build(
+        TrendRange.week,
+        totals: [
+          _totals(0, 300, protein: 10),
+          _totals(1, 2000, protein: 150),
+          _totals(2, 2400, protein: 90),
+          _totals(3, 999, protein: 200),
+          _totals(4, 400, protein: 130),
+        ],
+        goals: const TrendGoals(kcal: 2000, proteinG: 120),
+      );
+      // Over every logged day it was (2000 + 2400 + 999 + 400) / 4.
+      expect(report.avgKcal, 2200);
+      expect(report.loggedDays, 4);
+      expect(report.fullDays, 2);
+      expect(report.partialDays, 2);
+      expect(report.hits, (hit: 1, tracked: 2));
+      expect(report.macros!.proteinG, 120);
+      expect(report.proteinGoalDays, 1);
+      // The chart keeps them, faded; today is never marked.
+      expect(
+        [for (final bar in report.kcalBars) bar.partial],
+        [false, false, true, true, false, false, false],
+      );
+      expect(report.kcalBars[2].value, 400);
+    });
+
+    test('genau die Haelfte des Ziels ist vollstaendig', () {
+      final report = _build(TrendRange.week, totals: [_totals(1, 1000)]);
+      expect(report.fullDays, 1);
+      expect(report.partialDays, 0);
+      expect(report.avgKcal, 1000);
+    });
+
+    test('ohne Ziel zaehlt jeder erfasste Tag', () {
+      final report = _build(
+        TrendRange.week,
+        totals: [_totals(1, 100), _totals(2, 300)],
+        goals: const TrendGoals(kcal: 0),
+      );
+      expect(report.fullDays, 2);
+      expect(report.avgKcal, 200);
+    });
+
+    test('eine Woche mittelt nur ihre vollstaendigen Tage', () {
+      final report = _build(
+        TrendRange.halfYear,
+        totals: [_totals(1, 2000), _totals(2, 400), _totals(8, 300)],
+      );
+      expect(report.kcalBars.last.value, 2000);
+      // A week of half-logged days only has no average to show.
+      expect(report.kcalBars[24].value, isNull);
+      expect(report.kcalBars.any((bar) => bar.partial), isFalse);
+    });
+  });
+
   group('Wochenbalken', () {
     test('sechs Monate: 26 volle Wochen, die letzte endet heute', () {
       final report = _build(TrendRange.halfYear);

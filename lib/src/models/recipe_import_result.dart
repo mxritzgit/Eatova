@@ -8,6 +8,42 @@ import 'model_limits.dart' show truncateToChars;
 
 enum RecipeImportStatus { ready, needsText, noRecipe }
 
+/// The hosts whose links the import reads (`VIDEO_HOSTS` and `SHORT_HOSTS`
+/// in `supabase/functions/recipe-import/source.ts`). Any other link is
+/// dropped by the server; website fetching does not exist yet.
+const Set<String> recipeImportLinkHosts = {
+  'www.tiktok.com',
+  'tiktok.com',
+  'm.tiktok.com',
+  'vm.tiktok.com',
+  'vt.tiktok.com',
+};
+
+/// The server's link pattern and trailing punctuation (`loadSource`).
+final RegExp _importLink = RegExp(
+  r'''https?://[^\s<>"']+''',
+  caseSensitive: false,
+);
+final RegExp _importLinkTail = RegExp(r'[),.!?;]+$');
+
+/// True when [text] holds links the import cannot read and nothing else to
+/// read: no TikTok link, and besides the links at most one short line, the
+/// page title a browser share brings along. The server would drop the links
+/// and answer `needs_text`; the sheet says why before any request. Pasted
+/// recipe text (several lines) next to a website link stays importable.
+bool recipeImportOnlyUnsupportedLinks(String text) {
+  final links = _importLink.allMatches(text).map((m) => m.group(0)!).toList();
+  if (links.isEmpty) return false;
+  for (final link in links) {
+    final host = Uri.tryParse(link.replaceAll(_importLinkTail, ''))?.host;
+    if (host != null && recipeImportLinkHosts.contains(host.toLowerCase())) {
+      return false;
+    }
+  }
+  final rest = text.replaceAll(_importLink, '').trim();
+  return !rest.contains('\n') && rest.runes.length <= 200;
+}
+
 /// Untrusted extraction output, validated before it reaches a recipe draft.
 class RecipeImportResult {
   const RecipeImportResult({

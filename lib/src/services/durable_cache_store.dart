@@ -25,6 +25,8 @@ const durableCacheSlotNames = {
   'sync_claim',
   'reminder_time',
   'reminder_prompt',
+  'health_prompt',
+  'ai_consent',
 };
 
 bool isDurableCacheSlotKey(String key) {

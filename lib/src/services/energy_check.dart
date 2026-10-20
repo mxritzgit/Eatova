@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import 'complete_day.dart';
 import 'day_math.dart';
 import 'kcal_calculator.dart';
 
@@ -37,6 +38,48 @@ class EnergyCheckProposal {
   final double weeklyRateKg;
   final int loggedDays;
   final int weighInDays;
+}
+
+/// What the weekly check measured for a day with enough data
+/// ([EnergyCheck.estimate], 2026-10-19): the numbers behind a proposal, and
+/// the week's result when there is none. Nothing here is a new model; it is
+/// [EnergyCheck.evaluate]'s own arithmetic, kept instead of dropped.
+class EnergyCheckEstimate {
+  const EnergyCheckEstimate({
+    required this.observedKcal,
+    required this.modelledKcal,
+    required this.weeklyRateKg,
+    required this.planWeeklyRateKg,
+    required this.currentGoalKcal,
+    required this.loggedDays,
+    required this.weighInDays,
+    required this.withinNoise,
+    this.proposal,
+  });
+
+  /// Expenditure estimated from intake and weight change, kcal/day.
+  final double observedKcal;
+
+  /// Expenditure the calculator assumes, steps included, kcal/day.
+  final double modelledKcal;
+
+  /// Weight change over the window, kg/week (negative = losing).
+  final double weeklyRateKg;
+
+  /// The pace the current goal plans for, kg/week
+  /// (`KcalTargets.effectiveWeeklyRateKg`).
+  final double planWeeklyRateKg;
+  final int currentGoalKcal;
+  final int loggedDays;
+  final int weighInDays;
+
+  /// The difference stays below the minimum or the weight noise: the data
+  /// gives no reason to move the goal.
+  final bool withinNoise;
+
+  /// The proposal, or null: [withinNoise], or a cap, the floor or the
+  /// ceiling holds back a step the data asks for.
+  final EnergyCheckProposal? proposal;
 }
 
 /// How far the data is from a weekly check, counted from the inputs
@@ -107,8 +150,9 @@ class EnergyCheck {
   /// Local days before today that form the window; today is incomplete.
   static const int windowDays = 21;
 
-  /// A day counts as logged from this share of the current daily goal on.
-  static const double loggedDayShare = 0.5;
+  /// A day counts as logged from this share of the current daily goal on:
+  /// the shared complete-day rule ([isCompleteDay]).
+  static const double loggedDayShare = completeDayShare;
   static const int minLoggedDays = 14;
   static const int minWeighInDays = 4;
   static const int minWeighInSpanDays = 14;
@@ -133,6 +177,10 @@ class EnergyCheck {
   static const int maxStepKcal = 150;
   static const int maxAdjustmentKcal = 500;
 
+  /// The weekday Today shows the week's result on when there is no
+  /// proposal (2026-10-19): once a week, without storing anything.
+  static const int resultWeekday = DateTime.monday;
+
   /// The proposal for [today] (local midnight), or null when there is none.
   ///
   /// [intakeKcal] gives the logged intake of a local day, [burnedKcal] its
@@ -142,6 +190,26 @@ class EnergyCheck {
   /// permission, a new device — the values are not synced) would model 0
   /// steps and push the goal up for walking the budget already credits.
   EnergyCheckProposal? evaluate({
+    required UserProfile profile,
+    required DateTime today,
+    required int Function(DateTime day) intakeKcal,
+    required int? Function(DateTime day) burnedKcal,
+    required WeightLog weightLog,
+    bool stepSourceToday = false,
+  }) => estimate(
+    profile: profile,
+    today: today,
+    intakeKcal: intakeKcal,
+    burnedKcal: burnedKcal,
+    weightLog: weightLog,
+    stepSourceToday: stepSourceToday,
+  )?.proposal;
+
+  /// The check's estimate for [today] on [evaluate]'s inputs and gates, or
+  /// null when it does not estimate (manual goal, unfinished onboarding,
+  /// the pause after an answer, too little data). With a proposal or
+  /// without one: [EnergyCheckEstimate.proposal] is [evaluate]'s answer.
+  EnergyCheckEstimate? estimate({
     required UserProfile profile,
     required DateTime today,
     required int Function(DateTime day) intakeKcal,
@@ -178,8 +246,22 @@ class EnergyCheck {
         targets.maintenanceKcal + mean(logged.map((day) => burnedKcal(day) ?? 0));
     final difference = observed - modelled;
     final noise = minDifferenceStandardErrors * slopeError * kcalPerKgBodyMass;
+    EnergyCheckEstimate result({
+      required bool withinNoise,
+      EnergyCheckProposal? proposal,
+    }) => EnergyCheckEstimate(
+      observedKcal: observed,
+      modelledKcal: modelled,
+      weeklyRateKg: slopeKgPerDay * 7,
+      planWeeklyRateKg: targets.effectiveWeeklyRateKg,
+      currentGoalKcal: targets.kcal,
+      loggedDays: logged.length,
+      weighInDays: weighIns.length,
+      withinNoise: withinNoise,
+      proposal: proposal,
+    );
     if (difference.abs() < math.max(minDifferenceKcal.toDouble(), noise)) {
-      return null;
+      return result(withinNoise: true);
     }
 
     final rounded =
@@ -187,23 +269,26 @@ class EnergyCheck {
     final step = rounded.clamp(-maxStepKcal, maxStepKcal);
     final current = profile.energyAdjustmentKcal;
     final next = (current + step).clamp(-maxAdjustmentKcal, maxAdjustmentKcal);
-    if (next == current) return null;
+    if (next == current) return result(withinNoise: false);
     final newGoal = calculator
         .calculate(profile.copyWith(energyAdjustmentKcal: next))
         .kcal;
     // Held by the floor or the ceiling: nothing the user would see changes.
-    if (newGoal == targets.kcal) return null;
+    if (newGoal == targets.kcal) return result(withinNoise: false);
 
-    return EnergyCheckProposal(
-      stepKcal: next - current,
-      newAdjustmentKcal: next,
-      currentGoalKcal: targets.kcal,
-      newGoalKcal: newGoal,
-      observedKcal: observed,
-      modelledKcal: modelled,
-      weeklyRateKg: slopeKgPerDay * 7,
-      loggedDays: logged.length,
-      weighInDays: weighIns.length,
+    return result(
+      withinNoise: false,
+      proposal: EnergyCheckProposal(
+        stepKcal: next - current,
+        newAdjustmentKcal: next,
+        currentGoalKcal: targets.kcal,
+        newGoalKcal: newGoal,
+        observedKcal: observed,
+        modelledKcal: modelled,
+        weeklyRateKg: slopeKgPerDay * 7,
+        loggedDays: logged.length,
+        weighInDays: weighIns.length,
+      ),
     );
   }
 
@@ -436,10 +521,12 @@ class _Window {
     final days = [
       for (var n = EnergyCheck.windowDays; n >= 1; n--) addDays(today, -n),
     ];
-    final threshold = targets.kcal * EnergyCheck.loggedDayShare;
     final steps = stepSourceToday || days.any((day) => burnedKcal(day) != null);
+    // The shared complete-day rule; the step value on top is this model's
+    // own need, since it subtracts the day's step kcal.
     bool isLogged(DateTime day) =>
-        intakeKcal(day) >= threshold && (!steps || burnedKcal(day) != null);
+        isCompleteDay(intakeKcal: intakeKcal(day), goalKcal: targets.kcal) &&
+        (!steps || burnedKcal(day) != null);
     return _Window._(
       targets: targets,
       isLogged: isLogged,
@@ -450,8 +537,8 @@ class _Window {
 
   final KcalTargets targets;
 
-  /// Whether a day counts as logged: from [EnergyCheck.loggedDayShare] of
-  /// the goal on and, with a step source, only with a step value.
+  /// Whether a day counts as logged: complete ([isCompleteDay]) and, with a
+  /// step source, only with a step value.
   final bool Function(DateTime day) isLogged;
   final List<DateTime> logged;
   final List<(DateTime, double)> weighIns;

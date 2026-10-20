@@ -247,8 +247,23 @@ class _HistoryRow extends StatelessWidget {
   }
 }
 
-String _date(BuildContext context, DateTime date) =>
-    DateFormat.yMMMd(context.l10n.localeName).add_Hm().format(date.toLocal());
+String _date(BuildContext context, DateTime date) {
+  final day = DateFormat.yMMMd(context.l10n.localeName);
+  return (_use24Hours(context) ? day.add_Hm() : day.add_jm()).format(
+    date.toLocal(),
+  );
+}
+
+/// Whether times read on a 24-hour clock: the device asks for it, or the
+/// locale's own clock is one (`jm` is "15:05" in German, "3:05 PM" in
+/// English).
+bool _use24Hours(BuildContext context) =>
+    MediaQuery.alwaysUse24HourFormatOf(context);
+
+/// The time of day in the locale's clock, or 24 hours when the device asks.
+DateFormat _timeOfDay(BuildContext context) => _use24Hours(context)
+    ? DateFormat.Hm(context.l10n.localeName)
+    : DateFormat.jm(context.l10n.localeName);
 
 /// The finish date; its time only when the entry has a duration (a log
 /// without one carries a synthetic time of day).
@@ -415,7 +430,7 @@ class _SummaryCard extends StatelessWidget {
     String? span;
     String? minutes;
     if (timed) {
-      final time = DateFormat.Hm(locale);
+      final time = _timeOfDay(context);
       final started = snapshot.startedAt.toLocal();
       span = '${time.format(started)}–${time.format(finished)}';
       minutes = l.trainingDurationMinutes(

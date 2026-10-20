@@ -8,7 +8,10 @@ meal description by text or voice added **2026-10-10** ([contract](MEAL-DESCRIBE
 the shopping list became one weekly receipt **2026-10-11**; logging,
 reminders, the Coach context and food preferences followed **2026-10-18**
 ([review](IMPROVEMENT-REVIEW-2026-10-18.md)), and the same day a trends page
-with steps, weight and training over up to six months.
+with steps, weight and training over up to six months. AI consent, answer
+reports, correctable weigh-ins, avoided foods in recipe suggestions and one
+rule for a complete day followed **2026-10-20**
+([review](IMPROVEMENT-REVIEW-2026-10-19.md)).
 This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
@@ -16,34 +19,35 @@ Dated reviews describe what was present at their own checkpoint.
 
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
-| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md) |
-| Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); a weight chip with the latest weigh-in and the weekly check's progress ("in 5 days at the earliest · 2 more weigh-ins"); a one-time reminder offer after two logged days; a trends card with the averages of the last seven days (calories, protein, steps) that opens the trends page; avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
+| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan; the onboarding header offers sign-out | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md) |
+| Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); a weight chip with the latest weigh-in and the weekly check's progress ("in 5 days at the earliest · 2 more weigh-ins"); a one-time reminder offer after two logged days; a trends card with the averages of the last seven days (calories, protein, steps) that opens the trends page; a dot on complete days in the strip; before the first entry, a hint when yesterday is empty and filling it keeps the streak; the weekly-check line opens an explainer, and on Mondays a result card shows the burn estimate, whether the goal fits and the weight rate against the plan; after a fresh onboarding an Apple Health card asks before HealthKit does; avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, a trends button in the header (the day card opens the page too); "Repeat yesterday" in an empty slot and "Copy to…" in the edit sheet (offline, with undo, recents unchanged) | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
-| Meal entry | Camera or gallery with optional context; barcode (GTIN-13; older 12-digit favorites still match); search shows "Your foods" first (favorites, up to 30 recents, the diary's 35-day window, own recipes; offline, umlaut-tolerant), then products; manual per-100-g values and a chosen portion, or a quick entry with total kcal and optional macros (no AI, offline); an unknown barcode saved manually becomes an own product that the next scan finds first; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
+| Meal entry | Camera or gallery with optional context; barcode (GTIN-13; older 12-digit favorites still match); search shows "Your foods" first (favorites, up to 30 recents, the diary's 35-day window, own recipes; offline, umlaut-tolerant), then products; manual per-100-g values and a chosen portion, or a quick entry with total kcal and optional macros (no AI, offline); an unknown barcode saved manually becomes an own product that the next scan finds first; a search without results offers Describe with the search text; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
 | Meal description | "Describe" in the add sheet: a typed or dictated sentence becomes a draft with one line per food. The AI splits the sentence and estimates amounts; each line uses a matching favorite or database product when one fits and the AI estimate otherwise, marked as such. Lines can switch candidate, change grams or be removed; nothing is logged before Add. Counts as one meal scan | [Contract](MEAL-DESCRIBE.md), [sheet](../lib/src/widgets/kcal/meal_describe_sheet.dart) |
-| Trends | 7, 30 or 90 days or 6 months: calories per day (from 90 days one bar per week) with the goal line and ±10 % corridor, average and goal rate; macro averages and protein-goal days; steps with average, best day and days at goal (missing days are read from Apple Health or Health Connect on open); weight change, first and last weigh-in and weekly rate with a line of the weigh-ins; workouts and their weekly average. Averages leave today out; entries still waiting to sync already count | [Trends](../lib/src/screens/trends_screen.dart), [report](../lib/src/services/trend_report.dart) |
-| Recipes | Browse catalog; create, edit or delete own/adopted recipes; photo, preparation, structured ingredients, fractional servings; add to selected diary date | [Recipes](../lib/src/screens/recipes/recipes_screen.dart) |
-| Meal Plan | Weekly date/slot planning with recipe snapshots and servings; explicit consumption adds to diary without double-counting retries | [Plan screen](../lib/src/screens/recipes/meal_plan_screen.dart), [store](../lib/src/app/home_store_meal_plan.dart) |
-| Shopping List | One receipt for the week's uneaten meals: the same ingredient from several meals is one row with the summed amount and a detail line of the days (free-text amounts are read and converted to the planned servings; an amount that cannot be converted keeps the recipe's own, marked). Spices and staples sit in a collapsed "Gewürze & Vorrat" section outside the progress; a recipe without ingredients gets a note. Durable checked state, one check per tap; checks of the earlier per-recipe list carry over | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart), [receipt model](../lib/src/models/shopping_receipt.dart) |
+| Trends | 7, 30 or 90 days or 6 months: calories per day (from 90 days one bar per week) with the goal line and ±10 % corridor, average and goal rate; macro averages and protein-goal days; steps with average, best day and days at goal (missing days are read from Apple Health or Health Connect on open); weight change, first and last weigh-in and weekly rate with a line of the weigh-ins; workouts and their weekly average. Averages leave today out and count complete days only (from 50 % of the base goal), naming the days left out; incomplete days show faded; entries still waiting to sync already count | [Trends](../lib/src/screens/trends_screen.dart), [report](../lib/src/services/trend_report.dart) |
+| Recipes | Browse catalog; create, edit or delete own/adopted recipes; photo, preparation, structured ingredients, fractional servings; add to selected diary date; own recipes can join catalog categories; avoided foods leave the suggestions (Today pick, For you, Fits your goal) and show a "Contains …" chip in browse lists and the detail; copy a recipe as text; "Add to meal plan" from the detail | [Recipes](../lib/src/screens/recipes/recipes_screen.dart) |
+| Meal Plan | Weekly date/slot planning with recipe snapshots and servings; explicit consumption adds to diary without double-counting retries; each day shows its planned kcal against the goal | [Plan screen](../lib/src/screens/recipes/meal_plan_screen.dart), [store](../lib/src/app/home_store_meal_plan.dart) |
+| Shopping List | One receipt for the week's uneaten meals: the same ingredient from several meals is one row with the summed amount and a detail line of the days (free-text amounts are read and converted to the planned servings; an amount that cannot be converted keeps the recipe's own, marked). Spices and staples sit in a collapsed "Gewürze & Vorrat" section outside the progress; a recipe without ingredients gets a note. Durable checked state, one check per tap; checks of the earlier per-recipe list carry over; the list copies as plain text | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart), [receipt model](../lib/src/models/shopping_receipt.dart) |
 | Training plans | Multiple workouts, plan selection/editing, exercise lists, repetition/timed sets and rest | [Training](../lib/src/screens/training/training_screen.dart) |
 | Workout player | List of exercise cards with one tap per set (✓; timed sets ▶ with a 3 s lead and "Done early"); weights carry forward within an exercise or come from Last time; undo, skip set/exercise, complete the rest as planned; rests and timed sets keep running while the phone is locked; one generic rest alert per phase, whose tap reopens the workout; finish sheet (save the done sets, log the rest as shown, or discard); local recovery | [Player](../lib/src/screens/training/training_player_screen.dart), [Training design](TRAINING-DESIGN.md#workout-player-list-2026-10-03) |
 | Training log | "Log workout" for a free workout (today, yesterday or up to 30 days back, optional duration, exercises with sets or a time, note) and "Log as done" for the plan's shown workout; nothing is written before Add | [Log editor](../lib/src/screens/training/training_log_editor.dart) |
 | Training history | Completed immutable sessions with actual values, previous results/Last time and deletion | [History](../lib/src/screens/training/training_history_screen.dart) |
-| Coach | Chat over SSE with full server-side approval before text is released; sessions, attached image, quota, and a shared nutrition context: today, diet and avoided foods, and a seven-day block (logged days, average kcal against the goal, protein days, the weekly check's weight trend, workouts; unlogged days marked as missing) | [Coach service](../lib/src/services/coach_chat_service.dart) |
+| Coach | Chat over SSE with full server-side approval before text is released; sessions, attached image, quota, and a shared nutrition context: today, diet and avoided foods, and a seven-day block (logged days, average kcal against the goal, protein days, the weekly check's weight trend, workouts; unlogged days marked as missing); answers and generated recipe pictures can be reported (reason only, no content); the daily limit's reset shows in local time | [Coach service](../lib/src/services/coach_chat_service.dart) |
 | Coach recipes | `/recipe` proposal with recipe text and a generated picture; the profile's diet, avoided foods and dislikes are hard rules of the request (a suspected conflict is flagged; no allergy guarantee); explicit confirmation saves the recipe | [Recipe flow](../lib/src/screens/coach/coach_recipe.dart) |
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
 | Coach workout log | `/log` (typed, dictated or from Training's "Tell the Coach instead") turns a described finished workout into a draft card; one of the daily Coach requests. "Add to history" opens the log editor prefilled, and its Add is the confirmation; the card then reads Added or Removed from history | [Log card](../lib/src/screens/coach/coach_workout_log.dart) |
-| Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals; a weekly check on Today proposes a calibrated calorie goal from logged intake and the weight trend, applied only after confirmation ([weight trend](WEIGHT-TREND.md)); a Nutrition section edits the diet form, 13 avoided foods (common allergens, pork, alcohol) and short dislikes | [Profile](../lib/src/screens/profile_screen.dart) |
-| Settings | Appearance (System, Light, Dark) and language, reminder (switch and time), account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
-| Reminders | Local streak-at-risk notification at a chosen time (default 20:00, per account on the device), scheduled ahead; no server push channel | [Notifications](../lib/src/services/notification_service.dart) |
+| Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals; a weekly check on Today proposes a calibrated calorie goal from logged intake and the weight trend, applied only after confirmation ([weight trend](WEIGHT-TREND.md)); a Nutrition section edits the diet form, 13 avoided foods (common allergens, pork, alcohol) and short dislikes; a weigh-in history edits, deletes (with undo) and dates weigh-ins, and the onboarding weight is the first weigh-in | [Profile](../lib/src/screens/profile_screen.dart) |
+| Settings | Appearance (System, Light, Dark) and language, reminder (switch and time), AI & data (consent status, withdraw, consent again), Feedback & Support (mail with version and build), account changes, JSON export (copy or share as a file), sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
+| Reminders | Local streak-at-risk notification at a chosen time (default 20:00, per account on the device), scheduled ahead; on a half-logged day it asks about the missing meals; no server push channel |
+| AI consent | Before the first photo scan, description, Coach request or recipe import: one versioned consent per account that names the data, the providers (Anthropic; Google's image model through OpenRouter) and processing in the USA, with an unticked health-data checkbox (Art. 9); logged append-only on the server; a withdrawal in Settings stops every AI request until consent is given again | [Consent sheet](../lib/src/widgets/shared/ai_consent_sheet.dart), [backend](BACKEND.md#ai-consent-and-answer-reports) | [Notifications](../lib/src/services/notification_service.dart) |
 
 ## Platform matrix
 
 | Capability | Android | iOS |
 | --- | --- | --- |
 | App target | API 26+ | iOS 15+ |
-| Health steps | Health Connect, read-only, foreground refresh | HealthKit read |
-| Health weight history / write-back | Not implemented | Read history; write a recorded weigh-in with permission |
+| Health steps | Health Connect, read-only, foreground refresh; 30 days back without the history permission | HealthKit read, asked after the onboarding |
+| Health weight history / write-back | Not implemented | Read history; write a recorded weigh-in with permission; an edit or delete replaces or removes Eatova's own sample, never a scale's |
 | Health availability | Explicit unsupported/update/permission/no-data states | Explicit permission and read-evidence states |
 | Coach dictation | Not exposed | Apple speech recognition: text appears while speaking and is added to the draft; German/English switch while listening; on-device where Apple offers it |
 | Meal description dictation | The phone's speech recognition app opens as a system dialog (German/English chosen first); Eatova holds no microphone permission; the text arrives when the dialog closes | Apple speech recognition with food vocabulary; text appears while speaking |
@@ -92,6 +96,9 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
 - A logged workout is a history entry like a played one. A free log gets its
   own `log_` plan; a log of a plan's workout is refused while a workout is
   saved, so one session is never counted twice.
+- A day is complete from 50 % of the base daily goal. Trends averages and
+  the weekly check use this rule; the streak still counts a day from one
+  entry, and an entry for yesterday continues it while today is unlogged.
 - Cache/outbox data is account-scoped and encrypted. Offline changes reconcile
   when service is available; AI generation and uncached remote search require
   connectivity. Recipe picture bytes are not part of server sync or JSON export.
@@ -106,14 +113,18 @@ and [Backend](BACKEND.md) for persistence details.
   active features. Legacy lifetime fields may still exist for old accounts;
   current training history is a separate implemented feature.
 - The login UI offers email/password and Google. The repository's Apple OAuth
-  enum is not an exposed Sign in with Apple product flow.
+  enum is not an exposed Sign in with Apple product flow. Sign-out ends the
+  Google sign-in and account deletion revokes it (Android can only clear its
+  credential state).
+- The AI consent is enforced in the app, not yet by the Edge Functions, so
+  older installed builds keep working until they are retired.
 - Dietary preference can be chosen during onboarding and changed later in the
   Profile's Nutrition section, together with avoided foods and dislikes.
 - JSON export is available through **Today → avatar (Profile) → gear
-  (Settings) → Export data**. Copying the JSON is wired; native file sharing has a prepared callback but no app
-  wiring. It is not an import/restore feature. Unreadable or capped sections are
-  identified. Diary, recipes and recipe history paginate; other sections have a
-  10,000-row client limit (a server cap may be lower).
+  (Settings) → Export data**, as a copy or a shared file. It is not an
+  import/restore feature. Every section is read page by page until the server
+  has no more rows; outside the diary a section stops at 100,000 rows.
+  Unreadable or capped sections are identified.
   [Export source](../lib/src/services/data_export.dart).
 - Dictation hears one language at a time (German or English); a mix of both
   in one recording is not transcribed reliably. Apple ends a server-based

@@ -98,7 +98,7 @@ void main() {
       for (final text in [
         '2.214 kcal',
         'Ø KALORIEN',
-        'pro getracktem Tag',
+        'aus 27 vollständigen Tagen',
         'ZIEL GETROFFEN',
       ]) {
         expectWholeWordsIn(tester, page, text);

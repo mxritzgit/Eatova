@@ -133,6 +133,10 @@ mixin _HomeStoreMealsPart
   /// sheet bound to that day. Confirmed just after midnight, it still tracks
   /// that day (at most one day late), or the evening's last entry left its
   /// day untracked and reset the streak.
+  ///
+  /// An entry for yesterday tracks yesterday when that continues the chain
+  /// ([LifetimeStats.backfillContinuesStreak], 2026-10-19); other back-dated
+  /// entries leave the streak alone.
   Future<String> addResultToDailyTotal(
     MealAnalysisResult result, {
     MealSlot? slot,
@@ -146,6 +150,10 @@ mixin _HomeStoreMealsPart
         _isSameFoodDate(targetDate, addedAt) ||
         (startedToday && daysBetween(addedAt, targetDate) == 1);
     return _serializeFavoriteMutation(() async {
+      // Read inside the queue: an add before this one may have moved it.
+      final trackDay =
+          today ||
+          lifetimeStats.backfillContinuesStreak(targetDate, now: addedAt);
       final entry = LoggedMeal(
         id: uuidV4(),
         result: result,
@@ -171,7 +179,7 @@ mixin _HomeStoreMealsPart
       final before = [recent, ...favorites.where((f) => f.id != recentId)];
       final after = _cappedFavorites(before);
       final intents = [
-        SyncOp.mealInsert(entry, trackDay: today),
+        SyncOp.mealInsert(entry, trackDay: trackDay),
         SyncOp.favoriteUpsert(recent),
         for (final dropped in before)
           if (!dropped.pinned && !after.any((f) => f.id == dropped.id))
@@ -181,14 +189,16 @@ mixin _HomeStoreMealsPart
         intents,
         publish: () {
           lifetimeStats = lifetimeStats.incrementMeals();
-          if (today) lifetimeStats = lifetimeStats.recordTrackedDay(targetDate);
+          if (trackDay) {
+            lifetimeStats = lifetimeStats.recordTrackedDay(targetDate);
+          }
           favorites = after;
           loggedMeals = [entry, ...loggedMeals.where((m) => m.id != entry.id)];
           _refreshMealTotals();
         },
       );
       HapticFeedback.lightImpact();
-      if (today) unawaited(_rescheduleStreakReminder());
+      if (trackDay) unawaited(_rescheduleStreakReminder());
       return entry.id;
     });
   }
@@ -217,10 +227,11 @@ mixin _HomeStoreMealsPart
   /// canonical key, so bucketing, day counters and the server row stay
   /// aligned.
   ///
-  /// Streak: a move ONTO today records today as tracked (idempotent per day).
-  /// Moves to past days are back-fills and leave the streak alone. A move AWAY
-  /// from today cannot un-track it — there is no server-side decrement;
-  /// accepted.
+  /// Streak: a move ONTO today records today as tracked (idempotent per day),
+  /// and so does a move onto yesterday that continues the chain
+  /// ([LifetimeStats.backfillContinuesStreak]). Other moves to past days are
+  /// back-fills and leave the streak alone. A move AWAY from today cannot
+  /// un-track it — there is no server-side decrement; accepted.
   ///
   /// Returns the updated meal, or null if [id] no longer exists.
   Future<LoggedMeal?> updateLoggedMealDetails(
@@ -235,7 +246,7 @@ mixin _HomeStoreMealsPart
 
     var updated = previous.copyWith(result: result, forcedSlot: slot);
     var dayChanged = false;
-    var movedToToday = false;
+    var tracksTarget = false;
     if (day != null) {
       final targetDay = DateUtils.dateOnly(day);
       final targetKey = localDayKey(targetDay);
@@ -254,13 +265,16 @@ mixin _HomeStoreMealsPart
           localDay: targetKey,
         );
         dayChanged = true;
-        movedToToday = _isSameFoodDate(targetDay, clock.now());
+        final now = clock.now();
+        tracksTarget =
+            _isSameFoodDate(targetDay, now) ||
+            lifetimeStats.backfillContinuesStreak(targetDay, now: now);
       }
     }
     if (result == null && slot == null && !dayChanged) return previous;
 
     HapticFeedback.lightImpact();
-    await _applyLoggedMealDetails(updated, recordToday: movedToToday);
+    await _applyLoggedMealDetails(updated, recordDay: tracksTarget);
     final message = dayChanged
         ? _l10n.mealMovedTo(_moveDayLabel(updated.loggedAt))
         : _l10n.mealUpdated;
@@ -285,19 +299,20 @@ mixin _HomeStoreMealsPart
   /// Shared apply core of update + undo: replaces the row, restores the server
   /// order, recomputes TODAY's counters/macros (a move can affect today even
   /// while another day is shown), mirrors into the LocalCache and syncs as an
-  /// idempotent upsert.
+  /// idempotent upsert. [recordDay] also tracks the meal's new day.
   Future<void> _applyLoggedMealDetails(
     LoggedMeal updated, {
-    bool recordToday = false,
+    bool recordDay = false,
   }) async {
-    if (!loggedMeals.any((m) => m.id == updated.id)) {
+    final before = loggedMeals.where((m) => m.id == updated.id).firstOrNull;
+    if (before == null) {
       throw StateError('Meal no longer exists');
     }
     final update = SyncOp.mealUpsert(updated);
     await _commitSyncIntents(
       [
         update,
-        if (recordToday)
+        if (recordDay)
           SyncOp.trackingDay(
             updated.effectiveLocalDay,
           ).withPredecessor(update.operationId),
@@ -305,13 +320,57 @@ mixin _HomeStoreMealsPart
       publish: () {
         loggedMeals = [updated, ...loggedMeals.where((m) => m.id != updated.id)]
           ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
-        if (recordToday) {
-          lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
+        if (recordDay) {
+          lifetimeStats = lifetimeStats.recordTrackedDay(
+            DateTime.parse(updated.effectiveLocalDay),
+          );
         }
         _refreshMealTotals();
       },
     );
-    if (recordToday) unawaited(_rescheduleStreakReminder());
+    if (recordDay) {
+      unawaited(_rescheduleStreakReminder());
+    } else {
+      // A new portion or a move changes today's total, which the evening
+      // reminder's text is planned from.
+      _replanIfToday([before, updated]);
+    }
+    if (!identical(before.result, updated.result)) {
+      await _serializeFavoriteMutation(
+        () => _takePortionIntoRecent(updated.result),
+      );
+    }
+  }
+
+  /// FOOD-7: a re-portioned meal's auto-recent takes the new portion, the
+  /// last one used, as a fresh log would; an undo hands the old one back.
+  /// Identity and cap stay: the entry keeps its key, place and date, a
+  /// pinned favorite keeps its stored portion (as [toggleFavorite] does),
+  /// and a recent that already left the list is not brought back.
+  Future<void> _takePortionIntoRecent(MealAnalysisResult result) async {
+    final old = FavoriteMeal.findFor(favorites, result);
+    if (old == null || old.pinned || identical(old.result, result)) return;
+    final next = old.copyWith(
+      result: FavoriteMeal.keepImage(result, old.result),
+    );
+    await _commitSyncIntents(
+      [SyncOp.favoriteUpsert(next)],
+      publish: () {
+        favorites = [
+          for (final favorite in favorites)
+            favorite.id == next.id ? next : favorite,
+        ];
+      },
+    );
+  }
+
+  /// Re-plans the evening reminders when one of [meals] lies on today: the
+  /// half-logged-day question is planned from today's total (C4 planner).
+  void _replanIfToday(Iterable<LoggedMeal> meals) {
+    final today = localDayKey(clock.now());
+    if (meals.any((m) => m.effectiveLocalDay == today)) {
+      unawaited(_rescheduleGuarded('notifications-intake'));
+    }
   }
 
   /// Short label for the target day of the move confirmation.
@@ -344,6 +403,7 @@ mixin _HomeStoreMealsPart
     );
     HapticFeedback.lightImpact();
     if (removed == null) return;
+    _replanIfToday([removed]);
     Future<void>? restore;
     _showUndoSnackBar(
       _l10n.commonMealDeleted,
@@ -371,6 +431,7 @@ mixin _HomeStoreMealsPart
         _refreshMealTotals();
       },
     );
+    _replanIfToday([restored]);
   }
 
   void _undoMutation(Future<void> Function() action) {
@@ -428,6 +489,25 @@ mixin _HomeStoreMealsPart
     return known;
   }
 
+  /// Whether [day] passes the complete-day rule ([isCompleteDay] against
+  /// the daily goal): the day strip's marker. A day this store does not
+  /// know completely (outside the boot window, a capped boot, still loading)
+  /// is never marked, rather than judged on part of its entries.
+  bool isCompleteFoodDay(DateTime day) {
+    final target = DateUtils.dateOnly(day);
+    final key = localDayKey(target);
+    if (_loadingArchiveDays.contains(key) ||
+        (!_loadedArchiveDays.contains(key) && _needsFoodDayLoad(target))) {
+      return false;
+    }
+    final meals = mealsForFoodDate(target);
+    if (meals.isEmpty) return false;
+    return isCompleteDay(
+      intakeKcal: consumedKcalForFoodDate(target),
+      goalKcal: profile.dailyKcalGoal,
+    );
+  }
+
   // --- Copy meals -----------------------------------------------------------
 
   /// Day+slot keys of a repeat in flight, so a double tap copies once.
@@ -447,6 +527,19 @@ mixin _HomeStoreMealsPart
   List<LoggedMeal> repeatableMealsBefore(DateTime day) {
     if (!previousFoodDayComplete(day)) return const <LoggedMeal>[];
     return mealsForFoodDate(addDays(DateUtils.dateOnly(day), -1));
+  }
+
+  /// Today's quiet hint (2026-10-19): today holds no entry yet, yesterday
+  /// is completely known and empty, and the chain ended the day before
+  /// yesterday, so an entry for yesterday would save it
+  /// ([LifetimeStats.yesterdayRescuesStreak]). After today's first entry the
+  /// server could no longer merge yesterday, so the hint is gone by then.
+  bool get yesterdayRescuesStreak {
+    final now = clock.now();
+    return lifetimeStats.yesterdayRescuesStreak(now) &&
+        mealsForFoodDate(now).isEmpty &&
+        previousFoodDayComplete(now) &&
+        mealsForFoodDate(addDays(DateUtils.dateOnly(now), -1)).isEmpty;
   }
 
   /// "Repeat yesterday": copies the entries of [slot] on the day before [day]
@@ -509,8 +602,8 @@ mixin _HomeStoreMealsPart
 
   /// Shared core: each source becomes a NEW entry through the add path's
   /// commit (fresh UUID, one `mealInsert` per copy in one atomic local
-  /// commit, outbox, server row caps, lifetime count and streak day). No AI
-  /// call and no quota.
+  /// commit, outbox, server row caps, lifetime count and streak day, with
+  /// the add path's yesterday rule). No AI call and no quota.
   ///
   /// Recents and favorites stay as they are: the sources were already logged
   /// once, and a repeated slot of four entries would otherwise push four of
@@ -527,24 +620,27 @@ mixin _HomeStoreMealsPart
     if (daysBetween(target, now) > 0) {
       throw ArgumentError.value(target, 'day', 'must not be in the future');
     }
-    final today = _isSameFoodDate(target, now);
+    // Today, or yesterday continuing the chain, is a tracked day.
+    final trackDay =
+        _isSameFoodDate(target, now) ||
+        lifetimeStats.backfillContinuesStreak(target, now: now);
     final copies = _notAfter(now, [
       for (final source in sources) _copyOnto(source, target, slot),
     ]);
     await _commitSyncIntents(
-      [for (final copy in copies) SyncOp.mealInsert(copy, trackDay: today)],
+      [for (final copy in copies) SyncOp.mealInsert(copy, trackDay: trackDay)],
       publish: () {
         for (var i = 0; i < copies.length; i++) {
           lifetimeStats = lifetimeStats.incrementMeals();
         }
-        if (today) lifetimeStats = lifetimeStats.recordTrackedDay(target);
+        if (trackDay) lifetimeStats = lifetimeStats.recordTrackedDay(target);
         loggedMeals = [...copies, ...loggedMeals]
           ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
         _refreshMealTotals();
       },
     );
     HapticFeedback.lightImpact();
-    if (today) unawaited(_rescheduleStreakReminder());
+    if (trackDay) unawaited(_rescheduleStreakReminder());
     final ids = [for (final copy in copies) copy.id];
     Future<void>? undo;
     _emitSnack(
@@ -608,6 +704,9 @@ mixin _HomeStoreMealsPart
         .where((id) => loggedMeals.any((m) => m.id == id))
         .toList(growable: false);
     if (present.isEmpty) return;
+    final removed = loggedMeals
+        .where((m) => present.contains(m.id))
+        .toList(growable: false);
     await _commitSyncIntents(
       [for (final id in present) SyncOp.mealDelete(id)],
       publish: () {
@@ -617,6 +716,7 @@ mixin _HomeStoreMealsPart
         _refreshMealTotals();
       },
     );
+    _replanIfToday(removed);
   }
 
   // --- Favorites / recents --------------------------------------------------

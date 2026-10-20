@@ -158,6 +158,12 @@ abstract interface class CoordinatedSignOut {
   Future<void> signOutWithCleanup(Future<void> Function() cleanup);
 }
 
+/// Optional capability: after the account was deleted, revoke what the
+/// device's sign-in providers still hold for it. Best effort; never throws.
+abstract interface class ProviderGrantRevocation {
+  Future<void> revokeProviderGrants();
+}
+
 /// Implementations must keep the recovery token separate from the app login.
 abstract interface class ScopedAccountDeletion {
   Future<void> withAccountDeletionCode({
@@ -170,7 +176,11 @@ abstract interface class ScopedAccountDeletion {
 }
 
 class SupabaseAuthRepository
-    implements AuthRepository, CoordinatedSignOut, ScopedAccountDeletion {
+    implements
+        AuthRepository,
+        CoordinatedSignOut,
+        ScopedAccountDeletion,
+        ProviderGrantRevocation {
   const SupabaseAuthRepository(
     this._client, {
     GoogleIdTokenProvider? googleIdTokenProvider,
@@ -416,6 +426,7 @@ class SupabaseAuthRepository
 
   Future<void> _signOutWithCleanup(Future<void> Function()? cleanup) async {
     final session = _client.auth.currentSession;
+    final viaGoogle = _hasGoogleIdentity(session?.user);
     final storage =
         _sessionStorage ?? EatovaSupabaseConfig.sessionStorageFor(_client);
     if (session != null && storage != null) {
@@ -467,7 +478,41 @@ class SupabaseAuthRepository
       rethrow;
     } finally {
       await subscription.cancel();
+      // The app session ended (also when only the server revoke failed): end
+      // the device's Google sign-in too, so the next Google login offers the
+      // account chooser. Never awaited; a newer login keeps its Google state.
+      if (viaGoogle && _client.auth.currentSession == null) {
+        if (_googleIdTokenProvider case final GoogleSessionRevoker google) {
+          unawaited(google.signOut().catchError((Object _) {}));
+        }
+      }
     }
+  }
+
+  @override
+  Future<void> revokeProviderGrants() async {
+    final user = _client.auth.currentUser;
+    // An account known to have no Google identity leaves the plugin alone;
+    // a session already gone may still have one, so it tries.
+    if (user != null && !_hasGoogleIdentity(user)) return;
+    if (_googleIdTokenProvider case final GoogleSessionRevoker google) {
+      try {
+        await google.disconnect();
+      } catch (_) {
+        // Best effort: the deletion stands either way.
+      }
+    }
+  }
+
+  /// Whether the account signed in with Google at some point; only then is
+  /// there a device Google sign-in to end.
+  static bool _hasGoogleIdentity(User? user) {
+    if (user == null) return false;
+    final providers = user.appMetadata['providers'];
+    return user.appMetadata['provider'] == 'google' ||
+        (providers is List && providers.contains('google')) ||
+        (user.identities?.any((identity) => identity.provider == 'google') ??
+            false);
   }
 
   void _requireSameSession(Session? original) {

@@ -18,6 +18,7 @@ import '../models/coach_training_proposal.dart';
 import '../models/coach_training_context.dart';
 import '../models/coach_workout_log.dart';
 import '../models/user_profile.dart';
+import 'coach_quota_reset.dart';
 import 'crash_reporter.dart';
 import 'local_day.dart';
 import 'sync_error_messages.dart';
@@ -1532,8 +1533,13 @@ class CoachChatService {
         if (limit is num) _tageslimitMerken(limit.toInt());
         return CoachQuotaExceeded(
           message: limit is num
-              ? _l10n.coachErrorDailyLimitReached(limit.toInt())
-              : _l10n.coachErrorQuotaFallback,
+              ? _l10n.coachErrorDailyLimitReached(
+                  limit.toInt(),
+                  coachQuotaResetLabel(_l10n.localeName),
+                )
+              : _l10n.coachErrorQuotaFallback(
+                  coachQuotaResetLabel(_l10n.localeName),
+                ),
           // The function's 429 always carries daily_limit; if a gateway body
           // omits it, fall back to the shared display constant.
           dailyLimit:
