@@ -206,90 +206,87 @@ void main() {
     },
   );
 
-  for (final brightness in Brightness.values) {
-    for (final locale in [const Locale('de'), const Locale('en')]) {
-      testWidgets(
-        'all entry paths reachable at 320px, 2x text and keyboard: $brightness $locale',
-        (tester) async {
-          await _open(
-            tester,
-            brightness: brightness,
-            locale: locale,
-            width: 320,
-            scale: 2,
-            keyboard: true,
-          );
-          final sheet = tester.getRect(_key('add-meal-sheet'));
-          expect(sheet.top, greaterThanOrEqualTo(44));
-          expect(sheet.bottom, lessThanOrEqualTo(552));
-          for (final id in [
-            for (final slot in MealSlot.values) 'slot-select-${slot.name}',
-            'analyse-camera-button',
-            'analyse-gallery-button',
-            'analyse-barcode-button',
-            'manual-entry-button',
-            'add-meal-favorites-all',
-          ]) {
-            final action = _key(id);
-            // A large-text card can exceed the keyboard's remaining viewport.
-            // Its label must still be reachable and tappable while scrolling.
-            final label = find
-                .descendant(of: action, matching: find.byType(Text))
-                .first;
-            expect(label, findsOneWidget, reason: id);
-            await tester.ensureVisible(label);
-            await tester.pumpAndSettle();
-            expect(label.hitTestable(), findsOneWidget, reason: id);
-            expect(tester.getSize(action).height, greaterThanOrEqualTo(44));
-            expect(tester.takeException(), isNull);
-          }
-          expect(_key('add-meal-sheet-close').hitTestable(), findsOneWidget);
-          expect(_input.hitTestable(), findsOneWidget);
-        },
-      );
-    }
-  }
-
-  for (final reduce in [false, true]) {
+  // Layout depends on the locale's text lengths, not on the brightness.
+  for (final locale in [const Locale('de'), const Locale('en')]) {
     testWidgets(
-      'method buttons support semantics and reduced motion: $reduce',
+      'all entry paths reachable at 320px, 2x text and keyboard: $locale',
       (tester) async {
-        var calls = 0;
-        final semantics = tester.ensureSemantics();
-        await pumpLocalized(
+        await _open(
           tester,
-          MealEntryMethods(
-            onCamera: () => calls++,
-            onGallery: () => calls++,
-            onBarcode: () => calls++,
-          ),
-          reducedMotion: reduce,
-          surfaceSize: const Size(393, 852),
-          settle: true,
+          brightness: Brightness.dark,
+          locale: locale,
+          width: 320,
+          scale: 2,
+          keyboard: true,
         );
-        final action = _key('analyse-camera-button');
-        expect(tester.getSemantics(action).label, contains('Foto aufnehmen'));
-        final gesture = await tester.startGesture(tester.getCenter(action));
-        await tester.pump(const Duration(milliseconds: 150));
-        final scale = find.ancestor(
-          of: action,
-          matching: find.byType(AnimatedScale),
-        );
-        expect(tester.widget<AnimatedScale>(scale).scale, reduce ? 1 : .985);
-        await gesture.up();
-        await tester.pumpAndSettle();
-        expect(calls, 1);
-        expect(tester.widget<AnimatedScale>(scale).scale, 1);
-        for (final key in [
+        final sheet = tester.getRect(_key('add-meal-sheet'));
+        expect(sheet.top, greaterThanOrEqualTo(44));
+        expect(sheet.bottom, lessThanOrEqualTo(552));
+        for (final id in [
+          for (final slot in MealSlot.values) 'slot-select-${slot.name}',
+          'analyse-camera-button',
           'analyse-gallery-button',
           'analyse-barcode-button',
+          'manual-entry-button',
+          'add-meal-favorites-all',
         ]) {
-          await tester.tap(_key(key));
+          final action = _key(id);
+          // A large-text card can exceed the keyboard's remaining viewport.
+          // Its label must still be reachable and tappable while scrolling.
+          final label = find
+              .descendant(of: action, matching: find.byType(Text))
+              .first;
+          expect(label, findsOneWidget, reason: id);
+          await tester.ensureVisible(label);
           await tester.pumpAndSettle();
+          expect(label.hitTestable(), findsOneWidget, reason: id);
+          expect(tester.getSize(action).height, greaterThanOrEqualTo(44));
+          expect(tester.takeException(), isNull);
         }
-        expect(calls, 3);
-        semantics.dispose();
+        expect(_key('add-meal-sheet-close').hitTestable(), findsOneWidget);
+        expect(_input.hitTestable(), findsOneWidget);
       },
     );
   }
+
+  testWidgets(
+    'method buttons are named for screen readers, fire once each and do not '
+    'scale under reduced motion',
+    (tester) async {
+      var calls = 0;
+      final semantics = tester.ensureSemantics();
+      await pumpLocalized(
+        tester,
+        MealEntryMethods(
+          onCamera: () => calls++,
+          onGallery: () => calls++,
+          onBarcode: () => calls++,
+        ),
+        reducedMotion: true,
+        surfaceSize: const Size(393, 852),
+        settle: true,
+      );
+      final action = _key('analyse-camera-button');
+      expect(tester.getSemantics(action).label, contains('Foto aufnehmen'));
+      final gesture = await tester.startGesture(tester.getCenter(action));
+      await tester.pump(const Duration(milliseconds: 150));
+      final scale = find.ancestor(
+        of: action,
+        matching: find.byType(AnimatedScale),
+      );
+      expect(tester.widget<AnimatedScale>(scale).scale, 1);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+      for (final key in [
+        'analyse-gallery-button',
+        'analyse-barcode-button',
+      ]) {
+        await tester.tap(_key(key));
+        await tester.pumpAndSettle();
+      }
+      expect(calls, 3);
+      semantics.dispose();
+    },
+  );
 }

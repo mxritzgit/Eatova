@@ -69,7 +69,8 @@ void main() {
       expect(result.imageUrl, _small);
     });
 
-    test('skips a candidate that fails the host check', () {
+    test('skips a candidate that fails the host check; no photo stays none',
+        () {
       final result = MealAnalysisResult.fromOpenFoodFacts(
         _product(
           images: {
@@ -80,14 +81,11 @@ void main() {
         '4000540000108',
       );
       expect(result.imageUrl, _large);
-    });
-
-    test('a product without photo has none', () {
-      final result = MealAnalysisResult.fromOpenFoodFacts(
-        _product(),
-        '4000540000108',
+      expect(
+        MealAnalysisResult.fromOpenFoodFacts(_product(), '4000540000108')
+            .imageUrl,
+        isNull,
       );
-      expect(result.imageUrl, isNull);
     });
 
     test('the search hit reads the photo from its result', () {
@@ -105,11 +103,8 @@ void main() {
       '4000540000108',
     );
 
-    test('a new portion keeps the photo', () {
+    test('a new portion and confirmed components keep the photo', () {
       expect(base.adjustedToGrams(120).imageUrl, _small);
-    });
-
-    test('confirmed components keep the photo', () {
       final adjusted = base.adjustedToItems([
         base.asSingleComponent.adjustedToGrams(80),
       ]);
@@ -124,17 +119,6 @@ void main() {
       expect(mealResultToJson(without), {
         ...mealResultToJson(base)..remove('imageUrl'),
       });
-    });
-
-    test('manual entries have no photo', () {
-      expect(
-        MealAnalysisResult.manualEntry(
-          name: 'Brot',
-          kcalPer100G: 250,
-          grams: 80,
-        ).imageUrl,
-        isNull,
-      );
     });
   });
 

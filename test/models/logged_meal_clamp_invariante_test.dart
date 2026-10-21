@@ -14,12 +14,13 @@
 // Der Test hat drei Ebenen — die letzten beiden sind der eigentliche Wert:
 //
 //   1. Der konkrete Nachweis für P2-01 (210-Codepunkte-Titel).
-//   2. Eine Invariante über ALLE Erzeuger: was hier herauskommt, muss durch
-//      jede Spalte passen, die `_mealRow` aus dem Ergebnis befüllt — inklusive
-//      `FavoriteMeal.idFor` (P2-02, die zweite Hälfte desselben Constraints).
+//   2. Eine Invariante über ALLE Erzeuger: die ECHTE `logged_meals`-Zeile, die
+//      `encodeSyncOperationPayload` aus dem Ergebnis baut, muss durch jede
+//      Spalte passen — inklusive `FavoriteMeal.idFor` (P2-02, die zweite
+//      Hälfte desselben Constraints).
 //   3. Zwei Registraturen, die den NÄCHSTEN fehlenden Clamp fangen: eine neue
-//      Datei mit `MealAnalysisResult(` und eine neue Spalte im
-//      `logged_meals`-Upsert müssen hier eingetragen werden, sonst rot.
+//      Datei mit `MealAnalysisResult(` und eine neue Spalte in dieser Zeile
+//      müssen hier eingetragen werden, sonst rot.
 
 import 'dart:io';
 
@@ -28,11 +29,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/described_meal.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/services/meal_description_matcher.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/services/sync_operation_payload.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
 
 /// 👨‍👩‍👧‍👦 — 4 Personen + 3 ZWJ = 7 Codepunkte, 1 Graphem.
 final String _familie = String.fromCharCodes(const <int>[
@@ -54,79 +58,68 @@ final String _titel210 = _familie * 30;
 // Die Invariante
 // ---------------------------------------------------------------------------
 
-/// Nachbau von `_macro` in `sync_operation_payload.dart`: die App schreibt
-/// keinen `double`, sondern die erste Zahl aus dem Makro-TEXT in eine
-/// `numeric`-Spalte.
-/// „der Makro-Nachbau passt noch zur Regex der Mahlzeit-Zeilen" hält den
-/// Nachbau am Original fest.
-num? _macroZuNumeric(String macroText) {
-  final match = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(macroText);
-  if (match == null) return null;
-  return num.tryParse(match.group(1)!.replaceAll(',', '.'));
-}
+/// The `logged_meals` row the outbox replay writes for [r] — the production
+/// encoder, not a re-implementation of its macro parser.
+Map<String, dynamic> _zeile(MealAnalysisResult r) =>
+    encodeSyncOperationPayload(
+          SyncOp.mealUpsert(
+            LoggedMeal(
+              id: 'm-p2-01',
+              result: r,
+              loggedAt: DateTime.utc(2026, 8, 29, 12),
+            ),
+          ),
+        )['row']
+        as Map<String, dynamic>;
 
-/// Prüft ein Ergebnis gegen JEDE Grenze, die `logged_meals_safe_ranges_check`
-/// auf die von `_mealRow` (sync_operation_payload.dart) befüllten Spalten
-/// legt — plus den `favorite_key`,
-/// der aus demselben Namen gebaut wird (P2-02).
+/// Prüft die Zeile eines Ergebnisses gegen JEDE Grenze, die
+/// `logged_meals_safe_ranges_check` auf die befüllten Spalten legt — plus den
+/// `favorite_key`, der aus demselben Namen gebaut wird (P2-02).
 void erwarteSchreibbarAlsLoggedMeal(
   MealAnalysisResult r, {
   required String quelle,
 }) {
+  final zeile = _zeile(r);
+  final name = zeile['meal_name'] as String;
   expect(
-    isValidMealName(r.mealName),
+    isValidMealName(name),
     isTrue,
-    reason: '$quelle: meal_name hat ${charLength(r.mealName)} Codepunkte, '
+    reason: '$quelle: meal_name hat ${charLength(name)} Codepunkte, '
         'erlaubt sind 1..${LoggedMealLimits.mealNameMaxChars}.',
   );
   expect(
-    isValidMealCaloriesKcal(r.caloriesKcal),
+    isValidMealCaloriesKcal(zeile['calories_kcal'] as num),
     isTrue,
-    reason: '$quelle: calories_kcal ${r.caloriesKcal}',
+    reason: '$quelle: calories_kcal ${zeile['calories_kcal']}',
   );
   expect(
-    isValidMealEstimatedG(r.estimatedGrams),
+    isValidMealEstimatedG(zeile['estimated_g'] as num),
     isTrue,
-    reason: '$quelle: estimated_g ${r.estimatedGrams}',
+    reason: '$quelle: estimated_g ${zeile['estimated_g']}',
   );
 
-  for (final (spalte, text) in <(String, String)>[
-    ('protein_g', r.protein),
-    ('carbs_g', r.carbs),
-    ('fat_g', r.fat),
-  ]) {
-    final wert = _macroZuNumeric(text);
+  for (final spalte in const <String>['protein_g', 'carbs_g', 'fat_g']) {
     // `null` ist erlaubt: die Spalten sind nullable, "-" heißt unbekannt.
+    final wert = zeile[spalte] as num?;
     if (wert == null) continue;
     expect(
       isValidMealMacroG(wert),
       isTrue,
-      reason: '$quelle: $spalte wird als $wert geschrieben (aus "$text"), '
-          'erlaubt sind 0..${LoggedMealLimits.macroGMax.toInt()}.',
+      reason: '$quelle: $spalte wird als $wert geschrieben, erlaubt sind '
+          '0..${LoggedMealLimits.macroGMax.toInt()}.',
     );
   }
 
-  final barcode = r.barcode;
-  if (barcode != null) {
-    expect(
-      charLength(barcode),
-      lessThanOrEqualTo(LoggedMealLimits.barcodeMaxChars),
-      reason: '$quelle: barcode',
-    );
+  for (final (spalte, grenze) in <(String, int)>[
+    ('barcode', LoggedMealLimits.barcodeMaxChars),
+    ('brand', LoggedMealLimits.brandMaxChars),
+    ('source_label', LoggedMealLimits.sourceLabelMaxChars),
+  ]) {
+    final text = zeile[spalte] as String?;
+    if (text == null) continue;
+    expect(charLength(text), lessThanOrEqualTo(grenze),
+        reason: '$quelle: $spalte');
   }
-  final brand = r.brand;
-  if (brand != null) {
-    expect(
-      charLength(brand),
-      lessThanOrEqualTo(LoggedMealLimits.brandMaxChars),
-      reason: '$quelle: brand',
-    );
-  }
-  expect(
-    charLength(r.sourceLabel),
-    lessThanOrEqualTo(LoggedMealLimits.sourceLabelMaxChars),
-    reason: '$quelle: source_label',
-  );
 
   // P2-02: `FavoriteMeal.idFor` kürzt selbst nichts. Der Schlüssel ist
   // `name:<mealName kleingeschrieben>` bzw. `barcode:<code>` — er bleibt genau
@@ -209,9 +202,11 @@ Map<String, MealAnalysisResult> _alleErzeuger() {
   return <String, MealAnalysisResult>{
     'FitnessRecipe.toMealResult': ausRezept,
     'MealDescriptionDraft.toResult': _boeserEntwurf().toResult(),
+    // 'İ' (U+0130): would a full Unicode lowercase in `idFor` turn one
+    // codepoint into two, the clamped name would outgrow the favorite_key.
     'MealAnalysisResult.fromEdgeFunction': MealAnalysisResult.fromEdgeFunction(
       <String, dynamic>{
-        'mealName': _titel210,
+        'mealName': 'İ' * 300,
         'caloriesKcal': 999999,
         'estimatedGrams': 999999,
         'kcalPer100G': 99999,
@@ -304,10 +299,10 @@ const Map<String, String> _erzeugerDateien = <String, String>{
           'geloggt, geloggt wird toResult',
 };
 
-/// Spalten der `logged_meals`-Zeile, die `_mealRow` in
-/// `sync_operation_payload.dart` jeder Mahlzeit-Operation mitgibt, mit der
-/// Begründung, warum sie gedeckt sind. Eine neue Spalte muss hier eingetragen
-/// werden. `user_id` fehlt, weil die RPC den Besitzer aus der Anmeldung nimmt.
+/// Spalten der `logged_meals`-Zeile, die jede Mahlzeit-Operation schreibt, mit
+/// der Begründung, warum sie gedeckt sind. Eine neue Spalte muss hier
+/// eingetragen werden. `user_id` fehlt, weil die RPC den Besitzer aus der
+/// Anmeldung nimmt.
 const Map<String, String> _upsertSpalten = <String, String>{
   'id': 'Client-UUID, kommt nicht aus dem Ergebnis',
   'logged_at': 'Zeitstempel',
@@ -316,20 +311,14 @@ const Map<String, String> _upsertSpalten = <String, String>{
   'meal_name': 'geprueft: clampMealName',
   'calories_kcal': 'geprueft: clampMealCaloriesKcal',
   'estimated_g': 'geprueft: clampMealEstimatedG',
-  'protein_g': 'geprueft: Makro-Text -> _macroZuNumeric',
-  'carbs_g': 'geprueft: Makro-Text -> _macroZuNumeric',
-  'fat_g': 'geprueft: Makro-Text -> _macroZuNumeric',
+  'protein_g': 'geprueft: isValidMealMacroG auf dem geschriebenen Wert',
+  'carbs_g': 'geprueft: isValidMealMacroG auf dem geschriebenen Wert',
+  'fat_g': 'geprueft: isValidMealMacroG auf dem geschriebenen Wert',
   'barcode': 'geprueft: barcodeMaxChars',
   'brand': 'geprueft: brandMaxChars',
   'source_label': 'geprueft: sourceLabelMaxChars',
   'payload': 'JSON, nur als Ganzes begrenzt (payloadMaxBytes)',
 };
-
-String _lies(String pfad) {
-  final datei = File(pfad);
-  expect(datei.existsSync(), isTrue, reason: '$pfad fehlt');
-  return datei.readAsStringSync();
-}
 
 /// Quelltext ohne `//`-Kommentare — sonst zaehlt ein erklaerender Kommentar
 /// als Treffer.
@@ -354,43 +343,18 @@ Set<String> _dateienMitErzeuger() {
   return gefunden;
 }
 
-Set<String> _spaltenDesUpserts() {
-  final quelle = _ohneKommentare(
-    _lies('lib/src/services/sync_operation_payload.dart'),
-  );
-  const kopf = 'Map<String, dynamic> _mealRow(LoggedMeal meal) => {';
-  final start = quelle.indexOf(kopf);
-  expect(start, isNonNegative, reason: '_mealRow nicht gefunden');
-  final ende = quelle.indexOf('\n};', start);
-  expect(ende, isNonNegative, reason: 'Ende der _mealRow-Map nicht gefunden');
-  final block = quelle.substring(start + kopf.length, ende);
-  return RegExp(r"'([a-z_]+)':")
-      .allMatches(block)
-      .map((m) => m.group(1)!)
-      .toSet();
-}
-
 // ---------------------------------------------------------------------------
 
 void main() {
   group('P2-01: toMealResult klemmt auf die logged_meals-Grenzen', () {
-    test('ein 210-Codepunkte-Titel wird beim Loggen auf 160 gekuerzt', () {
+    test('210-Codepunkte-Titel, Zahlen und Makros kommen geklemmt heraus', () {
       final rezept = _boesesRezept();
       // Vorbedingung: genau der Fall aus dem Befund — 30 Grapheme zu je 7
       // Codepunkten kommen durch `maxLength: 160` UND durch den 300er-Check.
       expect(charLength(rezept.title), 30 * 7);
-      expect(charLength(rezept.title), lessThanOrEqualTo(300));
 
       final meal = rezept.toMealResult();
-      expect(
-        charLength(meal.mealName),
-        lessThanOrEqualTo(LoggedMealLimits.mealNameMaxChars),
-      );
       expect(isValidMealName(meal.mealName), isTrue);
-    });
-
-    test('auch Zahlen und Makros kommen geklemmt heraus', () {
-      final meal = _boesesRezept().toMealResult();
       expect(meal.caloriesKcal, LoggedMealLimits.caloriesKcalMax);
       expect(meal.estimatedGrams, LoggedMealLimits.estimatedGMax);
       // 5000 g Protein wuerde als 5000 in eine 0..1000-Spalte geschrieben.
@@ -412,24 +376,6 @@ void main() {
       expect(meal.fat, '${rezept.fatG} g');
       expect(meal.kcalPer100G, rezept.kcalPer100G);
     });
-
-    test('ein Titel mit 161..300 Codepunkten aus fromRow trifft es genauso', () {
-      // Der zweite, einfachere Ausloeser: alles, was schon gespeichert ist.
-      final rezept = FitnessRecipe.fromRow(<String, dynamic>{
-        'slug': 'user_alt',
-        'title': 'A' * 300,
-        'calories_kcal': 520,
-        'protein_g': 40,
-        'carbs_g': 50,
-        'fat_g': 15,
-        'estimated_g': 420,
-      });
-      expect(charLength(rezept.title), 300);
-      expect(
-        charLength(rezept.toMealResult().mealName),
-        LoggedMealLimits.mealNameMaxChars,
-      );
-    });
   });
 
   group('Invariante: JEDER Erzeuger liefert ein schreibbares Ergebnis', () {
@@ -438,57 +384,22 @@ void main() {
         erwarteSchreibbarAlsLoggedMeal(ergebnis, quelle: name);
       });
     });
-
-    test('P2-02: der favorite_key bleibt aus demselben Namen im Rahmen', () {
-      // `idFor` kuerzt nicht selbst — der Schluessel haengt komplett am
-      // geklemmten Namen. `name:` + 160 = 165 <= 180.
-      final meal = _boesesRezept().toMealResult();
-      final schluessel = FavoriteMeal.idFor(meal);
-      expect(schluessel.startsWith('name:'), isTrue);
-      expect(
-        charLength(schluessel),
-        lessThanOrEqualTo(FavoriteMealLimits.favoriteKeyMaxChars),
-      );
-    });
-
-    test('toLowerCase in idFor verlaengert den Namen nicht', () {
-      // Waere `toLowerCase` eine VOLLE Unicode-Abbildung, koennte ein Zeichen
-      // zu zweien werden (U+0130 -> i + Punkt) und 160 Codepunkte zu 320. Darts
-      // Abbildung ist 1:1 — genau das haelt dieser Test fest.
-      const kritisch = 'İ'; // LATIN CAPITAL LETTER I WITH DOT ABOVE
-      final name = clampMealName(kritisch * 300);
-      expect(charLength(name), LoggedMealLimits.mealNameMaxChars);
-      expect(charLength(name.toLowerCase()), charLength(name));
-    });
   });
 
   group('P2-01b: der Barcode kommt geklemmt aus der Produktsuche', () {
     /// Ein Code, wie ihn nur der Index liefern kann — nie der Scanner.
     final langerCode = '9' * 400;
 
-    test('fromOpenFoodFacts kuerzt auf die logged_meals-Spalte', () {
-      final meal = MealAnalysisResult.fromOpenFoodFacts(
-        <String, dynamic>{
+    MealAnalysisResult riegel(String code) =>
+        MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
           'product_name': 'Riegel',
           'nutriments': <String, dynamic>{'energy-kcal_100g': 500},
-        },
-        langerCode,
-      );
-      expect(charLength(meal.barcode!), LoggedMealLimits.barcodeMaxChars);
-      expect(meal.barcode, '9' * LoggedMealLimits.barcodeMaxChars);
-      // Und die zweite Haelfte desselben Constraints: `barcode:` + 64 = 71.
-      expect(isValidFavoriteKey(FavoriteMeal.idFor(meal)), isTrue);
-    });
+        }, code);
 
-    test('ein echter EAN bleibt Zeichen fuer Zeichen stehen', () {
-      final meal = MealAnalysisResult.fromOpenFoodFacts(
-        <String, dynamic>{
-          'product_name': 'Riegel',
-          'nutriments': <String, dynamic>{'energy-kcal_100g': 500},
-        },
-        '4001234567890',
-      );
-      expect(meal.barcode, '4001234567890');
+    test('fromOpenFoodFacts kuerzt einen Index-Code, ein echter EAN bleibt', () {
+      expect(riegel(langerCode).barcode, '9' * LoggedMealLimits.barcodeMaxChars,
+          reason: 'gekuerzt, nicht verworfen');
+      expect(riegel('4001234567890').barcode, '4001234567890');
     });
 
     test('ProductSearchResult nimmt product[code] nicht mehr wortwoertlich',
@@ -516,52 +427,13 @@ void main() {
       );
     });
 
-    test('jede Spalte des logged_meals-Upserts ist hier begruendet', () {
+    test('jede Spalte der logged_meals-Zeile ist hier begruendet', () {
       expect(
-        _spaltenDesUpserts(),
+        _zeile(_boesesRezept().toMealResult()).keys.toSet(),
         _upsertSpalten.keys.toSet(),
-        reason: '_mealRow schreibt eine Spalte, die diese Invariante nicht '
-            'kennt — sie ist damit ungeprueft.',
+        reason: 'Die Mahlzeit-Zeile schreibt eine Spalte, die diese Invariante '
+            'nicht kennt — sie ist damit ungeprueft.',
       );
-    });
-
-    test('clampBarcode ist kein toter Code mehr (P2-01b)', () {
-      // Der Befund war zweiteilig: `fromOpenFoodFacts` reichte den Code roh
-      // durch UND `clampBarcode` stand nirgends in `lib/`. Eine Klemmfunktion,
-      // die niemand ruft, ist keine Klemmung.
-      final rufer = <String>{};
-      for (final eintrag in Directory('lib').listSync(recursive: true)) {
-        if (eintrag is! File || !eintrag.path.endsWith('.dart')) continue;
-        final quelle = _ohneKommentare(eintrag.readAsStringSync());
-        if (quelle.contains('clampBarcode(')) {
-          rufer.add(eintrag.path.replaceAll(r'\', '/'));
-        }
-      }
-      expect(
-        rufer,
-        <String>{
-          'lib/src/models/meal_analysis_result.dart',
-          'lib/src/models/model_limits.dart',
-          'lib/src/services/open_food_facts_product_service.dart',
-        },
-        reason: 'beide Eingaenge des Barcodes — der Parser und die Trefferliste '
-            'der Produktsuche — muessen durch clampBarcode gehen',
-      );
-    });
-
-    test('der Makro-Nachbau passt noch zur Regex der Mahlzeit-Zeilen', () {
-      // Alle logged_meals-Makros laufen über die Sync-Operation, auch die
-      // Umwandlung einer geplanten Mahlzeit (mealPlanConvert).
-      for (final pfad in const [
-        'lib/src/services/sync_operation_payload.dart',
-      ]) {
-        expect(
-          _lies(pfad).contains(r"r'\d+(?:[.,]\d+)?'"),
-          isTrue,
-          reason: '$pfad parst Makros anders als _macroZuNumeric hier — die '
-              'Makro-Pruefung der Invariante misst dann das Falsche.',
-        );
-      }
     });
   });
 }

@@ -1,18 +1,17 @@
-import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_app.dart';
-import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
-// The meal rows' add buttons (the dark redesign's round "+" per slot) add an
-// entry — and the shell used to drop the slot on the way
-// (`onOpenMealSlot: (_) => setTab(food)`). These tests pin the end-to-end
-// path: tapping a slot opens the add sheet for that slot.
+// The meal rows' add buttons (the dark redesign's round "+" per slot) open the
+// add sheet through the shell. That each slot's "+" opens the sheet for THAT
+// slot and the shown day is pinned in flows/today_wiring_flow_test.dart; this
+// file pins, on the full app, that the request is consumed once and does not
+// come back as a ghost sheet on a later tab visit.
 
 void main() {
-  Future<void> bootHeute(WidgetTester tester) async {
+  testWidgets('nach dem Schliessen oeffnet ein Tab-Wechsel kein Geister-Fenster',
+      (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);
@@ -20,42 +19,6 @@ void main() {
     await tester.pumpWidget(const EatovaApp());
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
-  }
-
-  testWidgets('Tap auf eine Mahlzeit oeffnet das Hinzufuegen-Fenster fuer '
-      'GENAU diesen Slot', (tester) async {
-    // Breakfast time: at lunchtime the sheet's clock default is also lunch,
-    // and a dropped slot would pass unnoticed.
-    await withClock(Clock.fixed(DateTime(2026, 9, 28, 8)), () async {
-      await bootHeute(tester);
-
-      // ALWAYS scroll into view first: how far down the rows sit depends on
-      // the platform's font metrics, so on CI the tap missed silently.
-      final mittag = find.byKey(const ValueKey('today-meal-add-lunch'));
-      await tester.ensureVisible(mittag);
-      await tester.pumpAndSettle();
-      await tester.tap(mittag);
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('add-meal-slot-select')),
-        findsOneWidget,
-      );
-      // The key sits on the padding, the selector below it.
-      final waehler = tester.widget<MealSlotPicker>(
-        find.descendant(
-          of: find.byKey(const ValueKey('add-meal-slot-select')),
-          matching: find.byType(MealSlotPicker),
-        ),
-      );
-      expect(waehler.selected, MealSlot.lunch);
-    });
-  });
-
-  testWidgets('ein zweiter Tap auf denselben Slot oeffnet kein zweites Fenster',
-      (tester) async {
-    await bootHeute(tester);
 
     // Dinner sits below the fold on an 852 px screen; without ensureVisible
     // the tap misses.
@@ -75,17 +38,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
     expect(find.byKey(const ValueKey('add-meal-slot-select')), findsNothing,
         reason: 'ein blosser Tab-Wechsel darf kein Sheet oeffnen');
-  });
-
-  testWidgets('ein normaler Tab-Wechsel oeffnet nichts', (tester) async {
-    await bootHeute(tester);
-
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
-    expect(find.byKey(const ValueKey('add-meal-slot-select')), findsNothing);
   });
 }

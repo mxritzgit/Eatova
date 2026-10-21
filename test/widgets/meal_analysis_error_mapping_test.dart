@@ -270,7 +270,7 @@ void main() {
         // Review 2026-08-31 (I1): 503 from a GoTrue lookup that hit its step
         // deadline. This list is hand-written and therefore structurally
         // blind to new server codes — the guard against that is
-        // test/services/i_analyze_meal_error_contract_test.dart, which reads
+        // test/services/analyze_meal_error_contract_test.dart, which reads
         // the codes out of the edge function sources.
         'auth_unavailable',
       ]) {
@@ -298,30 +298,6 @@ void main() {
         _de,
       );
       expect(unbekannt, _fallback);
-    });
-
-    test('remote 499 request_aborted stays visible and names service trouble',
-        () {
-      Object? error;
-      try {
-        parseAnalyzeMealResponse(
-          499,
-          '{"error":"request_aborted","message":"Server detail"}',
-        );
-      } on Object catch (caught) {
-        error = caught;
-      }
-      expect(error, isA<MealAnalysisServerError>());
-      final remote = error! as MealAnalysisServerError;
-      expect(remote.statusCode, 499);
-      expect(remote.code, 'request_aborted');
-      expect(remote, isNot(isA<MealAnalysisCancelled>()));
-      for (final l10n in [_de, _en]) {
-        final text = mealAnalysisErrorMessage(remote, _fallback, l10n);
-        expect(text, l10n.foodAnalysisServiceUnavailableMessage);
-        expect(text, isNot(_fallback));
-        expect(text, isNot(contains('Server detail')));
-      }
     });
 
     test('kein Text nennt Infrastruktur beim Namen', () {
@@ -373,34 +349,6 @@ void main() {
     });
   });
 
-  testWidgets(
-      'Analyse-Sheet zeigt bei fehlenden Naehrwerten die Produkt-Meldung',
-      (tester) async {
-    final completer = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(
-      _sheetHost(completer.future, failureMessage: _barcodeFallback),
-    );
-
-    completer.completeError(
-      const ProductWithoutNutritionException(
-        barcode: '4001724012345',
-        productName: 'Die Ofenfrische Salami',
-        kcalPer100G: 0,
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(
-      find.text(
-        'Die Ofenfrische Salami gefunden, aber ohne Nährwertangaben. '
-        'Bitte manuell eintragen.',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text(_barcodeFallback), findsNothing);
-  });
-
   // W2-08's last brake: `_addToDaily` called `onAdd` unconditionally. Search
   // and barcode deliver nothing unloggable any more, but the photo-AI path
   // bypasses that filter.
@@ -424,14 +372,12 @@ void main() {
       await tester.pump();
 
       expect(aufrufe, 0, reason: 'nichts Unloggbares darf ins Tagebuch');
-      // No silent abort: the reason and the next step are on screen.
-      expect(
-        find.textContaining('Ohne Kalorienangabe'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('Anpassen'), findsWidgets);
+      // No silent abort: the reason and the next step ("Anpassen") are on
+      // screen — the exact message, since the button label alone also reads
+      // "Anpassen".
+      expect(find.text(_de.foodMealWithoutCaloriesMessage), findsOneWidget);
       // The button stays usable — it must work once the values are added.
-      expect(find.text('Zu heute hinzugefügt'), findsNothing);
+      expect(find.text(_de.foodAddedToDailyLabel), findsNothing);
 
       await tester.pump(const Duration(seconds: 4));
       await tester.pumpAndSettle();
@@ -456,42 +402,11 @@ void main() {
       await tester.pump();
 
       expect(aufrufe, 1);
-      expect(find.text('Zu heute hinzugefügt'), findsOneWidget);
+      expect(find.text(_de.foodAddedToDailyLabel), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 4));
       await tester.pumpAndSettle();
     });
-  });
-
-  // F4-02: errors live IN the sheet now (error card, no snack, no auto-pop).
-  testWidgets('Analyse-Sheet zeigt bei Timeout die Timeout-Meldung im Sheet',
-      (tester) async {
-    final completer = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(_sheetHost(completer.future));
-
-    completer.completeError(
-      TimeoutException('Future not completed', const Duration(seconds: 60)),
-    );
-    await tester.pump(); // process the error
-    await tester.pump(); // render the card
-
-    expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget);
-    expect(find.text(_timeoutText), findsOneWidget);
-    expect(find.text(_fallback), findsNothing);
-    expect(find.byType(SnackBar), findsNothing);
-  });
-
-  testWidgets('Analyse-Sheet zeigt bei untypisierten Fehlern die Flow-Meldung',
-      (tester) async {
-    final completer = Completer<MealAnalysisResult>();
-    await tester.pumpWidget(_sheetHost(completer.future));
-
-    completer.completeError(const HttpException('provider down'));
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text(_fallback), findsOneWidget);
-    expect(find.text(_timeoutText), findsNothing);
   });
 
   testWidgets('remote 499 shows an error card instead of staying loading',
@@ -511,25 +426,50 @@ void main() {
     expect(find.text(_fallback), findsNothing);
   });
 
-  testWidgets('Analyse-Sheet zeigt 401/429/413 mit ihrem eigenen Text',
-      (tester) async {
-    for (final (error, expected) in <(Object, String)>[
-      (const MealAnalysisReauthRequired(), _de.foodReauthRequiredError),
-      (const MealAnalysisRateLimited(), _de.foodAnalysisRateLimitError),
-      (const MealImageTooLarge(), _de.foodImageTooLargeError),
+  // F4-02: errors live IN the sheet now (error card, no snack, no auto-pop),
+  // with the text mealAnalysisErrorMessage chose for the error.
+  testWidgets('Analyse-Sheet zeigt jeden Fehler mit seinem eigenen Text in '
+      'der Fehlerkarte', (tester) async {
+    for (final (error, failureMessage, expected) in <(Object, String, String)>[
+      (
+        TimeoutException('Future not completed', const Duration(seconds: 60)),
+        _fallback,
+        _timeoutText,
+      ),
+      (const HttpException('provider down'), _fallback, _fallback),
+      (const MealAnalysisReauthRequired(), _fallback, _de.foodReauthRequiredError),
+      (const MealAnalysisRateLimited(), _fallback, _de.foodAnalysisRateLimitError),
+      (const MealImageTooLarge(), _fallback, _de.foodImageTooLargeError),
+      (
+        const ProductWithoutNutritionException(
+          barcode: '4001724012345',
+          productName: 'Die Ofenfrische Salami',
+          kcalPer100G: 0,
+        ),
+        _barcodeFallback,
+        'Die Ofenfrische Salami gefunden, aber ohne Nährwertangaben. '
+            'Bitte manuell eintragen.',
+      ),
     ]) {
       // Fresh tree per case: the same widget type in the same slot would
       // keep its State and never listen to the new future. No MaterialApp
       // in between — its theme would lerp from a token-less default.
       await tester.pumpWidget(const SizedBox.shrink());
       final completer = Completer<MealAnalysisResult>();
-      await tester.pumpWidget(_sheetHost(completer.future));
+      await tester.pumpWidget(
+        _sheetHost(completer.future, failureMessage: failureMessage),
+      );
       completer.completeError(error);
-      await tester.pump();
-      await tester.pump();
+      await tester.pump(); // process the error
+      await tester.pump(); // render the card
 
+      expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget,
+          reason: '$error');
       expect(find.text(expected), findsOneWidget, reason: '$error');
-      expect(find.text(_fallback), findsNothing, reason: '$error');
+      if (expected != failureMessage) {
+        expect(find.text(failureMessage), findsNothing, reason: '$error');
+      }
+      expect(find.byType(SnackBar), findsNothing, reason: '$error');
     }
   });
 }

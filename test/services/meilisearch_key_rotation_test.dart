@@ -99,28 +99,9 @@ SearchCredentials _at(String baseUrl, SearchCredentials template) =>
       source: template.source,
     );
 
+// A 2xx without `hits` (schema drift) is covered end to end, including the
+// report, in produktsuche_fehlerklassifizierung_test.dart.
 void main() {
-  test(
-      'Sentinel-Rest D: 2xx mit kaputtem Body (ohne hits) wirft statt eine '
-      'leere Trefferliste zu erfinden', () async {
-    // A 200 without a `hits` list (proxy error page, schema change) used to
-    // mean "really no hits". The honest treatment is the 5xx one: throw, let
-    // FallbackProductService classify/report and move on to OFF. A genuine
-    // empty answer (`hits: []`) stays an answer.
-    //
-    // The type is part of the assurance: an HttpException would be an
-    // IOException and therefore an expected network error for
-    // FallbackProductService — the alarm would stay silent.
-    final stub = await _MirrorStub.start(<int>[200], body200: '{"ok":true}');
-    addTearDown(stub.close);
-    final source = _FakeSource(_at(stub.baseUrl, _oldKey));
-
-    await expectLater(
-      MeilisearchProductService(credentials: source).searchProducts('salami'),
-      throwsA(isA<MirrorSchemaException>()),
-    );
-  });
-
   test('403 -> invalidate -> Retry mit dem NEUEN Key -> Erfolg', () async {
     final stub = await _MirrorStub.start(<int>[403, 200]);
     addTearDown(stub.close);

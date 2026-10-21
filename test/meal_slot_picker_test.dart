@@ -23,7 +23,8 @@ Future<void> _fonts() async {
 Finder _slot(MealSlot slot) => find.byKey(ValueKey('slot-select-${slot.name}'));
 
 void main() {
-  for (final brightness in Brightness.values) {
+  // Reachability depends on locale and text scale, not on the brightness.
+  for (final brightness in [Brightness.dark]) {
     for (final locale in [const Locale('de'), const Locale('en')]) {
       for (final scale in [1.0, 2.0]) {
         testWidgets(

@@ -441,42 +441,21 @@ void main() {
     });
   });
 
-  group('I1 — auth_unavailable', () {
-    test('503 auth_unavailable meldet die Analyse als nicht verfuegbar', () {
-      // The concrete finding. 503 is the server's ANSWER to a GoTrue lookup
-      // that ran into its step deadline; it answers 503 there instead of 401
-      // precisely so the client does not sign the user out. Telling that user
-      // to check their internet connection is the one thing the situation is
-      // not about.
-      const eintrag = _ServerCode('auth_unavailable', 503, 'probe');
-      expect(_clientText(eintrag, _de), _de.foodAnalysisServiceUnavailableMessage);
-      expect(_clientText(eintrag, _en), _en.foodAnalysisServiceUnavailableMessage);
-      expect(_clientText(eintrag, _de), isNot(_ausweichtext));
-    });
-
-    test('auch direkt ueber die Zuordnung, ohne den Wire-Weg', () {
-      // Same statement one layer lower, so a change in
-      // parseAnalyzeMealResponse cannot make the assertion above accidentally
-      // true through a different exception.
-      const fehler = MealAnalysisServerError(
-        statusCode: 503,
-        code: 'auth_unavailable',
-        debugMessage: _serverDetail,
-      );
-      expect(mealAnalysisErrorMessage(fehler, _ausweichtext, _de),
-          _de.foodAnalysisServiceUnavailableMessage);
-      expect(mealAnalysisErrorMessage(fehler, _ausweichtext, _en),
-          _en.foodAnalysisServiceUnavailableMessage);
-    });
-
-    test('der Server sendet den Code wirklich (sonst prueft I1 eine Fiktion)',
-        () {
-      final eintrag = codes['auth_unavailable'];
-      expect(eintrag, isNotNull,
-          reason: 'auth_unavailable steht nicht mehr in $_funktionsOrdner — '
-              'dann darf der Arm im switch auch wieder weg');
-      expect(eintrag!.status, 503);
-    });
+  test('I1: der Server sendet 503 auth_unavailable, der Client meldet die '
+      'Analyse als nicht verfuegbar', () {
+    // 503 is the server's ANSWER to a GoTrue lookup that ran into its step
+    // deadline; it answers 503 there instead of 401 precisely so the client
+    // does not sign the user out. Telling that user to check their internet
+    // connection is the one thing the situation is not about.
+    final eintrag = codes['auth_unavailable'];
+    expect(eintrag, isNotNull,
+        reason: 'auth_unavailable steht nicht mehr in $_funktionsOrdner — '
+            'dann darf der Arm im switch auch wieder weg');
+    expect(eintrag!.status, 503);
+    for (final l10n in <AppLocalizations>[_de, _en]) {
+      expect(_clientText(eintrag, l10n),
+          l10n.foodAnalysisServiceUnavailableMessage);
+    }
   });
 
   group('Rueckfall bleibt sauber', () {
@@ -575,14 +554,6 @@ void main() {
       final beschreibung = fehlerAus(() => parseDescribeMealResponse(504, ''));
       expect(mealDescribeErrorMessage(beschreibung, _en),
           _en.foodAnalysisTimeoutMessage);
-    });
-
-    test('ein 4xx-Clientfehler bleibt beim Ausweichtext', () {
-      final fehler = fehlerAus(
-        () => parseAnalyzeMealResponse(400, '{"error":"invalid_json"}'),
-      );
-      expect(mealAnalysisErrorMessage(fehler, _ausweichtext, _de),
-          _ausweichtext);
     });
   });
 

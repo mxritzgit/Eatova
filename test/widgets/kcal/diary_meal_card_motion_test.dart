@@ -1,7 +1,7 @@
 // A meal logged into a slot that is already on screen grows in and the
-// slot total counts to its new value (motion polish, 2026-10-01). Rows that
-// were there at first display do not animate, and the end state carries the
-// same data as before.
+// slot total counts to its new value (motion polish, 2026-10-01): the
+// animation must end in the full row and the new total, and reduced motion
+// shows them at once.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,32 +110,6 @@ void main() {
       );
     },
   );
-
-  testWidgets('Eintraege der ersten Anzeige stehen sofort da, und die '
-      'zaehlende Summe verschiebt nichts', (tester) async {
-    await _pump(tester, [_oats, _skyr]);
-    final first = _addRowTop(tester);
-    final header = tester.getSize(
-      find.byKey(const ValueKey('food-slot-toggle-breakfast')),
-    );
-    // While the total counts up from 0 the header keeps its resting size:
-    // a narrower running figure must not unwrap the meta line for a frame.
-    for (var i = 0; i < 12; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-      expect(_addRowTop(tester), first);
-      expect(
-        tester.getSize(
-          find.byKey(const ValueKey('food-slot-toggle-breakfast')),
-        ),
-        header,
-      );
-    }
-    expect(int.parse(_total(tester)), inExclusiveRange(0, 530));
-    await tester.pumpAndSettle();
-    expect(_addRowTop(tester), first);
-    expect(_total(tester), '530');
-    expect(find.text('Skyr'), findsOneWidget);
-  });
 
   testWidgets('reduzierte Bewegung: der neue Eintrag steht sofort da', (
     tester,

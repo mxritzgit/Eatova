@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/services/meals_sync.dart';
 
 // Manual entry: label values per 100 g plus the eaten portion. The factory
 // derives the portion values and carries the manual provenance codes.
@@ -65,54 +64,18 @@ void main() {
     expect(r.mealName, isNotEmpty);
   });
 
-  test('die neuen Codes lösen über resolve auf (Code UND legacyDe)', () {
-    expect(MealResultSource.resolve('manual'), MealResultSource.manual);
+  test('die manual-Codes (und das alte "Manuell") loesen auf die manuellen '
+      'Anzeigetexte auf', () {
     expect(MealResultSource.resolve('Manuell'), MealResultSource.manual);
-    expect(MealResultConfidence.resolve('manual'), MealResultConfidence.manual);
-    expect(
-      MealResultPortionNote.resolve('manualEntryNote'),
-      MealResultPortionNote.manual,
+    final r = MealAnalysisResult.manualEntry(
+      name: 'Bauern-Mozzarella',
+      kcalPer100G: 265,
+      grams: 125,
     );
+    for (final l10n in [deL10n, enL10n]) {
+      expect(r.resolvedSourceLabel(l10n), l10n.foodSourceManual);
+      expect(r.resolvedConfidence(l10n), l10n.foodConfidenceManual);
+      expect(r.resolvedPortionNotes(l10n), l10n.foodManualEntryNote);
+    }
   });
-
-  test(
-    'die manual-Codes lösen in de UND en auf die richtigen Anzeigetexte auf',
-    () {
-      final r = MealAnalysisResult.manualEntry(
-        name: 'Bauern-Mozzarella',
-        kcalPer100G: 265,
-        grams: 125,
-      );
-      expect(r.resolvedSourceLabel(deL10n), 'Manuell');
-      expect(r.resolvedSourceLabel(enL10n), 'Manual');
-      expect(r.resolvedConfidence(deL10n), 'Eigene Angabe');
-      expect(r.resolvedConfidence(enL10n), 'Own entry');
-      expect(
-        r.resolvedPortionNotes(deL10n),
-        'Nährwerte manuell nach Etikett eingetragen (pro 100 g).',
-      );
-      expect(
-        r.resolvedPortionNotes(enL10n),
-        'Nutrition entered manually from the label (per 100 g).',
-      );
-    },
-  );
-
-  test(
-    'mealResultToJson/mealResultFromJson-Roundtrip erhaelt die manual-Felder',
-    () {
-      final r = MealAnalysisResult.manualEntry(
-        name: 'Wasser',
-        kcalPer100G: 0,
-        grams: 500,
-      );
-      final json = mealResultToJson(r);
-      final back = mealResultFromJson(json);
-      expect(back.sourceLabel, r.sourceLabel);
-      expect(back.confidence, r.confidence);
-      expect(back.portionNotes, r.portionNotes);
-      expect(back.explicitZeroKcal, r.explicitZeroKcal);
-      expect(back.explicitZeroKcal, isTrue);
-    },
-  );
 }

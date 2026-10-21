@@ -237,29 +237,20 @@ void main() {
     expect(fallback.searchCalls, 0);
   });
 
-  test('barcode: Primaer-Treffer ohne Energie -> OFF wird gefragt', () async {
-    final primary = _FakeService(
-      barcodeResult: _meal('Mirror product', kcalPer100G: 0),
-    );
-    final fallback = _FakeService(barcodeResult: _meal('OFF product'));
-    final svc = FallbackProductService(primary, fallback);
+  test('barcode: Primaer-Treffer ohne oder mit unplausibler Energie -> OFF '
+      'wird gefragt', () async {
+    for (final dichte in const [0.0, 2180.0]) {
+      final primary = _FakeService(
+        barcodeResult: _meal('Mirror product', kcalPer100G: dichte),
+      );
+      final fallback = _FakeService(barcodeResult: _meal('OFF product'));
 
-    final r = await svc.lookupBarcode('123');
+      final r = await FallbackProductService(primary, fallback)
+          .lookupBarcode('123');
 
-    expect(r.mealName, 'OFF product');
-    expect(fallback.barcodeCalls, 1);
-  });
-
-  test('barcode: unplausibler Primaer-Treffer -> OFF wird gefragt', () async {
-    final primary = _FakeService(
-      barcodeResult: _meal('Mirror product', kcalPer100G: 2180),
-    );
-    final fallback = _FakeService(barcodeResult: _meal('OFF product'));
-    final svc = FallbackProductService(primary, fallback);
-
-    final r = await svc.lookupBarcode('123');
-
-    expect(r.mealName, 'OFF product');
+      expect(r.mealName, 'OFF product', reason: '$dichte');
+      expect(fallback.barcodeCalls, 1, reason: '$dichte');
+    }
   });
 
   // ---------------------------------------------------------------------
@@ -303,31 +294,9 @@ void main() {
       expect(gemeldet, isEmpty);
     });
 
-    test('Mirror-Barcode-UnsupportedError wird nicht gemeldet', () async {
-      final primary = _FakeService(
-        barcodeError: UnsupportedError(
-          'Barcode-Lookup laeuft ueber die OFF-Live-API (Fallback).',
-        ),
-      );
-      final fallback = _FakeService(barcodeResult: _meal('OFF product'));
-
-      await FallbackProductService(primary, fallback).lookupBarcode('123');
-      await pumpeMikrotasks();
-
-      expect(gemeldet, isEmpty);
-    });
-
-    test('"nicht gefunden" wird nicht gemeldet', () async {
-      final primary = _FakeService(
-        barcodeError: const ProductNotFoundException('123'),
-      );
-      final fallback = _FakeService(barcodeResult: _meal('OFF product'));
-
-      await FallbackProductService(primary, fallback).lookupBarcode('123');
-      await pumpeMikrotasks();
-
-      expect(gemeldet, isEmpty);
-    });
+    // The mirror's UnsupportedError on barcodes and a "not found" stay silent
+    // too: produktsuche_fehlerklassifizierung_test.dart checks both on the
+    // barcode path.
 
     test('Parse-Fehler wird gemeldet und der Fallback laeuft trotzdem',
         () async {

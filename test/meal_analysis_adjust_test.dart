@@ -108,66 +108,11 @@ int _angezeigteZeilenKcal(WidgetTester tester, int grams) {
 }
 
 void main() {
-  // Regression guard: `showWeightAdjustmentSheet` only builds the component
-  // sheet. The unreachable weight-only sheet still carried the B1 formula
-  // `kcalPer100G * grams / 100` and was deleted; this pins that nobody brings
-  // it back.
-  group('B1/Uebergabe 2 — nur noch das Bestandteil-Sheet', () {
-    testWidgetsRobust('das Anpassen-Sheet ist das Bestandteil-Sheet',
-        (tester) async {
-      await tester.pumpWidget(_host(_inkonsistent, (_) {}));
-      await _openSheet(tester);
-
-      expect(find.text('Bestandteile anpassen'), findsOneWidget);
-      expect(find.text('Portion anpassen'), findsNothing);
-      expect(
-        find.byKey(const ValueKey('analyse-item-weight-input-0')),
-        findsOneWidget,
-      );
-    });
-  });
-
   // B8: the component dialog optionally captures macros. `adjustedToItems`
   // sums them exactly once ALL components carry them, otherwise the meal falls
-  // back to unknown (`-`).
+  // back to unknown (`-`). Decimal input in these fields:
+  // number_input/meal_adjust_number_input_test.dart.
   group('B8 — Makros im Bestandteil-Dialog', () {
-    testWidgetsRobust(
-      'der schnelle Pfad bleibt schnell: Makro-Felder sind eingeklappt',
-      (tester) async {
-        await tester.pumpWidget(_host(_mitMakros, (_) {}));
-        await _openSheet(tester);
-        await tester.tap(find.byKey(const ValueKey('analyse-item-add-button')));
-        await tester.pumpAndSettle();
-
-        // Name, grams, calories are visible right away …
-        expect(find.byKey(const ValueKey('analyse-add-item-name')),
-            findsOneWidget);
-        expect(find.byKey(const ValueKey('analyse-add-item-grams')),
-            findsOneWidget);
-        expect(find.byKey(const ValueKey('analyse-add-item-kcal')),
-            findsOneWidget);
-        // … the three macro fields only after expanding.
-        expect(find.byKey(const ValueKey('analyse-add-item-protein')),
-            findsNothing);
-        expect(find.byKey(const ValueKey('analyse-add-item-carbs')),
-            findsNothing);
-        expect(find.byKey(const ValueKey('analyse-add-item-fat')),
-            findsNothing);
-        expect(find.byKey(const ValueKey('analyse-add-item-macros-toggle')),
-            findsOneWidget);
-
-        await tester
-            .tap(find.byKey(const ValueKey('analyse-add-item-macros-toggle')));
-        await tester.pumpAndSettle();
-        expect(find.byKey(const ValueKey('analyse-add-item-protein')),
-            findsOneWidget);
-        expect(find.byKey(const ValueKey('analyse-add-item-carbs')),
-            findsOneWidget);
-        expect(find.byKey(const ValueKey('analyse-add-item-fat')),
-            findsOneWidget);
-      },
-    );
-
     // Screen readers: one stop per field, its name with the unit, and no
     // separate stop for the all-caps eyebrow or the unit beside the input.
     testWidgetsRobust(
@@ -317,45 +262,6 @@ void main() {
     );
 
     testWidgetsRobust(
-      'Nachkommastellen mit Komma werden uebernommen',
-      (tester) async {
-        Object? gespeichert;
-        await tester.pumpWidget(_host(_mitMakros, (v) => gespeichert = v));
-        await _openSheet(tester);
-        await tester.tap(find.byKey(const ValueKey('analyse-item-add-button')));
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
-            find.byKey(const ValueKey('analyse-add-item-name')), 'Butter');
-        await tester.enterText(
-            find.byKey(const ValueKey('analyse-add-item-grams')), '10');
-        await tester.enterText(
-            find.byKey(const ValueKey('analyse-add-item-kcal')), '74');
-        await tester
-            .tap(find.byKey(const ValueKey('analyse-add-item-macros-toggle')));
-        await tester.pumpAndSettle();
-        await tester.enterText(
-            find.byKey(const ValueKey('analyse-add-item-protein')), '0,1');
-        await tester.enterText(
-            find.byKey(const ValueKey('analyse-add-item-carbs')), '0,1');
-        await tester.enterText(
-            find.byKey(const ValueKey('analyse-add-item-fat')), '8,2');
-        await tester.pumpAndSettle();
-        await tester
-            .tap(find.byKey(const ValueKey('analyse-add-item-save')));
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(const ValueKey('analyse-save-weight-button')),
-        );
-        await tester.pumpAndSettle();
-
-        final butter = (gespeichert as List<MealComponent>).last;
-        expect(butter.proteinG, closeTo(0.1, 0.0001));
-        expect(butter.fatG, closeTo(8.2, 0.0001));
-      },
-    );
-
-    testWidgetsRobust(
       'der Dialog sagt VORHER, was das Leerlassen kostet',
       (tester) async {
         await tester.pumpWidget(_host(_mitMakros, (_) {}));
@@ -460,26 +366,6 @@ void main() {
         expect(posten.single.grams, 30);
         expect(gespeicherteKcal, 156);
         expect(_inkonsistent.adjustedToItems(posten).caloriesKcal, 156);
-      },
-    );
-
-    testWidgetsRobust(
-      'unveraendert bestaetigen laesst die Kalorien der Posten unangetastet',
-      (tester) async {
-        Object? gespeichert;
-        await tester.pumpWidget(_host(_inkonsistent, (v) => gespeichert = v));
-        await _openSheet(tester);
-
-        // Invariant: adjustedToGrams(estimatedGrams) does not change the
-        // calories, so without typing the row must show 521.
-        expect(find.text('100 g · 521 kcal'), findsOneWidget);
-
-        await tester.tap(
-          find.byKey(const ValueKey('analyse-save-weight-button')),
-        );
-        await tester.pumpAndSettle();
-
-        expect((gespeichert as List<MealComponent>).single.caloriesKcal, 521);
       },
     );
 

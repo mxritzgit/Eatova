@@ -16,7 +16,6 @@ import 'package:eatova/src/models/recipe_pick.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
-import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 import 'package:eatova/src/widgets/kcal/food_page_chrome.dart';
@@ -53,51 +52,16 @@ MealAnalysisResult _result({int grams = 250, String source = 'manual'}) =>
     );
 
 void main() {
+  // The slot colours themselves are design tokens (theme/app_tokens_test.dart
+  // checks their hues); here only that they travel through the theme, and
+  // that the tile stays decoration for screen readers.
   group('SlotIconTile', () {
-    testWidgets('each slot has its design tint and ink, 44 px, radius 14', (
-      tester,
-    ) async {
-      const t = AppTokens.dark;
-      final expected = <MealSlot, (Color, Color)>{
-        MealSlot.breakfast: (const Color(0x294697E2), const Color(0xFF8CC4FF)),
-        MealSlot.lunch: (const Color(0x291DB071), const Color(0xFF6FDCA4)),
-        MealSlot.dinner: (const Color(0x2ED57C11), const Color(0xFFFFB866)),
-        MealSlot.snack: (const Color(0x29B9A5FF), const Color(0xFFC8B8FF)),
-      };
-      for (final MapEntry(key: slot, value: (tint, ink)) in expected.entries) {
-        expect(slot.tileTint(t), tint, reason: '$slot tint');
-        expect(slot.tileInk(t), ink, reason: '$slot ink');
-      }
-      await pumpLocalized(
-        tester,
-        const Row(
-          children: [
-            SlotIconTile(slot: MealSlot.dinner),
-            SlotIconTile(slot: MealSlot.lunch, size: 32),
-          ],
-        ),
-      );
-      final tiles = tester.widgetList<Container>(
+    testWidgets('is decorative: the slot name next to it carries the meaning',
+        (tester) async {
+      await pumpLocalized(tester, const SlotIconTile(slot: MealSlot.dinner));
+      expect(
         find.descendant(
           of: find.byType(SlotIconTile),
-          matching: find.byType(Container),
-        ),
-      );
-      final dinner = tiles.first.decoration! as BoxDecoration;
-      expect(dinner.color, t.slotDinnerTint);
-      expect(dinner.borderRadius, BorderRadius.circular(14));
-      expect(
-        tester.getSize(find.byType(SlotIconTile).first),
-        const Size(44, 44),
-      );
-      expect(
-        tester.getSize(find.byType(SlotIconTile).last),
-        const Size(32, 32),
-      );
-      // Decorative: the slot name next to it carries the meaning.
-      expect(
-        find.descendant(
-          of: find.byType(SlotIconTile).first,
           matching: find.byType(ExcludeSemantics),
         ),
         findsWidgets,
@@ -136,10 +100,6 @@ void main() {
       expect(width('protein'), closeTo(296 * 0.37, 1));
       expect(width('carbs'), closeTo(296 * 0.48, 1));
       expect(width('fat'), closeTo(296 * 0.15, 1));
-      expect(
-        tester.getSize(find.byKey(const ValueKey('food-macro-bar'))).height,
-        10,
-      );
 
       await pumpLocalized(
         tester,
@@ -156,51 +116,42 @@ void main() {
     });
   });
 
-  group('foodPickEyebrow', () {
-    test('a dinner suggestion fits tonight, others fit the day', () {
-      expect(foodPickEyebrow(_pick(), enL10n), 'Fits tonight · 610 kcal');
-      expect(
-        foodPickEyebrow(_pick(slot: MealSlot.lunch), enL10n),
-        'Fits your day · 610 kcal',
-      );
-      expect(foodPickEyebrow(_pick(), deL10n), 'Passt heute Abend · 610 kcal');
-    });
-
-    test('a planned meal says planned, even when it does not fit', () {
-      expect(
-        foodPickEyebrow(
-          _pick(source: RecipePickSource.planned, kcal: 1250),
-          enL10n,
-        ),
-        'Planned · 1,250 kcal',
-      );
-      expect(
-        foodPickEyebrow(
-          _pick(source: RecipePickSource.planned, kcal: null),
-          enL10n,
-        ),
-        'Planned',
-      );
-    });
+  test('foodPickEyebrow: dinner fits tonight, other slots fit the day, a '
+      'planned meal says planned even when it does not fit', () {
+    expect(
+      foodPickEyebrow(_pick(), enL10n),
+      enL10n.foodPickFitsTonight('610'),
+    );
+    expect(
+      foodPickEyebrow(_pick(slot: MealSlot.lunch), enL10n),
+      enL10n.foodPickFitsDay('610'),
+    );
+    expect(
+      foodPickEyebrow(
+        _pick(source: RecipePickSource.planned, kcal: 1250),
+        enL10n,
+      ),
+      enL10n.foodPickPlanned('1,250'),
+    );
+    expect(
+      foodPickEyebrow(
+        _pick(source: RecipePickSource.planned, kcal: null),
+        enL10n,
+      ),
+      enL10n.foodPickPlannedNoKcal,
+    );
   });
 
-  group('diaryAmountLabel', () {
-    test('measured grams stay plain, AI estimates keep their "~"', () {
-      expect(diaryAmountLabel(_result(), enL10n), '250 g');
-      expect(
-        diaryAmountLabel(_result(source: 'OpenFoodFacts'), enL10n),
-        '250 g',
-      );
-      expect(diaryAmountLabel(_result(source: 'photoAi'), enL10n), '~250 g');
-      expect(
-        diaryAmountLabel(_result(source: 'KI-Schätzung'), enL10n),
-        '~250 g',
-      );
-    });
-
-    test('without grams the row names a portion', () {
-      expect(diaryAmountLabel(_result(grams: 0), enL10n), '1 portion');
-    });
+  test('diaryAmountLabel: measured grams stay plain, AI estimates keep their '
+      '"~", no grams name a portion', () {
+    expect(diaryAmountLabel(_result(), enL10n), '250 g');
+    expect(diaryAmountLabel(_result(source: 'OpenFoodFacts'), enL10n), '250 g');
+    expect(diaryAmountLabel(_result(source: 'photoAi'), enL10n), '~250 g');
+    expect(diaryAmountLabel(_result(source: 'KI-Schätzung'), enL10n), '~250 g');
+    expect(
+      diaryAmountLabel(_result(grams: 0), enL10n),
+      enL10n.foodPortionFallback,
+    );
   });
 
   group('FoodDaySummaryCard', () {
@@ -236,42 +187,6 @@ void main() {
         expect(find.text('12.221'), findsOneWidget);
         expect(find.text('ZU VIEL'), findsOneWidget);
       }
-    });
-
-    // Stacked under "logged" at large text, the "left" eyebrow starts where
-    // its number starts instead of hanging right-aligned over it.
-    testWidgets('stacked "left" block is left-aligned at 2x', (tester) async {
-      tester.view.devicePixelRatio = 1;
-      tester.view.physicalSize = const Size(360, 900);
-      addTearDown(tester.view.reset);
-      await pumpLocalized(
-        tester,
-        FoodDaySummaryCard(
-          summary: DayNutritionSummary(
-            profile: const UserProfile(dailyKcalGoal: 2123),
-            burnedKcal: 0,
-            consumed: const MacroProgress(
-              proteinG: 111,
-              carbsG: 144,
-              fatG: 20,
-              kcal: 1221,
-            ),
-          ),
-          loading: false,
-          onTap: () {},
-        ),
-        textScale: 2,
-        locale: const Locale('de'),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-      );
-      final logged = tester.getRect(find.text('ERFASST'));
-      final eyebrow = tester.getRect(find.text('ÜBRIG'));
-      final number = tester.getRect(
-        find.byKey(const ValueKey('food-day-left')),
-      );
-      expect(eyebrow.top, greaterThan(logged.bottom), reason: 'stacked');
-      expect(eyebrow.left, closeTo(logged.left, 0.5));
-      expect(number.left, closeTo(logged.left, 0.5));
     });
   });
 

@@ -4,14 +4,39 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 
-// Regression tests for docs/REVIEW-2026-08-08.md, B1 / B7 / B8.
-//
-// Deliberately without importing open_food_facts_product_service.dart so this
-// test compiles independently of the service rework.
+// How MealAnalysisResult turns server, Open Food Facts and component data into
+// loggable numbers (reviews 2026-08-08 B1/B7/B8 and 2026-08-19): density
+// fallbacks, kJ and reference sizes, the reference table, component
+// reconciliation and the language-neutral OFF note.
 //
 // The test data mirrors the REAL server shapes: number, 0 (the old clampNumber
-// sentinel), null (the shape after the server fix) and missing key. The old
-// coverage only fed missing keys, a shape the server never sends.
+// sentinel), null (the shape after the server fix) and missing key.
+
+/// The legacy German paragraph `fromOpenFoodFacts` used to write into
+/// `portionNotes`; it must stay readable.
+const String _altzeileDe =
+    'OpenFoodFacts Barcode 4001724012345. Marke: Dr. Oetker. Packung: 390 g. '
+    'Portion laut Datenbank: 100 g. Nährwerte kommen aus der Produktdatenbank, '
+    'nicht aus einer Foto-Schätzung. Du kannst das gegessene Gewicht weiter '
+    'anpassen.';
+
+const String _altzeileEn =
+    'Open Food Facts barcode 4001724012345. Brand: Dr. Oetker. Package: 390 g. '
+    'Serving size per database: 100 g. Nutrition values come from the product '
+    'database, not from a photo estimate. You can still adjust the weight you '
+    'ate.';
+
+MealAnalysisResult _mitNotiz(String portionNotes) => MealAnalysisResult(
+  mealName: 'Testprodukt',
+  caloriesKcal: 252,
+  estimatedGrams: 100,
+  kcalPer100G: 252,
+  protein: '10 g',
+  carbs: '31 g',
+  fat: '9 g',
+  confidence: 'database',
+  portionNotes: portionNotes,
+);
 
 void main() {
   group('B1 · adjustedToGrams behandelt kcalPer100G <= 0 als "fehlt"', () {
@@ -139,35 +164,25 @@ void main() {
   });
 
   group('B1 · fromEdgeFunction gegen die realen Serverformen', () {
-    test('kcalPer100G: 0 (alter Sentinel) macht die Fallback-Kette erreichbar', () {
-      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
-        'mealName': 'Apfel',
-        'caloriesKcal': 95,
-        'estimatedGrams': 0,
-        'kcalPer100G': 0,
-        'proteinG': null,
-        'carbsG': null,
-        'fatG': null,
-        'confidence': 'medium',
-        'explanation': 'Ein mittelgrosser Apfel.',
-        'items': <dynamic>[],
-      });
-      expect(r.kcalPer100G, 52, reason: '_knownKcalPer100G muss greifen');
-      expect(r.estimatedGrams, 150, reason: 'estimatedGrams 0 heisst "unbekannt"');
-      expect(r.caloriesKcal, 95);
-    });
-
-    test('kcalPer100G: null (Serverform nach dem Fix) verhaelt sich identisch', () {
-      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
-        'mealName': 'Apfel',
-        'caloriesKcal': 95,
-        'estimatedGrams': null,
-        'kcalPer100G': null,
-        'confidence': 'medium',
-        'items': <dynamic>[],
-      });
-      expect(r.kcalPer100G, 52);
-      expect(r.estimatedGrams, 150);
+    test('kcalPer100G/estimatedGrams 0 (alter Sentinel) und null (Serverform '
+        'nach dem Fix) machen die Fallback-Kette erreichbar', () {
+      for (final unbekannt in <Object?>[0, null]) {
+        final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+          'mealName': 'Apfel',
+          'caloriesKcal': 95,
+          'estimatedGrams': unbekannt,
+          'kcalPer100G': unbekannt,
+          'proteinG': null,
+          'confidence': 'medium',
+          'explanation': 'Ein mittelgrosser Apfel.',
+          'items': <dynamic>[],
+        });
+        expect(r.kcalPer100G, 52,
+            reason: '$unbekannt: _knownKcalPer100G muss greifen');
+        expect(r.estimatedGrams, 150,
+            reason: '$unbekannt: estimatedGrams heisst "unbekannt"');
+        expect(r.caloriesKcal, 95);
+      }
     });
 
     test('caloriesKcal: 0 wird aus Dichte und Gramm hergeleitet', () {
@@ -189,18 +204,6 @@ void main() {
       });
       expect(r.kcalPer100G, closeTo(40, 0.001));
       expect(r.caloriesKcal, 120);
-    });
-
-    test('kcalPer100G: -1 wird serverseitig zu 0 und gilt als "fehlt"', () {
-      // The server clamps parsable negative values to 0 instead of dropping
-      // them, so the guard must check <= 0, not == null.
-      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
-        'mealName': 'Suppe',
-        'caloriesKcal': 240,
-        'estimatedGrams': 400,
-        'kcalPer100G': 0,
-      });
-      expect(r.kcalPer100G, closeTo(60, 0.001));
     });
 
     test('echte Modellzahlen schlagen die namensbasierte Referenzdichte', () {
@@ -247,28 +250,6 @@ void main() {
       });
       expect(r.caloriesKcal, 500);
       expect(r.estimatedGrams, 400);
-    });
-
-    test(
-        'Sentinel-Rest C: ohne jede Zahl und ohne Referenztreffer wird '
-        'NICHTS erfunden', () {
-      // The density chain used to end in a bare `: 52.0`, turning a photo with
-      // no kcal, no grams, no density and no reference-table hit into a
-      // loggable "78 kcal / 150 g" meal. The unknown form is 0 WITHOUT
-      // explicitZeroKcal; the log guards block that with a hint.
-      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
-        'mealName': 'Xyzzq',
-        'caloriesKcal': null,
-        'estimatedGrams': null,
-        'kcalPer100G': null,
-      });
-      expect(r.caloriesKcal, 0,
-          reason: 'erfundene 78 kcal wuerden als Messung geloggt');
-      expect(r.kcalPer100G, 0,
-          reason: '52.0 aus dem Nichts ist keine Dichte, sondern ein Wuerfel');
-      expect(r.explicitZeroKcal, isFalse,
-          reason: 'diese 0 ist "unbekannt", keine gemessene 0 — nur so '
-              'greifen die Log-Guards');
     });
 
     test('Sentinel-Rest C: fehlende confidence wird nicht zu "Mittel"', () {
@@ -321,21 +302,16 @@ void main() {
       expect(r.kcalPer100G, 385);
     });
 
-    test('kJ-Fallback: energy_100g ohne Einheit ist kJ', () {
-      final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
-        'product_name': 'Riegel',
-        'nutriments': <String, dynamic>{'energy_100g': 1611},
-      }, '113');
-      expect(r.kcalPer100G, closeTo(385.0, 0.5));
-      expect(r.caloriesKcal, closeTo(385, 1));
-    });
-
-    test('kJ-Fallback: energy-kj_100g', () {
-      final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
-        'product_name': 'Riegel',
-        'nutriments': <String, dynamic>{'energy-kj_100g': 1611},
-      }, '114');
-      expect(r.kcalPer100G, closeTo(385.0, 0.5));
+    test('kJ-Fallback: energy_100g ohne Einheit und energy-kj_100g sind kJ',
+        () {
+      for (final feld in const ['energy_100g', 'energy-kj_100g']) {
+        final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+          'product_name': 'Riegel',
+          'nutriments': <String, dynamic>{feld: 1611},
+        }, '113');
+        expect(r.kcalPer100G, closeTo(385.0, 0.5), reason: feld);
+        expect(r.caloriesKcal, closeTo(385, 1), reason: feld);
+      }
     });
 
     test('energy_unit == "kcal" verhindert die kJ-Division', () {
@@ -373,36 +349,30 @@ void main() {
     // Review 2026-10-11 (FOOD-5): a 0 in the kcal field next to a positive
     // kJ value is a gap in the record (OFF flags the mismatch), not water.
     // It was logged as a measured 0 kcal.
-    test('kcal 0 neben positivem kJ-Wert ist keine gemessene 0', () {
-      final product = <String, dynamic>{
-        'product_name': 'Haferkeks',
-        'nutrition_data_per': '100g',
-        'nutriments': <String, dynamic>{
+    test('eine 0 neben einem positiven Energiewert ist keine gemessene 0', () {
+      for (final nutriments in <Map<String, dynamic>>[
+        // kcal 0 next to a positive kJ value.
+        <String, dynamic>{
           'energy-kcal_100g': 0,
           'energy-kcal_value': 0,
           'energy-kj_100g': 1046,
           'energy_100g': 1046,
         },
-      };
-      final r = MealAnalysisResult.fromOpenFoodFacts(product, '119');
-      expect(MealAnalysisResult.offMeldetExplizitNullKcal(product), isFalse);
-      expect(r.explicitZeroKcal, isFalse);
-      expect(r.kcalPer100G, closeTo(250.0, 0.5));
-      expect(r.caloriesKcal, 250);
-    });
-
-    test('kJ 0 neben positivem energy_100g ist ebenfalls keine 0', () {
-      final product = <String, dynamic>{
-        'product_name': 'Haferkeks',
-        'nutriments': <String, dynamic>{
-          'energy-kj_100g': 0,
-          'energy_100g': 1046,
-        },
-      };
-      final r = MealAnalysisResult.fromOpenFoodFacts(product, '121');
-      expect(MealAnalysisResult.offMeldetExplizitNullKcal(product), isFalse);
-      expect(r.explicitZeroKcal, isFalse);
-      expect(r.kcalPer100G, closeTo(250.0, 0.5));
+        // kJ 0 next to a positive energy_100g.
+        <String, dynamic>{'energy-kj_100g': 0, 'energy_100g': 1046},
+      ]) {
+        final product = <String, dynamic>{
+          'product_name': 'Haferkeks',
+          'nutrition_data_per': '100g',
+          'nutriments': nutriments,
+        };
+        final r = MealAnalysisResult.fromOpenFoodFacts(product, '119');
+        expect(MealAnalysisResult.offMeldetExplizitNullKcal(product), isFalse,
+            reason: '$nutriments');
+        expect(r.explicitZeroKcal, isFalse, reason: '$nutriments');
+        expect(r.kcalPer100G, closeTo(250.0, 0.5), reason: '$nutriments');
+        expect(r.caloriesKcal, 250, reason: '$nutriments');
+      }
     });
 
     test('kcal 0 und kJ 0 bleiben die gemessene 0 (Wasser)', () {
@@ -421,26 +391,19 @@ void main() {
       expect(r.caloriesKcal, 0);
     });
 
-    test('serving_quantity 0 faellt auf den 100-g-Default zurueck', () {
-      final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
-        'product_name': 'Quark',
-        'serving_quantity': 0,
-        'nutriments': <String, dynamic>{'energy-kcal_100g': 67},
-      }, '118');
-      expect(r.estimatedGrams, 100);
-      expect(r.caloriesKcal, 67);
-    });
-
-    test('unplausible serving_quantity faellt auf den 100-g-Bezug zurueck', () {
+    test('serving_quantity 0 oder unplausibel faellt auf den 100-g-Bezug '
+        'zurueck', () {
       // 250 kg is not a serving. Clamping to 10000 g would invent a 10 kg
       // plate; the 100 g reference is what the nutrients are normalized to.
-      final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
-        'product_name': 'Sack Mehl',
-        'serving_quantity': 250000,
-        'nutriments': <String, dynamic>{'energy-kcal_100g': 340},
-      }, '119');
-      expect(r.estimatedGrams, 100);
-      expect(r.caloriesKcal, 340);
+      for (final menge in const [0, 250000]) {
+        final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+          'product_name': 'Sack Mehl',
+          'serving_quantity': menge,
+          'nutriments': <String, dynamic>{'energy-kcal_100g': 340},
+        }, '118');
+        expect(r.estimatedGrams, 100, reason: '$menge');
+        expect(r.caloriesKcal, 340, reason: '$menge');
+      }
     });
 
     MealAnalysisResult portion(String servingSize, {num? quantity}) =>
@@ -709,6 +672,246 @@ void main() {
       expect(c.proteinG, closeTo(2.7, 0.001));
       expect(c.carbsG, closeTo(28, 0.001));
       expect(c.fatG, isNull);
+    });
+  });
+
+  // Review 2026-08-19: the substring reference table turned 'Erdbeerkuchen'
+  // into a strawberry, and reference density x default portion became
+  // loggable calories.
+  group('Referenzdichte erfindet keine Kalorien', () {
+    test('Teilstring-Treffer ist weg: Erdbeerkuchen ist keine Erdbeere', () {
+      // Before: 'erdbeerkuchen'.contains('erdbeer') -> 32 kcal/100 g times the
+      // 150 g default portion -> 48 loggable kcal from a numberless answer.
+      // The unknown form is 0 WITHOUT explicitZeroKcal; the log guards block
+      // that with a hint.
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Erdbeerkuchen',
+        'caloriesKcal': null,
+        'estimatedGrams': null,
+        'kcalPer100G': null,
+      });
+      expect(r.kcalPer100G, 0, reason: 'ein Kuchen ist keine Erdbeere');
+      expect(r.caloriesKcal, 0);
+      expect(
+        r.explicitZeroKcal,
+        isFalse,
+        reason: 'diese 0 heisst "unbekannt" — nur so greifen die Log-Guards',
+      );
+    });
+
+    test('Referenzdichte allein macht keine Gesamtkalorien', () {
+      // The name hits the table but the model gave neither kcal nor grams:
+      // 52 kcal/100 g x the 150 g default were 78 invented kcal.
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Apfel',
+        'caloriesKcal': null,
+        'estimatedGrams': null,
+        'kcalPer100G': null,
+      });
+      expect(r.caloriesKcal, 0, reason: '78 kcal aus einer Default-Portion');
+      expect(r.kcalPer100G, 52, reason: 'die Dichte selbst bleibt eine Angabe');
+      expect(r.explicitZeroKcal, isFalse);
+    });
+
+    test('mit GEMESSENER Portion wird weiterhin hergeleitet', () {
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Apfel',
+        'caloriesKcal': null,
+        'estimatedGrams': 200,
+        'kcalPer100G': null,
+      });
+      expect(r.caloriesKcal, 104, reason: '52 kcal/100 g auf gemessene 200 g');
+      expect(r.estimatedGrams, 200);
+    });
+  });
+
+  // Review 2026-08-19: `items[]` and `caloriesKcal` were unreconciled, so
+  // merely confirming the components moved the meal.
+  group('Postensumme und Gesamtwert werden abgeglichen', () {
+    test('Bestaetigen ohne Aenderung verschiebt die Kalorien nicht', () {
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Bowl',
+        'caloriesKcal': 500,
+        'estimatedGrams': 400,
+        'kcalPer100G': 125,
+        'items': <dynamic>[
+          <String, dynamic>{'name': 'Reis', 'grams': 200, 'caloriesKcal': 260},
+          <String, dynamic>{
+            'name': 'Haehnchen',
+            'grams': 200,
+            'caloriesKcal': 220,
+          },
+        ],
+      });
+      expect(r.caloriesKcal, 500);
+      expect(
+        r.items.fold<int>(0, (sum, item) => sum + item.caloriesKcal),
+        500,
+        reason: 'die Aufschluesselung muss den Gesamtwert ergeben',
+      );
+      expect(
+        r.adjustedToItems(r.items).caloriesKcal,
+        500,
+        reason: 'blosses Bestaetigen darf die Mahlzeit nicht aendern',
+      );
+    });
+
+    test('die Verhaeltnisse der Posten bleiben erhalten', () {
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Bowl',
+        'caloriesKcal': 500,
+        'estimatedGrams': 400,
+        'items': <dynamic>[
+          <String, dynamic>{'name': 'Reis', 'grams': 200, 'caloriesKcal': 260},
+          <String, dynamic>{
+            'name': 'Haehnchen',
+            'grams': 200,
+            'caloriesKcal': 220,
+          },
+        ],
+      });
+      expect(r.items.first.caloriesKcal, 271); // 260 * 500 / 480
+      expect(r.items.last.caloriesKcal, 229); // 220 * 500 / 480
+      expect(
+        r.items.first.kcalPer100G,
+        closeTo(135.5, 0.01),
+        reason: 'die Dichte des Postens folgt seiner neuen Kalorienzahl',
+      );
+    });
+
+    test('Posten ohne Kalorien werden nicht mit einer Verteilung befuellt', () {
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Bowl',
+        'caloriesKcal': 500,
+        'estimatedGrams': 400,
+        'items': <dynamic>[
+          <String, dynamic>{
+            'name': 'Reis',
+            'grams': 200,
+            'caloriesKcal': null,
+            'kcalPer100G': null,
+          },
+        ],
+      });
+      expect(r.caloriesKcal, 500);
+      expect(
+        r.items.single.caloriesKcal,
+        0,
+        reason: 'ohne Bezugsgroesse gibt es nichts zu verteilen',
+      );
+    });
+  });
+
+  // Review 2026-08-19: the first gram figure in `explanation` counted as total
+  // weight and even beat the item sum.
+  group('Grammangabe aus dem Erklaertext', () {
+    test('die Postensumme schlaegt den Erklaertext', () {
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Pastagericht',
+        'caloriesKcal': 600,
+        'estimatedGrams': null,
+        'kcalPer100G': null,
+        'explanation': 'Etwa 120 g Nudeln mit 80 g Sauce.',
+        'items': <dynamic>[
+          <String, dynamic>{
+            'name': 'Nudeln',
+            'grams': 120,
+            'caloriesKcal': 190,
+          },
+          <String, dynamic>{'name': 'Sauce', 'grams': 130, 'caloriesKcal': 410},
+        ],
+      });
+      expect(r.estimatedGrams, 250, reason: '120 g war nur der erste Posten');
+    });
+
+    test('mehrere Grammangaben ergeben kein Gesamtgewicht', () {
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Pastagericht',
+        'caloriesKcal': 600,
+        'estimatedGrams': null,
+        'kcalPer100G': null,
+        'explanation': 'Etwa 120 g Nudeln mit 80 g Sauce.',
+      });
+      expect(r.estimatedGrams, 150, reason: 'unbekannt heisst Default-Portion');
+    });
+
+    test('genau eine Grammangabe zaehlt weiterhin', () {
+      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+        'mealName': 'Steak',
+        'caloriesKcal': 550,
+        'estimatedGrams': 0,
+        'kcalPer100G': 0,
+        'explanation': 'Geschaetzt rund 250 g Fleisch.',
+      });
+      expect(r.estimatedGrams, 250);
+    });
+  });
+
+  // Review 2026-08-19: `fromOpenFoodFacts` persisted a ready-made German
+  // paragraph. It now persists a code; old rows must stay readable.
+  group('OFF-Hinweis ist sprachneutral persistiert', () {
+    final salami = MealAnalysisResult.fromOpenFoodFacts(const <String, dynamic>{
+      'product_name': 'Die Ofenfrische Salami',
+      'brands': 'Dr. Oetker',
+      'quantity': '390 g',
+      'serving_size': '100 g',
+      'serving_quantity': 100,
+      'nutriments': <String, dynamic>{'energy-kcal_100g': 252},
+    }, '4001724012345');
+
+    test('persistiert wird ein Code; Anzeige de wortgleich zur Bestandsfassung, '
+        'en komplett englisch', () {
+      expect(salami.portionNotes, startsWith('offProductNote:'));
+      expect(salami.portionNotes, isNot(contains('Nährwerte')));
+      expect(salami.resolvedPortionNotes(deL10n), _altzeileDe);
+      expect(salami.resolvedPortionNotes(enL10n), _altzeileEn);
+    });
+
+    test('fehlende Felder lassen ihre Saetze weg', () {
+      final wasser = MealAnalysisResult.fromOpenFoodFacts(
+        const <String, dynamic>{
+          'product_name': 'Wasser',
+          'nutriments': <String, dynamic>{'energy-kcal_100g': 0},
+        },
+        '999',
+      );
+      expect(
+        wasser.resolvedPortionNotes(deL10n),
+        'OpenFoodFacts Barcode 999. Nährwerte kommen aus der '
+        'Produktdatenbank, nicht aus einer Foto-Schätzung. Du kannst das '
+        'gegessene Gewicht weiter anpassen.',
+      );
+      expect(
+        wasser.resolvedPortionNotes(enL10n),
+        'Open Food Facts barcode 999. Nutrition values come from the product '
+        'database, not from a photo estimate. You can still adjust the weight '
+        'you ate.',
+      );
+    });
+
+    test('Alt-Zeilen (deutscher Absatz, mit und ohne Marke/Packung/Portion) '
+        'werden erkannt und uebersetzt', () {
+      final alt = _mitNotiz(_altzeileDe);
+      expect(alt.resolvedPortionNotes(enL10n), _altzeileEn);
+      expect(alt.resolvedPortionNotes(deL10n), _altzeileDe);
+      final kurz = _mitNotiz(
+        'OpenFoodFacts Barcode 999. Nährwerte kommen aus der '
+        'Produktdatenbank, nicht aus einer Foto-Schätzung. Du kannst das '
+        'gegessene Gewicht weiter anpassen.',
+      );
+      expect(
+        kurz.resolvedPortionNotes(enL10n),
+        'Open Food Facts barcode 999. Nutrition values come from the product '
+        'database, not from a photo estimate. You can still adjust the weight '
+        'you ate.',
+      );
+    });
+
+    test('Freitext und ein beschaedigter Code bleiben unveraendert stehen', () {
+      const freitext = 'Ein halber Teller, geschätzt aus dem Foto.';
+      expect(_mitNotiz(freitext).resolvedPortionNotes(enL10n), freitext);
+      const kaputt = 'offProductNote:{nicht wirklich json';
+      expect(_mitNotiz(kaputt).resolvedPortionNotes(enL10n), kaputt);
     });
   });
 }

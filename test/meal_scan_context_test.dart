@@ -107,26 +107,35 @@ void main() {
     );
   });
 
-  for (final hint in [null, '', ' \t\n\r ']) {
-    test('empty or whitespace context is omitted from the wire: $hint', () {
+  test('empty or whitespace context is omitted from the wire; 400 UTF-16 '
+      'units keep the complete final emoji', () {
+    for (final hint in [null, '', ' \t\n\r ']) {
       final body = buildAnalyzeMealBody(
         MealAnalysisRequest(imageId: 'photo', freeTextHint: hint),
       );
-      expect(body.containsKey('freeTextHint'), isFalse);
-    });
-  }
+      expect(body.containsKey('freeTextHint'), isFalse, reason: '"$hint"');
+    }
+    final hint = '${'x' * 398}🥙';
+    expect(
+      buildAnalyzeMealBody(
+        MealAnalysisRequest(imageId: 'photo', freeTextHint: hint),
+      )['freeTextHint'],
+      hint,
+    );
+  });
 
-  for (final hint in [
-    'x' * 401,
-    ' ' * 401,
-    '${'x' * 399}🥙',
-    'private\u0000note',
-    'private\u007fnote',
-    'private\u0085note',
-    'private\u202enote',
-  ]) {
-    test('invalid context is rejected before creating a network client '
-        '${hint.codeUnits.take(3)} / ${hint.length}', () async {
+  test('invalid context is rejected before creating a network client, '
+      'without echoing it', () async {
+    for (final hint in [
+      'x' * 401,
+      ' ' * 401,
+      '${'x' * 399}🥙',
+      'private\u0000note',
+      'private\u007fnote',
+      'private\u0085note',
+      'private\u202enote',
+    ]) {
+      final wer = '${hint.codeUnits.take(3)} / ${hint.length}';
       var clients = 0;
       final analyzer = EdgeFunctionMealAnalyzer(
         tokenProvider: () => 'dummy',
@@ -147,23 +156,17 @@ void main() {
             'sanitized detail',
             isNot(contains('private')),
           );
-      expect(() => buildAnalyzeMealBody(request), throwsA(invalidHint));
-      await expectLater(analyzer.analyze(request), throwsA(invalidHint));
-      expect(clients, 0);
-    });
-  }
-
-  test('400 UTF-16 units preserves the complete final emoji', () {
-    final hint = '${'x' * 398}🥙';
-    expect(
-      buildAnalyzeMealBody(
-        MealAnalysisRequest(imageId: 'photo', freeTextHint: hint),
-      )['freeTextHint'],
-      hint,
-    );
+      expect(() => buildAnalyzeMealBody(request), throwsA(invalidHint),
+          reason: wer);
+      await expectLater(analyzer.analyze(request), throwsA(invalidHint),
+          reason: wer);
+      expect(clients, 0, reason: wer);
+    }
   });
 
-  for (final source in ImageSource.values) {
+  // Camera and gallery share `_pickAndAnalyze` in the add sheet; which source
+  // each button asks for is pinned in meal_entry_design_test.dart.
+  for (final source in [ImageSource.gallery]) {
     testWidgets('$source: no upload before start; cancel discards note; '
         'next scan is empty; loading close cancels', (tester) async {
       pinPhoneViewport(tester);
@@ -210,7 +213,7 @@ void main() {
     });
   }
 
-  for (final brightness in Brightness.values) {
+  for (final brightness in [Brightness.dark]) {
     testWidgets('preview reflows at 320px, 2x text, keyboard: $brightness', (
       tester,
     ) async {
@@ -401,9 +404,10 @@ void main() {
     );
   }
 
+  // The two code paths: the food tab's camera (MealAnalysisScreen) and the add
+  // sheet's photo pick (camera and gallery share `_pickAndAnalyze`).
   for (final entry in [
     'food-action-ai',
-    'analyse-camera-button',
     'analyse-gallery-button',
   ]) {
     for (final transition in ['switch', 'logout', 'return', 'refresh']) {

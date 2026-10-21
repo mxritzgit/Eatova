@@ -76,25 +76,18 @@ Future<void> _firstSearch(WidgetTester tester, _Search service) async {
   expect(_hit, findsOneWidget);
 }
 
+// A second search in the add sheet while the first one's hits are on screen
+// (review 2026-09-08): the old hits must not stay tappable under the new
+// query, and the slow/timeout/rate-limit states must not hide behind them.
 void main() {
-  testWidgets('new query immediately removes unrelated actionable hits', (
-    tester,
-  ) async {
+  testWidgets('a new query removes the old hits at once and keeps slow help '
+      'and timeout recovery visible', (tester) async {
     final service = _Search();
     await _firstSearch(tester, service);
     await tester.enterText(_input, 'Brot');
     await tester.pump();
+    expect(_hit, findsNothing, reason: 'unrelated hits must not stay tappable');
 
-    expect(_hit, findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
-  testWidgets('second search keeps slow help and timeout recovery visible', (
-    tester,
-  ) async {
-    final service = _Search();
-    await _firstSearch(tester, service);
-    await tester.enterText(_input, 'Brot');
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump(const Duration(seconds: 7));
 

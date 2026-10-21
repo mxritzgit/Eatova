@@ -47,22 +47,23 @@ Map<String, dynamic> _payloadOhne(String key) {
 void main() {
   group('mealResultFromJson', () {
     test(
-      'fehlendes caloriesKcal wirft statt eine 0-kcal-Mahlzeit zu bauen',
+      'fehlendes oder unlesbares caloriesKcal wirft statt eine 0-kcal-Mahlzeit '
+      'zu bauen',
       () {
         expect(
           () => mealResultFromJson(_payloadOhne('caloriesKcal')),
           throwsFormatException,
         );
+        final json = _payloadOhne('caloriesKcal');
+        json['caloriesKcal'] = 'kaputt';
+        expect(() => mealResultFromJson(json), throwsFormatException);
       },
     );
 
-    test('unlesbares caloriesKcal (String-Muell) wirft ebenfalls', () {
-      final json = _payloadOhne('caloriesKcal');
-      json['caloriesKcal'] = 'kaputt';
-      expect(() => mealResultFromJson(json), throwsFormatException);
-    });
-
-    test('die gemessene 0 (B7) roundtrippt unveraendert', () {
+    // A measured 0 must survive, or the last-resort guard blocks the
+    // auto-recent favorite of the same water after the next boot.
+    test('die gemessene 0 (B7) roundtrippt; Alt-Zeilen ohne Schluessel bleiben '
+        '"unbekannt"', () {
       final json = mealResultToJson(
         const MealAnalysisResult(
           mealName: 'Wasser',
@@ -80,6 +81,12 @@ void main() {
       final back = mealResultFromJson(json);
       expect(back.caloriesKcal, 0);
       expect(back.explicitZeroKcal, isTrue);
+      // Legacy rows without the key read false — the sentinel stays a
+      // sentinel.
+      expect(
+        mealResultFromJson(json..remove('explicitZeroKcal')).explicitZeroKcal,
+        isFalse,
+      );
     });
 
     test(

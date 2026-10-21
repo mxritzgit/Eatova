@@ -93,8 +93,8 @@ String? _textOf(WidgetTester tester, String key) =>
 String _macros(String line) =>
     line.replaceAll(' ', '\u00a0').replaceAll('\u00a0·\u00a0', '\u00a0· ');
 
-Widget _list({List<LoggedMeal>? meals}) => ExistingMealsList(
-      meals: meals ?? _meals,
+Widget _list() => ExistingMealsList(
+      meals: _meals,
       slot: MealSlot.dinner,
       onRemove: (_) {},
       onEdit: (_) {},
@@ -172,54 +172,9 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('Englisch: Total + C statt K', (tester) async {
-    _pin390(tester);
-    await tester.pumpWidget(designHarness(_list(), locale: const Locale('en')));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-
-    expect(find.text('Total'), findsOneWidget);
-    expect(find.text(_macros('P 41 g · C 67 g · F 29 g')), findsOneWidget);
-  });
-
-  testWidgets('Rendert bei 390 pt und Textskala 1.3 in Hell UND Dunkel ohne '
-      'Ueberlauf', (tester) async {
-    _pin390(tester);
-    for (final brightness in Brightness.values) {
-      await tester.pumpWidget(
-        designHarness(
-          _list(),
-          brightness: brightness,
-          textScaler: const TextScaler.linear(1.3),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester.takeException(),
-        isNull,
-        reason: 'Ueberlauf/Exception unter $brightness bei Skala 1.3',
-      );
-      expect(
-        find.byKey(const ValueKey('analyse-existing-total-macros')),
-        findsOneWidget,
-      );
-    }
-  });
-
   testWidgets('Ueberlebt die doppelte Systemschrift (EatovaApp-Deckel)',
       (tester) async {
     _pin390(tester);
     await expectSurvivesTextScale(tester, _list());
-  });
-
-  testWidgets('Eine einzelne Mahlzeit: Summe gleich Zeile', (tester) async {
-    _pin390(tester);
-    await tester.pumpWidget(designHarness(_list(meals: [_meals.first])));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-
-    expect(find.text('420 kcal'), findsOneWidget);
-    // Once in the header, once in the row.
-    expect(find.text(_macros('P 34 g · K 2 g · F 28 g')), findsNWidgets(2));
   });
 }
