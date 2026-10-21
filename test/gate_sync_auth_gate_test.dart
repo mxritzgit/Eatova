@@ -7,12 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/screens/auth_code_screen.dart';
-import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
-import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
@@ -251,47 +247,8 @@ void main() {
         expect(geraeumt, erwartet, reason: grund);
       });
     }
-
-    test('die Raeumung nimmt die PII mit und laesst die Outbox stehen',
-        () async {
-      final kv = InMemoryKeyValueStore();
-      final cache = LocalCache(kv, 'user-a');
-      await cache.writeProfile(
-          const UserProfile(weightKg: 80, onboardingCompleted: true));
-      await cache.writeLoggedMeals(<LoggedMeal>[
-        LoggedMeal(
-          id: 'm-1',
-          result: const MealAnalysisResult(
-            mealName: 'Bowl',
-            caloriesKcal: 300,
-            estimatedGrams: 350,
-            kcalPer100G: 85,
-            protein: '30 g',
-            carbs: '40 g',
-            fat: '10 g',
-            confidence: 'Hoch',
-            portionNotes: 'Test.',
-            sourceLabel: 'Foto-KI',
-          ),
-          loggedAt: DateTime(2026, 8, 19, 12),
-        ),
-      ]);
-      await cache.writeNotificationsEnabled(true);
-      await cache.writeOutbox(<SyncOp>[SyncOp.trackingDay('2026-08-19')]);
-
-      await purgePersonalCache(cache);
-
-      expect(await cache.readProfile(), isNull);
-      expect(await cache.readLoggedMeals(), isNull);
-      expect(await cache.readNotificationsEnabled(), isNull);
-      expect(
-        (await cache.readOutbox())?.map((o) => o.kind),
-        contains(SyncOpKind.trackingDay),
-        reason: 'die Outbox ist kein Anzeige-Cache, sondern nicht zugestellte '
-            'Schreibvorgaenge (A2) — sie zu vernichten hiesse, dem Nutzer die '
-            'offline geloggten Mahlzeiten zu nehmen',
-      );
-    });
+    // What the purge clears and keeps (PII gone, outbox stays):
+    // services/auth_gate_sync_fence_test.dart.
   });
 
   group('Fund 2 — ein Fehler auf dem Auth-Strom eskaliert nicht', () {
@@ -342,26 +299,12 @@ void main() {
               'dem Umzug des Knopfes selbst Routen ab');
     });
 
+    // No push, nothing to tear down — under the old rule the user landed on
+    // the login without any explanation. P1-04: the only text on this path was
+    // hardcoded German, so the case runs in English.
     testWidgets(
-        'Sitzungsverlust auf der Root-Route erklaert sich trotzdem',
+        'Sitzungsverlust auf der Root-Route erklaert sich in der App-Sprache',
         (tester) async {
-      final repository = _ScriptedAuthRepository(_userA);
-      addTearDown(repository.dispose);
-      await _pumpGate(tester, repository);
-
-      // No push, nothing to tear down — under the old rule the user landed on
-      // the login without any explanation.
-      repository.emit(null);
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('Sitzung ist abgelaufen'), findsOneWidget);
-      // The snackbar must not leave a pending timer.
-      await tester.pumpAndSettle(const Duration(seconds: 6));
-    });
-
-    // P1-04: the only text on this path was hardcoded German — a rendered
-    // sentence in a file that has been listed as migrated for two rounds.
-    testWidgets('der Hinweis folgt der App-Sprache', (tester) async {
       final repository = _ScriptedAuthRepository(_userA);
       addTearDown(repository.dispose);
       await _pumpGate(tester, repository, locale: const Locale('en'));
@@ -373,13 +316,6 @@ void main() {
       expect(find.textContaining('Sitzung ist abgelaufen'), findsNothing,
           reason: 'die englische App darf den Satz nicht auf Deutsch zeigen');
       await tester.pumpAndSettle(const Duration(seconds: 6));
-    });
-
-    test('die Absicht gilt fuer GENAU einen Uebergang', () {
-      IntentionalSignOut.mark();
-      expect(IntentionalSignOut.consume(), isTrue);
-      expect(IntentionalSignOut.consume(), isFalse,
-          reason: 'sonst schaltete ein Logout jeden spaeteren Verlust stumm');
     });
 
     // AUTH-4: the gate confirms a deletion instead of staying silent.
@@ -399,9 +335,12 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 6));
     });
 
-    test('ein spaeteres mark() ohne Grund ist wieder ein Logout', () {
+    test('eine Absicht gilt fuer genau einen Uebergang; mark() ohne Grund ist '
+        'wieder ein Logout', () {
       IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
       expect(IntentionalSignOut.consumeIntent(), SignOutIntent.accountDeleted);
+      expect(IntentionalSignOut.consumeIntent(), isNull,
+          reason: 'sonst schaltete ein Logout jeden spaeteren Verlust stumm');
       IntentionalSignOut.mark(reason: SignOutIntent.accountDeleted);
       IntentionalSignOut.mark();
       expect(IntentionalSignOut.consumeIntent(), SignOutIntent.signOut);

@@ -80,7 +80,7 @@ void main() {
         userId: 'owner',
         email: ' owner@example.com ',
       );
-      await repo.sendPasswordReset('reset@example.com');
+      await repo.sendPasswordReset('  reset@example.com ');
       expect(requests.map((r) => r.url.path), everyElement('/auth/v1/recover'));
       expect(requests.map((r) => r.url.queryParameters['redirect_to']), [
         AuthEmailPurpose.accountDeletion,
@@ -96,11 +96,15 @@ void main() {
     },
   );
 
-  test('unavailable auth cannot promise an account deletion email', () async {
+  test('unavailable auth cannot promise a deletion or reset email', () async {
+    const repo = UnavailableAuthRepository('offline');
     await expectLater(
-      const UnavailableAuthRepository(
-        'offline',
-      ).sendAccountDeletionCode(userId: 'owner', email: 'owner@example.com'),
+      repo.sendAccountDeletionCode(userId: 'owner', email: 'owner@example.com'),
+      throwsA(isA<AuthUnavailableException>()),
+    );
+    // Typed, so the auth screen can localize it.
+    await expectLater(
+      repo.sendPasswordReset('owner@example.com'),
       throwsA(isA<AuthUnavailableException>()),
     );
   });

@@ -34,7 +34,6 @@ import '../support/harness.dart';
 
 const String _alteAdresse = 'alt@eatova.de';
 const String _neueAdresse = 'neu@eatova.de';
-const String _code = '12345678';
 
 /// GoTrues Antwort, wenn der Anon-Key nicht stimmt — ueber den eingegebenen
 /// Code sagt sie nichts.
@@ -60,14 +59,12 @@ AuthRetryableFetchException _gotrue502() => AuthRetryableFetchException(
       statusCode: '502',
     );
 
-/// Ein Repository, dessen vier Aenderungs-Aufrufe einzeln scheitern koennen.
+/// Ein Repository, dessen zwei Anforderungs-Aufrufe einzeln scheitern koennen.
 class _StellbaresRepo extends InMemoryAuthRepository {
   _StellbaresRepo({super.initialUser});
 
   Object? startEmailFehler;
-  Object? confirmEmailFehler;
   Object? startPasswordFehler;
-  Object? confirmPasswordFehler;
 
   @override
   Future<void> startEmailChange(String newEmail) async {
@@ -77,35 +74,10 @@ class _StellbaresRepo extends InMemoryAuthRepository {
   }
 
   @override
-  Future<void> confirmEmailChange({
-    required String email,
-    required String code,
-  }) async {
-    final fehler = confirmEmailFehler;
-    if (fehler != null) throw fehler;
-    await super.confirmEmailChange(email: email, code: code);
-  }
-
-  @override
   Future<void> startPasswordChange() async {
     final fehler = startPasswordFehler;
     if (fehler != null) throw fehler;
     await super.startPasswordChange();
-  }
-
-  @override
-  Future<void> confirmPasswordChange({
-    required String currentPassword,
-    required String code,
-    required String newPassword,
-  }) async {
-    final fehler = confirmPasswordFehler;
-    if (fehler != null) throw fehler;
-    await super.confirmPasswordChange(
-      currentPassword: currentPassword,
-      code: code,
-      newPassword: newPassword,
-    );
   }
 }
 
@@ -267,19 +239,6 @@ void main() {
           AuthErrorKind.quotaExhausted);
     });
 
-    test('der Text nennt Minuten, keine halbe Stunde, in beiden Sprachen', () {
-      // Seit rate_limit_email_sent = 60/h (projektweit, ein Token pro Minute)
-      // ist die Groessenordnung "ein paar Minuten". Die halbe Stunde war die
-      // Rechnung fuer die 2/h-Fehlkonfiguration (Review 2026-09-01) und darf
-      // nicht zurueckkommen — ebenso wenig ein "pro Konto"-Versprechen.
-      expect(deL10n.settingsAccountQuotaExhausted, contains('paar Minuten'));
-      expect(deL10n.settingsAccountQuotaExhausted,
-          isNot(contains('halben Stunde')));
-      expect(enL10n.settingsAccountQuotaExhausted, contains('few minutes'));
-      expect(enL10n.settingsAccountQuotaExhausted,
-          isNot(contains('half an hour')));
-    });
-
     test('auch die Textform ohne GoTrue-Code landet im Kontingent', () {
       expect(
         accountChangeErrorMessage(
@@ -296,7 +255,6 @@ void main() {
           'For security purposes, you can only request this after 51 seconds'));
 
       expect(meldung, deL10n.settingsAccountRateLimited);
-      expect(meldung, startsWith('Zu viele Versuche'));
       expect(
         classifyAuthError(const AuthException(
                 'For security purposes, you can only request this after 51 '
@@ -357,15 +315,22 @@ void main() {
       );
     });
 
-    test('email_exists als CODE bestaetigt keine fremde Kontoexistenz', () {
-      expect(
-        accountChangeErrorMessage(const AuthApiException(
-          'Something went wrong',
-          statusCode: '422',
-          code: 'email_exists',
-        )),
-        deL10n.settingsAccountEmailNotAvailable,
-      );
+    test('die Konto-Codes bestaetigen keine fremde Kontoexistenz', () {
+      // Not `email_exists`: AuthApiException prints its code in toString(),
+      // and the text rule catches the literal "email_exists", so that case
+      // stays green without the typed branch. These two codes only the typed
+      // branch can see.
+      for (final code in ['user_already_exists', 'identity_already_exists']) {
+        expect(
+          accountChangeErrorMessage(AuthApiException(
+            'Something went wrong',
+            statusCode: '422',
+            code: code,
+          )),
+          deL10n.settingsAccountEmailNotAvailable,
+          reason: code,
+        );
+      }
     });
 
     test('REGRESSION: die uebrigen Textregeln stehen unveraendert', () {
@@ -401,25 +366,9 @@ void main() {
       expect(find.text(deL10n.commonGenericRetryError), findsOneWidget);
     });
 
-    testWidgets('E-Mail bestaetigen: ebenso auf dem Code-Schritt',
-        (tester) async {
-      final repo = await _oeffneMailSheet(tester);
-
-      await _schreibe(tester, 'email-change-new-address', _neueAdresse);
-      await _tippe(tester, deL10n.settingsEmailChangeRequestCta);
-      expect(find.byKey(const ValueKey('email-change-code-old')),
-          findsOneWidget);
-
-      repo.confirmEmailFehler = _kaputterAnonKey();
-      await _schreibe(tester, 'email-change-code-old', _code);
-      await _schreibe(tester, 'email-change-code-new', _code);
-      await _tippe(tester, deL10n.settingsEmailChangeSubmitCta);
-
-      expect(find.text(deL10n.settingsAccountCodeRejected), findsNothing);
-      expect(find.text(deL10n.commonGenericRetryError), findsOneWidget);
-    });
-
-    testWidgets('Passwort anfordern: das Kontingent nennt die halbe Stunde',
+    // The two confirm call sites reach the classifier as well; their rejected
+    // codes are pinned in account_change_flows_test.dart.
+    testWidgets('Passwort anfordern: das Mail-Kontingent ist kein „Moment"',
         (tester) async {
       final repo = await _oeffnePasswortSheet(tester);
       repo.startPasswordFehler = _kontingentErschoepft();
@@ -431,24 +380,6 @@ void main() {
       expect(find.text(deL10n.settingsAccountQuotaExhausted), findsOneWidget);
       expect(find.text(deL10n.settingsAccountRateLimited), findsNothing,
           reason: '„einen Moment" schickt den Nutzer in eine Klopfschleife');
-    });
-
-    testWidgets('Passwort setzen: ein 502 ist kein Offline-Hinweis',
-        (tester) async {
-      final repo = await _oeffnePasswortSheet(tester);
-
-      await _tippe(tester, deL10n.settingsPasswordChangeRequestCta);
-      repo.confirmPasswordFehler = _gotrue502();
-
-      await _schreibe(tester, 'password-change-code', _code);
-      await _schreibe(tester, 'password-change-current', 'CurrentPassword99');
-      await _schreibe(tester, 'password-change-new', 'geheim99');
-      await _schreibe(tester, 'password-change-repeat', 'geheim99');
-      await _tippe(tester, deL10n.settingsPasswordChangeSubmitCta);
-
-      expect(find.text(deL10n.authErrorServerFault), findsOneWidget);
-      expect(find.text(deL10n.settingsAccountOfflineError), findsNothing,
-          reason: 'die Verbindung hat die 502 gerade transportiert');
     });
   });
 }

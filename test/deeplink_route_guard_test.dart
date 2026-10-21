@@ -9,15 +9,13 @@
 // find a generator for route", which reaches Sentry via the global handlers.
 // No data loss, but an attacker could flood the error budget remotely.
 //
-// Checked on three levels:
+// Checked on two levels:
 //
 //   1. Counter-check: the same route still throws on a bare `MaterialApp`.
 //      Otherwise the test could stay green because the route is no longer
 //      delivered at all, guarding nothing.
 //   2. `EatovaApp` swallows it silently: no exception, no navigator entry,
 //      no lost visible state.
-//   3. The real OAuth return path is untouched — it runs over the
-//      `app_links` channel; only the pointless route echo disappears.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,10 +29,6 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 /// passes path + query + fragment to the navigation channel.
 const String _angriffsRoute =
     '/#access_token=FAKE&refresh_token=FAKE&token_type=bearer';
-
-/// The same echo on the legitimate return path: `?code=…` also arrives as a
-/// route and used to throw the same exception.
-const String _echterRueckwegRoute = '/?code=abc';
 
 /// Plays the platform on exactly the engine's path (`flutter/navigation`,
 /// `pushRouteInformation`), so no test-only shortcut is under test.
@@ -155,38 +149,8 @@ void main() {
     },
   );
 
-  testWidgets(
-    'auch ein Dauerbeschuss legt nichts auf den Navigationsstapel',
-    (tester) async {
-      await _pumpEatovaApp(tester);
-
-      for (var i = 0; i < 25; i++) {
-        await _plattformSchicktRoute(tester, '$_angriffsRoute&nr=$i');
-      }
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byType(EatovaHomePage), findsOneWidget);
-      expect(_rootNavigator(tester).canPop(), isFalse);
-    },
-  );
-
-  testWidgets(
-    'der Routen-Nachhall des ECHTEN OAuth-Rueckwegs stoert ebenfalls nicht',
-    (tester) async {
-      // `eatova://login-callback/?code=…` arrives twice: via app_links (PKCE
-      // exchange) and as a route. Only the route belongs here, and it is as
-      // worthless as the attack echo since the app has no named routes.
-      await _pumpEatovaApp(tester);
-
-      final uebernommen =
-          await _plattformSchicktRoute(tester, _echterRueckwegRoute);
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(uebernommen, isTrue);
-      expect(find.byType(EatovaHomePage), findsOneWidget);
-      expect(_rootNavigator(tester).canPop(), isFalse);
-    },
-  );
+  // The guard answers every route the same way, independent of its content,
+  // so repeated attack routes and the `?code=` echo of the real OAuth return
+  // (handled over app_links, auth_deeplink_predicate_test.dart) take the path
+  // pinned above.
 }

@@ -86,90 +86,27 @@ Future<void> _tapLogout(WidgetTester tester) async {
 }
 
 void main() {
-  for (final (language, message) in [
-    ('de', 'Abmelden fehlgeschlagen. Bitte versuche es erneut.'),
-    ('en', 'Sign-out failed. Please try again.'),
-  ]) {
-    for (final coordinated in [false, true]) {
-      testWidgets(
-        'logout failure and retry ($language, coordinated=$coordinated)',
-        (tester) async {
-          tester.view.physicalSize = const Size(1179, 2556);
-          tester.view.devicePixelRatio = 3;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
-          final images = _ObservedImages();
-          RecipeImageStore.instance = images;
-          addTearDown(RecipeImageStore.resetInstance);
-          addTearDown(IntentionalSignOut.clear);
-          final repository = coordinated
-              ? _FailingCoordinatedLogout()
-              : _FailingLogout();
-          final locale = LocaleController(initial: Locale(language));
-          final theme = ThemeModeController(initial: ThemeMode.dark);
-          addTearDown(repository.dispose);
-          addTearDown(locale.dispose);
-          addTearDown(theme.dispose);
-          await tester.pumpWidget(
-            EatovaApp(
-              authRepository: repository,
-              localeController: locale,
-              themeModeController: theme,
-              syncBuilder: (_) => null,
-              productService: FakeProductLookupService(),
-            ),
-          );
-          await settleFrames(tester);
-          final clearedBefore = images.clearCalls;
-          await _tapLogout(tester);
-
-          expect(tester.takeException(), isNull);
-          if (coordinated) {
-            expect(
-              images.clearCalls,
-              clearedBefore,
-              reason: 'Failed preflight must leave the active account usable.',
-            );
-          }
-          expect(repository.calls, 1);
-          expect(repository.currentUser?.id, 'logout-a');
-          // Settings closed themselves; the account's pages stay usable.
-          expect(
-            find.byType(TodayScreen, skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
-          expect(find.text(message), findsOneWidget);
-          expect(IntentionalSignOut.consume(), isFalse);
-
-          repository.shouldFail = false;
-          await tester.pump(const Duration(seconds: 5));
-          await _tapLogout(tester);
-          expect(repository.calls, 2);
-          expect(repository.currentUser, isNull);
-          expect(images.clearCalls, greaterThan(clearedBefore));
-          expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
-          expect(tester.takeException(), isNull);
-          await tester.pumpWidget(const SizedBox.shrink());
-          await tester.pump();
-        },
-      );
-    }
-
-    // AUTH-3: the sign-out took effect locally; only the server revocation
-    // failed. Neither "sign-out failed" nor "session expired" may follow.
+  // One language: the flows do not depend on it, and ARB parity covers the
+  // copy.
+  const language = 'de';
+  final l10n = lookupAppLocalizations(const Locale(language));
+  final message = l10n.settingsSignOutFailed;
+  for (final coordinated in [false, true]) {
     testWidgets(
-      'failed server revocation after local sign-out stays silent ($language)',
+      'logout failure and retry (coordinated=$coordinated)',
       (tester) async {
         tester.view.physicalSize = const Size(1179, 2556);
         tester.view.devicePixelRatio = 3;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
-        RecipeImageStore.instance = _ObservedImages();
+        final images = _ObservedImages();
+        RecipeImageStore.instance = images;
         addTearDown(RecipeImageStore.resetInstance);
         addTearDown(IntentionalSignOut.clear);
-        final repository = _RemoteRevokeFails();
-        final locale = LocaleController(initial: Locale(language));
+        final repository = coordinated
+            ? _FailingCoordinatedLogout()
+            : _FailingLogout();
+        final locale = LocaleController(initial: const Locale(language));
         final theme = ThemeModeController(initial: ThemeMode.dark);
         addTearDown(repository.dispose);
         addTearDown(locale.dispose);
@@ -184,22 +121,84 @@ void main() {
           ),
         );
         await settleFrames(tester);
+        final clearedBefore = images.clearCalls;
         await _tapLogout(tester);
 
         expect(tester.takeException(), isNull);
-        expect(repository.currentUser, isNull);
-        expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
-        expect(find.text(message), findsNothing);
-        final l10n = lookupAppLocalizations(Locale(language));
-        expect(find.text(l10n.authSessionExpired), findsNothing);
+        if (coordinated) {
+          expect(
+            images.clearCalls,
+            clearedBefore,
+            reason: 'Failed preflight must leave the active account usable.',
+          );
+        }
+        expect(repository.calls, 1);
+        expect(repository.currentUser?.id, 'logout-a');
+        // Settings closed themselves; the account's pages stay usable.
         expect(
-          IntentionalSignOut.consume(),
-          isFalse,
-          reason: 'AuthGate consumed the intent of this sign-out.',
+          find.byType(TodayScreen, skipOffstage: false),
+          findsOneWidget,
         );
+        expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
+        expect(find.text(message), findsOneWidget);
+        expect(IntentionalSignOut.consume(), isFalse);
+
+        repository.shouldFail = false;
+        await tester.pump(const Duration(seconds: 5));
+        await _tapLogout(tester);
+        expect(repository.calls, 2);
+        expect(repository.currentUser, isNull);
+        expect(images.clearCalls, greaterThan(clearedBefore));
+        expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+        expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
       },
     );
   }
+
+  // AUTH-3: the sign-out took effect locally; only the server revocation
+  // failed. Neither "sign-out failed" nor "session expired" may follow.
+  testWidgets(
+    'failed server revocation after local sign-out stays silent',
+    (tester) async {
+      tester.view.physicalSize = const Size(1179, 2556);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      RecipeImageStore.instance = _ObservedImages();
+      addTearDown(RecipeImageStore.resetInstance);
+      addTearDown(IntentionalSignOut.clear);
+      final repository = _RemoteRevokeFails();
+      final locale = LocaleController(initial: const Locale(language));
+      final theme = ThemeModeController(initial: ThemeMode.dark);
+      addTearDown(repository.dispose);
+      addTearDown(locale.dispose);
+      addTearDown(theme.dispose);
+      await tester.pumpWidget(
+        EatovaApp(
+          authRepository: repository,
+          localeController: locale,
+          themeModeController: theme,
+          syncBuilder: (_) => null,
+          productService: FakeProductLookupService(),
+        ),
+      );
+      await settleFrames(tester);
+      await _tapLogout(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(repository.currentUser, isNull);
+      expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+      expect(find.text(message), findsNothing);
+      expect(find.text(l10n.authSessionExpired), findsNothing);
+      expect(
+        IntentionalSignOut.consume(),
+        isFalse,
+        reason: 'AuthGate consumed the intent of this sign-out.',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
 }

@@ -15,15 +15,12 @@ import 'package:eatova/src/auth/auth_repository.dart';
 
 void main() {
   group('buildDefaultAuthRepository ohne Supabase', () {
-    test('Release-Pfad: es gibt KEINEN eingeloggten Nutzer', () {
+    test('Release-Pfad: es gibt KEINEN eingeloggten Nutzer, auch nicht im '
+        'Auth-Stream', () async {
       final repo = buildDefaultAuthRepository(allowPreview: false);
       expect(repo.currentUser, isNull,
           reason: 'ein erfundener Nutzer rendert die eingeloggte Ansicht '
               'ohne Anmeldung');
-    });
-
-    test('Release-Pfad: der Auth-Stream beginnt ausgeloggt', () async {
-      final repo = buildDefaultAuthRepository(allowPreview: false);
       expect(await repo.authStateChanges.first, isNull,
           reason: 'AuthGate haengt am ersten Stream-Wert — der muss den '
               'Login zeigen, nicht die Home-Page');

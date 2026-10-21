@@ -40,9 +40,11 @@ String _session(String sid) {
 }
 
 void main() {
-  testWidgets('verified deletion continues through same-owner OTP rotation', (
-    tester,
-  ) async {
+  // The recovery proof is never adopted as the app session (it used to
+  // rotate it), so AuthGate sees no session change and keeps the sheet's
+  // deletion running.
+  testWidgets('a verified deletion keeps the app session under AuthGate and '
+      'completes once', (tester) async {
     pinPhoneViewport(tester);
     RecipeImageStore.instance = _NoPhotos();
     addTearDown(RecipeImageStore.resetInstance);

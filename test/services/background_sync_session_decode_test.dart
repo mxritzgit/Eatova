@@ -43,7 +43,9 @@ void main() {
     expect(session.expiresAt, _now.add(const Duration(hours: 1)));
   });
 
-  group('the envelope rejects', () {
+  // One test per table: every row runs through the same pattern match, so a
+  // row is a data point, not a separate behavior.
+  test('the envelope rejects every malformed shape', () {
     final cases = <String, Object?>{
       'a list': [_session()],
       'an omitted user': _without(_session(), 'user'),
@@ -82,11 +84,11 @@ void main() {
       },
     };
     for (final entry in cases.entries) {
-      test(entry.key, () => expect(_decode(entry.value), isNull));
+      expect(_decode(entry.value), isNull, reason: entry.key);
     }
   });
 
-  group('the claims reject', () {
+  test('the claims reject every unusable value', () {
     final cases = <String, Map<String, Object?>>{
       'an omitted subject': _without(_claims(), 'sub'),
       'a null subject': {..._claims(), 'sub': null},
@@ -108,11 +110,38 @@ void main() {
       },
     };
     for (final entry in cases.entries) {
-      test(
-        entry.key,
-        () => expect(_decode(_session(claims: entry.value)), isNull),
+      expect(
+        _decode(_session(claims: entry.value)),
+        isNull,
+        reason: entry.key,
       );
     }
+  });
+
+  test('an expiry claim outside the DateTime range is rejected, not wrapped',
+      () {
+    // 18446746073709552 * 1000 wraps past 2^64 to a millisecond value in 2033.
+    for (final expiry in [
+      18446746073709552,
+      -18446746073709552,
+      8640000000001,
+      -8640000000001,
+      9007199254740991,
+    ]) {
+      expect(
+        _decode(_session(claims: {..._claims(), 'exp': expiry})),
+        isNull,
+        reason: '$expiry',
+      );
+    }
+  });
+
+  test('the largest representable expiry is still accepted', () {
+    expect(
+      _decode(_session(claims: {..._claims(), 'exp': 8640000000000}))
+          ?.expiresAt,
+      DateTime.fromMillisecondsSinceEpoch(8640000000000000, isUtc: true),
+    );
   });
 
   test('an empty user id is rejected even with a matching empty subject', () {

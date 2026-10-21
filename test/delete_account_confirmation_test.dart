@@ -129,20 +129,19 @@ void main() {
     IntentionalSignOut.clear();
   });
 
-  for (final language in ['de', 'en']) {
-    testWidgets('a completed deletion is confirmed on the login ($language)', (
-      tester,
-    ) async {
-      final l10n = await _deleteAccount(tester, language: language);
+  // One language per case: the flow is the same, ARB parity covers the copy.
+  testWidgets('a completed deletion is confirmed on the login', (
+    tester,
+  ) async {
+    final l10n = await _deleteAccount(tester, language: 'en');
 
-      expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
-      expect(find.text(l10n.authAccountDeleted), findsOneWidget);
-      expect(find.text(l10n.authSessionExpired), findsNothing);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await settleFrames(tester);
-    });
-  }
+    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+    expect(find.text(l10n.authAccountDeleted), findsOneWidget);
+    expect(find.text(l10n.authSessionExpired), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await settleFrames(tester);
+  });
 
   testWidgets('a session ending during the deletion cleanup is no expiry', (
     tester,

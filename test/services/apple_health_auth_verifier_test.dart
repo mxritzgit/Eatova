@@ -2,6 +2,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
@@ -37,7 +38,6 @@ void main() {
       );
 
       expect(state, HealthAuthState.unverified);
-      expect(state, isNot(HealthAuthState.granted));
     });
 
     test('unverifiziert -> readSnapshot-Ersatz liefert null statt 0 Schritte',
@@ -164,88 +164,59 @@ void main() {
       );
 
       expect(state, HealthAuthState.unverified);
-    });
-
-    test('unverifiziert nach Verfall -> Snapshot ist wieder null', () {
-      final v = HealthAuthVerifier(evidenceTtl: const Duration(days: 3));
-      v.resolve(_ev(writeGrant: false, steps: 7400), now: DateTime(2026, 8, 1));
-
-      expect(
-        v.verifiedSnapshot(_ev(writeGrant: false, steps: 0),
-            now: DateTime(2026, 8, 5)),
-        isNull,
-      );
+      // verifiedSnapshot reads the same verdict; the null snapshot of an
+      // unverified state is pinned at the top of this file.
     });
   });
 
-  group('HealthConnectionCard — unverifiziert bleibt handlungsfaehig', () {
-    // `AppTokens.of` throws without the ThemeExtension and
-    // HealthConnectionCard reads context.l10n — both come from the harness.
-    Future<void> pumpCard(WidgetTester tester, HealthAuthState state) =>
-        pumpLocalized(
-          tester,
-          HealthConnectionCard(
-            state: state,
-            lastFetch: clock.now(),
-            onConnect: () {},
-            onRefresh: () {},
-          ),
-          reducedMotion: false,
-          safeArea: false,
-        );
-
-    testWidgets('unverified zeigt KEIN "Synchronisiert" und keinen Refresh',
-        (tester) async {
-      await pumpCard(tester, HealthAuthState.unverified);
-
-      expect(find.textContaining('Synchronisiert'), findsNothing);
-      expect(find.byKey(const ValueKey('profile-health-refresh')), findsNothing);
-    });
-
-    testWidgets('unverified bietet weiter einen Aktions-Button an',
-        (tester) async {
-      await pumpCard(tester, HealthAuthState.unverified);
-
-      expect(find.byKey(const ValueKey('profile-health-connect')),
-          findsOneWidget);
-      expect(find.text('Prüfen'), findsOneWidget);
-    });
-
-    testWidgets('unverified fuehrt zum iOS-Datenzugriff, nicht nur "Fehler"',
-        (tester) async {
-      await pumpCard(tester, HealthAuthState.unverified);
-
-      final subtitle = tester.widget<Text>(
-        find.textContaining('Datenzugriff'),
+  // The Apple Health card per state. The Android Health Connect variant:
+  // widgets/health_connect_card_test.dart.
+  testWidgets('HealthConnectionCard: nur granted wirkt synchronisiert, '
+      'unverified und denied bleiben handlungsfaehig', (tester) async {
+    for (final (state, hint, action) in <(HealthAuthState, String, String?)>[
+      (
+        HealthAuthState.unverified,
+        deL10n.profileHealthUnverifiedHint,
+        deL10n.profileHealthActionCheck,
+      ),
+      (
+        HealthAuthState.denied,
+        deL10n.profileHealthDeniedHint,
+        deL10n.profileHealthActionCheck,
+      ),
+      (
+        HealthAuthState.unknown,
+        deL10n.profileHealthSetupHint,
+        deL10n.profileHealthActionConnect,
+      ),
+      (
+        HealthAuthState.granted,
+        deL10n.profileHealthSyncedAt(deL10n.profileHealthTimeJustNow),
+        null,
+      ),
+    ]) {
+      await pumpLocalized(
+        tester,
+        HealthConnectionCard(
+          state: state,
+          lastFetch: clock.now(),
+          onConnect: () {},
+          onRefresh: () {},
+        ),
+        safeArea: false,
       );
-      expect(subtitle.data, contains('Keine Daten'));
-      expect(subtitle.data, contains('Einstellungen'));
-      expect(subtitle.data, contains('Health'));
-    });
 
-    testWidgets('granted zeigt weiterhin Refresh + Synchronisiert',
-        (tester) async {
-      await pumpCard(tester, HealthAuthState.granted);
-
+      final granted = state == HealthAuthState.granted;
       expect(find.byKey(const ValueKey('profile-health-refresh')),
-          findsOneWidget);
-      expect(find.textContaining('Synchronisiert'), findsOneWidget);
-      expect(find.byKey(const ValueKey('profile-health-connect')), findsNothing);
-    });
-
-    testWidgets('denied bleibt eigenstaendig sichtbar (jetzt erreichbar)',
-        (tester) async {
-      await pumpCard(tester, HealthAuthState.denied);
-
+          granted ? findsOneWidget : findsNothing,
+          reason: '$state');
       expect(find.byKey(const ValueKey('profile-health-connect')),
-          findsOneWidget);
-      expect(find.textContaining('entzogen'), findsOneWidget);
-    });
-
-    testWidgets('unknown zeigt weiterhin "Verbinden"', (tester) async {
-      await pumpCard(tester, HealthAuthState.unknown);
-
-      expect(find.text('Verbinden'), findsOneWidget);
-    });
+          granted ? findsNothing : findsOneWidget,
+          reason: '$state');
+      if (action != null) {
+        expect(find.text(action), findsOneWidget, reason: '$state');
+      }
+      expect(find.text(hint), findsOneWidget, reason: '$state');
+    }
   });
 }

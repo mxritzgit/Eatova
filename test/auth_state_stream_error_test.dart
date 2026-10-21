@@ -81,37 +81,31 @@ void main() {
     await auth.close();
   });
 
-  test('ein Refresh-Fehler im Auth-Stream ist KEIN unbehandelter Zone-Fehler',
+  test('ein Refresh-Fehler eskaliert nicht, danach schliesst nur signedIn',
       () async {
     // An unhandled stream error would fail this test through the zone.
     auth.addError(
         AuthRetryableFetchException(message: 'offline'), StackTrace.current);
+    for (final event in [
+      AuthChangeEvent.initialSession,
+      AuthChangeEvent.tokenRefreshed,
+      AuthChangeEvent.signedOut,
+      AuthChangeEvent.userUpdated,
+    ]) {
+      auth.add(AuthState(event, null));
+    }
     await pumpEventQueue();
-    expect(geschlossen, isEmpty);
-  });
+    expect(geschlossen, isEmpty, reason: 'nur signedIn schliesst das Sheet');
 
-  test('nach dem Fehler reagiert der Listener weiterhin auf signedIn',
-      () async {
-    auth.addError(
-        AuthRetryableFetchException(message: 'offline'), StackTrace.current);
-    auth.add(const AuthState(AuthChangeEvent.tokenRefreshed, null));
     auth.add(const AuthState(AuthChangeEvent.signedIn, null));
     await pumpEventQueue();
     expect(geschlossen, hasLength(1),
-        reason: 'nur signedIn schliesst das Sheet, tokenRefreshed nicht');
-  });
-
-  test('andere Ereignisse schliessen das Sheet nicht', () async {
-    auth.add(const AuthState(AuthChangeEvent.initialSession, null));
-    auth.add(const AuthState(AuthChangeEvent.signedOut, null));
-    auth.add(const AuthState(AuthChangeEvent.userUpdated, null));
-    await pumpEventQueue();
-    expect(geschlossen, isEmpty);
+        reason: 'der Listener lebt nach dem Fehler weiter');
   });
 
   // ...und dieselbe Regel fuer den ganzen Baum.
   //
-  // The three tests above pin ONE listener, and the AuthGate has its own
+  // The test above pins ONE listener, and the AuthGate has its own
   // (test/gate_sync_auth_gate_test.dart, Fund 2). Both were written after the
   // Sentry event that taught them — a listener added tomorrow gets no such
   // lesson, and two of the existing ones (the AuthGate's re-subscription in

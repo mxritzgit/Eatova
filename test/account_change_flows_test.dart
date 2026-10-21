@@ -413,6 +413,9 @@ void main() {
       expect(find.byKey(const ValueKey('email-change-sheet')), findsNothing);
       expect(find.text('E-Mail-Adresse geändert.'), findsOneWidget);
       await raeumeToastAb(tester);
+
+      // The page listens to `authStateChanges`, not a route rebuild.
+      expect(find.text('neu@eatova.de'), findsOneWidget);
     });
 
     testWidgets('ein einzelner Code schliesst den Vorgang NICHT ab',
@@ -511,20 +514,6 @@ void main() {
       ], reason: 'der erste Code darf NICHT erneut eingereicht werden');
       expect(find.text('E-Mail-Adresse geändert.'), findsOneWidget);
       await raeumeToastAb(tester);
-    });
-
-    testWidgets('die Einstellungen zeigen danach die neue Adresse',
-        (tester) async {
-      final repo = baueRepo();
-      await oeffneMailSchritt2(tester, repo);
-
-      await schreibe(tester, 'email-change-code-old', '11111111');
-      await schreibe(tester, 'email-change-code-new', '22222222');
-      await tippe(tester, find.text('Adresse jetzt ändern'));
-      await raeumeToastAb(tester);
-
-      // The page listens to `authStateChanges`, not a route rebuild.
-      expect(find.text('neu@eatova.de'), findsOneWidget);
     });
   });
 
