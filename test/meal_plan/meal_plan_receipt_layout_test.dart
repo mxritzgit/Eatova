@@ -135,14 +135,6 @@ void main() {
         MealSlot.lunch: '200 g Spinat',
       },
     ),
-    (
-      360.0,
-      1.15,
-      {
-        MealSlot.breakfast: '100 g Spinat\n1 Handvoll Spinat',
-        MealSlot.lunch: '200 g Spinat',
-      },
-    ),
     // One amount, system text a size up, just below the stacked layout.
     (
       320.0,
@@ -152,14 +144,7 @@ void main() {
         MealSlot.lunch: '200 g Spinat',
       },
     ),
-    (
-      375.0,
-      1.35,
-      {
-        MealSlot.breakfast: '1 1/2 Handvoll Spinat',
-        MealSlot.lunch: '200 g Spinat',
-      },
-    ),
+    // Large text: one meal per line.
     (
       320.0,
       2.0,

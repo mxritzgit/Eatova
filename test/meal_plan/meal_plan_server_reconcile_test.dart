@@ -1,3 +1,7 @@
+// The server's meal plan meets local state: a plan saved while the first
+// load is still on its way survives it, and the server's conversion receipt
+// replaces a locally logged date.
+
 import '../support/recipe_read_fake.dart';
 import '../support/sync_session_fixture.dart';
 import 'dart:async';
@@ -11,7 +15,6 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
-import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
@@ -99,44 +102,6 @@ void main() {
         expect(store.plannedMeals.map((p) => p.id).toSet(), {old.id, fresh.id});
         expect(loads, 2);
       });
-    },
-  );
-  test(
-    'eaten checked quantities must not check a new meal with the same amount',
-    () {
-      final recipe = recipeCatalogDe.first.copyWith(
-        ingredients: '',
-        structuredIngredients: [
-          RecipeIngredient(
-            name: 'Oats',
-            grams: 100,
-            source: IngredientSource.manual,
-            per100g: const RecipeNutrition(
-              caloriesKcal: 100,
-              proteinG: 10,
-              carbsG: 15,
-              fatG: 2,
-            ),
-          ),
-        ],
-      );
-      final old = PlannedMeal.create(
-        recipe: recipe,
-        day: now,
-        slot: MealSlot.lunch,
-      );
-      final fresh = PlannedMeal.create(
-        recipe: recipe,
-        day: now,
-        slot: MealSlot.dinner,
-      );
-      final week = DateTime(2026, 9, 7);
-      final checkedId = buildShoppingList([old], week).single.id;
-      final freshId = buildShoppingList([
-        old.copyWith(eatenAt: now),
-        fresh,
-      ], week).single.id;
-      expect(freshId, isNot(checkedId));
     },
   );
   test(

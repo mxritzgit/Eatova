@@ -468,9 +468,13 @@ void main() {
         decimalSeparator: ',',
         l10n: deL10n,
       );
-      // No recipe headings: one row per ingredient, the chicken of three
-      // meals (the bowl's in English) summed, with its days below.
-      expect(find.text('FÜR DEN PIZZABODEN:'), findsNothing);
+      // No recipe headings or section labels: one row per ingredient, the
+      // chicken of three meals (the bowl's in English) summed, with its days
+      // below.
+      expect(
+        find.textContaining(RegExp('pizzaboden', caseSensitive: false)),
+        findsNothing,
+      );
       final chicken = receipt.rows.singleWhere(
         (r) => r.label == 'Hähnchenbrustfilet',
       );

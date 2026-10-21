@@ -1,9 +1,8 @@
 // The planner redesign of 2026-10-04: the week strip jumps to a day, an
 // empty day is one "Plan a meal" row, a meal row names its kcal and turns
-// its eaten toggle into the eaten state, free-text ingredients lose their
-// list markers, and the empty shopping list plans a meal for the shown week.
-// Since the receipt (2026-10-10) every free-text line is checked on its own;
-// since the weekly receipt (2026-10-11) salt sits in "Spices & pantry".
+// its eaten toggle into the eaten state, and the empty shopping list plans a
+// meal for the shown week. The receipt's rows, checks and pantry are pinned
+// in meal_plan_weekly_receipt_test.dart.
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart';
@@ -11,7 +10,6 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
-import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/models/shopping_receipt.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
@@ -301,82 +299,6 @@ void main() {
       await tester.tap(eaten);
       await tester.pumpAndSettle();
       expect(store.loggedMeals, hasLength(1));
-      expect(tester.takeException(), isNull);
-    });
-  });
-
-  testWidgets('free-text ingredients are listed without list markers and '
-      'each line is checked on its own', (tester) async {
-    await withClock(Clock.fixed(_today), () async {
-      final store = _store();
-      final recipe = recipeCatalogEn.first.copyWith(
-        title: 'Beef bowl',
-        ingredients: '- 200 g beef\n• 1 onion\n\n* Salt',
-        structuredIngredients: const [],
-      );
-      await store.savePlannedMeal(
-        PlannedMeal.create(recipe: recipe, day: _today, slot: MealSlot.dinner),
-      );
-      final item = buildShoppingList(store.plannedMeals, _today).single;
-      final [beef, onion, salt] = item.lines;
-      await _pump(tester, store);
-      await _tap(tester, _key('meal-plan-tab-shopping'));
-
-      for (final text in ['Beef', '200 g', 'Onion', '1']) {
-        expect(find.text(text), findsOneWidget, reason: text);
-      }
-      // Salt waits, collapsed, in the pantry section.
-      expect(
-        tester
-            .widget<Text>(_key('shopping-pantry-summary'))
-            .textSpan!
-            .toPlainText(),
-        'Salt',
-      );
-      expect(find.textContaining('- 200'), findsNothing);
-      expect(find.textContaining('•'), findsNothing);
-      // The receipt's header: ISO week of Monday Sep 7, 2026.
-      expect(find.text('Week 37 · 1 meal'), findsOneWidget);
-
-      // One tap checks one ingredient, nothing else; a single line keeps
-      // its id from the per-recipe receipt.
-      await _tap(tester, _key('shopping-pantry-toggle'));
-      final saltRow = _key('shopping-item-${salt.id}');
-      await _tap(tester, saltRow);
-      expect(store.shoppingChecks, {salt.id: true});
-      expect(
-        tester.getSemantics(saltRow),
-        isSemantics(hasCheckedState: true, isChecked: true, label: 'Salt'),
-      );
-      expect(
-        tester.getSemantics(_key('shopping-item-${beef.id}')),
-        isSemantics(
-          hasCheckedState: true,
-          isChecked: false,
-          label: 'Beef\n200 g',
-        ),
-      );
-      // The pantry stays out of the progress.
-      expect(find.text('1 of 1 checked off'), findsOneWidget);
-      expect(_key('shopping-receipt-stamp'), findsNothing);
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
-      await tester.pumpAndSettle();
-      expect(find.text('0 of 2 checked off'), findsOneWidget);
-
-      await _tap(tester, _key('shopping-item-${beef.id}'));
-      await _tap(tester, _key('shopping-item-${onion.id}'));
-      expect(_key('shopping-receipt-stamp'), findsOneWidget);
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
-      await tester.pumpAndSettle();
-      expect(find.text('All shopping done'), findsOneWidget);
-
-      // Unchecking one line reopens the list.
-      await _tap(tester, _key('shopping-item-${onion.id}'));
-      expect(store.shoppingChecks[onion.id], isFalse);
-      expect(store.shoppingChecks[beef.id], isTrue);
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
-      await tester.pumpAndSettle();
-      expect(find.text('1 of 2 checked off'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

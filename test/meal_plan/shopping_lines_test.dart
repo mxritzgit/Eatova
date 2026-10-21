@@ -1,13 +1,15 @@
-// The shopping receipt (2026-10-10): a recipe's free-text ingredients become
-// lines with their own check. Ids stay locale-neutral and survive edits to
-// other lines; amounts are only split off for display; section labels are
-// never checked; a recipe checked as a whole before keeps its lines checked.
+// A recipe's free-text ingredients become lines with their own check id, the
+// parts the weekly receipt is built from. Ids stay locale-neutral and survive
+// edits to other lines; amounts are only split off for display; section
+// labels never reach the receipt. Earlier checks of a whole recipe are
+// honoured by the receipt (shopping_receipt_test.dart).
 
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/recipe_import_result.dart';
 import 'package:eatova/src/models/shopping_list.dart';
+import 'package:eatova/src/models/shopping_receipt.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _day = DateTime(2026, 10, 5);
@@ -132,61 +134,20 @@ void main() {
     }
   });
 
-  test('section labels are shown but never checked', () {
-    final item = buildShoppingList([
-      _plan('Für den Pizzaboden:\n200 g Frischkäse\nBelag:\n20 g Mais\n'
-          'Zutaten: 1 Ei'),
-    ], _day).single;
+  test('section labels are no ingredients: the receipt leaves them out', () {
+    final plan = _plan(
+      'Für den Pizzaboden:\n200 g Frischkäse\nBelag:\n20 g Mais\n'
+      'Zutaten: 1 Ei',
+    );
+    final item = buildShoppingList([plan], _day).single;
     expect(item.lines.map((l) => l.heading), [true, false, true, false, false]);
-    expect(item.lines.first.label, 'Für den Pizzaboden:');
-    expect(shoppingProgress([item], const {}), (done: 0, total: 3));
-  });
-
-  test('progress counts weighed items and lines; a recipe checked as a whole '
-      'keeps its lines checked until one is changed', () {
-    final mixed = PlannedMeal.create(
-      recipe: _recipe('Topping:\n1 lemon\nSalt').copyWith(
-        structuredIngredients: [
-          RecipeIngredient(
-            name: 'Oats',
-            grams: 100,
-            source: IngredientSource.manual,
-            per100g: const RecipeNutrition(
-              caloriesKcal: 370,
-              proteinG: 13,
-              carbsG: 60,
-              fatG: 7,
-            ),
-          ),
-        ],
-      ),
-      day: _day,
-      slot: MealSlot.breakfast,
-    );
-    final items = buildShoppingList([mixed], _day);
-    final weighed = items.singleWhere((i) => i.grams != null);
-    final text = items.singleWhere((i) => i.grams == null);
-    final [_, lemon, salt] = text.lines;
-    expect(shoppingProgress(items, const {}), (done: 0, total: 3));
+    final receipt = buildShoppingReceipt([plan], _day);
     expect(
-      shoppingProgress(items, {weighed.id: true, salt.id: true}),
-      (done: 2, total: 3),
+      [...receipt.rows, ...receipt.pantry].map((r) => r.id),
+      unorderedEquals([
+        for (final line in item.lines)
+          if (!line.heading) line.id,
+      ]),
     );
-
-    // Checked as a whole by an earlier version: every line follows.
-    final legacy = {text.id: true};
-    expect(shoppingLineChecked(legacy, text, lemon), isTrue);
-    expect(shoppingProgress(items, legacy), (done: 2, total: 3));
-    // A line's own check wins.
-    final reopened = {...legacy, lemon.id: false};
-    expect(shoppingLineChecked(reopened, text, lemon), isFalse);
-    expect(shoppingLineChecked(reopened, text, salt), isTrue);
-    expect(shoppingProgress(items, reopened), (done: 1, total: 3));
-  });
-
-  test('a recipe without ingredient text offers nothing to check', () {
-    final item = buildShoppingList([_plan('')], _day).single;
-    expect(item.lines, isEmpty);
-    expect(shoppingProgress([item], const {}), (done: 0, total: 0));
   });
 }

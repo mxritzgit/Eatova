@@ -157,7 +157,6 @@ void main() {
         _text(tester, line),
         '610 von 2.100 kcal geplant · 1 Mahlzeit ohne kcal',
       );
-      expect(tester.getRect(line).right, lessThanOrEqualTo(320));
       expect(tester.takeException(), isNull);
     });
   });

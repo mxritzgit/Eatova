@@ -5,7 +5,6 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
-import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -48,9 +47,6 @@ class _FailingRemoval extends HomeStore {
   Future<SyncDelivery> removePlannedMeal(PlannedMeal plan) async =>
       throw error;
 }
-
-/// A shopping row announces its checked state like a checkbox.
-final _checked = isSemantics(hasCheckedState: true, isChecked: true);
 
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
@@ -96,63 +92,6 @@ void main() {
         );
         expect(title.hitTestable(), findsOneWidget);
         expect(store.plannedMeals, isEmpty);
-        expect(tester.takeException(), isNull);
-      });
-    },
-  );
-
-  testWidgets(
-    'shopping progress follows checks and keeps them when changing weeks',
-    (tester) async {
-      await withClock(Clock.fixed(_today), () async {
-        final store = _store();
-        final recipe = recipeCatalogEn.first.copyWith(
-          ingredients: '',
-          structuredIngredients: [
-            RecipeIngredient(
-              name: 'Rice',
-              grams: 150,
-              source: IngredientSource.manual,
-              per100g: const RecipeNutrition(
-                caloriesKcal: 350,
-                proteinG: 8,
-                carbsG: 75,
-                fatG: 1,
-              ),
-            ),
-          ],
-        );
-        await store.savePlannedMeal(
-          PlannedMeal.create(recipe: recipe, day: _today, slot: MealSlot.lunch),
-        );
-        final item = buildShoppingList(store.plannedMeals, _today).single;
-        await pumpLocalized(
-          tester,
-          MealPlanScreen(store: store),
-          locale: const Locale('en'),
-          surfaceSize: const Size(393, 852),
-          settle: true,
-        );
-        await _tap(
-          tester,
-          find.byKey(const ValueKey('meal-plan-tab-shopping')),
-        );
-        final row = find.byKey(ValueKey('shopping-item-${item.id}'));
-        await _tap(tester, row);
-        expect(store.shoppingChecks[item.id], isTrue);
-        expect(tester.getSemantics(row), _checked);
-        expect(find.text('All shopping done'), findsOneWidget);
-        await _tap(tester, find.byKey(const ValueKey('meal-plan-next-week')));
-        expect(row, findsNothing);
-        await _tap(
-          tester,
-          find.byKey(const ValueKey('meal-plan-previous-week')),
-        );
-        expect(tester.getSemantics(row), _checked);
-        await _tap(tester, row);
-        expect(store.shoppingChecks[item.id], isFalse);
-        expect(find.text('All shopping done'), findsNothing);
-        expect(store.loggedMeals, isEmpty);
         expect(tester.takeException(), isNull);
       });
     },
