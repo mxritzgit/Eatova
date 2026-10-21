@@ -17,8 +17,45 @@ final now = DateTime(2026, 9, 20, 12);
 LoggedMeal oldMeal() =>
     LoggedMeal(id: 'old-meal', result: mealResult('Old bowl'), loggedAt: now);
 
+/// While [failing], every read throws an error the cache does not classify.
+class _FlakyReadStore extends InMemoryKeyValueStore {
+  bool failing = false;
+
+  @override
+  Future<String?> getString(String key) async {
+    if (failing) throw StateError('read failure: $key');
+    return super.getString(key);
+  }
+
+  @override
+  Future<KeyValueSnapshot> readSnapshot(Iterable<String> keys) async {
+    if (failing) throw StateError('read failure');
+    return super.readSnapshot(keys);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  // Such a failure aborts the whole hydration. Once reads work again, the next
+  // save must rebuild the queue from storage, not write the empty one over it.
+  test('after a failed hydration a save keeps the stored intents', () async {
+    await withClock(Clock.fixed(now), () async {
+      final storage = _FlakyReadStore();
+      final cache = LocalCache(storage, uid);
+      await cache.writeOutbox([SyncOp.mealInsert(oldMeal(), trackDay: false)]);
+      storage.failing = true;
+      final s = setup(injizierterCache: cache)..server.offline = true;
+      await boot(s.store);
+      storage.failing = false;
+
+      final id = await s.store.addResultToDailyTotal(mealResult('New bowl'));
+
+      expect(
+        (await cache.readOutbox())!.map((op) => op.entityId),
+        containsAll(['old-meal', id]),
+      );
+    });
+  });
   test(
     'unreadable outbox rejects saves atomically, then recovers meals and totals',
     () async {

@@ -1705,13 +1705,6 @@ DateFormat trendDayMonthFormat(String localeName) {
   return _dayMonthFormats[localeName] ??= DateFormat.Md(localeName);
 }
 
-/// Empties both format caches so a test can observe a cold build.
-@visibleForTesting
-void debugClearTrendDateFormats() {
-  _weekdayFormats.clear();
-  _dayMonthFormats.clear();
-}
-
 /// Everything text-shaped in the trend chart, laid out ONCE.
 ///
 /// Tick labels and the weekday row depend on the data,

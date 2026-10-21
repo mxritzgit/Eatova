@@ -225,6 +225,39 @@ void main() {
     });
 
     testWidgets(
+        'ein Netz- oder Serverfehler beim Neu-Anfordern sperrt das Senden '
+        'nicht', (tester) async {
+      // No mail went out, so a cooldown would only punish the user for the
+      // outage: the next tap has to reach the server again.
+      final faelle = <({String name, Object fehler, String? meldung})>[
+        (
+          name: 'Funkloch',
+          fehler: const SocketException('Failed host lookup: ci.invalid'),
+          meldung: deL10n.authCodeOfflineError,
+        ),
+        (name: 'GoTrue-5xx', fehler: _serverfehler500(), meldung: null),
+      ];
+
+      for (final fall in faelle) {
+        final repo = _WerfendesAuthRepository(fall.fehler);
+        await withClock(Clock.fixed(_jetzt), () async {
+          await _pumpCode(tester, repo, InMemoryKeyValueStore());
+          await _tippeNeuAnfordern(tester);
+          final versuche = repo.sendeVersuche;
+          await _tippeNeuAnfordern(tester);
+
+          expect(repo.sendeVersuche, versuche + 1, reason: fall.name);
+          if (fall.meldung != null) {
+            expect(find.text(fall.meldung!), findsOneWidget, reason: fall.name);
+          }
+          expect(find.text(deL10n.authErrorGeneric), findsNothing,
+              reason: fall.name);
+          await _entsorgeScreen(tester);
+        });
+      }
+    });
+
+    testWidgets(
         'eine tote Auth-Schicht sagt dasselbe wie der Login-Screen: neu '
         'starten', (tester) async {
       // auth_screen.dart:197 answers AuthUnavailableException with

@@ -94,13 +94,17 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  // One palette and the longest language at both sizes: the behaviour below
-  // does not depend on either, English and the light palette are rendered by
-  // test/design/meal_sheets_capture_test.dart,
+  // One palette: the behaviour below does not depend on it; the light palette
+  // is rendered by test/design/meal_sheets_capture_test.dart,
   // test/design/misc_sheets_capture_test.dart and food_sheets_light_dark_test.
+  // Both languages at 2x: the English info labels are the longest and stack
+  // above their values there.
   const brightness = Brightness.dark;
-  const locale = Locale('de');
-  for (final scale in [1.0, 2.0]) {
+  for (final (locale, scale) in const [
+    (Locale('de'), 1.0),
+    (Locale('de'), 2.0),
+    (Locale('en'), 2.0),
+  ]) {
     final name = '${brightness.name}-${locale.languageCode}-$scale';
     testWidgets(
       'analysis real fonts, photo, actions and large text: $name',
@@ -173,6 +177,12 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('analyse-info-button')));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        // Labels too wide to sit beside their values move above them.
+        final rows = find.descendant(
+          of: find.byKey(const ValueKey('analyse-info-lines')),
+          matching: find.byType(Row),
+        );
+        expect(rows, locale.languageCode == 'en' ? findsNothing : findsWidgets);
       },
     );
 
