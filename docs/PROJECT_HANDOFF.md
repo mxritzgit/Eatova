@@ -4091,3 +4091,31 @@ unnecessary or outdated ones, keep what really finds failures, and stop adding
   edit), `bootUntilIdle`, fakes ignoring `select`, a shared Goals route
   helper, the `trendBurnedKcalFor` fallback, fresh shard timing hints (no
   generator script yet).
+
+## Camera panel and what makes the app good, 2026-10-21/22
+
+- **Camera ([PR #163](https://github.com/mxritzgit/Eatova/pull/163),
+  [#165](https://github.com/mxritzgit/Eatova/pull/165)):** the add sheet's
+  "Foto aufnehmen" now opens the in-app camera panel instead of the
+  full-screen system camera; the panel got an "AI scan" header, a hint pill,
+  corner marks and a torch. Needs an app build to check on a device.
+- **Review:** the owner asked for a two-agent review of what the app still
+  needs to be really good. See
+  [IMPROVEMENT-REVIEW-2026-10-22.md](IMPROVEMENT-REVIEW-2026-10-22.md), based
+  on `ecd189b5`. Two read-only agents covered product and users (journeys,
+  competitors) and depth and quality (dead ends, contradicting numbers,
+  platform parity); the main session re-read the load-bearing evidence.
+- **Strongest new findings:**
+  - A pinned favorite without a barcode is overwritten by any food logged
+    under the same name.
+  - A blocked notification permission is a dead end: no button, and Goals
+    never receives `onOpenSystemSettings`. Reminders also open no target.
+  - HealthKit is connected per device, not per account.
+  - Training's "x of y" uses the number of workouts in the plan.
+  - Nothing reminds users to weigh in, although the weekly check needs four
+    weigh-ins.
+  - The Coach cannot hand food to Describe, and `/log` means workouts only.
+  - Meal-plan rows open nothing.
+  - Past days are measured against today's goal.
+- **Status:** a recommendation, not an approved roadmap; only documentation
+  changed.
