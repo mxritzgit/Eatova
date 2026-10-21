@@ -92,7 +92,11 @@ class TrendsScreen extends StatefulWidget {
     this.local,
     this.onBackfillSteps,
     this.onAskCoachAboutWeight,
+    this.initialRangeDays = 30,
   });
+
+  /// The range the page opens on: Today's 7-day card opens 7 days.
+  final int initialRangeDays;
 
   /// Daily target in kcal, passed through from the profile.
   final int kcalGoal;
@@ -130,7 +134,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
     for (final range in TrendRange.values) range.days,
   ];
 
-  int _rangeDays = TrendRange.month.days;
+  late int _rangeDays = TrendRange.ofDays(widget.initialRangeDays).days;
   bool _loading = true;
   Object? _error;
   List<TrendDayTotals> _totals = const [];

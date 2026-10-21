@@ -1012,7 +1012,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               )
             : null,
         trendsPreview: today ? _todayTrendsPreview() : null,
-        onOpenTrends: _openTrends,
+        // The card shows seven days, so the page opens on them.
+        onOpenTrends: () => _openTrends(rangeDays: TrendRange.week.days),
         isCompleteDay: _store.isCompleteFoodDay,
         onFillYesterday: today && _store.yesterdayRescuesStreak
             ? _fillYesterday
@@ -1047,12 +1048,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// The trends page over the current store: the server window plus the
   /// store's days, steps, weigh-ins and workouts, rebuilt on every store
   /// change while open. Reached from Today's card and the Food tab's day
-  /// card.
-  void _openTrends() {
+  /// card; [rangeDays] is the range it opens on.
+  void _openTrends({int rangeDays = 30}) {
     final ownerStore = _store;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => TrendsScreen(
+          initialRangeDays: rangeDays,
           kcalGoal: ownerStore.profile.dailyKcalGoal,
           loadTotals: widget.trendTotalsLoader ?? loadSignedInTrendTotals,
           // "Goal hit" against goal plus step bonus, like Today (F7-05).
