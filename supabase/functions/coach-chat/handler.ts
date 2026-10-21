@@ -590,9 +590,12 @@ const SHINGLE_WORDS = 7;
 /// restates exactly those words ("calories, macros, portion sizes, meal
 /// timing, hydration"). CRISIS RULE orders the "German helpline number 0800
 /// 111 0 111": an English crisis reply that copies that wording must never
-/// become the leak refusal (COACH-1). None of them says anything the app does
-/// not advertise, and a full dump still trips on every other section.
-const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "VISUAL INPUT RULES", "CRISIS RULE"];
+/// become the leak refusal (COACH-1). USING APP DATA names what the context
+/// holds and how the app reads it, the facts the Coach info sheet shows: an
+/// English answer that explains "your daily goal comes from the app's calorie
+/// model" copies its runs. None of them says anything the app does not
+/// advertise, and a full dump still trips on every other section.
+const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "USING APP DATA", "VISUAL INPUT RULES", "CRISIS RULE"];
 
 /// Single lines a legitimate refusal restates as its reason: an English
 /// off-topic refusal says it has "nothing to do with fitness, nutrition, or

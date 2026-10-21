@@ -1,9 +1,12 @@
-// The answer prompt's rules for the seven-day block (C2, 2026-10-18).
+// The answer prompt's rules for the app data (C2, 2026-10-18).
 //
-// The new USING APP DATA lines join the prompt-leak table like every other
-// non-exempt line: a recital trips the net, while ordinary answers about the
-// week must not. One shared seven-word run would turn a good answer into the
-// leak refusal, so the matrix uses the words such answers actually reach for.
+// USING APP DATA tells the model what the app context holds and how the app
+// reads it: the same facts the Coach info sheet shows every user. An English
+// answer that explains them ("your daily goal comes from the app's calorie
+// model") copies seven-word runs of those lines, so the section is exempt from
+// the prompt-leak table like YOUR SCOPE; until 2026-10-22 such answers became
+// the leak refusal and still cost the daily slot. A recital of the prompt
+// still trips on the persona, language, refusal and style lines.
 //
 // `deno test --allow-env`; no network.
 
@@ -13,20 +16,7 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-Deno.test("C2: die Wochenregeln stehen im Prompt und sind gegen Rezitieren geschuetzt", () => {
-  for (
-    const recital of [
-      "Reading the 7-day block: it covers the seven days before today.",
-      "Unlogged days are missing data, never zero intake; days under 50 % of the goal are probably incomplete.",
-      "Its weight trend is a 21-day slope in kg per week with a noise band.",
-      "Do not compute your own maintenance or target: the daily goal comes from the app's calorie model.",
-    ]
-  ) {
-    assert(PROMPT_LEAK_GUARD.leaks(recital), `keine Leck-Erkennung fuer: ${recital}`);
-  }
-});
-
-Deno.test("C2: normale Antworten zur Woche loesen das Leck-Netz nicht aus", () => {
+Deno.test("C2: Antworten, die die App-Daten erklaeren, loesen das Leck-Netz nicht aus", () => {
   for (
     const answer of [
       "In den letzten 7 Tagen hast du 3 von 7 Tagen erfasst, an einem davon nur ein Fruehstueck. " +
@@ -42,6 +32,15 @@ Deno.test("C2: normale Antworten zur Woche loesen das Leck-Netz nicht aus", () =
       "suggest a new goal if your intake and weight trend call for it.",
       "Your weight is stable within the noise right now. With only 2 weigh-ins in 21 days there is no " +
       "reliable rate yet, so weigh yourself a few mornings a week before we change anything.",
+      // Each of these tripped the net before the exemption.
+      "Your daily goal comes from the app's calorie model, so I won't calculate a new one.",
+      "I can see your profile, today's targets, what is still open, a summary of the last 7 days " +
+      "and the foods you logged today.",
+      "Two of those days are under 50 % of the goal, so they are probably incomplete and stay out " +
+      "of the averages.",
+      "Your weight trend is a 21-day slope of about -0.3 kg per week; a rate within the band counts " +
+      "as stable.",
+      "The weekly check compares intake with the weight trend and proposes any adjustment in the app.",
     ]
   ) {
     assert(!PROMPT_LEAK_GUARD.leaks(answer), `falscher Leck-Treffer: ${answer}`);
