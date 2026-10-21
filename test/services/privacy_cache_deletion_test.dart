@@ -13,6 +13,7 @@ const _personalSlots = [
   'reminder_time',
   'reminder_prompt',
   'weekly_result_seen',
+  'weigh_in_reminder',
   'ai_consent',
   'coach_quota',
   'health_connect_enabled',

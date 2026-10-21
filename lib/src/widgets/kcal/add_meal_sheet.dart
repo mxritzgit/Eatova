@@ -128,6 +128,7 @@ Future<void> showAddMealSheet(
   BuildContext context, {
   required MealSlot slot,
   bool searchMode = false,
+  bool describeFirst = false,
   required MealAnalyzer analyzer,
   required ProductLookupService productService,
   required MealPhotoInput photoInput,
@@ -171,6 +172,7 @@ Future<void> showAddMealSheet(
         return AddMealSheet(
           slot: slot,
           searchMode: searchMode,
+          describeFirst: describeFirst,
           analyzer: analyzer,
           productService: productService,
           photoInput: photoInput,
@@ -277,6 +279,7 @@ class AddMealSheet extends StatefulWidget {
     super.key,
     required this.slot,
     this.searchMode = false,
+    this.describeFirst = false,
     required this.analyzer,
     required this.productService,
     required this.photoInput,
@@ -304,6 +307,10 @@ class AddMealSheet extends StatefulWidget {
 
   final MealSlot slot;
   final bool searchMode;
+
+  /// Opens "Describe" over the sheet right away (the app-icon shortcut),
+  /// through the same path as its button, AI consent included.
+  final bool describeFirst;
   final MealAnalyzer analyzer;
   final ProductLookupService productService;
   /// The gallery path; the camera goes through [cameraLauncher].
@@ -502,6 +509,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _selectedSlot = widget.slot;
     _existing = List<LoggedMeal>.of(widget.existingMeals);
     _favorites = List<FavoriteMeal>.of(widget.favorites);
+    if (widget.describeFirst) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_openDescribe());
+      });
+    }
   }
 
   /// Adopts the lists the opener re-feeds on every store notify (see

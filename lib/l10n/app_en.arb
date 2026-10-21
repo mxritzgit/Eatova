@@ -1679,7 +1679,7 @@
   },
 
   "notifChannelName": "Eatova reminders",
-  "notifChannelDescription": "Daily streak reminder in the evening.",
+  "notifChannelDescription": "Reminders to log meals and to weigh in.",
   "notifStreakSaveTitle": "Save your streak",
   "notifStreakSaveBody": "Your {streak}-day streak is waiting — one photo is enough.",
   "@notifStreakSaveBody": {
@@ -3792,5 +3792,17 @@
   "todayTargetReachedNewGoal": "New goal",
   "targetReachedHoldSnack": "Your goal is now: maintain weight.",
   "trendsOfflineNote": "Offline: calories and macros from the data on this device.",
-  "weeklyCheckResultSeen": "Got it"
+  "weeklyCheckResultSeen": "Got it",
+  "reminderOpenSettingsAction": "Settings",
+  "weighInReminderTitle": "Time to weigh in",
+  "weighInReminderMondayBody": "Monday is weekly check day. A weigh-in before breakfast makes it more accurate.",
+  "weighInReminderThursdayBody": "A midweek weigh-in keeps your trend accurate.",
+  "weighInReminderSettingsTitle": "Weigh-in reminder",
+  "weighInReminderTextOff": "Off. Reminds you to weigh in on Mondays and Thursdays at {time}.",
+  "weighInReminderTextActive": "Active. Mondays and Thursdays at {time}.",
+  "weighInReminderSemantics": "Turn on the weigh-in reminder",
+  "shortcutPhoto": "Photo",
+  "shortcutBarcode": "Barcode",
+  "shortcutDescribe": "Describe",
+  "shortcutWeighIn": "Log weight"
 }

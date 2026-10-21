@@ -13,11 +13,12 @@ import '../l10n/l10n.dart';
 import 'crash_reporter.dart';
 import 'rest_alerts.dart';
 
-/// Ids reserved for reminder nudges; the streak planner fills the whole
-/// range. [NotificationService.scheduleAll] and the reminder opt-out cancel
-/// exactly these, so alerts outside it (training rest alerts) survive.
+/// Ids reserved for reminder nudges: the streak planner fills the first 28
+/// (700..727), the weigh-in planner the next 8 (728..735).
+/// [NotificationService.scheduleAll] and the reminder opt-out cancel exactly
+/// these, so alerts outside it (training rest alerts) survive.
 const int reminderNudgeIdFirst = 700;
-const int reminderNudgeIdCount = 28;
+const int reminderNudgeIdCount = 36;
 
 /// A fully resolved, schedule-ready notification spec. Pure immutable value
 /// type passed straight to zonedSchedule; no Flutter or IO dependency.
@@ -27,6 +28,7 @@ class NotificationSpec {
     required this.title,
     required this.body,
     required this.scheduledFor,
+    this.payload,
   });
 
   /// Stable, deterministic platform id: same inputs -> same ids, so a repeat
@@ -38,16 +40,20 @@ class NotificationSpec {
   /// Wall-clock time (local zone) the nudge should fire at.
   final DateTime scheduledFor;
 
+  /// Where a tap leads (an `AppEntry` id); null only opens the app.
+  final String? payload;
+
   @override
   bool operator ==(Object other) =>
       other is NotificationSpec &&
       other.id == id &&
       other.title == title &&
       other.body == body &&
-      other.scheduledFor == scheduledFor;
+      other.scheduledFor == scheduledFor &&
+      other.payload == payload;
 
   @override
-  int get hashCode => Object.hash(id, title, body, scheduledFor);
+  int get hashCode => Object.hash(id, title, body, scheduledFor, payload);
 
   @override
   String toString() =>
@@ -613,6 +619,7 @@ class LocalNotificationService
           body: spec.body,
           scheduledDate: when,
           details: details,
+          payload: spec.payload,
         );
       }
       _scheduledNudges = specs;

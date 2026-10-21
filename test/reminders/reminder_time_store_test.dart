@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -14,9 +15,9 @@ import 'package:eatova/src/services/reminder_prompt.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // C4: the reminder time is chosen, persisted per account and device next to
-// the opt-in, and a change re-plans at once. Today's one-time card shows
-// after logs on two different days, only while reminders are off, and never
-// again after any answer.
+// the opt-in, and a change re-plans at once. Today's one-time card shows from
+// the evening of the first day with an entry (review 2026-10-22), only while
+// reminders are off, and never again after any answer.
 
 void _noopSnack(
   String message, {
@@ -196,6 +197,28 @@ void main() {
     );
 
     test(
+      'ein Sprachwechsel plant die Texte in der neuen Sprache neu',
+      () => _atNoon(() async {
+        final notifications = _Notifications();
+        final store = _store(
+          LocalCache(InMemoryKeyValueStore(), 'user-a'),
+          notifications,
+        );
+        await store.setNotificationsEnabled(true);
+        expect(notifications.scheduled.last.first.title, 'Serie starten');
+
+        store.setLocalizations(enL10n);
+        await pumpEventQueue();
+
+        expect(notifications.scheduled, hasLength(2));
+        expect(
+          notifications.scheduled.last.first.title,
+          enL10n.notifStreakStartTitle,
+        );
+      }),
+    );
+
+    test(
       'Plugin-Ausfall beim Neuplanen: kein Fehler, die Uhrzeit bleibt',
       () => _atNoon(() async {
         final cache = LocalCache(InMemoryKeyValueStore(), 'user-a');
@@ -244,7 +267,8 @@ void main() {
     );
 
     test(
-      'Abmelden loescht Uhrzeit und Kartenantwort, Konto B bleibt',
+      'Abmelden loescht Uhrzeit, Kartenantwort und Wiege-Erinnerung, Konto B '
+      'bleibt',
       () async {
         for (final atomic in [true, false]) {
           final storage = InMemoryKeyValueStore();
@@ -253,6 +277,7 @@ void main() {
             final cache = LocalCache(store, user);
             await cache.writeReminderTime(_halfTen);
             await cache.writeReminderPromptAnswered();
+            await cache.writeWeighInReminderEnabled(true);
           }
 
           await LocalCache(store, 'A').clear(preserveOutbox: true);
@@ -260,6 +285,7 @@ void main() {
           expect(storage.snapshot.keys.toSet(), <String>{
             'eatova.v1.reminder_time.B',
             'eatova.v1.reminder_prompt.B',
+            'eatova.v1.weigh_in_reminder.B',
           }, reason: atomic ? 'atomic purge' : 'per-key purge');
         }
       },
@@ -277,28 +303,25 @@ void main() {
     }
 
     test(
-      'erscheint erst nach Eintraegen an zwei verschiedenen Tagen',
-      () => _atNoon(() async {
-        final store = await booted(
-          LocalCache(InMemoryKeyValueStore(), 'user-a'),
-          _Notifications(),
-        );
-        expect(store.reminderPromptVisible, isFalse, reason: 'nothing logged');
+      'erscheint am Abend des ersten Eintragstags, mittags noch nicht',
+      () async {
+        var now = _noon;
+        await withClock(Clock(() => now), () async {
+          final store = await booted(
+            LocalCache(InMemoryKeyValueStore(), 'user-a'),
+            _Notifications(),
+          );
+          await store.addResultToDailyTotal(_meal);
+          expect(
+            store.reminderPromptVisible,
+            isFalse,
+            reason: 'day one is still running at noon',
+          );
 
-        await store.addResultToDailyTotal(_meal);
-        await store.addResultToDailyTotal(_meal);
-        expect(
-          store.reminderPromptVisible,
-          isFalse,
-          reason: 'two meals, one day',
-        );
-
-        await store.addResultToDailyTotal(
-          _meal,
-          foodDate: DateTime(2026, 7, 13),
-        );
-        expect(store.reminderPromptVisible, isTrue);
-      }),
+          now = DateTime(2026, 7, 15, 18);
+          expect(store.reminderPromptVisible, isTrue);
+        });
+      },
     );
 
     test(
@@ -422,48 +445,36 @@ void main() {
     );
   });
 
-  group('loggedOnTwoDays', () {
-    LoggedMeal meal(String id, DateTime at, {String? localDay}) =>
-        LoggedMeal(id: id, result: _meal, loggedAt: at, localDay: localDay);
-
-    test('ein Tag reicht nicht, zwei verschiedene schon', () {
-      final morning = meal('1', DateTime(2026, 7, 15, 8));
-      final evening = meal('2', DateTime(2026, 7, 15, 19));
-      expect(loggedOnTwoDays([morning, evening], LifetimeStats()), isFalse);
-      expect(
-        loggedOnTwoDays([
-          morning,
-          meal('3', DateTime(2026, 7, 14, 12)),
-        ], LifetimeStats()),
-        isTrue,
-      );
-    });
-
-    test('der gespeicherte Kalendertag zaehlt, nicht der Zeitstempel', () {
-      // Logged after midnight for the day before (DATA-6).
-      final late = meal(
-        '1',
-        DateTime(2026, 7, 15, 0, 30),
-        localDay: '2026-07-14',
-      );
-      final today = meal('2', DateTime(2026, 7, 15, 12));
-      expect(loggedOnTwoDays([late, today], LifetimeStats()), isTrue);
-    });
-
-    test('die Serie traegt Tage ausserhalb des geladenen Fensters', () {
-      expect(
-        loggedOnTwoDays(const [], LifetimeStats(longestStreak: 2)),
-        isTrue,
-      );
-      expect(
-        loggedOnTwoDays(const [], LifetimeStats(currentStreak: 2)),
-        isTrue,
-      );
-      expect(
-        loggedOnTwoDays(const [], LifetimeStats(currentStreak: 1)),
-        isFalse,
-      );
-    });
+  test('reminderOfferDue: ab dem Abend des ersten Eintragstags', () {
+    LoggedMeal meal(DateTime at, {String? localDay}) =>
+        LoggedMeal(id: '$at', result: _meal, loggedAt: at, localDay: localDay);
+    final breakfast = meal(DateTime(2026, 7, 15, 8));
+    final evening = DateTime(2026, 7, 15, reminderOfferEveningHour);
+    final beforeEvening = evening.subtract(const Duration(minutes: 1));
+    for (final (why, meals, stats, now, due)
+        in <(String, List<LoggedMeal>, LifetimeStats, DateTime, bool)>[
+          ('nothing logged', const [], LifetimeStats(), evening, false),
+          ('day one, before the evening', [breakfast], LifetimeStats(),
+              beforeEvening, false),
+          ('day one, evening', [breakfast], LifetimeStats(), evening, true),
+          ('an earlier day, morning', [meal(DateTime(2026, 7, 14, 12))],
+              LifetimeStats(), _noon, true),
+          // Logged after midnight for the day before (DATA-6).
+          ('the stored day counts, not the timestamp',
+              [meal(DateTime(2026, 7, 15, 0, 30), localDay: '2026-07-14')],
+              LifetimeStats(), _noon, true),
+          // Days beyond the loaded meal window.
+          ('streak history', const [], LifetimeStats(longestStreak: 2),
+              _noon, true),
+          ('last tracked yesterday', const [],
+              LifetimeStats(currentStreak: 1,
+                  lastTrackedDate: DateTime(2026, 7, 14)), _noon, true),
+          ('tracked today only, evening', const [],
+              LifetimeStats(currentStreak: 1,
+                  lastTrackedDate: DateTime(2026, 7, 15)), evening, true),
+        ]) {
+      expect(reminderOfferDue(meals, stats, now), due, reason: why);
+    }
   });
 }
 

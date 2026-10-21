@@ -353,6 +353,17 @@ class LocalCache {
   Future<DateTime?> readWeeklyResultSeen() async =>
       parseLocalDayKey((await _readJson(_weeklyResultSeenKey))?['day']);
 
+  // The weigh-in reminder's opt-in (review 2026-10-22). Same lifecycle as the
+  // evening reminder's: per account, true only while the OS delivered.
+  String get _weighInReminderKey => 'eatova.v1.weigh_in_reminder.$_userId';
+
+  Future<void> writeWeighInReminderEnabled(bool enabled) =>
+      _writeJson(_weighInReminderKey, <String, dynamic>{'enabled': enabled});
+
+  /// Missing or corrupt -> false: the reminder is opt-in.
+  Future<bool> readWeighInReminderEnabled() async =>
+      (await _readJson(_weighInReminderKey))?['enabled'] == true;
+
   // ---- AI consent (2026-10-19) ---------------------------------------------
   // The account's latest AI consent decision, cached so the AI entry points
   // need no round trip. The server log (`ai_consents`) is the record; this
@@ -1070,6 +1081,7 @@ class LocalCache {
       await _store.remove(_reminderTimeKey);
       await _store.remove(_reminderPromptKey);
       await _store.remove(_weeklyResultSeenKey);
+      await _store.remove(_weighInReminderKey);
       await _store.remove(_aiConsentKey);
       await _store.remove(_coachQuotaKey);
       await _store.remove(_healthConnectKey);

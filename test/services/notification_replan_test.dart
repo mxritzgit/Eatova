@@ -18,6 +18,7 @@ class _CountingGateway implements NotificationPluginGateway {
   bool failInit = false;
   final List<String> log = <String>[];
   final List<tz.TZDateTime> scheduledAt = <tz.TZDateTime>[];
+  final List<String?> payloads = <String?>[];
 
   int get calls => cancels + schedules + cancelAlls;
 
@@ -56,6 +57,7 @@ class _CountingGateway implements NotificationPluginGateway {
     schedules++;
     log.add('schedule');
     scheduledAt.add(scheduledDate);
+    payloads.add(payload);
   }
 
   @override
@@ -147,6 +149,25 @@ void main() {
         const ReminderTime(22, 45),
       ).map((spec) => spec.scheduledFor.millisecondsSinceEpoch),
     );
+  });
+
+  test('die Nutzlast jeder Erinnerung erreicht das Plugin, und eine neue '
+      'Nutzlast ist ein neuer Plan', () async {
+    List<NotificationSpec> plan(String payload) => [
+      for (final spec in _plan('a'))
+        NotificationSpec(
+          id: spec.id,
+          title: spec.title,
+          body: spec.body,
+          scheduledFor: spec.scheduledFor,
+          payload: payload,
+        ),
+    ];
+    await service.scheduleAll(plan('log-meal'));
+    expect(gateway.payloads, List.filled(3, 'log-meal'));
+
+    await service.scheduleAll(plan('weigh-in'));
+    expect(gateway.payloads.skip(3), List.filled(3, 'weigh-in'));
   });
 
   test('nach einem Abbestellen wird derselbe Plan neu gesetzt', () async {

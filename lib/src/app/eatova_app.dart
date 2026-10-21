@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/auth_repository.dart';
 import '../widgets/common/app_interactions.dart';
 import '../l10n/l10n.dart';
+import '../services/app_shortcuts.dart';
 import '../services/crash_reporter.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
@@ -49,6 +50,7 @@ class EatovaApp extends StatefulWidget {
     this.debugCacheBuilder,
     this.recipeImportService,
     this.recipeShareReceiver,
+    this.appShortcuts,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -69,6 +71,10 @@ class EatovaApp extends StatefulWidget {
   /// in production; null in tests/preview, where EatovaHomePage falls back to
   /// NoopNotificationService.
   final NotificationService? notificationService;
+
+  /// App-icon shortcuts. Real [PlatformAppShortcuts] in production; null in
+  /// tests/preview, where nothing is put on the icon.
+  final AppShortcuts? appShortcuts;
 
   /// Display mode (light/dark/system). `main` injects one that has already
   /// loaded the stored mode, so the first frame is painted in it; a test
@@ -222,6 +228,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
         // queue orders the gate's cancel against the next account's plans.
         notificationService: widget.notificationService,
         backgroundSyncScheduler: widget.backgroundSyncScheduler,
+        appShortcuts: widget.appShortcuts,
         builder: (context, user, freshLogin) => EatovaHomePage(
           debugCache: widget.debugCacheBuilder?.call(user.id),
           // A new login gets a fresh store even for the same account.
@@ -236,6 +243,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           healthService: widget.healthService,
           notificationService:
               widget.notificationService ?? const NoopNotificationService(),
+          appShortcuts: widget.appShortcuts ?? const NoopAppShortcuts(),
           // Localized fallback (no display name, no mail): the builder's
           // context sits below the MaterialApp, so the bundle is resolvable.
           initialUserName: user.firstNameFor(context.l10n),

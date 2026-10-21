@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/services/app_entry.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/streak_reminder_planner.dart';
 
@@ -92,6 +93,14 @@ void main() {
           reason: 'der Ausstieg darf nicht vor einem Monat greifen');
       expect(specs.length, lessThanOrEqualTo(64));
     });
+  });
+
+  test('ein Tipp auf jede Erinnerung oeffnet das Eintragen', () {
+    final specs = planStreakReminders(
+      wedMorning,
+      statsWithStreak(lastTracked: DateTime(2026, 7, 14)),
+    );
+    expect(specs.map((s) => s.payload).toSet(), {AppEntry.logMeal.id});
   });
 
   group('planStreakReminders — IDs', () {

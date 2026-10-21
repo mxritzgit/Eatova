@@ -56,6 +56,9 @@ dependencies:
   # that tz.getLocation cannot resolve. The lookup is wrapped in try/catch so
   # tests and unsupported platforms still fall back to UTC.
   flutter_timezone: ^5.1.0
+  # App-icon shortcuts (photo, barcode, describe, weigh-in; app_shortcuts.dart).
+  # Official flutter.dev plugin; no permission, no network.
+  quick_actions: ^1.1.1
   camera: ^0.12.0+2
   # Recompresses in-app camera photos (raw ~1080p/high JPEG quality) to a
   # 1600 px longest edge at JPEG q85 — consistent with the gallery path and

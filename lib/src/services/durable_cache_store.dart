@@ -25,6 +25,7 @@ const durableCacheSlotNames = {
   'sync_claim',
   'reminder_time',
   'reminder_prompt',
+  'weigh_in_reminder',
   'health_prompt',
   'health_weight_import',
   'ai_consent',

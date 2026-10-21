@@ -65,6 +65,7 @@ import '../services/training_history_sync.dart';
 import '../services/training_session_source.dart';
 import '../services/user_recipe_reads.dart';
 import '../services/uuid.dart';
+import '../services/weigh_in_reminder_planner.dart';
 import '../widgets/common/app_snack.dart';
 // P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
 // so it is the only place that can hand the sign-out intent back to the gate.

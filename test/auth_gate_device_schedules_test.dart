@@ -19,6 +19,7 @@ import 'package:eatova/main.dart' show EatovaApp;
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/services/app_shortcuts.dart';
 import 'package:eatova/src/services/background_sync_scheduler.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -94,6 +95,19 @@ class _RecordingScheduler implements BackgroundSyncScheduler {
   }
 }
 
+/// Records the app-icon shortcuts' show and clear calls in one ordered log.
+class _RecordingShortcuts extends NoopAppShortcuts {
+  _RecordingShortcuts(this.log);
+
+  final List<String> log;
+
+  @override
+  Future<void> show(List<AppShortcut> shortcuts) async => log.add('show');
+
+  @override
+  Future<void> clear() async => log.add('clear');
+}
+
 class _NoPhotos extends RecipeImageStore {
   @override
   Future<void> setActiveUser(String? userId, {String? sessionId}) async {}
@@ -107,6 +121,7 @@ Future<void> _pumpGate(
   _ScriptedAuthRepository repository,
   NotificationService notifications, {
   BackgroundSyncScheduler? scheduler,
+  AppShortcuts? shortcuts,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -118,12 +133,14 @@ Future<void> _pumpGate(
         authRepository: repository,
         notificationService: notifications,
         backgroundSyncScheduler: scheduler,
+        appShortcuts: shortcuts,
         debugPurgeCache: (_) async {},
         builder: (context, user, _) => _Home(
           key: ValueKey(user.id),
           user: user,
           notifications: notifications,
           scheduler: scheduler,
+          shortcuts: shortcuts,
         ),
       ),
     ),
@@ -131,19 +148,22 @@ Future<void> _pumpGate(
   await tester.pumpAndSettle();
 }
 
-/// Stands in for the home page: plans this account's reminder on mount and
-/// requests background sync, as the real page does with a pending outbox.
+/// Stands in for the home page: plans this account's reminder on mount,
+/// requests background sync, as the real page does with a pending outbox,
+/// and puts the app-icon shortcuts up.
 class _Home extends StatefulWidget {
   const _Home({
     super.key,
     required this.user,
     required this.notifications,
     this.scheduler,
+    this.shortcuts,
   });
 
   final EatovaUser user;
   final NotificationService notifications;
   final BackgroundSyncScheduler? scheduler;
+  final AppShortcuts? shortcuts;
 
   @override
   State<_Home> createState() => _HomeState();
@@ -155,6 +175,7 @@ class _HomeState extends State<_Home> {
     super.initState();
     unawaited(widget.notifications.scheduleAll(const []));
     unawaited(widget.scheduler?.request());
+    unawaited(widget.shortcuts?.show(const []));
   }
 
   @override
@@ -269,6 +290,32 @@ void main() {
     });
   });
 
+  // Review 2026-10-22: shortcuts only while someone is signed in.
+  testWidgets('App-Kurzbefehle: Kaltstart ohne Session und jedes '
+      'Session-Ende raeumen sie ab, vor denen des naechsten Kontos', (
+    tester,
+  ) async {
+    final log = <String>[];
+    final repository = _ScriptedAuthRepository(null);
+    addTearDown(repository.dispose);
+    await _pumpGate(
+      tester,
+      repository,
+      _RecordingNotifications([]),
+      shortcuts: _RecordingShortcuts(log),
+    );
+    expect(log, ['clear']);
+
+    repository.emit(_a);
+    await tester.pumpAndSettle();
+    repository.emit(_b);
+    await tester.pumpAndSettle();
+    repository.emit(null);
+    await tester.pumpAndSettle();
+
+    expect(log, ['clear', 'show', 'clear', 'show', 'clear']);
+  });
+
   group('Hintergrund-Sync (Aufraeumen nach dem Sign-Out)', () {
     testWidgets('Session-Ende storniert den OS-Job, ein Refresh nicht',
         (tester) async {
@@ -340,10 +387,12 @@ void main() {
     final repository = InMemoryAuthRepository();
     addTearDown(repository.dispose);
 
+    final shortcuts = <String>[];
     await tester.pumpWidget(EatovaApp(
       authRepository: repository,
       notificationService: _RecordingNotifications(log),
       backgroundSyncScheduler: scheduler,
+      appShortcuts: _RecordingShortcuts(shortcuts),
     ));
     await tester.pump();
 
@@ -352,5 +401,6 @@ void main() {
         reason: 'Ohne Durchreichen bleibt das Gate ohne Dienst und storniert '
             'in Produktion nichts.');
     expect(scheduler.log, ['cancel']);
+    expect(shortcuts, ['clear']);
   });
 }

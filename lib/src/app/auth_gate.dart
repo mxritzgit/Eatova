@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../auth/auth_repository.dart';
 import '../l10n/l10n.dart';
 import '../screens/auth_screen.dart';
+import '../services/app_shortcuts.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
@@ -146,10 +147,27 @@ Future<void> purgePersonalCache(
 /// The background-sync request goes too: its runner re-checks the persisted
 /// session, so a leftover only costs an empty OS wake-up. The next account's
 /// home page requests it again (pending outbox, app pause).
+///
+/// So do the app-icon shortcuts: a signed-out app offers none; the next
+/// account's home page puts them back once it is onboarded.
 Future<void> cancelDeviceSchedules({
   NotificationService? notifications,
   BackgroundSyncScheduler? backgroundSync,
+  AppShortcuts? appShortcuts,
 }) async {
+  // Queued before the first await, like the notification cancel below, so
+  // the next account's shortcuts always come after it.
+  final shortcutsCleared = appShortcuts == null
+      ? null
+      : Future<void>.sync(appShortcuts.clear).catchError(
+          (Object error, StackTrace stack) => unawaited(
+            CrashReporter.capture(
+              error,
+              stack,
+              context: 'auth-gate-shortcuts-clear',
+            ),
+          ),
+        );
   if (notifications != null) {
     try {
       await notifications.cancelAll();
@@ -166,6 +184,7 @@ Future<void> cancelDeviceSchedules({
           context: 'auth-gate-background-sync-cancel'));
     }
   }
+  await shortcutsCleared;
 }
 
 class AuthGate extends StatefulWidget {
@@ -177,6 +196,7 @@ class AuthGate extends StatefulWidget {
     this.onUserChanged,
     this.notificationService,
     this.backgroundSyncScheduler,
+    this.appShortcuts,
     this.discardPickerMedia = discardLostPickerMedia,
   });
 
@@ -186,6 +206,7 @@ class AuthGate extends StatefulWidget {
   /// Cancelled whenever a session ends, see [cancelDeviceSchedules].
   final NotificationService? notificationService;
   final BackgroundSyncScheduler? backgroundSyncScheduler;
+  final AppShortcuts? appShortcuts;
 
   /// Deletes photos a pick left in the cache when its process died; run at
   /// cold start and on every session end, see [discardLostPickerMedia].
@@ -335,6 +356,7 @@ class _AuthGateState extends State<AuthGate> {
     unawaited(cancelDeviceSchedules(
       notifications: widget.notificationService,
       backgroundSync: widget.backgroundSyncScheduler,
+      appShortcuts: widget.appShortcuts,
     ));
   }
 

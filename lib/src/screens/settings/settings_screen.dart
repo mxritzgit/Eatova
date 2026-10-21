@@ -65,6 +65,9 @@ class SettingsScreen extends StatefulWidget {
     this.onReminderEnabledChanged,
     this.onReminderTimeChanged,
     this.shareExportFile,
+    this.weighInReminderState,
+    this.onWeighInReminderChanged,
+    this.onOpenNotificationSettings,
   });
 
   /// Session mail address. Null in previews/tests without auth — the row is
@@ -105,6 +108,14 @@ class SettingsScreen extends StatefulWidget {
   /// Hands the export to the system share sheet as a file (F9); null uses
   /// [ExportFileSharer]. Tests pass their own.
   final ExportDateiTeiler? shareExportFile;
+
+  /// The weigh-in reminder's row (review 2026-10-22); it drops out without
+  /// both, like the reminder row.
+  final ReminderState? weighInReminderState;
+  final ValueChanged<bool>? onWeighInReminderChanged;
+
+  /// Opens the OS notification settings: the way out of a blocked reminder.
+  final VoidCallback? onOpenNotificationSettings;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -402,6 +413,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           time: widget.reminderTime,
           onEnabledChanged: onReminderEnabled,
           onTimeChanged: onReminderTime,
+          onOpenSystemSettings: widget.onOpenNotificationSettings,
+        ),
+      if (widget.weighInReminderState case final weighInState?
+          when widget.onWeighInReminderChanged != null)
+        SettingsWeighInReminderRow(
+          key: const ValueKey('settings-weigh-in-reminder'),
+          state: weighInState,
+          onEnabledChanged: widget.onWeighInReminderChanged!,
+          // One button for both rows when both are blocked.
+          onOpenSystemSettings: reminderState == ReminderState.blocked
+              ? null
+              : widget.onOpenNotificationSettings,
         ),
       // NO `onTap` on these two rows, unlike the Manual row in the goals
       // screen — and that is the decision, not an oversight. That row is a

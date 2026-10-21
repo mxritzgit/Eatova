@@ -1734,7 +1734,7 @@
   },
 
   "notifChannelName": "Eatova Erinnerungen",
-  "notifChannelDescription": "Tägliche Serien-Erinnerung am Abend.",
+  "notifChannelDescription": "Erinnerungen ans Eintragen und ans Wiegen.",
   "notifStreakSaveTitle": "Serie retten",
   "notifStreakSaveBody": "Deine {streak}-Tage-Serie wartet — ein Foto genügt.",
   "@notifStreakSaveBody": {
@@ -3887,5 +3887,19 @@
   "todayTargetReachedNewGoal": "Neues Ziel",
   "targetReachedHoldSnack": "Dein Ziel ist jetzt: Gewicht halten.",
   "trendsOfflineNote": "Offline: Kalorien und Makros aus den Daten auf diesem Gerät.",
-  "weeklyCheckResultSeen": "Verstanden"
+  "weeklyCheckResultSeen": "Verstanden",
+  "reminderOpenSettingsAction": "Einstellungen",
+  "weighInReminderTitle": "Zeit zum Wiegen",
+  "weighInReminderMondayBody": "Montags ist Wochen-Check. Eine Wiegung vor dem Frühstück macht ihn genauer.",
+  "weighInReminderThursdayBody": "Eine Wiegung zur Wochenmitte hält deinen Trend genau.",
+  "weighInReminderSettingsTitle": "Wiege-Erinnerung",
+  "weighInReminderTextOff": "Aus. Erinnert dich montags und donnerstags um {time} ans Wiegen.",
+  "@weighInReminderTextOff": {"placeholders": {"time": {"type": "String"}}},
+  "weighInReminderTextActive": "Aktiv. Montags und donnerstags um {time}.",
+  "@weighInReminderTextActive": {"placeholders": {"time": {"type": "String"}}},
+  "weighInReminderSemantics": "Wiege-Erinnerung aktivieren",
+  "shortcutPhoto": "Foto",
+  "shortcutBarcode": "Barcode",
+  "shortcutDescribe": "Beschreiben",
+  "shortcutWeighIn": "Gewicht eintragen"
 }

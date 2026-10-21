@@ -8,7 +8,7 @@
 library;
 
 /// First id of the range reserved for rest alerts. Far above the reminder
-/// nudges (700..727), so reminder paths that cancel only nudge ids never
+/// nudges (700..735), so reminder paths that cancel only nudge ids never
 /// touch a running rest alert.
 const int restAlertIdFirst = 2000000000;
 

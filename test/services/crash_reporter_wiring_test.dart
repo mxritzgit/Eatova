@@ -19,6 +19,7 @@
 
 import 'package:eatova/main.dart' show buildEatovaApp;
 import 'package:eatova/src/app/eatova_app.dart';
+import 'package:eatova/src/services/app_shortcuts.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/android_health_service.dart';
 import 'package:flutter/foundation.dart';
@@ -74,6 +75,11 @@ void main() {
               'geplante Erinnerung, auf jedem Geraet, an jedem Tag');
       expect(app.notificationService, isA<LocalNotificationService>());
       expect(app.notificationService, isNot(isA<NoopNotificationService>()));
+    });
+
+    test('appShortcuts ist PlatformAppShortcuts', () {
+      // Null puts nothing on the app icon and clears nothing at sign-out.
+      expect(buildEatovaApp().appShortcuts, isA<PlatformAppShortcuts>());
     });
 
     test('healthService ist AppleHealthService (B3)', () {

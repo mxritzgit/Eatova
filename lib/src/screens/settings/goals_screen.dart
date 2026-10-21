@@ -68,9 +68,8 @@ class GoalsScreen extends StatefulWidget {
 
   /// Route into the system notification settings. Without it the blocked state
   /// shows the hint and NO button — a button that opens nothing is the same
-  /// kind of lie as the switch that caused D11. The project currently has no
-  /// such route: `url_launcher` only fires ACTION_VIEW intents on Android and
-  /// cannot reach `Settings.ACTION_APP_NOTIFICATION_SETTINGS`.
+  /// kind of lie as the switch that caused D11. The app passes
+  /// `openNotificationSettings` (rest_alert_guard.dart, `app_settings`).
   final VoidCallback? onOpenSystemSettings;
 
   @override
