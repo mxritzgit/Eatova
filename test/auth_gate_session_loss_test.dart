@@ -178,13 +178,10 @@ Future<void> _pumpGate(
 
 // The auth events the parametrised identity-binding block drives. Named
 // functions, not inline closures, so each case reads as what it models.
-void _keinEreignis(_ScriptedAuthRepository repository) {}
 void _meldeSessionVerlust(_ScriptedAuthRepository repository) =>
     repository.emit(null);
 void _wechsleKonto(_ScriptedAuthRepository repository) =>
     repository.emit(_andererUser);
-void _meldeTokenRefresh(_ScriptedAuthRepository repository) =>
-    repository.emit(_user);
 
 void main() {
   testWidgets(
@@ -203,6 +200,8 @@ void main() {
 
     // Meanwhile the refresh token is invalidated server-side.
     repository.emit(null);
+    // Settle first: during the pop transition two scaffolds are briefly
+    // registered with the ScaffoldMessenger and both render the snackbar.
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget,
@@ -211,6 +210,11 @@ void main() {
         reason: 'Die gepushte Profil-Route darf den Session-Verlust nicht '
             'ueberleben — sie zeigt Daten einer Session, die es nicht gibt');
     expect(find.text('Gewichtsverlauf'), findsNothing);
+    expect(find.text(deL10n.authSessionExpired), findsOneWidget,
+        reason: 'Wortlos auf den Login geworfen zu werden ist verwirrend');
+
+    // The snackbar must not leave a pending timer.
+    await tester.pumpAndSettle(const Duration(seconds: 6));
   });
 
   testWidgets(
@@ -285,116 +289,13 @@ void main() {
         reason: 'nichts ist abgelaufen — B sitzt in einer frischen Sitzung');
   });
 
-  testWidgets('Ein Token-Refresh raeumt die gepushte Route NICHT ab',
-      (tester) async {
-    final repository = _ScriptedAuthRepository(_user);
-    addTearDown(repository.dispose);
-    await _pumpGate(tester, repository);
-
-    await tester.tap(find.byKey(const ValueKey('push-profile')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-fake-profile')), findsOneWidget);
-
-    // tokenRefreshed delivers the same user again: an auth event, but no
-    // session loss, so the open route must stay.
-    repository.emit(_user);
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('screen-fake-profile')), findsOneWidget,
-        reason: 'Ein Token-Refresh darf die offene Ansicht nicht wegraeumen');
-    expect(find.byKey(const ValueKey('screen-auth')), findsNothing);
-  });
-
-  testWidgets('Der Nutzer erfaehrt, dass die Sitzung abgelaufen ist',
-      (tester) async {
-    final repository = _ScriptedAuthRepository(_user);
-    addTearDown(repository.dispose);
-    await _pumpGate(tester, repository);
-
-    await tester.tap(find.byKey(const ValueKey('push-profile')));
-    await tester.pumpAndSettle();
-
-    repository.emit(null);
-    // Settle first: during the pop transition two scaffolds are briefly
-    // registered with the ScaffoldMessenger and both render the snackbar.
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('Sitzung ist abgelaufen'), findsOneWidget,
-        reason: 'Wortlos auf den Login geworfen zu werden ist verwirrend');
-    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
-
-    // The snackbar must not leave a pending timer.
-    await tester.pumpAndSettle(const Duration(seconds: 6));
-  });
-
-  testWidgets(
-      'Die gewollte In-App-Abmeldung bleibt still (kein „abgelaufen"-Hinweis)',
-      (tester) async {
-    // Production order: pop first, then signOut. InMemoryAuthRepository is
-    // used because its async* stream has the same delivery asynchrony as the
-    // Supabase stream.
-    final repository = InMemoryAuthRepository(initialUser: _user);
-    addTearDown(repository.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEatovaTheme(Brightness.dark),
-        locale: const Locale('de'),
-        supportedLocales: AppLocalizations.supportedLocales,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        home: AuthGate(
-          authRepository: repository,
-          builder: (context, user, freshLogin) => Scaffold(
-            key: const ValueKey('screen-fake-home'),
-            body: Center(
-              child: TextButton(
-                key: const ValueKey('push-profile'),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (routeContext) => Scaffold(
-                      key: const ValueKey('screen-fake-profile'),
-                      body: Center(
-                        child: TextButton(
-                          key: const ValueKey('sign-out'),
-                          onPressed: () async {
-                            // This marker, not "nothing was above the root
-                            // route", separates a deliberate sign-out from an
-                            // expired session — the button itself sits on a
-                            // pushed route. Production sets it in
-                            // `_EatovaHomePageState._signOut`.
-                            IntentionalSignOut.mark();
-                            Navigator.maybePop(routeContext);
-                            await repository.signOut();
-                          },
-                          child: const Text('Abmelden'),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                child: const Text('Profil'),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('push-profile')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('sign-out')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
-    expect(find.byKey(const ValueKey('screen-fake-profile')), findsNothing);
-    expect(find.textContaining('Sitzung ist abgelaufen'), findsNothing,
-        reason: 'Wer sich selbst abmeldet, hat keine abgelaufene Sitzung');
-  });
-
   group('Finding 5 — der Gate bindet den Rezept-Foto-Store an die Identitaet',
       () {
-    testWidgets('photo binding distinguishes sessions of the same account', (tester) async {
+    // Also the token refresh case of the route teardown: the same session
+    // again keeps the pushed route, a new session of the same account clears
+    // it and rebinds.
+    testWidgets('a token refresh keeps the route and binding; a new session '
+        'of the same account clears and rebinds', (tester) async {
       final recorder = _BindungsRekorder();
       RecipeImageStore.instance = recorder;
       addTearDown(RecipeImageStore.resetInstance);
@@ -421,20 +322,13 @@ void main() {
     // a direct A -> B switch.
 
     // Same shell every time: only the auth event and the expected binding
-    // sequence differ, so the four transitions run as one parametrised block.
+    // sequence differ. Cold start and token refresh are covered above.
     for (final (name, ereignis, erwartet, grund) in <(
       String,
       void Function(_ScriptedAuthRepository),
       List<String?>,
       String
     )>[
-      (
-        'Kaltstart bindet den restaurierten Nutzer',
-        _keinEreignis,
-        <String?>['user-1'],
-        'Schon der initState muss binden — sonst rendert der erste Frame '
-            'gegen einen ungebundenen Store.'
-      ),
       (
         'Session-Verlust meldet null an den Store',
         _meldeSessionVerlust,
@@ -448,13 +342,6 @@ void main() {
         <String?>['user-1', 'user-2'],
         'Beim Kontowechsel ohne explizites Abmelden muss der Store den '
             'Wechsel erfahren, BEVOR das neue Konto rendert.'
-      ),
-      (
-        'ein Token-Refresh meldet denselben Nutzer erneut (No-Op im Store)',
-        _meldeTokenRefresh,
-        <String?>['user-1', 'user-1'],
-        'Dieselbe id darf gemeldet werden — setActiveUser macht daraus ein '
-            'No-Op und purgt nichts.'
       ),
     ]) {
       testWidgets(name, (tester) async {

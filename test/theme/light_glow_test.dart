@@ -22,10 +22,10 @@ List<double> _glowAlphas(WidgetTester tester) => <double>[
 ];
 
 void main() {
-  const faelle = <Brightness, AppTokens>{
-    Brightness.dark: AppTokens.dark,
-    Brightness.light: AppTokens.light,
-  };
+  // Light only: dark's glowStrength is 1 (app_tokens_test pins it), so a dark
+  // case would only re-pin the raw alphas. In light a dropped `* glowStrength`
+  // shows as the full 0.30 / 0.22.
+  const faelle = <Brightness, AppTokens>{Brightness.light: AppTokens.light};
 
   for (final MapEntry(key: helligkeit, value: t) in faelle.entries) {
     testWidgets('${helligkeit.name}: der Auth-Kopf-Glow folgt glowStrength', (

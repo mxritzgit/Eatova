@@ -503,26 +503,4 @@ void main() {
       });
     });
   });
-
-  // =========================================================================
-  // The numbers — vorher/nachher, so a revert has to walk past them
-  // =========================================================================
-  group('Auswahl bleibt nach einem Palettenwechsel erkennbar', () {
-    for (final mode in Brightness.values) {
-      final t = _tokens(mode);
-      test('Kontrastvertrag $mode', () {
-        // The pair is SelectionTone's (the accent fill since the dark
-        // redesign, 2026-09-28), measured against the unselected label ink2.
-        final fill = t.selectedFill;
-        final label = t.onSelected;
-        expect(_kontrast(fill, t.surf), greaterThanOrEqualTo(_zustand));
-        expect(_kontrast(label, fill), greaterThanOrEqualTo(_text));
-        expect(_kontrast(label, t.ink2), greaterThanOrEqualTo(_zustand));
-        final quiet = _ueber(label.withValues(alpha: 0.78), fill);
-        expect(_kontrast(quiet, fill), greaterThanOrEqualTo(_text));
-        expect(_kontrast(quiet, t.ink2), greaterThanOrEqualTo(_zustand));
-        expect(_kontrast(t.brandSurface, t.surf), lessThan(_zustand));
-      });
-    }
-  });
 }

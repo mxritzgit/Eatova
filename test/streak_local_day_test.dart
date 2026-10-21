@@ -40,7 +40,8 @@ _logAcrossMidnight() {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Streak-Tag stammt auch ueber Mitternacht von der Mahlzeit', () async {
+  test('Streak-Tag stammt auch ueber Mitternacht von der Mahlzeit, ohne '
+      'unzustellbare Tages-Op', () async {
     final s = await _logAcrossMidnight();
     final payload =
         (jsonDecode(s.server.operations('mealInsert').single.body)
@@ -52,10 +53,7 @@ void main() {
     expect(s.server.trackedDay, '2026-08-14');
     expect(s.store.lifetimeStats.lastTrackedDate, DateTime(2026, 8, 14));
     expect(s.server.mealsCounted, 1);
-  });
-
-  test('Mitternacht hinterlaesst keine unzustellbare Tages-Op', () async {
-    final s = await _logAcrossMidnight();
+    // Midnight leaves no undeliverable day operation behind.
     expect(s.server.trackingDayRejections, isEmpty);
     expect(s.server.operations('trackingDay'), isEmpty);
     expect(s.store.pendingOutbox, isEmpty);

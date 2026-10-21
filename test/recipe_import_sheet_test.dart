@@ -73,9 +73,6 @@ Future<void> _open(
   bool Function()? sessionIsCurrent,
   bool Function(String)? isSaved,
   Locale locale = const Locale('en'),
-  Brightness brightness = Brightness.dark,
-  double textScale = 1,
-  Size size = const Size(390, 844),
   bool settle = true,
   bool reducedMotion = true,
 }) async {
@@ -94,10 +91,8 @@ Future<void> _open(
         child: const Text('Open import'),
       ),
     ),
-    surfaceSize: size,
+    surfaceSize: const Size(390, 844),
     locale: locale,
-    brightness: brightness,
-    textScale: textScale,
     reducedMotion: reducedMotion,
   );
   await tester.tap(find.text('Open import'));
@@ -143,24 +138,6 @@ void main() {
     expect(saved.single.canLogServings(1), isTrue);
     expect(saved.single.toMealResult().caloriesKcal, 0);
   });
-
-  for (final language in ['en', 'de']) {
-    testWidgets('conflict correction stays readable at large text in $language', (tester) async {
-      const candidate = RecipeImportCandidate(
-        id: 'caption', title: 'Kaiserschmarrn', ingredients: '100 g flour', preparation: '',
-        caloriesKcal: 650, fatG: 20, nutritionBasisUnclear: true, nutritionConflicts: ['protein_g'],
-      );
-      await _open(tester,
-        service: _Service((_) async => const RecipeImportResult(status: RecipeImportStatus.ready, candidates: [candidate])),
-        save: (_) async => SyncDelivery.delivered,
-        locale: Locale(language), textScale: 2, size: const Size(320, 720),
-      );
-      await _tap(tester, 'recipe-import-correct-nutrition');
-      await tester.ensureVisible(find.byKey(const ValueKey('recipe-create-carbs')));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   testWidgets('nutrition correction changes only the draft until explicit import save', (tester) async {
     final candidate = RecipeImportCandidate.fromJson({
@@ -452,7 +429,7 @@ void main() {
   );
 
   testWidgets(
-    'multiple recipes can be confirmed individually without another extraction',
+    'several recipes need an explicit choice each, without another extraction',
     (tester) async {
       final saved = <FitnessRecipe>[];
       final service = _Service((_) async => _multiple);
@@ -464,9 +441,18 @@ void main() {
           return SyncDelivery.delivered;
         },
       );
+      expect(find.byKey(const ValueKey('recipe-import-save')), findsNothing);
+      for (final id in ['bowl', 'vegan', 'pasta']) {
+        expect(
+          find.byKey(ValueKey('recipe-import-candidate-$id')),
+          findsOneWidget,
+        );
+      }
       await _tap(tester, 'recipe-import-candidate-vegan');
+      expect(saved, isEmpty);
       await _tap(tester, 'recipe-import-save');
       expect(saved.map((recipe) => recipe.title), ['Tofu bowl']);
+      expect(saved.single.ingredients, isNot(contains('chicken')));
       expect(find.byKey(const ValueKey('recipe-import-sheet')), findsOneWidget);
       final added = tester.widget<InkWell>(
         find.byKey(const ValueKey('recipe-import-candidate-vegan')),
@@ -522,42 +508,6 @@ void main() {
     expect(saved.single.canLogServings(1), isFalse);
     expect(find.byKey(const ValueKey('recipe-import-sheet')), findsNothing);
   });
-
-  testWidgets(
-    'three recipes and vegan alternative require an explicit choice',
-    (tester) async {
-      final saved = <FitnessRecipe>[];
-      await _open(
-        tester,
-        service: _Service((_) async => _multiple),
-        save: (recipe) async {
-          saved.add(recipe);
-          return SyncDelivery.delivered;
-        },
-      );
-      expect(find.byKey(const ValueKey('recipe-import-save')), findsNothing);
-      expect(
-        find.byKey(const ValueKey('recipe-import-candidate-bowl')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('recipe-import-candidate-vegan')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('recipe-import-candidate-pasta')),
-        findsOneWidget,
-      );
-      expect(saved, isEmpty);
-      await _tap(tester, 'recipe-import-candidate-vegan');
-      expect(find.text('Tofu bowl'), findsOneWidget);
-      expect(saved, isEmpty);
-      await _tap(tester, 'recipe-import-save');
-      expect(saved.single.title, 'Tofu bowl');
-      expect(saved.single.ingredients, contains('tofu'));
-      expect(saved.single.ingredients, isNot(contains('chicken')));
-    },
-  );
 
   testWidgets('closing preview does not save a recipe', (tester) async {
     var saves = 0;
@@ -1155,28 +1105,6 @@ void main() {
       findsNothing,
     );
   });
-
-  for (final brightness in Brightness.values) {
-    testWidgets('selection and preview fit large text in ${brightness.name}', (
-      tester,
-    ) async {
-      await _open(
-        tester,
-        service: _Service((_) async => _multiple),
-        save: (_) async => SyncDelivery.delivered,
-        brightness: brightness,
-        textScale: 2,
-        size: const Size(320, 720),
-      );
-      expect(tester.takeException(), isNull);
-      await _tap(tester, 'recipe-import-candidate-vegan');
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('recipe-import-save')),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   testWidgets(
     'imported unknown nutrition stays blank and blocks partial correction',

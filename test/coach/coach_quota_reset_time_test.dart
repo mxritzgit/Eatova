@@ -9,10 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/coach_quota_reset.dart';
 
-Duration _cest(DateTime _) => const Duration(hours: 2);
-Duration _newYork(DateTime _) => const Duration(hours: -4);
-Duration _india(DateTime _) => const Duration(hours: 5, minutes: 30);
-
 void main() {
   test('der Reset ist die naechste UTC-Mitternacht', () {
     expect(
@@ -25,52 +21,36 @@ void main() {
     );
   });
 
-  test('Berlin im Sommer, 00:30 Ortszeit: heute um 02:00, nicht "morgen"', () {
-    // 2026-10-19 00:30 CEST = 2026-10-18 22:30 UTC.
-    final label = withClock(
-      Clock.fixed(DateTime.utc(2026, 10, 18, 22, 30)),
-      () => coachQuotaResetLabel('de', offsetOf: _cest),
-    );
-    expect(label, '02:00');
+  test('das Label nennt den Reset in Ortszeit, 24 h deutsch, 12 h englisch', () {
+    // 2026-10-19 00:30 CEST = 2026-10-18 22:30 UTC: today at 02:00, not
+    // "tomorrow". Read from the clock, as the app does.
     expect(
-      deL10n.coachErrorDailyLimitReached(5, label),
-      "Tageslimit erreicht (5 Coach-Fragen pro Tag). Weiter geht's um 02:00 Uhr.",
-    );
-    expect(
-      deL10n.coachErrorDailyLimitReached(5, label),
-      isNot(contains('Morgen')),
-    );
-  });
-
-  test('New York, abends: der Reset liegt am selben Abend', () {
-    // 2026-10-19 19:30 EDT = 23:30 UTC.
-    final label = withClock(
-      Clock.fixed(DateTime.utc(2026, 10, 19, 23, 30)),
-      () => coachQuotaResetLabel('en', offsetOf: _newYork),
-    );
-    expect(label, '8:00 PM');
-    expect(
-      enL10n.coachInfoLimitBody(0, 5, label),
-      '0 of 5 questions left today. New questions from 8:00 PM.',
-    );
-  });
-
-  test('halbe Stunden und 12-Stunden-Uhr', () {
-    final now = DateTime.utc(2026, 10, 19, 12);
-    expect(coachQuotaResetLabel('de', now: now, offsetOf: _india), '05:30');
-    expect(coachQuotaResetLabel('en', now: now, offsetOf: _india), '5:30 AM');
-    expect(
-      coachQuotaResetLabel('en', now: now, offsetOf: (_) => Duration.zero),
-      '12:00 AM',
-    );
-    expect(
-      coachQuotaResetLabel(
-        'en',
-        now: now,
-        offsetOf: (_) => const Duration(hours: 12),
+      withClock(
+        Clock.fixed(DateTime.utc(2026, 10, 18, 22, 30)),
+        () => coachQuotaResetLabel(
+          'de',
+          offsetOf: (_) => const Duration(hours: 2),
+        ),
       ),
-      '12:00 PM',
+      '02:00',
     );
+    final now = DateTime.utc(2026, 10, 19, 12);
+    for (final (locale, offset, label) in <(String, Duration, String)>[
+      // New York in the evening: the reset is the same evening.
+      ('en', const Duration(hours: -4), '8:00 PM'),
+      // Half hours.
+      ('de', const Duration(hours: 5, minutes: 30), '05:30'),
+      ('en', const Duration(hours: 5, minutes: 30), '5:30 AM'),
+      // The 12-hour clock's two edges.
+      ('en', Duration.zero, '12:00 AM'),
+      ('en', const Duration(hours: 12), '12:00 PM'),
+    ]) {
+      expect(
+        coachQuotaResetLabel(locale, now: now, offsetOf: (_) => offset),
+        label,
+        reason: '$locale $offset',
+      );
+    }
   });
 
   test('kein Text nennt mehr Mitternacht (UTC) oder morgen', () {

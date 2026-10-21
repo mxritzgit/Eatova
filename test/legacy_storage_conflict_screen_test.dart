@@ -65,71 +65,70 @@ void main() {
     LocalCache.debugDatabasePath = null;
   });
 
-  for (final language in ['de', 'en']) {
-    testWidgets('obsolete writer recovery screen is actionable in $language', (
-      tester,
-    ) async {
-      HomeStore? store;
-      try {
-        final home = EatovaHomePage(
-          sync: EatovaSync.forUser(client, 'user-outbox'),
-          showWelcome: false,
-        );
-        await pumpLocalized(
-          tester,
-          home,
-          locale: Locale(language),
-          scaffold: false,
-          safeArea: false,
-        );
-        store =
-            (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
-                .debugStore;
-        final localizations = language == 'de' ? deL10n : enL10n;
-        final title = find.text(localizations.commonLegacyStorageConflictTitle);
+  // English: a hardcoded German screen fails here; ARB parity covers copy.
+  testWidgets('obsolete writer recovery screen is actionable', (
+    tester,
+  ) async {
+    HomeStore? store;
+    try {
+      final home = EatovaHomePage(
+        sync: EatovaSync.forUser(client, 'user-outbox'),
+        showWelcome: false,
+      );
+      await pumpLocalized(
+        tester,
+        home,
+        locale: const Locale('en'),
+        scaffold: false,
+        safeArea: false,
+      );
+      store =
+          (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
+              .debugStore;
+      final localizations = enL10n;
+      final title = find.text(localizations.commonLegacyStorageConflictTitle);
+      await pumpUntilComplete(
+        tester,
+        () => title.evaluate().isNotEmpty && !store!.bootLoadInFlight,
+        'Initial storage conflict recovery must finish before retry.',
+      );
+      expect(title, findsOneWidget);
+      expect(
+        find.text(localizations.commonLegacyStorageConflictBody),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
+      expect(server.requests, isEmpty);
+      await tester.tap(find.byKey(const ValueKey('boot-unanswered-retry')));
+      expect(store.bootLoadInFlight, isTrue);
+      await pumpUntilComplete(
+        tester,
+        () => !store!.bootLoadInFlight,
+        'Retry must finish; the existing conflict title also stays visible while busy.',
+      );
+      expect(title, findsOneWidget);
+      expect(server.requests, isEmpty);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(outbox), 'preserved-obsolete-offline-write');
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      if (store != null) {
+        var released = false;
+        // The release continuation belongs to the fake zone; keep pumping it.
+        store.storageReleased.then((_) => released = true);
         await pumpUntilComplete(
           tester,
-          () => title.evaluate().isNotEmpty && !store!.bootLoadInFlight,
-          'Initial storage conflict recovery must finish before retry.',
+          () => released,
+          'Storage must release after disposal.',
         );
-        expect(title, findsOneWidget);
-        expect(
-          find.text(localizations.commonLegacyStorageConflictBody),
-          findsOneWidget,
-        );
-        expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
-        expect(server.requests, isEmpty);
-        await tester.tap(find.byKey(const ValueKey('boot-unanswered-retry')));
-        expect(store.bootLoadInFlight, isTrue);
-        await pumpUntilComplete(
-          tester,
-          () => !store!.bootLoadInFlight,
-          'Retry must finish; the existing conflict title also stays visible while busy.',
-        );
-        expect(title, findsOneWidget);
-        expect(server.requests, isEmpty);
-        final prefs = await SharedPreferences.getInstance();
-        expect(prefs.getString(outbox), 'preserved-obsolete-offline-write');
-        expect(tester.takeException(), isNull);
-      } finally {
-        await tester.pumpWidget(const SizedBox());
-        await tester.pump();
-        if (store != null) {
-          var released = false;
-          // The release continuation belongs to the fake zone; keep pumping it.
-          store.storageReleased.then((_) => released = true);
-          await pumpUntilComplete(
-            tester,
-            () => released,
-            'Storage must release after disposal.',
-          );
-        }
-        await tester.runAsync(() async {
-          await DurableCacheStore.closeAll();
-          await client.dispose();
-          await directory.delete(recursive: true);
-        });
       }
-    }, timeout: const Timeout(Duration(seconds: 30)));
-  }
+      await tester.runAsync(() async {
+        await DurableCacheStore.closeAll();
+        await client.dispose();
+        await directory.delete(recursive: true);
+      });
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

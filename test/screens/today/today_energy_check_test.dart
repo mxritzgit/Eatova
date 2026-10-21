@@ -193,15 +193,15 @@ void main() {
           await tester.pump(const Duration(seconds: 2));
         });
 
-    testWidgets('today shows the card', (tester) async {
+    testWidgets('only today, loaded, with a proposal shows the card', (
+      tester,
+    ) async {
       await pumpToday(tester, _today(selectedDate: startOfDay(_now)));
       expect(find.byType(TodayEnergyCheckCard), findsOneWidget);
-    });
 
-    testWidgets('an archive day and a loading day do not', (tester) async {
       await pumpToday(
         tester,
-        _today(selectedDate: startOfDay(_now).subtract(const Duration(days: 1))),
+        _today(selectedDate: addDays(startOfDay(_now), -1)),
       );
       expect(find.byType(TodayEnergyCheckCard), findsNothing);
       await pumpToday(
@@ -209,9 +209,6 @@ void main() {
         _today(selectedDate: startOfDay(_now), dayLoading: true),
       );
       expect(find.byType(TodayEnergyCheckCard), findsNothing);
-    });
-
-    testWidgets('no proposal, no card', (tester) async {
       await pumpToday(
         tester,
         _today(selectedDate: startOfDay(_now), check: null),

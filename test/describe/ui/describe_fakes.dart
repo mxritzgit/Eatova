@@ -88,13 +88,14 @@ class FakeSpeech extends SpeechInput {
     _onPartial?.call(text);
   }
 
-  /// The recording ends with [text] for [end].
+  /// The recording ends with [text] for [end]. Like [SpeechInput.listen], a
+  /// blank transcript arrives as null.
   void finish(String? text, {SpeechEnd end = SpeechEnd.stopped}) {
     final pending = _pending;
     _pending = null;
     if (pending == null) return;
     _onEnd?.call(end);
-    pending.complete(text);
+    pending.complete(text != null && text.trim().isNotEmpty ? text : null);
   }
 
   @override
@@ -104,11 +105,13 @@ class FakeSpeech extends SpeechInput {
     if (stopAnswers) finish(finalText ?? _lastPartial);
   }
 
+  /// Both native sides answer a cancel with reason `cancel`, which
+  /// [SpeechInput.listen] reports as [SpeechEnd.dismissed].
   @override
   Future<void> cancel() async {
     cancels++;
     if (systemDialog) return;
-    finish(_lastPartial);
+    finish(_lastPartial, end: SpeechEnd.dismissed);
   }
 }
 

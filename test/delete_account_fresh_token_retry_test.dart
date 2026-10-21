@@ -108,15 +108,8 @@ void main() {
     expect(run.waits, hasLength(1), reason: 'one short wait, no loop');
   });
 
-  test('a bare gateway 401 counts as the same rejection', () async {
-    final run = await _deleteWith([
-      (status: 401, body: <String, Object?>{'message': 'Invalid JWT'}),
-      (status: 204, body: null),
-    ]);
-
-    expect(run.error, isNull);
-    expect(run.rpcCalls, 2);
-  });
+  // Which rejections count as stale (PGRST301/303, bare 401) is pinned by
+  // isStaleAuthError in services/sync_error_messages_test.dart.
 
   test('a second rejection reaches the caller after exactly two calls', () async {
     final run = await _deleteWith([(status: 401, body: _jwtFuture)]);

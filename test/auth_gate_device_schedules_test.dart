@@ -166,85 +166,9 @@ void main() {
   setUp(() => RecipeImageStore.instance = _NoPhotos());
   tearDown(RecipeImageStore.resetInstance);
 
-  testWidgets('Session-Verlust verwirft die Erinnerungen des alten Kontos',
-      (tester) async {
-    final log = <String>[];
-    final repository = _ScriptedAuthRepository(_a);
-    addTearDown(repository.dispose);
-    await _pumpGate(tester, repository, _RecordingNotifications(log));
-    expect(log, ['schedule']);
-
-    repository.emit(null);
-    await tester.pumpAndSettle();
-
-    expect(log, ['schedule', 'cancel'],
-        reason: 'Sonst feuern A\'s Streak-Erinnerungen weiter, obwohl die '
-            'Session abgelaufen oder widerrufen ist.');
-    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
-  });
-
-  testWidgets(
-      'direkter Wechsel A -> B: erst A verwerfen, dann plant B', (tester) async {
-    final log = <String>[];
-    final repository = _ScriptedAuthRepository(_a);
-    addTearDown(repository.dispose);
-    await _pumpGate(tester, repository, _RecordingNotifications(log));
-    log.clear();
-
-    repository.emit(_b);
-    await tester.pumpAndSettle();
-
-    expect(find.text('home user-b'), findsOneWidget);
-    expect(log, ['cancel', 'schedule'],
-        reason: 'Der Cancel muss vor B\'s Planung in der Warteschlange '
-            'stehen, sonst loescht er B\'s Erinnerungen oder A\'s bleiben.');
-  });
-
-  testWidgets('Token-Refresh desselben Kontos verwirft nichts',
-      (tester) async {
-    final log = <String>[];
-    final repository = _ScriptedAuthRepository(_a);
-    addTearDown(repository.dispose);
-    await _pumpGate(tester, repository, _RecordingNotifications(log));
-    log.clear();
-
-    repository.emit(_a);
-    await tester.pumpAndSettle();
-
-    expect(log, isEmpty);
-  });
-
-  testWidgets('Kaltstart ohne Session verwirft Altlasten', (tester) async {
-    final log = <String>[];
-    final repository = _ScriptedAuthRepository(null);
-    addTearDown(repository.dispose);
-
-    await _pumpGate(tester, repository, _RecordingNotifications(log));
-
-    expect(log, ['cancel'],
-        reason: 'Die Session endete, waehrend die App nicht lief.');
-  });
-
-  testWidgets(
-      'ein werfender Benachrichtigungsdienst haelt den Wechsel nicht auf '
-      'und wird gemeldet', (tester) async {
-    final reports = <String?>[];
-    CrashReporter.debugSentrySink = (error, stack, context) =>
-        reports.add(context);
-    addTearDown(() => CrashReporter.debugSentrySink = null);
-    final log = <String>[];
-    final repository = _ScriptedAuthRepository(_a);
-    addTearDown(repository.dispose);
-    await _pumpGate(
-        tester, repository, _RecordingNotifications(log, cancelThrows: true));
-
-    repository.emit(null);
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    expect(reports, contains('auth-gate-notification-cancel'));
-  });
+  // Every case below asserts the full ordered log: a session end cancels
+  // before the next account opens and schedules, a token refresh logs
+  // nothing, and a cold start without a session cancels.
 
   // Spec A5: a session end closes rest alerts in the service; only the gate
   // knows when the next account's home takes over, so it reopens them, and
@@ -381,17 +305,6 @@ void main() {
           reason: 'Der naechste Login muss den Job wieder bekommen.');
     });
 
-    testWidgets('Kaltstart ohne Session storniert', (tester) async {
-      final scheduler = _RecordingScheduler();
-      final repository = _ScriptedAuthRepository(null);
-      addTearDown(repository.dispose);
-
-      await _pumpGate(tester, repository, _RecordingNotifications([]),
-          scheduler: scheduler);
-
-      expect(scheduler.log, ['cancel']);
-    });
-
     testWidgets('ein werfendes Stornieren wird gemeldet und blockiert nichts',
         (tester) async {
       final reports = <String?>[];
@@ -409,6 +322,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+      expect(tester.takeException(), isNull);
       expect(reports, containsAll(<String>[
         'auth-gate-notification-cancel',
         'auth-gate-background-sync-cancel',

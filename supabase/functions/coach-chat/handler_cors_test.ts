@@ -1,4 +1,12 @@
 // No network permission: authorization is deliberately absent in these tests.
+// Exact allowed origins on preflight and 401 responses are pinned for all
+// functions in ../_shared/cors_origin_contract_test.ts; this file keeps the
+// coach-specific Vary and per-request origin cases.
+//
+// handler.ts reads the allowed origins once at module load. Environment
+// variables are process-wide and outlive this file in a suite run, so the
+// list is restored right after the import instead of leaking into later files.
+const previousOrigins = Deno.env.get("EATOVA_ALLOWED_ORIGINS");
 Deno.env.set("EATOVA_ALLOWED_ORIGINS", "https://allowed.example,https://second.example");
 Deno.env.set("SUPABASE_URL", "https://synthetic.invalid");
 Deno.env.set("SUPABASE_ANON_KEY", "synthetic-public");
@@ -6,6 +14,8 @@ Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "synthetic-service");
 Deno.env.set("ANTHROPIC_API_KEY", "synthetic-anthropic");
 Deno.env.set("OPENROUTER_API_KEY", "synthetic-provider");
 const { handleRequest } = await import("./handler.ts");
+if (previousOrigins === undefined) Deno.env.delete("EATOVA_ALLOWED_ORIGINS");
+else Deno.env.set("EATOVA_ALLOWED_ORIGINS", previousOrigins);
 
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 function request(origin: string | undefined, method = "POST") {
@@ -13,18 +23,6 @@ function request(origin: string | undefined, method = "POST") {
     method, headers: origin === undefined ? {} : { Origin: origin },
   });
 }
-
-Deno.test("Coach CORS: allowed origins remain readable on actual denied JSON responses", async () => {
-  for (const origin of ["https://allowed.example", "https://second.example"]) {
-    const preflight = await handleRequest(request(origin, "OPTIONS"));
-    const actual = await handleRequest(request(origin));
-    assert(preflight.headers.get("Access-Control-Allow-Origin") === origin, "Preflight origin missing");
-    assert(actual.status === 401, "CORS must not authorize an unauthenticated request");
-    assert(actual.headers.get("Access-Control-Allow-Origin") === origin, "Actual response origin missing");
-    assert(actual.headers.get("Cache-Control") === "no-store", "Existing response policy lost");
-    assert((await actual.json()).error === "Unauthorized", "Actual error body changed");
-  }
-});
 
 Deno.test("Coach CORS: unlisted, null and absent origins never receive access", async () => {
   for (const origin of ["https://allowed.example.evil.test", "https://evil.test", "null", undefined]) {

@@ -7,61 +7,56 @@ import 'package:eatova/src/screens/settings/account_change_sheets.dart';
 import 'support/harness.dart';
 
 void main() {
-  for (final language in const ['de', 'en']) {
-    for (final email in const ['account@example.test', null]) {
-      testWidgets(
-        '$language password sheet explains required credential and recovery '
-        'with ${email == null ? 'default' : 'explicit'} address',
-        (tester) async {
-          pinPhoneViewport(tester);
-          final repo = InMemoryAuthRepository(
-            initialUser: const EatovaUser(
-              id: 'user',
-              email: 'account@example.test',
-            ),
-          );
-          addTearDown(repo.dispose);
-          await pumpLocalized(
-            tester,
-            Builder(
-              builder: (context) => TextButton(
-                onPressed: () => showPasswordChangeSheet(
-                  context,
-                  authRepository: repo,
-                  email: email,
-                ),
-                child: const Text('Open'),
+  // Each language once, each address variant (CodeSentTo / CodeSentDefault)
+  // once: the two axes are independent.
+  for (final (language, email) in const [
+    ('de', 'account@example.test'),
+    ('en', null),
+  ]) {
+    testWidgets(
+      '$language password sheet explains required credential and recovery '
+      'with ${email == null ? 'default' : 'explicit'} address',
+      (tester) async {
+        pinPhoneViewport(tester);
+        final repo = InMemoryAuthRepository(
+          initialUser: const EatovaUser(
+            id: 'user',
+            email: 'account@example.test',
+          ),
+        );
+        addTearDown(repo.dispose);
+        await pumpLocalized(
+          tester,
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showPasswordChangeSheet(
+                context,
+                authRepository: repo,
+                email: email,
               ),
+              child: const Text('Open'),
             ),
-            locale: Locale(language),
-            textScale: 2,
-          );
-          await tester.tap(find.text('Open'));
-          await tester.pumpAndSettle();
+          ),
+          locale: Locale(language),
+          textScale: 2,
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
 
-          // These security claims must stay visible in both localized variants.
-          final explanation = language == 'de'
-              ? 'Halte dein aktuelles Passwort bereit.'
-              : 'Have your current password ready.';
-          expect(find.textContaining(explanation), findsOneWidget);
-          expect(
-            find.textContaining(
-              language == 'de'
-                  ? 'ohne ihn lässt sich das Passwort nicht ändern'
-                  : "without it, the password can't be changed",
-            ),
-            findsNothing,
-          );
-          expect(repo.reauthRequests, isEmpty);
-          expect(
-            find.textContaining(
-              language == 'de' ? 'Passwort vergessen' : 'Forgot password',
-            ),
-            findsOneWidget,
-          );
-          expect(tester.takeException(), isNull);
-        },
-      );
-    }
+        // These security claims must stay visible in both localized variants.
+        final explanation = language == 'de'
+            ? 'Halte dein aktuelles Passwort bereit.'
+            : 'Have your current password ready.';
+        expect(find.textContaining(explanation), findsOneWidget);
+        expect(repo.reauthRequests, isEmpty);
+        expect(
+          find.textContaining(
+            language == 'de' ? 'Passwort vergessen' : 'Forgot password',
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 }

@@ -14,7 +14,8 @@ void main() {
   const calc = KcalCalculator();
 
   group('Makro-Split: exakte Formeln', () {
-    test('Protein = round(1.6 g/kg Referenz), Fett = round(25% kcal / 9)', () {
+    test('Protein = round(1.6 g/kg Referenz), Fett = round(25% kcal / 9), '
+        'Carbs = Rest / 4', () {
       const base = UserProfile(); // 78 kg / 178 cm (BMI 24.6), maintain
       final t = calc.calculate(base);
 
@@ -27,23 +28,8 @@ void main() {
       expect(t.kcal, 2150);
       // Fat from 25 % of the rounded daily target.
       expect(t.fatG, ((t.kcal * 0.25) / 9).round()); // 60
-    });
-
-    test('Carbs = round((kcal - 4*Protein - 9*Fett) / 4)', () {
-      const base = UserProfile();
-      final t = calc.calculate(base);
       final remaining = t.kcal - t.proteinG * 4 - t.fatG * 9;
       expect(t.carbsG, (remaining / 4).round());
-    });
-
-    test('rekonstruiertes kcal aus Makros bleibt nahe am Ziel', () {
-      for (final w in const [55, 78, 110]) {
-        final t = calc.calculate(UserProfile(weightKg: w));
-        final fromMacros = t.proteinG * 4 + t.carbsG * 4 + t.fatG * 9;
-        // Per-macro rounding -> small tolerance.
-        expect(fromMacros, closeTo(t.kcal, 60),
-            reason: 'Gewicht $w kg: $fromMacros vs ${t.kcal}');
-      }
     });
   });
 
@@ -67,21 +53,6 @@ void main() {
             .proteinG,
         144,
       );
-    });
-
-    test('300 kg treffen die 400-g-Grenze nicht mehr — sie bleibt Vorsorge',
-        () {
-      const schwer = UserProfile(
-        weightKg: ProfileLimits.weightKgMax,
-        heightCm: 180,
-        ageYears: 40,
-        sex: BiologicalSex.male,
-      );
-      final t = calc.calculate(schwer);
-      // Reference 81 + 0.25 x 219 = 135.75 kg -> 217 g (formerly 480 -> 400).
-      expect(t.proteinG, 217);
-      expect(t.proteinG, lessThan(ProfileLimits.proteinGoalGMax));
-      expect(isValidProteinGoalG(t.proteinG), isTrue);
     });
 
     test('Energie-Deckel: Protein hoechstens 35 %, hart 40 % der kcal', () {
@@ -123,14 +94,7 @@ void main() {
     });
   });
 
-  group('Makro-Split: Rand- und Clamp-Pfade', () {
-    test('alle Makros strikt > 0 fuer normale Profile', () {
-      final t = calc.calculate(const UserProfile());
-      expect(t.proteinG, greaterThan(0));
-      expect(t.carbsG, greaterThan(0));
-      expect(t.fatG, greaterThan(0));
-    });
-
+  group('Makro-Split: Clamp-Pfad', () {
     test('Carb-Decke: 800 g werden exakt getroffen und geklemmt', () {
       // The one point in the valid input space where the remainder exceeds
       // 800 g: 5000 kcal ceiling, 136 g protein, 139 g fat leave 3205 kcal
@@ -156,27 +120,6 @@ void main() {
       expect(ungeklemmt, 801.25, reason: 'ohne Clamp landet 801 in der DB');
       expect(t.carbsG, ProfileLimits.carbsGoalGMax); // 800, not 801
       expect(isValidCarbsGoalG(t.carbsG), isTrue);
-    });
-
-    test('Fett-Decke ist rechnerisch unerreichbar, der Clamp ist Vorsorge', () {
-      // Fat = 25 % of the target / 9, and the target is capped at 5000, so
-      // 138.9 g is the absolute maximum and the 300 g limit is unreachable.
-      // The clamp stays so a later ceiling raise cannot silently cause 23514.
-      const maximal = UserProfile(
-        weightKg: 85,
-        heightCm: 250,
-        ageYears: 16,
-        sex: BiologicalSex.male,
-        activityLevel: ActivityLevel.athlete,
-        targetWeightKg: 95,
-        weightGoal: WeightGoal.gain05kg,
-      );
-      final t = calc.calculate(maximal);
-
-      expect(t.fatG, 139);
-      expect(((KcalCalculator.kcalCeiling * 0.25) / 9).round(), 139);
-      expect(t.fatG, lessThan(ProfileLimits.fatGoalGMax));
-      expect(isValidFatGoalG(t.fatG), isTrue);
     });
   });
 

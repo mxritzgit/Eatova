@@ -101,7 +101,7 @@ class DefinesTest(unittest.TestCase):
             path.write_text(json.dumps(data) if not isinstance(data, str) else data, encoding='utf-8')
             return run(['defines', '--file', str(path)])
 
-    def test_a_release_without_a_sentry_dsn_is_refused(self):
+    def test_a_release_without_required_defines_or_with_broken_json_is_refused(self):
         for missing in ('SENTRY_DSN', 'SUPABASE_URL', 'SUPABASE_ANON_KEY'):
             for value in (None, '', '   '):
                 data = dict(DEFINES)

@@ -404,6 +404,18 @@ void main() {
         ),
         findsOneWidget,
       );
+
+      // The action does what the menu entry does: it opens the report sheet.
+      final action = tester
+          .widget<Semantics>(melden)
+          .properties
+          .customSemanticsActions!
+          .entries
+          .singleWhere((e) => e.key.label == deL10n.coachReportAction)
+          .value;
+      action();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('ai-report-sheet')), findsOneWidget);
     });
   });
 }

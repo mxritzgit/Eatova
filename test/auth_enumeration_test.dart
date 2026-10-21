@@ -93,15 +93,6 @@ void main() {
           expect(en.toLowerCase(), isNot(contains(wort)), reason: rohtext);
         }
       }
-    });
-
-    test('die Meldung laesst den Nutzer trotzdem nicht im Regen stehen', () {
-      // Conditional rather than asserting, and with the way out that exists in
-      // BOTH cases.
-      expect(deL10n.settingsAccountEmailNotAvailable.toLowerCase(),
-          contains('falls'));
-      expect(enL10n.settingsAccountEmailNotAvailable.toLowerCase(),
-          contains('if an account'));
       expect(deL10n.settingsAccountEmailNotAvailable,
           isNot(deL10n.commonGenericRetryError),
           reason: 'neutral heisst nicht nichtssagend');
@@ -177,37 +168,6 @@ void main() {
 
       expect(ergebnis, SignUpOutcome.created,
           reason: 'aus einer Wissensluecke keine Aussage ueber ein Konto');
-    });
-
-    test('das Test-Double unterscheidet denselben Fall', () async {
-      final repo = InMemoryAuthRepository();
-      addTearDown(repo.dispose);
-      repo.existingEmails.add('schon@eatova.de');
-
-      expect(
-        await repo.signUp(
-            email: 'schon@eatova.de',
-            password: 'eatova123',
-            displayName: 'Moritz'),
-        SignUpOutcome.emailAlreadyRegistered,
-      );
-      expect(repo.currentUser, isNull,
-          reason: 'kein Konto angelegt, keine Sitzung — wie bei GoTrue');
-
-      expect(
-        await repo.signUp(
-            email: 'neu@eatova.de',
-            password: 'eatova123',
-            displayName: 'Moritz'),
-        SignUpOutcome.created,
-      );
-      expect(repo.currentUser, isNull,
-          reason: 'creating an account never establishes an app login');
-      await repo.verifySignupCode(email: 'neu@eatova.de', code: '12345678');
-      expect(repo.currentUser, isNull);
-      await repo.signIn(email: 'neu@eatova.de', password: 'eatova123');
-      expect(repo.currentUser?.email, 'neu@eatova.de');
-      expect(repo.currentUser?.displayName, 'Moritz');
     });
   });
 

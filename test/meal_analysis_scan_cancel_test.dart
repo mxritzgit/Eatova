@@ -1,9 +1,8 @@
-// W3-07 / G2: pins `if (capture == null || !context.mounted) return;` in
-// meal_analysis_screen.dart. Without it, cancelling the scan camera crashes on
-// `capture.slot`, and no other test caught that — cancelling is the second
-// most common outcome of a camera call. The `!context.mounted` half (screen
-// gone while the sheet was open) is covered too, because the test drives the
-// sheet through the real screen tree.
+// W3-07 / G2: pins the `capture == null` exit in `_scanWithCamera`
+// (meal_analysis_screen.dart). Cancelling is the second most common outcome
+// of a camera call: it must neither crash nor open the next step (the photo
+// preview), and the screen must stay usable for another try. A parent that
+// goes away while a preview is open is covered in meal_scan_context_test.dart.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +13,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
+import 'package:eatova/src/widgets/kcal/meal_scan_preview_sheet.dart';
 
 import 'support/harness.dart';
 
@@ -57,7 +57,7 @@ class _NieAufgerufenerAnalyzer implements MealAnalyzer {
 
 void main() {
   testWidgetsRobust(
-    'Scan-Kamera abbrechen: kein Crash, keine Analyse, kein Ergebnis-Sheet',
+    'Scan-Kamera abbrechen: kein Crash, keine Vorschau, keine Analyse',
     (tester) async {
       final kamera = _AbbrechendeKamera();
       final analyzer = _NieAufgerufenerAnalyzer();
@@ -81,18 +81,16 @@ void main() {
       // The camera really ran — the test is not checking an unentered path.
       expect(kamera.aufrufe, 1);
 
-      // Without the guard `capture.slot` throws on null here.
       expect(
         tester.takeException(),
         isNull,
         reason: 'Abbrechen darf keinen Null-Check-Crash ausloesen',
       );
 
-      // No analysis request for a discarded photo …
+      // No next step for a discarded photo: the preview (the step after the
+      // camera) stays closed, and nothing is analysed.
+      expect(find.byType(MealScanPreviewSheet), findsNothing);
       expect(analyzer.aufrufe, 0);
-      // … and no result sheet.
-      expect(find.byKey(const ValueKey('analyse-result-card')), findsNothing);
-      expect(find.text('Analyse prüfen'), findsNothing);
 
       // The screen stays usable: a second attempt works.
       expect(find.byKey(const ValueKey('food-action-ai')), findsOneWidget);

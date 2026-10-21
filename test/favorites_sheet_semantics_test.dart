@@ -1,7 +1,7 @@
 // A11y of the favorites sheet (feature 2026-08-27): what heart, add, search
 // and clear SAY to a screen reader (tooltip / label / hint), the title as a
-// header, the 44 pt tap floor for clear and Material's 48 pt floor for the
-// heart. `getSemantics` walks
+// header, the 44 pt tap floor for clear (the heart's and the one-tap "+"'s
+// floor is pinned in favorites_lively_row_test.dart). `getSemantics` walks
 // UP the render tree, so the text field is found via a semantics finder.
 
 import 'package:flutter/material.dart';
@@ -193,18 +193,6 @@ void main() {
     // Gegenprobe: die Aktionen darunter behalten ihre Tipp-Aktion.
     expect(herz, isSemantics(isButton: true, hasTapAction: true,
         isHeader: false));
-  });
-
-  testWidgets('Herz hat mindestens 48×48 pt Tap-Fläche', (tester) async {
-    await _pump(tester);
-
-    // The heart is the shared MealFavoriteButton, an IconButton with a
-    // 48 x 48 minimum and no compact density.
-    final groesse = tester.getSize(find.byKey(_herz0));
-    expect(groesse.width, greaterThanOrEqualTo(kMinInteractiveDimension),
-        reason: 'Herz (saved_meal_presentation.dart) ist $groesse');
-    expect(groesse.height, greaterThanOrEqualTo(kMinInteractiveDimension),
-        reason: 'Herz (saved_meal_presentation.dart) ist $groesse');
   });
 
   testWidgets('Clear-Button hat mindestens 44×44 pt Tap-Fläche',

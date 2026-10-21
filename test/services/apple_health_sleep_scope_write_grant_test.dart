@@ -82,7 +82,8 @@ void main() {
   setUp(() => binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
 
   group('Fund 1 — kein SLEEP-Scope mehr', () {
-    test('das Berechtigungs-Sheet fragt Schlaf nicht mehr an', () async {
+    test('das Sheet fragt Schritte und Gewicht an, keinen Schlaf, mit '
+        'parallelen Permissions', () async {
       final fake = _RecordingHealth(steps: 4200);
       final service = AppleHealthService(health: fake, debugIsIOS: true);
 
@@ -94,15 +95,6 @@ void main() {
               'App Review');
       expect(types,
           containsAll(const [HealthDataType.STEPS, HealthDataType.WEIGHT]));
-    });
-
-    test('Typen und Permissions bleiben parallele Listen', () async {
-      final fake = _RecordingHealth(steps: 4200);
-      final service = AppleHealthService(health: fake, debugIsIOS: true);
-
-      await service.requestAuthorization();
-
-      final types = fake.requestedTypes.single;
       final permissions = fake.requestedPermissions.single;
       expect(permissions, isNotNull);
       expect(permissions!.length, types.length,
@@ -142,19 +134,6 @@ void main() {
   });
 
   group('Fund 2 — reine Schreib-Freigabe ist kein Lese-Beweis', () {
-    test('nur WRITE eingeschaltet, nie Daten gesehen -> unverified', () {
-      final v = HealthAuthVerifier();
-
-      final state = v.resolve(
-        _ev(writeGrant: true, steps: 0),
-        now: DateTime(2026, 8, 19, 21),
-      );
-
-      expect(state, HealthAuthState.unverified,
-          reason: 'das Sheet trennt Schreiben und Lesen — der Schreibschalter '
-              'sagt nichts darueber, ob Schritte ankommen');
-    });
-
     test('nur WRITE eingeschaltet -> Snapshot bleibt null statt 0 Schritte',
         () {
       final v = HealthAuthVerifier();

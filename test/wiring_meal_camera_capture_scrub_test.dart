@@ -163,7 +163,9 @@ void main() {
           reason: 'die Testquelle muss ueber der Kappungsgrenze liegen');
 
       final camera = _FakeCameraPlatform(roh);
+      final prior = CameraPlatform.instance;
       CameraPlatform.instance = camera;
+      addTearDown(() => CameraPlatform.instance = prior);
 
       MealCameraCapture? captured;
       // MealCameraSheet reads colors via `context.t` (AppTokens.of throws

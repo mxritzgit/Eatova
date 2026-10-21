@@ -42,45 +42,54 @@ void main() {
       expect(specs.first.scheduledFor, DateTime(2026, 7, 15, 21, 30));
     });
 
-    test('eine Minute vor der Zeit: heute ist noch dabei', () {
-      final specs = planStreakReminders(
-        DateTime(2026, 7, 15, 21, 29),
-        LifetimeStats(),
-        null,
-        halfTen,
-      );
-      expect(specs.first.scheduledFor, DateTime(2026, 7, 15, 21, 30));
-    });
-
-    test('genau zur Zeit: heute zaehlt als vorbei', () {
-      final specs = planStreakReminders(
-        DateTime(2026, 7, 15, 21, 30),
-        LifetimeStats(),
-        null,
-        halfTen,
-      );
-      expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 21, 30));
-    });
-
-    test('kurz danach: Start morgen, nie in der Vergangenheit', () {
-      final specs = planStreakReminders(
-        DateTime(2026, 7, 15, 21, 31),
-        LifetimeStats(),
-        null,
-        halfTen,
-      );
-      expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 21, 30));
-    });
-
-    test('eine fruehe Zeit ist am Abend schon vorbei: Start morgen', () {
-      // 20:00 would still plan today; 07:15 is past, so tomorrow.
-      final specs = planStreakReminders(
-        DateTime(2026, 7, 15, 19),
-        LifetimeStats(),
-        null,
-        const ReminderTime(7, 15),
-      );
-      expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 7, 15));
+    test('der erste Slot: vor der Uhrzeit heute, ab der Uhrzeit morgen', () {
+      // (now, chosen time, first slot, second slot)
+      for (final (now, time, first, second) in <(
+        DateTime,
+        ReminderTime,
+        DateTime,
+        DateTime,
+      )>[
+        // One minute before: today is still in.
+        (
+          DateTime(2026, 7, 15, 21, 29),
+          halfTen,
+          DateTime(2026, 7, 15, 21, 30),
+          DateTime(2026, 7, 16, 21, 30),
+        ),
+        // Exactly at the time: today counts as past, never into the past.
+        (
+          DateTime(2026, 7, 15, 21, 30),
+          halfTen,
+          DateTime(2026, 7, 16, 21, 30),
+          DateTime(2026, 7, 17, 21, 30),
+        ),
+        // 20:00 would still plan today; 07:15 is past in the evening.
+        (
+          DateTime(2026, 7, 15, 19),
+          const ReminderTime(7, 15),
+          DateTime(2026, 7, 16, 7, 15),
+          DateTime(2026, 7, 17, 7, 15),
+        ),
+        // 00:00 in the morning: the next slot is the coming night.
+        (
+          DateTime(2026, 7, 15, 9, 30),
+          const ReminderTime(0, 0),
+          DateTime(2026, 7, 16),
+          DateTime(2026, 7, 17),
+        ),
+        // 23:59 one minute before, across the month boundary.
+        (
+          DateTime(2026, 7, 31, 23, 58),
+          const ReminderTime(23, 59),
+          DateTime(2026, 7, 31, 23, 59),
+          DateTime(2026, 8, 1, 23, 59),
+        ),
+      ]) {
+        final specs = planStreakReminders(now, LifetimeStats(), null, time);
+        expect(specs.first.scheduledFor, first, reason: '$now $time');
+        expect(specs[1].scheduledFor, second, reason: '$now $time');
+      }
     });
 
     test('heute schon eingetragen: Start morgen zur gewaehlten Zeit', () {
@@ -91,40 +100,6 @@ void main() {
         halfTen,
       );
       expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 21, 30));
-    });
-  });
-
-  group('Mitternacht', () {
-    test('00:00 am Vormittag: der naechste Slot ist die kommende Nacht', () {
-      final specs = planStreakReminders(
-        DateTime(2026, 7, 15, 9, 30),
-        LifetimeStats(),
-        null,
-        const ReminderTime(0, 0),
-      );
-      expect(specs.first.scheduledFor, DateTime(2026, 7, 16));
-      expect(specs[1].scheduledFor, DateTime(2026, 7, 17));
-    });
-
-    test('genau Mitternacht bei 00:00: heute ist vorbei', () {
-      final specs = planStreakReminders(
-        DateTime(2026, 7, 15),
-        LifetimeStats(),
-        null,
-        const ReminderTime(0, 0),
-      );
-      expect(specs.first.scheduledFor, DateTime(2026, 7, 16));
-    });
-
-    test('23:59 eine Minute vorher: heute noch, ueber den Monatswechsel', () {
-      final specs = planStreakReminders(
-        DateTime(2026, 7, 31, 23, 58),
-        LifetimeStats(),
-        null,
-        const ReminderTime(23, 59),
-      );
-      expect(specs.first.scheduledFor, DateTime(2026, 7, 31, 23, 59));
-      expect(specs[1].scheduledFor, DateTime(2026, 8, 1, 23, 59));
     });
   });
 

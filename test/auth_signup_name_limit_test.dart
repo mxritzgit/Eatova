@@ -9,7 +9,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
-import 'package:eatova/src/widgets/common/text_length_limit.dart';
 
 import 'support/harness.dart';
 
@@ -67,18 +66,9 @@ Future<void> _signUpWithName(
 }
 
 void main() {
-  testWidgets('the signup name field stops at the database limit',
-      (tester) async {
-    final repo = _NameCapture();
-    addTearDown(repo.dispose);
-
-    await _signUpWithName(tester, repo, 'A' * 120);
-
-    expect(repo.names, ['A' * _max]);
-  });
-
-  testWidgets('the cap counts code points and keeps emoji whole',
-      (tester) async {
+  // The formatter itself is pinned in widgets/common/text_length_limit_test.
+  testWidgets('the signup name field stops at the database limit in code '
+      'points and keeps emoji whole', (tester) async {
     final repo = _NameCapture();
     addTearDown(repo.dispose);
 
@@ -88,31 +78,6 @@ void main() {
     final sent = repo.names.single;
     expect(sent.runes.length, _max);
     expect(sent, '${'a' * 79}😀');
-  });
-
-  group('TextLengthLimit in code points', () {
-    const formatter = TextLengthLimit(3, unit: TextLengthUnit.codePoints);
-    TextEditingValue edit(String old, String neu) => formatter.formatEditUpdate(
-          TextEditingValue(text: old),
-          TextEditingValue(
-            text: neu,
-            selection: TextSelection.collapsed(offset: neu.length),
-          ),
-        );
-
-    test('rejects growth past the cap', () {
-      expect(edit('abc', 'abcd').text, 'abc');
-    });
-
-    test('truncates a paste on a code-point boundary', () {
-      // A lone high surrogate would be an invalid string for Postgres.
-      expect(edit('', 'a😀b😀').text, 'a😀b');
-      expect(edit('', 'ab😀😀').text, 'ab😀');
-    });
-
-    test('lets an over-long value shrink', () {
-      expect(edit('abcde', 'abcd').text, 'abcd');
-    });
   });
 
   test('signUp clamps the metadata name for callers without the field',

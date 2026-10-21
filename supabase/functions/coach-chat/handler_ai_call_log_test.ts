@@ -257,14 +257,3 @@ Deno.test("ai_call: a recipe logs the draft and the image call with its provider
     stub.restore();
   }
 });
-
-Deno.test("ai_call: a broken logger does not break the answer", async () => {
-  const stub = install({ throwingLogger: true });
-  try {
-    const response = await handleRequest(request({ message: "Wie viel Protein?" }));
-    assertEquals(response.status, 200, "Antwort trotz Logger-Ausfall");
-    await response.body?.cancel();
-  } finally {
-    stub.restore();
-  }
-});

@@ -340,7 +340,8 @@ void main() {
     await tester.ensureVisible(key('analyse-add-daily-button'));
     await tester.tap(key('analyse-add-daily-button'));
     await tester.pump();
-    await tester.tap(key('analyse-add-daily-button'));
+    // The pending commit absorbs the second tap.
+    await tester.tap(key('analyse-add-daily-button'), warnIfMissed: false);
     expect(calls, 1);
     expect(find.textContaining('hinzugefügt'), findsNothing);
     commit.complete('meal-1');

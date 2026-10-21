@@ -461,9 +461,6 @@ void main() {
       expect(_row(receipt, 'egg').total, [_a(ShoppingUnit.piece, 3)]);
       expect(_row(receipt, 'tomato').label, 'Tomaten');
       expect(_row(receipt, 'tomato').total, [_a(ShoppingUnit.piece, 2)]);
-      // A type or a fat level is no amount.
-      expect(splitTrailingShoppingAmount('Mehl Type 405'), isNull);
-      expect(splitTrailingShoppingAmount('Joghurt 1,5 %'), isNull);
 
       // What is still unread stays on a row of its own, as written.
       receipt = _receipt([

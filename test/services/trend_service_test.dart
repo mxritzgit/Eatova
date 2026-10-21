@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/services/meals_sync.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 // Pure trend logic: daily-total aggregation, dense window with gap days,
@@ -13,6 +12,10 @@ TrendDayTotals _day(
   double c = 0,
   double f = 0,
 }) => TrendDayTotals(day: day, kcal: kcal, proteinG: p, carbsG: c, fatG: f);
+
+/// Shorthand for calendar assertions: only (year, month, day) count.
+({int y, int m, int d}) ymd(DateTime value) =>
+    (y: value.year, m: value.month, d: value.day);
 
 void main() {
   group('aggregateDailyTotals', () {
@@ -123,6 +126,73 @@ void main() {
       // Jul 31 is 2 days before Aug 2 -> index days-1-2 = 4.
       expect(window[4]?.kcal, 1500);
     });
+
+    // B5: on a 23-hour DST day `today.subtract(Duration(days: n))` lands at
+    // 23:00 of the day before, which shares a localDayKey with it, so one day
+    // would drop out of the window and another appear twice. CI runs on UTC,
+    // where only the zone-independent assertions bite; a DST zone (the
+    // owner's machine) also catches the bug itself.
+    test('Fruehjahrsumstellung 2026-03-29: jeder Tag genau einmal', () {
+      final naiv = DateTime(2026, 3, 30).subtract(const Duration(days: 1));
+      if (naiv.day != 29) {
+        expect(ymd(naiv), (y: 2026, m: 3, d: 28));
+        expect(naiv.hour, 23);
+      }
+      final window = denseTrendWindow(
+        [for (var d = 24; d <= 30; d++) _day(DateTime(2026, 3, d), kcal: d * 100)],
+        today: DateTime(2026, 3, 30, 9, 15),
+        days: 7,
+      );
+      expect(window.map((t) => t?.kcal).toList(), [
+        2400,
+        2500,
+        2600,
+        2700,
+        2800,
+        2900, // the day Duration arithmetic swallows
+        3000,
+      ]);
+    });
+
+    test('trifft an jedem Tag 2026 die Kalender-Position (UTC-Orakel)', () {
+      const days = 7;
+      var cursor = DateTime.utc(2026, 1, 1);
+      var geprueft = 0;
+      while (cursor.year == 2026) {
+        final heute = DateTime(cursor.year, cursor.month, cursor.day);
+        // UTC has no DST: there Duration arithmetic IS the calendar shift.
+        final totals = <TrendDayTotals>[];
+        for (var k = 0; k < days; k++) {
+          final orakel = cursor.subtract(Duration(days: k));
+          totals.add(
+            _day(DateTime(orakel.year, orakel.month, orakel.day), kcal: 1000 + k),
+          );
+        }
+        final window = denseTrendWindow(totals, today: heute, days: days);
+        for (var k = 0; k < days; k++) {
+          expect(
+            window[days - 1 - k]?.kcal,
+            1000 + k,
+            reason: 'Fenster um $heute: Position ${days - 1 - k}',
+          );
+        }
+        geprueft++;
+        cursor = cursor.add(const Duration(days: 1));
+      }
+      expect(geprueft, 365);
+    });
+
+    test('days <= 0 liefert ein leeres Fenster statt zu werfen', () {
+      final totals = [_day(DateTime(2026, 3, 30), kcal: 2000)];
+      expect(
+        denseTrendWindow(totals, today: DateTime(2026, 3, 30), days: 0),
+        isEmpty,
+      );
+      expect(
+        denseTrendWindow(totals, today: DateTime(2026, 3, 30), days: -1),
+        isEmpty,
+      );
+    });
   });
 
   group('completedDaysOf — B6: der laufende Tag zaehlt nicht mit', () {
@@ -170,22 +240,6 @@ void main() {
         expect(hits.tracked, 6);
       },
     );
-
-    test('Ø Makros werden ebenfalls nicht mehr vom Teiltag verduennt', () {
-      final totals = [
-        for (var d = 1; d <= 6; d++)
-          _day(DateTime(2026, 8, d), kcal: 2200, p: 120, c: 200, f: 60),
-        _day(DateTime(2026, 8, 7), kcal: 350, p: 10, c: 40, f: 8),
-      ];
-      final completed = completedDaysOf(
-        denseTrendWindow(totals, today: DateTime(2026, 8, 7, 8, 30), days: 7),
-      );
-      final macros = averageMacrosOf(completed);
-      expect(macros, isNotNull);
-      expect(macros!.proteinG, closeTo(120, 0.001));
-      expect(macros.carbsG, closeTo(200, 0.001));
-      expect(macros.fatG, closeTo(60, 0.001));
-    });
 
     test(
       'nur heute geloggt: leere Kennzahlen statt NaN oder Division durch 0',
@@ -239,10 +293,6 @@ void main() {
       ];
       expect(averageKcalOf(window), closeTo(1500, 0.001));
     });
-
-    test('liefert null ohne getrackte Tage', () {
-      expect(averageKcalOf(<TrendDayTotals?>[null, null]), isNull);
-    });
   });
 
   group('goalHitsOf', () {
@@ -279,22 +329,6 @@ void main() {
       expect(macros!.proteinG, closeTo(100, 0.001));
       expect(macros.carbsG, closeTo(150, 0.001));
       expect(macros.fatG, closeTo(50, 0.001));
-    });
-
-    test('liefert null ohne getrackte Tage', () {
-      expect(averageMacrosOf(<TrendDayTotals?>[null]), isNull);
-    });
-  });
-
-  group('TrendService Query-Grenzen', () {
-    test('Sechs-Monats-Fenster, groesser als das Boot-Fenster', () {
-      // Own data path, larger than the diary's boot window; paging and its
-      // bounds are pinned in test/trends/trend_service_paging_test.dart.
-      expect(TrendService.trendWindowDays, 182);
-      expect(
-        TrendService.trendWindowDays,
-        greaterThan(MealsSync.loggedMealsWindowDays),
-      );
     });
   });
 }

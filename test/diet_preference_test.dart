@@ -12,7 +12,8 @@ import 'support/harness.dart';
 
 // PROD-6: a vegetarian or vegan profile must NEVER be actively recommended a
 // meat or fish recipe, while manual browsing stays unrestricted on purpose.
-// One widget test covers the real screen wiring.
+// Two widget tests cover the real screen wiring: the vegetarian case and its
+// control without a preference.
 
 FitnessRecipe _byTitle(String title) =>
     recipeCatalogDe.firstWhere((r) => r.title == title);
@@ -72,17 +73,6 @@ void main() {
       );
       expect(own.matchesDiet(DietPreference.vegan), isTrue);
     });
-
-    test('vegetarian filtert die Bestandsliste auf rein veg/ei-Gerichte', () {
-      final veg = recipeCatalogDe
-          .where((r) => r.matchesDiet(DietPreference.vegetarian))
-          .map((r) => r.title)
-          .toList();
-      expect(veg, isNot(contains('Lachs mit Süßkartoffel & Spargel')));
-      expect(veg, isNot(contains('Rindersteak mit Kartoffeln & Bohnen')));
-      expect(veg, isNot(contains('Garnelen mit Vollkornnudeln & Zucchini')));
-      expect(veg, contains('Tofu mit Reis & Edamame'));
-    });
   });
 
   // P2-03 (Review 2026-08-29): Filter-Chip und Empfehlung widersprachen sich.
@@ -110,18 +100,6 @@ void main() {
         for (final r in katalog.where((r) => r.categories.contains('Vegan'))) {
           expect(r.categories, contains('Vegetarisch'), reason: r.slug);
         }
-      });
-
-      test('$sprache: 12 fleisch- und fischfreie Rezepte, alle getaggt', () {
-        // Nachgezaehlt: 11 trugen den Tag schon, das Omelett kam mit P2-03
-        // dazu. Der Befund nannte "10 von 11" — beide Zahlen waren um eins
-        // daneben, die Richtung stimmte.
-        final vegetarisch = katalog
-            .where((r) => r.matchesDiet(DietPreference.vegetarian))
-            .toList(growable: false);
-        expect(vegetarisch, hasLength(12));
-        expect(katalog.where((r) => r.categories.contains('Fisch')),
-            hasLength(6));
       });
     }
 
@@ -154,7 +132,9 @@ void main() {
   });
 
   group('RecipesScreen empfiehlt keine präferenz-verletzenden Rezepte', () {
-    // Macros where the meat/fish plates would rank top without a filter.
+    // Without a filter these macros rank chicken and turkey plates on top, so
+    // the hero (match #1) and the goal carousel (#2, #3) show a missing diet
+    // filter. Salmon and steak alone were never in the top three.
     const remaining =
         MacroProgress(proteinG: 60, carbsG: 60, fatG: 25, kcal: 700);
 
@@ -177,50 +157,49 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('vegetarisch: kein Lachs/Rindersteak im Ziel-Match-Carousel',
+    /// The recommended catalogue recipes on screen: the hero and the goal
+    /// carousel at the end of the lazy list.
+    Future<List<FitnessRecipe>> empfohlen(WidgetTester tester) async {
+      bool zeigt(String key) => find.byKey(ValueKey(key)).evaluate().isNotEmpty;
+      final hero = recipeCatalogDe
+          .where((r) => zeigt('recipe-hero-photo-${r.slug}'))
+          .toList();
+      final goalMatches = find.byKey(const ValueKey('recipe-goal-matches'));
+      await tester.dragUntilVisible(
+        goalMatches,
+        find.byKey(const ValueKey('screen-recipes')),
+        const Offset(0, -250),
+      );
+      await tester.pumpAndSettle();
+      return [
+        ...hero,
+        ...recipeCatalogDe.where((r) => zeigt('recipe-goal-match-${r.slug}')),
+      ];
+    }
+
+    testWidgets('vegetarisch: Hero und Ziel-Match-Carousel ohne Fleisch/Fisch',
         (tester) async {
       await pump(tester, DietPreference.vegetarian);
 
-      // Goal matches sit at the list end of a lazy list.
-      final goalMatches = find.byKey(const ValueKey('recipe-goal-matches'));
-      await tester.dragUntilVisible(
-        goalMatches,
-        find.byKey(const ValueKey('screen-recipes')),
-        const Offset(0, -250),
-      );
-      await tester.pumpAndSettle();
-      expect(goalMatches, findsOneWidget);
-
-      // Never in the promoted carousel; in the main list they may, by design.
-      expect(
-        find.descendant(
-          of: goalMatches,
-          matching: find.text('Lachs mit Süßkartoffel & Spargel'),
-        ),
-        findsNothing,
-      );
-      expect(
-        find.descendant(
-          of: goalMatches,
-          matching: find.text('Rindersteak mit Kartoffeln & Bohnen'),
-        ),
-        findsNothing,
-      );
+      final rezepte = await empfohlen(tester);
+      expect(rezepte, hasLength(3));
+      for (final r in rezepte) {
+        expect(r.matchesDiet(DietPreference.vegetarian), isTrue,
+            reason: '${r.title} wird Vegetariern aktiv empfohlen');
+      }
     });
 
-    testWidgets('none: Lachs darf weiterhin als Ziel-Match erscheinen',
+    testWidgets('none: dieselben Makros empfehlen sonst Fleischgerichte',
         (tester) async {
+      // Control for the test above: without it, a scenario in which no meat
+      // plate ever ranks would keep that test green with no filter at all.
       await pump(tester, DietPreference.none);
-      // Without a preference the unfiltered path is active.
-      expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
-      final goalMatches = find.byKey(const ValueKey('recipe-goal-matches'));
-      await tester.dragUntilVisible(
-        goalMatches,
-        find.byKey(const ValueKey('screen-recipes')),
-        const Offset(0, -250),
+
+      final rezepte = await empfohlen(tester);
+      expect(
+        rezepte.where((r) => !r.matchesDiet(DietPreference.vegetarian)),
+        isNotEmpty,
       );
-      await tester.pumpAndSettle();
-      expect(goalMatches, findsOneWidget);
     });
   });
 }

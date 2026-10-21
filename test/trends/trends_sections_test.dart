@@ -3,7 +3,6 @@
 // backfill per range, live rebuilds from the store, the sections surviving a
 // failed server window, and Today's trends card.
 
-import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -306,10 +305,5 @@ void main() {
         );
       },
     );
-  });
-
-  test('Uhr bleibt fest', () {
-    // Guards against a stray wall clock in the helpers above.
-    expect(withClock(Clock.fixed(_now), () => clock.now()), _now);
   });
 }

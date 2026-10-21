@@ -16,8 +16,16 @@ import 'account_studio_layout_test.dart' show loadAccountFonts;
 import 'support/harness.dart';
 import 'widgets/welcome_screen_test.dart' show expectGreetingInSafeArea;
 
+const _previewDirectory = String.fromEnvironment('AUTH_PREVIEW_DIR');
+
+/// Brightness changes colors, never layout: the normal run checks one, the
+/// preview capture (docs/AUTH-ONBOARDING-DESIGN.md) renders both.
+final List<Brightness> _brightnesses = _previewDirectory.isEmpty
+    ? const [Brightness.dark]
+    : Brightness.values;
+
 Future<void> _capture(WidgetTester tester, GlobalKey key, String name) async {
-  const directory = String.fromEnvironment('AUTH_PREVIEW_DIR');
+  const directory = _previewDirectory;
   if (directory.isEmpty) return;
   await tester.runAsync(() async {
     final boundary =
@@ -102,7 +110,7 @@ void _expectCodeDigitsVisible(WidgetTester tester, String code, Size screen) {
 
 void main() {
   setUpAll(loadAccountFonts);
-  for (final brightness in Brightness.values) {
+  for (final brightness in _brightnesses) {
     testWidgets('recovery sequence real fonts ${brightness.name}', (
       tester,
     ) async {
@@ -145,7 +153,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
-  for (final brightness in Brightness.values) {
+  for (final brightness in _brightnesses) {
     for (final locale in const ['de', 'en']) {
       testWidgets(
         'small phone keyboard and large text ${brightness.name} $locale',

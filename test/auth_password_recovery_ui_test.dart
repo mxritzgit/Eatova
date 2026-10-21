@@ -147,6 +147,9 @@ void main() {
     );
     await _openRecovery(tester);
     await tester.pumpAndSettle();
+    // The address typed on the login reached the code page and the verify.
+    expect(repo.passwordResets, ['user@example.com']);
+    expect(repo.verifiedCodes, ['user@example.com:48291357']);
     expect(repo.currentUser, isNull);
     expect(homeBuilds, 0);
     await tester.enterText(
@@ -216,23 +219,6 @@ void main() {
             'Code-Seite, in der Passwort- und in der Loesch-Bestaetigung');
   });
 
-  testWidgets('Passwort vergessen oeffnet die Code-Seite mit vorbefuellter '
-      'E-Mail', (tester) async {
-    final repo = InMemoryAuthRepository();
-    await _pumpAuth(tester, repo);
-
-    await tester.enterText(
-        find.byKey(const ValueKey('auth-email-field')), 'user@example.com');
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('auth-forgot-password')));
-    await tester.tap(find.byKey(const ValueKey('auth-forgot-password')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('auth-code-screen')), findsOneWidget);
-    expect(find.text('user@example.com'), findsOneWidget,
-        reason: 'die getippte Adresse ist vorbefuellt');
-  });
-
   testWidgets('Recovery: Code anfordern bestaetigt NEUTRAL und wechselt zur '
       'Code-Eingabe', (tester) async {
     final repo = InMemoryAuthRepository();
@@ -246,29 +232,6 @@ void main() {
     expect(find.textContaining('Falls ein Konto'), findsOneWidget,
         reason: 'neutral — keine Aussage, OB das Konto existiert');
     expect(find.textContaining('10 Minuten'), findsOneWidget);
-  });
-
-  testWidgets('Recovery: Code pruefen -> Passwort-Schritt -> speichern',
-      (tester) async {
-    final repo = InMemoryAuthRepository();
-    await _pumpCode(tester, repo, flow: AuthCodeFlow.recovery);
-    await tester.tap(find.byKey(const ValueKey('code-primary')));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byKey(const ValueKey('code-field')), '48291357');
-    await tester.tap(find.byKey(const ValueKey('code-primary')));
-    await tester.pumpAndSettle();
-
-    expect(repo.verifiedCodes, ['user@example.com:48291357']);
-    expect(
-        find.byKey(const ValueKey('code-password-field')), findsOneWidget);
-
-    await tester.enterText(
-        find.byKey(const ValueKey('code-password-field')), 'neues-passwort9');
-    await tester.tap(find.byKey(const ValueKey('code-primary')));
-    await tester.pumpAndSettle();
-
-    expect(repo.passwordUpdates, ['neues-passwort9']);
   });
 
   testWidgets('falscher Code: Hinweis + Neuanfordern statt Weiterkommen',

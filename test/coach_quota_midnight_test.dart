@@ -14,8 +14,9 @@ import 'support/harness.dart';
 // so `_bootstrap()` runs only ONCE per app run. With the quota exhausted the
 // composer is disabled and no send() response can correct the counter, so
 // anyone leaving the app open across UTC midnight stayed locked out until a
-// cold start. The lever is `TickerMode`: the invisible tab is muted, returning
-// to the coach flips it to `true`.
+// cold start. Two levers: `TickerMode` (the invisible tab is muted, returning
+// to the coach flips it to `true`) and the app's resume, for a user who left
+// the app on the Coach tab overnight (review 2026-08-19).
 
 class _MidnightService extends CoachChatService {
   _MidnightService(super.client, super.userId);
@@ -159,5 +160,36 @@ void main() {
     expect(svc.quotaCalls, 2, reason: 'einmal nachgefragt');
     expect(find.text('Limit für heute erreicht'), findsOneWidget,
         reason: 'das Limit gilt weiterhin');
+  });
+
+  testWidgets('der Resume auf dem offenen Coach-Tab holt den Tageszaehler neu, '
+      'der Gang in den Hintergrund nicht', (tester) async {
+    final svc = _MidnightService.create();
+    await pumpLocalized(
+      tester,
+      _TabHost(service: svc),
+      // The host brings its own Scaffold.
+      scaffold: false,
+      safeArea: false,
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Limit für heute erreicht'), findsOneWidget);
+
+    tester.binding
+      ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(svc.quotaCalls, 1,
+        reason: 'ein Request im Hintergrund waere reine Verschwendung');
+
+    tester.binding
+      ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(svc.quotaCalls, 2, reason: 'der Resume muss neu fragen');
+    expect(find.text('Limit für heute erreicht'), findsNothing,
+        reason: 'nach der Tagesgrenze vergibt der Server wieder Slots');
   });
 }

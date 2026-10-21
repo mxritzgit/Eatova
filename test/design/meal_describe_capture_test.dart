@@ -158,7 +158,11 @@ Future<void> _scrollToEnd(WidgetTester tester) async {
 void main() {
   setUpAll(loadDesignFonts);
 
-  for (final brightness in Brightness.values) {
+  // Outside a capture run both tones would check the same thing (it renders
+  // without an exception); the behaviour lives in describe/ui/. So the
+  // normal pass renders dark only and a capture run writes both.
+  for (final brightness
+      in kDesignCapture ? Brightness.values : const [Brightness.dark]) {
     final tone = brightness.name;
     group(tone, () {
       testWidgets('add sheet with the describe entry', (tester) async {

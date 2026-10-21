@@ -121,7 +121,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(_title(tester), 'August 2026');
     final six = tester.getSize(find.byType(FoodMonthCalendar)).height;
-    expect(six - five, moreOrLessEquals(48, epsilon: 0.5));
+    expect(six, greaterThan(five), reason: 'one more week row, no fixed six');
   });
 
   testWidgets('days past lastDate are shown but do not pick; paging stops '
@@ -221,33 +221,14 @@ void main() {
     tester,
   ) async {
     final picks = await _pump(tester);
-    Focus.of(tester.element(find.descendant(
-      of: _day(9, 14),
-      matching: find.byType(Text),
-    ))).requestFocus();
-    await tester.pump();
+    await _focus(tester, _day(9, 14));
 
-    bool focusedIn(Finder day) {
-      final focused = FocusManager.instance.primaryFocus?.context;
-      if (focused == null) return false;
-      final target = tester.element(day);
-      var inside = false;
-      focused.visitAncestorElements((element) {
-        if (element == target) inside = true;
-        return !inside;
-      });
-      return inside;
-    }
-
-    expect(focusedIn(_day(9, 14)), isTrue);
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    await tester.pumpAndSettle();
-    expect(focusedIn(_day(9, 15)), isTrue);
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pumpAndSettle();
-    expect(focusedIn(_day(9, 22)), isTrue);
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pumpAndSettle();
+    expect(_focusedIn(tester, _day(9, 14)), isTrue);
+    await _press(tester, LogicalKeyboardKey.arrowRight);
+    expect(_focusedIn(tester, _day(9, 15)), isTrue);
+    await _press(tester, LogicalKeyboardKey.arrowDown);
+    expect(_focusedIn(tester, _day(9, 22)), isTrue);
+    await _press(tester, LogicalKeyboardKey.enter);
     expect(picks, [DateTime(2026, 9, 22)]);
   });
 

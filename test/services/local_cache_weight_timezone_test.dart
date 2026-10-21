@@ -132,67 +132,8 @@ void main() {
       expect(back.isUtc, isFalse);
       expect(back, local);
     });
-
-    test('an older build reads the new rows as the same instants', () async {
-      await withClock(Clock.fixed(_now), () async {
-        final queued = DateTime.utc(2026, 10, 25, 1, 45, 0, 0, 333);
-        final kv = InMemoryKeyValueStore();
-        final cache = LocalCache(kv, _owner);
-        final op = _weighIn(_queuedId, 80.2, queued);
-        await cache.commitSyncOperations([op]);
-        // The store snapshot writes id-less rows.
-        final before = await cache.readMutationSnapshot();
-        await cache.commitStoreSnapshot(
-          expectedVersions: before.snapshot.versions,
-          weightLog: WeightLog(
-            entries: [
-              WeightLogEntry(
-                timestamp: _winterHalfPastTwo.toLocal(),
-                weightKg: 80.4,
-              ),
-              WeightLogEntry(timestamp: queued.toLocal(), weightKg: 80.2),
-            ],
-          ),
-        );
-        final rows = await _storedRows(kv);
-        expect(rows.map((row) => row['id']), [null, null]);
-
-        // Reader, projection match, sort and merge key of the build before
-        // this format, verbatim.
-        DateTime oldRead(Map<String, dynamic> j) =>
-            DateTime.parse(j['t'] as String);
-        final old = rows.map(oldRead).toList();
-        expectInstants([
-          for (final (i, t) in old.indexed)
-            WeightLogEntry(
-              timestamp: t,
-              weightKg: (rows[i]['kg'] as num).toDouble(),
-            ),
-        ], [_winterHalfPastTwo, queued]);
-        final ts = op.recordedAt!;
-        expect(
-          rows.where(
-            (row) =>
-                row['id'] == op.entityId ||
-                row['id'] == null &&
-                    DateTime.parse(row['t'] as String).isAtSameMomentAs(ts),
-          ),
-          [rows.last],
-          reason: 'an older projection must find exactly the queued row',
-        );
-        final sorted = [...rows.reversed]
-          ..sort(
-            (a, b) => DateTime.parse(a['t'] as String)
-                .compareTo(DateTime.parse(b['t'] as String)),
-          );
-        expect(sorted.map((row) => row['kg']), [80.4, 80.2]);
-        // The older store's merge key of the server load.
-        expect(
-          old.map((t) => t.toUtc().toIso8601String()),
-          [_winterHalfPastTwo, queued].map((t) => t.toIso8601String()),
-        );
-      });
-    });
+    // An older build reads these rows with `DateTime.parse`; the exact UTC
+    // strings pinned above are what keeps that reading the same instant.
   });
 
   group('legacy rows of a queued weigh-in after a zone change', () {

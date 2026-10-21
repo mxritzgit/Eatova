@@ -13,6 +13,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../support/sync_session_fixture.dart';
+
 const owner = '71000000-0000-4000-8000-000000000001';
 const mealId = '72000000-0000-4000-8000-000000000001';
 const recipe = FitnessRecipe(
@@ -101,6 +103,31 @@ http.Response response(
     request: request,
   );
 }
+
+const _receiptOperationId = '76000000-0000-4000-8000-000000000001';
+
+Map<String, dynamic> _storedReceipt({bool deleted = false}) => {
+  'operation_id': _receiptOperationId,
+  'kind': 'recipeUpsert',
+  'entity_id': recipe.slug,
+  'result': {'recipe_mutation': mutation()},
+  'current_state': {
+    for (final name in ['recipe', 'saved_recipe'])
+      name: {
+        'slug': recipe.slug,
+        'revision': deleted ? 10 : 9,
+        'deleted': deleted,
+        'recipe': deleted ? null : recipe.copyWith(serverRevision: 9).toRow(),
+      },
+  },
+};
+
+http.Response _respond(http.Request request, Object? data) => http.Response(
+  jsonEncode(data),
+  200,
+  request: request,
+  headers: {'content-type': 'application/json'},
+);
 
 void main() {
   test('recipe base revision survives cache roundtrip and editor copy', () {
@@ -438,5 +465,80 @@ void main() {
       service.apply(SyncOp.statsIncrement(requestId: mealId, meals: 1)),
       throwsFormatException,
     );
+  });
+
+  group('loadReceipt', () {
+    test(
+      'receipt lookup pins owner and reads current tombstone without replay',
+      () async {
+        var calls = 0;
+        final connection = client((request) async {
+          calls++;
+          expect(
+            request.url.path,
+            endsWith('/rpc/load_sync_operation_receipt'),
+          );
+          expect(jsonDecode(request.body), {
+            'p_operation_id': _receiptOperationId,
+          });
+          expect(
+            request.headers['Authorization'],
+            'Bearer ${syncFixtureToken(owner)}',
+          );
+          return _respond(request, _storedReceipt(deleted: true));
+        });
+        await signInSyncFixture(connection, owner);
+        final result = await SyncOperationSync(
+          connection,
+          owner,
+        ).loadReceipt(_receiptOperationId);
+        expect(result!.recipeMutation!.savedRecipe, isNotNull);
+        expect(result.currentSavedRecipeState!.deleted, isTrue);
+        expect(calls, 1);
+      },
+    );
+
+    test('missing receipt is unresolved', () async {
+      final service = SyncOperationSync(
+        client((request) async => _respond(request, null)),
+        owner,
+      );
+      expect(await service.loadReceipt(_receiptOperationId), isNull);
+    });
+
+    test('mismatched operation or canonical recipe fails closed', () async {
+      for (final malformed in [
+        {
+          ..._storedReceipt(),
+          'operation_id': '76000000-0000-4000-8000-000000000099',
+        },
+        {..._storedReceipt(), 'entity_id': 'user_different'},
+      ]) {
+        final service = SyncOperationSync(
+          client((request) async => _respond(request, malformed)),
+          owner,
+        );
+        await expectLater(
+          service.loadReceipt(_receiptOperationId),
+          throwsFormatException,
+        );
+      }
+    });
+
+    test('invalid operation and changed account issue no HTTP request', () async {
+      var calls = 0;
+      final connection = client((request) async {
+        calls++;
+        return _respond(request, _storedReceipt());
+      });
+      final service = SyncOperationSync(connection, owner);
+      await expectLater(service.loadReceipt('invalid'), throwsFormatException);
+      await signInSyncFixture(connection, 'other-owner');
+      await expectLater(
+        service.loadReceipt(_receiptOperationId),
+        throwsA(isA<AuthException>()),
+      );
+      expect(calls, 0);
+    });
   });
 }

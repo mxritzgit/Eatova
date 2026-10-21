@@ -153,7 +153,10 @@ void main() {
       await _pump(tester, store);
 
       // No recipe headings, one row for both meals.
-      expect(find.text('HÄHNCHENPFANNE'), findsNothing);
+      expect(
+        find.textContaining(RegExp('hähnchenpfanne', caseSensitive: false)),
+        findsNothing,
+      );
       final row = _key('shopping-item-${chicken.id}');
       expect(
         find.descendant(of: row, matching: find.text('430 g')),
@@ -192,17 +195,16 @@ void main() {
       expect(detail.style!.decoration, TextDecoration.lineThrough);
       expect(await _progress(tester), '1 von 2 abgehakt');
 
-      await _tap(tester, row);
-      expect(store.shoppingChecks, {chicken.id: false});
-
-      // The receipt is kept between ticks, never between weeks or plans.
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, 6000));
-      await tester.pumpAndSettle();
+      // The receipt is kept between ticks, never between weeks or plans; a
+      // tick outlasts a change of week.
       await _tap(tester, _key('meal-plan-next-week'));
       expect(_key('shopping-receipt'), findsNothing);
       expect(_key('shopping-empty-plan'), findsOneWidget);
       await _tap(tester, _key('meal-plan-previous-week'));
-      expect(row, findsOneWidget);
+      expect(tester.getSemantics(row), isSemantics(isChecked: true));
+
+      await _tap(tester, row);
+      expect(store.shoppingChecks, {chicken.id: false});
       await _plan(
         store,
         _own('Wrap', '100 g Hähnchenbrust'),

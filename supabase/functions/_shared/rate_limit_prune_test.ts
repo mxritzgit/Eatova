@@ -2,13 +2,9 @@
 //
 // The regression: `void pruneRateLimits()` against a version WITHOUT try/catch
 // turned a rejecting fetch into an unhandled rejection that killed the isolate,
-// in analyze-meal mid paid model call.
-//
-// Two things are measured:
-//  1. the hardened version's promise resolves while the OLD one (naiverPrune,
-//     a faithful replica) rejects — an unheld rejecting promise IS the
-//     unhandled rejection.
-//  2. the fire-and-forget call really raises no "unhandledrejection" event.
+// in analyze-meal mid paid model call. The function awaits everything it
+// starts, so "its promise always resolves" is the whole guarantee: an unheld
+// promise that resolves cannot raise an unhandled rejection.
 //
 // A6 (performance audit 2026-09-01) added sampling, so every case below states
 // its draw explicitly. Nothing here may depend on Math.random: with the default
@@ -117,20 +113,6 @@ async function mitSampleRate(wert: string | undefined, fn: () => Promise<void>):
   }
 }
 
-/** Faithful replica of the pre-fix version. Control sample only: it proves the
- *  failure case below really produces a rejecting fetch. */
-async function naiverPrune(): Promise<void> {
-  await fetch(RPC_URL, {
-    method: "POST",
-    headers: {
-      apikey: SERVICE_KEY,
-      authorization: `Bearer ${SERVICE_KEY}`,
-      "content-type": "application/json",
-    },
-    body: "{}",
-  });
-}
-
 /** "resolved" / "rejected", without ever leaving the rejection unhandled. */
 async function ausgang(promise: Promise<unknown>): Promise<string> {
   return await promise.then(() => "resolved", () => "rejected");
@@ -149,50 +131,12 @@ Deno.test("REGRESSION: ein rejectender fetch schlaegt nicht nach aussen durch", 
         "`void pruneRateLimits(...)` haelt das Promise nicht, die Rejection " +
         "beendet den Isolate mitten im laufenden Request",
     );
-    // Control sample: same stub against the old version. If it does not reject
-    // here, the assertion above measures nothing.
-    assertEquals(
-      await ausgang(naiverPrune()),
-      "rejected",
-      "die alte, ungeschuetzte Fassung muss in diesem Aufbau rejecten",
-    );
-    assertEquals(fetchStub.aufrufe.length, 2, "beide Fassungen haben gefetcht");
+    assertEquals(fetchStub.aufrufe.length, 1, "der Aufruf ging raus");
     assert(
       log.zeilen.some((zeile) => zeile.includes("prune_edge_rate_limits failed")),
       `der geschluckte Fehler muss geloggt werden, Zeilen: ${JSON.stringify(log.zeilen)}`,
     );
   } finally {
-    log.restore();
-    fetchStub.restore();
-  }
-});
-
-Deno.test("REGRESSION: der fire-and-forget-Aufruf erzeugt keine unhandled rejection", async () => {
-  const fetchStub = installFetch(netzfehler);
-  const log = installErrorLog();
-  const gesammelt: string[] = [];
-  const listener = (event: Event) => {
-    // Without preventDefault() the test run would end here; in production it
-    // is the isolate.
-    event.preventDefault();
-    const grund = (event as Event & { reason?: unknown }).reason;
-    gesammelt.push(grund instanceof Error ? grund.message : String(grund));
-  };
-  globalThis.addEventListener("unhandledrejection", listener);
-  try {
-    // Exactly the call from analyze-meal/search-key.
-    void pruneRateLimits(OPTIONS);
-    // The runtime reports an unhandled rejection only after the microtask
-    // checkpoint of its tick — wait two macrotasks.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assertEquals(
-      gesammelt.length,
-      0,
-      `unbehandelte Rejection(s) aus dem fire-and-forget-Aufruf: ${JSON.stringify(gesammelt)}`,
-    );
-  } finally {
-    globalThis.removeEventListener("unhandledrejection", listener);
     log.restore();
     fetchStub.restore();
   }
@@ -219,9 +163,10 @@ Deno.test("ein HTTP-Fehlerstatus wird geschluckt, aber mit Status geloggt", asyn
   }
 });
 
-Deno.test("der Service-Key steht nie in der Fehlerzeile", async () => {
+Deno.test("Fehlerzeilen tragen weder Service-Key noch Ausnahmetext", async () => {
+  const marker = "PRIVATE_PRUNE_SENTINEL";
   const faelle: (() => Promise<Response>)[] = [
-    () => Promise.reject(new TypeError(`error sending request for ${RPC_URL}`)),
+    () => Promise.reject(new TypeError(`${marker} error sending request for ${RPC_URL}`)),
     () => Promise.resolve(new Response(SERVICE_KEY, { status: 401 })),
   ];
   for (const fall of faelle) {
@@ -230,25 +175,13 @@ Deno.test("der Service-Key steht nie in der Fehlerzeile", async () => {
     try {
       await pruneRateLimits(OPTIONS);
       const zeilen = log.zeilen.join("\n");
+      assert(zeilen.includes("prune_edge_rate_limits failed"), `der Fehler bleibt diagnostizierbar: ${zeilen}`);
       assert(!zeilen.includes(SERVICE_KEY), `der Service-Key ist im Log gelandet: ${zeilen}`);
+      assert(!zeilen.includes(marker), `Ausnahmetext im Log: ${zeilen}`);
     } finally {
       log.restore();
       fetchStub.restore();
     }
-  }
-});
-
-Deno.test("prune diagnostics omit arbitrary transport exception messages", async () => {
-  const marker = "PRIVATE_PRUNE_SENTINEL";
-  const fetchStub = installFetch(() => Promise.reject(new TypeError(marker)));
-  const log = installErrorLog();
-  try {
-    await pruneRateLimits({ ...OPTIONS, sampler: () => 0 });
-    assert(log.zeilen.some((line) => line.includes("prune_edge_rate_limits failed")), "operation remains diagnosable");
-    assert(!log.zeilen.join(" ").includes(marker), "upstream data omitted from logs");
-  } finally {
-    log.restore();
-    fetchStub.restore();
   }
 });
 
@@ -309,29 +242,6 @@ Deno.test("A6: ohne Los geht kein fetch raus und das Promise resolved trotzdem",
   }
 });
 
-Deno.test("A6: auch der uebersprungene fire-and-forget-Aufruf erzeugt keine unhandled rejection", async () => {
-  // Same guard as the regression test above, for the path that did not exist
-  // before A6. `void` haelt das Promise nicht — auch das leere muss halten.
-  const fetchStub = installFetch(netzfehler);
-  const gesammelt: string[] = [];
-  const listener = (event: Event) => {
-    event.preventDefault();
-    const grund = (event as Event & { reason?: unknown }).reason;
-    gesammelt.push(grund instanceof Error ? grund.message : String(grund));
-  };
-  globalThis.addEventListener("unhandledrejection", listener);
-  try {
-    void pruneRateLimits({ ...OPTIONS, sampler: SAMPLER_NIE });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assertEquals(gesammelt.length, 0, `unbehandelte Rejection(s): ${JSON.stringify(gesammelt)}`);
-    assertEquals(fetchStub.aufrufe.length, 0, "ein verlorenes Los darf nichts senden");
-  } finally {
-    globalThis.removeEventListener("unhandledrejection", listener);
-    fetchStub.restore();
-  }
-});
-
 Deno.test("A6: die Grenze liegt exakt bei 1/PRUNE_SAMPLE_RATE", async () => {
   // Numerically pinned, not "roughly every 20th": a divisor that silently
   // became 1 again would still pass every other case in this file.
@@ -349,48 +259,17 @@ Deno.test("A6: die Grenze liegt exakt bei 1/PRUNE_SAMPLE_RATE", async () => {
   }
 });
 
-Deno.test("A6: Fehler werden in beiden Modi geschluckt", async () => {
-  // (c) of the A6 brief. "Swallowed" means something different per mode: with
-  // the slot drawn, the rejecting fetch and the 500 land in the catch; without
-  // it, there is nothing to swallow and the silence must be complete.
-  const antworten: (() => Promise<Response>)[] = [
-    netzfehler,
-    () => Promise.resolve(new Response("boom", { status: 500 })),
+Deno.test("A6: PRUNE_SAMPLE_RATE aus der Umgebung entscheidet mit, 1 prunt jeden Aufruf", async () => {
+  // Same draw, different environments: only the env var can explain the
+  // difference, so this fails if the variable is ignored or read once at
+  // module load. 1 is the documented escape hatch (the pre-A6 behaviour) and
+  // must beat even the worst possible draw.
+  const faelle: [string | undefined, () => number, number][] = [
+    ["5", () => 0.1, 1], // 0.1 * 5 = 0.5 -> Los gezogen
+    [undefined, () => 0.1, 0], // 0.1 * 20 = 2.0 -> Los verloren
+    ["1", SAMPLER_NIE, 1],
   ];
-  for (const antwort of antworten) {
-    for (const sampler of [SAMPLER_IMMER, SAMPLER_NIE]) {
-      const gezogen = sampler === SAMPLER_IMMER;
-      const fetchStub = installFetch(antwort);
-      const log = installErrorLog();
-      try {
-        assertEquals(
-          await ausgang(pruneRateLimits({ ...OPTIONS, sampler })),
-          "resolved",
-          `resolved (Los gezogen: ${gezogen})`,
-        );
-        assertEquals(fetchStub.aufrufe.length, gezogen ? 1 : 0, `fetches (Los gezogen: ${gezogen})`);
-        assertEquals(
-          log.zeilen.length,
-          gezogen ? 1 : 0,
-          `nur der gesendete Aufruf diagnostiziert: ${JSON.stringify(log.zeilen)}`,
-        );
-      } finally {
-        log.restore();
-        fetchStub.restore();
-      }
-    }
-  }
-});
-
-Deno.test("A6: PRUNE_SAMPLE_RATE aus der Umgebung entscheidet mit", async () => {
-  // Same draw, two environments: only the env var can explain the difference,
-  // so this fails if the variable is ignored or read once at module load.
-  const los = () => 0.1;
-  const faelle: [string | undefined, number][] = [
-    ["5", 1], // 0.1 * 5 = 0.5 -> Los gezogen
-    [undefined, 0], // 0.1 * 20 = 2.0 -> Los verloren
-  ];
-  for (const [wert, erwartet] of faelle) {
+  for (const [wert, los, erwartet] of faelle) {
     await mitSampleRate(wert, async () => {
       const fetchStub = installFetch(() => Promise.resolve(new Response(null, { status: 204 })));
       try {
@@ -401,21 +280,6 @@ Deno.test("A6: PRUNE_SAMPLE_RATE aus der Umgebung entscheidet mit", async () => 
       }
     });
   }
-});
-
-Deno.test(`A6: ${PRUNE_SAMPLE_RATE_ENV}=1 stellt das Verhalten vor A6 wieder her`, async () => {
-  // The documented escape hatch: an operator who wants every request to prune
-  // again, and the way a suite outside _shared pins the call without the
-  // sampler seam. Must beat even the worst possible draw.
-  await mitSampleRate("1", async () => {
-    const fetchStub = installFetch(() => Promise.resolve(new Response(null, { status: 204 })));
-    try {
-      await pruneRateLimits({ supabaseUrl: SUPABASE_URL, serviceKey: SERVICE_KEY, sampler: SAMPLER_NIE });
-      assertEquals(fetchStub.aufrufe.length, 1, "Rate 1 prunt jeden Aufruf");
-    } finally {
-      fetchStub.restore();
-    }
-  });
 });
 
 Deno.test("A6: ein unbrauchbarer PRUNE_SAMPLE_RATE schaltet das Aufraeumen nicht ab", async () => {

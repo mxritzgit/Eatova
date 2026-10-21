@@ -223,24 +223,6 @@ Deno.test("Limiter-HTTP-Fehler blockiert die 401 nicht: limited=false, mit Statu
   }
 });
 
-Deno.test("REGRESSION: ein rejectender fetch schlaegt nicht nach aussen durch", async () => {
-  // The gate runs on the 401 path of every function; a thrown TypeError
-  // there would turn "wrong token" into a 500.
-  const fetchStub = installFetch(() => Promise.reject(new TypeError("error sending request for url")));
-  const log = installErrorLog();
-  try {
-    const result = await authFailGate(OPTIONS);
-    assertEquals(result.limited, false, "Netzwerkfehler = kein Limit");
-    assert(
-      log.zeilen.some((zeile) => zeile.includes("consume_edge_rate_limit")),
-      `der geschluckte Fehler muss geloggt werden, Zeilen: ${JSON.stringify(log.zeilen)}`,
-    );
-  } finally {
-    log.restore();
-    fetchStub.restore();
-  }
-});
-
 Deno.test("E6: 200 ohne lesbares allowed ist ein Limiter-Ausfall, kein Limit", async () => {
   const fetchStub = installFetch(rpcAntwort({ ok: true }));
   const log = installErrorLog();
@@ -434,34 +416,24 @@ Deno.test("E1: ein bereits abgebrochenes Signal wirft nicht nach aussen", async 
   }
 });
 
-Deno.test("E1: ohne Signal bleibt der Aufruf unveraendert (optional fuer Aufrufer)", async () => {
-  // Die Schnittstelle ist bewusst optional: analyze-meal legt seine Frist
-  // heute an der Aufrufstelle an (withDeadline), und keine Seite darf an der
-  // anderen brechen.
-  const fetchStub = installFetch(erlaubt());
-  try {
-    const result = await authFailGate(OPTIONS);
-    assertEquals(result.limited, false, "Erfolgsfall bleibt Erfolgsfall");
-    assertEquals(fetchStub.aufrufe[0].init?.signal, undefined, "ohne Option kein Signal am fetch");
-  } finally {
-    fetchStub.restore();
-  }
-});
-
-Deno.test("der Service-Key steht nie in der Fehlerzeile", async () => {
+Deno.test("Fehlerzeilen tragen weder Service-Key noch Ausnahmetext oder Antwortfelder", async () => {
+  const marker = "PRIVATE_LIMITER_SENTINEL";
   const faelle: (() => Promise<Response>)[] = [
-    () => Promise.reject(new TypeError(`error sending request for ${RPC_URL}`)),
+    // A rejecting fetch must not escape: on the 401 path it would become a 500.
+    () => Promise.reject(new TypeError(`${marker} error sending request for ${RPC_URL}`)),
     () => Promise.resolve(new Response(SERVICE_KEY, { status: 401 })),
     // Broken shape: the diagnostic must name the shape, not dump the body.
-    rpcAntwort({ echo: SERVICE_KEY }),
+    rpcAntwort({ echo: SERVICE_KEY, [marker]: true }),
   ];
   for (const fall of faelle) {
     const fetchStub = installFetch(fall);
     const log = installErrorLog();
     try {
-      await authFailGate(OPTIONS);
+      assertEquals((await authFailGate(OPTIONS)).limited, false, "ein Limiter-Fehler blockiert die 401 nie");
       const zeilen = log.zeilen.join("\n");
+      assert(zeilen.includes("consume_edge_rate_limit"), `der Fehler bleibt diagnostizierbar: ${zeilen}`);
       assert(!zeilen.includes(SERVICE_KEY), `der Service-Key ist im Log gelandet: ${zeilen}`);
+      assert(!zeilen.includes(marker), `Upstream-Daten im Log: ${zeilen}`);
     } finally {
       log.restore();
       fetchStub.restore();
@@ -481,25 +453,6 @@ Deno.test("shared auth-fail warning omits malformed resetAt content", async () =
   } finally {
     warn.restore();
     fetchStub.restore();
-  }
-});
-
-Deno.test("auth-fail limiter omits arbitrary exception messages and response field names", async () => {
-  const marker = "PRIVATE_LIMITER_SENTINEL";
-  for (const fail of [
-    () => Promise.reject(new TypeError(marker)),
-    rpcAntwort({ [marker]: true }),
-  ]) {
-    const fetchStub = installFetch(fail);
-    const log = installErrorLog();
-    try {
-      assertEquals((await authFailGate(OPTIONS)).limited, false, "limiter fault never blocks the 401");
-      assert(log.zeilen.some((line) => line.includes("consume_edge_rate_limit")), "operation remains diagnosable");
-      assert(!log.zeilen.join(" ").includes(marker), "upstream data omitted from logs");
-    } finally {
-      log.restore();
-      fetchStub.restore();
-    }
   }
 });
 
@@ -558,18 +511,18 @@ Deno.test("P7-02: erst der ZWEITE 401/403 macht den Token bekannt schlecht", asy
   }
 });
 
-for (const status of [400, 404, 422, 429, 500, 503]) {
-  Deno.test(`P7-02: GoTrue ${status} ist kein Strike`, async () => {
+Deno.test("P7-02: GoTrue-Status ausser 401/403 sind kein Strike", async () => {
+  for (const status of [400, 404, 422, 429, 500, 503]) {
     const fetchStub = installFetch(erlaubt());
     try {
       for (let i = 0; i < 3; i++) await strike(TOKEN, status);
-      assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, "nur 401/403 werden gemerkt");
-      assertEquals(authFailCacheSizesForTests().tokens, 0, "nichts gespeichert");
+      assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, `${status}: nur 401/403 werden gemerkt`);
+      assertEquals(authFailCacheSizesForTests().tokens, 0, `${status}: nichts gespeichert`);
     } finally {
       fetchStub.restore();
     }
-  });
-}
+  }
+});
 
 Deno.test("P7-02: ein Erfolg (forgetAuthFailure) loescht den Strike", async () => {
   const fetchStub = installFetch(erlaubt());

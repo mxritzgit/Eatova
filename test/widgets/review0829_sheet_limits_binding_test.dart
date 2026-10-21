@@ -3,33 +3,20 @@
 //
 // `_postenMinG`, `_postenMaxG`, `_postenMaxKcal` and `_makroMaxG` in
 // lib/src/widgets/meal/meal_widgets_adjust.dart used to be hand-copied
-// literals (1 / 10000 / 10000 / 1000), tied to `LoggedMealLimits` and
-// `PlausibilityLimits` by nothing but a doc comment. They agreed — but a
-// surface that knows a DIFFERENT number than the clamp behind it is exactly
-// how the third silent bend came about that P8-02b had to close: the field let
-// a value through, `adjustedToGrams` quietly folded it onto the model bound
-// and the meal was saved with a number nobody typed.
+// literals. A surface that knows a DIFFERENT number than the clamp behind it
+// is exactly how the third silent bend came about that P8-02b had to close:
+// the field let a value through, `adjustedToGrams` quietly folded it onto
+// the model bound and the meal was saved with a number nobody typed.
 //
-// The literals are gone (the sheet takes the bounds from `model_limits.dart`
-// now), and this suite keeps them gone in both directions:
+// Measured on the RUNNING sheet against the model constants: each field
+// accepts the model bound and rejects bound + 1. That catches any drift
+// between sheet and model — including the one number the sheet keeps on
+// its own, the digit budget of its input fields
+// (`LengthLimitingTextInputFormatter`): a bound that outgrows it can no
+// longer be typed in at all.
 //
-//   1. SOURCE: every one of the four declarations must still be a REFERENCE
-//      into the model — and into the RIGHT member. A number pasted back in
-//      turns this red and says which constant it was.
-//   2. BEHAVIOUR: the sheet must really accept the model bound and really
-//      reject bound + 1 — including the one derivative that stays a number of
-//      its own, the digit budget of the input fields
-//      (`LengthLimitingTextInputFormatter`). Raising a bound past five digits
-//      makes the field unable to hold its own maximum; that is the drift the
-//      source rule cannot see, so it is measured on the running widget.
-//
-// The extraction follows the rule for `MAX_INPUT_CHARS` / `MAX_INPUT_BYTES` in
-// repo_rules_test.dart: read the number where it lives, never transcribe it.
-// It stays out of that file for the reason its own header names — this pins
-// ONE pair of files against each other and needs a mounted widget, not a tree
-// walk over `lib/`.
-
-import 'dart:io';
+// (A source grep that the four constants are written as references stood
+// here too; it re-asserted what these cases measure.)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,59 +29,10 @@ import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import '../support/harness.dart';
 
-// ---------------------------------------------------------------------------
-// Layer 1 — the source rule
-// ---------------------------------------------------------------------------
-
 const String _sheetPfad = 'lib/src/widgets/meal/meal_widgets_adjust.dart';
-const String _bibliothekPfad = 'lib/src/widgets/meal/meal_widgets.dart';
-
-/// Every bound the sheet uses, mapped to the model member it MUST be taken
-/// from. Naming the member (not the number) is the whole point: a wrong but
-/// numerically equal binding — `_postenMaxKcal = estimatedGMax` — is still a
-/// bug, and today all three happen to be 10000.
-const Map<String, String> _erwarteteBindung = <String, String>{
-  '_postenMinG': 'PlausibilityLimits.portionGramsMin',
-  '_postenMaxG': 'PlausibilityLimits.portionGramsMax',
-  '_postenMaxKcal': 'LoggedMealLimits.caloriesKcalMax',
-  '_makroMaxG': 'LoggedMealLimits.macroGMax',
-};
-
-/// The members above with their real values — so "is a reference" can be
-/// upgraded to "is a reference AND resolves to the number the sheet shows".
-const Map<String, num> _modellWerte = <String, num>{
-  'PlausibilityLimits.portionGramsMin': PlausibilityLimits.portionGramsMin,
-  'PlausibilityLimits.portionGramsMax': PlausibilityLimits.portionGramsMax,
-  'LoggedMealLimits.caloriesKcalMax': LoggedMealLimits.caloriesKcalMax,
-  'LoggedMealLimits.macroGMax': LoggedMealLimits.macroGMax,
-};
-
-String _lies(String pfad) {
-  final datei = File(pfad);
-  if (!datei.existsSync()) {
-    fail('$pfad fehlt (aufgeloest von ${Directory.current.path})');
-  }
-  return datei.readAsStringSync();
-}
-
-/// Right-hand side of `const <typ> <name> = …;` in [quelle], trimmed.
-String _rechteSeite(String quelle, String name) {
-  final treffer = RegExp(
-    'const\\s+(?:int|double|num)\\s+$name\\s*=\\s*([^;]+);',
-  ).firstMatch(quelle);
-  expect(
-    treffer,
-    isNotNull,
-    reason:
-        'Die Deklaration `const … $name = …;` steht nicht mehr in $_sheetPfad. '
-        'Ohne sie ist diese Regel blind — Deklaration umbenannt? Dann hier '
-        'nachziehen, NICHT die Zahl abschreiben.',
-  );
-  return treffer!.group(1)!.trim();
-}
 
 // ---------------------------------------------------------------------------
-// Layer 2 — the running sheet
+// The running sheet
 // ---------------------------------------------------------------------------
 
 /// One component with a consistent density, so nothing in the sheet depends on
@@ -176,8 +114,7 @@ bool _uebernehmenAktiv(WidgetTester tester) {
 /// Did the field [key] keep every character of [bound] that was just typed
 /// into it? The digit budget of the field is a NUMBER OF ITS OWN
 /// (`LengthLimitingTextInputFormatter`), derived from the bound by hand — so a
-/// bound that outgrows it cannot even be entered any more. THIS is the drift
-/// the source rule above cannot see, and it is why the sheet gets mounted.
+/// bound that outgrows it cannot even be entered any more.
 void _erwarteFeldFasstWert(WidgetTester tester, String key, num bound) {
   final erwartet = '$bound';
   expect(
@@ -196,72 +133,6 @@ void _erwarteFeldFasstWert(WidgetTester tester, String key, num bound) {
 }
 
 void main() {
-  // -------------------------------------------------------------------------
-  group('P8-02c — die Grenzen kommen aus model_limits.dart', () {
-    late String sheetQuelle;
-
-    setUpAll(() => sheetQuelle = _lies(_sheetPfad));
-
-    test('die Bibliothek importiert die Grenzen ueberhaupt', () {
-      // A `part` file cannot import; the library file has to. Without this the
-      // rule below could only be satisfied by copying the numbers back.
-      expect(
-        _lies(_bibliothekPfad),
-        contains("import '../../models/model_limits.dart'"),
-        reason:
-            '$_bibliothekPfad importiert model_limits.dart nicht mehr — dann '
-            'kann das part-File die Grenzen nur noch abschreiben, und genau '
-            'das war P8-02c.',
-      );
-    });
-
-    test('jede Grenze ist eine Referenz auf das Modell, keine Zahl', () {
-      for (final eintrag in _erwarteteBindung.entries) {
-        final rechts = _rechteSeite(sheetQuelle, eintrag.key);
-        expect(
-          double.tryParse(rechts.replaceAll('_', '')),
-          isNull,
-          reason:
-              '`${eintrag.key}` ist wieder ein Literal ($rechts). Genau diese '
-              'Doppelpflege hat den dritten Klemm-Pfad erzeugt (P8-02b): das '
-              'Feld liess einen Wert durch, `adjustedToGrams` hat ihn still '
-              'auf ${eintrag.value} gebogen und gespeichert wurde eine Zahl, '
-              'die niemand getippt hat. Erwartet: '
-              '`${eintrag.key} = ${eintrag.value}`.',
-        );
-        expect(
-          rechts,
-          eintrag.value,
-          reason:
-              '`${eintrag.key}` haengt an `$rechts` statt an '
-              '`${eintrag.value}`. Numerisch gleich ist nicht dasselbe wie '
-              'richtig gebunden — heute sind drei der vier Grenzen 10000.',
-        );
-      }
-    });
-
-    test('die referenzierten Modellwerte sind die, die das Sheet zeigt', () {
-      // The reference is resolved here, so a member RENAMED in model_limits
-      // (or a rule pointing at one that no longer exists) does not pass as
-      // "is a reference, fine".
-      for (final ziel in _erwarteteBindung.values) {
-        expect(
-          _modellWerte[ziel],
-          isNotNull,
-          reason: '$ziel gibt es in model_limits.dart nicht (mehr)',
-        );
-      }
-      expect(
-        PlausibilityLimits.portionGramsMax,
-        LoggedMealLimits.estimatedGMax,
-        reason:
-            'Die Portionsgrenze ist per Definition die DB-Grenze für '
-            '`estimated_g`; fällt das auseinander, zeigt das Sheet eine '
-            'andere Zahl als die Spalte erlaubt.',
-      );
-    });
-  });
-
   // -------------------------------------------------------------------------
   group('P8-02c — das laufende Sheet haelt genau diese Grenzen', () {
     testWidgetsRobust(

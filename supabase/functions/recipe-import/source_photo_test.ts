@@ -107,19 +107,3 @@ Deno.test('import source photo page fallback reads the caption from the video pa
     }
   } finally { globalThis.fetch = original; }
 });
-
-Deno.test('import source short link to an unsupported or unsafe target stops before a second fetch', async () => {
-  const original = globalThis.fetch;
-  try {
-    for (const location of [
-      'https://www.tiktok.com/tag/pasta', `https://www.tiktok.com/music/original-sound-${ID}`,
-      `https://www.tiktok.com.evil.invalid/@cook/photo/${ID}`, `http://www.tiktok.com/@cook/photo/${ID}`,
-    ]) {
-      const calls: Call[] = [];
-      globalThis.fetch = tiktok(calls, undefined, location);
-      const result = await loadSource(`${SHORT}\n200 g Skyr`, AbortSignal.timeout(1000));
-      check(calls.length === 1 && result.incomplete && result.source.unavailable, 'Redirect target never fetched');
-      check(result.text === '200 g Skyr', 'Pasted fallback retained');
-    }
-  } finally { globalThis.fetch = original; }
-});

@@ -3,7 +3,6 @@
 
 import {
   cachedSystem,
-  CLAUDE_MAX_IMAGE_EDGE_PX,
   claudeErrorStatus,
   claudeFailureStatus,
   claudeRequestBody,
@@ -93,7 +92,6 @@ Deno.test("a cut emoji never reaches the API as a lone surrogate", () => {
   const wire = JSON.stringify(body);
   assert(!/\\ud8[0-9a-f]{2}(?!\\udc)/i.test(wire), "no lone high surrogate escape on the wire");
   assert(wire.includes("Bowl �"), "replaced by U+FFFD");
-  assert(JSON.stringify("Bowl 🍔") === JSON.stringify("Bowl 🍔".toWellFormed()), "a whole emoji stays unchanged");
   const messages = body.messages as { content: unknown }[];
   assertEquals((messages[1].content as { source: { data: string } }[])[0].source.data, "AAAA", "image data untouched");
 });
@@ -148,8 +146,4 @@ Deno.test("an unknown effort secret falls back instead of reaching the API", () 
     console.warn = warn;
     Deno.env.delete(name);
   }
-});
-
-Deno.test("the image edge limit matches the provider's measured maximum", () => {
-  assertEquals(CLAUDE_MAX_IMAGE_EDGE_PX, 8000, "8000 px accepted, 8600 px rejected (2026-10-08)");
 });

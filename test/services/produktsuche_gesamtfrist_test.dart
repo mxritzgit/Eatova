@@ -322,14 +322,15 @@ void main() {
     });
   });
 
-  test('die abgestimmten Ketten-Budgets stehen fest', () {
-    // Die Zahlen der Zeitrechnung: jede Ebene deckelt die SUMME der Ebene
-    // darunter, statt sie sich addieren zu lassen.
-    expect(MeilisearchProductService.defaultSearchChainBudget,
-        const Duration(seconds: 12));
-    expect(OpenFoodFactsProductService.defaultSearchChainBudget,
-        const Duration(seconds: 24));
-    expect(FallbackProductService.defaultSearchChainBudget,
-        const Duration(seconds: 30));
+  test('die Fallback-Kette deckelt die Summe ihrer Beine, statt sie zu addieren',
+      () {
+    // The relation, not the tuning: each budget may move, but the outer one
+    // must stay below the sum of the two legs it runs one after the other.
+    const mirror = MeilisearchProductService.defaultSearchChainBudget;
+    const off = OpenFoodFactsProductService.defaultSearchChainBudget;
+    const kette = FallbackProductService.defaultSearchChainBudget;
+    expect(kette, lessThan(mirror + off));
+    expect(kette, greaterThanOrEqualTo(off),
+        reason: 'sonst bricht die Kette ein gesundes OFF-Bein ab');
   });
 }

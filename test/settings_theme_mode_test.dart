@@ -79,46 +79,28 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('die Pille zeigt den Modus des Controllers', (tester) async {
+  testWidgets('die Pille zeigt den Modus des Controllers und schaltet ihn um',
+      (tester) async {
     final controller = ThemeModeController(initial: ThemeMode.light);
     addTearDown(controller.dispose);
+    SettingsThemeModePill pille() => tester.widget<SettingsThemeModePill>(
+          find.byKey(const ValueKey('settings-theme-mode')),
+        );
 
     await pumpSettings(tester, controller: controller);
 
-    expect(find.text('So passt Eatova zu dir'), findsOneWidget);
     expect(find.text('Erscheinungsbild'), findsOneWidget);
-    expect(
-      tester
-          .widget<SettingsThemeModePill>(
-            find.byKey(const ValueKey('settings-theme-mode')),
-          )
-          .mode,
-      ThemeMode.light,
-    );
-    for (final key in const <String>[
-      'settings-theme-mode-system',
-      'settings-theme-mode-light',
-      'settings-theme-mode-dark',
+    expect(pille().mode, ThemeMode.light);
+
+    for (final (option, modus) in const <(String, ThemeMode)>[
+      ('dark', ThemeMode.dark),
+      ('system', ThemeMode.system),
+      ('light', ThemeMode.light),
     ]) {
-      expect(find.byKey(ValueKey(key)), findsOneWidget);
+      await tippeOption(tester, 'settings-theme-mode-$option');
+      expect(controller.mode, modus);
+      expect(pille().mode, modus, reason: 'die Pille folgt dem Controller');
     }
-  });
-
-  testWidgets('die drei Optionen schalten den Modus um', (tester) async {
-    final controller = ThemeModeController();
-    addTearDown(controller.dispose);
-
-    await pumpSettings(tester, controller: controller);
-    expect(controller.mode, ThemeMode.system);
-
-    await tippeOption(tester, 'settings-theme-mode-dark');
-    expect(controller.mode, ThemeMode.dark);
-
-    await tippeOption(tester, 'settings-theme-mode-light');
-    expect(controller.mode, ThemeMode.light);
-
-    await tippeOption(tester, 'settings-theme-mode-system');
-    expect(controller.mode, ThemeMode.system);
   });
 
   testWidgets('ohne ThemeModeScope fehlt die Erscheinungsbild-Zeile ersatzlos',

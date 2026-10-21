@@ -203,23 +203,17 @@ void main() {
       expect(mealPortionAdjustment(_produkt, const <MealComponent>[]), isNull);
     });
 
-    test('nur der synthetisierte Posten zurück = reine Gewichtsanpassung', () {
-      final applied = mealPortionAdjustment(_produkt, [
-        _produkt.asSingleComponent.adjustedToGrams(150),
-      ]);
-      expect(applied, isNotNull);
-      expect(applied!.isWeightOnly, isTrue);
-      expect(applied.result.items, isEmpty);
-      expect(applied.result.estimatedGrams, 150);
-    });
-
-    test('unverändert bestätigen bleibt ebenfalls eine Gewichtsanpassung', () {
-      final applied = mealPortionAdjustment(_produkt, [
-        _produkt.asSingleComponent.adjustedToGrams(100),
-      ]);
-      expect(applied!.isWeightOnly, isTrue);
-      expect(applied.result.items, isEmpty);
-      expect(applied.result.caloriesKcal, _produkt.caloriesKcal);
+    test('nur der synthetisierte Posten zurück, geändert oder nicht, ist eine '
+        'reine Gewichtsanpassung', () {
+      for (final gramm in const [150, 100]) {
+        final applied = mealPortionAdjustment(_produkt, [
+          _produkt.asSingleComponent.adjustedToGrams(gramm),
+        ]);
+        expect(applied!.isWeightOnly, isTrue, reason: '$gramm');
+        expect(applied.result.items, isEmpty, reason: '$gramm');
+        expect(applied.result.estimatedGrams, gramm);
+        expect(applied.result.caloriesKcal, gramm * 3);
+      }
     });
 
     test(
@@ -267,10 +261,7 @@ void main() {
       expect(applied.result.fat, '5 g');
     });
 
-    test('ein Ergebnis MIT Posten geht nie über den Gewichtsweg', () {
-      final applied = mealPortionAdjustment(_teller, [_teller.items.first]);
-      expect(applied!.isWeightOnly, isFalse);
-      expect(applied.result.hasItemizedBreakdown, isTrue);
-    });
+    // A result WITH components never takes the weight path: the widget test
+    // 'Gegenprobe' above.
   });
 }

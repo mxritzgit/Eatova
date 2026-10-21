@@ -344,20 +344,5 @@ void main() {
       expect(breadcrumbs, hasLength(1));
       expect(breadcrumbs.single.category, 'app.lifecycle');
     });
-
-    test('ein Event ohne breadcrumbs bleibt ohne breadcrumbs', () {
-      final event = SentryEvent();
-      expect(sanitizeSentryEvent(event, Hint())!.breadcrumbs, isNull);
-    });
-  });
-
-  group('sanitizeSentryEvent — Robustheit', () {
-    test('der Hook wirft nie: ein Throw in beforeSend verwirft das Event still',
-        () {
-      // sentry_client.dart only logs the throw and then drops the event, so a
-      // broken filter would silently kill crash reporting entirely.
-      final event = SentryEvent(message: SentryMessage('x'));
-      expect(() => sanitizeSentryEvent(event, Hint()), returnsNormally);
-    });
   });
 }

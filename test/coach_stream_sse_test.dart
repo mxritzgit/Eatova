@@ -28,8 +28,8 @@ import 'support/harness.dart';
 //   * DER RUECKFALL BLEIBT. Alles, was der Server VOR dem Antwort-Aufruf
 //     entscheidet (Status, Ablehnungen, Rezept-Modus) kommt als gepuffertes
 //     JSON — und jede alte Funktionsversion sowieso. Derselbe Aufruf muss
-//     beide Formen koennen, und die Fehlerzuordnung darf sich um kein Byte
-//     aendern.
+//     beide Formen koennen; die Fehlerzuordnung der gepufferten Antworten
+//     steht in coach_error_mapping_test.dart.
 //   * EIN UNBEKANNTES `remaining` WIRD AUSGELASSEN, nie als 0 erfunden: der
 //     Screen liest null als „behalte deinen Zaehler".
 //
@@ -44,8 +44,6 @@ const String _keineVerbindung = 'Keine Verbindung zum Coach. '
     'Prüf deine Internetverbindung und versuch es nochmal.';
 const String _zeitueberschreitung =
     'Der Coach hat zu lange gebraucht. Bitte versuch es nochmal.';
-const String _sitzungAbgelaufen = 'Deine Sitzung ist abgelaufen. Bitte melde '
-    'dich neu an, dann antwortet der Coach wieder.';
 
 const Size _flaeche = Size(402, 781);
 
@@ -73,7 +71,6 @@ class _Backend {
     this.bloecke = const <String>[],
     this.ende = _Ende.schliessen,
     this.jsonAntwort,
-    this.jsonStatus = 200,
     this.verlauf = const <Map<String, Object?>>[],
   });
 
@@ -86,7 +83,6 @@ class _Backend {
   /// Gesetzt = die Funktion antwortet GEPUFFERT (der Rueckfallpfad), nicht
   /// gestreamt.
   Object? jsonAntwort;
-  int jsonStatus;
 
   /// Zeilen aus `chat_messages`, NEUESTE ZUERST.
   List<Map<String, Object?>> verlauf;
@@ -109,7 +105,7 @@ class _Backend {
       aufrufe++;
       akzeptiert = req.headers['accept'];
       final gepuffert = jsonAntwort;
-      if (gepuffert != null) return _json(req, gepuffert, jsonStatus);
+      if (gepuffert != null) return _json(req, gepuffert, 200);
       return http.StreamedResponse(
         _sseStrom(req),
         200,
@@ -301,24 +297,6 @@ void main() {
       expect(res.reply, isNot(contains('system prompt')));
     });
 
-    test('finish_reason=length: die Auslassungspunkte aus done ueberleben',
-        () async {
-      final backend = _Backend(bloecke: <String>[
-        _rahmen('meta', <String, Object?>{'session_id': 's1'}),
-        _rahmen('delta', <String, Object?>{'t': _teilA}),
-        _rahmen('done', <String, Object?>{
-          'reply': '$_teilA…',
-          'refusal': false,
-          'session_id': 's1',
-        }),
-      ]);
-      final svc = _service(backend);
-
-      final res = await svc.send('Wie viel Protein?', sessionId: 's1');
-
-      expect(res.reply, endsWith('…'));
-    });
-
     test('NULL deltas sind normal: die Ablehnung kommt als einziges done',
         () async {
       final backend = _Backend(bloecke: <String>[
@@ -438,78 +416,6 @@ void main() {
         svc.send('Hallo', sessionId: 's1'),
         throwsA(isA<CoachChatException>()
             .having((e) => e.message, 'message', _leereAntwort)),
-      );
-    });
-  });
-
-  group('B7 · die Fehlerzuordnung aendert sich um kein Byte', () {
-    Future<void> pruefe(
-      Object koerper,
-      int status,
-      Matcher erwartet,
-    ) async {
-      final backend = _Backend(jsonAntwort: koerper, jsonStatus: status);
-      final svc = _service(backend);
-      await expectLater(svc.send('Hallo', sessionId: 's1'), throwsA(erwartet));
-    }
-
-    test('429 quota_exceeded -> CoachQuotaExceeded mit Limit', () async {
-      await pruefe(
-        const <String, Object?>{
-          'error': 'quota_exceeded',
-          'reply': 'Tageslimit erreicht. Morgen geht es weiter.',
-          'daily_limit': 5,
-        },
-        429,
-        isA<CoachQuotaExceeded>()
-            .having((e) => e.dailyLimit, 'dailyLimit', 5)
-            .having((e) => e.message, 'message', contains('Tageslimit')),
-      );
-    });
-
-    test('429 rate_limited -> anzeigbarer Fehler, KEIN Quota-Lock', () async {
-      await pruefe(
-        const <String, Object?>{
-          'error': 'rate_limited',
-          'reply': 'Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen.',
-        },
-        429,
-        allOf(
-          isA<CoachChatException>(),
-          isNot(isA<CoachQuotaExceeded>()),
-          isA<CoachChatException>()
-              .having((e) => e.message, 'message', contains('Zu viele')),
-        ),
-      );
-    });
-
-    test('401 -> neu anmelden', () async {
-      await pruefe(
-        const <String, Object?>{'error': 'unauthorized'},
-        401,
-        isA<CoachChatException>()
-            .having((e) => e.message, 'message', _sitzungAbgelaufen),
-      );
-    });
-
-    test('413 -> das Bild ist zu gross', () async {
-      await pruefe(
-        const <String, Object?>{'error': 'payload_too_large'},
-        413,
-        isA<CoachChatException>()
-            .having((e) => e.message, 'message', contains('Bild')),
-      );
-    });
-
-    test('500 -> unerreichbar, ohne Roh-Dump', () async {
-      await pruefe(
-        const <String, Object?>{'error': 'internal'},
-        500,
-        isA<CoachChatException>().having(
-          (e) => e.message,
-          'message',
-          allOf(_unerreichbar, isNot(contains('internal'))),
-        ),
       );
     });
   });
@@ -758,15 +664,12 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('Punkte, bis das erste Token da ist', (tester) async {
-      await pumpe(tester);
-
-      expect(find.byKey(const ValueKey('coach-stream-preview')), findsNothing);
-    });
-
     testWidgets('die deltas stehen in der Blase, waehrend der Coach noch '
         'schreibt', (tester) async {
       final svc = await pumpe(tester);
+      // Dots until the first token.
+      expect(find.byKey(const ValueKey('coach-stream-preview')), findsNothing);
+      expect(find.byKey(const ValueKey('coach-thinking')), findsOneWidget);
 
       svc.vorschau!(_teilA);
       await tester.pump();
@@ -861,29 +764,6 @@ void main() {
               'an, obwohl der Server sie beantworten wuerde');
       expect(_quotaZeile(tester, 'Noch 2 Fragen heute'), findsOneWidget,
           reason: '„behalte deinen Zaehler" heisst: dieselbe Zahl wie vorher');
-    });
-
-    testWidgets('done MIT remaining zieht den Zaehler nach (Gegenprobe)',
-        (tester) async {
-      final svc = await pumpe(
-        tester,
-        kontingent:
-            const ChatQuotaSnapshot(used: 3, remaining: 2, dailyLimit: 5),
-      );
-
-      svc.auftrag!.complete(const CoachChatReply(
-        reply: 'Etwa 1,6 g pro Kilo.',
-        refusal: false,
-        sessionId: 's1',
-        remaining: 1,
-        dailyLimit: 5,
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(_quotaZeile(tester, 'Noch 1 Frage heute'), findsOneWidget,
-          reason: 'ohne diese Gegenprobe wuerde ein Screen, der JEDE Zahl '
-              'ignoriert, den Test darueber ebenfalls bestehen');
     });
   });
 }

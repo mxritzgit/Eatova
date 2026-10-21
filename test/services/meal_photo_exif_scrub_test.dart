@@ -142,53 +142,33 @@ List<int> _gpsTagsIn(Uint8List bytes) {
 }
 
 void main() {
-  group('Fixture-Vorbedingung (sonst prueft der Scrubber-Test nichts)', () {
-    test('das Fixture-JPEG traegt die GPS-Tags wirklich im Byte-Strom', () {
-      final original = _geotaggedJpeg();
-
-      expect(_hasExifSegment(original), isTrue,
-          reason: 'Ohne APP1-Exif-Segment waere das Fixture wertlos');
-      expect(_gpsTagsIn(original), contains(_tagGpsLatitude));
-      expect(_gpsTagsIn(original), contains(_tagGpsLongitude));
-      expect(_gpsTagsIn(original), contains(_tagGpsAltitude));
-      expect(_gpsTagsIn(original), contains(_tagGpsTimeStamp));
-
-      final decoded = img.decodeImage(original)!;
-      expect(decoded.exif.gpsIfd[_tagGpsLatitude]!.toDouble(), closeTo(52, 0.01));
-      expect(decoded.exif.gpsIfd[_tagGpsLongitude]!.toDouble(), closeTo(13, 0.01));
-    });
-  });
-
   group('C4 · compressMealPhoto strippt Standortdaten', () {
-    test('Ausgabe enthaelt keine GPS-Koordinaten mehr', () {
-      final original = _geotaggedJpeg();
+    test('Ausgabe traegt weder GPS noch irgendein EXIF-Segment — klein und '
+        'nach dem Verkleinern', () {
+      for (final (breite, hoehe) in const [(480, 360), (2400, 1800)]) {
+        final original = _geotaggedJpeg(width: breite, height: hoehe);
+        // Precondition, or the scrub assertions below check nothing.
+        expect(_hasExifSegment(original), isTrue);
+        expect(
+          _gpsTagsIn(original),
+          containsAll(<int>[
+            _tagGpsLatitude,
+            _tagGpsLongitude,
+            _tagGpsAltitude,
+            _tagGpsTimeStamp,
+          ]),
+        );
 
-      final scrubbed = compressMealPhoto(original);
+        final scrubbed = compressMealPhoto(original);
 
-      expect(_gpsTagsIn(scrubbed), isEmpty,
-          reason: 'Breitengrad/Laengengrad/Hoehe duerfen das Geraet nicht '
-              'verlassen');
-    });
-
-    test('Ausgabe traegt ueberhaupt kein EXIF-Segment mehr im Byte-Strom', () {
-      final original = _geotaggedJpeg();
-
-      final scrubbed = compressMealPhoto(original);
-
-      expect(_hasExifSegment(scrubbed), isFalse,
-          reason: 'Auch Geraetemodell, Seriennummer und Aufnahmezeit gehoeren '
-              'nicht in den Upload');
-    });
-
-    test('grosse geotaggte Fotos verlieren GPS auch nach dem Verkleinern', () {
-      final original = _geotaggedJpeg(width: 2400, height: 1800);
-
-      final scrubbed = compressMealPhoto(original);
-      final decoded = img.decodeImage(scrubbed)!;
-
-      expect(decoded.width, 1600);
-      expect(_gpsTagsIn(scrubbed), isEmpty);
-      expect(_hasExifSegment(scrubbed), isFalse);
+        expect(_gpsTagsIn(scrubbed), isEmpty,
+            reason: 'Breitengrad/Laengengrad/Hoehe duerfen das Geraet nicht '
+                'verlassen ($breite x $hoehe)');
+        expect(_hasExifSegment(scrubbed), isFalse,
+            reason: 'Auch Geraetemodell, Seriennummer und Aufnahmezeit '
+                'gehoeren nicht in den Upload ($breite x $hoehe)');
+        expect(img.decodeImage(scrubbed)!.width, breite > 1600 ? 1600 : breite);
+      }
     });
 
     test(

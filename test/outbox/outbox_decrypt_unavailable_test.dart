@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
 
-import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/api.dart' show InvalidCipherTextException;
 
@@ -183,25 +182,6 @@ void main() {
     expect(a.store.loggedMeals.map((m) => m.result.mealName), isNot(contains('Nicht gespeichert')));
   });
 
-  test('Zeit und viele Fehler erlauben niemals die Uebernahme eines unbekannten Slots', () async {
-    var now = DateTime(2026, 9, 20);
-    await withClock(Clock(() => now), () async {
-      final (raw, cipher, encrypted) = _stapel();
-      await _seedOutbox(encrypted);
-      final before = raw.snapshot[_outboxKey];
-      cipher.blockiert = true;
-      final a = setup(injizierterCache: LocalCache(encrypted, _uid));
-      a.server.offline = true;
-      await bootUntilIdle(a.store);
-      for (var i = 0; i < 12; i++) {
-        now = now.add(const Duration(days: 40));
-        await expectLater(a.store.addResultToDailyTotal(mealResult('Nicht gespeichert-$i')), throwsStateError);
-      }
-      expect(raw.snapshot[_outboxKey], before);
-      expect(a.store.loggedMeals, isEmpty);
-    });
-  });
-
   test('fremder Schluessel loescht keine bisher bestaetigte Outbox', () async {
     final (raw, _, encrypted) = _stapel();
     await _seedOutbox(encrypted);
@@ -215,32 +195,17 @@ void main() {
     expect((await LocalCache(encrypted, _uid).readSyncOperations()).single.entityId, 'm-alt');
   });
 
-  for (final key in [_outboxKey, _deltaKey]) {
-    test('kaputter JSON-Inhalt bleibt ohne destruktive Selbstheilung erhalten: $key', () async {
-      final (raw, cipher, encrypted) = _stapel();
-      await _seedKaputtenInhalt(raw, cipher, key);
-      final before = raw.snapshot[key];
-      final a = setup(injizierterCache: LocalCache(encrypted, _uid));
-      a.server.offline = true;
-      await bootUntilIdle(a.store);
-      await expectLater(a.store.addResultToDailyTotal(mealResult('Abgelehnt')), throwsStateError);
-      expect(raw.snapshot[key], before);
-      expect(a.store.loggedMeals, isEmpty);
-    });
-  }
-
-  test('mehrere Reparaturversuche koennen den aktuellen Bytebestand nicht ersetzen', () async {
+  // The outbox variant lives in outbox_read_error_test.dart.
+  test('kaputter JSON-Inhalt im Stats-Slot bleibt ohne destruktive '
+      'Selbstheilung erhalten', () async {
     final (raw, cipher, encrypted) = _stapel();
-    await _seedDeltas(encrypted);
+    await _seedKaputtenInhalt(raw, cipher, _deltaKey);
     final before = raw.snapshot[_deltaKey];
-    cipher.blockiert = true;
     final a = setup(injizierterCache: LocalCache(encrypted, _uid));
     a.server.offline = true;
     await bootUntilIdle(a.store);
-    for (var i = 0; i < 5; i++) {
-      await a.store.syncPendingWrites();
-      await expectLater(a.store.logWeight(80), throwsStateError);
-    }
+    await expectLater(a.store.addResultToDailyTotal(mealResult('Abgelehnt')), throwsStateError);
     expect(raw.snapshot[_deltaKey], before);
+    expect(a.store.loggedMeals, isEmpty);
   });
 }

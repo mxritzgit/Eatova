@@ -54,24 +54,23 @@ void main() {
       expect(cache.stored?.granted, isFalse, reason: 'cache follows the log');
     });
 
-    test('eine aeltere Fassung des Textes erlaubt nichts', () {
+    test('eine aeltere Fassung des Textes oder ein Grant ohne '
+        'Gesundheitsdaten erlaubt nichts', () {
       final old = AiConsentRecord(
         version: kAiConsentVersion - 1,
         granted: true,
         healthData: true,
         decidedAt: kLoggedAt,
       );
-      expect(old.allowsAi, isFalse);
-    });
-
-    test('ohne Gesundheitsdaten-Einwilligung ist nichts erlaubt', () {
       final partial = AiConsentRecord(
         version: kAiConsentVersion,
         granted: true,
         healthData: false,
         decidedAt: kLoggedAt,
       );
+      expect(old.allowsAi, isFalse);
       expect(partial.allowsAi, isFalse);
+      expect(grantedRecord().allowsAi, isTrue);
     });
 
     test('Vorschau ohne Sync fragt nie', () {
@@ -192,15 +191,16 @@ void main() {
     'ein Abgleich, der vor dem Grant startete, ueberschreibt ihn nicht',
     () async {
       final log = FakeAiTrustLog();
+      final slow = _SlowLatest(log);
       final controller = AiTrustController(
         cache: MemoryAiConsentCache(),
-        consentLog: _SlowLatest(log),
+        consentLog: slow,
         reportLog: log,
       );
       final loading = controller.load();
       await Future<void>.delayed(Duration.zero);
       await controller.grant();
-      _SlowLatest.release.complete();
+      slow.release.complete();
       await loading;
 
       expect(controller.allowsAi, isTrue);
@@ -223,9 +223,15 @@ void main() {
     expect(await first, isTrue);
     expect(await second, isTrue);
     expect(asked, 1);
-    // Closed: the next request asks again.
-    unawaited(controller.promptOnce(() async => false));
-    expect(asked, 1);
+    // Closed: the next request asks again instead of reusing the old answer.
+    final again = Completer<bool>();
+    final third = controller.promptOnce(() {
+      asked++;
+      return again.future;
+    });
+    expect(asked, 2);
+    again.complete(false);
+    expect(await third, isFalse);
   });
 
   test('Melden geht an den Report-Log, ohne Log scheitert es', () async {
@@ -257,7 +263,7 @@ void main() {
 class _SlowLatest implements AiConsentLog {
   _SlowLatest(this._inner);
 
-  static Completer<void> release = Completer<void>();
+  final Completer<void> release = Completer<void>();
   final FakeAiTrustLog _inner;
   bool _first = true;
 

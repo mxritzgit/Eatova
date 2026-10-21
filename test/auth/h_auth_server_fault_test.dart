@@ -142,33 +142,13 @@ Future<void> _pumpLogin(WidgetTester tester, Object fehler) async {
 
 void main() {
   group('H1 — die Praedikate trennen 5xx von echter Netzlosigkeit', () {
-    test('ein GoTrue-5xx ist ein SERVER-Fehler, kein Netzfehler', () {
+    test('nur eine beantwortete Auth-Anfrage mit 5xx ist ein SERVER-Fehler',
+        () {
       expect(isAuthServerFaultError(_gotrue502()), isTrue,
           reason: 'gotrue setzt bei >= 500 den statusCode aus der Antwort');
       expect(isAuthNetworkError(_gotrue502()), isFalse,
           reason: 'die Verbindung hat die Antwort gerade transportiert');
-    });
-
-    test('derselbe Typ OHNE Status bleibt ein Netzfehler', () {
-      // Der Transport-Pfad in fetch.dart: `AuthRetryableFetchException(message:
-      // e.toString())` — ohne statusCode, weil es keine Antwort gab.
-      expect(isAuthServerFaultError(_gotrueTransport()), isFalse);
-      expect(isAuthNetworkError(_gotrueTransport()), isTrue);
-    });
-
-    test('die uebrigen Netzfehlertypen bleiben unangetastet', () {
-      for (final fehler in <Object>[
-        const SocketException('Failed host lookup: ci.invalid'),
-        ClientException('Connection closed before full header'),
-        TimeoutException('timeout', const Duration(seconds: 8)),
-      ]) {
-        expect(isAuthNetworkError(fehler), isTrue, reason: '$fehler');
-        expect(isAuthServerFaultError(fehler), isFalse, reason: '$fehler');
-      }
-    });
-
-    test('eine Drossel (429) ist kein Serverfehler', () {
-      // Sonst würde der 5xx-Zweig die Drossel-Einstufung schlucken, samt der
+      // Sonst wuerde der 5xx-Zweig die Drossel-Einstufung schlucken, samt der
       // Sekundenzahl, die der Server nennt.
       expect(
         isAuthServerFaultError(const AuthApiException(
@@ -178,11 +158,22 @@ void main() {
         )),
         isFalse,
       );
+      expect(isAuthServerFaultError(StateError('bug')), isFalse);
     });
 
-    test('ein Nicht-Auth-Fehler laeuft nicht in den 5xx-Zweig', () {
-      expect(isAuthServerFaultError(StateError('bug')), isFalse);
-      expect(isAuthServerFaultError('nur ein String'), isFalse);
+    test('derselbe Typ OHNE Status und echte Netzfehler bleiben Netzfehler',
+        () {
+      // Der Transport-Pfad in fetch.dart: `AuthRetryableFetchException(message:
+      // e.toString())` — ohne statusCode, weil es keine Antwort gab.
+      for (final fehler in <Object>[
+        _gotrueTransport(),
+        const SocketException('Failed host lookup: ci.invalid'),
+        ClientException('Connection closed before full header'),
+        TimeoutException('timeout', const Duration(seconds: 8)),
+      ]) {
+        expect(isAuthNetworkError(fehler), isTrue, reason: '$fehler');
+        expect(isAuthServerFaultError(fehler), isFalse, reason: '$fehler');
+      }
     });
   });
 
@@ -244,86 +235,40 @@ void main() {
       await _entsorgeScreen(tester);
     });
 
-    for (final fall in <({String name, Object fehler})>[
-      (
-        name: 'SocketException (Funkloch)',
-        fehler: const SocketException('Failed host lookup: ci.invalid'),
-      ),
-      (
-        name: 'AuthRetryableFetchException ohne Status (Transport)',
-        fehler: _gotrueTransport(),
-      ),
-    ]) {
-      testWidgets('REGRESSION: ${fall.name} bleibt „Offline"', (tester) async {
-        // Die Gegenprobe zum Fix: der 5xx-Zweig darf die echte Netzlosigkeit
-        // nicht mitnehmen.
-        final repo = _WerfendesAuthRepository(fall.fehler);
-
-        await _pumpCode(tester, repo);
-        await tester.tap(_resendLink);
-        await tester.pumpAndSettle();
-
-        expect(find.text(deL10n.authCodeOfflineError), findsOneWidget);
-        expect(find.text(deL10n.authErrorServerFault), findsNothing);
-        await _entsorgeScreen(tester);
-      });
-    }
-  });
-
-  group('H1 — derselbe Satz auf dem Login-Screen', () {
-    testWidgets('ein echter GoTrue-502 beim Login nennt den Server',
+    testWidgets('REGRESSION: derselbe Typ ohne Status bleibt „Offline"',
         (tester) async {
-      await _pumpLogin(tester, _gotrue502());
+      // Die Gegenprobe zum Fix an seiner Grenze: der 5xx-Zweig darf den
+      // Transport-Wrapper nicht mitnehmen. Weitere Netzfehler auf dem
+      // Code-Screen: review0829_auth_code_errors_test.dart (P4-02).
+      final repo = _WerfendesAuthRepository(_gotrueTransport());
 
-      expect(find.text(deL10n.authErrorServerFault), findsOneWidget);
-      expect(find.text(deL10n.authCodeOfflineError), findsNothing);
-      expect(find.text(deL10n.authErrorGeneric), findsNothing);
-    });
-
-    testWidgets('REGRESSION: ein Funkloch beim Login bleibt „Offline"',
-        (tester) async {
-      await _pumpLogin(tester, const SocketException('Failed host lookup'));
+      await _pumpCode(tester, repo);
+      await tester.tap(_resendLink);
+      await tester.pumpAndSettle();
 
       expect(find.text(deL10n.authCodeOfflineError), findsOneWidget);
       expect(find.text(deL10n.authErrorServerFault), findsNothing);
-    });
-
-    testWidgets(
-        'REGRESSION: der Transport-Wrapper beim Login bleibt „Offline"',
-        (tester) async {
-      await _pumpLogin(tester, _gotrueTransport());
-
-      expect(find.text(deL10n.authCodeOfflineError), findsOneWidget);
-      expect(find.text(deL10n.authErrorServerFault), findsNothing);
+      await _entsorgeScreen(tester);
     });
   });
 
-  group('H1 — die SYNC-Pfade stufen unveraendert ein', () {
-    // Der Fix darf `isNetworkSyncError` nicht anfassen: dort kostet ein falsch
-    // als Netzfehler eingestufter 5xx Wiederholungen, keine Daten, und genau
-    // das ist gewollt (ein 5xx will wiederholt werden). Wer H1 stattdessen
-    // durch Streichen von `AuthRetryableFetchException` in Zeile 28 "loest",
-    // faellt hier durch.
-    test('ein GoTrue-5xx bleibt fuer die Outbox ein Netzfehler', () {
-      expect(isNetworkSyncError(_gotrue502()), isTrue);
-      expect(classifyOutboxFailure(_gotrue502(), 0), OutboxVerdict.retryFree);
-      expect(classifyOutboxFailure(_gotrue502(), 999), OutboxVerdict.retryFree,
-          reason: 'ein Netzfehler darf das Budget nie verbrennen');
-    });
+  // Offline on the login screen: widgets/auth_screen_error_mapping_test.dart.
+  testWidgets('H1 — ein echter GoTrue-502 beim Login nennt den Server',
+      (tester) async {
+    await _pumpLogin(tester, _gotrue502());
 
-    test('die Warteschlangen-Hinweise sagen weiter „offline"', () {
-      expect(queuedSyncHint(_gotrue502()), deL10n.commonQueuedOfflineHint);
-      expect(queuedDelivery(_gotrue502()), SyncDelivery.queuedOffline);
-      expect(directSyncErrorMessage(_gotrue502()),
-          deL10n.commonSyncErrorOffline);
-    });
+    expect(find.text(deL10n.authErrorServerFault), findsOneWidget);
+    expect(find.text(deL10n.authCodeOfflineError), findsNothing);
+    expect(find.text(deL10n.authErrorGeneric), findsNothing);
+  });
 
-    test('und der Transport-Wrapper natuerlich auch', () {
-      expect(isNetworkSyncError(_gotrueTransport()), isTrue);
-      expect(
-          classifyOutboxFailure(_gotrueTransport(), 999),
-          OutboxVerdict.retryFree);
-      expect(queuedSyncHint(_gotrueTransport()), deL10n.commonQueuedOfflineHint);
-    });
+  // Der Fix darf `isNetworkSyncError` nicht anfassen: dort kostet ein falsch als
+  // Netzfehler eingestufter 5xx Wiederholungen, keine Daten, und genau das ist
+  // gewollt (ein 5xx will wiederholt werden). Der Transport-Wrapper ohne
+  // Status ist in services/sync_error_messages_test.dart gepinnt.
+  test('H1 — ein GoTrue-5xx bleibt fuer die Outbox ein Netzfehler', () {
+    expect(isNetworkSyncError(_gotrue502()), isTrue);
+    expect(classifyOutboxFailure(_gotrue502(), 999), OutboxVerdict.retryFree,
+        reason: 'ein Netzfehler darf das Budget nie verbrennen');
   });
 }

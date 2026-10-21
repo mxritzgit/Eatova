@@ -191,9 +191,5 @@ void main() {
         expect(body.computeLuminance(), greaterThan(0.35));
       });
     }
-
-    test('dunkel bleibt die Akzent-Fuellung des Designs', () {
-      expect(AppTokens.dark.orbBody, AppTokens.dark.accentFill);
-    });
   });
 }

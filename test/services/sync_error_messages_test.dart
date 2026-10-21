@@ -16,39 +16,10 @@ import 'package:eatova/src/services/sync_outbox.dart'
 
 void main() {
   group('isNetworkSyncError', () {
-    test('erkennt die real ankommenden Netzwerk-Fehlertypen', () {
-      expect(isNetworkSyncError(const SocketException('host lookup failed')),
-          isTrue);
-      expect(isNetworkSyncError(const HttpException('connection closed')),
-          isTrue);
-      expect(isNetworkSyncError(TimeoutException('timeout', const Duration(seconds: 8))),
-          isTrue);
-      // package:http wraps socket errors in ClientException.
-      expect(isNetworkSyncError(http.ClientException('offline')), isTrue);
-      // gotrue's "retryable fetch" wrapper for auth-stack network errors.
-      expect(isNetworkSyncError(AuthRetryableFetchException()), isTrue);
-    });
-
-    test(
-        'TLS-Fehler sind Netzfehler — Captive Portal / MITM-Proxy erreichen '
-        'den Server NIE', () {
-      // TlsException is none of the types above, and package:http only wraps
-      // SocketException/HttpException, so without this arm
-      // CERTIFICATE_VERIFY_FAILED arrives unclassified and burns the budget.
-      expect(
-        isNetworkSyncError(
-            const HandshakeException('Handshake error in client')),
-        isTrue,
-      );
-      expect(
-        isNetworkSyncError(
-            const TlsException('CERTIFICATE_VERIFY_FAILED(ssl_client.cc)')),
-        isTrue,
-      );
-      expect(isNetworkSyncError(const CertificateException('bad certificate')),
-          isTrue);
-    });
-
+    // Every network type, TLS included, is pinned through its outbox verdict
+    // in 'JEDER Netzwerkfehler ist retryFree' below (classifyOutboxFailure
+    // asks isNetworkSyncError first); server and program errors are not
+    // network errors per 'unbekannter TYP -> behalten'.
     test(
         'SYNC-5: eine 2xx-Antwort ohne JSON (Captive Portal) ist ein '
         'Netzfehler, jede andere Statuszahl nicht', () {
@@ -100,22 +71,6 @@ void main() {
           OutboxVerdict.retryFree);
     });
 
-    test('Server-Fehler und Programmfehler sind KEINE Netzwerk-Fehler', () {
-      // The server was reachable, so "offline" would be a lie.
-      expect(
-        isNetworkSyncError(const PostgrestException(
-          message: 'duplicate key value violates unique constraint '
-              '"logged_meals_pkey"',
-          code: '23505',
-        )),
-        isFalse,
-      );
-      expect(isNetworkSyncError(const AuthException('invalid login')), isFalse);
-      expect(isNetworkSyncError(StateError('bug')), isFalse);
-      expect(isNetworkSyncError(const FormatException('kaputtes JSON')),
-          isFalse);
-      expect(isNetworkSyncError('nur ein String'), isFalse);
-    });
   });
 
   group('queuedSyncHint (Outbox-Writes, Auto-Retry laeuft)', () {
@@ -149,28 +104,7 @@ void main() {
     });
   });
 
-  group('Profil-Save haengt seit Luecke D am Outbox-Netz', () {
-    // The profile save goes through the outbox, so a "save it again later"
-    // message would be wrong: there is an auto-retry.
-    test('offline -> derselbe Warteschlangen-Hinweis wie jeder andere Write',
-        () {
-      expect(
-        queuedSyncHint(http.ClientException('offline')),
-        'Offline — wird synchronisiert, sobald du wieder online bist.',
-      );
-    });
-
-    test('Server-Fehler -> neutrale Retry-Meldung ohne Spaltennamen', () {
-      const error = PostgrestException(
-          message: 'null value in column "daily_kcal_goal"');
-      final msg = queuedSyncHint(error);
-      expect(msg,
-          'Änderung konnte nicht gespeichert werden — wird automatisch erneut versucht.');
-      expect(msg, isNot(contains('daily_kcal_goal')));
-      expect(msg, isNot(contains('Bitte speichere es später erneut')),
-          reason: 'das waere gelogen — die Outbox versucht es selbst erneut');
-    });
-  });
+  // The profile save rides the same outbox, so it gets the same two hints.
 
   group('directSyncErrorMessage (z.B. Konto-Löschung)', () {
     test('unterscheidet Offline von Sonstigem, nie Roh-Details', () {
@@ -194,9 +128,9 @@ void main() {
     PostgrestException pg(String code) =>
         PostgrestException(message: 'irgendwas Technisches', code: code);
 
-    // The verdict table for a FRESH failure (attempts 0, no op kind). Every
-    // code runs as its own named case: moving one between the columns is a
-    // data-loss decision, and the failure has to say which code moved.
+    // The verdict table for a FRESH failure (attempts 0, no op kind). Moving a
+    // code between the columns is a data-loss decision, so each assertion
+    // names its code and reason.
     final urteile = <(String, OutboxVerdict, String)>[
       // Payload-determined — no user input produces these, so a retry would
       // fail identically forever.
@@ -242,12 +176,12 @@ void main() {
       ('99999', OutboxVerdict.retryCounted, 'unbekannter Code'),
       ('', OutboxVerdict.retryCounted, 'leerer Code'),
     ];
-    for (final (code, urteil, warum) in urteile) {
-      test('frischer Fehlschlag mit Code "$code" -> ${urteil.name} ($warum)',
-          () {
-        expect(classifyOutboxFailure(pg(code), 0), urteil);
-      });
-    }
+    test('frischer Fehlschlag: jeder Code bekommt sein Urteil', () {
+      for (final (code, urteil, warum) in urteile) {
+        expect(classifyOutboxFailure(pg(code), 0), urteil,
+            reason: 'Code "$code" ($warum)');
+      }
+    });
 
     test(
         '23514 (Check-Constraint) ueberlebt bis an den Budget-Rand — der '
@@ -276,16 +210,6 @@ void main() {
       expect(classifyOutboxFailure(pg('502'), kOutboxMaxAttempts - 1),
           OutboxVerdict.drop);
       expect(queuedDelivery(portal), SyncDelivery.queuedOffline);
-    });
-
-    test('500 verbrennt Versuche und faellt erst am Budget-Rand raus', () {
-      expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 2),
-          OutboxVerdict.retryCounted);
-      expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts - 1),
-          OutboxVerdict.drop,
-          reason: 'dieser Versuch ist der letzte des Budgets');
-      expect(classifyOutboxFailure(pg('500'), kOutboxMaxAttempts + 99),
-          OutboxVerdict.drop);
     });
 
     test('isStaleAuthError kennt die drei Token-Ablehnungen und sonst nichts',
@@ -326,30 +250,39 @@ void main() {
     });
 
     test(
-        'Delete-Ops sterben nicht am SCHREIB-Budget — ein verworfener Delete '
-        'holt die geloeschte Mahlzeit vom Server zurueck', () {
+        'Delete-Ops ignorieren Code-Urteil und SCHREIB-Budget — ein '
+        'verworfener Delete holt die geloeschte Mahlzeit vom Server zurueck',
+        () {
       // A dropped delete leaves the server row, so the next cold start counts
-      // the meal again. Deletes are idempotent, hence their own budget.
-      for (final kind in const <SyncOpKind>[
-        SyncOpKind.mealDelete,
-        SyncOpKind.favoriteDelete,
-        SyncOpKind.recipeDelete,
-        SyncOpKind.trainingPlanDelete,
-        SyncOpKind.trainingHistoryDelete,
-      ]) {
+      // the meal again. Deletes are idempotent, hence their own budget. An
+      // empty delete payload CANNOT cause a data violation, so a cold schema
+      // cache (PGRST202) or a gateway 404 during a deploy must not drop it.
+      for (final kind in SyncOpKind.values.where((k) => k.isDelete)) {
+        for (final code in const <String>[
+          'PGRST202',
+          'PGRST204',
+          'PGRST100',
+          '404',
+          '400',
+          '422',
+          '22003',
+          '22P02',
+          '23502',
+        ]) {
+          expect(classifyOutboxFailure(pg(code), 0, kind: kind),
+              OutboxVerdict.retryCounted,
+              reason: '${kind.name} gegen $code darf nicht sofort sterben');
+        }
         expect(
             classifyOutboxFailure(pg('500'), kOutboxMaxAttempts * 4,
                 kind: kind),
             OutboxVerdict.retryCounted,
             reason: '${kind.name} weit jenseits des SCHREIB-Budgets');
-        expect(
-            classifyOutboxFailure(pg('23503'), kOutboxMaxAttempts - 1,
-                kind: kind),
-            OutboxVerdict.retryCounted,
-            reason: '${kind.name} am Schreib-Budget-Rand');
       }
 
-      // Counter-check: write ops still run into the budget.
+      // Counter-check: write ops keep the instant drop and their budget.
+      expect(classifyOutboxFailure(pg('PGRST204'), 0, kind: SyncOpKind.mealInsert),
+          OutboxVerdict.drop);
       for (final kind in const <SyncOpKind>[
         SyncOpKind.mealInsert,
         SyncOpKind.mealUpsert,
@@ -369,53 +302,12 @@ void main() {
     });
 
     test(
-        'ein strukturell unmoeglicher Delete wird NICHT sofort verworfen — '
-        'sonst kehrt die geloeschte Mahlzeit still vom Server zurueck', () {
-      // Transient-suspect, not payload-determined: an empty delete payload
-      // CANNOT cause a data violation, so a cold schema cache or gateway 404
-      // must not drop it. The exemption covers code verdict AND budget.
-      for (final code in const <String>[
-        'PGRST202', // schema cache does not know the function/route yet
-        'PGRST204',
-        'PGRST100',
-        '404', // gateway route during a deploy
-        '400',
-        '422',
-        '22003', // class 22 — structurally impossible for an EMPTY payload
-        '22P02',
-        '23502',
-      ]) {
-        for (final kind in const <SyncOpKind>[
-          SyncOpKind.mealDelete,
-          SyncOpKind.favoriteDelete,
-          SyncOpKind.recipeDelete,
-          SyncOpKind.trainingPlanDelete,
-          SyncOpKind.trainingHistoryDelete,
-        ]) {
-          expect(classifyOutboxFailure(pg(code), 0, kind: kind),
-              OutboxVerdict.retryCounted,
-              reason: '${kind.name} gegen $code darf nicht sofort sterben');
-        }
-        // Counter-check: write ops keep the instant drop.
-        expect(classifyOutboxFailure(pg(code), 0, kind: SyncOpKind.mealInsert),
-            OutboxVerdict.drop,
-            reason: 'mealInsert gegen $code bleibt ein Sofort-Verwurf');
-      }
-    });
-
-    test(
         'das Delete-Budget ist gross, aber ENDLICH — sonst ist die Outbox nie '
         'leer und der Logout traegt PII weiter', () {
       // "Never drop deletes" would pin `preserveOutbox` to true forever
       // (audit M-1); instead a large budget plus a wall-clock bound.
       expect(kOutboxDeleteMaxAttempts, greaterThan(kOutboxMaxAttempts * 4));
-      for (final kind in const <SyncOpKind>[
-        SyncOpKind.mealDelete,
-        SyncOpKind.favoriteDelete,
-        SyncOpKind.recipeDelete,
-        SyncOpKind.trainingPlanDelete,
-        SyncOpKind.trainingHistoryDelete,
-      ]) {
+      for (final kind in SyncOpKind.values.where((k) => k.isDelete)) {
         expect(
             classifyOutboxFailure(pg('PGRST204'), kOutboxDeleteMaxAttempts - 2,
                 kind: kind),
@@ -458,22 +350,16 @@ void main() {
   group('deliveryHint (Luecke E)', () {
     // These hint functions take an optional [AppLocalizations] (default
     // German), under which the values here stay byte-identical.
-    test('delivered haengt nur einen Punkt an', () {
+    test('jede Zustellart haengt ihren eigenen Zusatz an', () {
       expect(
         deliveryHint('„Bowl" gespeichert', SyncDelivery.delivered),
         '„Bowl" gespeichert.',
       );
-    });
-
-    test('queuedOffline nennt den Offline-Grund', () {
       expect(
         deliveryHint('„Bowl" gespeichert', SyncDelivery.queuedOffline),
         '„Bowl" gespeichert — wird synchronisiert, sobald du wieder online '
         'bist.',
       );
-    });
-
-    test('queuedRetry nennt den automatischen Retry', () {
       expect(
         deliveryHint('„Bowl" gelöscht', SyncDelivery.queuedRetry),
         '„Bowl" gelöscht — die Übertragung wird automatisch wiederholt.',

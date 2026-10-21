@@ -1,7 +1,8 @@
 // Favorites menu flows (feature 2026-08-27): the add sheet's "All (N)" button
 // opens the favorites sheet. Adding there logs into the slot chosen in the
 // add sheet, unpinning there flows back into the favorites row and the store,
-// and the local search narrows the list.
+// and "Frequent" counts the store's logged meals. The sheet's local search is
+// pinned in favorites_sheet_test.dart.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -124,7 +125,6 @@ void main() {
 
     // Since 2026-10-03: no inline favorites, one row with the count.
     final zeile = find.byKey(const ValueKey('add-meal-favorites-all'));
-    expect(find.byKey(const ValueKey('favorite-pinned-0')), findsNothing);
     expect(
       find.descendant(of: zeile, matching: find.text('4 gespeichert')),
       findsOneWidget,
@@ -202,7 +202,6 @@ void main() {
     // The row counts one less.
     await _dismissFavoritesMenu(tester);
     final zeile = find.byKey(const ValueKey('add-meal-favorites-all'));
-    expect(find.byKey(const ValueKey('favorite-pinned-0')), findsNothing);
     expect(
       find.descendant(of: zeile, matching: find.text('3 gespeichert')),
       findsOneWidget,
@@ -225,48 +224,6 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
-    await tester.pumpAndSettle();
-  });
-
-  testWidgetsRobust('Search inside the favorites menu narrows the list', (
-    WidgetTester tester,
-  ) async {
-    await _bootWithFavorites(tester);
-    await _openFavoritesMenu(tester);
-    final search = find.byKey(const ValueKey('favorites-sheet-search'));
-    expect(search, findsOneWidget);
-
-    // Name match: only Haferdrink stays.
-    await tester.enterText(search, 'hafer');
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('favorites-sheet-item-0')), findsOneWidget);
-    expect(find.byKey(const ValueKey('favorites-sheet-item-1')), findsNothing);
-    expect(_menuText('Haferdrink'), findsOneWidget);
-    expect(_menuText('Skyr Natur'), findsNothing);
-    expect(find.byKey(const ValueKey('favorites-sheet-no-match')), findsNothing);
-
-    // Brand match works the same way.
-    await tester.enterText(search, 'alpro');
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('favorites-sheet-item-0')), findsOneWidget);
-    expect(find.byKey(const ValueKey('favorites-sheet-item-1')), findsNothing);
-    expect(_menuText('Haferdrink'), findsOneWidget);
-
-    // Nonsense query: the no-match hint replaces the list.
-    await tester.enterText(search, 'xyzzy');
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('favorites-sheet-no-match')), findsOneWidget);
-    expect(find.byKey(const ValueKey('favorites-sheet-item-0')), findsNothing);
-    expect(_menuText('4 gespeichert'), findsOneWidget);
-
-    // Clearing the query brings all four back.
-    await tester.tap(find.byKey(const ValueKey('favorites-sheet-search-clear')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('favorites-sheet-no-match')), findsNothing);
-    expect(find.byKey(const ValueKey('favorites-sheet-item-3')), findsOneWidget);
-
-    await _dismissFavoritesMenu(tester);
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
   });

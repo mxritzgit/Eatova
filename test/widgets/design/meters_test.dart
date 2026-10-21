@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/widgets/design/meters.dart';
@@ -37,29 +36,6 @@ void main() {
       expect(tester.getSize(find.byType(Sparkline)).height, 100);
     });
   });
-
-  testWidgets('alle Messgeraete rendern in hell und dunkel', (tester) async {
-    pinPhoneViewport(tester);
-    await expectRendersInBothBrightnesses(
-      tester,
-      () => const Column(
-        children: <Widget>[
-          Sparkline(values: <double>[78.6, 79.2, 78.9, 81.4]),
-        ],
-      ),
-      scrollable: true,
-    );
-  });
-
-  testWidgets('alle Messgeraete ueberstehen textScaler 2.0', (tester) async {
-    pinPhoneViewport(tester);
-    await expectSurvivesTextScale(
-      tester,
-      const Column(
-        children: <Widget>[
-          Sparkline(values: <double>[78.6, 79.2, 78.9, 81.4]),
-        ],
-      ),
-    );
-  });
+  // No text-scale or legibility sweep: the sparkline paints a line and draws
+  // no Text, so both helpers would pass on any change.
 }

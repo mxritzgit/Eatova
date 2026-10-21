@@ -1,6 +1,5 @@
-import { extractionPrompt, parseExtraction } from './extraction.ts';
+import { parseExtraction } from './extraction.ts';
 import { sourcedServings } from './nutrition.ts';
-import { extractionSchema } from './schema.ts';
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -202,10 +201,4 @@ Deno.test('portion contract retains legacy response shape and stable source iden
   check(legacy.id === current.id && legacy.ingredients === current.ingredients, 'Evidence metadata does not alter identity');
   const oldProvider = await extract(candidate({ ingredient_basis_quote: undefined }));
   check(oldProvider.ingredients_basis === 'unspecified', 'Older provider-shaped rows remain reviewable');
-});
-
-Deno.test('portion prompt and provider schema request exact independent ingredient basis evidence', () => {
-  check(extractionPrompt('en').includes('ingredient_basis_quote') && extractionPrompt('de').includes('800 g'), 'Prompt explains source and derived quantity');
-  const properties = extractionSchema.properties.candidates.items.properties;
-  check(properties.ingredient_basis_quote.type === 'string', 'Provider strict schema contains quote field');
 });

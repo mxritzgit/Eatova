@@ -94,164 +94,176 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  for (final brightness in Brightness.values) {
-    for (final locale in [const Locale('de'), const Locale('en')]) {
-      for (final scale in [1.0, 2.0]) {
-        final name = '${brightness.name}-${locale.languageCode}-$scale';
-        testWidgets(
-          'analysis real fonts, photo, actions and large text: $name',
-          (tester) async {
-            viewport(tester, scale == 1 ? 390 : 320);
-            var added = 0;
-            var favorites = 0;
-            await tester.pumpWidget(
-              RepaintBoundary(
-                key: const ValueKey('capture'),
-                child: localizedApp(
-                  Builder(
-                    builder: (context) => TextButton(
-                      onPressed: () => showMealAnalysisSheet(
-                        context,
-                        slot: MealSlot.lunch,
-                        resultFuture: Future.value(_meal),
-                        previewImage: File(
-                          'assets/recipes/lachs_poke_bowl.jpg',
-                        ).readAsBytesSync(),
-                        onAdd: (result, slot) {
-                          added++;
-                          return 'meal-id';
-                        },
-                        onUpdateMeal: (_, _) {},
-                        failureMessage: 'Unavailable',
-                        onToggleFavorite: (_) => favorites++,
-                      ),
-                      child: const Text('Open'),
-                    ),
+  // One palette: the behaviour below does not depend on it; the light palette
+  // is rendered by test/design/meal_sheets_capture_test.dart,
+  // test/design/misc_sheets_capture_test.dart and food_sheets_light_dark_test.
+  // Both languages at 2x: the English info labels are the longest and stack
+  // above their values there.
+  const brightness = Brightness.dark;
+  for (final (locale, scale) in const [
+    (Locale('de'), 1.0),
+    (Locale('de'), 2.0),
+    (Locale('en'), 2.0),
+  ]) {
+    final name = '${brightness.name}-${locale.languageCode}-$scale';
+    testWidgets(
+      'analysis real fonts, photo, actions and large text: $name',
+      (tester) async {
+        viewport(tester, scale == 1 ? 390 : 320);
+        var added = 0;
+        var favorites = 0;
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: const ValueKey('capture'),
+            child: localizedApp(
+              Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showMealAnalysisSheet(
+                    context,
+                    slot: MealSlot.lunch,
+                    resultFuture: Future.value(_meal),
+                    previewImage: File(
+                      'assets/recipes/lachs_poke_bowl.jpg',
+                    ).readAsBytesSync(),
+                    onAdd: (result, slot) {
+                      added++;
+                      return 'meal-id';
+                    },
+                    onUpdateMeal: (_, _) {},
+                    failureMessage: 'Unavailable',
+                    onToggleFavorite: (_) => favorites++,
                   ),
-                  brightness: brightness,
-                  locale: locale,
-                  textScale: scale,
+                  child: const Text('Open'),
                 ),
               ),
-            );
-            await tester.pumpAndSettle();
-            await tester.tap(find.text('Open'));
-            await tester.pumpAndSettle();
-            final photo = find.descendant(
-              of: find.byType(MealAnalysisSheet),
-              matching: find.byType(Image),
-            );
-            await tester.runAsync(
-              () => precacheImage(
-                tester.widget<Image>(photo).image,
-                tester.element(photo),
-              ),
-            );
-            await tester.pumpAndSettle();
-            await capture(tester, 'analysis-$name');
-            expect(tester.takeException(), isNull);
-            final add = find.byKey(const ValueKey('analyse-add-daily-button'));
-            if (scale == 1) expect(add.hitTestable(), findsOneWidget);
-            await tester.ensureVisible(add);
-            await tester.pumpAndSettle();
-            await tester.tap(add);
-            await tester.pumpAndSettle();
-            expect(added, 1);
-            expect(tester.widget<PrimaryActionButton>(add).onTap, isNull);
-            final favorite = find.byKey(
-              const ValueKey('analyse-favorite-button'),
-            );
-            await tester.ensureVisible(favorite);
-            await tester.pumpAndSettle();
-            await tester.tap(favorite);
-            await tester.pumpAndSettle();
-            expect(favorites, 1);
-            await tester.tap(find.byKey(const ValueKey('analyse-info-button')));
-            await tester.pumpAndSettle();
-            expect(tester.takeException(), isNull);
-          },
-        );
-
-        testWidgets('export real fonts and extractable sections: $name', (
-          tester,
-        ) async {
-          viewport(tester, scale == 1 ? 390 : 320);
-          String? copied;
-          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            SystemChannels.platform,
-            (call) async {
-              if (call.method == 'Clipboard.setData') {
-                copied = call.arguments['text'] as String;
-              }
-              return null;
-            },
-          );
-          addTearDown(
-            () => tester.binding.defaultBinaryMessenger
-                .setMockMethodCallHandler(SystemChannels.platform, null),
-          );
-          await tester.pumpWidget(
-            RepaintBoundary(
-              key: const ValueKey('capture'),
-              child: localizedApp(
-                DataExportSheet(
-                  snapshot: Future.value(_export()),
-                ),
-                brightness: brightness,
-                locale: locale,
-                textScale: scale,
-              ),
+              brightness: brightness,
+              locale: locale,
+              textScale: scale,
             ),
-          );
-          await tester.pumpAndSettle();
-          await capture(tester, 'export-$name');
-          final copy = find.byKey(const ValueKey('profile-export-copy'));
-          await tester.scrollUntilVisible(copy, 200);
-          await tester.pumpAndSettle();
-          await tester.tap(copy);
-          await tester.pumpAndSettle();
-          expect(copied, contains('Bowl 0'));
-          expect(copied, contains('Bowl 6'));
-          expect(copied, isNot(startsWith('{')));
-          final section = find.byKey(
-            const ValueKey('export-expand-logged_meals'),
-          );
-          await tester.scrollUntilVisible(section, 200);
-          // Clear of the copy snack at the sheet's foot.
-          await Scrollable.ensureVisible(
-            tester.element(section),
-            alignment: 0.3,
-          );
-          await tester.pumpAndSettle();
-          await tester.tap(section);
-          await tester.pumpAndSettle();
-          final csv = find.byKey(const ValueKey('export-csv-logged_meals'));
-          await tester.ensureVisible(csv);
-          await tester.pumpAndSettle();
-          await tester.tap(csv);
-          await tester.pumpAndSettle();
-          expect(copied, contains('"/payload/mealName"'));
-          expect(copied, contains('Bowl 0'));
-          expect(copied, contains('Bowl 6'));
-          expect(
-            copied!.indexOf('Bowl 6'),
-            lessThan(copied!.indexOf('Bowl 0')),
-          );
-          expect(find.text('Bowl 6'), findsOneWidget);
-          expect(find.text('Bowl 0'), findsNothing);
-          await tester.pump(const Duration(seconds: 2));
-          await tester.pumpAndSettle();
-          await capture(tester, 'export-section-$name');
-          final next = find.byKey(const ValueKey('export-next-logged_meals'));
-          await tester.ensureVisible(next);
-          await tester.pumpAndSettle();
-          await tester.tap(next);
-          await tester.pumpAndSettle();
-          expect(find.text('Bowl 3'), findsOneWidget);
-          expect(tester.takeException(), isNull);
-        });
-      }
-    }
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        final photo = find.descendant(
+          of: find.byType(MealAnalysisSheet),
+          matching: find.byType(Image),
+        );
+        await tester.runAsync(
+          () => precacheImage(
+            tester.widget<Image>(photo).image,
+            tester.element(photo),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await capture(tester, 'analysis-$name');
+        expect(tester.takeException(), isNull);
+        final add = find.byKey(const ValueKey('analyse-add-daily-button'));
+        if (scale == 1) expect(add.hitTestable(), findsOneWidget);
+        await tester.ensureVisible(add);
+        await tester.pumpAndSettle();
+        await tester.tap(add);
+        await tester.pumpAndSettle();
+        expect(added, 1);
+        expect(tester.widget<PrimaryActionButton>(add).onTap, isNull);
+        final favorite = find.byKey(
+          const ValueKey('analyse-favorite-button'),
+        );
+        await tester.ensureVisible(favorite);
+        await tester.pumpAndSettle();
+        await tester.tap(favorite);
+        await tester.pumpAndSettle();
+        expect(favorites, 1);
+        await tester.tap(find.byKey(const ValueKey('analyse-info-button')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        // Labels too wide to sit beside their values move above them.
+        final rows = find.descendant(
+          of: find.byKey(const ValueKey('analyse-info-lines')),
+          matching: find.byType(Row),
+        );
+        expect(rows, locale.languageCode == 'en' ? findsNothing : findsWidgets);
+      },
+    );
+
+    testWidgets('export real fonts and extractable sections: $name', (
+      tester,
+    ) async {
+      viewport(tester, scale == 1 ? 390 : 320);
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = call.arguments['text'] as String;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: const ValueKey('capture'),
+          child: localizedApp(
+            DataExportSheet(
+              snapshot: Future.value(_export()),
+            ),
+            brightness: brightness,
+            locale: locale,
+            textScale: scale,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await capture(tester, 'export-$name');
+      final copy = find.byKey(const ValueKey('profile-export-copy'));
+      await tester.scrollUntilVisible(copy, 200);
+      await tester.pumpAndSettle();
+      await tester.tap(copy);
+      await tester.pumpAndSettle();
+      expect(copied, contains('Bowl 0'));
+      expect(copied, contains('Bowl 6'));
+      expect(copied, isNot(startsWith('{')));
+      final section = find.byKey(
+        const ValueKey('export-expand-logged_meals'),
+      );
+      await tester.scrollUntilVisible(section, 200);
+      // Clear of the copy snack at the sheet's foot.
+      await Scrollable.ensureVisible(
+        tester.element(section),
+        alignment: 0.3,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(section);
+      await tester.pumpAndSettle();
+      final csv = find.byKey(const ValueKey('export-csv-logged_meals'));
+      await tester.ensureVisible(csv);
+      await tester.pumpAndSettle();
+      await tester.tap(csv);
+      await tester.pumpAndSettle();
+      expect(copied, contains('"/payload/mealName"'));
+      expect(copied, contains('Bowl 0'));
+      expect(copied, contains('Bowl 6'));
+      expect(
+        copied!.indexOf('Bowl 6'),
+        lessThan(copied!.indexOf('Bowl 0')),
+      );
+      expect(find.text('Bowl 6'), findsOneWidget);
+      expect(find.text('Bowl 0'), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      await capture(tester, 'export-section-$name');
+      final next = find.byKey(const ValueKey('export-next-logged_meals'));
+      await tester.ensureVisible(next);
+      await tester.pumpAndSettle();
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      expect(find.text('Bowl 3'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   testWidgets(

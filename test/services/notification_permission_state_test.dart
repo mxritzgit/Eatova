@@ -113,21 +113,15 @@ void main() {
         'blockiert, nicht aus', () async {
       final cache = newCache();
       final svc = _FakeNotificationService(grantOnRequest: false);
+      final store = _storeWith(cache, svc);
 
-      await _storeWith(cache, svc).setNotificationsEnabled(true);
+      await store.setNotificationsEnabled(true);
 
       expect(await cache.readNotificationsEnabled() ?? false, isFalse,
           reason: 'nichts erlaubt -> nichts als „aktiv" persistieren');
       expect(svc.scheduled, isEmpty);
-    });
-
-    test('abgelehnt: der Store meldet blocked (dritter Zustand)', () async {
-      final svc = _FakeNotificationService(grantOnRequest: false);
-      final store = _storeWith(newCache(), svc);
-
-      await store.setNotificationsEnabled(true);
-
-      expect(store.reminderState, ReminderState.blocked);
+      expect(store.reminderState, ReminderState.blocked,
+          reason: 'der dritte Zustand');
       expect(store.notificationsEnabled, isFalse,
           reason: 'blockiert heisst: es wird nichts ausgeliefert');
     });
@@ -164,7 +158,7 @@ void main() {
   group('D11 — Kaltstart', () {
     test(
         'Cache sagt true, das OS hat die Berechtigung entzogen: Zustand wird '
-        'korrigiert und NICHTS geplant', () async {
+        'korrigiert, NICHTS geplant und nicht nachgefragt', () async {
       final cache = newCache();
       await cache.writeNotificationsEnabled(true);
       final svc = _FakeNotificationService(osAllows: false);
@@ -177,16 +171,7 @@ void main() {
           reason: 'ohne Berechtigung liefe zonedSchedule ins Leere');
       expect(await cache.readNotificationsEnabled() ?? false, isFalse,
           reason: 'das persistierte „aktiv" war nachweislich falsch');
-    });
-
-    test('Kaltstart PRUEFT, er FRAGT nicht — kein Systemdialog beim Boot',
-        () async {
-      final cache = newCache();
-      await cache.writeNotificationsEnabled(true);
-      final svc = _FakeNotificationService(osAllows: false);
-
-      await _storeWith(cache, svc).initNotificationsFromCache();
-
+      // The cold start CHECKS, it never ASKS.
       expect(svc.requestCalls, 0,
           reason: 'ein Systemdialog beim Kaltstart ueberfaellt den Nutzer');
       expect(svc.hasPermissionCalls, 1);

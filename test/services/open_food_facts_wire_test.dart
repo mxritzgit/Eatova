@@ -21,12 +21,10 @@
 // scheme). Payloads are real products in that format; the docs were copied, not
 // the code.
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 
 /// Answers both OFF endpoints with the fixture files' bytes and records every
@@ -190,26 +188,24 @@ void main() {
   });
 
   group('B7 — Bezugsgroesse, kJ und Obergrenze', () {
-    test('_fields fragt nutrition_data_per an (Barcode-Pfad)', () async {
+    test('_fields fragt nutrition_data_per an (Barcode- und Suchpfad)',
+        () async {
       await service.lookupBarcode('3017624010701');
-
-      final fields = server.requests.single.queryParameters['fields'];
-      expect(fields, isNotNull);
-      expect(
-        fields!.split(','),
-        contains('nutrition_data_per'),
-        reason:
-            'Ohne nutrition_data_per kann die App die Bezugsgroesse von '
-            'energy-kcal_value prinzipiell nicht kennen (B7).',
-      );
-    });
-
-    test('_fields fragt nutrition_data_per an (Suchpfad)', () async {
       await service.searchProducts('salami');
 
-      final fields = server.requests.single.queryParameters['fields'];
-      expect(fields, isNotNull);
-      expect(fields!.split(','), contains('nutrition_data_per'));
+      expect(server.requests, hasLength(2));
+      for (final request in server.requests) {
+        final fields = request.queryParameters['fields'];
+        expect(fields, isNotNull, reason: request.path);
+        expect(
+          fields!.split(','),
+          contains('nutrition_data_per'),
+          reason:
+              'Ohne nutrition_data_per kann die App die Bezugsgroesse von '
+              'energy-kcal_value prinzipiell nicht kennen (B7): '
+              '${request.path}',
+        );
+      }
     });
 
     test(
@@ -240,28 +236,16 @@ void main() {
       },
     );
 
-    test('Barcode ohne kcal-Feld liefert nie ein 0-kcal-Ergebnis', () async {
-      // The bar carries only energy_100g: 1611 (kJ). Two outcomes are correct,
-      // depending on whether the model's kJ fallback is in place:
-      //   * without it -> ProductWithoutNutritionException
-      //   * with it    -> 1611 / 4.184 = 385 kcal, a normal result
-      // Only a 0-kcal result would be wrong: it lands straight in the diary.
-      final ausgang = await _ausgangVon(
-        () => service.lookupBarcode('4008400290117'),
-      );
+    test('Barcode ohne kcal-Feld wird aus kJ umgerechnet, nie 0 kcal',
+        () async {
+      // The bar carries only kJ (energy-kj_100g and energy_100g: 1611). The
+      // kJ fallback is in place, so the outcome is a normal result, not an
+      // exception and never 0 kcal, which would land straight in the diary.
+      final ergebnis = await service.lookupBarcode('4008400290117');
 
-      expect(
-        ausgang,
-        anyOf(
-          isA<ProductWithoutNutritionException>()
-              .having((e) => e.isImplausible, 'isImplausible', isFalse),
-          isA<MealAnalysisResult>().having(
-            (r) => isLoggableKcalPer100G(r.kcalPer100G),
-            'kcalPer100G ist loggbar',
-            isTrue,
-          ),
-        ),
-      );
+      // 1611 / 4.184 = 385 kcal/100 g; serving_quantity 21 -> 81 kcal.
+      expect(ergebnis.kcalPer100G, closeTo(385, 1));
+      expect(ergebnis.caloriesKcal, closeTo(81, 1));
     });
 
     // The model DISCARDS an implausible kcal value and derives a valid one from
@@ -277,18 +261,6 @@ void main() {
       expect(isLoggableKcalPer100G(ergebnis.kcalPer100G), isTrue);
       // serving_quantity: 20 -> 521 * 20 / 100 = 104
       expect(ergebnis.caloriesKcal, closeTo(104, 1));
-    });
-
-    test('Suchtreffer mit kJ-Rettung ueberlebt den Filter', () async {
-      final treffer = await service.searchProducts('salami');
-
-      expect(
-        treffer.map((t) => t.code),
-        contains('4104420030008'),
-        reason:
-            'Der kcal-Wert ist Muell, der kJ-Wert ist gueltig — der Treffer '
-            'ist loggbar und gehoert in die Liste.',
-      );
     });
 
     // The next two tests show nutrition_data_per actually takes effect: the same
@@ -332,6 +304,13 @@ void main() {
       expect(codes, contains('4001724819608'), reason: 'die brauchbare Pizza');
       expect(
         codes,
+        contains('4104420030008'),
+        reason:
+            'Der kcal-Wert ist Muell, der kJ-Wert ist gueltig — der Treffer '
+            'ist loggbar und gehoert in die Liste.',
+      );
+      expect(
+        codes,
         isNot(contains('7622210449283')),
         reason: '2180 kcal/100 g sind physikalisch unmoeglich (B7).',
       );
@@ -349,43 +328,4 @@ void main() {
       }
     });
   });
-
-  group('Fixtures sind gueltige OFF-Antworten', () {
-    // Keeps the fixtures honest: without valid JSON and the envelope, the rest
-    // of this file would test something other than a real OFF response.
-    test('v3-Umschlag traegt code, result.id, status', () {
-      for (final name in const <String>[
-        'open_food_facts_v3_found.json',
-        'open_food_facts_v3_kj_only.json',
-        'open_food_facts_v3_kcal_field_holds_kj.json',
-        'open_food_facts_v3_not_found.json',
-      ]) {
-        final json =
-            jsonDecode(utf8.decode(fixtureBytes(name))) as Map<String, dynamic>;
-        expect(json.keys, containsAll(<String>['code', 'result', 'status']));
-        expect((json['result'] as Map)['id'], isA<String>());
-      }
-    });
-
-    test('search.pl-Umschlag traegt products/count/page_size', () {
-      final json = jsonDecode(
-        utf8.decode(fixtureBytes('open_food_facts_search_pl.json')),
-      ) as Map<String, dynamic>;
-      expect(
-        json.keys,
-        containsAll(<String>['count', 'page', 'page_size', 'products']),
-      );
-      expect(json['products'], isA<List<dynamic>>());
-    });
-  });
-}
-
-/// Runs [aktion] and returns either the result OR the error as a value, so both
-/// outcomes can be described with `anyOf`.
-Future<Object> _ausgangVon(Future<Object> Function() aktion) async {
-  try {
-    return await aktion();
-  } catch (error) {
-    return error;
-  }
 }

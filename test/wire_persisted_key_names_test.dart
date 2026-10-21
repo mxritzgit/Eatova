@@ -83,8 +83,10 @@ void main() {
         cache = LocalCache(store, 'user-42');
       });
 
-      /// Writes to EVERY slot `LocalCache` knows. Adding a slot here means
-      /// adding it to the expected list below, or the completeness test fails.
+      /// Writes to every per-user slot `LocalCache` owns, through the
+      /// production key getters. A new slot needs a line here AND its name
+      /// below; the independent clear() inventory in
+      /// privacy_cache_deletion_test.dart lists them too.
       Future<void> alleSlotsFuellen(LocalCache c) async {
         await c.writeNotificationsEnabled(true);
         await c.writeProfile(const UserProfile());
@@ -98,6 +100,20 @@ void main() {
         await c.writeReminderTime(const ReminderTime(21, 30));
         await c.writeReminderPromptAnswered();
         await c.writeAiConsent(const <String, dynamic>{'granted': false});
+        await c.writeHealthConnectEnabled(true);
+        await c.writeHealthPrompt('asked');
+        await c.writeDailyActivity(const {});
+        await c.writeTrainingHistory(const []);
+        await c.writeTrainingPlans(const []);
+        await c.writeTrainingSelection('plan');
+        await c.writeTrainingSession(null);
+        await c.rememberTrainingHistoryDeletion(
+          '7f000000-0000-4000-8000-000000000001',
+        );
+        await c.commitStoreSnapshot(
+          expectedVersions: const {},
+          mealPlans: const [],
+        );
       }
 
       test('jeder Slot traegt exakt seinen erwarteten Namen', () async {
@@ -126,24 +142,25 @@ void main() {
           // Renamed, every account is asked for AI consent again (and the
           // old slot would outlive the cleanup).
           'eatova.v1.ai_consent.user-42',
+          'eatova.v1.health_connect_enabled.user-42',
+          'eatova.v1.health_prompt.user-42',
+          'eatova.v1.daily_activity.user-42',
+          'eatova.v1.training_history.user-42',
+          'eatova.v1.training_plans.user-42',
+          'eatova.v1.training_selection.user-42',
+          // Renamed, a paused workout is lost on the next start.
+          'eatova.v1.training_session.user-42',
+          // Renamed, a deleted workout can come back from a retained insert.
+          'eatova.v1.training_history_deletions.user-42',
+          'eatova.v1.meal_plans.user-42',
         };
 
         expect(store.snapshot.keys.toSet(), erwartet,
             reason: 'ein zusaetzlicher Slot gehoert in diese Liste, ein '
                 'fehlender bedeutet eine unbeabsichtigte Umbenennung');
       });
-
-      test('die User-ID ist Teil des Namens — sonst teilen sich zwei Konten '
-          'auf einem Geraet denselben Slot', () async {
-        await cache.writeNotificationsEnabled(true);
-        final andere = LocalCache(store, 'user-99');
-        await andere.writeNotificationsEnabled(false);
-
-        expect(store.snapshot.keys, contains('eatova.v1.notifications_enabled.user-42'));
-        expect(store.snapshot.keys, contains('eatova.v1.notifications_enabled.user-99'));
-        expect(await cache.readNotificationsEnabled(), isTrue);
-        expect(await andere.readNotificationsEnabled(), isFalse);
-      });
+      // Every name above carries the user id; account isolation as behaviour
+      // is pinned in local_cache_test.dart ('Cache ist pro userId getrennt').
     });
   });
 }

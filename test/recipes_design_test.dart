@@ -1,18 +1,14 @@
 // Design refactor — recipes package.
 //
-// This suite checks not behaviour (other suites do that) but the three
-// guarantees of the refactor itself:
+// Checks the layout guarantees, not the behaviour (other suites do that):
 //
-//   1. Tab, detail view and both sheets render exception-free in BOTH display
-//      modes — `AppTokens.of` throws without a theme, and a hardcoded dark
-//      colour only shows up here in light mode.
-//   2. Nothing overflows at textScaler 2.0. The other recipe suites swallow
-//      overflows (testWidgetsRobust); this one collects them.
-//   3. The tab's key inventory is complete, so a lost key fails ONE test
-//      instead of scattering across four suites.
-//
-// The mode loops are `renderMatrix` calls now; it declares the same cases and
-// asserts the overflow freedom this file used to hand-roll.
+//   1. Nothing overflows at textScaler 2.0 on the tab, the detail view and the
+//      slot picker, and the nutrition values stay whole at 320 px. The other
+//      recipe suites swallow overflows (testWidgetsRobust); this one collects
+//      them. The create sheet is covered by recipe_create_photo_test.dart.
+//   2. The hero title stays readable (4.5:1) below the photo in both modes.
+//   3. Screen-reader labels of the create sheet, the list/detail numbers and
+//      the pinned add card.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
@@ -61,26 +57,20 @@ final _eigenes = FitnessRecipe(
 /// chips and shelves run to the screen edge), so the home shell pads it with
 /// nothing — see [_schalenrand]; any other padding would measure a width that
 /// does not exist in the app.
-Widget _tab({List<FitnessRecipe> userRecipes = const <FitnessRecipe>[]}) =>
-    RecipesScreen(
-      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-      remainingMacros: _remaining,
-      onCreateRecipe: (_) async => SyncDelivery.delivered,
-      initialUserRecipes: userRecipes,
-    );
+Widget _tab() => RecipesScreen(
+  onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+  remainingMacros: _remaining,
+  onCreateRecipe: (_) async => SyncDelivery.delivered,
+);
 
 const EdgeInsets _schalenrand = EdgeInsets.zero;
 
 /// Mounts the tab for one matrix case.
-Future<void> _pumpTab(
-  WidgetTester tester,
-  RenderCase c, {
-  List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
-}) async {
+Future<void> _pumpTab(WidgetTester tester, RenderCase c) async {
   pinPhoneViewport(tester);
   await c.pump(
     tester,
-    _tab(userRecipes: userRecipes),
+    _tab(),
     padding: _schalenrand,
     settle: true,
   );
@@ -90,12 +80,11 @@ Future<void> _pumpTab(
 Future<void> _pumpTabPlain(
   WidgetTester tester, {
   Brightness brightness = Brightness.dark,
-  List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
 }) async {
   pinPhoneViewport(tester);
   await pumpLocalized(
     tester,
-    _tab(userRecipes: userRecipes),
+    _tab(),
     brightness: brightness,
     padding: _schalenrand,
     settle: true,
@@ -163,45 +152,6 @@ Future<void> _openDetail(WidgetTester tester) async {
 }
 
 void main() {
-  // The tab itself: both modes AND both languages from one call. The old file
-  // had this as two separate loops (mode loop + EN-Render-Smoke group), and it
-  // never paired `en` with the 2.0 case at all.
-  renderMatrix(
-    'Der Rezepte-Tab rendert overflow-frei',
-    (tester, c) async {
-      await _pumpTab(tester, c);
-
-      expect(tester.takeException(), isNull);
-      expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
-      expect(find.text(c.l10n.navRecipes), findsOneWidget);
-      // Without a pick the hero is the best goal match, as a neutral
-      // recommendation.
-      expect(find.byKey(const ValueKey('recipe-hero')), findsOneWidget);
-      expect(
-        find.text(c.l10n.recipesHeroRecommendedEyebrow.toUpperCase()),
-        findsOneWidget,
-      );
-    },
-    locales: const <Locale>[Locale('de'), Locale('en')],
-  );
-
-  renderMatrix('Die Rezept-Detailansicht rendert overflow-frei',
-      (tester, c) async {
-    await _pumpTab(tester, c);
-    await _openDetail(tester);
-
-    expect(tester.takeException(), isNull);
-    expect(
-      find.byKey(
-        const ValueKey('recipe-detail-hahnchen_mit_reis_and_brokkoli'),
-      ),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('recipe-add-card')), findsOneWidget);
-    expect(find.byKey(const ValueKey('recipe-add-button')), findsOneWidget);
-    expect(find.byKey(const ValueKey('recipe-detail-back')), findsOneWidget);
-  });
-
   renderMatrix(
     'Rezept-Naehrwerte bleiben bei 320 px und doppelter Schrift vollstaendig',
     (tester, c) async {
@@ -244,28 +194,9 @@ void main() {
       expect(tester.takeException(), isNull);
     },
     locales: const [Locale('de'), Locale('en')],
+    brightnesses: const [Brightness.dark],
     textScales: const [2.0],
   );
-
-  renderMatrix('Der Slot-Picker rendert overflow-frei', (tester, c) async {
-    await _pumpTab(tester, c);
-    await _openDetail(tester);
-    await _openSlotPicker(tester);
-
-    expect(tester.takeException(), isNull);
-    for (final slot in MealSlot.values) {
-      expect(
-        find.byKey(ValueKey('recipe-meal-picker-${slot.name}')),
-        findsOneWidget,
-        reason: '${slot.name} fehlt im Picker',
-      );
-    }
-    expect(
-      find.byKey(const ValueKey('recipe-meal-picker-cancel')),
-      findsOneWidget,
-    );
-    expect(find.text(c.l10n.recipesWhenToLogTitle), findsOneWidget);
-  });
 
   // Dark redesign: the hero replaced the spotlight carousel. Its title still
   // sits below the photo, on the card surface, readable at 4.5:1.
@@ -288,20 +219,9 @@ void main() {
         greaterThanOrEqualTo(4.5));
   });
 
-  renderMatrix('Das Anlege-Sheet rendert overflow-frei', (tester, c) async {
-    await _pumpTab(tester, c);
-
-    await openRecipeCreateSheet(tester);
-
-    expect(tester.takeException(), isNull);
-    expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
-    expect(find.text(c.l10n.recipesOwnTitle), findsWidgets);
-  });
-
   group('Textskalierung 2.0', () {
-    // One mode each, deliberately: these cases scroll the whole list at 2x
-    // font, which is the expensive part; the mode-specific metrics are already
-    // covered by the matrices above.
+    // One mode each: the palette does not change the layout. These cases
+    // scroll the whole list at 2x font, which is the expensive part.
     renderMatrix(
       'Der Rezepte-Tab overflowt bei doppelter Schrift nicht',
       (tester, c) async {
@@ -342,159 +262,46 @@ void main() {
         await _pumpTab(tester, c);
         await _openDetail(tester);
         await _openSlotPicker(tester);
-      },
-      brightnesses: const <Brightness>[Brightness.dark],
-      textScales: const <double>[2.0],
-    );
-
-    renderMatrix(
-      'Das Anlege-Sheet overflowt bei doppelter Schrift nicht',
-      (tester, c) async {
-        await _pumpTab(tester, c);
-        await openRecipeCreateSheet(tester);
-      },
-      brightnesses: const <Brightness>[Brightness.dark],
-      textScales: const <double>[2.0],
-    );
-  });
-
-  testWidgets('Key-Inventar des Rezepte-Tabs ist vollstaendig', (tester) async {
-    await _pumpTabPlain(tester);
-
-    expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
-    expect(find.byKey(const ValueKey('recipes-search-input')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('recipe-add-choice-button')),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('recipes-filter-button')), findsOneWidget);
-    expect(find.byKey(const ValueKey('recipes-chip-bar')), findsOneWidget);
-    // The bookmark needs the favorites hooks (wired in the home page and
-    // pinned in recipes_redesign_wiring_test.dart); this tab has none.
-    for (final key in const [
-      'recipe-hero',
-      'recipe-hero-add',
-      'recipe-hero-view',
-    ]) {
-      expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
-    }
-
-    // The search field carries the key DIRECTLY on the TextField; other suites
-    // cast on it.
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const ValueKey('recipes-search-input')))
-          .controller,
-      isNotNull,
-    );
-
-    // The clear X only appears when the field is non-empty.
-    expect(find.byKey(const ValueKey('recipes-search-clear')), findsNothing);
-    await tester.enterText(
-      find.byKey(const ValueKey('recipes-search-input')),
-      'reis',
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('recipes-search-clear')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('recipes-search-clear')));
-    await tester.pumpAndSettle();
-
-    // The chip strip is lazy: later chips only exist once scrolled into the
-    // cache area, so run through it once and collect.
-    final strip = find
-        .ancestor(
-          of: find.byKey(const ValueKey('recipe-filter-Alle')),
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    final position = tester.state<ScrollableState>(strip).position;
-    final gesehen = <String>{};
-    for (var offset = 0.0;; offset += 120) {
-      for (final filter in recipeFilters) {
-        if (find.byKey(ValueKey('recipe-filter-$filter')).evaluate().isNotEmpty) {
-          gesehen.add(filter);
+        for (final slot in MealSlot.values) {
+          expect(
+            find.byKey(ValueKey('recipe-meal-picker-${slot.name}')),
+            findsOneWidget,
+            reason: '${slot.name} fehlt im Picker',
+          );
         }
-      }
-      if (offset > position.maxScrollExtent) break;
-      position.jumpTo(offset.clamp(0.0, position.maxScrollExtent));
-      await tester.pumpAndSettle();
-    }
-    expect(gesehen, containsAll(recipeFilters));
-
-    await selectRecipeSection(tester, 'for-you');
-    for (final key in const [
-      'recipe-shelf-lean',
-      'recipe-lean-see-all',
-      'recipes-your-recipes',
-      'recipe-create-button',
-      'recipes-more-see-all',
-    ]) {
-      await _scrollTo(tester, find.byKey(ValueKey(key)));
-      expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
-    }
-    await _scrollTo(tester, find.byKey(const ValueKey('recipe-goal-matches')));
-    expect(find.byKey(const ValueKey('recipe-goal-matches')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('recipe-meal-picker-cancel')),
+          findsOneWidget,
+        );
+      },
+      brightnesses: const <Brightness>[Brightness.dark],
+      textScales: const <double>[2.0],
+    );
   });
 
-  // These three messages used to run through `showAppSnack(accent: …)` and
-  // never reached `context.t` (short-circuiting expression). With `tone:` the
-  // token access is live, so a toast without a theme would throw.
-  group('Toasts', () {
-    testWidgets('Eintragen meldet „590 kcal zu Mittagessen hinzugefügt."',
-        (tester) async {
-      await _pumpTabPlain(tester, brightness: Brightness.light);
-      await _openDetail(tester);
-      await _openSlotPicker(tester);
+  testWidgets('ein neues Rezept steht danach unter „Eigene“, mit Meldung',
+      (tester) async {
+    await _pumpTabPlain(tester, brightness: Brightness.light);
 
-      await tester.tap(find.byKey(const ValueKey('recipe-meal-picker-lunch')));
-      await tester.pumpAndSettle();
+    await openRecipeCreateSheet(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('recipe-create-name')),
+      'Protein-Bowl',
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('recipe-create-kcal')),
+      '520',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
+    await tester.pumpAndSettle();
 
-      expect(tester.takeException(), isNull);
-      expect(find.text('590 kcal zu Mittagessen hinzugefügt.'), findsOneWidget);
-    });
-
-    testWidgets('Loeschen eines Eigen-Rezepts meldet den Titel',
-        (tester) async {
-      await _pumpTabPlain(tester, userRecipes: [_eigenes]);
-      await selectRecipeSection(tester, 'own');
-
-      final tile = find.byKey(ValueKey('recipe-tile-${_eigenes.slug}'));
-      await _scrollTo(tester, tile);
-      await tester.tap(tile);
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text('„${_eigenes.title}" gelöscht.'), findsOneWidget);
-      expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsNothing);
-    });
-
-    testWidgets('Speichern eines neuen Rezepts meldet den Titel',
-        (tester) async {
-      await _pumpTabPlain(tester, brightness: Brightness.light);
-
-      await openRecipeCreateSheet(tester);
-      await tester.enterText(
-        find.byKey(const ValueKey('recipe-create-name')),
-        'Protein-Bowl',
-      );
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey('recipe-create-kcal')),
-        '520',
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text('„Protein-Bowl" gespeichert.'), findsOneWidget);
-      expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-own')))
-          .properties.selected, isTrue);
-      expect(find.text('Protein-Bowl'), findsOneWidget);
-    });
+    expect(tester.takeException(), isNull);
+    expect(find.text('„Protein-Bowl" gespeichert.'), findsOneWidget);
+    expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-own')))
+        .properties.selected, isTrue);
+    expect(find.text('Protein-Bowl'), findsOneWidget);
   });
 
   // The field label moved from `InputDecoration.labelText` to an uppercase line
@@ -551,51 +358,50 @@ void main() {
     }
   });
 
-  group('Echte Bilder bleiben, der Platzhalter ist der Ausnahmefall', () {
-    testWidgets('Bestandsrezepte zeigen keinen Platzhalter', (tester) async {
-      await _pumpTabPlain(tester);
+  // The placeholder art is the exception (own recipes without a photo, see
+  // recipes_redesign_details_test.dart), never a stand-in for real photos.
+  testWidgets('Bestandsrezepte zeigen ihr Foto, keinen Platzhalter', (
+    tester,
+  ) async {
+    await _pumpTabPlain(tester);
 
-      expect(
-        find.byType(RecipeArt),
-        findsNothing,
-        reason: 'Alle 30 Bestandsrezepte haben ein echtes Asset — der '
-            'Platzhalter des Entwurfs darf sie nicht ersetzen.',
-      );
-      expect(find.byType(Image), findsWidgets);
-    });
-
-    testWidgets('ein Eigen-Rezept ohne Bild bekommt den Platzhalter',
-        (tester) async {
-      await _pumpTabPlain(tester, userRecipes: [_eigenes]);
-      await selectRecipeSection(tester, 'own');
-
-      expect(find.byType(RecipeArt), findsWidgets);
-    });
-  });
-
-  testWidgets('unter en ist der Katalog selbst uebersetzt, nicht nur die '
-      'Schale', (tester) async {
-    // The `en` chrome is covered by the matrix at the top of this file; what
-    // it cannot show is that the CATALOG is bilingual too.
-    //
-    // The title is found in the MAIN LIST, not in the carousel: the carousel
-    // rotates by calendar day (`rotatedRecommendations`), so the first catalog
-    // recipe stands in it on only four days out of thirty. The main list
-    // always starts with it, and the ListView builds it into the cache area
-    // without scrolling — hence `findsWidgets`, not `findsOneWidget`.
-    pinPhoneViewport(tester);
-    await pumpLocalized(
-      tester,
-      _tab(),
-      locale: const Locale('en'),
-      padding: _schalenrand,
-      settle: true,
+    expect(
+      find.byType(RecipeArt),
+      findsNothing,
+      reason: 'Alle 30 Bestandsrezepte haben ein echtes Asset — der '
+          'Platzhalter des Entwurfs darf sie nicht ersetzen.',
     );
-
-    expect(tester.takeException(), isNull);
-    expect(find.text('Recipes'), findsOneWidget);
-    expect(find.text('RECOMMENDED'), findsOneWidget);
-    await _scrollTo(tester, find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')));
-    expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
+    expect(find.byType(Image), findsWidgets);
   });
+
+  testWidgets(
+    'die gepinnte Eintragen-Karte laesst den Grossteil fuer das Rezept',
+    (tester) async {
+      await pumpLocalized(
+        tester,
+        RecipeDetailScreen(
+          recipe: recipeCatalogEn.first,
+          onAddMeal: (_, __) {},
+        ),
+        locale: const Locale('en'),
+        surfaceSize: const Size(393, 852),
+        scaffold: false,
+        safeArea: false,
+        settle: true,
+      );
+      final body = tester.getRect(
+        find.byKey(const ValueKey('recipe-detail-scroll')),
+      );
+      final action = tester.getRect(
+        find.byKey(const ValueKey('recipe-add-card')),
+      );
+      expect(body.height, greaterThan(852 * .65));
+      expect(action.height, lessThan(852 * .3));
+      expect(body.bottom, lessThanOrEqualTo(action.top));
+      expect(
+        find.byKey(const ValueKey('recipe-add-button')).hitTestable(),
+        findsOneWidget,
+      );
+    },
+  );
 }

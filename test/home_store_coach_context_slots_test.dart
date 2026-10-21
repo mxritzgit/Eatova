@@ -127,27 +127,6 @@ void main() {
       },
     );
 
-    test('steht NACH den offenen Makros und VOR der Essensliste', () async {
-      await withClock(Clock.fixed(_heute), () async {
-        final store = _store();
-        for (final m in _fuenfAbendessen) {
-          await store.addResultToDailyTotal(m, slot: MealSlot.dinner);
-        }
-
-        final ctx = store.coachContext;
-        final makros = ctx.indexOf('Makros heute noch offen');
-        final slots = ctx.indexOf(_slotPrefix);
-        final liste = ctx.indexOf(_listePrefix);
-        expect(makros, greaterThanOrEqualTo(0));
-        expect(slots, greaterThan(makros));
-        expect(
-          liste,
-          greaterThan(slots),
-          reason: 'die Server-Kappung darf nur die Essensliste treffen',
-        );
-      });
-    });
-
     test('ohne Mahlzeiten fehlt die Zeile komplett', () async {
       await withClock(Clock.fixed(_heute), () async {
         final ctx = _store().coachContext;
@@ -267,90 +246,8 @@ void main() {
       },
     );
 
-    test(
-      'typischer Kontext mit fuenf Abendessen bleibt unter dem Server-Cap',
-      () async {
-        await withClock(Clock.fixed(_heute), () async {
-          final store = _store();
-          for (final m in _fuenfAbendessen) {
-            await store.addResultToDailyTotal(m, slot: MealSlot.dinner);
-          }
-          final ctx = store.coachContext;
-          expect(
-            ctx.length,
-            lessThan(kCoachContextCapChars),
-            reason: 'Kontext hat ${ctx.length} Zeichen: $ctx',
-          );
-        });
-      },
-    );
-
-    test('auch mit vier vollen Slots und langer Essensliste ueberlebt die '
-        'Slot-Zeile die Server-Kappung', () async {
-      await withClock(Clock.fixed(_heute), () async {
-        final store = _store();
-        // Worst realistic case: all four slots filled, more entries than
-        // `maxFoods`, over-long names, four-digit kcal.
-        const langerName =
-            'Überbackene Süßkartoffel-Gnocchi mit Gorgonzola und Rucola';
-        for (final slot in MealSlot.values) {
-          for (var i = 0; i < 3; i++) {
-            await store.addResultToDailyTotal(
-              _meal(
-                langerName,
-                kcal: 1234,
-                protein: '123.4 g',
-                carbs: '234 g',
-                fat: '99 g',
-              ),
-              slot: slot,
-            );
-          }
-        }
-
-        final ctx = store.coachContext;
-        // Exactly what the server keeps after truncation.
-        final behalten = ctx.substring(
-          0,
-          ctx.length.clamp(0, kCoachContextCapChars),
-        );
-        final slotStart = ctx.indexOf(_slotPrefix);
-        final slotEnde = ctx.indexOf('. $_listePrefix', slotStart);
-        expect(slotStart, greaterThanOrEqualTo(0));
-        expect(slotEnde, greaterThan(slotStart));
-        final slotZeile = ctx.substring(slotStart, slotEnde + 1);
-        expect(
-          behalten,
-          contains(slotZeile),
-          reason:
-              'Slot-Zeile (${slotZeile.length} Zeichen, endet bei '
-              '${slotEnde + 1}) muss vollstaendig vor dem Cap stehen',
-        );
-        expect(slotZeile, contains('Frühstück 3702 kcal'));
-        expect(slotZeile, contains('Snacks 3702 kcal'));
-        expect(slotZeile, contains('3 Einträge'));
-        // Und die Essensliste selbst ist gedeckelt: 12 Eintraege, aber nur
-        // `maxFoods` = 10 stehen drin, erkennbar am abschliessenden „…".
-        // Ohne den Deckel waechst genau die Zeile, die dem Server-Cap am
-        // naechsten steht (Mutationslauf T4: `maxFoods` liess sich beliebig
-        // hochsetzen, ohne einen Fall rot zu machen).
-        expect(
-          ctx,
-          endsWith(' ….'),
-          reason:
-              'die gekuerzte Essensliste endet mit dem Auslassungs-'
-              'Zeichen; ohne Deckel stuende dort der letzte Name',
-        );
-        expect(
-          RegExp(r'kcal\)').allMatches(ctx).length,
-          10,
-          reason: 'genau zehn Namen, nicht alle zwoelf',
-        );
-      });
-    });
-
-    // The store only MIRRORS the server limit; a stale mirror would make the
-    // length tests above worthless. That comparison against guardrails.ts is a
-    // source-text rule and lives in test/repo_rules_test.dart.
+    // Order against the core values, the server cap and the food-list cap
+    // are pinned with the week block in
+    // coach_week/home_store_coach_week_test.dart.
   });
 }

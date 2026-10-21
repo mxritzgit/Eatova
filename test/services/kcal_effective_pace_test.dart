@@ -124,44 +124,15 @@ void main() {
     });
   });
 
-  group('Review 2026-08-21 · 1-%-Defizitdeckel', () {
-    test('ab 100 kg ist 1 kg/Woche genau 1 % — kein Deckel', () {
-      const hundert = UserProfile(
-        weightKg: 100,
-        heightCm: 180,
-        ageYears: 40,
-        sex: BiologicalSex.male,
-        weightGoal: WeightGoal.lose1kg,
-      );
-      final t = calc.calculate(hundert);
-      expect(t.maxDeficitKcal, 1100);
-      expect(t.deficitCapApplied, isFalse);
-      // The male floor bites instead of the cap (2509 − 1100 = 1409 → 1500),
-      // so the warning names the floor, not the 1 % rule.
-      expect(t.kcal, 1500);
-      expect(t.floorApplied, isTrue);
-      expect(t.paceWarning(), contains('1.500'));
-      expect(t.paceWarning(), isNot(contains('1 %')));
-    });
-
-    test('Deckel = Gewicht × 11 (1 % × 7700 ÷ 7), auf 0,05 kg/Woche abgerundet',
-        () {
-      expect(KcalCalculator.maxDeficitKcalPerDay(45), 495); // 0,45
-      expect(KcalCalculator.maxDeficitKcalPerDay(60), 660); // 0,6
-      expect(KcalCalculator.maxDeficitKcalPerDay(78), 825); // 858 → 0,75
-      expect(KcalCalculator.maxDeficitKcalPerDay(99), 1045); // 1089 → 0,95
-      expect(KcalCalculator.maxDeficitKcalPerDay(100), 1100);
-      expect(KcalCalculator.maxDeficitKcalPerDay(300), 3300);
-      // Lower bound of the cap: below ~25 kg the 1 % rule would fall under the
-      // gentlest pace and forbid even −0,25 kg/Woche. Unreachable through a
-      // valid profile (weightKgMin 30), which is exactly why nothing else
-      // pins it — the guard would be free to disappear unnoticed.
-      expect(
-        KcalCalculator.maxDeficitKcalPerDay(10),
-        WeightGoal.lose025kg.kcalDelta.abs(),
-        reason: 'der Deckel darf das sanfteste Tempo nie unterbieten',
-      );
-    });
+  // The 1 % cap's values and the 100-kg case live in kcal_calculator_test.dart.
+  test('der 1-%-Deckel unterbietet nie das sanfteste Tempo', () {
+    // Below ~25 kg the 1 % rule would fall under the gentlest pace and forbid
+    // even −0,25 kg/Woche. Unreachable through a valid profile (weightKgMin
+    // 30), which is exactly why nothing else pins it.
+    expect(
+      KcalCalculator.maxDeficitKcalPerDay(10),
+      WeightGoal.lose025kg.kcalDelta.abs(),
+    );
   });
 
   group('B2 · Obergrenze in der Zunahme-Richtung', () {
@@ -192,23 +163,11 @@ void main() {
       expect(t.paceWarning(), contains('5.000'));
     });
 
+    // A reachable gain keeps its forecast: kcal_calculator_test.dart
+    // ('Zunahme: der Bedarf steigt mit jedem Kilo').
     test('weeksToGoal liefert null, wenn die Richtung kippt', () {
       expect(calc.weeksToGoal(gross), isNull);
       expect(calc.weeksToGoalRange(gross), isNull);
-    });
-
-    test('erreichbare Zunahme wird weiterhin prognostiziert', () {
-      final profil = standard.copyWith(
-        targetWeightKg: 88,
-        weightGoal: WeightGoal.gain05kg,
-      );
-      final t = calc.calculate(profil);
-
-      expect(t.kcal, 2700);
-      expect(t.ceilingApplied, isFalse);
-      expect(t.effectiveKcalDelta, 536);
-      // 10 kg / 0.4873 = 20.5 → 21 weeks.
-      expect(calc.weeksToGoal(profil), 21);
     });
   });
 
@@ -309,19 +268,9 @@ void main() {
         () {
       final verstoesse = <String>[];
 
-      // The whole file measures against `kcal − maintenance`, so the PAL
-      // ladder is the silent premise of every number here. Pinned as a
-      // literal AND against what `calculate` really multiplies with: the
-      // sweep used to walk all five levels while only checking finiteness,
-      // so 1,45 → 1,5 passed through unseen.
-      const palLeiter = <ActivityLevel, double>{
-        ActivityLevel.sedentary: 1.3,
-        ActivityLevel.light: 1.45,
-        ActivityLevel.moderate: 1.6,
-        ActivityLevel.active: 1.75,
-        ActivityLevel.athlete: 1.9,
-      };
-
+      // The whole file measures against `kcal − maintenance`, so maintenance
+      // = BMR × PAL is checked for every level; the PAL ladder itself is
+      // pinned in kcal_calculator_test.dart.
       for (var weight = ProfileLimits.weightKgMin;
           weight <= ProfileLimits.weightKgMax;
           weight += 7) {
@@ -344,16 +293,13 @@ void main() {
                 final wer = '$weight kg / $height cm / ${sex.name} / '
                     '${level.name} / ${goal.name}';
 
-                if (level.palFactor != palLeiter[level]) {
-                  verstoesse.add('$wer: PAL ${level.palFactor}');
-                }
                 final erwarteteErhaltung = (calc.basalMetabolicRate(
                       weightKg: weight,
                       heightCm: height,
                       ageYears: 42,
                       sex: sex,
                     ) *
-                        palLeiter[level]!)
+                        level.palFactor)
                     .round();
                 if (t.maintenanceKcal != erwarteteErhaltung) {
                   verstoesse.add('$wer: Erhaltung ${t.maintenanceKcal} statt '

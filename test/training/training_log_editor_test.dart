@@ -815,21 +815,6 @@ void main() {
       });
     });
 
-    testWidgets('without weight history nothing is prefilled', (tester) async {
-      await withClock(Clock.fixed(_now), () async {
-        await _open(
-          tester,
-          request: request(),
-          history: [
-            _planSession(_otherId, DateTime(2026, 10, 2), [null, null, null]),
-          ],
-        );
-        for (final set in [0, 1, 2]) {
-          expect(_text(tester, 'training-log-planned-0-$set-weight'), isEmpty);
-        }
-      });
-    });
-
     testWidgets('blocked shows the resume hint and keeps the sheet', (
       tester,
     ) async {

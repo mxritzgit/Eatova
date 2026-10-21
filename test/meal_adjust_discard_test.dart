@@ -157,6 +157,41 @@ final _griffKnoten = find.semantics.byPredicate(
 );
 
 void main() {
+  // ── Every close path closes an UNCHANGED sheet at once ─────────────────
+  // Also proves each path closes at all, otherwise the dirty cases below
+  // would show no difference.
+
+  testWidgetsRobust(
+    'ein unveraendertes Sheet schliesst ueber jeden Weg sofort und liefert '
+    'nichts',
+    (tester) async {
+      final semantik = tester.ensureSemantics();
+      final wege = <String, Future<void> Function()>{
+        'Schliessen-Knopf': () async {
+          await tester.tap(find.byKey(const ValueKey('analyse-adjust-close')));
+          await tester.pumpAndSettle();
+        },
+        'Barriere': () => _tippeAufBarriere(tester),
+        'Ziehen am Inhalt': () => _ziehAmInhalt(tester),
+        'Ziehen am Griff': () => _ziehAmGriff(tester),
+        'Semantics-Dismiss': () async {
+          tester.semantics.performAction(_griffKnoten, SemanticsAction.tap);
+          await tester.pumpAndSettle();
+        },
+      };
+      for (final MapEntry(key: weg, value: schliessen) in wege.entries) {
+        final fang = _Fang();
+        await _oeffne(tester, fang);
+        await schliessen();
+        expect(_dialogOffen(tester), isFalse, reason: weg);
+        expect(_sheetOffen(tester), isFalse, reason: weg);
+        expect(fang.aufrufe, 1, reason: weg);
+        expect(fang.wert, isNull, reason: weg);
+      }
+      semantik.dispose();
+    },
+  );
+
   // ── The shared sheet header (review 2026-10-11) ────────────────────────
 
   group('Kopf mit Schliessen-Knopf', () {
@@ -186,18 +221,6 @@ void main() {
       expect(_sheetOffen(tester), isFalse);
       expect(fang.wert, isNull);
       semantik.dispose();
-    });
-
-    testWidgetsRobust('ein unveraendertes Sheet schliesst der Knopf sofort', (
-      tester,
-    ) async {
-      final fang = _Fang();
-      await _oeffne(tester, fang);
-      await tester.tap(find.byKey(const ValueKey('analyse-adjust-close')));
-      await tester.pumpAndSettle();
-      expect(_dialogOffen(tester), isFalse);
-      expect(_sheetOffen(tester), isFalse);
-      expect(fang.aufrufe, 1);
     });
   });
 
@@ -245,19 +268,6 @@ void main() {
       expect(fang.aufrufe, 1);
       expect(fang.wert, isNull);
     });
-
-    testWidgetsRobust('schliesst ein unveraendertes Sheet sofort', (
-      tester,
-    ) async {
-      final fang = _Fang();
-      await _oeffne(tester, fang);
-
-      await _tippeAufBarriere(tester);
-
-      expect(_dialogOffen(tester), isFalse);
-      expect(_sheetOffen(tester), isFalse);
-      expect(fang.wert, isNull);
-    });
   });
 
   // ── Path 2: drag ────────────────────────────────────────────────────────
@@ -290,21 +300,6 @@ void main() {
       expect(_sheetOffen(tester), isFalse);
       expect(fang.wert, isNull);
     });
-
-    testWidgetsRobust('laesst ein unveraendertes Sheet weiterhin wegziehen', (
-      tester,
-    ) async {
-      // Also proves this path closes at all, otherwise the dirty case above
-      // would show no difference.
-      final fang = _Fang();
-      await _oeffne(tester, fang);
-
-      await _ziehAmInhalt(tester);
-
-      expect(_dialogOffen(tester), isFalse);
-      expect(_sheetOffen(tester), isFalse);
-      expect(fang.wert, isNull);
-    });
   });
 
   // ── Path 3: handle (drag + semantics dismiss) ───────────────────────────
@@ -331,19 +326,6 @@ void main() {
       );
       expect(_dialogOffen(tester), isTrue);
       expect(fang.aufrufe, 0);
-    });
-
-    testWidgetsRobust('am Griff bleibt ein unveraendertes Sheet wegziehbar', (
-      tester,
-    ) async {
-      final fang = _Fang();
-      await _oeffne(tester, fang);
-
-      await _ziehAmGriff(tester);
-
-      expect(_dialogOffen(tester), isFalse);
-      expect(_sheetOffen(tester), isFalse);
-      expect(fang.wert, isNull);
     });
 
     testWidgetsRobust('der Semantics-Dismiss (TalkBack) fragt nach', (
@@ -380,23 +362,6 @@ void main() {
       expect(_dialogOffen(tester), isTrue);
       semantik.dispose();
     });
-
-    testWidgetsRobust(
-      'der Semantics-Dismiss schliesst ein unveraendertes Sheet sofort',
-      (tester) async {
-        final semantik = tester.ensureSemantics();
-        final fang = _Fang();
-        await _oeffne(tester, fang);
-
-        tester.semantics.performAction(_griffKnoten, SemanticsAction.tap);
-        await tester.pumpAndSettle();
-
-        expect(_dialogOffen(tester), isFalse);
-        expect(_sheetOffen(tester), isFalse);
-        expect(fang.wert, isNull);
-        semantik.dispose();
-      },
-    );
   });
 
   // ── What "changed" means at a variable item count ───────────────────
@@ -636,28 +601,9 @@ void main() {
 
   // ── The return value must not shift ───────────────────────────────
 
+  // A changed sheet's "Übernehmen" returns its list:
+  // number_input/meal_adjust_number_input_test.dart.
   group('D5 — Rueckgabewert bleibt, wie die Aufrufer ihn erwarten', () {
-    testWidgetsRobust('„Übernehmen" liefert weiterhin die Postenliste', (
-      tester,
-    ) async {
-      final fang = _Fang();
-      await _oeffne(tester, fang);
-
-      await tester.enterText(
-        find.byKey(const ValueKey('analyse-item-weight-input-0')),
-        '250',
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('analyse-save-weight-button')));
-      await tester.pumpAndSettle();
-
-      expect(fang.aufrufe, 1);
-      expect(fang.wert, isA<List<MealComponent>>());
-      final liste = fang.wert! as List<MealComponent>;
-      expect(liste, hasLength(2));
-      expect(liste.first.grams, 250);
-    });
-
     testWidgetsRobust(
       'unveraendert bestaetigt liefert ebenfalls die Liste (PopScope blockt '
       '„Übernehmen" nicht)',
@@ -680,40 +626,6 @@ void main() {
   // ── The guard must not block anything else ─────────────────────────────
 
   group('D5 — der Guard stoert die Bedienung nicht', () {
-    testWidgetsRobust('Tippen und Entfernen gehen bei aktivem Guard weiter', (
-      tester,
-    ) async {
-      final fang = _Fang();
-      await _oeffne(tester, fang);
-
-      // The guard is active from here on.
-      await tester.enterText(
-        find.byKey(const ValueKey('analyse-item-weight-input-0')),
-        '250',
-      );
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(const ValueKey('analyse-item-weight-input-1')),
-        '333',
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<TextField>(
-              find.byKey(const ValueKey('analyse-item-weight-input-1')),
-            )
-            .controller!
-            .text,
-        '333',
-      );
-
-      await tester.tap(find.byKey(const ValueKey('analyse-item-remove-1')));
-      await tester.pumpAndSettle();
-      expect(find.text('Wiederherstellen'), findsOneWidget);
-      expect(_dialogOffen(tester), isFalse);
-    });
-
     testWidgetsRobust('ein langes Sheet laesst sich weiterhin scrollen', (
       tester,
     ) async {

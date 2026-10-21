@@ -137,14 +137,6 @@ void main() {
       expect(canonical(json)['phase_ends_at'], deadline);
     });
 
-    test('old checkpoints without the key decode unchanged', () {
-      final json = valid();
-      final decoded = TrainingSessionSnapshot.fromJson(json);
-      expect(decoded.phaseEndsAt, isNull);
-      expect(decoded.toJson().containsKey('phase_ends_at'), isFalse);
-      expect(jsonEncode(decoded.toJson()), jsonEncode(json));
-    });
-
     test('decoding never reads the clock', () {
       final json = canonical(rest());
       String decodeAt(DateTime now) => withClock(

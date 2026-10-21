@@ -11,6 +11,7 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
+import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase/supabase.dart';
@@ -179,6 +180,13 @@ Future<void> _tap(WidgetTester tester, String key) async {
 }
 
 void main() {
+  // Sign-out clears the process-wide photo store. A real one bound by an
+  // earlier test waits on that test's fake clock forever, so each test gets
+  // a fresh double (order-independent; the sign-out test hung after the
+  // Coach brief test).
+  setUp(() => RecipeImageStore.instance = StummerFotoStore());
+  tearDown(RecipeImageStore.resetInstance);
+
   testWidgets('start repairs a hidden recovery before creating a player', (
     tester,
   ) async {
@@ -283,143 +291,149 @@ void main() {
     });
   });
 
-  for (final sourceChange in ['removed', 'changed']) {
-    for (final exit in ['save', 'discard', 'finish']) {
-      testWidgets('retired player can $exit after boot source is $sourceChange', (
-        tester,
-      ) async {
-        await withClock(Clock.fixed(_now), () async {
-          final storage = InMemoryKeyValueStore();
-          final cache = LocalCache(storage, kFixlaufUser);
-          final source = _plan();
-          final snapshot = TrainingSessionSnapshot(
-            plan: source,
-            workoutIndex: 0,
-            exerciseIndex: 0,
-            setIndex: exit == 'finish' ? 1 : 0,
-            phase: exit == 'finish'
-                ? TrainingSessionPhase.review
-                : TrainingSessionPhase.exercise,
-            remainingMilliseconds: exit == 'finish' ? 0 : 30000,
-            completedSets: exit == 'finish'
-                ? const [
-                    TrainingSetReference(exerciseIndex: 0, setIndex: 0),
-                    TrainingSetReference(exerciseIndex: 0, setIndex: 1),
-                  ]
-                : const [],
-            actualSets: exit == 'finish'
-                ? [
-                    TrainingSetActual(
-                      reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 0),
-                      completedAt: _now,
-                    ),
-                    TrainingSetActual(
-                      reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 1),
-                      completedAt: _now,
-                    ),
-                  ]
-                : const [],
-          );
-          await cache.writeProfile(completedProfile);
-          await cache.writeTrainingPlans([source]);
-          await cache.writeTrainingSession(snapshot);
-          final server = FixlaufServer()..holdReads = true;
-          if (sourceChange == 'changed') {
-            server.trainingRows[source.id] = source
-                .copyWith(
-                  proposal: CoachTrainingProposal(
-                    title: source.title,
-                    workouts: [
-                      source.workouts.single.copyWith(title: 'Changed source'),
-                    ],
+  // Each exit once, and Finish after both retirements: only its replacement
+  // reuses the retired plan's ID. The store tests cover how each change
+  // retires the source.
+  for (final (sourceChange, exit) in const [
+    ('removed', 'save'),
+    ('changed', 'discard'),
+    ('removed', 'finish'),
+    ('changed', 'finish'),
+  ]) {
+    testWidgets('retired player can $exit after boot source is $sourceChange', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        final storage = InMemoryKeyValueStore();
+        final cache = LocalCache(storage, kFixlaufUser);
+        final source = _plan();
+        final snapshot = TrainingSessionSnapshot(
+          plan: source,
+          workoutIndex: 0,
+          exerciseIndex: 0,
+          setIndex: exit == 'finish' ? 1 : 0,
+          phase: exit == 'finish'
+              ? TrainingSessionPhase.review
+              : TrainingSessionPhase.exercise,
+          remainingMilliseconds: exit == 'finish' ? 0 : 30000,
+          completedSets: exit == 'finish'
+              ? const [
+                  TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+                  TrainingSetReference(exerciseIndex: 0, setIndex: 1),
+                ]
+              : const [],
+          actualSets: exit == 'finish'
+              ? [
+                  TrainingSetActual(
+                    reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+                    completedAt: _now,
                   ),
-                )
-                .toRow();
-          }
-          final store = await _mount(
-            tester,
-            cache,
-            connected: true,
-            serverOverride: server,
-          );
-          expect(store.bootLoadInFlight, isTrue);
-          store.setTab(3);
-          await _frames(tester);
-          await _tap(tester, 'training-resume');
-          final stalePersist = tester
-              .widget<TrainingPlayerScreen>(find.byType(TrainingPlayerScreen))
-              .onPersist;
-          server.holdReads = false;
-          server.releaseReads();
+                  TrainingSetActual(
+                    reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 1),
+                    completedAt: _now,
+                  ),
+                ]
+              : const [],
+        );
+        await cache.writeProfile(completedProfile);
+        await cache.writeTrainingPlans([source]);
+        await cache.writeTrainingSession(snapshot);
+        final server = FixlaufServer()..holdReads = true;
+        if (sourceChange == 'changed') {
+          server.trainingRows[source.id] = source
+              .copyWith(
+                proposal: CoachTrainingProposal(
+                  title: source.title,
+                  workouts: [
+                    source.workouts.single.copyWith(title: 'Changed source'),
+                  ],
+                ),
+              )
+              .toRow();
+        }
+        final store = await _mount(
+          tester,
+          cache,
+          connected: true,
+          serverOverride: server,
+        );
+        expect(store.bootLoadInFlight, isTrue);
+        store.setTab(3);
+        await _frames(tester);
+        await _tap(tester, 'training-resume');
+        final stalePersist = tester
+            .widget<TrainingPlayerScreen>(find.byType(TrainingPlayerScreen))
+            .onPersist;
+        server.holdReads = false;
+        server.releaseReads();
+        await pumpUntil(
+          tester,
+          () => !store.bootLoadInFlight,
+          'authoritative source removal finishes',
+        );
+        expect(store.trainingSession, isNull);
+        // A replacement session may belong to the same re-adopted source
+        // or a different plan; an obsolete player must touch neither.
+        final replacement = TrainingPlan(
+          id: exit == 'finish' ? source.id : 'new-session-plan',
+          proposal: source.proposal,
+        );
+        await store.saveTrainingPlan(replacement);
+        final replacementSnapshot = TrainingSessionSnapshot(
+          plan: replacement,
+          workoutIndex: 0,
+          exerciseIndex: 0,
+          setIndex: 0,
+          phase: TrainingSessionPhase.exercise,
+          remainingMilliseconds: 12000,
+        );
+        await store.saveTrainingSession(replacementSnapshot);
+        const checkpointKey = 'eatova.v1.training_session.$kFixlaufUser';
+        final savedBytes = storage.snapshot[checkpointKey];
+        if (exit == 'save') {
+          await _tap(tester, 'training-timer-back');
+          await _tap(tester, 'training-timer-confirm-exit');
+          // The refused place is said, never claimed; nothing to finish.
           await pumpUntil(
             tester,
-            () => !store.bootLoadInFlight,
-            'authoritative source removal finishes',
-          );
-          expect(store.trainingSession, isNull);
-          // A replacement session may belong to the same re-adopted source
-          // or a different plan; an obsolete player must touch neither.
-          final replacement = TrainingPlan(
-            id: exit == 'finish' ? source.id : 'new-session-plan',
-            proposal: source.proposal,
-          );
-          await store.saveTrainingPlan(replacement);
-          final replacementSnapshot = TrainingSessionSnapshot(
-            plan: replacement,
-            workoutIndex: 0,
-            exerciseIndex: 0,
-            setIndex: 0,
-            phase: TrainingSessionPhase.exercise,
-            remainingMilliseconds: 12000,
-          );
-          await store.saveTrainingSession(replacementSnapshot);
-          const checkpointKey = 'eatova.v1.training_session.$kFixlaufUser';
-          final savedBytes = storage.snapshot[checkpointKey];
-          if (exit == 'save') {
-            await _tap(tester, 'training-timer-back');
-            await _tap(tester, 'training-timer-confirm-exit');
-            // The refused place is said, never claimed; nothing to finish.
-            await pumpUntil(
-              tester,
-              () => find
-                  .byKey(const ValueKey('training-timer-unstored-leave'))
-                  .evaluate()
-                  .isNotEmpty,
-              'the refused leave asks before closing',
-            );
-            expect(
-              find.byKey(const ValueKey('training-timer-unstored-finish')),
-              findsNothing,
-            );
-            await _tap(tester, 'training-timer-unstored-leave');
-          } else if (exit == 'discard') {
-            await _tap(tester, 'training-timer-menu');
-            await _tap(tester, 'training-timer-discard');
-            await _tap(tester, 'training-timer-confirm-exit');
-          } else {
-            // The review checkpoint opens the finish sheet by itself.
-            await _tap(tester, 'training-finish-save');
-          }
-          await pumpUntil(
-            tester,
-            () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
-            'retired player closes without saving',
+            () => find
+                .byKey(const ValueKey('training-timer-unstored-leave'))
+                .evaluate()
+                .isNotEmpty,
+            'the refused leave asks before closing',
           );
           expect(
-            find.byType(TrainingPlayerScreen),
+            find.byKey(const ValueKey('training-timer-unstored-finish')),
             findsNothing,
-            reason:
-                'Retired recovery must not trap the player in a save-error loop',
           );
-          await stalePersist(snapshot);
-          await stalePersist(null);
-          expect(storage.snapshot[checkpointKey], savedBytes);
-          expect(store.trainingSession?.toJson(), replacementSnapshot.toJson());
-          await tester.pumpWidget(const SizedBox.shrink());
-          await _frames(tester);
-        });
+          await _tap(tester, 'training-timer-unstored-leave');
+        } else if (exit == 'discard') {
+          await _tap(tester, 'training-timer-menu');
+          await _tap(tester, 'training-timer-discard');
+          await _tap(tester, 'training-timer-confirm-exit');
+        } else {
+          // The review checkpoint opens the finish sheet by itself.
+          await _tap(tester, 'training-finish-save');
+        }
+        await pumpUntil(
+          tester,
+          () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
+          'retired player closes without saving',
+        );
+        expect(
+          find.byType(TrainingPlayerScreen),
+          findsNothing,
+          reason:
+              'Retired recovery must not trap the player in a save-error loop',
+        );
+        await stalePersist(snapshot);
+        await stalePersist(null);
+        expect(storage.snapshot[checkpointKey], savedBytes);
+        expect(store.trainingSession?.toJson(), replacementSnapshot.toJson());
+        await tester.pumpWidget(const SizedBox.shrink());
+        await _frames(tester);
       });
-    }
+    });
   }
 
   testWidgets('failed save can retry leaving after source retirement', (

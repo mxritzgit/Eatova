@@ -9,8 +9,8 @@ function changed(base64: string, offset: number, values: number[]): string {
   return btoa(bytes.slice(0, offset) + String.fromCharCode(...values) + bytes.slice(offset + values.length));
 }
 
-for (const tag of ['acTL', 'fcTL', 'fdAT']) {
-  Deno.test(`still-photo boundary rejects PNG ${tag} even without other animation chunks`, () => {
+Deno.test('still-photo boundary rejects each PNG animation chunk on its own', () => {
+  for (const tag of ['acTL', 'fcTL', 'fdAT']) {
     const bytes = atob(PNG_BASE64);
     const payload = new Uint8Array(tag === 'fcTL' ? 26 : 8);
     if (tag === 'fcTL') {
@@ -30,18 +30,18 @@ for (const tag of ['acTL', 'fcTL', 'fdAT']) {
       String.fromCharCode(...typeAndData, ...trailer);
     const input = btoa(bytes.slice(0, -12) + chunk + bytes.slice(-12));
     assert(imageContainerFromBase64(input) === null, `reject ${tag} before provider decoding`);
-  });
-}
+  }
+});
 
-for (const [mime, input] of [
-  ['image/jpeg', JPEG_BASE64], ['image/jpeg', JPEG_PROGRESSIVE_BASE64], ['image/png', PNG_BASE64],
-  ['image/webp', WEBP_BASE64], ['image/webp', WEBP_LOSSLESS_BASE64], ['image/webp', WEBP_ALPHA_BASE64],
-]) {
-  Deno.test(`raster preflight preserves real ${mime} ${input.length} chars`, () => {
+Deno.test('raster preflight preserves every real fixture format', () => {
+  for (const [mime, input] of [
+    ['image/jpeg', JPEG_BASE64], ['image/jpeg', JPEG_PROGRESSIVE_BASE64], ['image/png', PNG_BASE64],
+    ['image/webp', WEBP_BASE64], ['image/webp', WEBP_LOSSLESS_BASE64], ['image/webp', WEBP_ALPHA_BASE64],
+  ]) {
     const result = imageContainerFromBase64(input);
-    assert(result?.mime === mime && result.width === 8 && result.height === 8, 'valid 8x8 image');
-  });
-}
+    assert(result?.mime === mime && result.width === 8 && result.height === 8, `valid 8x8 ${mime} (${input.length} chars)`);
+  }
+});
 
 const sof = atob(JPEG_BASE64).indexOf('\xff\xc0');
 const malformed = [
@@ -60,12 +60,17 @@ const malformed = [
   ['noncanonical padding', `${PNG_BASE64.slice(0, -3)}h==`],
   ['extra base64 padding', `${JPEG_BASE64}====`],
   ['trailing bytes after JPEG', btoa(atob(JPEG_BASE64) + 'extra')],
+  ['truncated JPEG', btoa(atob(JPEG_BASE64).slice(0, 180))],
+  ['JPEG framing without pixels', btoa('\xff\xd8\xffnot a jpeg\xff\xd9')],
+  ['truncated PNG', btoa(atob(PNG_BASE64).slice(0, -1))],
+  ['wrong PNG header length', changed(PNG_BASE64, 11, [12])],
+  ['truncated WebP', btoa(atob(WEBP_BASE64).slice(0, -1))],
+  ['wrong WebP container length', changed(WEBP_BASE64, 4, [0])],
+  ['unknown WebP image chunk', changed(WEBP_BASE64, 12, [0])],
 ] as const;
-for (const [name, input] of malformed) {
-  Deno.test(`raster preflight rejects ${name}`, () => {
-    assert(imageContainerFromBase64(input) === null, name);
-  });
-}
+Deno.test('raster preflight rejects malformed, oversized and animated containers', () => {
+  for (const [name, input] of malformed) assert(imageContainerFromBase64(input) === null, name);
+});
 
 Deno.test('raster boundary admits a camera header and exact budget without decoding', () => {
   // Mutate only headers. Never allocate or decode these claimed rasters.

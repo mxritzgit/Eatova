@@ -121,33 +121,31 @@ void main() {
   // Design review 2026-10-11: on the light sheet ground a surf2 neutral pill
   // measured 1.05:1 and read as floating text. softFill holds on bg and on
   // a card; dark keeps the surf2 value.
-  for (final brightness in Brightness.values) {
-    testWidgets('a neutral pill fills with softFill ($brightness)', (
+  // Wiring in the palette that failed; the token values themselves (softFill
+  // off bg and surf in both palettes) are app_tokens_test.dart's.
+  testWidgets('a neutral pill fills with softFill', (tester) async {
+    await pumpLocalized(
       tester,
-    ) async {
-      await pumpLocalized(
-        tester,
-        SoftPillButton(
-          label: 'Cancel',
-          onTap: () {},
-          tone: SoftPillTone.neutral,
-        ),
-        brightness: brightness,
-      );
-      // From the tree: a capture run may force the other brightness.
-      final t = tester.element(find.byType(SoftPillButton)).t;
-      final fill = tester
-          .widget<Material>(
-            find.descendant(
-              of: find.byType(SoftPillButton),
-              matching: find.byType(Material),
-            ),
-          )
-          .color;
-      expect(fill, t.softFill);
-      expect(fill, isNot(t.bg));
-      // Dark keeps the look it had with surf2.
-      if (t.bg == AppTokens.dark.bg) expect(fill, AppTokens.dark.surf2);
-    });
-  }
+      SoftPillButton(
+        label: 'Cancel',
+        onTap: () {},
+        tone: SoftPillTone.neutral,
+      ),
+      brightness: Brightness.light,
+    );
+    // From the tree: a capture run may force the other brightness.
+    final t = tester.element(find.byType(SoftPillButton)).t;
+    final fill = tester
+        .widget<Material>(
+          find.descendant(
+            of: find.byType(SoftPillButton),
+            matching: find.byType(Material),
+          ),
+        )
+        .color;
+    expect(fill, t.softFill);
+    expect(fill, isNot(t.bg));
+    // Dark keeps the look it had with surf2.
+    expect(AppTokens.dark.softFill, AppTokens.dark.surf2);
+  });
 }

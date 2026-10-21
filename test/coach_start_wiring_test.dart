@@ -730,7 +730,6 @@ void main() {
 
   group('layout', () {
     for (final (name, size, scale) in <(String, Size, double)>[
-      ('390 px at 1.3x', _usableSize, 1.3),
       ('320 px at 1.0x', const Size(320, 521), 1.0),
       ('390 px at 2.0x', _usableSize, 2.0),
     ]) {

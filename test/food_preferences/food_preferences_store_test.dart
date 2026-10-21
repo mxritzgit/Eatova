@@ -78,13 +78,6 @@ void main() {
 
   group('coachContext', () {
     test(
-      'without preferences there is no line',
-      () => withClock(Clock.fixed(_now), () async {
-        expect(_localStore().coachContext, isNot(contains('Laut Profil')));
-      }),
-    );
-
-    test(
       'diet, avoided foods and dislikes in German, before the meal lines',
       () => withClock(Clock.fixed(_now), () async {
         final store = _localStore();

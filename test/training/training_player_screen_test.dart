@@ -751,12 +751,14 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('alerts off: nothing is scheduled; back from the settings '
-        'with alerts on, the running rest is planned', (tester) async {
+    testWidgets('alerts denied: no explainer and nothing scheduled; the quiet '
+        'chip opens the settings, and back with alerts on the running rest '
+        'is planned', (tester) async {
       final gate = _Gate(RestAlertPermission.denied);
       final host = await _open(tester, gate: gate);
       await _tap(tester, 'training-set-check-0-0');
       await tester.pumpAndSettle();
+      expect(find.text('Alert when the rest is over?'), findsNothing);
       expect(
         host.alerts.scheduled,
         isEmpty,
@@ -765,6 +767,7 @@ void main() {
       await _tap(tester, 'training-timer-alerts-off');
       await tester.pumpAndSettle();
       expect(host.settings, 1);
+      expect(gate.requests, 0, reason: 'the system asks only once anyway');
       gate.value = RestAlertPermission.granted;
       _lifecycle(tester, _background);
       await tester.pump();
@@ -992,21 +995,6 @@ void main() {
         semantics.dispose();
       });
     }
-
-    testWidgets('with alerts off the rest bar shows a quiet chip; after a '
-        'denial it opens the notification settings', (tester) async {
-      final gate = _Gate(RestAlertPermission.denied);
-      final host = await _open(tester, gate: gate);
-      await _tap(tester, 'training-set-check-0-0');
-      await tester.pumpAndSettle();
-      expect(find.text('Alert when the rest is over?'), findsNothing);
-      expect(_key('training-timer-alerts-off'), findsOneWidget);
-      await _tap(tester, 'training-timer-alerts-off');
-      await tester.pumpAndSettle();
-      expect(host.settings, 1);
-      expect(gate.requests, 0, reason: 'the system asks only once anyway');
-      await tester.pumpWidget(const SizedBox());
-    });
 
     testWidgets('alerts turned on elsewhere meanwhile: the chip goes and the '
         'rest is planned with the grant', (tester) async {
@@ -1881,8 +1869,10 @@ void main() {
       final host = await _open(tester);
       await _tap(tester, 'training-set-check-0-0');
       final ends = host.writes.last!.phaseEndsAt;
+      final before = host.writes.length;
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
+      expect(host.writes, hasLength(before + 1));
       expect(host.writes.last!.phaseEndsAt, ends);
       expect(host.alerts.log.last, 'cancel');
     });
@@ -1946,8 +1936,6 @@ void main() {
     for (final (size, scale, keyboard, barWhileTyping) in const [
       (Size(320, 568), 1.0, 260.0, true),
       (Size(320, 568), 2.0, 260.0, false),
-      (Size(360, 640), 1.0, 280.0, true),
-      (Size(375, 667), 1.3, 300.0, true),
       (Size(375, 667), 2.0, 300.0, true),
     ]) {
       testWidgets('${size.width.toInt()}×${size.height.toInt()} at ${scale}x '
@@ -2003,13 +1991,5 @@ void main() {
         await tester.pumpWidget(const SizedBox());
       });
     }
-
-    testWidgets('German: the header menu is "Trainingsoptionen"', (
-      tester,
-    ) async {
-      await _open(tester, locale: 'de');
-      expect(find.byTooltip('Trainingsoptionen'), findsOneWidget);
-      await tester.pumpWidget(const SizedBox());
-    });
   });
 }

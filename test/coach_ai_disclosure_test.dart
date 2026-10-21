@@ -136,34 +136,29 @@ void main() {
         'the recipients and how they use the data.',
   };
 
+  // Both sheet versions carry the same block (the two tests at the end), so
+  // the approved wording is checked in one of them, per language.
   for (final entry in providerDisclosures.entries) {
-    for (final knownQuota in <bool>[false, true]) {
-      testWidgets(
-        'S07: ${entry.key} nennt im Infosheet die aktuellen Empfaenger '
-        '(Kontingent bekannt: $knownQuota)',
-        (tester) async {
-          await _pumpCoach(
-            tester,
-            locale: Locale(entry.key),
-            service: knownQuota ? _QuotaCoach.create() : null,
-          );
-          await tester.tap(find.byKey(const ValueKey('coach-info')));
-          await tester.pumpAndSettle();
+    testWidgets(
+      'S07: ${entry.key} nennt im Infosheet die aktuellen Empfaenger',
+      (tester) async {
+        await _pumpCoach(tester, locale: Locale(entry.key));
+        await tester.tap(find.byKey(const ValueKey('coach-info')));
+        await tester.pumpAndSettle();
 
-          final provider = find.descendant(
-            of: find.byKey(const ValueKey('coach-info-sheet')),
-            matching: find.text(entry.value),
-          );
-          expect(provider, findsOneWidget);
-          await tester.ensureVisible(provider);
-          await tester.pumpAndSettle();
-          expect(provider.hitTestable(), findsOneWidget);
-          expect(_sheetTexte(tester).join(' '), isNot(contains('Grok')));
-          expect(_sheetTexte(tester).join(' '), isNot(contains('xAI')));
-          expect(tester.takeException(), isNull);
-        },
-      );
-    }
+        final provider = find.descendant(
+          of: find.byKey(const ValueKey('coach-info-sheet')),
+          matching: find.text(entry.value),
+        );
+        expect(provider, findsOneWidget);
+        await tester.ensureVisible(provider);
+        await tester.pumpAndSettle();
+        expect(provider.hitTestable(), findsOneWidget);
+        expect(_sheetTexte(tester).join(' '), isNot(contains('Grok')));
+        expect(_sheetTexte(tester).join(' '), isNot(contains('xAI')));
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('Leerzustand nennt die KI, bevor der Nutzer tippt',

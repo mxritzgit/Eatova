@@ -216,85 +216,48 @@ void main() {
             'nur die nicht zugestellten Sync-Slots bleiben');
   });
 
-  test(
-      'D9: signOutCleanup verwirft die geplanten Erinnerungen — sonst zeigt '
-      'das Familien-Tablet der nächsten Person die fremde Streak', () async {
-    final spy = _SpyNotificationService();
-    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+  // D9, B3 and the recipe photos: device state that knows no user and lives
+  // outside the LocalCache. Sign-out and deletion must both discard it, or the
+  // next person on a shared device sees A's streak reminders, Health
+  // connection and photos; the deletion dialog promises "unwiderruflich
+  // gelöscht".
+  for (final deletion in [false, true]) {
+    test(
+        '${deletion ? 'deleteAccount' : 'signOutCleanup'} verwirft '
+        'Erinnerungen, Rezeptfotos und die Apple-Health-Verbindung', () async {
+      final notifications = _SpyNotificationService();
+      final health = _SpyHealthService();
+      final fotos = _SpyFotoStore();
+      RecipeImageStore.instance = fotos;
+      addTearDown(RecipeImageStore.resetInstance);
+      final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+      final store =
+          _storeWith(cache, notifications: notifications, health: health);
+      expect(health.authState, HealthAuthState.granted,
+          reason: 'Ausgangslage: A ist verbunden');
 
-    await _storeWith(cache, notifications: spy).signOutCleanup();
+      if (deletion) {
+        // The production path hands the scoped remote deletion in.
+        expect(
+          await store.deleteAccount(
+            deleteRemote: () async {},
+            isCurrentSession: () => true,
+          ),
+          isTrue,
+        );
+      } else {
+        await store.signOutCleanup();
+      }
 
-    expect(spy.cancelAllCalls, 1);
-  });
-
-  test(
-      'D9: deleteAccount verwirft die geplanten Erinnerungen — der Dialog '
-      'verspricht „unwiderruflich gelöscht"', () async {
-    final spy = _SpyNotificationService();
-    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
-
-    expect(await _storeWith(cache, notifications: spy).deleteAccount(), isTrue);
-
-    expect(spy.cancelAllCalls, 1);
-  });
-
-  test(
-      'signOutCleanup verwirft die eigenen Rezeptfotos — sie liegen als '
-      'Dateien neben dem verschlüsselten Cache', () async {
-    final fotos = _SpyFotoStore();
-    RecipeImageStore.instance = fotos;
-    addTearDown(RecipeImageStore.resetInstance);
-    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
-
-    await _storeWith(cache).signOutCleanup();
-
-    expect(fotos.clearCalls, 1,
-        reason: 'die Fotos sind PII wie jeder Cache-Slot, stehen aber nicht '
-            'darin — ohne diesen Aufruf bleiben sie auf dem Gerät liegen');
-  });
-
-  test(
-      'deleteAccount verwirft die Rezeptfotos ebenfalls — der Dialog '
-      'verspricht „unwiderruflich gelöscht"', () async {
-    final fotos = _SpyFotoStore();
-    RecipeImageStore.instance = fotos;
-    addTearDown(RecipeImageStore.resetInstance);
-    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
-
-    expect(await _storeWith(cache).deleteAccount(), isTrue);
-
-    expect(fotos.clearCalls, 1);
-  });
-
-  test(
-      'B3: signOutCleanup trennt Apple Health — sonst zeigt Nutzer B auf dem '
-      'geteilten Gerät As „Synchronisiert"', () async {
-    final health = _SpyHealthService();
-    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
-    final store = _storeWith(cache, health: health);
-    expect(health.authState, HealthAuthState.granted,
-        reason: 'Ausgangslage: A ist verbunden');
-
-    await store.signOutCleanup();
-
-    expect(health.resetCalls, 1);
-    expect(health.authState, HealthAuthState.unknown);
-    expect(store.healthAuthState, HealthAuthState.unknown,
-        reason: 'der Store-Zustand speist die Profilkarte und muss mitziehen');
-  });
-
-  test(
-      'B3: deleteAccount trennt Apple Health — der Dialog verspricht '
-      '„unwiderruflich gelöscht"', () async {
-    final health = _SpyHealthService();
-    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
-    final store = _storeWith(cache, health: health);
-
-    expect(await store.deleteAccount(), isTrue);
-
-    expect(health.resetCalls, 1);
-    expect(store.healthAuthState, HealthAuthState.unknown);
-  });
+      expect(notifications.cancelAllCalls, 1);
+      expect(fotos.clearCalls, 1,
+          reason: 'die Fotos sind PII wie jeder Cache-Slot, stehen aber nicht '
+              'darin — ohne diesen Aufruf bleiben sie auf dem Gerät liegen');
+      expect(health.resetCalls, 1);
+      expect(store.healthAuthState, HealthAuthState.unknown,
+          reason: 'der Store-Zustand speist die Profilkarte und muss mitziehen');
+    });
+  }
 
   // P1-03: the sign-out button declares the intent BEFORE signOutCleanup and
   // never renews it, but the cleanup could run for 53 s (two 25 s delivery
@@ -347,18 +310,6 @@ void main() {
 
       expect(IntentionalSignOut.consume(), isFalse,
           reason: 'sonst schaltete jedes Aufräumen den echten Verlust stumm');
-    });
-
-    test('eine zurückgezogene Absicht bleibt zurückgezogen', () async {
-      addTearDown(IntentionalSignOut.clear);
-      final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
-      final store = _storeWith(cache);
-
-      IntentionalSignOut.mark();
-      IntentionalSignOut.clear();
-      await store.signOutCleanup();
-
-      expect(IntentionalSignOut.consume(), isFalse);
     });
   });
 

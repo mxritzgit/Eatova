@@ -151,56 +151,44 @@ void main() {
   });
 
   group('SheetField', () {
-    testWidgets('Eingabe landet im Controller', (tester) async {
+    testWidgets('reicht Controller, onChanged, obscure, enabled und suffix '
+        'an das Feld durch', (tester) async {
       final controller = TextEditingController();
       addTearDown(controller.dispose);
-
-      await tester.pumpWidget(
-        designHarness(
-          SheetField(
-            label: 'Neue E-Mail',
-            hint: 'du@example.com',
-            controller: controller,
-          ),
-        ),
-      );
-
-      await tester.enterText(find.byType(TextField), 'neu@eatova.de');
-      expect(controller.text, 'neu@eatova.de');
-    });
-
-    testWidgets('onChanged meldet jede Eingabe', (tester) async {
       String? seen;
       await tester.pumpWidget(
         designHarness(
           SheetField(
-            label: 'Name',
-            hint: 'Vorname',
-            onChanged: (v) => seen = v,
-          ),
-        ),
-      );
-
-      await tester.enterText(find.byType(TextField), 'Mo');
-      expect(seen, 'Mo');
-    });
-
-    testWidgets('obscure verdeckt die Eingabe', (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          const SheetField(
             label: 'Passwort',
             hint: 'mindestens 10 Zeichen',
+            controller: controller,
+            onChanged: (v) => seen = v,
             obscure: true,
+            suffix: const Icon(Icons.visibility_outlined),
           ),
         ),
       );
 
+      await tester.enterText(find.byType(TextField), 'geheim-123');
+      expect(controller.text, 'geheim-123');
+      expect(seen, 'geheim-123');
       expect(tester.widget<TextField>(find.byType(TextField)).obscureText,
           isTrue);
+      // The suffix hangs at the field's right end, not before the text.
+      expect(
+        tester.getCenter(find.byIcon(Icons.visibility_outlined)).dx,
+        greaterThan(tester.getRect(find.byType(TextField)).center.dx),
+      );
+
+      await tester.pumpWidget(
+        designHarness(
+          const SheetField(label: 'E-Mail', hint: 'hint', enabled: false),
+        ),
+      );
+      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
     });
 
-    testWidgets('errorText erscheint in der Warnfarbe', (tester) async {
+    testWidgets('errorText erscheint in der Fehlerfarbe', (tester) async {
       await tester.pumpWidget(
         designHarness(
           const SheetField(
@@ -246,30 +234,6 @@ void main() {
       final deco = kapsel.decoration! as BoxDecoration;
       expect(deco.border, isNull);
       expect(deco.color, AppTokens.light.field);
-    });
-
-    testWidgets('enabled:false sperrt das Feld', (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          const SheetField(label: 'E-Mail', hint: 'hint', enabled: false),
-        ),
-      );
-
-      expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
-    });
-
-    testWidgets('suffix haengt rechts im Feld', (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          const SheetField(
-            label: 'Passwort',
-            hint: 'hint',
-            suffix: Icon(Icons.visibility_outlined),
-          ),
-        ),
-      );
-
-      expect(find.byIcon(Icons.visibility_outlined), findsOneWidget);
     });
 
     testWidgets('the eyebrow is not read again where the field says it', (
@@ -407,38 +371,35 @@ void main() {
   // sheet header. The old `surf2` disc measured 1.05:1 on the light sheet
   // ground and read as a bare glyph.
   group('SheetCloseButton', () {
-    for (final brightness in Brightness.values) {
-      testWidgets('surf disc with lineStrong ring, 44 in 48 ($brightness)', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          designHarness(
-            Align(
-              alignment: Alignment.topLeft,
-              child: SheetCloseButton(
-                buttonKey: const ValueKey('close'),
-                onTap: () {},
-              ),
+    testWidgets('surf disc with lineStrong ring, 44 in 48', (tester) async {
+      // Wiring in one palette (no brightness branch in widgets); the
+      // light-ground case that read as a bare glyph is the token check below.
+      const t = AppTokens.light;
+      await tester.pumpWidget(
+        designHarness(
+          Align(
+            alignment: Alignment.topLeft,
+            child: SheetCloseButton(
+              buttonKey: const ValueKey('close'),
+              onTap: () {},
             ),
-            brightness: brightness,
           ),
-        );
-        final t = brightness == Brightness.light
-            ? AppTokens.light
-            : AppTokens.dark;
-        final button = find.byKey(const ValueKey('close'));
-        expect(tester.widget(button), isA<IconButton>());
-        expect(tester.getSize(button), const Size(48, 48));
-        final style = tester.widget<IconButton>(button).style!;
-        expect(style.backgroundColor!.resolve(<WidgetState>{}), t.surf);
-        expect(style.foregroundColor!.resolve(<WidgetState>{}), t.inkMuted);
-        expect(style.fixedSize!.resolve(<WidgetState>{}), const Size(44, 44));
-        final shape = style.shape!.resolve(<WidgetState>{})! as CircleBorder;
-        expect(shape.side.color, t.lineStrong);
-        // The disc itself must differ from the sheet ground (bg).
-        expect(t.surf, isNot(t.bg));
-      });
-    }
+        ),
+      );
+      final button = find.byKey(const ValueKey('close'));
+      expect(tester.widget(button), isA<IconButton>());
+      expect(tester.getSize(button), const Size(48, 48));
+      final style = tester.widget<IconButton>(button).style!;
+      expect(style.backgroundColor!.resolve(<WidgetState>{}), t.surf);
+      expect(style.foregroundColor!.resolve(<WidgetState>{}), t.inkMuted);
+      expect(style.fixedSize!.resolve(<WidgetState>{}), const Size(44, 44));
+      final shape = style.shape!.resolve(<WidgetState>{})! as CircleBorder;
+      expect(shape.side.color, t.lineStrong);
+      // The disc itself must differ from the sheet ground (bg).
+      for (final palette in [AppTokens.light, AppTokens.dark]) {
+        expect(palette.surf, isNot(palette.bg));
+      }
+    });
 
     testWidgets('null onTap is disabled; the default tooltip is Close', (
       tester,

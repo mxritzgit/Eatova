@@ -11,7 +11,6 @@ import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
@@ -265,10 +264,11 @@ void main() {
     expect(capture.id, 'id-1');
     expect(capture.slot, MealSlot.lunch);
 
-    // The row moved to lunch instead of vanishing from the sheet.
+    // The row moved to lunch instead of vanishing from the sheet: the store's
+    // answer carries 2026-08-20, so a mirror row logged "today" would have
+    // been dropped by the sheet's day comparison here.
     await chooseMealSlot(tester, 'slot-select-lunch');
     await tester.pumpAndSettle();
     expect(_zeile('Apfel'), findsOneWidget);
-    expect(localDayKey(DateTime(2026, 8, 20)), '2026-08-20');
   });
 }

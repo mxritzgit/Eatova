@@ -282,12 +282,11 @@ void main() {
       _recipeAnswer(image: false),
     ]);
     final card = find.byKey(const ValueKey('coach-recipe-card'));
-    // The recipes' glowing bowl, never the striped wireframe.
+    // The recipes' glowing bowl stands in for the photo.
     expect(
       find.descendant(of: card, matching: find.byType(RecipeArt)),
       findsOneWidget,
     );
-    expect(find.byType(ImagePlaceholder), findsNothing);
     await captureDesignShot(tester, 'coach-cards-recipe-noimage');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

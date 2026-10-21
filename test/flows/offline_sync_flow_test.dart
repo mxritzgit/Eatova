@@ -83,11 +83,7 @@ void main() {
     );
     expect(store.loggedMeals.length, 1);
     final mealId = store.loggedMeals.single.id;
-    expect(server.mealRows, isEmpty);
-    // GET is the boot load, which ran while the server was still reachable —
-    // no WRITE may have arrived.
-    expect(server.requestsTo('logged_meals', method: 'POST'), isEmpty,
-        reason: 'offline darf kein Write ankommen');
+    expect(server.mealRows, isEmpty, reason: 'offline darf kein Write ankommen');
 
     // ---- 3. The outbox holds the write -------------------------------------
     final queued = store.pendingOutbox

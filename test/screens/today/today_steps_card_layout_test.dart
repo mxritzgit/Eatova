@@ -35,7 +35,8 @@ void main() {
   setUpAll(_loadFonts);
 
   for (final locale in [const Locale('de'), const Locale('en')]) {
-    for (final width in [375.0, 430.0]) {
+    // A narrow phone; wider ones only have more room.
+    for (final width in [375.0]) {
       testWidgets('steps, goal and credit share one line at $width / $locale', (
         tester,
       ) async {

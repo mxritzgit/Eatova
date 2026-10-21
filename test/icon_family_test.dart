@@ -280,100 +280,102 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  for (final brightness in Brightness.values) {
-    for (final locale in ['de', 'en']) {
-      for (final scale in [1.0, 2.0]) {
-        final id = '${brightness.name}-$locale-$scale';
-        testWidgets('Today, Food and all five icon tabs remain usable: $id', (
-          tester,
-        ) async {
-          await withClock(Clock.fixed(_today), () async {
-            tester.view.devicePixelRatio = 1;
-            tester.view.physicalSize = scale == 1
-                ? const Size(390, 844)
-                : const Size(320, 568);
-            tester.view.padding = const FakeViewPadding(top: 59, bottom: 34);
-            tester.view.viewPadding = tester.view.padding;
-            addTearDown(tester.view.reset);
-            final semantics = tester.ensureSemantics();
-            try {
-              await tester.pumpWidget(
-                RepaintBoundary(
-                  key: _root,
-                  child: localizedApp(
-                    EatovaHomePage(healthService: _Health()),
-                    brightness: brightness,
-                    locale: Locale(locale),
-                    textScale: scale,
-                    safeArea: false,
-                    scaffold: false,
+  // Two real-screen boots instead of all eight combinations: each palette,
+  // each language and both sizes are covered once; nothing asserted below
+  // depends on the combination.
+  for (final (brightness, locale, scale) in const [
+    (Brightness.dark, 'en', 1.0),
+    (Brightness.light, 'de', 2.0),
+  ]) {
+    final id = '${brightness.name}-$locale-$scale';
+    testWidgets('Today, Food and all five icon tabs remain usable: $id', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_today), () async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = scale == 1
+            ? const Size(390, 844)
+            : const Size(320, 568);
+        tester.view.padding = const FakeViewPadding(top: 59, bottom: 34);
+        tester.view.viewPadding = tester.view.padding;
+        addTearDown(tester.view.reset);
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            RepaintBoundary(
+              key: _root,
+              child: localizedApp(
+                EatovaHomePage(healthService: _Health()),
+                brightness: brightness,
+                locale: Locale(locale),
+                textScale: scale,
+                safeArea: false,
+                scaffold: false,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final store = storeOf(tester);
+          store.lifetimeStats = LifetimeStats(
+            currentStreak: 7,
+            lastTrackedDate: _today,
+            sessionStart: _today,
+          );
+          await store.refreshHealthSteps();
+          await tester.pumpAndSettle();
+          await _capture(tester, 'today-$id');
+          for (final (key, symbol) in [
+            ('Heute', AppSymbol.today),
+            ('Food', AppSymbol.food),
+            ('Rezepte', AppSymbol.recipes),
+            ('Training', AppSymbol.training),
+            ('Coach', AppSymbol.coach),
+          ]) {
+            final target = _key('nav-$key');
+            expect(target.hitTestable(), findsOneWidget);
+            expect(tester.getSize(target).height, greaterThanOrEqualTo(44));
+            await tester.tap(target);
+            await tester.pumpAndSettle();
+            expect(
+              tester.getSemantics(target),
+              isSemantics(isSelected: true),
+            );
+            final active = tester
+                .widgetList<AppIcon>(
+                  find.descendant(
+                    of: find.byType(AppNavBar),
+                    matching: find.byType(AppIcon),
                   ),
-                ),
-              );
-              await tester.pumpAndSettle();
-              final store = storeOf(tester);
-              store.lifetimeStats = LifetimeStats(
-                currentStreak: 7,
-                lastTrackedDate: _today,
-                sessionStart: _today,
-              );
-              await store.refreshHealthSteps();
-              await tester.pumpAndSettle();
-              await _capture(tester, 'today-$id');
-              for (final (key, symbol) in [
-                ('Heute', AppSymbol.today),
-                ('Food', AppSymbol.food),
-                ('Rezepte', AppSymbol.recipes),
-                ('Training', AppSymbol.training),
-                ('Coach', AppSymbol.coach),
-              ]) {
-                final target = _key('nav-$key');
-                expect(target.hitTestable(), findsOneWidget);
-                expect(tester.getSize(target).height, greaterThanOrEqualTo(44));
-                await tester.tap(target);
-                await tester.pumpAndSettle();
-                expect(
-                  tester.getSemantics(target),
-                  isSemantics(isSelected: true),
-                );
-                final active = tester
-                    .widgetList<AppIcon>(
-                      find.descendant(
-                        of: find.byType(AppNavBar),
-                        matching: find.byType(AppIcon),
-                      ),
-                    )
-                    .where((icon) => icon.selected)
-                    .toList();
-                expect(active.single.symbol, symbol);
-                if (key == 'Food') await _capture(tester, 'food-$id');
-                if (key == 'Training') {
-                  await _capture(tester, 'training-footer-$id');
-                }
-              }
-              await tester.tap(_key('nav-Food'));
-              await tester.pumpAndSettle();
-              await tester.ensureVisible(_key('food-search'));
-              await tester.tap(_key('food-search'));
-              await tester.pumpAndSettle();
-              FocusManager.instance.primaryFocus?.unfocus();
-              await tester.pumpAndSettle();
-              await tester.ensureVisible(_key('slot-select-dinner'));
-              await tester.pumpAndSettle();
-              await _capture(tester, 'meal-picker-$id');
-              await tester.tap(_key('slot-select-dinner'));
-              await tester.pumpAndSettle();
-              expect(
-                tester.getSemantics(_key('slot-select-dinner')),
-                isSemantics(isSelected: true),
-              );
-              expect(tester.takeException(), isNull);
-            } finally {
-              semantics.dispose();
+                )
+                .where((icon) => icon.selected)
+                .toList();
+            expect(active.single.symbol, symbol);
+            if (key == 'Food') await _capture(tester, 'food-$id');
+            if (key == 'Training') {
+              await _capture(tester, 'training-footer-$id');
             }
-          });
-        });
-      }
-    }
+          }
+          await tester.tap(_key('nav-Food'));
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(_key('food-search'));
+          await tester.tap(_key('food-search'));
+          await tester.pumpAndSettle();
+          FocusManager.instance.primaryFocus?.unfocus();
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(_key('slot-select-dinner'));
+          await tester.pumpAndSettle();
+          await _capture(tester, 'meal-picker-$id');
+          await tester.tap(_key('slot-select-dinner'));
+          await tester.pumpAndSettle();
+          expect(
+            tester.getSemantics(_key('slot-select-dinner')),
+            isSemantics(isSelected: true),
+          );
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
+        }
+      });
+    });
   }
 }

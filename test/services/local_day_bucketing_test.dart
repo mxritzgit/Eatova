@@ -26,6 +26,14 @@ MealAnalysisResult _result() => const MealAnalysisResult(
     );
 
 void main() {
+  test('localDayKey: YYYY-MM-DD mit Zero-Padding, unabhaengig von der Uhrzeit',
+      () {
+    expect(localDayKey(DateTime(2026, 6, 4)), '2026-06-04');
+    expect(localDayKey(DateTime(2026, 6, 4, 23, 59, 59)), '2026-06-04');
+    expect(localDayKey(DateTime(2026, 1, 9, 0, 1)), '2026-01-09');
+    expect(localDayKey(DateTime(7, 2, 3)), '0007-02-03');
+  });
+
   group('Meals bucketen 23:45 stabil ueber local_day', () {
     test('Eintrag um 23:45 buckete in seinen lokalen Tag, nicht den Folgetag',
         () {

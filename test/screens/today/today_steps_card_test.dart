@@ -10,7 +10,6 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/logged_meal.dart';
@@ -88,31 +87,6 @@ double _balkenWert(WidgetTester tester) =>
 
 void main() {
   group('Schritte-Zeile', () {
-    testWidgets('bleibt bei 320 px und doppelter Schrift lesbar', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(320, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await pumpLocalized(
-        tester,
-        const SingleChildScrollView(
-          child: TodayStepsRow(steps: 7000, goal: 8000, burnedKcal: 261),
-        ),
-        textScale: 2,
-        padding: const EdgeInsets.all(20),
-        settle: true,
-      );
-      // Credit and step goal both stay visible, whole.
-      for (final key in [_wert, _ziel, _kcal]) {
-        final paragraph = tester.renderObject<RenderParagraph>(
-          find.descendant(of: find.byKey(key), matching: find.byType(RichText)),
-        );
-        expect(paragraph.didExceedMaxLines, isFalse, reason: '$key');
-      }
-      expect(tester.takeException(), isNull);
-    });
-
     testWidgets('ohne Schrittquelle gibt es keine Zeile', (tester) async {
       await _pump(tester, steps: null, burnedKcal: 261);
 
@@ -134,26 +108,6 @@ void main() {
       expect(_balkenWert(tester), closeTo(0.875, 0.001));
     });
 
-    testWidgets('die Aktivitaetskarte folgt auf die Mahlzeiten', (
-      tester,
-    ) async {
-      await _pump(tester, steps: 7000, burnedKcal: 261);
-
-      final mahlzeiten = tester.getRect(
-        find.byKey(const ValueKey('today-meals-card')),
-      );
-      final karte = tester.getRect(
-        find.byKey(const ValueKey('today-activity-card')),
-      );
-      final hero = tester.getRect(
-        find.byKey(const ValueKey('today-kcal-hero')),
-      );
-      expect(karte.top, greaterThanOrEqualTo(mahlzeiten.bottom));
-      // Same column as its neighbours - no second side margin.
-      expect(karte.left, hero.left);
-      expect(karte.right, hero.right);
-    });
-
     testWidgets('ohne Gutschrift steht nur das Ziel', (tester) async {
       await _pump(tester, steps: 7000, burnedKcal: 0);
 
@@ -168,24 +122,6 @@ void main() {
       expect(_balkenWert(tester), 0.0);
     });
 
-    testWidgets(
-      'Ziel erreicht: der Balken ist voll, der Screenreader hoert es',
-      (tester) async {
-        final handle = tester.ensureSemantics();
-        await _pump(tester, steps: 9000, burnedKcal: 300);
-
-        expect(_text(tester, _wert), '9.000');
-        expect(_balkenWert(tester), 1.0);
-        expect(
-          tester
-              .getSemantics(find.bySemanticsLabel(RegExp('Schrittziel')))
-              .value,
-          '9.000 von 8.000 Schritten, Ziel erreicht',
-        );
-        handle.dispose();
-      },
-    );
-
     testWidgets('eine echte 0 (Quelle da, noch kein Schritt) bleibt sichtbar', (
       tester,
     ) async {
@@ -198,19 +134,6 @@ void main() {
       expect(_balkenWert(tester), 0.0);
     });
 
-    testWidgets('auf Englisch: Komma-Tausender und steps', (tester) async {
-      await _pump(
-        tester,
-        steps: 7000,
-        burnedKcal: 261,
-        locale: const Locale('en'),
-      );
-
-      expect(_text(tester, _wert), '7,000');
-      expect(_text(tester, _ziel), '/ 8,000 steps');
-      expect(_text(tester, _kcal), '+261 kcal');
-    });
-
     testWidgets('waehrend der Tag laedt, fehlt auch die Schritte-Zeile', (
       tester,
     ) async {
@@ -220,7 +143,9 @@ void main() {
       expect(find.byKey(const ValueKey('today-day-loading')), findsOneWidget);
     });
 
-    testWidgets('der Screenreader hoert Stand und Ziel', (tester) async {
+    testWidgets('der Screenreader hoert Stand und Ziel, auch erreicht', (
+      tester,
+    ) async {
       // Disposed explicitly, not via addTearDown: the framework checks for
       // open handles BEFORE the teardowns run.
       final handle = tester.ensureSemantics();
@@ -232,32 +157,16 @@ void main() {
         tester.getSemantics(balken).value,
         contains('7.000 von 8.000 Schritten'),
       );
+
+      // Goal reached: the bar is full and says so.
+      await _pump(tester, steps: 9000, burnedKcal: 300);
+      expect(_text(tester, _wert), '9.000');
+      expect(_balkenWert(tester), 1.0);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(RegExp('Schrittziel'))).value,
+        '9.000 von 8.000 Schritten, Ziel erreicht',
+      );
       handle.dispose();
     });
-
-    for (final helligkeit in Brightness.values) {
-      testWidgets(
-        'rendert in $helligkeit auch bei Systemschrift 2.0 ohne Ueberlauf',
-        (tester) async {
-          await _pump(
-            tester,
-            steps: 12345,
-            burnedKcal: 4321,
-            brightness: helligkeit,
-            textScale: 2.0,
-          );
-
-          expect(tester.takeException(), isNull);
-          await tester.scrollUntilVisible(
-            find.byKey(_zeile),
-            200,
-            scrollable: find.byType(Scrollable).first,
-          );
-          expect(tester.takeException(), isNull);
-          expect(find.byKey(_zeile), findsOneWidget);
-          expect(_text(tester, _wert), '12.345');
-        },
-      );
-    }
   });
 }

@@ -184,32 +184,5 @@ void main() {
     locales: _beideSprachen,
   );
 
-  testWidgets('Auf Englisch traegt das Bearbeiten-Sheet den englischen Titel',
-      (tester) => withClockAt(_mittag, () async {
-    // Counter-check to the matrices above: they read the same ARB the sheets
-    // read, so a regress in app_en.arb would pass unnoticed. One hard anchor
-    // per language proves the title really CHANGES with the language.
-    pinPhoneViewport(tester);
-    await pumpLocalized(
-      tester,
-      Align(
-        alignment: Alignment.bottomCenter,
-        child: EditMealSheet(
-          meal: LoggedMeal(
-            id: 'm1',
-            result: _resultat,
-            loggedAt: _mittag,
-            forcedSlot: MealSlot.dinner,
-          ),
-          onUpdateMeal: (_, {result, slot, day}) => null,
-          onRemoveMeal: (_) {},
-        ),
-      ),
-      locale: const Locale('en'),
-      settle: true,
-    );
-
-    expect(find.text('Edit meal'), findsOneWidget);
-    expect(find.text('Mahlzeit bearbeiten'), findsNothing);
-  }));
+  // The copy itself is the ARB's business (ARB parity tests), not this suite's.
 }

@@ -7,20 +7,17 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
-import '../support/harness.dart';
 
 final today = DateTime(2026, 9, 10, 12);
 FitnessRecipe recipe({
@@ -146,8 +143,7 @@ void main() {
     );
     expect(plan(value: longRecipe).recipe.ingredients.length, 20000);
 
-    expect(source.copyWith(title: 'Edited').title, 'Edited');
-    expect(saved.recipe.title, 'Oats');
+    // The JSON handed out is a copy: changing it leaves the snapshot alone.
     final json = saved.toJson();
     (json['recipe'] as Map)['title'] = 'Mutated';
     expect(saved.recipe.title, 'Oats');
@@ -227,6 +223,17 @@ void main() {
         ),
       );
       expect(buildShoppingList([first, different], today), hasLength(2));
+
+      // A tick on an eaten meal's quantity never ticks a new meal of the same
+      // amount: the id names the meals behind it, not only the grams.
+      final fresh = plan(value: first.recipe, servings: 1.5);
+      expect(
+        buildShoppingList([
+          first.copyWith(eatenAt: today),
+          fresh,
+        ], today).single.id,
+        isNot(buildShoppingList([first], today).single.id),
+      );
     },
   );
 
@@ -358,27 +365,6 @@ void main() {
     },
   );
 
-  test(
-    'offline cold start keeps planned meals beside more checks than the server cap',
-    () async {
-      await withClock(Clock.fixed(today), () async {
-        final f = _Fixture();
-        final p = plan();
-        await f.cache.commitStoreSnapshot(
-          expectedVersions: const {},
-          mealPlans: [p],
-          shoppingChecks: {
-            for (var i = 0; i <= 2000; i++)
-              '2026-09-07:${i.toRadixString(16).padLeft(64, '0')}': true,
-          },
-        );
-        await f.boot();
-        expect(f.store.plannedMeals.map((m) => m.id), [p.id]);
-        expect(f.store.shoppingChecks, hasLength(2001));
-      });
-    },
-  );
-
   test('storage failure does not publish an unacknowledged plan', () async {
     final raw = _BrokenStorage();
     final f = _Fixture(raw: raw);
@@ -446,52 +432,6 @@ void main() {
     });
   });
 
-  testWidgets('the editor names the plan limit, not a storage error', (
-    tester,
-  ) async {
-    final store = HomeStore(
-      sync: null,
-      health: const NoopHealthService(),
-      notificationService: const NoopNotificationService(),
-      initialUserName: 'Fixture',
-      emitSnack: h.SnackCapture().call,
-    );
-    addTearDown(store.dispose);
-    await withClock(Clock.fixed(today), () async {
-      // Open plans in a later week, so the shown week stays light.
-      for (var i = 0; i < kMaxOpenPlannedMeals; i++) {
-        await store.savePlannedMeal(
-          plan().copyWith(day: DateTime(2026, 10, 20)),
-        );
-      }
-      await pumpLocalized(
-        tester,
-        MealPlanScreen(store: store),
-        locale: const Locale('en'),
-        surfaceSize: const Size(390, 850),
-      );
-      await tester.tap(find.text('Plan a meal').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(recipeCatalogEn.first.title));
-      await tester.pumpAndSettle();
-      final save = find.byKey(const ValueKey('meal-plan-save'));
-      await tester.ensureVisible(save);
-      await tester.tap(save);
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text(
-          'You already have 500 open planned meals. '
-          'Remove some to plan more.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.textContaining('Not saved.'), findsNothing);
-      expect(store.plannedMeals, hasLength(kMaxOpenPlannedMeals));
-      expect(tester.takeException(), isNull);
-    });
-  });
-
   test(
     'remove stays removed after restart and account cleanup purges planner mirror',
     () async {
@@ -510,125 +450,4 @@ void main() {
       expect(raw.snapshot.keys.where((k) => k.endsWith('.A')), isEmpty);
     },
   );
-
-  testWidgets('choose recipe, fractional servings and explicit eaten action', (
-    tester,
-  ) async {
-    final store = HomeStore(
-      sync: null,
-      health: const NoopHealthService(),
-      notificationService: const NoopNotificationService(),
-      initialUserName: 'Fixture',
-      emitSnack: h.SnackCapture().call,
-    );
-    addTearDown(store.dispose);
-    await withClock(Clock.fixed(today), () async {
-      await pumpLocalized(
-        tester,
-        MealPlanScreen(store: store),
-        locale: const Locale('en'),
-        surfaceSize: const Size(390, 850),
-      );
-      await tester.tap(find.text('Plan a meal').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(recipeCatalogEn.first.title));
-      await tester.pumpAndSettle();
-      final field = find.byKey(const ValueKey('meal-plan-servings'));
-      await tester.ensureVisible(field);
-      await tester.enterText(field, '1,5');
-      await tester.pumpAndSettle();
-      final save = find.byKey(const ValueKey('meal-plan-save'));
-      await tester.ensureVisible(save);
-      await tester.tap(save);
-      await tester.pumpAndSettle();
-      expect(store.plannedMeals.single.servings, 1.5);
-      expect(store.loggedMeals, isEmpty);
-      final eat = find.byKey(
-        ValueKey('meal-plan-eat-${store.plannedMeals.single.id}'),
-      );
-      await tester.scrollUntilVisible(eat, 100);
-      await tester.tap(eat);
-      await tester.pumpAndSettle();
-      expect(store.plannedMeals.single.isEaten, isTrue);
-      expect(store.loggedMeals, hasLength(1));
-      expect(store.loggedMeals.single.effectiveLocalDay, '2026-09-10');
-      expect(tester.takeException(), isNull);
-    });
-  });
-
-  testWidgets('full recipe selector stays below the top system inset', (
-    tester,
-  ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.padding = const FakeViewPadding(top: 72);
-    tester.view.viewPadding = const FakeViewPadding(top: 72);
-    addTearDown(tester.view.reset);
-    final store = HomeStore(
-      sync: null,
-      health: const NoopHealthService(),
-      notificationService: const NoopNotificationService(),
-      initialUserName: 'Fixture',
-      emitSnack: h.SnackCapture().call,
-    );
-    addTearDown(store.dispose);
-    await pumpLocalized(
-      tester,
-      MealPlanScreen(store: store),
-      locale: const Locale('en'),
-      surfaceSize: const Size(390, 800),
-      safeArea: false,
-      scaffold: false,
-    );
-    await tester.tap(find.text('Plan a meal').first);
-    await tester.pumpAndSettle();
-    final title = find.descendant(
-      of: find.byType(BottomSheet),
-      matching: find.text('Plan a meal'),
-    );
-    expect(tester.getTopLeft(title).dy, greaterThanOrEqualTo(72));
-    expect(tester.takeException(), isNull);
-  });
-
-  for (final locale in ['de', 'en']) {
-    testWidgets('planner works at 320px and 2x text $locale', (tester) async {
-      final store = HomeStore(
-        sync: null,
-        health: const NoopHealthService(),
-        notificationService: const NoopNotificationService(),
-        initialUserName: 'Fixture',
-        emitSnack: h.SnackCapture().call,
-      );
-      addTearDown(store.dispose);
-      await withClock(Clock.fixed(today), () async {
-        await store.savePlannedMeal(plan());
-        await pumpLocalized(
-          tester,
-          MealPlanScreen(store: store),
-          locale: Locale(locale),
-          surfaceSize: const Size(320, 850),
-          textScale: 2,
-        );
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        await tester.tap(
-          find.text(locale == 'de' ? 'Einkaufsliste' : 'Shopping list'),
-        );
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-        await tester.scrollUntilVisible(find.text('Milk to taste'), 150);
-        // The weekly receipt names the meals in its header and lists each
-        // ingredient with its amount, without recipe headings.
-        expect(
-          find.text(
-            locale == 'de' ? 'KW 37 \u00B7 1 Gericht' : 'Week 37 \u00B7 1 meal',
-          ),
-          findsOneWidget,
-        );
-        expect(find.text('OATS'), findsNothing);
-        expect(find.text('Oats'), findsOneWidget);
-        expect(find.text('100 g'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-      });
-    });
-  }
 }

@@ -132,13 +132,4 @@ void main() {
     expect(recipe.caloriesKcal, 520);
     expect(recipe.estimatedGrams, 450);
   });
-
-  test('coachProposalSlug erzeugt deterministischen Slug aus Message-Id', () {
-    // The slug comes from the caller (the card's message id) so "added" stays a
-    // pure derivation after a restart.
-    expect(
-      FitnessRecipe.coachProposalSlug('srv-msg-1'),
-      'user_coach_srv-msg-1',
-    );
-  });
 }

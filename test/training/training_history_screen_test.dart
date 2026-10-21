@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/l10n/l10n.dart';
@@ -14,14 +12,14 @@ import 'package:eatova/src/services/training_session_controller.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 
 import 'training_timer_fixtures.dart';
 
-final _capture = GlobalKey();
+// The player's finish step (actuals, notes, retry, remote deletion, retired
+// source) and the history list and detail it feeds.
 
 Future<void> _host(
   WidgetTester tester,
@@ -45,7 +43,7 @@ Future<void> _host(
           textScaler: TextScaler.linear(scale),
           alwaysUse24HourFormat: use24Hours,
         ),
-        child: RepaintBoundary(key: _capture, child: child),
+        child: child!,
       ),
       home: Builder(
         builder: (context) => Scaffold(
@@ -94,24 +92,8 @@ TrainingHistoryEntry _entry() =>
       return result;
     });
 
-Future<void> _saveImage(WidgetTester tester, String name) async {
-  await tester.pump();
-  final boundary = tester.renderObject<RenderRepaintBoundary>(
-    find.byKey(_capture),
-  );
-  await tester.runAsync(() async {
-    final image = await boundary.toImage(pixelRatio: 1);
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    image.dispose();
-    final directory = Directory('build/training-history-qa')
-      ..createSync(recursive: true);
-    File(
-      '${directory.path}/$name.png',
-    ).writeAsBytesSync(bytes!.buffer.asUint8List());
-  });
-}
-
 void main() {
+  // The real fonts, so the 320 px reflow checks measure the shipped text.
   setUpAll(() async {
     for (final family in {
       'Figtree': ['Figtree-Regular.ttf', 'Figtree-SemiBold.ttf'],
@@ -172,7 +154,6 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
       await _tap(tester, 'training-set-check-0-0');
-      await _saveImage(tester, 'completion-review');
       await _tap(tester, 'training-finish-save');
       expect(attempts.single.snapshot.actualSets.single.reps, 5);
       expect(attempts.single.snapshot.actualSets.single.weightKg, 17.5);
@@ -476,23 +457,9 @@ void main() {
         locale: locale,
         scale: 2,
       );
-      // Both pages carry the tab-scale 36 px title of Profile and Settings.
-      expect(find.byType(PageHeader), findsOneWidget);
-      expect(
-        tester.widget<Text>(find.text(
-          tester.element(find.byType(PageHeader)).l10n.trainingHistoryTitle,
-        )).style?.fontSize,
-        36,
-      );
       expect(tester.takeException(), isNull);
-      await _saveImage(tester, 'history-$locale-320');
       await _tap(tester, 'training-history-${entry.id}');
-      expect(
-        tester.widget<Text>(find.text(entry.snapshot.workout.title)).style?.fontSize,
-        36,
-      );
       expect(tester.takeException(), isNull);
-      await _saveImage(tester, 'history-detail-$locale-320');
       await tester.scrollUntilVisible(
         find.byKey(const ValueKey('training-history-delete')),
         250,

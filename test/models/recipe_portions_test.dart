@@ -72,8 +72,13 @@ void main() {
     },
   );
 
-  for (final basis in ['unspecified', 'absent', 'per_recipe_without_yield']) {
-    test('$basis remains original despite per-serving nutrition', () {
+  test('unproven ingredient basis remains original despite per-serving '
+      'nutrition', () {
+    for (final basis in [
+      'unspecified',
+      'absent',
+      'per_recipe_without_yield',
+    ]) {
       final json = portionCandidate(
         basis: basis == 'per_recipe_without_yield'
             ? 'per_recipe'
@@ -82,14 +87,23 @@ void main() {
       if (basis == 'absent') json.remove('ingredients_basis');
       if (basis == 'per_recipe_without_yield') json['servings'] = null;
       final recipe = importedPortions(json);
-      expect(recipe.displayIngredients(enL10n, servings: 2), '800 g mince');
-      expect(recipe.ingredientProjectionForServings(2).isScaled, isFalse);
+      expect(
+        recipe.displayIngredients(enL10n, servings: 2),
+        '800 g mince',
+        reason: basis,
+      );
+      expect(
+        recipe.ingredientProjectionForServings(2).isScaled,
+        isFalse,
+        reason: basis,
+      );
       expect(
         recipe.ingredientQuantityHint(enL10n),
         enL10n.recipeIngredientsOriginalUnknown,
+        reason: basis,
       );
-    });
-  }
+    }
+  });
 
   test(
     'legacy saved imports retain source quantities and visible uncertainty',
@@ -326,18 +340,19 @@ void main() {
     '800 g mince\n\n* Salt and pepper to taste':
         '200 g mince\n\n* Salt and pepper to taste',
   };
-  for (final entry in scalable.entries) {
-    test('bounded quantity projection: ${entry.key}', () {
+  test('bounded quantity projection scales every unambiguous form', () {
+    for (final MapEntry(key: text, value: scaled) in scalable.entries) {
       final result = projectRecipeIngredients(
-        entry.key,
+        text,
         basis: RecipeIngredientsBasis.perRecipe,
         batchServings: 4,
       );
-      expect(result.text, entry.value);
-      expect(result.isScaled, isTrue);
-    });
-  }
-  for (final text in [
+      expect(result.text, scaled, reason: text);
+      expect(result.isScaled, isTrue, reason: text);
+    }
+  });
+
+  const ambiguous = <String>[
     '800 g mince\n2 x 400 g tomatoes',
     '800 g mince, 200 g cheese',
     '180 C oven',
@@ -369,15 +384,16 @@ void main() {
     '-200 g mince',
     '0.0001 g spice',
     '800 g mince\n2 tomatoes (400 g)',
-  ]) {
-    test('ambiguous quantities remain entirely original: $text', () {
+  ];
+  test('ambiguous quantities remain entirely original', () {
+    for (final text in ambiguous) {
       final result = projectRecipeIngredients(
         text,
         basis: RecipeIngredientsBasis.perRecipe,
         batchServings: 4,
       );
-      expect(result.text, text);
-      expect(result.isScaled, isFalse);
-    });
-  }
+      expect(result.text, text, reason: text);
+      expect(result.isScaled, isFalse, reason: text);
+    }
+  });
 }

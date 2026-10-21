@@ -60,7 +60,8 @@ void main() {
   });
 
   group('Telefonbreiten', () {
-    for (final size in const [Size(320, 568), Size(390, 844), Size(640, 960)]) {
+    // The narrowest phone and the breakpoint itself; insetFor covers the rest.
+    for (final size in const [Size(320, 568), Size(640, 960)]) {
       testWidgets('reicht die Constraints unveraendert durch '
           '(${size.width.toInt()} px)', (tester) async {
         BoxConstraints? outer;
@@ -96,7 +97,8 @@ void main() {
   });
 
   group('Grosse Fenster', () {
-    for (final size in const [Size(1024, 768), Size(1366, 1024), Size(844, 390)]) {
+    // A tablet and a landscape phone (short height); insetFor covers widths.
+    for (final size in const [Size(1024, 768), Size(844, 390)]) {
       testWidgets('zentriert eine Spalte von $kReadableContentWidth px '
           '(${size.width.toInt()} px)', (tester) async {
         BoxConstraints? inner;

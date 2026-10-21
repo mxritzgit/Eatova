@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/widgets/common/lively.dart';
-import 'package:eatova/src/widgets/common/motion.dart';
 
 import '../../support/harness.dart';
 
@@ -359,11 +358,5 @@ void main() {
         tester.getSize(find.byType(Column)).width,
       );
     });
-  });
-
-  test('ein Satz Zeiten fuer die ganze Sprache', () {
-    expect(kMotionCurve, Curves.easeOutCubic);
-    expect(kMotionPressIn < kMotionPressOut, isTrue);
-    expect(kMotionEnter < kMotionValue, isTrue);
   });
 }

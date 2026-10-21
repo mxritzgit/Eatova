@@ -8,9 +8,10 @@
 // omitted kcal card and muscle chips).
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
-// build/dark-redesign/ for comparison with design/shots/training-new-*.png.
-// Without it the suite still checks that the store's real values reach the
-// screen and that the end of the page clears the floating bar.
+// build/dark-redesign/ (docs/dark-redesign-preview/training.png is the
+// committed copy of training-00). Without it the suite still checks that the
+// store's real values reach the screen and that the end of the page clears
+// the floating bar.
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/screens/training/training_overview_widgets.dart';

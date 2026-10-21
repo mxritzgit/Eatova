@@ -260,7 +260,7 @@ void main() {
       expect(_summary({}, weightLog: typo), contains('20 Wiegetage'));
     });
 
-    test('dieselbe Rate wie der Wochen-Check, nicht eine eigene', () {
+    test('der Block zeigt die Rate des Wochen-Checks, nicht eine eigene', () {
       // The weekly check's own scenario: 21 days of 2100 kcal, a daily
       // weigh-in losing 0.02 kg/day.
       final profile = const KcalCalculator().applyLiveGoals(
@@ -290,6 +290,18 @@ void main() {
       final rate = EnergyCheck.weightRate(log, today: today);
       expect(rate.kgPerWeek, proposal.weeklyRateKg);
       expect(rate.weighInDays, proposal.weighInDays);
+      // The block itself carries the check's number and its weigh-in days.
+      expect(
+        _summary({}, weightLog: log),
+        contains(
+          'Gewichtstrend über 21 Tage: '
+          '${paceLabelForWeeklyRateKg(proposal.weeklyRateKg)} ',
+        ),
+      );
+      expect(
+        _summary({}, weightLog: log),
+        endsWith('; ${proposal.weighInDays} Wiegetage).'),
+      );
     });
   });
 

@@ -154,68 +154,36 @@ void main() {
           reason: 'ohne maybeRollOverToToday() im Resume bleibt der Montag');
     });
 
-    testWidgets('der Rollover laeuft VOR dem Flush', (tester) async {
-      // Order: advance the day first, then flush — a refresh triggered by the
-      // flush would otherwise still carry the old day.
-      late HomeStore store;
-      final reihenfolge = <String>[];
-      await withClock(Clock.fixed(_montagAbend), () async {
-        await _pumpHome(tester);
-        store = _storeOf(tester);
-      });
-
-      store.addListener(() => reihenfolge.add('notify:${store.selectedFoodDate}'));
-
-      await withClock(Clock.fixed(_dienstagFrueh), () async {
-        _resume(tester);
-        await tester.pump();
-      });
-
-      expect(reihenfolge.first, 'notify:$_dienstag',
-          reason: 'die erste Benachrichtigung des Resumes traegt schon '
-              'den neuen Tag');
-    });
   });
 
   group('B3 — Health-Resume-Gate', () {
-    testWidgets('unverified heilt beim Resume', (tester) async {
-      // The user allowed access in the iOS settings and comes back.
-      final health = _FakeHealth(
-        initial: HealthAuthState.unverified,
-        afterRefresh: HealthAuthState.granted,
-      );
-      await _pumpHome(tester, health: health);
-      await tester.pump();
+    for (final initial in const [
+      HealthAuthState.unverified,
+      HealthAuthState.denied,
+    ]) {
+      testWidgets('${initial.name} heilt beim Resume', (tester) async {
+        // The user allowed access in the iOS settings and comes back;
+        // readSnapshot() shows no dialog, so healing out of `denied` is safe.
+        final health = _FakeHealth(
+          initial: initial,
+          afterRefresh: HealthAuthState.granted,
+        );
+        await _pumpHome(tester, health: health);
+        await tester.pump();
 
-      // connectHealth() in initState only refreshes on `granted`.
-      expect(health.snapshotCalls, 0);
-      expect(_storeOf(tester).healthAuthState, HealthAuthState.unverified);
+        // connectHealth() in initState only refreshes on `granted`.
+        expect(health.snapshotCalls, 0);
+        expect(_storeOf(tester).healthAuthState, initial);
 
-      _resume(tester);
-      await tester.pump();
+        _resume(tester);
+        await tester.pump();
 
-      expect(health.snapshotCalls, 1,
-          reason: 'der Gate auf == granted laesst unverified nie heilen');
-      expect(_storeOf(tester).healthAuthState, HealthAuthState.granted);
-      expect(_storeOf(tester).dailySteps, 4200);
-    });
-
-    testWidgets('denied heilt beim Resume ebenfalls', (tester) async {
-      // readSnapshot() shows no dialog, so healing out of `denied` is safe.
-      final health = _FakeHealth(
-        initial: HealthAuthState.denied,
-        afterRefresh: HealthAuthState.granted,
-      );
-      await _pumpHome(tester, health: health);
-      await tester.pump();
-      expect(health.snapshotCalls, 0);
-
-      _resume(tester);
-      await tester.pump();
-
-      expect(health.snapshotCalls, 1);
-      expect(_storeOf(tester).healthAuthState, HealthAuthState.granted);
-    });
+        expect(health.snapshotCalls, 1,
+            reason: 'der Gate auf == granted laesst $initial nie heilen');
+        expect(_storeOf(tester).healthAuthState, HealthAuthState.granted);
+        expect(_storeOf(tester).dailySteps, 4200);
+      });
+    }
 
     testWidgets('granted refresht weiterhin', (tester) async {
       final health = _FakeHealth(initial: HealthAuthState.granted);
@@ -328,19 +296,21 @@ void main() {
 
     testWidgets('ohne Tageswechsel loest kein Notify einen Refresh aus',
         (tester) async {
-      final health = _FakeHealth(initial: HealthAuthState.granted);
-      await _pumpHome(tester, health: health);
-      await tester.pump();
-      final store = _storeOf(tester);
-      expect(health.snapshotCalls, 1);
-
-      for (var i = 0; i < 5; i++) {
-        store.setTab(i % 3);
+      await withClock(Clock.fixed(_montagAbend), () async {
+        final health = _FakeHealth(initial: HealthAuthState.granted);
+        await _pumpHome(tester, health: health);
         await tester.pump();
-      }
+        final store = _storeOf(tester);
+        expect(health.snapshotCalls, 1);
 
-      expect(health.snapshotCalls, 1,
-          reason: 'der Nachzug haengt am Kalendertag, nicht an jedem Notify');
+        for (var i = 0; i < 5; i++) {
+          store.setTab(i % 3);
+          await tester.pump();
+        }
+
+        expect(health.snapshotCalls, 1,
+            reason: 'der Nachzug haengt am Kalendertag, nicht an jedem Notify');
+      });
     });
   });
 }

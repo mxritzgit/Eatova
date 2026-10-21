@@ -196,13 +196,19 @@ Future<void> _pumpRecipe(
   );
 }
 
+/// Drops the previous tree, so a sheet or route of the first locale cannot
+/// linger into the second.
+Future<void> _reset(WidgetTester tester) =>
+    tester.pumpWidget(const SizedBox.shrink());
+
 String _recipeTitle(WidgetTester tester) => tester
     .widget<Text>(find.byKey(const ValueKey('recipe-detail-user_fixture')))
     .data!;
 
 void main() {
   group('Favoriten: namenloses Barcode-Produkt und deutsche Makro-Texte', () {
-    testWidgets('en zeigt Product <barcode> und Dezimalpunkte', (tester) async {
+    testWidgets('en zeigt Product <barcode> und Dezimalpunkte, de bleibt '
+        'byte-gleich', (tester) async {
       await _pumpSaved(tester, _namelessProduct, _en);
 
       // The row splits the brand off the name into its muted line.
@@ -212,9 +218,8 @@ void main() {
       expect(find.text('P 12.5 g'), findsOneWidget);
       expect(find.text('C 28.5 g'), findsOneWidget);
       expect(find.text('F 15 g'), findsOneWidget);
-    });
 
-    testWidgets('de bleibt byte-gleich', (tester) async {
+      await _reset(tester);
       await _pumpSaved(tester, _namelessProduct, _de);
 
       expect(find.text('Produkt 4001234567890'), findsOneWidget);
@@ -230,16 +235,15 @@ void main() {
       'sourceLabel': 'Foto-KI',
     });
 
-    testWidgets('en: Slot-Titel und Zeile heissen Unknown meal', (
+    testWidgets('en heisst Unknown meal, de bleibt Unbekannte Mahlzeit', (
       tester,
     ) async {
       await _pumpDiary(tester, unknown, _en);
 
       expect(find.text('Unknown meal'), findsWidgets);
       expect(find.textContaining('Unbekannte'), findsNothing);
-    });
 
-    testWidgets('de bleibt Unbekannte Mahlzeit', (tester) async {
+      await _reset(tester);
       await _pumpDiary(tester, unknown, _de);
 
       expect(find.text('Unbekannte Mahlzeit'), findsWidgets);
@@ -247,7 +251,9 @@ void main() {
   });
 
   group('Ergebniskarte: Name, Makros, Bestandteile, Hinweis', () {
-    testWidgets('en loest alle vier Familien auf', (tester) async {
+    testWidgets('en loest alle vier Familien auf, de bleibt byte-gleich', (
+      tester,
+    ) async {
       await _pumpResultCard(tester, _confirmedScan, _en);
 
       expect(
@@ -270,9 +276,8 @@ void main() {
         'recalculated from the sum of the items.',
       );
       expect(find.text('Meal'), findsNWidgets(2), reason: 'card + sheet title');
-    });
 
-    testWidgets('de bleibt byte-gleich', (tester) async {
+      await _reset(tester);
       await _pumpResultCard(tester, _confirmedScan, _de);
 
       expect(
@@ -302,7 +307,9 @@ void main() {
       ),
     );
 
-    testWidgets('en', (tester) async {
+    testWidgets('en uebersetzt den Hinweis, de bleibt byte-gleich', (
+      tester,
+    ) async {
       await _pumpResultCard(tester, logged, _en);
       await tester.tap(find.byKey(const ValueKey('analyse-info-button')));
       await tester.pumpAndSettle();
@@ -313,9 +320,8 @@ void main() {
         '2 servings · Your recipe Self-added. Values are based on what you '
         'entered.',
       );
-    });
 
-    testWidgets('de bleibt byte-gleich', (tester) async {
+      await _reset(tester);
       await _pumpResultCard(tester, logged, _de);
       await tester.tap(find.byKey(const ValueKey('analyse-info-button')));
       await tester.pumpAndSettle();
@@ -415,7 +421,8 @@ void main() {
       ],
     );
 
-    testWidgets('en', (tester) async {
+    testWidgets('en uebersetzt Titel, Quelle und Produkt-Zutat, de bleibt '
+        'byte-gleich', (tester) async {
       await _pumpRecipe(tester, recipe, _en);
 
       expect(_recipeTitle(tester), 'Your recipe');
@@ -429,9 +436,8 @@ void main() {
       );
       expect(find.textContaining('Produkt'), findsNothing);
       expect(find.textContaining('Quelle'), findsNothing);
-    });
 
-    testWidgets('de bleibt byte-gleich', (tester) async {
+      await _reset(tester);
       await _pumpRecipe(tester, recipe, _de);
 
       expect(_recipeTitle(tester), 'Eigenes Rezept');

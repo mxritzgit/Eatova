@@ -1,10 +1,9 @@
-// DESIGN_REFACTOR §7.2 / §5: renders in BOTH brightnesses and at 200 % text
-// without RenderFlex overflow. [GoalsScreen] is the densest page in the app,
-// so it gets its own pump, and overflows are the subject, not swallowed.
-//
-// The four hand-written smokes (hell / dunkel / 2.0 hell / 2.0 dunkel) are one
-// `renderMatrix` now; the two EN regressions keep their own cases because they
-// pin a translated VALUE, not just "no exception".
+// GoalsScreen states that the app-wide layout sweep
+// (test/responsive/app_layout_sweep_test.dart, step "Ziele") does not reach:
+// blocked reminders, the validation note, the three picker sheets at 200 %,
+// two EN regressions that pin a translated VALUE, and the accessibility
+// semantics of the custom fields and actions. The default page itself is
+// walked by the sweep at 320 and 390 px, 1.0x and 2.0x, de and en.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,23 +11,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/home_store.dart' show ReminderState;
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
-import 'package:eatova/src/services/kcal_calculator.dart';
-import 'package:eatova/src/theme/theme_mode_controller.dart';
 import 'package:eatova/src/widgets/design/design.dart' show SettingsRow;
 
 import 'support/harness.dart';
-
-/// Stored goals matching the calculation exactly -> live mode.
-UserProfile _autoProfil() {
-  const basis = UserProfile();
-  final t = const KcalCalculator().calculate(basis);
-  return basis.copyWith(
-    dailyKcalGoal: t.kcal,
-    proteinGoalG: t.proteinG,
-    carbsGoalG: t.carbsG,
-    fatGoalG: t.fatG,
-  );
-}
 
 /// Pumps the page and pins what every case shares. Overflows are collected by
 /// the caller ([renderMatrix] or [collectOverflows]).
@@ -40,19 +25,15 @@ Future<void> _pump(
   UserProfile profile = const UserProfile(),
   ReminderState reminderState = ReminderState.off,
   VoidCallback? onOpenSystemSettings,
-  ThemeModeController? themeController,
 }) async {
   pinPhoneViewport(tester);
-  final Widget page = GoalsScreen(
-    profile: profile,
-    reminderState: reminderState,
-    onOpenSystemSettings: onOpenSystemSettings,
-  );
   await pumpLocalized(
     tester,
-    themeController == null
-        ? page
-        : ThemeModeScope(controller: themeController, child: page),
+    GoalsScreen(
+      profile: profile,
+      reminderState: reminderState,
+      onOpenSystemSettings: onOpenSystemSettings,
+    ),
     brightness: brightness,
     locale: locale,
     textScale: textScale,
@@ -67,16 +48,6 @@ Future<void> _pump(
 }
 
 void main() {
-  renderMatrix(
-    'Die Ziele-Seite rendert overflow-frei',
-    (tester, c) async {
-      await _pump(tester, brightness: c.brightness, locale: c.locale,
-          textScale: c.textScale);
-    },
-    locales: const <Locale>[Locale('de'), Locale('en')],
-    textScales: const <double>[1.0, 2.0],
-  );
-
   testWidgets(
       'rendert unter EN mit englischem Tempo-Label statt deutschem Leck '
       '(i18n-Paket-7-Regression)', (tester) async {
@@ -113,17 +84,8 @@ void main() {
   });
 
   renderMatrix(
-    'Der Live-Modus blendet die Energie-Felder aus und bleibt heil',
-    (tester, c) async {
-      await _pump(tester, brightness: c.brightness, textScale: c.textScale,
-          profile: _autoProfil());
-      expect(find.byKey(const ValueKey('settings-kcal')), findsNothing);
-    },
-    textScales: const <double>[2.0],
-  );
-
-  renderMatrix(
-    'Blockierte Erinnerungen blenden eine Extra-Zeile ein',
+    'Blockierte Erinnerungen zeigen Hinweis und Reparatur-Knopf ohne '
+    'Trennlinie dazwischen',
     (tester, c) async {
       await _pump(
         tester,
@@ -132,38 +94,28 @@ void main() {
         reminderState: ReminderState.blocked,
         onOpenSystemSettings: () {},
       );
-      expect(
-        find.byKey(const ValueKey('settings-open-system-settings')),
-        findsOneWidget,
+      final button = find.byKey(
+        const ValueKey('settings-open-system-settings'),
       );
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      final note = tester.getRect(
+        find.byKey(const ValueKey('settings-reminder-note')),
+      );
+      final buttonRect = tester.getRect(button);
+      for (final divider in find.byType(Divider).evaluate()) {
+        final line = tester.getRect(find.byWidget(divider.widget));
+        expect(
+          line.top >= note.bottom - 0.5 && line.bottom <= buttonRect.top + 0.5,
+          isFalse,
+          reason: 'a group hairline at $line splits the note from its button',
+        );
+      }
     },
+    brightnesses: const <Brightness>[Brightness.dark],
     textScales: const <double>[2.0],
   );
-
-  testWidgets('blocked: no hairline between the note and its repair button',
-      (tester) async {
-    await _pump(
-      tester,
-      brightness: Brightness.dark,
-      reminderState: ReminderState.blocked,
-      onOpenSystemSettings: () {},
-    );
-    final button = find.byKey(const ValueKey('settings-open-system-settings'));
-    await tester.ensureVisible(button);
-    await tester.pumpAndSettle();
-    final note = tester.getRect(
-      find.byKey(const ValueKey('settings-reminder-note')),
-    );
-    final buttonRect = tester.getRect(button);
-    for (final divider in find.byType(Divider).evaluate()) {
-      final line = tester.getRect(find.byWidget(divider.widget));
-      expect(
-        line.top >= note.bottom - 0.5 && line.bottom <= buttonRect.top + 0.5,
-        isFalse,
-        reason: 'a group hairline at $line splits the note from its button',
-      );
-    }
-  });
 
   testWidgets('die Fehler-Sammelmeldung sprengt die Seite nicht',
       (tester) async {
@@ -186,25 +138,6 @@ void main() {
       findsOneWidget,
     );
     expect(overflows, isEmpty, reason: describeOverflows(overflows));
-  });
-
-  testWidgets('der Anzeige-Modus steht NICHT mehr auf dieser Seite',
-      (tester) async {
-    // Counter-check that the pill does not live in TWO places.
-    final controller = ThemeModeController();
-    addTearDown(controller.dispose);
-
-    final overflows = await collectOverflows(() async {
-      await _pump(
-        tester,
-        brightness: Brightness.light,
-        textScale: 2.0,
-        themeController: controller,
-      );
-    });
-
-    expect(overflows, isEmpty, reason: describeOverflows(overflows));
-    expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
 
   testWidgets('die drei Auswahl-Sheets rendern im Dunkelmodus bei 2.0',
@@ -304,7 +237,8 @@ void main() {
     await _pump(tester, brightness: Brightness.light);
 
     expect(find.byKey(const ValueKey('settings-save')), findsOneWidget);
-    // The day reset was removed from the whole app; pinned so it cannot return.
+    // The day reset was removed from the whole app; settings_erreichbarkeit_test
+    // relies on this line.
     expect(find.text('Tagesdaten zurücksetzen'), findsNothing);
     for (final key in const [
       'settings-privacy-link',

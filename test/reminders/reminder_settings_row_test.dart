@@ -210,10 +210,10 @@ void main() {
       expect(find.byKey(const ValueKey('settings-reminder')), findsNothing);
     });
 
-    for (final state in ReminderState.values) {
-      testWidgets('doppelte Schrift bei 320 px laeuft nicht ueber ($state)', (
-        tester,
-      ) async {
+    testWidgets('doppelte Schrift bei 320 px laeuft in keinem Zustand ueber', (
+      tester,
+    ) async {
+      for (final state in ReminderState.values) {
         await pumpLocalized(
           tester,
           settings(state: state),
@@ -221,10 +221,10 @@ void main() {
           surfaceSize: const Size(320, 1400),
         );
         await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
+        expect(tester.takeException(), isNull, reason: '$state');
         expect(find.byKey(const ValueKey('settings-reminder')), findsOneWidget);
-      });
-    }
+      }
+    });
   });
 
   group('Profil & Ziele', () {
@@ -302,10 +302,16 @@ void main() {
           );
           expect(await cache.readReminderTime(), const ReminderTime(21, 30));
 
+          // The settings row says the same sentence, so the text alone would
+          // pass without the goals page: read it inside the goals' own note.
           await _tap(tester, find.byKey(const ValueKey('settings-open-goals')));
+          expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
           expect(
-            find.text(
-              'Aktiv. Täglich um 21:30, wenn du noch nichts eingetragen hast.',
+            find.descendant(
+              of: find.byKey(const ValueKey('settings-reminder-note')),
+              matching: find.text(
+                'Aktiv. Täglich um 21:30, wenn du noch nichts eingetragen hast.',
+              ),
             ),
             findsOneWidget,
           );

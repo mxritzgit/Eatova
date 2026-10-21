@@ -12,8 +12,8 @@ import 'support/harness.dart';
 
 // Calendar access to older days in the food tab: a calendar button next to
 // the date chips whose selection runs through the same onDateSelected path as
-// the chips. Plus the loading state for on-demand days, where dayLoading
-// replaces the history with a spinner.
+// the chips. Plus the states of on-demand days: dayLoading replaces the
+// history with slot silhouettes, a failed load says so and offers a retry.
 //
 // No `renderMatrix` here: nothing in this file is duplicated per brightness,
 // locale or text scale — it is one dark-mode flow per state. Viewport pinning
@@ -166,14 +166,5 @@ void main() {
       expect(find.byKey(const ValueKey('food-day-loading')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-day-load-failed')), findsNothing);
     });
-  });
-
-  testWidgetsRobust('Ohne dayLoading rendert der Verlauf wie bisher', (
-    WidgetTester tester,
-  ) async {
-    await _pumpFoodTab(tester);
-
-    expect(find.byKey(const ValueKey('food-day-loading')), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 }

@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
-import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/training_history.dart';
 import 'package:eatova/src/models/training_session.dart';
@@ -116,37 +115,9 @@ void main() {
     },
   );
 
-  test(
-    'ack failure preserves exact request and retry applies receipt once',
-    () async {
-      final kv = _FaultStore();
-      final cache = LocalCache(kv, _owner);
-      final op = SyncOp.mealInsert(_meal('one'), trackDay: false);
-      await cache.commitSyncOperations([op]);
-      await cache.startSyncOperation(op.operationId);
-      final started = (await cache.readSyncOperations()).single.toJson();
-      kv.failCommit = true;
-      await expectLater(
-        cache.acknowledgeSyncOperation(
-          op.operationId,
-          LocalSyncResult(stats: LifetimeStats(mealsLogged: 7)),
-        ),
-        throwsStateError,
-      );
-      kv.failCommit = false;
-      expect((await cache.readSyncOperations()).single.toJson(), started);
-      await cache.acknowledgeSyncOperation(
-        op.operationId,
-        LocalSyncResult(stats: LifetimeStats(mealsLogged: 7)),
-      );
-      await cache.acknowledgeSyncOperation(
-        op.operationId,
-        LocalSyncResult(stats: LifetimeStats(mealsLogged: 99)),
-      );
-      expect(await cache.readSyncOperations(), isEmpty);
-      expect((await cache.readLifetimeStats())!.mealsLogged, 7);
-    },
-  );
+  // A failed acknowledgment that keeps the frozen request and a retry that
+  // applies its receipt once: local_cache_ack_slot_io_test.dart ('Absturz
+  // zwischen Zustellung und ACK').
 
   test(
     'same-entity successor cannot overtake ambiguous or blocked predecessor',
@@ -437,27 +408,7 @@ void main() {
     },
   );
 
-  test(
-    'full queue rejects entire new save without discarding confirmed intents',
-    () async {
-      final kv = _FaultStore();
-      final cache = LocalCache(kv, _owner);
-      final pending = List.generate(
-        kOutboxMaxOps,
-        (i) => SyncOp.favoriteDelete('favorite-$i'),
-      );
-      await cache.commitSyncOperations(pending);
-      final before = await kv.getString(_key('outbox'));
-      await expectLater(
-        cache.commitSyncOperations([
-          SyncOp.mealInsert(_meal('too-many'), trackDay: false),
-        ]),
-        throwsStateError,
-      );
-      expect(await kv.getString(_key('outbox')), before);
-      expect(await cache.readLoggedMeals(), isNull);
-    },
-  );
+  // A full queue rejecting a new save: local_cache_capacity_intents_test.dart.
 
   test(
     'legacy UUID and pending stats migration is stable before first delivery',

@@ -489,27 +489,9 @@ void main() {
     });
   }
 
-  testWidgets('der Anzeige-Modus folgt dem Geraet', (tester) async {
-    // Counter-check: if both runs were the same palette by accident, the
-    // whole audit would be worthless.
-    _pin(tester, Brightness.light);
-    await _boot(tester);
-    final hell = AppTokens.of(
-      tester.element(find.byKey(const ValueKey('screen-today'))),
-    );
-
-    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
-    await tester.pumpAndSettle();
-    final dunkel = AppTokens.of(
-      tester.element(find.byKey(const ValueKey('screen-today'))),
-    );
-
-    expect(dunkel.bg, AppTokens.dark.bg);
-    expect(hell.bg, AppTokens.light.bg);
-    expect(
-        hell.bg.computeLuminance(), greaterThan(dunkel.bg.computeLuminance()),
-        reason: 'der helle Grund muss heller sein als der dunkle');
-  });
+  // Both runs reading the same palette by accident is caught by
+  // `_erwartePalette` in every case above; the device-to-palette switch
+  // itself is theme_mode_app_wiring_test.dart's.
 
   // =========================================================================
   // 2. CONTRAST — including the semi-transparent surfaces
@@ -607,20 +589,6 @@ void main() {
       }
     });
 
-    test('gefuellte Kapseln nutzen ihren eigenen Auf-Token', () {
-      // Nav capsule and primary button fill with `lime` / `forest`. Using
-      // `ink` instead of `onLime`/`onForest` gives white on lime in dark mode.
-      for (final p in _paletten.entries) {
-        final t = p.value;
-        expect(_contrast(t.onLime, t.lime), greaterThanOrEqualTo(4.5));
-        expect(_contrast(t.onForest, t.forest), greaterThanOrEqualTo(4.5));
-        // `accent` is the token for strokes/text ON a card, so it must carry
-        // against `surf` (lime in dark mode, forest in light).
-        expect(_contrast(t.accent, t.surf), greaterThanOrEqualTo(3.0),
-            reason: '${p.key}: accent auf der Karte');
-      }
-    });
-
     // The two findings that stood here as OPEN are closed; the block is the
     // assertion now, so a regression fails instead of being re-described.
     test('der MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA', () {
@@ -647,51 +615,10 @@ void main() {
       expect(_contrast(hell.carbs, tint), lessThan(4.5));
     });
 
-    test('die MacroBar-Fuellung erreicht 3:1 gegen ihre Spur', () {
-      // Bar in the macro color on a track of `tile` over `surf` — the fill
-      // level is the message, so WCAG 1.4.11 applies. The August light
-      // `carbs` was 2.24:1; the light macro tones now hold 3.56 … 3.79:1.
-      for (final p in _paletten.entries) {
-        final t = p.value;
-        final spur = _ueber(t.tile, t.surf);
-        for (final farbe in <MapEntry<String, Color>>[
-          MapEntry<String, Color>('protein', t.protein),
-          MapEntry<String, Color>('carbs', t.carbs),
-          MapEntry<String, Color>('fat', t.fat),
-        ]) {
-          expect(_contrast(farbe.value, spur), greaterThanOrEqualTo(3.0),
-              reason: '${p.key}: ${farbe.key}-Balken gegen die Spur');
-        }
-      }
-    });
-
-    test('Makrofarben tragen Grafik, aber keinen Text', () {
-      // The pairing this file never measured — and exactly the one three
-      // metric tiles got wrong. The tones are toned for graphical objects
-      // (3:1): dot, bar, avatar tint. As TEXT on a card they are short in
-      // light mode, so tiles carry a colored DOT and put the number in `ink`
-      // — the rule `trends_screen` already writes out.
-      for (final p in _paletten.entries) {
-        final t = p.value;
-        for (final slot in MealSlot.values) {
-          expect(
-            _contrast(slot.accentOn(t), t.surf),
-            greaterThanOrEqualTo(3.0),
-            reason: '${p.key}: ${slot.name}-Punkt auf der Karte',
-          );
-        }
-        // What the tiles use instead.
-        expect(_contrast(t.ink, t.surf), greaterThanOrEqualTo(4.5),
-            reason: '${p.key}: Kachelzahl in ink auf der Karte');
-      }
-      // Counter-check and the whole reason for the rule: in light mode carbs
-      // (3.39:1) and fat (3.73:1) miss the 4.5:1 for normal text. 16 px w700
-      // is NOT large text — AA-Large starts at 14 pt bold = 14 x 96/72 =
-      // 18.67 px.
-      const hell = AppTokens.light;
-      expect(_contrast(hell.carbs, hell.surf), lessThan(4.5));
-      expect(_contrast(hell.fat, hell.surf), lessThan(4.5));
-    });
+    // Macro tones as graphics (3:1 on the card and on the bar track) and
+    // `ink`/`onForest` as text are app_tokens_test.dart's ('Grafik-Toene
+    // tragen 3:1 auf Karte und Spur', 'Fliesstext erreicht ... AA'); which
+    // widget paints which tone is level 3 below.
   });
 
   // =========================================================================
@@ -830,22 +757,25 @@ void main() {
       );
     }
 
+    // One case per palette; grounds, tones and both shapes run inside it, so
+    // every combination is still measured on the rendered note.
     for (final brightness in Brightness.values) {
       final modus = brightness == Brightness.light ? 'HELL' : 'DUNKEL';
       final t =
           brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
 
-      for (final grund in <(String, Color)>[
-        ('bg', t.bg),
-        ('surf', t.surf),
-      ]) {
-        for (final ton in <(String, Color?)>[
-          ('warning', t.warning),
-          ('danger', t.danger),
-          ('ohne Ton', null),
+      testWidgets('$modus: geboxt Text in ink, ungeboxt im Ton, auf bg und '
+          'surf', (tester) async {
+        for (final grund in <(String, Color)>[
+          ('bg', t.bg),
+          ('surf', t.surf),
         ]) {
-          testWidgets('$modus: geboxt, ${ton.$1}, auf ${grund.$1}',
-              (tester) async {
+          for (final ton in <(String, Color?)>[
+            ('warning', t.warning),
+            ('danger', t.danger),
+            ('ohne Ton', null),
+          ]) {
+            final fall = '$modus, ${ton.$1} auf ${grund.$1}';
             final n = await notiz(
               tester,
               brightness: brightness,
@@ -856,38 +786,35 @@ void main() {
 
             // The contract itself, not only its numbers.
             expect(n.text, t.ink,
-                reason: 'Kontrakt: Glyphe im Signalton, Text in ink — auf '
-                    'der eigenen Fuellung faellt der Ton unter AA');
-            expect(n.glyphe, ton.$2 ?? t.ink2);
-
+                reason: '$fall: Glyphe im Signalton, Text in ink — auf der '
+                    'eigenen Fuellung faellt der Ton unter AA');
+            expect(n.glyphe, ton.$2 ?? t.ink2, reason: fall);
             expect(_contrast(n.text, n.flaeche), greaterThanOrEqualTo(4.5),
-                reason: '$modus: 13-px-Text auf ${ton.$1}@10 % ueber '
-                    '${grund.$1}');
+                reason: '$fall: 13-px-Text auf der 10-%-Fuellung');
             // Glyph = graphical object (WCAG 1.4.11): 3:1.
             expect(_contrast(n.glyphe, n.flaeche), greaterThanOrEqualTo(3.0),
-                reason: '$modus: Glyphe auf ${ton.$1}@10 % ueber ${grund.$1}');
-          });
+                reason: '$fall: Glyphe auf der 10-%-Fuellung');
 
-          testWidgets('$modus: ungeboxt, ${ton.$1}, auf ${grund.$1}',
-              (tester) async {
             // Without a fill the tone keeps its headroom (warning 4,83:1 on
             // the light `bg` is the weakest case), so THERE it stays the text
             // colour — otherwise the signal would disappear entirely.
-            final n = await notiz(
+            final offen = await notiz(
               tester,
               brightness: brightness,
               grund: grund.$2,
               ton: ton.$2,
               boxed: false,
             );
-
-            expect(n.text, ton.$2 ?? t.ink2);
-            expect(n.glyphe, ton.$2 ?? t.ink2);
-            expect(_contrast(n.text, n.flaeche), greaterThanOrEqualTo(4.5),
-                reason: '$modus: 13-px-Text (${ton.$1}) auf ${grund.$1}');
-          });
+            expect(offen.text, ton.$2 ?? t.ink2, reason: '$fall, ungeboxt');
+            expect(offen.glyphe, ton.$2 ?? t.ink2, reason: '$fall, ungeboxt');
+            expect(
+              _contrast(offen.text, offen.flaeche),
+              greaterThanOrEqualTo(4.5),
+              reason: '$fall, ungeboxt: 13-px-Text',
+            );
+          }
         }
-      }
+      });
     }
   });
 }

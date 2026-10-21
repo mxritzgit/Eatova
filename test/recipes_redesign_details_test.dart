@@ -1,6 +1,7 @@
 // Details of the redesigned Recipes tab (dark redesign Task 4) that the
-// wiring suite does not reach: which photos carry the "AI-generated image"
-// label, and that the horizontal shelves keep their own scroll position.
+// wiring suite does not reach: which bundled photos are shown and carry the
+// "AI-generated image" label, that the horizontal shelves keep their own
+// scroll position, and that large text and long titles keep the layout.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/recipe_pick.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/widgets/recipes/recipe_photo.dart';
@@ -67,28 +69,34 @@ void main() {
   group('AI-generated label', () {
     final catalog = recipeCatalogDe.first;
 
-    test('only bundled catalog photos are known to be AI-generated', () {
+    test('only bundled catalog photos are shown, and known to be '
+        'AI-generated', () {
+      // The shown bundle photo and the AI claim are one predicate.
       expect(RecipePhoto.isAiGenerated(catalog), isTrue);
-      // A meal-plan snapshot of a catalog recipe keeps its bundled photo.
-      expect(
-        RecipePhoto.isAiGenerated(
-          _own(slug: catalog.slug, imageAsset: catalog.imageAsset),
-        ),
-        isTrue,
-      );
+      // A meal-plan snapshot of a catalog recipe is a user recipe and keeps
+      // its bundled photo.
+      final snapshot = PlannedMeal.create(
+        recipe: catalog,
+        day: DateTime(2026, 9, 10),
+        slot: MealSlot.lunch,
+      ).recipe;
+      expect(snapshot.userCreated, isTrue);
+      expect(RecipePhoto.showsCatalogPhoto(snapshot), isTrue);
       // No photo, a device photo (may be the user's own shot, even on a coach
-      // recipe) or a foreign path: never claimed as AI.
-      expect(RecipePhoto.isAiGenerated(_own()), isFalse);
-      expect(
-        RecipePhoto.isAiGenerated(
-          _own(slug: 'user_coach_m1', imageAsset: 'local:img_ab.jpg'),
-        ),
-        isFalse,
-      );
-      expect(
-        RecipePhoto.isAiGenerated(_own(imageAsset: catalog.imageAsset)),
-        isFalse,
-      );
+      // recipe), a persisted catalog path on a foreign slug, or a catalog
+      // slug with another recipe's path: never shown as a bundle photo, never
+      // claimed as AI.
+      final other = recipeCatalogDe.last;
+      for (final recipe in [
+        _own(),
+        _own(slug: 'user_coach_m1', imageAsset: 'local:img_ab.jpg'),
+        _own(imageAsset: catalog.imageAsset),
+        _own(slug: catalog.slug, imageAsset: other.imageAsset),
+      ]) {
+        final which = '${recipe.slug} ${recipe.imageAsset}';
+        expect(RecipePhoto.showsCatalogPhoto(recipe), isFalse, reason: which);
+        expect(RecipePhoto.isAiGenerated(recipe), isFalse, reason: which);
+      }
     });
 
     testWidgets('the hero labels a catalog photo', (tester) async {
@@ -283,18 +291,22 @@ void main() {
     final shortCard = find.byKey(
       const ValueKey('recipe-shelf-lean-user_short'),
     );
-    final title = tester.renderObject<RenderParagraph>(
+    RenderParagraph title(Finder card) => tester.renderObject(
       find.descendant(
         of: find.descendant(
-          of: longCard,
+          of: card,
           matching: find.byKey(const ValueKey('recipe-shelf-card-title')),
         ),
         matching: find.byType(RichText),
       ),
     );
-    expect(title.didExceedMaxLines, isTrue);
+    expect(title(longCard).didExceedMaxLines, isTrue);
+    // Two lines of the one-line title, whatever font is loaded: the height
+    // pin used to depend on the real fonts another test in this file loads.
+    expect(
+      title(longCard).size.height,
+      closeTo(2 * title(shortCard).size.height, 0.5),
+    );
     expect(tester.getSize(longCard).height, tester.getSize(shortCard).height);
-    // Photo 112 + two title lines + meta + padding: the design's ~188 px.
-    expect(tester.getSize(longCard).height, lessThan(200));
   });
 }

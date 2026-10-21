@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -49,8 +50,10 @@ HomeStore _store({bool autoDispose = true}) {
   return store;
 }
 
-/// Store WITH sync: only that path arms the midnight timer.
-HomeStore _syncedStore({bool autoDispose = true}) {
+/// Store WITH sync: only that path arms the midnight timer. [disposeClient]
+/// false inside `fakeAsync`: a tear-down runs outside that zone, where the
+/// client's dispose would wait on fake timers forever.
+HomeStore _syncedStore({bool autoDispose = true, bool disposeClient = true}) {
   final client = SupabaseClient(
     'https://example.supabase.co',
     'test-anon-key',
@@ -67,7 +70,7 @@ HomeStore _syncedStore({bool autoDispose = true}) {
     }),
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
-  addTearDown(client.dispose);
+  if (disposeClient) addTearDown(client.dispose);
   final store = HomeStore(
     sync: EatovaSync.forUser(client, 'user-rollover'),
     health: const NoopHealthService(),
@@ -333,8 +336,8 @@ void main() {
 
   group('Mitternachts-Timer', () {
     test(
-      'start() armiert genau einen Timer, dispose() raeumt ihn ab',
-      () async {
+      'start() armiert den Timer, dispose() raeumt ihn ab',
+      () => withClock(Clock.fixed(_montagAbend), () async {
         final store = _syncedStore(autoDispose: false);
         expect(store.debugMidnightTimerIsActive, isFalse);
 
@@ -345,21 +348,36 @@ void main() {
 
         store.dispose();
         expect(store.debugMidnightTimerIsActive, isFalse);
-      },
+      }),
     );
 
-    test('ein verarbeiteter Tageswechsel setzt den Timer neu', () async {
-      final store = _syncedStore();
-      store.start();
-      await store.profileReady;
-      expect(store.debugMidnightTimerIsActive, isTrue);
+    test('ein Resume nach Tagen stellt den Timer auf die naechste Mitternacht',
+        () {
+      // A suspend freezes timers: armed on Monday 21:00 for Tuesday 00:00,
+      // the timer would fire three hours after a Wednesday 22:00 resume, long
+      // after Thursday began. The rollover must rearm it from the new "now".
+      var now = _montagAbend;
+      fakeAsync((async) {
+        withClock(Clock(() => now), () {
+          final store = _syncedStore(autoDispose: false, disposeClient: false);
+          store.start();
+          async.elapse(const Duration(seconds: 1));
+          expect(store.debugMidnightTimerIsActive, isTrue);
 
-      // Resume the next day: the timer did not fire while suspended and must
-      // rearm for the coming midnight.
-      await withClock(Clock.fixed(addDays(clock.now(), 1)), () async {
-        expect(store.maybeRollOverToToday(), isTrue);
+          now = DateTime(2026, 6, 3, 22);
+          expect(store.maybeRollOverToToday(), isTrue);
+          expect(store.selectedFoodDate, DateTime(2026, 6, 3));
+
+          now = DateTime(2026, 6, 4, 0, 0, 5);
+          async.elapse(const Duration(hours: 2, seconds: 5));
+          expect(
+            store.selectedFoodDate,
+            DateTime(2026, 6, 4),
+            reason: 'the rearmed timer turns the day at Thursday midnight',
+          );
+          store.dispose();
+        });
       });
-      expect(store.debugMidnightTimerIsActive, isTrue);
     });
 
     test(

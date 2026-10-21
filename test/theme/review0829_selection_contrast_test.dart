@@ -229,84 +229,14 @@ void main() {
     });
   });
 
-  // The calendar is the fourth carrier of the same language and the one that
-  // was worst off: as `forest`/`onForest` the picked day sat at 1.33:1 on the
-  // dialog and its NUMBER at 1.04:1 against an unpicked one — invisible in
-  // dark mode. Read out of the built ThemeData, since the cells themselves
-  // are stock DatePickerDialog widgets.
-  group('DatePicker: der gewaehlte Tag hebt sich ab', () {
-    _modi.forEach((name, brightness) {
-      final t = _tokens(brightness);
-
-      test('$name: Flaeche und Zahl des gewaehlten Tages', () {
-        final thema = buildEatovaTheme(brightness).datePickerTheme;
-        Color tag(WidgetStateProperty<Color?>? p, Set<WidgetState> zustand) =>
-            p!.resolve(zustand)!;
-
-        final flaeche = tag(
-          thema.dayBackgroundColor,
-          <WidgetState>{WidgetState.selected},
-        );
-        final zahl = tag(
-          thema.dayForegroundColor,
-          <WidgetState>{WidgetState.selected},
-        );
-        final andereZahl = tag(thema.dayForegroundColor, <WidgetState>{});
-
-        expect(
-          _kontrast(flaeche, thema.backgroundColor!),
-          greaterThanOrEqualTo(_zustand),
-          reason: '$name: gewaehlter Tag gegen den Dialog',
-        );
-        expect(
-          _kontrast(zahl, andereZahl),
-          greaterThanOrEqualTo(_zustand),
-          reason: '$name: die Zahl des gewaehlten Tages gegen eine andere',
-        );
-        expect(_kontrast(zahl, flaeche), greaterThanOrEqualTo(_text));
-        expect(thema.backgroundColor, t.surf);
-      });
-    });
-  });
-
-  // The numbers themselves, so a future token or language change has to walk
-  // past them. Values recomputed by hand (sRGB linearised, alpha composited)
-  // for the fix of 2026-08-29.
-  group('Die Zahlen der Auswahlsprache', () {
-    for (final fall in [(name: 'hell', t: AppTokens.light), (name: 'dunkel', t: AppTokens.dark)]) {
-      test('${fall.name}: gewaehlte Flaeche und Beschriftung', () {
-        final t = fall.t;
-        // The language: filled = `ink`, label = `bg` — the pair
-        // [PrimaryActionButton] uses. `forest` is NOT a state carrier.
-        expect(_kontrast(t.ink, t.surf), greaterThanOrEqualTo(_zustand));
-        expect(_kontrast(t.ink, t.bg), greaterThanOrEqualTo(_text));
-        expect(
-          _kontrast(t.ink, _ueber(t.tile, t.surf)),
-          greaterThanOrEqualTo(_zustand),
-        );
-        expect(_kontrast(t.bg, t.ink2), greaterThanOrEqualTo(_text));
-      });
-    }
-
-    test('forest bleibt als Zustandstraeger disqualifiziert', () {
-      // Not a regression guard for the palette — the reason the language had
-      // to move. `forest` keeps every job it has as a SURFACE (hero cards,
-      // snackbar, coach bubble), those are not state indicators.
-      const d = AppTokens.dark;
-      expect(_kontrast(d.forest, d.surf), lessThan(_zustand));
-      expect(_kontrast(d.forest, _ueber(d.tile, d.surf)), lessThan(_zustand));
-      expect(_kontrast(d.onForest, d.ink2), lessThan(_zustand));
-      // The new light brand surface is also too subtle to carry state alone.
-      const h = AppTokens.light;
-      expect(_kontrast(h.forest, h.surf), lessThan(_zustand));
-    });
-  });
+  // The app's calendar is its own FoodDatePicker (food_month_calendar_test.dart
+  // pins its selected day); no stock DatePickerDialog is shown anywhere, so
+  // the theme's datePickerTheme is not measured here.
 
   // ------------------------------------------------------------------------
-  // P9-02c — the clock is the fifth carrier of the same language. The block is
-  // UNREACHED today (`lib/` has no `showTimePicker`), which is exactly why it
-  // needs a test: nothing else would ever notice it drifting. Measured out of
-  // the built ThemeData, like the calendar above.
+  // P9-02c — the clock is another carrier of the same language: filled = `ink`,
+  // label = `bg`. Reached by the reminder time picker and the weigh-in time.
+  // Measured out of the built ThemeData; the group below mounts it.
   // ------------------------------------------------------------------------
   group('TimePicker: Zeiger, Zifferblatt und Stunden-/Minutenfeld', () {
     /// Resolves a slot that may be a flat [Color] or a [WidgetStateColor],
@@ -314,83 +244,8 @@ void main() {
     Color slot(Color? roh, Set<WidgetState> zustand, Color grund) =>
         _ueber(WidgetStateProperty.resolveAs<Color>(roh!, zustand), grund);
 
-    _modi.forEach((name, brightness) {
-      final t = _tokens(brightness);
-
-      test('$name: Stunde und Minute sind unterscheidbar', () {
-        final thema = buildEatovaTheme(brightness).timePickerTheme;
-        final gewaehlt = slot(
-          thema.hourMinuteColor,
-          <WidgetState>{WidgetState.selected},
-          t.surf,
-        );
-        final ungewaehlt = slot(thema.hourMinuteColor, <WidgetState>{}, t.surf);
-
-        expect(
-          _kontrast(gewaehlt, ungewaehlt),
-          greaterThanOrEqualTo(_zustand),
-          reason: '$name: welches der beiden Felder gerade bearbeitet wird, '
-              'ist die einzige Zustandsinformation des Kopfbereichs',
-        );
-        expect(
-          _kontrast(
-            slot(thema.hourMinuteTextColor,
-                <WidgetState>{WidgetState.selected}, gewaehlt),
-            gewaehlt,
-          ),
-          greaterThanOrEqualTo(_text),
-          reason: '$name: die Zahl im gewaehlten Feld',
-        );
-        expect(
-          _kontrast(
-            slot(thema.hourMinuteTextColor, <WidgetState>{}, ungewaehlt),
-            ungewaehlt,
-          ),
-          greaterThanOrEqualTo(_text),
-          reason: '$name: die Zahl im ungewaehlten Feld',
-        );
-      });
-
-      test('$name: die AM/PM-Umschaltung traegt dieselbe Sprache', () {
-        // Only reachable in 12-hour locales (EN), therefore easy to forget.
-        final thema = buildEatovaTheme(brightness).timePickerTheme;
-        final gewaehlt = slot(
-          thema.dayPeriodColor,
-          <WidgetState>{WidgetState.selected},
-          t.surf,
-        );
-        final ungewaehlt = slot(thema.dayPeriodColor, <WidgetState>{}, t.surf);
-
-        expect(
-          _kontrast(gewaehlt, ungewaehlt),
-          greaterThanOrEqualTo(_zustand),
-          reason: '$name: gewaehlte gegen ungewaehlte Haelfte',
-        );
-        expect(
-          _kontrast(
-            slot(thema.dayPeriodTextColor,
-                <WidgetState>{WidgetState.selected}, gewaehlt),
-            gewaehlt,
-          ),
-          greaterThanOrEqualTo(_text),
-          reason: '$name: Beschriftung der gewaehlten Haelfte',
-        );
-        expect(
-          _kontrast(
-            slot(thema.dayPeriodTextColor, <WidgetState>{}, ungewaehlt),
-            ungewaehlt,
-          ),
-          greaterThanOrEqualTo(_text),
-          reason: '$name: Beschriftung der ungewaehlten Haelfte',
-        );
-      });
-    });
-
-    // The numbers, so a future edit has to walk past them. Recomputed by hand
-    // (sRGB linearised, `tile` composited on `surf`) for the fix of
-    // 2026-08-29; the "vorher" column is in the group below.
     for (final fall in [(name: 'hell', helligkeit: Brightness.light), (name: 'dunkel', helligkeit: Brightness.dark)]) {
-      test('${fall.name}: die Zahlen der Uhr', () {
+      test('${fall.name}: Zeiger, Stunde/Minute und AM/PM tragen', () {
         final t = _tokens(fall.helligkeit);
         final thema = buildEatovaTheme(fall.helligkeit).timePickerTheme;
         final blatt = _ueber(thema.dialBackgroundColor!, t.surf);
@@ -419,7 +274,9 @@ void main() {
           t.surf,
         );
         final feldAus = slot(thema.hourMinuteColor, <WidgetState>{}, t.surf);
-        expect(_kontrast(feldAn, feldAus), greaterThanOrEqualTo(_zustand));
+        // Which of the two fields is being edited is the header's only state.
+        expect(_kontrast(feldAn, feldAus), greaterThanOrEqualTo(_zustand),
+            reason: '${fall.name}: Stunde/Minute gewaehlt gegen ungewaehlt');
         expect(
           _kontrast(
             slot(thema.hourMinuteTextColor,
@@ -427,21 +284,42 @@ void main() {
             feldAn,
           ),
           greaterThanOrEqualTo(_text),
+          reason: '${fall.name}: die Zahl im gewaehlten Feld',
+        );
+        expect(
+          _kontrast(
+            slot(thema.hourMinuteTextColor, <WidgetState>{}, feldAus),
+            feldAus,
+          ),
+          greaterThanOrEqualTo(_text),
+          reason: '${fall.name}: die Zahl im ungewaehlten Feld',
         );
 
+        // AM/PM: only reachable in 12-hour locales (EN), easy to forget.
         final periodeAn = slot(
           thema.dayPeriodColor,
           <WidgetState>{WidgetState.selected},
           t.surf,
         );
         final periodeAus = slot(thema.dayPeriodColor, <WidgetState>{}, t.surf);
-        expect(_kontrast(periodeAn, periodeAus), greaterThanOrEqualTo(_zustand));
+        expect(_kontrast(periodeAn, periodeAus), greaterThanOrEqualTo(_zustand),
+            reason: '${fall.name}: gewaehlte gegen ungewaehlte Haelfte');
+        expect(
+          _kontrast(
+            slot(thema.dayPeriodTextColor,
+                <WidgetState>{WidgetState.selected}, periodeAn),
+            periodeAn,
+          ),
+          greaterThanOrEqualTo(_text),
+          reason: '${fall.name}: Beschriftung der gewaehlten Haelfte',
+        );
         expect(
           _kontrast(
             slot(thema.dayPeriodTextColor, <WidgetState>{}, periodeAus),
             periodeAus,
           ),
           greaterThanOrEqualTo(_text),
+          reason: '${fall.name}: Beschriftung der ungewaehlten Haelfte',
         );
 
         // The dialog itself stays the app surface, like the calendar.
@@ -463,10 +341,9 @@ void main() {
     }
   });
 
-  // The block is dead, so nothing else ever MOUNTS it. This group does: it
-  // opens a real `showTimePicker` and reads the colours back off the painted
-  // widgets — proof that the theme lands on pixels (and that the larger clock
-  // digits still fit, in both modes and both locales).
+  // This group opens a real `showTimePicker` and reads the colours back off
+  // the painted widgets — proof that the theme lands on pixels (and that the
+  // larger clock digits still fit, in both modes and both locales).
   group('TimePicker: der reparierte Block kommt auch an', () {
     Future<void> oeffne(
       WidgetTester tester, {

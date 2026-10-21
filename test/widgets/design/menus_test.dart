@@ -10,41 +10,41 @@ import 'design_harness.dart';
 // X-03 / T1: every overflow menu speaks one row language, and a destructive
 // entry is no red line of text: only its glyph carries `danger`.
 void main() {
+  // One palette: MenuRow has no brightness branch (repo_rules_test).
+  testWidgets('MenuRow: Label immer ink, nur die Glyphe traegt danger', (
+    tester,
+  ) async {
+    const t = AppTokens.light;
+    await tester.pumpWidget(
+      designHarness(
+        const Column(
+          children: [
+            MenuRow(icon: Icons.edit_outlined, label: 'Bearbeiten'),
+            MenuRow(
+              icon: Icons.delete_outline_rounded,
+              label: 'Loeschen',
+              destructive: true,
+            ),
+          ],
+        ),
+      ),
+    );
+    for (final label in ['Bearbeiten', 'Loeschen']) {
+      final style = tester.widget<Text>(find.text(label)).style!;
+      expect(style.color, t.ink, reason: label);
+      expect(style.fontSize, 15);
+      expect(style.fontWeight, FontWeight.w600);
+    }
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.delete_outline_rounded)).color,
+      t.danger,
+    );
+    expect(tester.widget<Icon>(find.byIcon(Icons.edit_outlined)).color, t.ink2);
+  });
+
+  // The theme is where a brightness branch may live, so both palettes.
   for (final brightness in Brightness.values) {
     final t = brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
-
-    testWidgets('MenuRow: Label immer ink, nur die Glyphe traegt danger '
-        '(${brightness.name})', (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          const Column(
-            children: [
-              MenuRow(icon: Icons.edit_outlined, label: 'Bearbeiten'),
-              MenuRow(
-                icon: Icons.delete_outline_rounded,
-                label: 'Loeschen',
-                destructive: true,
-              ),
-            ],
-          ),
-          brightness: brightness,
-        ),
-      );
-      for (final label in ['Bearbeiten', 'Loeschen']) {
-        final style = tester.widget<Text>(find.text(label)).style!;
-        expect(style.color, t.ink, reason: label);
-        expect(style.fontSize, 15);
-        expect(style.fontWeight, FontWeight.w600);
-      }
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.delete_outline_rounded)).color,
-        t.danger,
-      );
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.edit_outlined)).color,
-        t.ink2,
-      );
-    });
 
     test('Menue-Kante ist lineStrong wie die Entscheidungskarte '
         '(${brightness.name})', () {

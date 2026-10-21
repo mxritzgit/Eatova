@@ -14,6 +14,7 @@ const _personalSlots = [
   'reminder_prompt',
   'ai_consent',
   'health_connect_enabled',
+  'health_prompt',
   'logged_meals',
   'favorites',
   'weight_log',
@@ -51,7 +52,7 @@ void main() {
       await LocalCache(storage, 'A').clear();
 
       expect(storage.snapshot, beforeB);
-      expect(beforeB, hasLength(21), reason: 'Every B domain has seeded data.');
+      expect(beforeB, hasLength(22), reason: 'Every B domain has seeded data.');
     },
   );
 
@@ -83,7 +84,7 @@ void main() {
       await LocalCache(storage, 'A').clear(preserveOutbox: true);
 
       expect(storage.snapshot, expected);
-      expect(expected, hasLength(24));
+      expect(expected, hasLength(25));
     },
   );
 }

@@ -203,17 +203,8 @@ void main() {
       expect(foldRecipeSearchText('ÖL'), 'oel');
       expect(foldRecipeSearchText('Haehnchen'), 'haehnchen');
     });
-
-    test('Query und Feld treffen sich unabhängig von der Schreibweise', () {
-      const feld = 'Hähnchen mit Reis & Brokkoli';
-      for (final query in const ['haehnchen', 'Hähnchen', 'HAEHNCHEN']) {
-        expect(
-          foldRecipeSearchText(feld).contains(foldRecipeSearchText(query)),
-          isTrue,
-          reason: query,
-        );
-      }
-    });
+    // Query against field end to end: recipes/recipe_search_filter_test.dart
+    // ('"haehnchen" findet Hähnchen').
   });
 
   group('rotatedRecommendations', () {

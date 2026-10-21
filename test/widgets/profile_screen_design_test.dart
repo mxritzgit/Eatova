@@ -1,11 +1,14 @@
 // The profile screen after the design refactor.
 //
-// Covers three things nothing else did:
-//   * both display modes (the screen reads its colors from tokens),
+// Covers what the app-wide layout sweep (test/responsive/
+// app_layout_sweep_test.dart, step "Profil": 320/390 px, 1.0/2.0x, de/en, both
+// palettes) does not:
+//   * the header's gear and back buttons and the two edit buttons,
 //   * the steps format '<actual>/<goal>', which profile_route_refresh_test
 //     relies on,
 //   * the identity card invents no data (no PREMIUM, no "MEMBER SINCE" — the
-//     design mock shows both, we have neither).
+//     design mock shows both, we have neither),
+//   * the profile sheets and the dense variant at double font size.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -76,26 +79,6 @@ Future<void> _pumpAsRoute(
 }
 
 void main() {
-  // Both brightnesses AND both languages from one call; the old file declared
-  // the same four cases in two separate loops.
-  renderMatrix(
-    'Das Profil rendert overflow-frei',
-    (tester, c) async {
-      pinPhoneViewport(tester);
-      await c.pump(tester, _opener(_profile()), safeArea: false);
-      await tester.tap(find.byKey(const ValueKey('open-profile')));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
-      expect(find.text(c.l10n.profileTitle), findsOneWidget);
-      expect(find.text('Moritz Schneider'), findsOneWidget);
-      // The last section heading, in the language of this case.
-      expect(find.text(c.l10n.profileSectionConnections), findsOneWidget);
-    },
-    locales: const <Locale>[Locale('de'), Locale('en')],
-  );
-
   testWidgets('der Kopf traegt Zurueck-Knopf und Zahnrad', (tester) async {
     pinPhoneViewport(tester);
     var einstellungen = 0;

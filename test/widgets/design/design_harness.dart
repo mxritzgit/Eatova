@@ -44,6 +44,10 @@ void pinIphone14Pro(WidgetTester tester, {bool keyboard = false}) {
 
 /// [child] in the full Eatova theme, with the 20 px side padding the screens
 /// use as well.
+///
+/// [textScaler] reaches [child] only: it is applied below the Navigator, so
+/// a sheet or dialog opened from here renders at the platform scale. Use
+/// `pumpLocalized(textScale: …)` (test/support/harness.dart) for routes.
 Widget designHarness(
   Widget child, {
   Brightness brightness = Brightness.light,

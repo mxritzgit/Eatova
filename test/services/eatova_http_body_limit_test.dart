@@ -45,11 +45,13 @@ void main() {
     await expectLater(
       _get(server, limit: 1024),
       throwsA(
-        isA<HttpResponseTooLargeException>().having(
-          (error) => error.maxBytes,
-          'maxBytes',
-          1024,
-        ),
+        isA<HttpResponseTooLargeException>()
+            .having((error) => error.maxBytes, 'maxBytes', 1024)
+            .having(
+              (error) => '$error',
+              'message',
+              'HTTP response exceeds 1024 bytes',
+            ),
       ),
     );
   });
@@ -76,13 +78,5 @@ void main() {
     final result = await _get(server, limit: 1024);
     expect(result.statusCode, 200);
     expect(result.body, text);
-  });
-
-  test('the default limit stays generous for small JSON endpoints', () {
-    expect(maxHttpResponseBytes, 4 * 1024 * 1024);
-    expect(
-      const HttpResponseTooLargeException(10).toString(),
-      'HTTP response exceeds 10 bytes',
-    );
   });
 }

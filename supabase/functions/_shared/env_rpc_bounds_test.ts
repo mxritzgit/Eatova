@@ -73,34 +73,18 @@ Deno.test("Werte innerhalb der RPC-Grenzen kommen unveraendert durch", () => {
   assertEquals(parsed(" 3600 "), 3600, "Whitespace wird getrimmt");
 });
 
-Deno.test("Fenster-Aufrufer koennen die weitere Grenze explizit uebergeben", () => {
+Deno.test("F9-01: Fenster ueber 10000 s brauchen das explizite Fenster-max", () => {
   // p_window_seconds may go up to 86400 (24 h); without an explicit max the
-  // narrower default cap applies.
+  // narrower LIMIT cap applies and a day window silently becomes the fallback.
   assertEquals(EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, 86400, "Fenster-Guard aus der Migration");
+  assertEquals(parsed("43200", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), 43200, "12 h mit explizitem Fenster-max");
   assertEquals(parsed("86400", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), 86400, "24 h erlaubt");
   assertEquals(
     parsed("86401", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS),
     FALLBACK,
     "eine Sekunde ueber 24 h wirft in der RPC",
   );
-  assertEquals(parsed("86400"), FALLBACK, "ohne explizites max greift der engere Deckel");
-});
-
-Deno.test("F9-01: Tagesfenster-Werte ueber 10000 s brauchen das explizite max", () => {
-  // The footgun behind analyze-meal's day caps: a day window read via
-  // positiveIntFromEnv WITHOUT max silently becomes the fallback — with a
-  // day-long fallback the operator would never notice the override is dead.
-  const DAY_FALLBACK = 86400;
-  let withMax = 0;
-  let withoutMax = 0;
-  withValue("43200", () => {
-    withMax = positiveIntFromEnv(VAR, DAY_FALLBACK, EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS);
-    withoutMax = positiveIntFromEnv(VAR, DAY_FALLBACK);
-  });
-  assertEquals(withMax, 43200, "12 h mit explizitem Fenster-max kommt durch");
-  assertEquals(withoutMax, DAY_FALLBACK, "12 h ohne max faellt still auf den Tages-Default");
-  assertEquals(parsed("86400", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), 86400, "voller Tag erlaubt");
-  assertEquals(parsed("172800", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), FALLBACK, "zwei Tage wirft in der RPC");
+  assertEquals(parsed("43200"), FALLBACK, "ohne explizites max greift der engere Deckel");
 });
 
 // ---------------------------------------------------------------------------
@@ -110,17 +94,20 @@ Deno.test("F9-01: Tagesfenster-Werte ueber 10000 s brauchen das explizite max", 
 // nothing to notice it by.
 // ---------------------------------------------------------------------------
 
-Deno.test("P6-03: ein gesetzter, verworfener Wert wird geloggt", () => {
-  assertEquals(parsed("86400"), FALLBACK, "Tagesfenster ohne explizites max faellt zurueck");
-  const joined = warnings.join("\n");
-  assertEquals(warnings.length, 1, `genau eine Warnung erwartet, waren: ${joined}`);
-  assert(joined.includes(VAR), `Variablenname fehlt: ${joined}`);
-  assert(joined.includes(String(FALLBACK)), `der wirksame Default fehlt: ${joined}`);
-  assert(joined.includes(String(EDGE_RATE_LIMIT_MAX_LIMIT)), `die verletzte Grenze fehlt: ${joined}`);
-  // E2: der Wert selbst steht NICHT mehr drin (siehe unten), aber die Zeile
-  // muss weiter sagen, WARUM verworfen wurde und wie gross der Wert war.
-  assert(joined.includes("out of range"), `der Grund fehlt: ${joined}`);
-  assert(joined.includes("valueLength"), `die Laenge fehlt: ${joined}`);
+Deno.test("P6-03: ein gesetzter, verworfener Wert wird mit Name, Grund, Laenge, Grenze und Default geloggt", () => {
+  // E2: the value itself is no longer in the line (see below), but the line
+  // must still say WHICH variable, WHY it was rejected, what applies instead
+  // and how long the value was.
+  for (const [value, reason] of [["86400", "out of range"], [FAKE_JWT, "not a plain integer"]]) {
+    assertEquals(parsed(value), FALLBACK, `${reason}: Default greift`);
+    const joined = warnings.join("\n");
+    assertEquals(warnings.length, 1, `${reason}: genau eine Warnung erwartet, waren: ${joined}`);
+    assert(joined.includes(VAR), `Variablenname fehlt: ${joined}`);
+    assert(joined.includes(reason), `der Grund fehlt: ${joined}`);
+    assert(joined.includes(`"valueLength":${value.length}`), `die Laenge fehlt: ${joined}`);
+    assert(joined.includes(String(FALLBACK)), `der wirksame Default fehlt: ${joined}`);
+    assert(joined.includes(String(EDGE_RATE_LIMIT_MAX_LIMIT)), `die verletzte Grenze fehlt: ${joined}`);
+  }
 });
 
 Deno.test("P6-03: auch unbrauchbare Formate warnen", () => {
@@ -176,18 +163,10 @@ Deno.test("E2: ein in einen Zahlen-Slot gerutschtes Secret steht nicht im Log", 
       `ein Fragment ab Position ${i} steht im Log: ${joined}`,
     );
   }
-});
-
-Deno.test("E2: der diagnostische Wert bleibt vollstaendig erhalten", () => {
-  assertEquals(parsed(FAKE_JWT), FALLBACK, "Default greift");
-  const joined = warnings.join("\n");
-  // Was der Betreiber braucht: WELCHE Variable, WARUM verworfen, was
-  // stattdessen gilt, und wie gross der Wert war.
-  assert(joined.includes(VAR), `Variablenname fehlt: ${joined}`);
-  assert(joined.includes("not a plain integer"), `Grund fehlt: ${joined}`);
-  assert(joined.includes(String(FAKE_JWT.length)), `Laenge fehlt: ${joined}`);
-  assert(joined.includes(String(FALLBACK)), `wirksamer Default fehlt: ${joined}`);
-  assert(joined.includes(String(EDGE_RATE_LIMIT_MAX_LIMIT)), `Grenze fehlt: ${joined}`);
+  // Deliberately not "redact only non-numbers": a rule with an exception is a
+  // rule that breaks on the next rewrite.
+  assertEquals(parsed("999999999"), FALLBACK, "offensichtlicher Unsinn");
+  assert(!warnings.join("\n").includes("999999999"), `der Rohwert steht im Log: ${warnings.join("\n")}`);
 });
 
 Deno.test("E2: der Fingerabdruck ist stabil und unterscheidet Werte", () => {
@@ -203,15 +182,4 @@ Deno.test("E2: der Fingerabdruck ist stabil und unterscheidet Werte", () => {
   assertEquals(fingerabdruck(FAKE_JWT), ersterLauf, "gleicher Wert, gleicher Abdruck");
   assert(fingerabdruck(`${FAKE_JWT}x`) !== ersterLauf, "anderer Wert, anderer Abdruck");
   assert(fingerabdruck("abc") !== fingerabdruck("abd"), "kleine Aenderung faellt auf");
-});
-
-Deno.test("E2: auch eine reine Zahl ueber der Grenze wird nicht ausgeschrieben", () => {
-  // Die Grenzziehung ist bewusst nicht "nur Nicht-Zahlen schwaerzen": eine
-  // Regel mit Ausnahme ist eine Regel, die beim naechsten Umbau kippt. Name,
-  // Grund, Grenze und Default reichen dem Betreiber auch hier.
-  assertEquals(parsed("999999999"), FALLBACK, "offensichtlicher Unsinn");
-  const joined = warnings.join("\n");
-  assert(!joined.includes("999999999"), `der Rohwert steht im Log: ${joined}`);
-  assert(joined.includes("out of range"), `Grund fehlt: ${joined}`);
-  assert(joined.includes('"valueLength":9'), `Laenge fehlt: ${joined}`);
 });

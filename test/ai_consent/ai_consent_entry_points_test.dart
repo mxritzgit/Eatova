@@ -116,23 +116,26 @@ void main() {
     );
   });
 
-  group('die Regel haette den alten Zustand gefangen', () {
-    test('ein Scan ohne Frage', () {
-      const before = '''
+  test('die Regel faengt den alten Zustand und laesst die heutige Form durch',
+      () {
+    for (final (name, path, source, violations)
+        in <(String, String, String, int)>[
+      (
+        'ein Scan ohne Frage',
+        'lib/src/widgets/kcal/x.dart',
+        '''
 class _S {
   Future<void> _pickAndAnalyze(ImageSource source) async {
     final first = analyzer.analyze(request)..ignore();
   }
 }
-''';
-      expect(
-        aiConsentViolations({'lib/src/widgets/kcal/x.dart': before}),
-        hasLength(1),
-      );
-    });
-
-    test('die Frage in einer ANDEREN Methode zaehlt nicht', () {
-      const elsewhere = '''
+''',
+        1,
+      ),
+      (
+        'die Frage in einer ANDEREN Methode zaehlt nicht',
+        'lib/src/widgets/kcal/x.dart',
+        '''
 class _S {
   Future<void> _openDescribe() async {
     if (!await ensureAiConsent(context) || !mounted) return;
@@ -142,30 +145,26 @@ class _S {
     final first = analyzer.analyze(request)..ignore();
   }
 }
-''';
-      expect(
-        aiConsentViolations({'lib/src/widgets/kcal/x.dart': elsewhere}),
-        hasLength(1),
-      );
-    });
-
-    test('die Frage NACH dem Aufruf zaehlt nicht', () {
-      const after = '''
+''',
+        1,
+      ),
+      (
+        'die Frage NACH dem Aufruf zaehlt nicht',
+        'lib/src/screens/coach/x.dart',
+        '''
 class _S {
   Future<void> _send() async {
     await _coach.send(text);
     await ensureAiConsent(context);
   }
 }
-''';
-      expect(
-        aiConsentViolations({'lib/src/screens/coach/x.dart': after}),
-        hasLength(1),
-      );
-    });
-
-    test('die heutige Form ist sauber', () {
-      const gated = '''
+''',
+        1,
+      ),
+      (
+        'die heutige Form ist sauber',
+        'lib/src/widgets/kcal/x.dart',
+        '''
 class _S {
   Future<void> _pickAndAnalyze(ImageSource source) async {
     if (!await ensureAiConsent(context) || !mounted) return;
@@ -173,11 +172,15 @@ class _S {
     retry: () => analyzer.analyze(request);
   }
 }
-''';
+''',
+        0,
+      ),
+    ]) {
       expect(
-        aiConsentViolations({'lib/src/widgets/kcal/x.dart': gated}),
-        isEmpty,
+        aiConsentViolations({path: source}),
+        hasLength(violations),
+        reason: name,
       );
-    });
+    }
   });
 }

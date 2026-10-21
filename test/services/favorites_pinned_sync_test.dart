@@ -62,10 +62,10 @@ void main() {
             'pinned': true,
             'payload': mealResultToJson(_result),
           },
+          // A row without the column value: an older row or a null.
           {
             'favorite_key': 'name:recent-one',
             'added_at': '2026-06-03T12:00:00Z',
-            'pinned': false,
             'payload': mealResultToJson(_result),
           },
         ];

@@ -139,13 +139,16 @@ void main() {
           [t.protein, t.carbs, t.fat].contains(widget.color),
     );
     expect(segments, findsNWidgets(3));
+    // Visible, not a particular pixel height: without the stretched row the
+    // segments collapse to zero.
     for (final element in segments.evaluate()) {
-      expect((element.renderObject! as RenderBox).size.height, 9);
+      expect((element.renderObject! as RenderBox).size.height, greaterThan(0));
     }
   });
 
+  // Locale changes text widths; brightness only colors, so one suffices.
   for (final locale in const [Locale('de'), Locale('en')]) {
-    for (final brightness in Brightness.values) {
+    for (final brightness in const [Brightness.light]) {
       testWidgets(
         'account menu keeps every preference reachable ${locale.languageCode} ${brightness.name} at 200%',
         (tester) async {

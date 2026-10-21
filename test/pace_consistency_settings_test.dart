@@ -7,8 +7,10 @@ import 'package:eatova/src/services/kcal_calculator.dart';
 
 import 'support/harness.dart';
 
-// B2 — two different pace strings on one screen (plan hero vs. weight-goal
-// row) with nothing explaining the difference.
+// B2 — the goals page promised the CHOSEN pace although the 1 % deficit cap
+// and the safety floor change the daily target ("maintenance 1997 · −1
+// kg/week" above "1200", which is −0.72 kg/week), and showed two different
+// pace strings (plan hero vs. weight-goal row) with nothing explaining them.
 //
 // Rule under test: if a screen shows more than one pace string, a third must
 // connect them. The chosen pace stays on the control (it is the selection,
@@ -109,14 +111,30 @@ void main() {
       );
 
   testWidgets(
-      'die Gewichtsziel-Zeile sagt, was aus dem gewaehlten Tempo wird',
-      (tester) async {
+      'Plan-Karte, Deckel-Satz und Gewichtsziel-Zeile nennen das effektive '
+      'Tempo', (tester) async {
     await openSettings(tester, profile: autoProfil(WeightGoal.lose1kg));
 
     // Plan card in the same scroll: the 1 % cap allows only -825 instead of
     // -1100 kcal/day -> 1350 kcal (exactly on the floor); 2164 - 1350 = 814
-    // ≙ -0.74 -> -0.75 kg/week on the grid.
+    // ≙ -0.74 -> -0.75 kg/week on the grid. The chosen pace is not promised.
     expect(find.text('Erhaltung 2.164 · −0,75 kg/Woche'), findsOneWidget);
+    expect(find.text('Erhaltung 2.164 · −1 kg/Woche'), findsNothing);
+    // The hero number carries the thousands separator like Today and Food.
+    expect(find.text('1.350'), findsOneWidget);
+
+    // The floor does not bind — the target lands exactly ON it and
+    // `floorApplied` needs a real undershoot. The cap sentence names the
+    // deficit the plan runs after rounding (814), as the onboarding does.
+    expect(find.byKey(const ValueKey('settings-pace-warning')), findsOneWidget);
+    expect(
+      find.text(
+        'Schneller als 1 % deines Körpergewichts pro Woche empfehlen wir '
+        'nicht: Dein Defizit ist auf 814 kcal/Tag begrenzt. Dein tatsächliches '
+        'Tempo ist damit −0,75 kg/Woche statt −1 kg/Woche.',
+      ),
+      findsOneWidget,
+    );
 
     // The control still shows the selection, or the user would see something
     // other than what they tapped.
@@ -150,6 +168,14 @@ void main() {
       find.byKey(const ValueKey('settings-weight-goal-effective')),
       findsNothing,
     );
+  });
+
+  testWidgets('ohne Klemme bleibt die Plan-Karte ohne Hinweis', (tester) async {
+    await openSettings(tester, profile: autoProfil(WeightGoal.maintain));
+
+    // 2163.85 → 2150 kcal; −14 kcal/day is inside the 0.05 noise band.
+    expect(find.byKey(const ValueKey('settings-pace-warning')), findsNothing);
+    expect(find.text('Erhaltung 2.164 · Gewicht stabil'), findsOneWidget);
   });
 
   testWidgets(
@@ -204,12 +230,26 @@ void main() {
   });
 
   testWidgets(
-      'in der Klemme nennen drei Optionen wortgleich denselben Plan',
+      'in der Klemme nennen Plan-Karte und drei Optionen denselben Plan',
       (tester) async {
     await openSettings(
       tester,
       profile: autoProfil(WeightGoal.lose1kg, basis: klemmProfil),
     );
+
+    // Plan card: maintenance 1578, target 1200 (raised from 950) →
+    // −0.35 kg/week. The floor binds harder than the cap, so the sentence
+    // names the floor.
+    expect(find.text('Erhaltung 1.578 · −0,35 kg/Woche'), findsOneWidget);
+    expect(
+      find.text(
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1.200 kcal statt '
+        '950 kcal. Dein tatsächliches Tempo ist damit −0,35 kg/Woche statt '
+        '−1 kg/Woche.',
+      ),
+      findsOneWidget,
+    );
+
     await openGoalPicker(tester);
 
     // All three deficit paces land on 1200 kcal for this profile (cap 605,
@@ -230,7 +270,8 @@ void main() {
   });
 
   testWidgets(
-      'im Manuell-Modus sagt der Picker, dass die Auswahl das Tagesziel nicht bewegt',
+      'Manuell-Modus: das Tempo folgt dem eigenen Tagesziel, der Picker '
+      'sagt, dass er es nicht bewegt',
       (tester) async {
     // Default profile with 2500 kcal stored and the persisted manual flag
     // (F7-01) starts the screen in manual mode, where the daily goal no
@@ -245,7 +286,10 @@ void main() {
     );
 
     // Goal "maintain", but 2500 kcal over a maintenance of 2164:
-    // +336 kcal/day ≙ +0.305 kg/week, "+0,3 kg/Woche" on the 0.05 grid.
+    // +336 kcal/day ≙ +0.305 kg/week, "+0,3 kg/Woche" on the 0.05 grid —
+    // on the plan card and below the goal row.
+    expect(find.text('Erhaltung 2.164 · +0,3 kg/Woche'), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-pace-warning')), findsNothing);
     expect(
       tester
           .widget<Text>(

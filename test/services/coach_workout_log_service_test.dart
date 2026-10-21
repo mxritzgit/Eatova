@@ -314,48 +314,55 @@ void main() {
 
     String unavailable(AppLocalizations l10n) =>
         l10n.coachWorkoutLogUnavailable;
-    for (final (code, label, message) in [
-      ('invalid_mode', 'not available in this version yet', unavailable),
+    // Each code once, in alternating app languages; the German device-date
+    // text is read in coach_workout_log_flow_test.dart.
+    for (final (code, label, message, english) in [
+      ('invalid_mode', 'not available in this version yet', unavailable, true),
       // The device's day is more than a day off the server's: a wrong
       // clock, not an old version.
       (
         'invalid_local_date',
         'check the device date',
         (AppLocalizations l10n) => l10n.coachWorkoutLogCheckDeviceDate,
+        true,
       ),
-      ('log_mode_required', 'not available in this version yet', unavailable),
+      (
+        'log_mode_required',
+        'not available in this version yet',
+        unavailable,
+        false,
+      ),
       (
         'log_fields_not_supported',
         'not available in this version yet',
         unavailable,
+        false,
       ),
       // A rolled-back function knows no `local_date` field at all.
-      ('invalid_body', 'not available in this version yet', unavailable),
+      ('invalid_body', 'not available in this version yet', unavailable, false),
     ]) {
-      for (final english in [false, true]) {
-        test('400 $code is "$label" '
-            '(${english ? 'en' : 'de'}), once, without quota', () async {
-          var calls = 0;
-          final service = _service((_) async {
-            calls++;
-            return _json({'error': code}, 400);
-          });
-          final l10n = english ? enL10n : deL10n;
-          service.l10n = l10n;
-          await expectLater(
-            _request(service, locale: english ? 'en' : 'de'),
-            throwsA(
-              isA<CoachRequestUnsupported>().having(
-                (e) => e.message,
-                'message',
-                message(l10n),
-              ),
-            ),
-          );
-          expect(calls, 1, reason: 'no retry loop');
-          expect(service.serverDailyLimit, isNull);
+      test('400 $code is "$label" '
+          '(${english ? 'en' : 'de'}), once, without quota', () async {
+        var calls = 0;
+        final service = _service((_) async {
+          calls++;
+          return _json({'error': code}, 400);
         });
-      }
+        final l10n = english ? enL10n : deL10n;
+        service.l10n = l10n;
+        await expectLater(
+          _request(service, locale: english ? 'en' : 'de'),
+          throwsA(
+            isA<CoachRequestUnsupported>().having(
+              (e) => e.message,
+              'message',
+              message(l10n),
+            ),
+          ),
+        );
+        expect(calls, 1, reason: 'no retry loop');
+        expect(service.serverDailyLimit, isNull);
+      });
     }
 
     test('an unrelated 400 keeps the generic mapping', () async {
@@ -472,22 +479,8 @@ void main() {
       await rejected;
       expect(service.serverDailyLimit, isNull);
     });
-
-    test('a stale service cannot send under a different account', () async {
-      var calls = 0;
-      final client = _client(
-        MockClient((_) async {
-          calls++;
-          return _json(_reply());
-        }),
-      );
-      await _signIn(client, 'B');
-      await expectLater(
-        _request(CoachChatService(client, 'A')),
-        _coachError(deL10n.coachErrorSessionExpired),
-      );
-      expect(calls, 0);
-    });
+    // A stale service sending under another account: the shared fence, see
+    // coach_training_plan_service_test.dart.
   });
 
   group('Workout log history', () {

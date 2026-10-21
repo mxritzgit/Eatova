@@ -43,34 +43,37 @@ void main() {
       expect(find.text('Profil'), findsNothing);
     });
 
-    testWidgets('onBack ersetzt das Poppen', (tester) async {
-      var backs = 0;
-      await tester.pumpWidget(
-        designHarness(PageHeader(title: 'Profil', onBack: () => backs++)),
-      );
-
-      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
-      expect(backs, 1);
-    });
-
-    testWidgets('backKey liegt am Zurueck-Knopf', (tester) async {
+    // Pages with drafts pass onBack for a discard prompt: the button must
+    // call it INSTEAD of popping, or the page closes past the prompt.
+    testWidgets('onBack am backKey ersetzt das Poppen', (tester) async {
       var backs = 0;
       await tester.pumpWidget(
         designHarness(
-          PageHeader(
-            title: 'Profil',
-            backKey: const ValueKey<String>('profile-close'),
-            onBack: () => backs++,
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    body: PageHeader(
+                      title: 'Profil',
+                      backKey: const ValueKey<String>('profile-close'),
+                      onBack: () => backs++,
+                    ),
+                  ),
+                ),
+              ),
+              child: const Text('oeffnen'),
+            ),
           ),
         ),
       );
+      await tester.tap(find.text('oeffnen'));
+      await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey<String>('profile-close')),
-        findsOneWidget,
-      );
       await tester.tap(find.byKey(const ValueKey<String>('profile-close')));
+      await tester.pumpAndSettle();
       expect(backs, 1);
+      expect(find.text('Profil'), findsOneWidget, reason: 'nicht gepoppt');
     });
 
     testWidgets('large uses the shared subpage title scale', (tester) async {
@@ -90,7 +93,10 @@ void main() {
         ),
       );
 
-      expect(find.byIcon(Icons.more_horiz), findsOneWidget);
+      expect(
+        tester.getCenter(find.byIcon(Icons.more_horiz)).dx,
+        greaterThan(tester.getRect(find.text('Profil')).right),
+      );
     });
   });
 
@@ -116,12 +122,8 @@ void main() {
       expect(find.text('Konto'), findsNothing);
       expect(find.text('E-Mail'), findsOneWidget);
       expect(find.text('Abmelden'), findsOneWidget);
-      final trenner = tester.widgetList<Divider>(find.byType(Divider));
-      expect(trenner, hasLength(2));
-      for (final divider in trenner) {
-        expect(divider.indent, 18);
-        expect(divider.endIndent, 18);
-      }
+      // Dividers only BETWEEN rows.
+      expect(find.byType(Divider), findsNWidgets(2));
     });
   });
 

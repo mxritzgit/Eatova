@@ -9,6 +9,7 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'outbox_test_helpers.dart';
+import '../support/sync_replay_interleaving_fake.dart';
 
 final _now = DateTime(2026, 5, 14, 12, 30);
 const _first = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -54,39 +55,38 @@ void main() {
     },
   );
 
+  // Fails when a pass works off the queue it read at its start: the commit
+  // here bypasses the store, so no follow-up pass can cover for it.
   test(
-    'new entity appended during an in-flight pass is delivered in that same pass',
-    () async {
-      final s = setup();
+    'an op committed while a delivery is in flight runs in that same pass',
+    () => withClock(Clock.fixed(_now), () async {
+      final server = ReplayInterleavingServer();
+      final kv = InMemoryKeyValueStore();
+      final first = SyncOp.mealInsert(_meal(_first), trackDay: false);
+      final tail = SyncOp.mealDelete(_second);
+      await seedRawOutbox(kv, [first.toJson()]);
+      final s = setup(kv: kv, geteilterServer: server);
+      await s.cache.writeProfile(testProfile());
+      var appendedDuringAwait = false;
+      server.beforeReceipt = (params, _) async {
+        if (params['p_operation_id'] != first.operationId ||
+            appendedDuringAwait) {
+          return;
+        }
+        await s.cache.commitSyncOperations([tail]);
+        appendedDuringAwait = true;
+      };
       await bootUntilIdle(s.store);
-      s.server.holdMealWrites();
-      final mealSave = s.store.addResultToDailyTotal(mealResult('Held'));
-      await pumpUntil(() => s.server.operations('mealInsert').isNotEmpty);
-      final weightSave = s.store.logWeight(81);
-      await pumpUntil(
-        () => s.store.pendingOutbox.any(
-          (op) => op.kind == SyncOpKind.weightInsert,
-        ),
-      );
+      expect(appendedDuringAwait, isTrue);
+      expect(server.operations('mealDelete'), hasLength(1));
+      expect(server.mealsCounted, 1);
       expect(
-        s.store.pendingOutbox.any((op) => op.kind == SyncOpKind.weightInsert),
-        isTrue,
-        reason:
-            'The witness must actually be appended after the initial pass snapshot',
-      );
-      expect(s.server.operations('weightInsert'), isEmpty);
-      s.server.releaseMealWrites();
-      await Future.wait([mealSave, weightSave]);
-      expect(s.server.weightRows, hasLength(1));
-      expect(s.server.weightLogsCounted, 1);
-      expect(s.server.mealsCounted, 1);
-      expect(
-        s.store.pendingOutbox,
+        server.operations('statsIncrement'),
         isEmpty,
-        reason:
-            'No new timer, lifecycle event or manual replay started after releasing the held request',
+        reason: 'the meal counter is part of the same atomic RPC',
       );
-    },
+      expect(s.store.pendingOutbox, isEmpty);
+    }),
   );
 
   test(

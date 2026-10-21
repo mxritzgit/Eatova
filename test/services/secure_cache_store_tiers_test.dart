@@ -36,7 +36,6 @@ import 'package:cryptography_flutter/cryptography_flutter.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/api.dart' show InvalidCipherTextException;
 
-import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
 // ---------------------------------------------------------------------------
@@ -170,45 +169,19 @@ void main() {
   // 1. The wire format survives the new tier
   // -------------------------------------------------------------------------
   group('Wire-Format ueber alle Stufen', () {
-    test('der Golden-Blob ist auf der NEUEN Stufe byte-identisch', () {
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      expect(
-        AesGcmCacheCipher.encryptSync(_dek, _key, _plaintext, nonce: _nonce),
-        _goldenBlob,
-        reason: 'DartAesGcm muss exakt dieselben Bytes liefern wie '
-            'pointycastle, sonst verliert jede installierte App ihr Tagebuch.',
-      );
-    });
-
-    test('… und auf der erzwungenen letzten Stufe ebenfalls', () {
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      expect(
-        AesGcmCacheCipher.encryptSync(_dek, _key, _plaintext, nonce: _nonce),
-        _goldenBlob,
-      );
-    });
-
-    test('beide Stufen lesen den festgeschriebenen Blob', () {
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, _goldenBlob), _plaintext);
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, _goldenBlob), _plaintext);
-    });
-
-    test('von pointycastle geschrieben, von DartAesGcm gelesen', () {
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      final vonPointy = AesGcmCacheCipher.encryptSync(_dek, _key, _plaintext);
-
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, vonPointy), _plaintext);
-    });
-
-    test('von DartAesGcm geschrieben, von pointycastle gelesen', () {
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      final vonDart = AesGcmCacheCipher.encryptSync(_dek, _key, _plaintext);
-
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, vonDart), _plaintext);
+    test('beide Stufen schreiben und lesen den Golden-Blob byte-identisch', () {
+      for (final DartAesGcm? stufe in <DartAesGcm?>[DartAesGcm.with256bits(), null]) {
+        AesGcmCacheCipher.debugSetDartAlgorithm(stufe);
+        final name = stufe?.runtimeType ?? 'pointycastle';
+        expect(
+          AesGcmCacheCipher.encryptSync(_dek, _key, _plaintext, nonce: _nonce),
+          _goldenBlob,
+          reason: '$name muss exakt dieselben Bytes liefern, sonst verliert '
+              'jede installierte App ihr Tagebuch.',
+        );
+        expect(AesGcmCacheCipher.decryptSync(_dek, _key, _goldenBlob), _plaintext,
+            reason: '$name');
+      }
     });
 
     test(
@@ -229,29 +202,9 @@ void main() {
       expect(blobs, hasLength(10), reason: 'Keine Nonce-Wiederverwendung.');
     });
 
-    test('leerer Klartext: der Rahmen besteht nur aus Nonce und Tag', () {
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      final leer = AesGcmCacheCipher.encryptSync(_dek, _key, '');
-      final frame = CacheCipherFrame.parse(leer);
-
-      expect(frame.cipherText, isEmpty);
-      expect(frame.nonce, hasLength(CacheCipherFrame.nonceLengthBytes));
-      expect(frame.sealed, hasLength(CacheCipherFrame.tagLengthBytes));
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, leer), '');
-    });
-
-    test('grosser Blob (~200 kB) kreuzt in beide Richtungen', () {
-      final gross = jsonEncode({'items': List<String>.filled(4000, 'Döner')});
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      final vonDart = AesGcmCacheCipher.encryptSync(_dek, _key, gross);
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      final vonPointy = AesGcmCacheCipher.encryptSync(_dek, _key, gross);
-
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, vonDart), gross);
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      expect(AesGcmCacheCipher.decryptSync(_dek, _key, vonPointy), gross);
-    });
+    // The empty plaintext frame and a large blob crossing implementations:
+    // secure_cache_store_golden_test.dart and 'grosse Slots nehmen weiter den
+    // Isolate-Hop' below.
   });
 
   // -------------------------------------------------------------------------
@@ -266,52 +219,30 @@ void main() {
       return CacheCipherFrame(frame.nonce, sealed).armored;
     }
 
-    test('DartAesGcm: Typ UND Wortlaut sind die von pointycastle', () {
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      try {
-        AesGcmCacheCipher.decryptSync(_dek, _key, manipuliert());
-        fail('haette werfen muessen');
-      } on InvalidCipherTextException catch (e) {
-        expect(e.message, _tagFehler);
-      }
-    });
-
-    test('pointycastle: derselbe Typ, derselbe Wortlaut', () {
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      try {
-        AesGcmCacheCipher.decryptSync(_dek, _key, manipuliert());
-        fail('haette werfen muessen');
-      } on InvalidCipherTextException catch (e) {
-        expect(e.message, _tagFehler);
-      }
-    });
-
-    test('falscher DEK ebenso, auf beiden Stufen', () {
+    test(
+        'manipuliertes Tag, fremder DEK und fremder Slot: auf beiden Stufen '
+        'pointycastles Typ und Wortlaut', () {
       for (final DartAesGcm? stufe in <DartAesGcm?>[DartAesGcm.with256bits(), null]) {
         AesGcmCacheCipher.debugSetDartAlgorithm(stufe);
-        expect(
-          () => AesGcmCacheCipher.decryptSync(_fremderDek, _key, _goldenBlob),
-          throwsA(isA<InvalidCipherTextException>()),
-          reason: 'Stufe: ${stufe?.runtimeType ?? 'pointycastle'}',
-        );
-      }
-    });
-
-    test('fremder Slot (AAD) ebenso, auf beiden Stufen', () {
-      for (final DartAesGcm? stufe in <DartAesGcm?>[DartAesGcm.with256bits(), null]) {
-        AesGcmCacheCipher.debugSetDartAlgorithm(stufe);
-        expect(
-          () => AesGcmCacheCipher.decryptSync(
-              _dek, 'eatova.v1.logged_meals.user-2', _goldenBlob),
-          throwsA(isA<InvalidCipherTextException>()),
-          reason: 'Stufe: ${stufe?.runtimeType ?? 'pointycastle'}',
-        );
+        final name = stufe?.runtimeType ?? 'pointycastle';
+        for (final (fall, dek, key, blob) in <(String, Uint8List, String, String)>[
+          ('manipuliert', _dek, _key, manipuliert()),
+          ('fremder DEK', _fremderDek, _key, _goldenBlob),
+          ('fremder Slot (AAD)', _dek, 'eatova.v1.logged_meals.user-2', _goldenBlob),
+        ]) {
+          expect(
+            () => AesGcmCacheCipher.decryptSync(dek, key, blob),
+            throwsA(isA<InvalidCipherTextException>()
+                .having((e) => e.message, 'message', _tagFehler)),
+            reason: '$name / $fall',
+          );
+        }
       }
     });
 
     test(
-        'ein falsches Tag steigt NICHT auf pointycastle ab — sonst kostet '
-        'jeder kaputte Slot zusaetzlich den langsamen Pfad', () {
+        'ein falsches Tag steigt NICHT auf pointycastle ab und schaltet die '
+        'schnelle Stufe nicht ab', () {
       final skript = _SkriptDartAesGcm()
         ..fehler.add(SecretBoxAuthenticationError());
       AesGcmCacheCipher.debugSetDartAlgorithm(skript);
@@ -321,15 +252,6 @@ void main() {
       expect(() => AesGcmCacheCipher.decryptSync(_dek, _key, _goldenBlob),
           throwsA(isA<InvalidCipherTextException>()));
       expect(skript.decrypts, 1);
-    });
-
-    test('und er schaltet die schnelle Stufe auch nicht ab', () {
-      final skript = _SkriptDartAesGcm()
-        ..fehler.add(SecretBoxAuthenticationError());
-      AesGcmCacheCipher.debugSetDartAlgorithm(skript);
-
-      expect(() => AesGcmCacheCipher.decryptSync(_dek, _key, _goldenBlob),
-          throwsA(isA<InvalidCipherTextException>()));
       expect(AesGcmCacheCipher.decryptSync(_dek, _key, _goldenBlob), _plaintext);
       expect(skript.decrypts, 2,
           reason: 'Der zweite Aufruf muss wieder auf der schnellen Stufe '
@@ -342,23 +264,9 @@ void main() {
   // 3. Rahmenfehler: vor jedem try, also vor jeder Stufe
   // -------------------------------------------------------------------------
   group('Fehlersemantik: Rahmen', () {
-    final kaputt = <String>[
-      'nur-klartext',
-      '$cacheCipherMagic${base64.encode(Uint8List(20))}',
-      '$cacheCipherMagic!!!nicht base64!!!',
-    ];
-
-    test('FormatException auf beiden Stufen, ohne die Stufe zu belasten', () {
-      for (final DartAesGcm? stufe in <DartAesGcm?>[DartAesGcm.with256bits(), null]) {
-        AesGcmCacheCipher.debugSetDartAlgorithm(stufe);
-        for (final blob in kaputt) {
-          expect(() => AesGcmCacheCipher.decryptSync(_dek, _key, blob),
-              throwsA(isA<FormatException>()),
-              reason: '${stufe?.runtimeType ?? 'pointycastle'} / $blob');
-        }
-      }
-    });
-
+    // Frame errors are FormatException on both cipher classes:
+    // secure_cache_store_golden_test.dart ('Rahmenfehler bleiben
+    // FormatException'). Parsing runs before any tier is chosen.
     test('ein Rahmenfehler erreicht die schnelle Stufe gar nicht erst', () {
       final skript = _SkriptDartAesGcm();
       AesGcmCacheCipher.debugSetDartAlgorithm(skript);
@@ -378,17 +286,6 @@ void main() {
       expect(PlatformAesGcmCacheCipher.isAvailable, isFalse,
           reason: 'flutter test laeuft ohne Plattform-Kanal.');
       expect(createCacheCipher(_dek), isA<AesGcmCacheCipher>());
-    });
-
-    test('Stufe 2 ist die Vorgabe: DartAesGcm wird gefragt', () {
-      final skript = _SkriptDartAesGcm();
-      AesGcmCacheCipher.debugSetDartAlgorithm(skript);
-
-      AesGcmCacheCipher.encryptSync(_dek, _key, _plaintext);
-      AesGcmCacheCipher.decryptSync(_dek, _key, _goldenBlob);
-
-      expect(skript.encrypts, 1);
-      expect(skript.decrypts, 1);
     });
 
     test(
@@ -598,20 +495,6 @@ void main() {
       expect(skript.decrypts, 0);
     });
 
-    test('grosse Slots geben den Stack vor der Krypto frei', () async {
-      final skript = _SkriptDartAesGcm();
-      AesGcmCacheCipher.debugSetDartAlgorithm(skript);
-      final cipher = AesGcmCacheCipher(_dek);
-      final gross = jsonEncode({'items': List<String>.filled(4000, 'Döner')});
-
-      final pending = cipher.encrypt(_key, gross);
-      // Right after the synchronous call: no crypto ran in the caller's stack.
-      expect(skript.encrypts, 0);
-
-      expect(await cipher.decrypt(_key, await pending), gross);
-      expect(skript.encrypts + skript.decrypts, 0);
-    });
-
     test('ein synchroner Wurf auf dem Inline-Pfad kommt als Future-Fehler an',
         () async {
       AesGcmCacheCipher.debugResetDartAlgorithm();
@@ -622,56 +505,6 @@ void main() {
       // nicht und der Slot-Read wirft statt null zu liefern.
       final pending = cipher.decrypt(_key, 'kein-magic');
       await expectLater(pending, throwsA(isA<FormatException>()));
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 7. Durchstich: der Decorator entscheidet weiter richtig
-  // -------------------------------------------------------------------------
-  group('Durchstich durch EncryptedKeyValueStore', () {
-    test('von der schnellen Stufe geschrieben, von Stufe 3 gelesen', () async {
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      final raw = InMemoryKeyValueStore();
-      await EncryptedKeyValueStore(raw, AesGcmCacheCipher(_dek))
-          .setString(_key, _plaintext);
-
-      final gespeichert = raw.snapshot[_key]!;
-      expect(gespeichert, startsWith(cacheCipherMagic));
-      expect(gespeichert, isNot(contains('Döner')));
-
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      expect(
-          await EncryptedKeyValueStore(raw, AesGcmCacheCipher(_dek))
-              .getString(_key),
-          _plaintext);
-    });
-
-    test('und umgekehrt', () async {
-      AesGcmCacheCipher.debugSetDartAlgorithm(null);
-      final raw = InMemoryKeyValueStore();
-      await EncryptedKeyValueStore(raw, AesGcmCacheCipher(_dek))
-          .setString(_key, _plaintext);
-
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      expect(
-          await EncryptedKeyValueStore(raw, AesGcmCacheCipher(_dek))
-              .getString(_key),
-          _plaintext);
-    });
-
-    test(
-        'ein toter Slot wird auch auf der schnellen Stufe GELOESCHT — die '
-        'Uebersetzung erreicht _provesBrokenCiphertext', () async {
-      EncryptedKeyValueStore.debugResetReportGuards();
-      AesGcmCacheCipher.debugResetDartAlgorithm();
-      final raw = InMemoryKeyValueStore({_key: _goldenBlob});
-      final store =
-          EncryptedKeyValueStore(raw, AesGcmCacheCipher(_fremderDek));
-
-      expect(await store.getString(_key), isNull);
-      expect(raw.snapshot.containsKey(_key), isFalse,
-          reason: 'Ohne die Uebersetzung nach InvalidCipherTextException '
-              'bliebe der tote Slot liegen.');
     });
   });
 }

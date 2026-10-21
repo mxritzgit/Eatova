@@ -1,11 +1,12 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase/supabase.dart';
 
-import '../support/fixlauf_a_helpers.dart';
 import '../outbox/outbox_test_helpers.dart' show FakeServer;
 import '../training_qa/fixtures.dart';
+
+// The fake's training-head rules must match apply_sync_operation, which
+// test/migrations/training_incarnations.sql checks against Postgres; the
+// store tests that run on this fake rely on them.
 
 Map<String, dynamic> row(int generation, {String title = 'Original'}) => {
   'id': 'coach_message',
@@ -212,54 +213,6 @@ void main() {
         expect(fake.receipts, isEmpty);
         expect(fake.trainingPlans, isEmpty);
       }
-    },
-  );
-
-  test(
-    'head fixture read is owner-fixture scoped and uses fresh row projection',
-    () async {
-      final server = FakeServer();
-      final client = server.client();
-      addTearDown(client.close);
-      server.syncOperations.trainingPlans['coach_message'] = row(2);
-      final url = Uri.parse(
-        'https://example.supabase.co/rest/v1/rpc/load_training_plan_head',
-      );
-      final head =
-          jsonDecode(
-                (await client.post(
-                  url,
-                  body: jsonEncode({'p_source_id': 'message'}),
-                )).body,
-              )
-              as Map;
-      expect(head['incarnation'], 2);
-      expect((head['plan'] as Map)['incarnation'], 2);
-      final other = FakeServer();
-      expect(other.syncOperations.readTrainingHead('message'), isNull);
-    },
-  );
-
-  test(
-    'Fixlauf head reads share the existing read gate and never enter the write gate',
-    () async {
-      final server = FixlaufServer()
-        ..holdReads = true
-        ..holdWrites = true;
-      server.trainingRows['coach_message'] = row(2);
-      final client = server.client();
-      addTearDown(client.close);
-      final pending = client.post(
-        Uri.parse(
-          'https://example.supabase.co/rest/v1/rpc/load_training_plan_head',
-        ),
-        body: jsonEncode({'p_source_id': 'message'}),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(server.heldReads, 1);
-      expect(server.heldWrites, 0);
-      server.releaseReads();
-      expect((jsonDecode((await pending).body) as Map)['incarnation'], 2);
     },
   );
 }

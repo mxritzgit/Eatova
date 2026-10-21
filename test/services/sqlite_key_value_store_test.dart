@@ -20,81 +20,77 @@ Matcher _sanitizedFor(String path) => allOf([
 ]);
 
 void main() {
-  group('DurableStorageException SQLite codes', () {
-    test('maps every primary result code to its fixed SQLite name', () {
-      const names = {
-        1: 'error',
-        2: 'internal',
-        3: 'perm',
-        4: 'abort',
-        5: 'busy',
-        6: 'locked',
-        7: 'nomem',
-        8: 'readonly',
-        9: 'interrupt',
-        10: 'ioerr',
-        11: 'corrupt',
-        12: 'notfound',
-        13: 'full',
-        14: 'cantopen',
-        15: 'protocol',
-        16: 'empty',
-        17: 'schema',
-        18: 'toobig',
-        19: 'constraint',
-        20: 'mismatch',
-        21: 'misuse',
-        22: 'nolfs',
-        23: 'auth',
-        24: 'format',
-        25: 'range',
-        26: 'notadb',
-        27: 'notice',
-        28: 'warning',
-      };
-      for (final entry in names.entries) {
-        expect(
-          DurableStorageException('x', sqliteResultCode: entry.key).sqliteCode,
-          entry.value,
-          reason: 'primary code ${entry.key}',
-        );
-      }
-    });
-
-    test('extended codes keep their primary category', () {
-      const extended = {
-        261: 'busy', // SQLITE_BUSY_RECOVERY
-        517: 'busy', // SQLITE_BUSY_SNAPSHOT
-        262: 'locked', // SQLITE_LOCKED_SHAREDCACHE
-        1034: 'ioerr', // SQLITE_IOERR_FSYNC
-        4618: 'ioerr', // SQLITE_IOERR_SHMOPEN
-        3850: 'ioerr', // SQLITE_IOERR_LOCK
-        270: 'cantopen', // SQLITE_CANTOPEN_NOTEMPDIR
-        1811: 'constraint', // SQLITE_CONSTRAINT_TRIGGER
-      };
-      for (final entry in extended.entries) {
-        final error = DurableStorageException(
-          'database operation failed',
-          sqliteResultCode: entry.key,
-        );
-        expect(error.sqliteCode, entry.value, reason: 'code ${entry.key}');
-        expect(
-          error.toString(),
-          'DurableStorageException: database operation failed '
-          '(sqlite ${entry.value}, code ${entry.key})',
-        );
-      }
-    });
-
-    test('unknown or absent codes stay generic', () {
+  test('DurableStorageException names SQLite result codes, never details', () {
+    const names = {
+      1: 'error',
+      2: 'internal',
+      3: 'perm',
+      4: 'abort',
+      5: 'busy',
+      6: 'locked',
+      7: 'nomem',
+      8: 'readonly',
+      9: 'interrupt',
+      10: 'ioerr',
+      11: 'corrupt',
+      12: 'notfound',
+      13: 'full',
+      14: 'cantopen',
+      15: 'protocol',
+      16: 'empty',
+      17: 'schema',
+      18: 'toobig',
+      19: 'constraint',
+      20: 'mismatch',
+      21: 'misuse',
+      22: 'nolfs',
+      23: 'auth',
+      24: 'format',
+      25: 'range',
+      26: 'notadb',
+      27: 'notice',
+      28: 'warning',
+    };
+    for (final entry in names.entries) {
       expect(
-        const DurableStorageException('x', sqliteResultCode: 99).sqliteCode,
-        'unknown',
+        DurableStorageException('x', sqliteResultCode: entry.key).sqliteCode,
+        entry.value,
+        reason: 'primary code ${entry.key}',
       );
-      const plain = DurableStorageException('database is closed');
-      expect(plain.sqliteCode, isNull);
-      expect(plain.toString(), 'DurableStorageException: database is closed');
-    });
+    }
+
+    // Extended codes keep their primary category.
+    const extended = {
+      261: 'busy', // SQLITE_BUSY_RECOVERY
+      517: 'busy', // SQLITE_BUSY_SNAPSHOT
+      262: 'locked', // SQLITE_LOCKED_SHAREDCACHE
+      1034: 'ioerr', // SQLITE_IOERR_FSYNC
+      4618: 'ioerr', // SQLITE_IOERR_SHMOPEN
+      3850: 'ioerr', // SQLITE_IOERR_LOCK
+      270: 'cantopen', // SQLITE_CANTOPEN_NOTEMPDIR
+      1811: 'constraint', // SQLITE_CONSTRAINT_TRIGGER
+    };
+    for (final entry in extended.entries) {
+      final error = DurableStorageException(
+        'database operation failed',
+        sqliteResultCode: entry.key,
+      );
+      expect(error.sqliteCode, entry.value, reason: 'code ${entry.key}');
+      expect(
+        error.toString(),
+        'DurableStorageException: database operation failed '
+        '(sqlite ${entry.value}, code ${entry.key})',
+      );
+    }
+
+    // Unknown or absent codes stay generic.
+    expect(
+      const DurableStorageException('x', sqliteResultCode: 99).sqliteCode,
+      'unknown',
+    );
+    const plain = DurableStorageException('database is closed');
+    expect(plain.sqliteCode, isNull);
+    expect(plain.toString(), 'DurableStorageException: database is closed');
   });
 
   late Directory directory;

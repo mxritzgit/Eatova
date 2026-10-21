@@ -146,15 +146,14 @@ void main() {
   );
 
   testWidgets(
-    'half serving logs one eighth of the batch and snapshot stays unchanged',
+    'half serving logs one eighth of the batch',
     (tester) async {
       pinPhoneViewport(tester);
       MealAnalysisResult? logged;
-      final recipe = batch();
       await pumpLocalized(
         tester,
         RecipeDetailScreen(
-          recipe: recipe,
+          recipe: batch(),
           onAddMeal: (result, _) => logged = result,
         ),
         locale: const Locale('en'),
@@ -166,17 +165,6 @@ void main() {
       expect(logged!.caloriesKcal, 150);
       expect(logged!.protein, '10 g');
       expect(logged!.estimatedGrams, 0);
-      final changed = recipe.copyWith(
-        structuredIngredients: [
-          RecipeIngredient(
-            name: 'Oats',
-            grams: 800,
-            per100g: recipe.structuredIngredients.single.per100g,
-          ),
-        ],
-      );
-      expect(changed.toMealResultForServings(0.5).caloriesKcal, 300);
-      expect(logged!.caloriesKcal, 150);
     },
   );
 

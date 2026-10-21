@@ -380,28 +380,7 @@ void main() {
       },
     );
 
-    test('der Titel muss die Hauptwoerter der Suche tragen', () async {
-      final products = _FakeProducts({
-        'Toastbrot': _hits([_product('1', 'Butterkekse', kcal: 450)]),
-        'Ei': _hits([
-          _product('2', 'Eis Vanille', kcal: 200),
-          _product('3', 'Bio Eier', brand: 'Gutfried', kcal: 155),
-        ]),
-        'Bananen': _hits([_product('4', 'Banane', kcal: 89)]),
-      });
-      final draft = await _matcher(products).match(
-        _meal([
-          toast,
-          _food('Ei', grams: 60, kcal: 93),
-          _food('Bananen', grams: 120, kcal: 107),
-        ]),
-      );
-      expect(draft.items[0].isEstimate, isTrue);
-      expect(draft.items[0].candidates, hasLength(1));
-      expect(draft.items[1].selected.barcode, '3');
-      expect(draft.items[1].candidates.map((c) => c.barcode), ['3', null]);
-      expect(draft.items[2].selected.barcode, '4');
-    });
+    // Which title words have to match: the "Titel und Komposita" table below.
 
     test('hoechstens vier Kandidaten, die Schaetzung immer dabei', () async {
       final products = _FakeProducts({
@@ -476,23 +455,24 @@ void main() {
       ('Muesli', 200, 105, false), // 1.9x below
       ('Apfelschorle', 10, 24, true), // 2.4x, but within 20 kcal/100 g
     ];
-    for (final (name, estimate, product, chosen) in rows) {
-      test('$name $estimate vs. $product kcal/100 g: '
-          '${chosen ? 'gewaehlt' : 'gelistet'}', () async {
+    test('eine Dichte nah an der Schaetzung wird gewaehlt, eine ferne nur '
+        'gelistet', () async {
+      final wrong = <String>[];
+      for (final (name, estimate, product, chosen) in rows) {
         final products = _FakeProducts({
           name: _hits([_product('1', name, kcal: product.toDouble())]),
         });
         final line = (await _matcher(
           products,
         ).match(_meal([_food(name, grams: 100, kcal: estimate)]))).items.single;
-        expect(line.candidates.map((c) => c.barcode), [
-          if (chosen) '1',
-          null,
-          if (!chosen) '1',
-        ]);
-        expect(line.isEstimate, !chosen);
-      });
-    }
+        final barcodes = '${line.candidates.map((c) => c.barcode).toList()}';
+        final expected = '${[if (chosen) '1', null, if (!chosen) '1']}';
+        if (barcodes != expected || line.isEstimate == chosen) {
+          wrong.add('$name $estimate vs. $product: $barcodes');
+        }
+      }
+      expect(wrong, isEmpty);
+    });
   });
 
   group('Fehler und Zeit', () {
@@ -980,26 +960,25 @@ void main() {
       ('Ei', 'Eis Vanille', _Expect.dropped),
     ];
 
-    for (final (query, title, expected) in rows) {
-      test('"$query" -> "$title": ${expected.name}', () async {
+    test('a title is chosen, listed or dropped by the food it names', () async {
+      final wrong = <String>[];
+      for (final (query, title, expected) in rows) {
         final products = _FakeProducts({
           query: _hits([_product('1', title, kcal: 250)]),
         });
         final line = (await _matcher(
           products,
         ).match(_meal([_food(query, grams: 100, kcal: 250)]))).items.single;
-        final barcodes = line.candidates.map((c) => c.barcode);
-        switch (expected) {
-          case _Expect.chosen:
-            expect(line.selected.barcode, '1');
-          case _Expect.listed:
-            expect(line.isEstimate, isTrue);
-            expect(barcodes, [null, '1']);
-          case _Expect.dropped:
-            expect(barcodes, [null]);
-        }
-      });
-    }
+        final barcodes = '${line.candidates.map((c) => c.barcode).toList()}';
+        final ok = switch (expected) {
+          _Expect.chosen => line.selected.barcode == '1',
+          _Expect.listed => line.isEstimate && barcodes == '[null, 1]',
+          _Expect.dropped => barcodes == '[null]',
+        };
+        if (!ok) wrong.add('"$query" -> "$title": not ${expected.name}');
+      }
+      expect(wrong, isEmpty);
+    });
 
     test('a title that names the food ranks before a related one', () async {
       final products = _FakeProducts({

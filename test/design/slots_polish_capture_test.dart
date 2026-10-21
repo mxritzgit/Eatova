@@ -280,13 +280,6 @@ void main() {
     });
   }
 
-  testWidgets('add sheet, German', (tester) async {
-    await _host(tester, _openAdd, locale: const Locale('de'));
-    expect(find.byType(MealSlotPicker), findsOneWidget);
-    _expectClean(tester);
-    await captureDesignShot(tester, 'slots-add-sheet-de');
-  });
-
   testWidgets('add sheet, slot choice', (tester) async {
     await _host(tester, _openAdd);
     final snack = find.byKey(const ValueKey('slot-select-snack'));
@@ -361,10 +354,6 @@ void main() {
       await _edit(tester, 'slots-edit$suffix', textScale: scale);
     });
   }
-
-  testWidgets('edit sheet, German', (tester) async {
-    await _edit(tester, 'slots-edit-de', locale: const Locale('de'));
-  });
 
   // "Mahlzeit bearbeiten" next to the slot tile and the close ring: the
   // narrowest title column of the shared sheet header.

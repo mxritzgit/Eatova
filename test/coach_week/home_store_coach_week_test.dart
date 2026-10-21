@@ -245,8 +245,8 @@ void main() {
         final store = _store();
         store.weightLog = _dailyWeighIns();
         store.loggedMeals = _fullWeek();
-        // As in home_store_coach_context_slots_test: all four slots, more
-        // entries than `maxFoods`, over-long names, four-digit kcal.
+        // All four slots, more entries than `maxFoods`, over-long names,
+        // four-digit kcal.
         const longName =
             'Überbackene Süßkartoffel-Gnocchi mit Gorgonzola und Rucola';
         for (final slot in MealSlot.values) {

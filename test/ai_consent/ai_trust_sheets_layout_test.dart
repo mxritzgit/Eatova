@@ -1,6 +1,6 @@
 // The consent and report sheets on the smallest phone at double text, in
-// both languages and display modes: no overflow, and the two ways out of the
-// consent stay reachable.
+// both languages: no overflow, and the two ways out of the consent stay
+// reachable. The display mode changes colours only, not the layout.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,7 +17,6 @@ Future<void> _openSheet(
   WidgetTester tester,
   Widget sheet, {
   required Locale locale,
-  required Brightness brightness,
 }) async {
   tester.view.devicePixelRatio = 2.0;
   tester.view.physicalSize = const Size(320, 568) * 2.0;
@@ -32,7 +31,6 @@ Future<void> _openSheet(
         ),
       ),
       locale: locale,
-      brightness: brightness,
       textScale: 2.0,
     ),
   );
@@ -42,50 +40,46 @@ Future<void> _openSheet(
 
 void main() {
   for (final locale in const [Locale('de'), Locale('en')]) {
-    for (final brightness in Brightness.values) {
-      final label = '${locale.languageCode}/${brightness.name}';
+    final label = locale.languageCode;
 
-      testWidgets('Einwilligung $label: kein Ueberlauf, beide Auswege sichtbar',
-          (tester) async {
-        final controller = await aiTrustController();
-        final overflows = await collectOverflows(() async {
-          await _openSheet(
-            tester,
-            AiConsentSheet(controller: controller),
-            locale: locale,
-            brightness: brightness,
-          );
-        });
-        expect(overflows, isEmpty, reason: describeOverflows(overflows));
-        for (final key in ['ai-consent-accept', 'ai-consent-not-now']) {
-          final rect = tester.getRect(find.byKey(ValueKey(key)));
-          expect(rect.bottom, lessThanOrEqualTo(568), reason: key);
-          expect(rect.height, greaterThanOrEqualTo(48), reason: key);
-        }
-        final check = find.byKey(const ValueKey('ai-consent-health-check'));
-        await tester.ensureVisible(check);
-        await tester.pumpAndSettle();
-        expect(tester.getSize(check).height, greaterThanOrEqualTo(48));
-      });
-
-      testWidgets('Melden $label: kein Ueberlauf', (tester) async {
-        final overflows = await collectOverflows(() async {
-          await _openSheet(
-            tester,
-            AiReportSheet(
-              target: AiReportTarget.answer,
-              onSubmit: (_) async {},
-            ),
-            locale: locale,
-            brightness: brightness,
-          );
-        });
-        expect(overflows, isEmpty, reason: describeOverflows(overflows));
-        final submit = tester.getRect(
-          find.byKey(const ValueKey('ai-report-submit')),
+    testWidgets('Einwilligung $label: kein Ueberlauf, beide Auswege sichtbar',
+        (tester) async {
+      final controller = await aiTrustController();
+      final overflows = await collectOverflows(() async {
+        await _openSheet(
+          tester,
+          AiConsentSheet(controller: controller),
+          locale: locale,
         );
-        expect(submit.bottom, lessThanOrEqualTo(568));
       });
-    }
+      expect(overflows, isEmpty, reason: describeOverflows(overflows));
+      for (final key in ['ai-consent-accept', 'ai-consent-not-now']) {
+        final rect = tester.getRect(find.byKey(ValueKey(key)));
+        expect(rect.bottom, lessThanOrEqualTo(568), reason: key);
+        expect(rect.height, greaterThanOrEqualTo(48), reason: key);
+      }
+      final check = find.byKey(const ValueKey('ai-consent-health-check'));
+      await tester.ensureVisible(check);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(check).height, greaterThanOrEqualTo(48));
+    });
+
+    testWidgets('Melden $label: kein Ueberlauf', (tester) async {
+      final overflows = await collectOverflows(() async {
+        await _openSheet(
+          tester,
+          AiReportSheet(
+            target: AiReportTarget.answer,
+            onSubmit: (_) async {},
+          ),
+          locale: locale,
+        );
+      });
+      expect(overflows, isEmpty, reason: describeOverflows(overflows));
+      final submit = tester.getRect(
+        find.byKey(const ValueKey('ai-report-submit')),
+      );
+      expect(submit.bottom, lessThanOrEqualTo(568));
+    });
   }
 }

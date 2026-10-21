@@ -23,11 +23,10 @@ import 'package:eatova/src/auth/auth_repository.dart';
 // for sessions older than 24 hours; recent sessions ignore the nonce) —
 // see supabase/AUTH_EMAIL_OTP.md.
 //
-// First half checks the contract on [InMemoryAuthRepository], the fake every
-// settings widget test drives. Second half covers the production path at the
-// WIRE level: real [SupabaseAuthRepository] over a real [SupabaseClient] on a
-// [MockClient] replaying the secure-email-change responses — the fake alone
-// cannot prove the real path keeps the same promise.
+// Covered at the WIRE level: real [SupabaseAuthRepository] over a real
+// [SupabaseClient] on a [MockClient] replaying the secure-email-change
+// responses. The settings sheets that drive these calls are pinned in
+// account_change_flows_test.dart.
 
 const Map<String, String> _jsonHeader = {'Content-Type': 'application/json'};
 
@@ -70,142 +69,6 @@ SupabaseClient _clientAm(MockClient transport) => SupabaseClient(
     );
 
 void main() {
-  group('Passwort aendern', () {
-    test('fordert einen Code an die hinterlegte Adresse an', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      await repo.startPasswordChange();
-
-      expect(repo.reauthRequests, <String>['alt@eatova.de']);
-    });
-
-    test('uebergibt Passwort und Code gemeinsam an das Repository', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      await repo.startPasswordChange();
-      await repo.confirmPasswordChange(
-        currentPassword: 'CurrentPassword99',
-        code: '123456',
-        newPassword: 'geheim99',
-      );
-
-      expect(repo.passwordUpdates, <String>['geheim99']);
-      expect(repo.usedNonces, <String>['123456']);
-      expect(repo.usedCurrentPasswords, <String>['CurrentPassword99']);
-    });
-
-    test('ein serverseitig abgelehnter Code aendert nichts', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      await repo.startPasswordChange();
-      repo.verifyFails = true;
-
-      await expectLater(
-        repo.confirmPasswordChange(
-          currentPassword: 'CurrentPassword99',
-          code: '000000',
-          newPassword: 'geheim99',
-        ),
-        throwsA(isA<Exception>()),
-      );
-      expect(repo.passwordUpdates, isEmpty,
-          reason: 'ein abgelehnter Code darf kein Passwort setzen');
-    });
-  });
-
-  group('E-Mail aendern', () {
-    test('stoesst die Aenderung an und merkt sich die Zieladresse', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      await repo.startEmailChange('neu@eatova.de');
-
-      expect(repo.emailChangeRequests, <String>['neu@eatova.de']);
-      expect(repo.currentUser?.email, 'alt@eatova.de',
-          reason: 'vor der doppelten Bestaetigung aendert sich nichts');
-    });
-
-    test('erst NACH beiden Codes traegt das Konto die neue Adresse', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      await repo.startEmailChange('neu@eatova.de');
-
-      await repo.confirmEmailChange(email: 'alt@eatova.de', code: '111111');
-      expect(repo.currentUser?.email, 'alt@eatova.de',
-          reason: 'ein einzelner Code genuegt nicht — sonst reichte der '
-              'Zugriff auf EIN Postfach');
-
-      await repo.confirmEmailChange(email: 'neu@eatova.de', code: '222222');
-      expect(repo.currentUser?.email, 'neu@eatova.de');
-    });
-
-    test('die Reihenfolge der beiden Codes ist egal', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      await repo.startEmailChange('neu@eatova.de');
-      await repo.confirmEmailChange(email: 'neu@eatova.de', code: '222222');
-      expect(repo.currentUser?.email, 'alt@eatova.de');
-      await repo.confirmEmailChange(email: 'alt@eatova.de', code: '111111');
-
-      expect(repo.currentUser?.email, 'neu@eatova.de');
-    });
-
-    test('ein falscher Code laesst die Adresse stehen', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      await repo.startEmailChange('neu@eatova.de');
-      repo.verifyFails = true;
-
-      await expectLater(
-        repo.confirmEmailChange(email: 'alt@eatova.de', code: '000000'),
-        throwsA(isA<Exception>()),
-      );
-      expect(repo.currentUser?.email, 'alt@eatova.de');
-    });
-
-    test('der Adresswechsel meldet sich am authStateChanges-Strom', () async {
-      final repo = InMemoryAuthRepository(
-        initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
-      );
-      addTearDown(repo.dispose);
-
-      final gesehen = <String?>[];
-      final sub = repo.authStateChanges.listen((u) => gesehen.add(u?.email));
-
-      await repo.startEmailChange('neu@eatova.de');
-      await repo.confirmEmailChange(email: 'alt@eatova.de', code: '111111');
-      await repo.confirmEmailChange(email: 'neu@eatova.de', code: '222222');
-      await Future<void>.delayed(Duration.zero);
-      await sub.cancel();
-
-      expect(gesehen.last, 'neu@eatova.de',
-          reason: 'die Schale zeigt die Adresse in den Einstellungen an — '
-              'sie muss den Wechsel mitbekommen');
-    });
-  });
-
-  // --- Production path: SupabaseAuthRepository on the wire ------------------
-
   group('E-Mail aendern (Wire, SupabaseAuthRepository)', () {
     /// The whole server of an in-flight address change. The FIRST `/verify`
     /// returns only the user row without `access_token`, as GoTrue does under

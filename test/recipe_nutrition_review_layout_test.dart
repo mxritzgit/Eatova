@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/harness.dart';
 
+const _capture = bool.fromEnvironment('CAPTURE_NUTRITION_REVIEW');
+
 void main() {
   setUpAll(() async {
     for (final family in ['Figtree', 'BricolageGrotesque']) {
@@ -31,7 +33,9 @@ void main() {
   });
 
   for (final locale in ['de', 'en']) {
-    for (final brightness in Brightness.values) {
+    for (final brightness in _capture
+        ? Brightness.values
+        : const [Brightness.dark]) {
       for (final scale in [1.0, 2.0]) {
         final name = '$locale-${brightness.name}-$scale';
         testWidgets('nutrition review stays reachable with real fonts: $name', (
@@ -90,8 +94,7 @@ void main() {
           );
           final save = find.byKey(const ValueKey('recipe-create-save'));
           expect(tester.widget<PrimaryActionButton>(save).onTap, isNull);
-          if (scale == 1 &&
-              const bool.fromEnvironment('CAPTURE_NUTRITION_REVIEW')) {
+          if (scale == 1 && _capture) {
             final boundary = tester.renderObject<RenderRepaintBoundary>(
               find.byKey(const ValueKey('capture')),
             );

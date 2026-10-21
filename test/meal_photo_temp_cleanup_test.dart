@@ -207,16 +207,14 @@ void main() {
       expect(datei.existsSync(), isFalse);
     });
 
-    test('eine fehlende Datei ist kein Fehlerfall', () async {
+    test('eine fehlende Datei und ein leerer Pfad sind kein Fehlerfall',
+        () async {
       // Second call on the same path, aborted capture, foreign cleaner: the
       // caller must not notice.
       await expectLater(
         deleteMealPhotoTempFile('${cache.path}${Platform.pathSeparator}weg.jpg'),
         completes,
       );
-    });
-
-    test('leerer Pfad (In-Memory-XFile) wirft nicht', () async {
       // `XFile.fromData` without a path yields '' — no file behind it.
       await expectLater(deleteMealPhotoTempFile(''), completes);
     });

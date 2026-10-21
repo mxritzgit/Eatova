@@ -1,9 +1,6 @@
-// The food tab after the 2026-08 design refactor: four slot cards carry the
-// diary. Pins that plus DESIGN_REFACTOR §7.2 (both modes) and §5 (scale 2.0).
-//
-// The three hand-written brightness loops (plain render / textScale 2.0 /
-// EN smoke) are one `renderMatrix` now: de+en x hell+dunkel x 1.0+2.0, so the
-// combinations en@2.0 and en@hell@2.0 are covered for the first time.
+// The food tab: four slot cards carry the diary. Pins that plus §5 of the
+// design refactor (scale 2.0) in both languages. The cards have no
+// palette-specific layout, so the matrix runs in one palette.
 
 import 'support/food_navigation.dart';
 
@@ -102,9 +99,9 @@ Finder _inSlotkarte(String text) => find.descendant(
     );
 
 void main() {
-  // One matrix instead of three brightness loops. English strings are longer
-  // than German ones and catch overflows a de-only run never shows; the
-  // assertions read the ARB, so they hold in every language.
+  // English strings are longer than German ones and catch overflows a
+  // de-only run never shows; the assertions read the ARB, so they hold in
+  // every language.
   renderMatrix(
     'Der Food-Tab rendert overflow-frei',
     (tester, c) => withClockAt(_mittag, () async {
@@ -128,38 +125,9 @@ void main() {
       expect(find.byKey(const ValueKey('food-slot-kcal-breakfast')), findsOneWidget);
     }),
     locales: const <Locale>[Locale('de'), Locale('en')],
+    brightnesses: const <Brightness>[Brightness.dark],
     textScales: const <double>[1.0, 2.0],
   );
-
-  testWidgets('unter en stehen die englischen Beschriftungen im Baum',
-      (tester) async {
-    // Counter-check to the matrix above: it reads the same ARB the widget
-    // reads, so a regress in app_en.arb would pass unnoticed. One hard anchor
-    // per language catches it — the label must really CHANGE with the
-    // language, not just resolve to whatever the lookup returns.
-    await _pumpFoodTab(tester, locale: const Locale('en'));
-
-    expect(find.text('Food'), findsOneWidget);
-    expect(find.text('Ernährung'), findsNothing);
-    expect(_inSlotkarte('Breakfast'), findsOneWidget);
-    expect(find.textContaining('Suggested '), findsNWidgets(4));
-    expect(find.textContaining('Empfohlen'), findsNothing);
-  });
-
-  testWidgets('Vier Slot-Karten tragen die deutschen Slot-Namen',
-      (tester) async {
-    await _pumpFoodTab(tester);
-
-    expect(find.byType(DiaryMealCard), findsNWidgets(4));
-    for (final label in const [
-      'Frühstück',
-      'Mittagessen',
-      'Abendessen',
-      'Snacks',
-    ]) {
-      expect(_inSlotkarte(label), findsOneWidget, reason: label);
-    }
-  });
 
   testWidgets('Ein leerer Tag zeigt vier Add-Slots mit ihrer Empfehlung',
       (tester) async {
@@ -269,6 +237,7 @@ void main() {
           findsNothing,
         );
       }),
+      brightnesses: const <Brightness>[Brightness.dark],
     );
   });
 

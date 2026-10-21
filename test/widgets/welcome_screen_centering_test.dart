@@ -98,76 +98,23 @@ void main() {
     }
   });
 
+  // Geometry does not depend on the palette; each palette still gets two
+  // windows, so the painted mark is proven visible on both grounds.
   const cases = [
-    (name: 'phone', size: Size(390, 844), scale: 1.0, rtl: false),
-    (name: 'compact', size: Size(320, 640), scale: 2.0, rtl: false),
-    (name: 'landscape', size: Size(568, 320), scale: 2.0, rtl: true),
-    (name: 'tablet', size: Size(1024, 768), scale: 1.0, rtl: false),
+    (name: 'phone', size: Size(390, 844), scale: 1.0, rtl: false,
+        brightness: Brightness.dark),
+    (name: 'compact', size: Size(320, 640), scale: 2.0, rtl: false,
+        brightness: Brightness.light),
+    (name: 'landscape', size: Size(568, 320), scale: 2.0, rtl: true,
+        brightness: Brightness.dark),
+    (name: 'tablet', size: Size(1024, 768), scale: 1.0, rtl: false,
+        brightness: Brightness.light),
   ];
-  for (final brightness in Brightness.values) {
-    final tokens = brightness == Brightness.light
+  for (final c in cases) {
+    final tokens = c.brightness == Brightness.light
         ? AppTokens.light
         : AppTokens.dark;
-    for (final c in cases) {
-      testWidgets('welcome stays centred ${brightness.name} ${c.name}', (
-        tester,
-      ) async {
-        final capture = GlobalKey();
-        final ready = Completer<void>();
-        var completions = 0;
-        await pumpLocalized(
-          tester,
-          RepaintBoundary(
-            key: capture,
-            child: Directionality(
-              textDirection: c.rtl ? TextDirection.rtl : TextDirection.ltr,
-              child: WelcomeScreen(
-                firstName: 'Alexandria',
-                profileReady: ready.future,
-                celebrateLogin: true,
-                onComplete: () => completions++,
-              ),
-            ),
-          ),
-          brightness: brightness,
-          surfaceSize: c.size,
-          textScale: c.scale,
-          reducedMotion: false,
-          scaffold: false,
-          safeArea: false,
-        );
-        await _advance(tester, 300);
-        _expectCenteredLayout(tester);
-        await _advance(tester, 900);
-        _expectCenteredLayout(tester);
-        await _expectCenteredInk(
-          tester,
-          capture,
-          tokens.bg,
-          'loading-${brightness.name}-${c.name}',
-        );
-        expect(completions, 0);
-
-        ready.complete();
-        await tester.pump();
-        await _advance(tester, 220);
-        _expectCenteredLayout(tester);
-        await _advance(tester, 520);
-        _expectCenteredLayout(tester);
-        expect(find.byKey(const ValueKey('welcome-text')), findsOneWidget);
-        await _expectCenteredInk(
-          tester,
-          capture,
-          tokens.bg,
-          'welcome-${brightness.name}-${c.name}',
-        );
-        expect(tester.takeException(), isNull);
-        await _advance(tester, 1200);
-        expect(completions, 1);
-      });
-    }
-
-    testWidgets('reduced-motion mark stays centred ${brightness.name}', (
+    testWidgets('welcome stays centred ${c.brightness.name} ${c.name}', (
       tester,
     ) async {
       final capture = GlobalKey();
@@ -177,31 +124,81 @@ void main() {
         tester,
         RepaintBoundary(
           key: capture,
-          child: WelcomeScreen(
-            firstName: 'Mira',
-            profileReady: ready.future,
-            onComplete: () => completions++,
+          child: Directionality(
+            textDirection: c.rtl ? TextDirection.rtl : TextDirection.ltr,
+            child: WelcomeScreen(
+              firstName: 'Alexandria',
+              profileReady: ready.future,
+              celebrateLogin: true,
+              onComplete: () => completions++,
+            ),
           ),
         ),
-        brightness: brightness,
-        surfaceSize: const Size(390, 844),
+        brightness: c.brightness,
+        surfaceSize: c.size,
+        textScale: c.scale,
+        reducedMotion: false,
         scaffold: false,
         safeArea: false,
-        settle: true,
       );
+      await _advance(tester, 300);
+      _expectCenteredLayout(tester);
+      await _advance(tester, 900);
       _expectCenteredLayout(tester);
       await _expectCenteredInk(
         tester,
         capture,
         tokens.bg,
-        'reduced-${brightness.name}',
+        'loading-${c.brightness.name}-${c.name}',
       );
-      expect(tester.binding.hasScheduledFrame, isFalse);
       expect(completions, 0);
+
       ready.complete();
-      await tester.pumpAndSettle();
-      expect(completions, 1);
+      await tester.pump();
+      await _advance(tester, 220);
+      _expectCenteredLayout(tester);
+      await _advance(tester, 520);
+      _expectCenteredLayout(tester);
+      expect(find.byKey(const ValueKey('welcome-text')), findsOneWidget);
+      await _expectCenteredInk(
+        tester,
+        capture,
+        tokens.bg,
+        'welcome-${c.brightness.name}-${c.name}',
+      );
       expect(tester.takeException(), isNull);
+      await _advance(tester, 1200);
+      expect(completions, 1);
     });
   }
+
+  testWidgets('reduced-motion mark stays centred', (tester) async {
+    final capture = GlobalKey();
+    final ready = Completer<void>();
+    var completions = 0;
+    await pumpLocalized(
+      tester,
+      RepaintBoundary(
+        key: capture,
+        child: WelcomeScreen(
+          firstName: 'Mira',
+          profileReady: ready.future,
+          onComplete: () => completions++,
+        ),
+      ),
+      brightness: Brightness.dark,
+      surfaceSize: const Size(390, 844),
+      scaffold: false,
+      safeArea: false,
+      settle: true,
+    );
+    _expectCenteredLayout(tester);
+    await _expectCenteredInk(tester, capture, AppTokens.dark.bg, 'reduced');
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    expect(completions, 0);
+    ready.complete();
+    await tester.pumpAndSettle();
+    expect(completions, 1);
+    expect(tester.takeException(), isNull);
+  });
 }

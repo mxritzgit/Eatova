@@ -443,12 +443,8 @@ void main() {
     });
   });
 
-  test('a plan-attached log blocked by a session is a typed exception', () {
-    expect(const TrainingLogBlockedBySession(), isA<Exception>());
-  });
-
   test(
-    'reject duplicate identities, timestamp inversion, mismatched IDs and missing actuals',
+    'rejects a mismatched row ID, a finish before the start and duplicate exercise IDs',
     () {
       final value = entry();
       final row = jsonDecode(jsonEncode(value.toRow())) as Map<String, dynamic>;

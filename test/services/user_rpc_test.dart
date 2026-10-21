@@ -146,63 +146,58 @@ void main() {
     },
   );
 
-  for (final switchAccount in [false, true]) {
-    test(
-      'disposed outbox stops and keeps pending entries (switch=$switchAccount)',
-      () async {
-        final kv = InMemoryKeyValueStore();
-        await h.seedRawOutbox(kv, [
-          SyncOp.statsIncrement(
-            requestId: '11111111-1111-4111-8111-111111111111',
-            meals: 1,
-          ).toJson(),
-          SyncOp.statsIncrement(
-            requestId: '22222222-2222-4222-8222-222222222222',
-            meals: 2,
-          ).toJson(),
-        ]);
-        final gate = Completer<void>();
-        final entered = Completer<void>();
-        final server = h.FakeServer();
-        final transport = server.client();
-        final sent = <String?>[];
-        final client = SupabaseClient(
-          'https://example.supabase.co',
-          'fixture-anon',
-          httpClient: MockClient((request) async {
-            if (request.url.path.endsWith('/rpc/apply_sync_operation') &&
-                (jsonDecode(request.body) as Map)['p_kind'] ==
-                    'statsIncrement') {
-              sent.add(request.headers['authorization']);
-              if (sent.length == 1) {
-                entered.complete();
-                await gate.future;
-              }
-            }
-            return http.Response.fromStream(await transport.send(request));
-          }),
-          authOptions: const AuthClientOptions(autoRefreshToken: false),
-        );
-        addTearDown(client.dispose);
-        await signIn(client, 'user-outbox');
-        final cache = LocalCache(kv, 'user-outbox');
-        final store = HomeStore(
-          sync: EatovaSync.forUser(client, 'user-outbox'),
-          health: const NoopHealthService(),
-          notificationService: const NoopNotificationService(),
-          initialUserName: 'Review',
-          emitSnack: h.SnackCapture().call,
-          debugCache: cache,
-        );
-        store.start();
-        await entered.future.timeout(const Duration(seconds: 5));
-        store.dispose();
-        if (switchAccount) await signIn(client, 'B');
-        gate.complete();
-        await h.settle();
-        expect(sent, ['Bearer ${tokenFor('user-outbox')}']);
-        expect(await cache.readOutbox(), hasLength(2));
-      },
+  // A variant that signs B in after dispose failed on exactly the same
+  // assertions when dispose() stopped marking the store, so one case.
+  test('disposed outbox stops and keeps pending entries', () async {
+    final kv = InMemoryKeyValueStore();
+    await h.seedRawOutbox(kv, [
+      SyncOp.statsIncrement(
+        requestId: '11111111-1111-4111-8111-111111111111',
+        meals: 1,
+      ).toJson(),
+      SyncOp.statsIncrement(
+        requestId: '22222222-2222-4222-8222-222222222222',
+        meals: 2,
+      ).toJson(),
+    ]);
+    final gate = Completer<void>();
+    final entered = Completer<void>();
+    final server = h.FakeServer();
+    final transport = server.client();
+    final sent = <String?>[];
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'fixture-anon',
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/rpc/apply_sync_operation') &&
+            (jsonDecode(request.body) as Map)['p_kind'] == 'statsIncrement') {
+          sent.add(request.headers['authorization']);
+          if (sent.length == 1) {
+            entered.complete();
+            await gate.future;
+          }
+        }
+        return http.Response.fromStream(await transport.send(request));
+      }),
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
     );
-  }
+    addTearDown(client.dispose);
+    await signIn(client, 'user-outbox');
+    final cache = LocalCache(kv, 'user-outbox');
+    final store = HomeStore(
+      sync: EatovaSync.forUser(client, 'user-outbox'),
+      health: const NoopHealthService(),
+      notificationService: const NoopNotificationService(),
+      initialUserName: 'Review',
+      emitSnack: h.SnackCapture().call,
+      debugCache: cache,
+    );
+    store.start();
+    await entered.future.timeout(const Duration(seconds: 5));
+    store.dispose();
+    gate.complete();
+    await h.settle();
+    expect(sent, ['Bearer ${tokenFor('user-outbox')}']);
+    expect(await cache.readOutbox(), hasLength(2));
+  });
 }

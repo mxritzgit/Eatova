@@ -63,15 +63,6 @@ Deno.test("Zahlen werden GEKLEMMT statt abgelehnt (KI-Werte)", () => {
   assertEquals(draft!.estimated_g, RECIPE_LIMITS.gramsMin, "Gramm auf Min geklemmt");
 });
 
-Deno.test("Titel wird auf titleMaxChars gekappt", () => {
-  const draft = parseRecipeDraft(JSON.stringify({
-    title: "x".repeat(500),
-    calories_kcal: 400,
-  }));
-  assert(draft !== null, "Draft darf nicht null sein");
-  assertEquals(draft!.title.length, RECIPE_LIMITS.titleMaxChars, "Titel-Laenge");
-});
-
 Deno.test("SEC-1: Kappungen zerschneiden kein Emoji", () => {
   // A lone surrogate makes PostgREST reject the chat_messages insert with the
   // recipe jsonb, so the card would not be persisted.

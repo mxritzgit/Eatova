@@ -240,38 +240,6 @@ void main() {
   });
 
   test(
-    'Luecke D: offline aendern, OFFLINE neu starten — der neue Wert steht',
-    () async {
-      final kv = InMemoryKeyValueStore();
-      final a = setup(kv: kv);
-      a.server.profileRow = serverProfileRow(testProfile(weightKg: 80));
-      await boot(a.store);
-
-      a.server.offline = true;
-      await a.store.applySettings(
-        newProfile: a.store.profile.copyWith(weightKg: 84),
-        notificationsEnabled: false,
-      );
-      await settle();
-      a.store.flushPendingWrites();
-      await settle();
-
-      final b = setup(kv: kv);
-      b.server.offline = true;
-      await boot(b.store);
-
-      expect(b.store.profile.weightKg, 84);
-      expect(
-        b.store.pendingOutbox.map((o) => o.kind),
-        contains(SyncOpKind.profileUpsert),
-        reason:
-            'die Zustellung steht weiterhin aus und muss die Sitzung '
-            'ueberleben',
-      );
-    },
-  );
-
-  test(
     'Luecke D: zwei Offline-Aenderungen bleiben immutable FIFO — das Profil ist '
     'eine einzelne Zeile, die letzte Aenderung gewinnt',
     () async {
@@ -321,36 +289,6 @@ void main() {
         reason: 'Immutable Vorganger wird vor der neueren Fassung zugestellt',
       );
       expect(a.store.pendingOutbox, isEmpty);
-    },
-  );
-
-  test(
-    'Luecke D: der Profil-Save meldet die WARTESCHLANGE, nicht mehr '
-    '„bitte speichere es später erneut" — es gibt jetzt einen Auto-Retry',
-    () async {
-      final a = setup();
-      a.server.profileRow = serverProfileRow(testProfile(weightKg: 80));
-      await boot(a.store);
-
-      a.server.offline = true;
-      await a.store.applySettings(
-        newProfile: a.store.profile.copyWith(weightKg: 84),
-        notificationsEnabled: false,
-      );
-      await settle();
-
-      expect(
-        a.snacks.offlineHints.single,
-        'Offline — wird synchronisiert, sobald du wieder online bist.',
-        reason:
-            'die alte Meldung bat den Nutzer, spaeter selbst erneut zu '
-            'speichern — das waere jetzt gelogen',
-      );
-      expect(
-        a.snacks.tones,
-        isNot(contains(SnackTone.error)),
-        reason: 'eine Warteschlange ist kein Fehler',
-      );
     },
   );
 

@@ -15,7 +15,8 @@ import 'support/harness.dart';
 // the gesture arena. As a ROUTE only two remain — the header back button
 // (`settings-close`) and the system back — and both run through the SAME
 // PopScope. The two dropped cases are gone, not untested: nothing can trigger
-// them any more.
+// them any more. The same goes for the drag guard's side effects (blocked
+// typing or scrolling): a PopScope has no gesture to get in the way.
 void main() {
   Future<Future<SettingsResult?>> openSettings(WidgetTester tester) async {
     pinPhoneViewport(tester);
@@ -174,63 +175,5 @@ void main() {
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
     expect(seiteOffen(tester), isTrue);
     expect(feldText(tester, 'settings-weight'), '80');
-  });
-
-  testWidgets('der Verwerfen-Schutz blockiert weder Tippen noch Auswahl',
-      (tester) async {
-    await openSettings(tester);
-    // From here the page is dirty.
-    await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
-    await tester.pump();
-
-    // Typing in other fields still works.
-    await tester.enterText(find.byKey(const ValueKey('settings-height')), '182');
-    await tester.enterText(
-        find.byKey(const ValueKey('settings-steps-goal')), '9000');
-    await tester.pump();
-    expect(feldText(tester, 'settings-height'), '182');
-    expect(feldText(tester, 'settings-steps-goal'), '9000');
-
-    // The macro toggle still reacts to taps: the default profile starts in
-    // live mode (persisted flag, F7-01), so the tap reveals the kcal field.
-    await tester
-        .ensureVisible(find.byKey(const ValueKey('settings-manual-energy')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('settings-manual-energy')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('settings-kcal')), findsOneWidget);
-    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
-  });
-
-  testWidgets('der Verwerfen-Schutz laesst die Seite weiter scrollen',
-      (tester) async {
-    await openSettings(tester);
-
-    await tester.enterText(find.byKey(const ValueKey('settings-weight')), '80');
-    await tester.pump();
-
-    // Measure the ScrollPosition, not the header: on a page the header
-    // scrolls away and is no longer a reference.
-    final position = tester
-        .state<ScrollableState>(
-          find
-              .descendant(
-                of: find.byType(SingleChildScrollView),
-                matching: find.byType(Scrollable),
-              )
-              .first,
-        )
-        .position;
-    final vorher = position.pixels;
-
-    await tester.drag(
-      find.byType(SingleChildScrollView),
-      const Offset(0, -300),
-    );
-    await tester.pumpAndSettle();
-
-    expect(position.pixels, greaterThan(vorher));
-    expect(seiteOffen(tester), isTrue);
-    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
   });
 }

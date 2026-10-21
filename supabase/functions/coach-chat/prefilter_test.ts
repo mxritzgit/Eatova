@@ -123,9 +123,10 @@ Deno.test("Basisfaelle: leer, zu lang, Bild ohne Text", () => {
   expectBlock("", "empty");
   expectBlock("   ", "empty");
   expectBlock("x".repeat(MAX_INPUT_CHARS + 1), "too_long");
-  // Image without text is allowed (vision flow).
-  const res = preFilter("", true);
-  if (!res.ok) throw new Error("Bild ohne Text haette passieren muessen");
+  // An image suppresses only the empty rejection (vision flow).
+  for (const caption of ["", "   ", "Was ist das hier?"]) {
+    if (!preFilter(caption, true).ok) throw new Error(`Bild mit ${JSON.stringify(caption)} haette passieren muessen`);
+  }
 });
 
 // An attached image may suppress ONLY the "empty" rejection. Length and every
@@ -152,21 +153,5 @@ Deno.test("Layer 1 blockt weiterhin MIT angehaengtem Bild", () => {
         `"${message.slice(0, 40)}" mit Bild: erwarteter Grund "${reason}", tatsaechlich "${res.reason}"`,
       );
     }
-  }
-});
-
-Deno.test("Bild unterdrueckt ausschliesslich die empty-Ablehnung", () => {
-  // without image: empty
-  const withoutImage = preFilter("   ", false);
-  if (withoutImage.ok || withoutImage.reason !== "empty") {
-    throw new Error("Whitespace ohne Bild haette als 'empty' blocken muessen");
-  }
-  // with image: pass
-  if (!preFilter("   ", true).ok) {
-    throw new Error("Whitespace MIT Bild haette passieren muessen");
-  }
-  // legitimate caption with image
-  if (!preFilter("Was ist das hier?", true).ok) {
-    throw new Error("Legitime Bild-Caption haette passieren muessen");
   }
 });

@@ -86,35 +86,34 @@ Future<void> tippeGramm(WidgetTester tester, String text) async {
 
 void main() {
   testWidgets(
-    'Apfelkuchen: Vorschau bei der Ursprungsportion zeigt die geloggten 420 kcal',
+    'Apfelkuchen: Vorschau und geloggter Wert sind ueber den ganzen Regler '
+    'gleich, an der Ursprungsportion die gemessenen 420 kcal',
     (tester) async {
-      final geloggt = await pumpItem(tester, apfelkuchen);
+      // null = the original portion, untouched.
+      for (final (gramm, erwartet) in <(int?, int?)>[
+        (null, 420),
+        (300, 840),
+        (5, null),
+        (90, null),
+        (999, null),
+      ]) {
+        final geloggt = await pumpItem(tester, apfelkuchen);
+        if (gramm != null) await tippeGramm(tester, '$gramm');
+        final angezeigt = vorschauKcal(tester);
+        if (erwartet != null) expect(angezeigt, erwartet, reason: '$gramm g');
 
-      expect(vorschauKcal(tester), 420);
+        await tester.tap(find.byKey(_addKey));
+        await tester.pump();
 
-      await tester.tap(find.byKey(_addKey));
-      await tester.pump();
-
-      expect(geloggt, hasLength(1));
-      expect(geloggt.single.caloriesKcal, 420);
-      expect(geloggt.single.caloriesKcal, vorschauKcal(tester));
+        expect(
+          geloggt.single.caloriesKcal,
+          angezeigt,
+          reason: 'bei $gramm g divergieren Vorschau und Speicherpfad',
+        );
+        if (gramm != null) expect(geloggt.single.estimatedGrams, gramm);
+      }
     },
   );
-
-  testWidgets('Apfelkuchen: 300 g zeigen und loggen dieselben 840 kcal', (
-    tester,
-  ) async {
-    final geloggt = await pumpItem(tester, apfelkuchen);
-    await tippeGramm(tester, '300');
-
-    expect(vorschauKcal(tester), 840);
-
-    await tester.tap(find.byKey(_addKey));
-    await tester.pump();
-
-    expect(geloggt.single.caloriesKcal, 840);
-    expect(geloggt.single.estimatedGrams, 300);
-  });
 
   testWidgets(
     'Unpassende Dichte: 300 g zeigen und loggen die autoritativen 850 kcal',
@@ -130,43 +129,17 @@ void main() {
     },
   );
 
-  testWidgets('Vorschau und geloggter Wert sind über den ganzen Regler gleich', (
-    tester,
-  ) async {
-    for (final gramm in <int>[5, 90, 150, 300, 999]) {
-      final geloggt = await pumpItem(tester, apfelkuchen);
-      await tippeGramm(tester, '$gramm');
-      final angezeigt = vorschauKcal(tester);
-
-      await tester.tap(find.byKey(_addKey));
-      await tester.pump();
-
-      expect(
-        geloggt.single.caloriesKcal,
-        angezeigt,
-        reason: 'bei $gramm g divergieren Vorschau und Speicherpfad',
-      );
-    }
-  });
-
   // ─── Gap 3: bounds ───────────────────────────────────────────────────
 
-  testWidgets('1200 g sind eine gültige Portion und werden nicht geklemmt', (
-    tester,
-  ) async {
-    final geloggt = await pumpItem(tester, apfelkuchen);
+  testWidgets('1200 g sind gueltig und ungeklemmt; 12000 g und 0 g werden '
+      'abgelehnt statt still auf eine Grenze geklemmt', (tester) async {
+    final gross = await pumpItem(tester, apfelkuchen);
     await tippeGramm(tester, '1200');
-
     await tester.tap(find.byKey(_addKey));
     await tester.pump();
+    expect(gross.single.estimatedGrams, 1200);
+    expect(gross.single.caloriesKcal, 3360);
 
-    expect(geloggt.single.estimatedGrams, 1200);
-    expect(geloggt.single.caloriesKcal, 3360);
-  });
-
-  testWidgets('12000 g werden abgelehnt statt still auf die Grenze geklemmt', (
-    tester,
-  ) async {
     final geloggt = await pumpItem(tester, apfelkuchen);
     await tippeGramm(tester, '12000');
 

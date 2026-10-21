@@ -236,9 +236,10 @@ void main() {
     });
   });
 
-  testWidgets('Export: "Als Datei teilen" bekommt den ganzen Export', (
-    tester,
-  ) async {
+  // Wiring only: that the file holds the FULL export, not the preview, is
+  // pinned in test/widgets/export_paket_export_sheet_test.dart.
+  testWidgets('Export: "Als Datei teilen" nutzt den Teilen-Weg der '
+      'Einstellungen', (tester) async {
     final shared = <(String, String)>[];
     await _openSettings(
       tester,

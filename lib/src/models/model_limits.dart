@@ -254,20 +254,17 @@ abstract final class WeightLogLimits {
 
 /// Bounds of table `public.user_recipes`.
 ///
-/// Source: supabase/migrations/20260530091000_user_recipes.sql
-///   check (calories_kcal >= 0), (protein_g >= 0), (carbs_g >= 0),
-///   (fat_g >= 0), (estimated_g >= 0)
+/// Sources: supabase/migrations/20260530091000_user_recipes.sql (`>= 0`) and
+/// 20260819140000_user_recipes_limits.sql (`user_recipes_safe_ranges_check`:
+/// the numeric ranges of `logged_meals_safe_ranges_check` plus text lengths).
+/// Once a recipe is logged as a meal, [LoggedMealLimits] apply, enforced in
+/// `FitnessRecipe.toMealResult`.
 abstract final class UserRecipeLimits {
   static const int caloriesKcalMin = 0;
   static const int proteinGMin = 0;
   static const int carbsGMin = 0;
   static const int fatGMin = 0;
   static const int estimatedGMin = 0;
-
-  /// The table has no upper bounds, only `>= 0`; the effective limit is the
-  /// `integer` type. Once a recipe is logged as a meal the much stricter
-  /// [LoggedMealLimits] apply, enforced in `FitnessRecipe.toMealResult`.
-  static const bool hasDbUpperBound = false;
 }
 
 // ---------------------------------------------------------------------------

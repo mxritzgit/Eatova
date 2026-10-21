@@ -400,7 +400,16 @@ class SyncOperationFake {
         deleted.add('meal:$entity');
         result = {'entity_deleted': true};
       case 'weightInsert':
-        weights.putIfAbsent(entity, () => row('row'));
+        // Like the SQL: a mismatched id is rejected; a tombstone is not
+        // consulted (ON CONFLICT DO NOTHING only skips an existing row).
+        final weight = row('row');
+        if (weight['id'] != entity) {
+          throw const PostgrestException(
+            message: 'EX_INVALID_WEIGHT',
+            code: '22023',
+          );
+        }
+        weights.putIfAbsent(entity, () => weight);
         incrementStats(_statsId(entity), 0, 1);
         result = {'lifetime_stats': readStats()};
       case 'weightUpsert':
@@ -423,7 +432,14 @@ class SyncOperationFake {
         deleted.add('weight:$entity');
         result = {'entity_deleted': true};
       case 'favoriteUpsert':
-        favorites[entity] = row('row');
+        final favorite = row('row');
+        if (favorite['favorite_key'] != entity) {
+          throw const PostgrestException(
+            message: 'EX_INVALID_FAVORITE',
+            code: '22023',
+          );
+        }
+        favorites[entity] = favorite;
       case 'favoriteDelete':
         favorites.remove(entity);
       case 'profileUpsert':

@@ -1,11 +1,8 @@
 // Light/dark pass for the favorites sheet (feature 2026-08-27), after
-// food_sheets_light_dark_test: every combination renders without exception or
-// overflow, every text is visible, and the search capsule takes its fill and
-// its focus lightening from the tokens (field -> fieldFocus), never from a
-// constant.
-//
-// The old hand-written `for (brightness)` loop is now a `renderMatrix`, which
-// checks overflows itself and adds the `en` column the loop never had.
+// food_sheets_light_dark_test: every combination of palette and language
+// renders without exception or overflow, every text is visible in this mode's
+// ink, and the search capsule is the borderless token capsule
+// (field -> fieldFocus), never a constant.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -151,24 +148,11 @@ void main() {
       expect(_kapsel(tester).color, c.t.fieldFocus);
       expect(tester.takeException(), isNull);
     },
-    locales: _beideSprachen,
+    // The capsule's colours per palette are FieldCapsule's contract
+    // (widgets/design/fixlauf_h_design_system_test.dart); the light palette
+    // alone shows the sheet uses it — a hard-coded dark fill fails here.
+    brightnesses: const <Brightness>[Brightness.light],
   );
 
-  testWidgets('Auf Englisch steht die englische Ueberschrift im Baum',
-      (tester) async {
-    // Counter-check to the matrices above: they read the same ARB the sheet
-    // reads, so a regress in app_en.arb would pass unnoticed. One hard anchor
-    // per language proves the title really CHANGES with the language.
-    pinPhoneViewport(tester);
-    await pumpLocalized(tester, _sheet(_zwei),
-        locale: const Locale('en'), settle: true);
-
-    expect(find.text('Favorites'), findsOneWidget);
-    expect(find.text('2 saved'), findsOneWidget);
-    expect(find.text('Favoriten'), findsNothing);
-    expect(find.text('Search favorites'), findsOneWidget);
-  });
-
-  // A hard-coded capsule fill fails the matrix above: it asserts `c.t.field`
-  // in each mode, and the two palettes' `field` differ.
+  // The copy itself is the ARB's business (ARB parity tests), not this suite's.
 }

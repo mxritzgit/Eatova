@@ -131,7 +131,8 @@ void main() {
       expect(booked, [MealSlot.lunch]);
     });
 
-    for (final scale in [1.0, 1.3, 2.0]) {
+    // The smallest text bounds the target height, the largest the width.
+    for (final scale in [1.0, 2.0]) {
       testWidgets('der leere Bereich bleibt bei $scale lesbar und antippbar', (
         tester,
       ) async {

@@ -35,7 +35,9 @@
   Check the installed version before dependency or lockfile changes.
 - Follow `CONTRIBUTING.md` and the actual CI workflows. Analyzer warnings and
   infos are fatal. Coverage floor is 95%; RLS is also tested against Postgres.
-- Add meaningful regression tests for behavioral fixes. For critical guarantees,
+- Add meaningful regression tests for behavioral fixes, few and sharp, per
+  "Writing tests" in `CONTRIBUTING.md`; the owner rejects dozens of tests for
+  one change. For critical guarantees,
   demonstrate that the test detects the faulty behavior. Freeze date/time when
   testing date-dependent behavior. Do not mutate a shared working tree during
   concurrent tests; use isolation if a future task explicitly calls for it.

@@ -143,12 +143,6 @@ void main() {
       await cache.writeUserRecipes(const <FitnessRecipe>[]);
       expect(await cache.readUserRecipes(), isEmpty);
     });
-
-    test('Slot ist pro userId getrennt', () async {
-      final store = InMemoryKeyValueStore();
-      await _cache(store, 'user-a').writeUserRecipes([testRecipe('user_1')]);
-      expect(await _cache(store, 'user-b').readUserRecipes(), isNull);
-    });
   });
 
   group('LocalCache Outbox + Stats-Deltas', () {
@@ -189,33 +183,8 @@ void main() {
     });
   });
 
+  // A full clear() of every slot is pinned in privacy_cache_deletion_test.dart.
   group('LocalCache Housekeeping (DATA-7)', () {
-    test('clear() raeumt auch Tagebuch, Favoriten, Gewicht, Outbox und Deltas',
-        () async {
-      final store = InMemoryKeyValueStore();
-      final cache = _cache(store);
-      await cache.writeLoggedMeals([testMeal('m-1')]);
-      await cache
-          .writeFavorites([testFavorite('name:bowl', addedAt: DateTime(2026, 8, 5))]);
-      await cache.writeWeightLog(WeightLog(entries: [
-        WeightLogEntry(timestamp: DateTime(2026, 8, 5, 7), weightKg: 81.4),
-      ]));
-      await cache.writeOutbox([SyncOp.mealDelete('m-2')]);
-      await cache.writePendingStatsDeltas(meals: 1, weightLogs: 0);
-      await cache.writeUserRecipes([testRecipe('user_1')]);
-
-      await cache.clear();
-
-      expect(await cache.readLoggedMeals(), isNull);
-      expect(await cache.readFavorites(), isNull);
-      expect(await cache.readWeightLog(), isNull);
-      expect(await cache.readOutbox(), isNull);
-      expect(await cache.readPendingStatsDeltas(), isNull);
-      expect(await cache.readUserRecipes(), isNull);
-      expect(store.snapshot, isEmpty,
-          reason: 'kein PII-Rest in den SharedPreferences');
-    });
-
     test('clear(preserveOutbox: true) haelt genau Outbox + Stats-Deltas',
         () async {
       // A2: logging out must not destroy unsynced meals. The two sync slots
@@ -260,12 +229,6 @@ void main() {
         {'eatova.v1.outbox.user-1', 'eatova.v1.pending_stats.user-1'},
         reason: 'genau die zwei Sync-Slots, kein PII-Rest',
       );
-    });
-
-    test('Slots sind pro userId getrennt', () async {
-      final store = InMemoryKeyValueStore();
-      await _cache(store, 'user-a').writeLoggedMeals([testMeal('m-1')]);
-      expect(await _cache(store, 'user-b').readLoggedMeals(), isNull);
     });
   });
 }

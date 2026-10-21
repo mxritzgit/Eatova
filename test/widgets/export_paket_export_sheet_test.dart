@@ -112,6 +112,20 @@ void main() {
       expect(texts, isNotEmpty);
       expect(texts.every((text) => text.data!.length <= 800), isTrue);
       expect(find.text('300 Datensätze'), findsOneWidget);
+
+      // ...and the sheet says that the preview is not everything.
+      final hinweis = find.byKey(const ValueKey('profile-export-shortened'));
+      await tester.scrollUntilVisible(
+        hinweis,
+        250,
+        scrollable: find
+            .descendant(
+              of: find.byType(DataExportSheet),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(hinweis, findsOneWidget);
     });
 
     testWidgets('eine kurze Auskunft wird nicht gekuerzt und sagt es auch '

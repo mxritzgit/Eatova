@@ -1,10 +1,7 @@
-// DESIGN_REFACTOR §7.2 / §5: both account-change flows render in both
-// brightnesses and at 200 % text scale without RenderFlex overflow.
+// DESIGN_REFACTOR §7.2 / §5: both account-change flows render at 100 % and
+// 200 % text scale without RenderFlex overflow.
 // Overflows are deliberately NOT swallowed — they are what is under test, and
 // `renderMatrix` asserts on them for every case.
-//
-// The two nested `for` loops (brightness x scale, per flow) are gone: the
-// matrix declares the same four cases per flow from one call.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -96,6 +93,8 @@ void main() {
       expect(find.text('Der Code hat 8 Ziffern.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
+    // Brightness only changes colors, never layout, so one suffices here.
+    brightnesses: const <Brightness>[Brightness.light],
     textScales: const <double>[1.0, 2.0],
   );
 
@@ -129,6 +128,8 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     },
+    // Brightness only changes colors, never layout, so one suffices here.
+    brightnesses: const <Brightness>[Brightness.light],
     textScales: const <double>[1.0, 2.0],
   );
 }

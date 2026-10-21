@@ -105,8 +105,6 @@ TrainingScreen _screen({
   VoidCallback? logWorkout,
   void Function(TrainingPlan, int)? logPlanned,
   VoidCallback? coachLog,
-  bool historyLoadFailed = false,
-  VoidCallback? retryHistory,
   List<TrainingWorkoutSummary> recent = const [],
 }) => TrainingScreen(
   plans: plans,
@@ -125,8 +123,6 @@ TrainingScreen _screen({
   onLogWorkout: logWorkout,
   onLogPlannedWorkout: logPlanned,
   onOpenCoachLog: coachLog,
-  historyLoadFailed: historyLoadFailed,
-  onRetryHistory: retryHistory,
 );
 
 /// A free log of [plan]'s first Pull exercise name, with no duration.
@@ -607,14 +603,6 @@ void main() {
         await _tap(tester, 'training-history-detail-back');
         expect(find.byType(TrainingHistoryDetail), findsNothing);
 
-        // "All workouts" sits at the right edge, flush with the card.
-        final link = find.byKey(const ValueKey('training-recent-all'));
-        await tester.ensureVisible(link);
-        await settleFrames(tester);
-        expect(
-          tester.getRect(link).right,
-          tester.getRect(find.byKey(const ValueKey('training-recent'))).right,
-        );
         await _tap(tester, 'training-recent-all');
         expect(find.byType(TrainingHistoryScreen), findsOneWidget);
         await _leave(tester);
@@ -1138,27 +1126,6 @@ void main() {
       expect(find.text('Last time 55 kg × 10'), findsOneWidget);
     });
 
-    testWidgets('a history load failure is said, with retry', (tester) async {
-      var retries = 0;
-      await _pumpScreen(
-        tester,
-        _screen(
-          plans: [plan],
-          historyLoadFailed: true,
-          retryHistory: () => retries++,
-        ),
-      );
-      expect(
-        find.text(
-          'Your workout history could not be loaded, so this overview may '
-          'be incomplete.',
-        ),
-        findsOneWidget,
-      );
-      await _tapScreen(tester, 'training-history-retry');
-      expect(retries, 1);
-    });
-
     testWidgets('"Tell the Coach instead" opens the Coach log', (tester) async {
       var opened = 0;
       await _pumpScreen(
@@ -1275,11 +1242,10 @@ void main() {
       });
     }
 
-    for (final (size, scale) in [
-      (const Size(390, 844), 1.3),
-      (const Size(320, 568), 1.0),
-      (const Size(320, 568), 2.0),
-    ]) {
+    // The tightest window (320 px, 2.0x text) in both languages; the shell
+    // sweep (test/responsive/app_layout_sweep_test.dart) covers the tab at
+    // the other sizes, though without history, volume and Recent.
+    for (final (size, scale) in [(const Size(320, 568), 2.0)]) {
       for (final locale in ['de', 'en']) {
         testWidgets('no overflow at $size ${scale}x $locale', (tester) async {
           await pumpLocalized(

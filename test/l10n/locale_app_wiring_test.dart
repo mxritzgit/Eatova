@@ -8,7 +8,8 @@ import 'package:eatova/src/app/locale_controller.dart';
 // WIRING of the display language in the REAL app shell. Mirror of
 // test/theme/theme_mode_app_wiring_test.dart: a controller/widget check alone
 // misses `EatovaApp.build`, the one place the chain hangs on in the shipped
-// app.
+// app. resolveEatovaLocale itself is covered in
+// test/app/locale_controller_test.dart.
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
@@ -43,7 +44,11 @@ void main() {
     expect(Localizations.localeOf(ctx), const Locale('en'));
   });
 
-  testWidgets('System + deutsches Geraet bleibt Deutsch', (tester) async {
+  // A German device gets German SDK dialogs (date picker in
+  // edit_meal_sheet.dart and meal_plan_editor.dart) in 24h format instead of
+  // English with AM/PM: the Global*Localizations delegates are wired.
+  testWidgets('System + deutsches Geraet: App und Material-Dialoge deutsch, '
+      '24h-Format', (tester) async {
     tester.platformDispatcher.localesTestValue = const [Locale('de', 'DE')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
 
@@ -52,7 +57,18 @@ void main() {
 
     await pumpApp(tester, controller);
 
-    final ctx = tester.element(find.byType(Scaffold).first);
-    expect(Localizations.localeOf(ctx), const Locale('de'));
+    final context = tester.element(find.byKey(const ValueKey('screen-today')));
+    expect(Localizations.localeOf(context), const Locale('de'));
+    final material = MaterialLocalizations.of(context);
+    expect(material.cancelButtonLabel, 'Abbrechen');
+    expect(material.formatMonthYear(DateTime(2026, 3, 20)), 'März 2026');
+    // Exactly the format decision showTimePicker makes: for de,
+    // GlobalMaterialLocalizations returns HH:mm regardless of the device flag.
+    expect(
+      material.timeOfDayFormat(
+        alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+      ),
+      TimeOfDayFormat.HH_colon_mm,
+    );
   });
 }

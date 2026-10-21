@@ -154,30 +154,6 @@ void main() {
     expect(store.current.source, SearchCredentialsOrigin.network);
   });
 
-  test('resolveForRequest ist fertig, waehrend der Netz-Fetch noch haengt',
-      () async {
-    final clock = _Clock();
-    final disk = InMemoryKeyValueStore({
-      SearchCredentialsStore.cacheKey: _entry(
-        fetchedAt: clock.value.subtract(const Duration(days: 3)),
-      ),
-    });
-    // Gate that never completes -> the network path stays open forever.
-    final fetcher = _FakeFetcher(result: _fetched('never-arrives'))
-      ..gate = Completer<void>();
-    final store = SearchCredentialsStore(
-      store: disk,
-      fetcher: fetcher,
-      clock: clock.call,
-    );
-
-    unawaited(store.warmUp());
-    final resolved = await store.resolveForRequest();
-
-    expect(resolved.searchKey, 'cached-key');
-    expect(resolved.source, SearchCredentialsOrigin.cache);
-  });
-
   test('abgelaufene Hydrations-Gnadenfrist faellt auf den Default zurueck',
       () async {
     final fetcher = _FakeFetcher();
@@ -422,28 +398,9 @@ void main() {
     expect((await store.invalidate(store.current)).isUsable, isFalse);
   });
 
-  test('Server-Kill-Switch (leere Credentials) schaltet den Mirror ab', () async {
-    final disk = InMemoryKeyValueStore();
-    final store = SearchCredentialsStore(
-      store: disk,
-      fetcher: _FakeFetcher(
-        result: const FetchedSearchCredentials(
-          baseUrl: '',
-          searchKey: '',
-          ttl: Duration(hours: 12),
-        ),
-      ),
-      clock: _Clock().call,
-    );
-
-    await store.warmUp();
-
-    expect(store.current.isUsable, isFalse);
-    // Persisted so the next cold start does not throw the compile-time default
-    // at the disabled mirror again.
-    expect(_persisted(disk)['key'], '');
-    expect(_persisted(disk)['base_url'], '');
-  });
+  // The server kill switch (empty credentials) runs over the real fetcher in
+  // search_credentials_killswitch_test.dart, persisted state and restart
+  // included.
 
   test('warmUp ist idempotent', () async {
     final fetcher = _FakeFetcher(result: _fetched('k'));

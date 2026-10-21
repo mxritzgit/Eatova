@@ -12,7 +12,7 @@
 //     asks for no watermark — so those pictures carry no mark at all. This
 //     suite is the behaviour half: the badge must be there at BOTH display
 //     places, in both display modes and both languages, reachable by a screen
-//     reader, and it must not resize or crop the photo it sits on.
+//     reader, and it sits on the photo instead of pushing the card apart.
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -148,150 +148,65 @@ Future<void> _openSheet(WidgetTester tester) async {
   expect(_sheet, findsOneWidget);
 }
 
+/// The badge inside [host] (card or sheet): from the ARB, an opaque
+/// forest/onForest pill (the photo underneath is arbitrarily bright or dark,
+/// so a translucent scrim would lose in one of the two modes), and laid OVER
+/// the photo, not stacked into the column where it would push the card apart.
+void _expectBadgeOnPhoto(WidgetTester tester, Finder host, RenderCase c) {
+  final abzeichen = find.descendant(of: host, matching: _badge);
+  expect(abzeichen, findsOneWidget);
+  final text = tester.widget<Text>(
+    find.descendant(of: abzeichen, matching: find.byType(Text)),
+  );
+  expect(text.data, c.l10n.coachRecipeAiImageBadge);
+  // Not `decorationOf`: that helper reads the first Container BELOW its
+  // finder, and here the key sits ON the Container.
+  final pille =
+      tester.widget<Container>(abzeichen).decoration! as BoxDecoration;
+  expect(pille.color, c.t.forest);
+  expect(text.style?.color, c.t.onForest);
+
+  final bild = tester.getRect(
+    find.descendant(of: host, matching: find.byType(Image)),
+  );
+  final abzeichenRect = tester.getRect(abzeichen);
+  expect(
+    bild.contains(abzeichenRect.topLeft) &&
+        bild.contains(abzeichenRect.bottomRight - const Offset(1, 1)),
+    isTrue,
+    reason: 'das Abzeichen muss INNERHALB des Bildes sitzen '
+        '($abzeichenRect vs. $bild)',
+  );
+}
+
 void main() {
-  group('Das KI-Bild der Karte ist gekennzeichnet', () {
-    renderMatrix(
-      'die Karte traegt das KI-Abzeichen',
-      (tester, c) async {
-        await _pumpCoach(
-          tester,
-          imageBytes: _png,
-          locale: c.locale,
-          brightness: c.brightness,
-        );
+  renderMatrix(
+    'Karte und Bestaetigungs-Sheet kennzeichnen das KI-Bild',
+    (tester, c) async {
+      await _pumpCoach(
+        tester,
+        imageBytes: _png,
+        locale: c.locale,
+        brightness: c.brightness,
+      );
+      expect(_card, findsOneWidget);
+      _expectBadgeOnPhoto(tester, _card, c);
 
-        expect(_card, findsOneWidget);
-        final abzeichen = find.descendant(of: _card, matching: _badge);
-        expect(abzeichen, findsOneWidget);
-        expect(
-          find.descendant(of: abzeichen, matching: find.byType(Text)),
-          findsOneWidget,
-        );
-        final text = tester.widget<Text>(
-          find.descendant(of: abzeichen, matching: find.byType(Text)),
-        );
-        expect(
-          text.data,
-          c.l10n.coachRecipeAiImageBadge,
-          reason: 'das Abzeichen kommt aus dem ARB, nicht aus dem Code',
-        );
+      await _openSheet(tester);
+      _expectBadgeOnPhoto(tester, _sheet, c);
+    },
+    locales: const <Locale>[Locale('de'), Locale('en')],
+  );
 
-        // The photo underneath is arbitrarily bright or dark, so the readable
-        // pair has to come from the pill itself: an OPAQUE forest fill with
-        // its onForest ink, exactly as the catalog badge does it. A
-        // translucent scrim would be a bet on the picture, and it would lose
-        // that bet in one of the two display modes.
-        // Not `decorationOf`: that helper reads the first Container BELOW its
-        // finder, and here the key sits ON the Container.
-        final pille =
-            tester.widget<Container>(abzeichen).decoration! as BoxDecoration;
-        expect(pille.color, c.t.forest);
-        expect(text.style?.color, c.t.onForest);
-      },
-      locales: const <Locale>[Locale('de'), Locale('en')],
-    );
+  testWidgets('ohne Bildbytes gibt es kein Abzeichen (nichts zu kennzeichnen)',
+      (tester) async {
+    // A proposal reloaded from chat_messages.recipe carries no bytes; the
+    // card then shows the striped placeholder, and there is no AI image to
+    // declare.
+    await _pumpCoach(tester);
 
-    renderMatrix(
-      'das Abzeichen liegt AUF dem Foto, es schiebt es nicht',
-      (tester, c) async {
-        await _pumpCoach(
-          tester,
-          imageBytes: _png,
-          locale: c.locale,
-          brightness: c.brightness,
-        );
-
-        final bild = find.descendant(of: _card, matching: find.byType(Image));
-        final bildRect = tester.getRect(bild);
-        expect(
-          bildRect.height,
-          150.0,
-          reason: 'die Bildhoehe der Karte stand vor der Kennzeichnung auf '
-              '150 und darf sich durch sie nicht bewegen',
-        );
-
-        final abzeichenRect =
-            tester.getRect(find.descendant(of: _card, matching: _badge));
-        expect(
-          bildRect.contains(abzeichenRect.topLeft) &&
-              bildRect.contains(abzeichenRect.bottomRight - const Offset(1, 1)),
-          isTrue,
-          reason: 'das Abzeichen muss INNERHALB des Bildes sitzen — sonst ist '
-              'es eine Zeile im Layout und schiebt die Karte auseinander '
-              '($abzeichenRect vs. $bildRect)',
-        );
-      },
-    );
-
-    renderMatrix(
-      'ohne Bildbytes gibt es kein Abzeichen (nichts zu kennzeichnen)',
-      (tester, c) async {
-        // A proposal reloaded from chat_messages.recipe carries no bytes; the
-        // card then shows the striped placeholder, and there is no AI image to
-        // declare.
-        await _pumpCoach(tester, locale: c.locale, brightness: c.brightness);
-
-        expect(_card, findsOneWidget);
-        expect(_badge, findsNothing);
-      },
-    );
-  });
-
-  group('Das KI-Bild des Bestaetigungs-Sheets ist gekennzeichnet', () {
-    renderMatrix(
-      'das Sheet traegt dasselbe Abzeichen',
-      (tester, c) async {
-        await _pumpCoach(
-          tester,
-          imageBytes: _png,
-          locale: c.locale,
-          brightness: c.brightness,
-        );
-        await _openSheet(tester);
-
-        final abzeichen = find.descendant(of: _sheet, matching: _badge);
-        expect(abzeichen, findsOneWidget);
-        expect(
-          tester.widget<Text>(
-            find.descendant(of: abzeichen, matching: find.byType(Text)),
-          ).data,
-          c.l10n.coachRecipeAiImageBadge,
-        );
-      },
-      locales: const <Locale>[Locale('de'), Locale('en')],
-    );
-
-    renderMatrix(
-      'auch im Sheet liegt es AUF dem Foto',
-      (tester, c) async {
-        await _pumpCoach(
-          tester,
-          imageBytes: _png,
-          locale: c.locale,
-          brightness: c.brightness,
-        );
-        await _openSheet(tester);
-
-        final bild = find.descendant(of: _sheet, matching: find.byType(Image));
-        final bildRect = tester.getRect(bild);
-        expect(
-          bildRect.height,
-          170.0,
-          reason: 'die Bildhoehe des Sheets stand vor der Kennzeichnung auf '
-              '170 und darf sich durch sie nicht bewegen',
-        );
-
-        final abzeichenRect =
-            tester.getRect(find.descendant(of: _sheet, matching: _badge));
-        expect(
-          bildRect.contains(abzeichenRect.topLeft) &&
-              bildRect.contains(abzeichenRect.bottomRight - const Offset(1, 1)),
-          isTrue,
-          reason: 'ueberlagert, nicht eingereiht '
-              '($abzeichenRect vs. $bildRect)',
-        );
-      },
-    );
+    expect(_card, findsOneWidget);
+    expect(_badge, findsNothing);
   });
 
   group('Barrierefreiheit', () {
@@ -340,26 +255,25 @@ void main() {
     });
   });
 
-  group('Textskalierung', () {
-    // The pill is pinned on BOTH sides inside the photo, so at double text
-    // size it wraps into the picture instead of running off it. renderMatrix
-    // fails the case on any layout error by itself.
-    renderMatrix(
-      'Karte und Sheet ueberstehen doppelte Schrift',
-      (tester, c) async {
-        await _pumpCoach(
-          tester,
-          imageBytes: _png,
-          locale: c.locale,
-          brightness: c.brightness,
-          textScale: c.textScale,
-        );
-        expect(find.descendant(of: _card, matching: _badge), findsOneWidget);
+  // The pill is pinned on BOTH sides inside the photo, so at double text size
+  // it wraps into the picture instead of running off it. renderMatrix fails
+  // the case on any layout error by itself.
+  renderMatrix(
+    'Karte und Sheet ueberstehen doppelte Schrift',
+    (tester, c) async {
+      await _pumpCoach(
+        tester,
+        imageBytes: _png,
+        locale: c.locale,
+        brightness: c.brightness,
+        textScale: c.textScale,
+      );
+      expect(find.descendant(of: _card, matching: _badge), findsOneWidget);
 
-        await _openSheet(tester);
-        expect(find.descendant(of: _sheet, matching: _badge), findsOneWidget);
-      },
-      textScales: const <double>[2.0],
-    );
-  });
+      await _openSheet(tester);
+      expect(find.descendant(of: _sheet, matching: _badge), findsOneWidget);
+    },
+    brightnesses: const <Brightness>[Brightness.dark],
+    textScales: const <double>[2.0],
+  );
 }

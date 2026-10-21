@@ -346,27 +346,7 @@ void main() {
     );
   }
 
-  test(
-    'an empty intermediate email response keeps the existing session',
-    () async {
-      final transport = MockClient(
-        (_) async => http.Response('{}', 200, headers: _json),
-      );
-      final client = _client(transport);
-      addTearDown(client.dispose);
-      await client.auth.setInitialSession(jsonEncode(_session('account-a')));
-      final original = client.auth.currentSession;
-      final repo = SupabaseAuthRepository(
-        client,
-        mutationHttpClient: transport,
-      );
-      await repo.confirmEmailChange(
-        email: 'account-a@example.com',
-        code: '12345678',
-      );
-      expect(client.auth.currentSession, same(original));
-    },
-  );
+  // The empty first secure-email response: auth_email_confirmation_session_test.
 
   for (final foreignUser in [false, true]) {
     test(

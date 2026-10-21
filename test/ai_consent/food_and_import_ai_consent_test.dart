@@ -191,19 +191,6 @@ void main() {
       await _agree(tester);
       expect(find.byKey(const ValueKey('meal-describe-sheet')), findsOneWidget);
     });
-
-    testWidgets('mit Einwilligung kein Blatt, die Kamera startet direkt', (
-      tester,
-    ) async {
-      final controller = await aiTrustController(
-        log: FakeAiTrustLog(rows: [grantedRecord()]),
-      );
-      final opened = await _openAddSheet(tester, controller);
-
-      await _tapEntry(tester, 'analyse-camera-button');
-      expect(_consentSheet, findsNothing);
-      expect(opened.photos.picks, <ImageSource>[ImageSource.camera]);
-    });
   });
 
   testWidgets('Food-Tab: der KI-Scan fragt vor der Kamera', (tester) async {

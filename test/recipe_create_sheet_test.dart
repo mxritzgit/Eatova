@@ -276,26 +276,28 @@ void main() {
 
     // Every single field must suffice on its own — the property a hand-kept
     // field list in the sheet loses sooner or later.
-    for (final key in alleFeldKeys) {
-      testWidgetsRobust('eine Aenderung nur in $key loest den Dialog aus',
-          (tester) async {
-        final capture = _CreateCapture();
-        await _openSheet(tester, capture);
+    testWidgetsRobust('eine Aenderung in jedem einzelnen Feld loest den Dialog '
+        'aus', (tester) async {
+      final capture = _CreateCapture();
+      await _openSheet(tester, capture);
 
-        // '7' is valid for every field and differs from the initial value —
-        // including the digitsOnly fields.
+      for (final key in alleFeldKeys) {
+        // '7' is valid for every field and differs from the initial value.
         await _tippe(tester, key, '7');
-        await tester.pumpAndSettle();
-
         await _tapBarrier(tester);
 
         expect(find.byKey(const ValueKey('discard-changes-dialog')),
             findsOneWidget,
             reason: '$key wird von _dirty nicht erfasst');
-        expect(
-            find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
-      });
-    }
+
+        // Discard and start the next field on a fresh sheet.
+        await tester.tap(find.byKey(const ValueKey('discard-changes-confirm')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
+        await tester.pumpAndSettle();
+      }
+      expect(capture.created, isEmpty);
+    });
   });
 
   group('Feldvalidierung — die logged_meals-Grenzen gelten schon beim Anlegen',
@@ -325,62 +327,35 @@ void main() {
     final macroMax = LoggedMealLimits.macroGMax.toInt();
 
     testWidgetsRobust(
-        'ueber $kcalMax kcal wird abgelehnt statt geklemmt — sonst laesst sich '
-        'das Rezept anlegen, aber nie loggen', (tester) async {
-      final capture = _CreateCapture();
-      await _openSheet(tester, capture);
-      await fuelleGueltig(tester);
-
-      await _tippe(tester, 'recipe-create-kcal', '50000');
-      await tester.pumpAndSettle();
-
-      expect(isValidMealCaloriesKcal(50000), isFalse);
-      expect(_saveButton(tester).onTap, isNull);
-      expect(find.text('1–$kcalMax kcal'), findsOneWidget);
-      expect(capture.created, isEmpty);
-    });
-
-    testWidgetsRobust('genau $kcalMax kcal ist noch erlaubt (Grenze inklusiv)',
+        'genau $kcalMax kcal ist erlaubt, darueber wird abgelehnt statt '
+        'geklemmt — sonst laesst sich das Rezept anlegen, aber nie loggen',
         (tester) async {
       final capture = _CreateCapture();
       await _openSheet(tester, capture);
       await fuelleGueltig(tester);
 
       await _tippe(tester, 'recipe-create-kcal', '$kcalMax');
-      await tester.pumpAndSettle();
       expect(_saveButton(tester).onTap, isNotNull);
       expect(find.text('1–$kcalMax kcal'), findsNothing);
 
-      // Exactly one above flips it.
       await _tippe(tester, 'recipe-create-kcal', '${kcalMax + 1}');
-      await tester.pumpAndSettle();
       expect(_saveButton(tester).onTap, isNull);
+      expect(find.text('1–$kcalMax kcal'), findsOneWidget);
+      expect(capture.created, isEmpty);
     });
 
-    testWidgetsRobust('0 Gramm wird abgelehnt (Division in adjustedToGrams)',
-        (tester) async {
+    testWidgetsRobust(
+        '0 g (Division in adjustedToGrams) und ueber $gramsMax g werden '
+        'abgelehnt', (tester) async {
       final capture = _CreateCapture();
       await _openSheet(tester, capture);
       await fuelleGueltig(tester);
 
-      await _tippe(tester, 'recipe-create-grams', '0');
-      await tester.pumpAndSettle();
-
-      expect(isPlausiblePortionGrams(0), isFalse);
-      expect(_saveButton(tester).onTap, isNull);
-      expect(find.text('1–$gramsMax g'), findsOneWidget);
-    });
-
-    testWidgetsRobust('ueber $gramsMax g wird abgelehnt', (tester) async {
-      final capture = _CreateCapture();
-      await _openSheet(tester, capture);
-      await fuelleGueltig(tester);
-
-      await _tippe(tester, 'recipe-create-grams', '${gramsMax + 1}');
-      await tester.pumpAndSettle();
-
-      expect(_saveButton(tester).onTap, isNull);
-      expect(find.text('1–$gramsMax g'), findsOneWidget);
+      for (final grams in ['0', '${gramsMax + 1}']) {
+        await _tippe(tester, 'recipe-create-grams', grams);
+        expect(_saveButton(tester).onTap, isNull, reason: grams);
+        expect(find.text('1–$gramsMax g'), findsOneWidget, reason: grams);
+      }
     });
 
     testWidgetsRobust('ueber $macroMax g Makro wird abgelehnt', (tester) async {
@@ -425,6 +400,46 @@ void main() {
         LoggedMealLimits.mealNameMaxChars,
       );
     });
+
+    // Review 2026-09-08: the field caps count graphemes, the database counts
+    // code points. A family emoji is one grapheme of seven code points.
+    final familie = String.fromCharCodes(
+      [0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467, 0x200D, 0x1F466],
+    );
+    for (final (feld, maxCodePoints, grapheme) in [
+      ('portion', 1000, 143),
+      ('ingredients', 20000, 2858),
+    ]) {
+      testWidgetsRobust(
+          '$feld lehnt mehr Codepunkte ab, als die Datenbank fasst, und nimmt '
+          'genau die Grenze an', (tester) async {
+        final capture = _CreateCapture();
+        await _openSheet(tester, capture);
+        await fuelleGueltig(tester);
+        final key = 'recipe-create-$feld';
+
+        await _tippe(tester, key, familie * grapheme);
+        expect(_inhalt(tester, key).runes.length, greaterThan(maxCodePoints));
+        expect(_saveButton(tester).onTap, isNull);
+
+        // A blanket rejection of Unicode must not pass.
+        final gruppen = maxCodePoints ~/ 7;
+        await _tippe(
+          tester,
+          key,
+          familie * gruppen + 'a' * (maxCodePoints - gruppen * 7),
+        );
+        expect(_saveButton(tester).onTap, isNotNull);
+        final save = find.byKey(const ValueKey('recipe-create-save'));
+        await tester.ensureVisible(save);
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+        final gespeichert = feld == 'portion'
+            ? capture.created.single.portion
+            : capture.created.single.ingredients;
+        expect(gespeichert.runes.length, maxCodePoints);
+      });
+    }
 
     testWidgetsRobust(
         'was sich anlegen laesst, laesst sich auch loggen — toMealResult '
@@ -525,7 +540,7 @@ void main() {
     // The card sits ABOVE the fields: if it grew while typing, the field
     // being edited would jump and lose the keyboard's scroll-into-view
     // (creation_editors_test went red at 320 px / 2x when the name wrapped).
-    for (final (breite, skala) in const [(320.0, 2.0), (320.0, 1.0), (390.0, 1.0)]) {
+    for (final (breite, skala) in const [(320.0, 2.0), (390.0, 1.0)]) {
       testWidgetsRobust(
           'behaelt ihre Hoehe beim Tippen ($breite px, ${skala}x)',
           (tester) async {

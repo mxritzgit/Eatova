@@ -68,79 +68,35 @@ class _FakePickerPlatform extends ImagePickerPlatform
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  late Uint8List original;
-
-  setUp(() {
-    original = _geotaggedJpeg();
-  });
-
-  test('Vorbedingung: das Fixture traegt GPS wirklich im Byte-Strom', () {
-    // Without this guard the scrub test would be vacuously green.
+  test(
+      'C4: das gewaehlte Foto verlaesst DeviceMealPhotoInput ohne EXIF, '
+      'Vorschau und Upload sind dieselben Bytes, das Motiv bleibt', () async {
+    final original = _geotaggedJpeg();
+    // Precondition, or the scrub assertions below check nothing.
     expect(_hasExifSegment(original), isTrue);
-    final decoded = img.decodeJpg(original)!;
-    expect(decoded.exif.gpsIfd.keys, isNotEmpty);
-    expect(decoded.exif.gpsIfd[0x0002]!.toDouble(), closeTo(52, 0.01));
-  });
-
-  test(
-      'C4: das gewaehlte Foto verlaesst DeviceMealPhotoInput ohne EXIF — '
-      'sonst reisen Koordinaten an die Edge Function und weiter in die USA',
-      () async {
-    ImagePickerPlatform.instance = _FakePickerPlatform(
-      XFile.fromData(original, name: 'meal.jpg', mimeType: 'image/jpeg'),
-    );
-
-    final selection = await DeviceMealPhotoInput().pick(ImageSource.gallery);
-
-    expect(selection, isNotNull);
-    final gesendet = selection!.request.imageBytes!;
-    expect(_hasExifSegment(gesendet), isFalse,
-        reason: 'Breitengrad, Laengengrad, Hoehe und Aufnahmezeit duerfen das '
-            'Geraet nicht verlassen');
-    final decoded = img.decodeJpg(gesendet)!;
-    expect(decoded.exif.gpsIfd.keys, isEmpty);
-    expect(decoded.exif.isEmpty, isTrue,
-        reason: 'auch Geraetemodell und Seriennummer gehoeren nicht mit');
-  });
-
-  test('C4: Vorschau und Upload tragen dieselben gescrubbten Bytes', () async {
-    ImagePickerPlatform.instance = _FakePickerPlatform(
-      XFile.fromData(original, name: 'meal.jpg', mimeType: 'image/jpeg'),
-    );
-
-    final selection = await DeviceMealPhotoInput().pick(ImageSource.camera);
-
-    expect(selection!.previewBytes, same(selection.request.imageBytes),
-        reason: 'zwei Kopien wuerden auseinanderlaufen, sobald jemand nur '
-            'eine davon scrubbt');
-    expect(_hasExifSegment(selection.previewBytes!), isFalse);
-  });
-
-  test('das Motiv ueberlebt den Scrub', () async {
-    ImagePickerPlatform.instance = _FakePickerPlatform(
-      XFile.fromData(original, name: 'meal.jpg', mimeType: 'image/jpeg'),
-    );
-
-    final selection = await DeviceMealPhotoInput().pick(ImageSource.gallery);
-    final decoded = img.decodeJpg(selection!.previewBytes!)!;
-
-    expect(decoded.width, greaterThan(0));
-    expect(decoded.height, greaterThan(0));
-    final pixel = decoded.getPixel(decoded.width ~/ 2, decoded.height ~/ 2);
-    expect(pixel.r, closeTo(180, 12));
-    expect(pixel.g, closeTo(120, 12));
-  });
-
-  test(
-      'imageQuality/maxWidth bleiben gesetzt — ohne sie reicht iOS HEIC durch, '
-      'das package:image nicht dekodieren kann', () async {
+    expect(img.decodeJpg(original)!.exif.gpsIfd.keys, isNotEmpty);
     final picker = _FakePickerPlatform(
       XFile.fromData(original, name: 'meal.jpg', mimeType: 'image/jpeg'),
     );
     ImagePickerPlatform.instance = picker;
 
-    await DeviceMealPhotoInput().pick(ImageSource.gallery);
+    final selection = await DeviceMealPhotoInput().pick(ImageSource.gallery);
 
+    final gesendet = selection!.request.imageBytes!;
+    expect(_hasExifSegment(gesendet), isFalse,
+        reason: 'Koordinaten, Hoehe und Aufnahmezeit duerfen das Geraet nicht '
+            'verlassen — sonst reisen sie an die Edge Function und weiter');
+    final decoded = img.decodeJpg(gesendet)!;
+    expect(decoded.exif.isEmpty, isTrue,
+        reason: 'auch Geraetemodell und Seriennummer gehoeren nicht mit');
+    expect(selection.previewBytes, same(gesendet),
+        reason: 'zwei Kopien wuerden auseinanderlaufen, sobald jemand nur '
+            'eine davon scrubbt');
+    final pixel = decoded.getPixel(decoded.width ~/ 2, decoded.height ~/ 2);
+    expect(pixel.r, closeTo(180, 12));
+    expect(pixel.g, closeTo(120, 12));
+    // Without imageQuality/maxWidth iOS hands over HEIC, which package:image
+    // cannot decode.
     expect(picker.lastOptions!.imageQuality, isNotNull);
     expect(picker.lastOptions!.maxWidth, isNotNull);
   });

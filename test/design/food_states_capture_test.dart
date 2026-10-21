@@ -251,11 +251,13 @@ void main() {
         await tester.pump();
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
         await tester.pumpAndSettle();
+        // The shot must show the paged month, not a frame where the key
+        // press did nothing (the paging itself is pinned in
+        // test/widgets/kcal/food_month_calendar_test.dart).
         final landed = find.byKey(const ValueKey('food-date-day-2026-8-31'));
-        if (landed.evaluate().isNotEmpty) {
-          await tester.ensureVisible(landed);
-          await tester.pumpAndSettle();
-        }
+        expect(landed, findsOneWidget);
+        await tester.ensureVisible(landed);
+        await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         await captureDesignShot(
           tester,

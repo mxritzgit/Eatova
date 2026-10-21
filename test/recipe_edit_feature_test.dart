@@ -37,7 +37,6 @@ Future<void> openEditor(
   Future<SyncDelivery> Function(FitnessRecipe)? save,
   bool Function()? session,
   double textScale = 1,
-  Brightness brightness = Brightness.dark,
 }) async {
   await pumpLocalized(
     tester,
@@ -52,7 +51,6 @@ Future<void> openEditor(
     ),
     locale: const Locale('en'),
     textScale: textScale,
-    brightness: brightness,
     safeArea: false,
   );
   await tester.ensureVisible(find.byKey(const ValueKey('recipe-detail-edit')));
@@ -213,22 +211,18 @@ void main() {
     );
   });
 
-  for (final brightness in Brightness.values) {
-    testWidgets('editor reflows at 320px with doubled text $brightness', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(320, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await openEditor(tester, textScale: 2, brightness: brightness);
-      await tester.ensureVisible(field('preparation'));
-      await tester.enterText(field('preparation'), 'Readable preparation');
-      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-      addTearDown(tester.view.resetViewInsets);
-      await tester.pumpAndSettle();
-      expect(field('save'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-  }
+  testWidgets('editor reflows at 320px with doubled text', (tester) async {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await openEditor(tester, textScale: 2);
+    await tester.ensureVisible(field('preparation'));
+    await tester.enterText(field('preparation'), 'Readable preparation');
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+    expect(field('save'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

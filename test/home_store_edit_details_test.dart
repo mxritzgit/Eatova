@@ -65,10 +65,13 @@ MealAnalysisResult _meal(String name) => MealAnalysisResult(
 DateTime get _today => DateUtils.dateOnly(clock.now());
 DateTime get _yesterday => DateTime(_today.year, _today.month, _today.day - 1);
 
+/// Pinned "now", far from midnight: "today" and "yesterday" hang off it.
+final DateTime _jetzt = DateTime(2026, 9, 16, 12);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Slot aendern setzt forcedSlot, Zeitpunkt und Tagessumme bleiben', () async {
+  test('Slot aendern setzt forcedSlot, Zeitpunkt und Tagessumme bleiben', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
     final before = s.store.loggedMeals.single;
@@ -82,11 +85,11 @@ void main() {
     expect(s.store.loggedMeals.single.slot, MealSlot.snack);
     expect(s.store.dailyConsumedKcal, 300);
     expect(s.snacks.messages.last, 'Mahlzeit aktualisiert.');
-  });
+  }));
 
   test(
       'Tag verschieben: Wanduhr-Zeit bleibt, localDay wird kanonisch, '
-      'Tageszaehler/Makros BEIDER Tage konsistent', () async {
+      'Tageszaehler/Makros BEIDER Tage konsistent', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
     final before = s.store.loggedMeals.single;
@@ -106,9 +109,9 @@ void main() {
     expect(s.store.macroProgress.proteinG, 0);
     expect(s.store.mealsForFoodDate(_yesterday).single.id, id);
     expect(s.snacks.messages.last, 'Mahlzeit auf gestern verschoben.');
-  });
+  }));
 
-  test('Verschieben AUF heute markiert heute als getrackt — idempotent', () async {
+  test('Verschieben AUF heute markiert heute als getrackt — idempotent', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     // A late entry for yesterday does not count towards the streak.
     final id = await s.store.addResultToDailyTotal(_meal('Nachtrag'),
@@ -125,11 +128,11 @@ void main() {
         foodDate: _yesterday);
     await s.store.updateLoggedMealDetails(id2, day: clock.now());
     expect(s.store.lifetimeStats.currentStreak, 1);
-  });
+  }));
 
   test(
       'Verschieben auf einen VERGANGENEN Tag ist ein Nachtrag — Streak und '
-      'lastTrackedDate bleiben stehen', () async {
+      'lastTrackedDate bleiben stehen', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final id = await s.store.addResultToDailyTotal(_meal('Bowl')); // today -> 1
     expect(s.store.lifetimeStats.currentStreak, 1);
@@ -138,9 +141,9 @@ void main() {
 
     expect(s.store.lifetimeStats.currentStreak, 1);
     expect(s.store.lifetimeStats.lastTrackedDate, _today);
-  });
+  }));
 
-  test('Portion aendern (result) zieht die Tagessumme nach', () async {
+  test('Portion aendern (result) zieht die Tagessumme nach', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
     final scaled = s.store.loggedMeals.single.result.adjustedToGrams(150);
@@ -149,9 +152,9 @@ void main() {
 
     expect(s.store.dailyConsumedKcal, 150);
     expect(s.store.loggedMeals.single.result.estimatedGrams, 150);
-  });
+  }));
 
-  test('Undo (Rückgängig) stellt Slot, Tag und Tagessumme wieder her', () async {
+  test('Undo (Rückgängig) stellt Slot, Tag und Tagessumme wieder her', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
     final before = s.store.loggedMeals.single;
@@ -171,9 +174,9 @@ void main() {
     expect(restored.effectiveLocalDay, before.effectiveLocalDay);
     expect(s.store.dailyConsumedKcal, 300);
     expect(s.store.consumedKcalForFoodDate(_yesterday), 0);
-  });
+  }));
 
-  test('Keine Aenderung uebergeben -> No-op ohne Snack', () async {
+  test('Keine Aenderung uebergeben -> No-op ohne Snack', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
     final countBefore = s.snacks.messages.length;
@@ -182,16 +185,16 @@ void main() {
 
     expect(result, same(s.store.loggedMeals.single));
     expect(s.snacks.messages.length, countBefore);
-  });
+  }));
 
-  test('Unbekannte id -> null, nichts passiert', () async {
+  test('Unbekannte id -> null, nichts passiert', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     await s.store.addResultToDailyTotal(_meal('Bowl'));
 
     expect(await s.store.updateLoggedMealDetails('gibt-es-nicht',
         slot: MealSlot.snack), isNull);
     expect(s.store.dailyConsumedKcal, 300);
-  });
+  }));
 
   // Review 2026-10-04: an entry logged in this session had no localDay and
   // bucketed by its timestamp's CURRENT local day. A zone change while the

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/models/training_plan.dart';
@@ -104,15 +102,6 @@ void main() {
       expect(setup.server.trainingRows, hasLength(1));
       final originalId = setup.store.trainingPlans.single.id;
       final originalIncarnation = setup.store.trainingPlans.single.incarnation;
-      final originalRequest = setup.server.requests
-          .where(
-            (request) => request.url.path.endsWith('/rpc/apply_sync_operation'),
-          )
-          .map(
-            (request) =>
-                (jsonDecode(request.body) as Map).cast<String, dynamic>(),
-          )
-          .firstWhere((body) => body['p_kind'] == 'trainingPlanUpsert');
 
       await _finish(tester, setup.store.deleteTrainingPlan(originalId));
       expect(setup.server.trainingRows, isEmpty);
@@ -128,30 +117,14 @@ void main() {
       );
       expect(setup.store.trainingPlans, hasLength(1));
       expect(adopted.last.id, originalId);
-      final currentIncarnation = setup.store.trainingPlans.single.incarnation;
       expect(
-        currentIncarnation,
+        setup.store.trainingPlans.single.incarnation,
         greaterThan(originalIncarnation),
         reason: 'The deleted incarnation remains retired',
       );
       expect(find.byKey(const ValueKey('coach-plan-review')), findsNothing);
-      await _finish(
-        tester,
-        setup.store.sync!.client.rpc(
-          'apply_sync_operation',
-          params: originalRequest,
-        ),
-      );
-      expect(
-        setup.server.trainingRows.keys,
-        [adopted.last.id],
-        reason:
-            'An old receipt replay must not resurrect the deleted incarnation',
-      );
-      expect(
-        setup.server.trainingRows.values.single['incarnation'],
-        currentIncarnation,
-      );
+      // A replay of the old receipt is server behaviour: the fake's contract
+      // is pinned in test/services/training_sync_fake_contract_test.dart.
       await tester.pumpWidget(const SizedBox.shrink());
     },
     timeout: const Timeout(Duration(seconds: 30)),

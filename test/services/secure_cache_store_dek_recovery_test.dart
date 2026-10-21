@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -48,10 +45,6 @@ class _FailingProbe implements CacheCiphertextProbe {
 
 const String _blobKey = 'eatova.v1.outbox.user-1';
 const String _deadBlob = '${cacheCipherMagic}dGhpcyBpcyB0b3Q=';
-
-final Uint8List _hardCodedDek = Uint8List.fromList(
-  List<int>.generate(AesGcmCacheCipher.dekLengthBytes, (i) => (i * 7 + 11) & 0xFF),
-);
 
 /// Seed plus fresh instance: `setMockInitialValues` resets the internal
 /// completer, staling any previously held [SharedPreferences].
@@ -132,25 +125,9 @@ void main() {
               'nichts aufgegeben, der naechste Start versucht es wieder');
     });
 
-    test(
-        'EIN Strike pro Prozess, nicht pro obtain()-Aufruf '
-        '(Boot + Logout rufen beide auf)', () async {
-      await _seedPrefs(<String, Object>{
-        CacheKeyProvider.dekProvisionedKey: true,
-        _blobKey: _deadBlob,
-      });
-      final keyStore = _AbsentDekKeyStore();
-
-      // `obtain` does not memoise a failed bootstrap, so this really reruns.
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNull);
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNull);
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNull);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getInt(CacheKeyProvider.dekVanishStrikesKey), 1,
-          reason: 'Sonst waere das Budget nach EINER Session aufgebraucht und '
-              'der Zaehler zaehlte obtain()-Aufrufe statt App-Starts.');
-    });
+    // One strike per process, not per obtain() call, and the reset after a
+    // successful read: secure_cache_store_dek_unreadable_test.dart. Both
+    // paths share `_recordVanishStrike` and `_clearVanishStrikes`.
 
     test(
         'nach ${CacheKeyProvider.vanishStrikeBudget} Starts gibt der Bootstrap '
@@ -197,6 +174,11 @@ void main() {
       expect(prefs.containsKey('eatova.v1.logged_meals.user-1'), isFalse);
       expect(prefs.getInt(CacheKeyProvider.dekVanishStrikesKey) ?? 0, 0,
           reason: 'Der Zaehler startet fuer den naechsten Vorfall bei null.');
+      expect(await CacheKeyProvider.consumeCacheResetNotice(), isTrue,
+          reason: 'Ein stiller Neuanfang laesst den Nutzer im Glauben, sein '
+              'Offline-Tagebuch sei noch da.');
+      expect(await CacheKeyProvider.consumeCacheResetNotice(), isFalse,
+          reason: 'Der Hinweis wird beim Lesen geloescht — einmal zeigen.');
     });
 
     test('Aufgeben laesst Klartext-Slots einer Alt-Installation stehen',
@@ -224,23 +206,6 @@ void main() {
       expect(prefs.containsKey(_blobKey), isFalse);
     });
 
-    test('erfolgreicher DEK-Read setzt den Strike-Zaehler zurueck', () async {
-      await _seedPrefs(<String, Object>{
-        CacheKeyProvider.dekProvisionedKey: true,
-        CacheKeyProvider.dekVanishStrikesKey: 2,
-        _blobKey: _deadBlob,
-      });
-      final keyStore = _AbsentDekKeyStore()
-        ..data[CacheKeyProvider.dekStorageKey] = base64.encode(_hardCodedDek);
-
-      expect(await CacheKeyProvider.obtain(keyStore: keyStore), _hardCodedDek);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getInt(CacheKeyProvider.dekVanishStrikesKey) ?? 0, 0,
-          reason: 'Sonst summieren sich unabhaengige Vorfaelle ueber Monate '
-              'und irgendwann gibt EIN Aussetzer sofort auf.');
-    });
-
     test('Probe faellt aus -> fail closed (Abbruch), Budget laeuft trotzdem',
         () async {
       await _seedPrefs(<String, Object>{
@@ -261,27 +226,6 @@ void main() {
           reason: 'Auch der Blindflug muss enden — sonst ist der fail-closed '
               'Zweig selbst wieder die dauerhafte Sackgasse.');
     });
-  });
-
-  group('A1/iOS Nutzerhinweis', () {
-    test('Aufgeben hinterlegt genau EINEN konsumierbaren Hinweis', () async {
-      await _seedPrefs(<String, Object>{
-        CacheKeyProvider.dekProvisionedKey: true,
-        CacheKeyProvider.dekVanishStrikesKey:
-            CacheKeyProvider.vanishStrikeBudget - 1,
-        _blobKey: _deadBlob,
-      });
-
-      expect(await CacheKeyProvider.obtain(keyStore: _AbsentDekKeyStore()),
-          isNotNull);
-
-      expect(await CacheKeyProvider.consumeCacheResetNotice(), isTrue,
-          reason: 'Ein stiller Neuanfang laesst den Nutzer im Glauben, sein '
-              'Offline-Tagebuch sei noch da.');
-      expect(await CacheKeyProvider.consumeCacheResetNotice(), isFalse,
-          reason: 'Der Hinweis wird beim Lesen geloescht — einmal zeigen.');
-    });
-
   });
 
   group('A1/iOS Crash-Report', () {

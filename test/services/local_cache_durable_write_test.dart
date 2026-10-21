@@ -81,8 +81,11 @@ void main() {
   // `capture` runs unawaited — wait one microtask.
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
+  // The outbox writer stands for every slot on this path: training session
+  // and training deletion receipts use the same `_writeDurableNow`.
   group('Sync-Zustands-Slots melden Misserfolg', () {
-    test('writeOutbox liefert false und meldet den Fehlschlag', () async {
+    test('ein gescheiterter Write liefert false und meldet ohne Nutzerdaten',
+        () async {
       final store =
           _SchreibfehlerStore((k) => k == 'eatova.v1.outbox.$_uid');
       final cache = LocalCache(store, _uid);
@@ -97,19 +100,14 @@ void main() {
       expect(store.data.containsKey('eatova.v1.outbox.$_uid'), isFalse);
       expect(berichte, hasLength(1));
       expect(berichte.single.context, 'cache_durable_write');
-    });
-
-    test('writePendingStatsDeltas liefert false und meldet', () async {
-      final store =
-          _SchreibfehlerStore((k) => k == 'eatova.v1.pending_stats.$_uid');
-      final cache = LocalCache(store, _uid);
-
-      final ok = await cache.writePendingStatsDeltas(
-          meals: 3, weightLogs: 1, requestId: 'req-1');
-      await settle();
-
-      expect(ok, isFalse);
-      expect(berichte.single.context, 'cache_durable_write');
+      final text = berichte.single.error.toString();
+      expect(text, contains('UnwritableCacheSlot'),
+          reason: 'Der Fehlertyp ist die ganze Diagnose — er muss den '
+              'Sanitizer ueberleben.');
+      expect(text, isNot(contains(_pii)));
+      expect(text, isNot(contains('Doener')));
+      expect(text, isNot(contains(_uid)),
+          reason: 'die User-ID steckt im Storage-Key');
     });
 
     test('gelungener Write liefert true und meldet nichts', () async {
@@ -138,33 +136,6 @@ void main() {
           reason: 'Tagebuch und Favoriten stehen auf dem Server — ein '
               'verlorener Cache-Write kostet einen Netz-Load, keinen Inhalt. '
               'Sonst waere jeder Flugmodus-Start ein Sentry-Issue.');
-    });
-  });
-
-  group('Der Report traegt keine Nutzerdaten', () {
-    test('weder Mahlzeit noch User-ID noch Storage-Key', () async {
-      final store =
-          _SchreibfehlerStore((k) => k == 'eatova.v1.outbox.$_uid');
-      final cache = LocalCache(store, _uid);
-
-      await cache.writeOutbox([SyncOp.mealInsert(_meal('m-1'), trackDay: true)]);
-      await settle();
-
-      final text = berichte.single.error.toString();
-      expect(text, contains('UnwritableCacheSlot'),
-          reason: 'Der Fehlertyp ist die ganze Diagnose — er muss den '
-              'Sanitizer ueberleben.');
-      expect(text, isNot(contains(_pii)));
-      expect(text, isNot(contains('Doener')));
-      expect(text, isNot(contains(_uid)));
-    });
-
-    test('das Fehlerobjekt selbst haelt nur Slot-Kurzname und Fehlertyp', () {
-      const fehler = UnwritableCacheSlot('outbox', 'PlatformException');
-
-      expect(fehler.toString(), contains('outbox'));
-      expect(fehler.toString(), contains('PlatformException'));
-      expect(fehler.toString(), isNot(contains('eatova.v1.')));
     });
   });
 }

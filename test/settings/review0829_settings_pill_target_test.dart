@@ -143,11 +143,17 @@ void main() {
         final groesse = '${g.breite.toInt()} px, ${g.scale}x';
 
         testWidgets('${fall.zeile} ($groesse): jedes Segment ist ein '
-            '48-px-Ziel', (tester) async {
-          await _pumpePille(tester, bauen(<Object?>[]),
+            '48-px-Ziel, fuer Finger UND Screenreader, bis an die Oberkante',
+            (tester) async {
+          // Screen readers and switch access aim at the NODE, not at the hit
+          // test. `dispose` inline, not via addTearDown: the framework checks
+          // for leaked handles BEFORE the tear-downs run.
+          final handle = tester.ensureSemantics();
+          final senke = <Object?>[];
+          await _pumpePille(tester, bauen(senke),
               breite: g.breite, textScale: g.scale);
 
-          for (final key in fall.segmente) {
+          for (final (i, key) in fall.segmente.indexed) {
             final segment = tester.getRect(find.byKey(ValueKey<String>(key)));
             expect(segment.height,
                 greaterThanOrEqualTo(kMinInteractiveDimension),
@@ -155,37 +161,9 @@ void main() {
             expect(segment.width,
                 greaterThanOrEqualTo(kMinInteractiveDimension),
                 reason: '$key: kein Fingerziel unter 48 px');
-          }
-          expect(tester.takeException(), isNull);
-        });
 
-        testWidgets('${fall.zeile} ($groesse): die Oberkante schaltet mit',
-            (tester) async {
-          final senke = <Object?>[];
-          await _pumpePille(tester, bauen(senke),
-              breite: g.breite, textScale: g.scale);
-
-          final ziel = tester.getRect(
-            find.byKey(ValueKey<String>(fall.segmente.last)),
-          );
-          await tester.tapAt(Offset(ziel.center.dx, ziel.top + 2));
-          await tester.pumpAndSettle();
-
-          expect(senke, <Object?>[fall.wert]);
-        });
-
-        testWidgets('${fall.zeile} ($groesse): der Semantik-Knoten deckt das '
-            'Ziel', (tester) async {
-          // Screen readers and switch access aim at the NODE, not at the hit
-          // test. `dispose` inline, not via addTearDown: the framework checks
-          // for leaked handles BEFORE the tear-downs run.
-          final handle = tester.ensureSemantics();
-
-          await _pumpePille(tester, bauen(<Object?>[]),
-              breite: g.breite, textScale: g.scale);
-
-          for (final (i, key) in fall.segmente.indexed) {
-            final knoten = tester.getSemantics(find.byKey(ValueKey<String>(key)));
+            final knoten =
+                tester.getSemantics(find.byKey(ValueKey<String>(key)));
             expect(
               knoten,
               isSemantics(
@@ -200,6 +178,15 @@ void main() {
                 reason: key);
           }
           handle.dispose();
+
+          // A tap at the top edge, not only on the label, switches.
+          final ziel = tester.getRect(
+            find.byKey(ValueKey<String>(fall.segmente.last)),
+          );
+          await tester.tapAt(Offset(ziel.center.dx, ziel.top + 2));
+          await tester.pumpAndSettle();
+          expect(senke, <Object?>[fall.wert]);
+          expect(tester.takeException(), isNull);
         });
       }
     }
@@ -239,26 +226,6 @@ void main() {
 
       expect(c.modus.mode, ThemeMode.system);
       expect(c.sprache.override, isNull);
-    });
-
-    testWidgetsRobust('das Segment schaltet bis an seine Oberkante',
-        (tester) async {
-      // On the real page: the shipped segment is 48 px tall and a tap at its
-      // top edge, not only on the label, switches the mode.
-      final c = _controllers();
-      await _oeffneEinstellungen(tester, c);
-
-      final segment = find.byKey(const ValueKey('settings-theme-mode-dark'));
-      await tester.ensureVisible(segment);
-      await tester.pumpAndSettle();
-
-      final ziel = tester.getRect(segment);
-      expect(ziel.height, greaterThanOrEqualTo(48.0));
-
-      await tester.tapAt(Offset(ziel.center.dx, ziel.top + 2));
-      await tester.pumpAndSettle();
-
-      expect(c.modus.mode, ThemeMode.dark);
     });
   });
 }

@@ -2,7 +2,9 @@
 // user's own foods ("Von dir") above the product database, offline and
 // before the network answers; one tap on "+" logs the newest portion. The
 // store keeps 30 recents now, so the recents list shows five and the rest
-// behind "Alle anzeigen".
+// behind "Alle anzeigen". Own recipes in "Von dir" are pinned in
+// food_history_search_test.dart and, through the real shell, in
+// food_history_flow_test.dart.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +12,6 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
-import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -102,7 +103,6 @@ Future<BuildContext> _pump(
   required ProductLookupService products,
   List<FavoriteMeal> favorites = const <FavoriteMeal>[],
   List<LoggedMeal> diary = const <LoggedMeal>[],
-  List<FitnessRecipe> recipes = const <FitnessRecipe>[],
   List<(MealAnalysisResult, MealSlot)>? added,
   double textScale = 1.0,
   Size? surfaceSize,
@@ -117,7 +117,6 @@ Future<BuildContext> _pump(
       photoInput: _SilentPhotos(),
       favorites: favorites,
       diaryMeals: () => diary,
-      ownRecipes: () => recipes,
       onAdd: (result, slot) {
         added?.add((result, slot));
         return 'id-${added?.length ?? 0}';
@@ -261,39 +260,6 @@ void main() {
       isTrue,
       reason: 'die neue Trefferliste kam ohne Neubau des ganzen Sheets',
     );
-
-    await tester.pump(const Duration(milliseconds: 1100));
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('eigene Rezepte stehen in „Von dir“', (tester) async {
-    const chili = FitnessRecipe(
-      slug: 'user_chili',
-      title: 'Chili sin Carne',
-      description: '',
-      portion: '',
-      ingredients: '',
-      preparation: '',
-      professionalHint: '',
-      imageAsset: '',
-      caloriesKcal: 520,
-      proteinG: 28,
-      carbsG: 60,
-      fatG: 14,
-      estimatedGrams: 450,
-      categories: <String>[],
-      userCreated: true,
-    );
-    await _pump(
-      tester,
-      products: _Products(const <ProductSearchResult>[]),
-      recipes: const [chili],
-    );
-
-    await tester.enterText(_input(), 'chili');
-    await tester.pump();
-    expect(_hit(0), findsOneWidget);
-    expect(find.text('Chili sin Carne'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pumpAndSettle();

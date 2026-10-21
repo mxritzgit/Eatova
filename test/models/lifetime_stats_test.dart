@@ -3,21 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/services/day_math.dart';
 
-// TEST-7: LifetimeStats.recordTrackedDay — streak transitions beyond the base
-// cases in logic_test.dart: multi-day chains, date normalization, longestStreak
-// monotonicity across a reset, future dates as gaps, back-dating as a no-op
-// (food calendar), repair of a currentStreak==0 state, and effectiveStreakOn.
+// LifetimeStats.recordTrackedDay and effectiveStreakOn: multi-day chains,
+// date normalization, longestStreak monotonicity across a reset, back-dating
+// as a no-op (food calendar), repair of a currentStreak==0 state, defensive
+// row parsing, and the legacy counters that stay wire-compatible.
 //
 // B5 (2026-08-08): both streak calculations used
 // `today.difference(last).inDays` — absolute time, not calendar arithmetic. On
 // a 23-hour DST day that reports 0, so the streak stalls, and the day after
-// (47h -> 1) effectiveStreakOn still shows a long-broken chain as alive.
-//
-// Zone independence: the DST cases below are only red on a machine with that
-// DST switch. They stay meaningful everywhere because they also run as a
-// property against a UTC oracle — `addDays` from day_math.dart is the
-// zone-independent calendar shift, and the next day must continue the streak
-// in every zone.
+// (47h -> 1) effectiveStreakOn still shows a long-broken chain as alive. The
+// properties below walk every day of 2024..2032 against `addDays` from
+// day_math.dart (the zone-independent calendar shift), so on a machine with a
+// DST zone they include both switch days of every year.
 
 void main() {
   final mon = DateTime(2026, 6, 1);
@@ -27,16 +24,11 @@ void main() {
   final fri = DateTime(2026, 6, 5);
 
   group('recordTrackedDay', () {
-    test('gestern -> +1 (aufeinanderfolgende Tage zaehlen hoch)', () {
-      final s = LifetimeStats().recordTrackedDay(mon).recordTrackedDay(tue);
-      expect(s.currentStreak, 2);
-      expect(s.longestStreak, 2);
-      expect(s.lastTrackedDate, tue);
-    });
-
-    test('mehrtaegige Kette Mo..Fr -> Streak 5', () {
-      final s = LifetimeStats()
-          .recordTrackedDay(mon)
+    test('Kette Mo..Fr zaehlt jeden Folgetag hoch', () {
+      final first = LifetimeStats().recordTrackedDay(mon);
+      expect(first.currentStreak, 1);
+      expect(first.longestStreak, 1);
+      final s = first
           .recordTrackedDay(tue)
           .recordTrackedDay(wed)
           .recordTrackedDay(thu)
@@ -44,15 +36,6 @@ void main() {
       expect(s.currentStreak, 5);
       expect(s.longestStreak, 5);
       expect(s.lastTrackedDate, fri);
-    });
-
-    test('heute erneut -> idempotent, Streak haelt (kein Doppel-Zaehlen)', () {
-      final s = LifetimeStats()
-          .recordTrackedDay(mon)
-          .recordTrackedDay(tue) // streak 2
-          .recordTrackedDay(tue); // same day again
-      expect(s.currentStreak, 2);
-      expect(s.longestStreak, 2);
     });
 
     test('idempotent auch bei abweichender Uhrzeit am selben Kalendertag', () {
@@ -65,11 +48,6 @@ void main() {
       expect(s.currentStreak, 2);
       // lastTrackedDate is normalized to date-only (midnight).
       expect(s.lastTrackedDate, DateTime(2026, 6, 2));
-    });
-
-    test('lastTrackedDate wird immer auf date-only (00:00) normalisiert', () {
-      final s = LifetimeStats().recordTrackedDay(DateTime(2026, 6, 4, 18, 30));
-      expect(s.lastTrackedDate, DateTime(2026, 6, 4));
     });
 
     test('Luecke -> Reset auf 1, longestStreak bleibt der Highscore', () {
@@ -110,14 +88,6 @@ void main() {
       expect(s2.longestStreak, 3);
     });
 
-    test('Zukunftsdatum (>1 Tag voraus) wird wie eine Luecke behandelt', () {
-      final s = LifetimeStats()
-          .recordTrackedDay(mon)
-          .recordTrackedDay(fri); // 4 days ahead
-      expect(s.currentStreak, 1);
-      expect(s.lastTrackedDate, fri);
-    });
-
     test('aus geladenem Zustand mit currentStreak 0 fortsetzen -> repariert auf >= 1',
         () {
       // Defensive branch: an inconsistent record with lastTrackedDate set but
@@ -129,14 +99,6 @@ void main() {
       final next = loaded.recordTrackedDay(wed); // next day
       expect(next.currentStreak, 1); // 0 + 1
     });
-
-    test('andere Zaehler bleiben unberuehrt', () {
-      final s = LifetimeStats(workoutsCompleted: 9, mealsLogged: 40)
-          .recordTrackedDay(mon);
-      expect(s.workoutsCompleted, 9);
-      expect(s.mealsLogged, 40);
-      expect(s.currentStreak, 1);
-    });
   });
 
   group('effectiveStreakOn (Anzeige-Streak)', () {
@@ -144,80 +106,10 @@ void main() {
       expect(LifetimeStats().effectiveStreakOn(fri), 0);
     });
 
-    test('heute getrackt -> voller Streak', () {
-      final s = LifetimeStats().recordTrackedDay(thu).recordTrackedDay(fri);
-      expect(s.effectiveStreakOn(fri), 2);
-    });
-
-    test('gestern getrackt, heute noch nicht -> Streak haelt (Gnadenfrist)', () {
-      final s = LifetimeStats().recordTrackedDay(wed).recordTrackedDay(thu);
-      expect(s.effectiveStreakOn(fri), 2);
-    });
-
-    test('vorgestern zuletzt getrackt -> Kette gerissen, Anzeige 0', () {
-      final s = LifetimeStats().recordTrackedDay(tue).recordTrackedDay(wed);
-      expect(s.effectiveStreakOn(fri), 0);
-    });
-
     test('Uhrzeit im now-Argument wird ignoriert (date-only-Vergleich)', () {
       final s = LifetimeStats().recordTrackedDay(thu);
       expect(s.effectiveStreakOn(DateTime(2026, 6, 5, 23, 59)), 1);
       expect(s.effectiveStreakOn(DateTime(2026, 6, 6, 0, 1)), 0);
-    });
-  });
-
-  group('B5 — Fruehjahrsumstellung 29.03.2026 (23-Stunden-Tag)', () {
-    /// Streak state on the DST day: 11 days in a row, last tracked on the
-    /// 23-hour day 2026-03-29.
-    LifetimeStats amUmstellungstag() => LifetimeStats(
-          currentStreak: 11,
-          longestStreak: 11,
-          lastTrackedDate: DateTime(2026, 3, 29),
-        );
-
-    test('Montag 30.03. ist der Folgetag — die Streak zaehlt auf 12 hoch', () {
-      // Old code: `.difference(...).inDays` reads 23h -> 0, so the day counts
-      // as already recorded and the streak stalls at 11.
-      final next = amUmstellungstag().recordTrackedDay(DateTime(2026, 3, 30));
-
-      expect(next.currentStreak, 12);
-      expect(next.longestStreak, 12);
-      expect(next.lastTrackedDate, DateTime(2026, 3, 30));
-    });
-
-    test('Dienstag 31.03. ohne Log am 30.03. reisst die Kette — Reset auf 1',
-        () {
-      // Old code: 47h -> 1 -> "next day" -> 12 instead of 1.
-      final next = amUmstellungstag().recordTrackedDay(DateTime(2026, 3, 31));
-
-      expect(next.currentStreak, 1);
-      expect(next.longestStreak, 11, reason: 'Highscore bleibt stehen');
-      expect(next.lastTrackedDate, DateTime(2026, 3, 31));
-    });
-
-    test(
-        'effectiveStreakOn: am 30.03. Gnadenfrist (11), am 31.03. gerissen (0)',
-        () {
-      final s = amUmstellungstag();
-
-      expect(s.effectiveStreakOn(DateTime(2026, 3, 29)), 11);
-      expect(s.effectiveStreakOn(DateTime(2026, 3, 30)), 11);
-      // Old code: 47h -> inDays 1 -> `<= 1` -> still shows 11, although the
-      // chain is broken and the next log jumps 11 -> 12 -> 1.
-      expect(s.effectiveStreakOn(DateTime(2026, 3, 31)), 0);
-      expect(s.effectiveStreakOn(DateTime(2026, 4, 1)), 0);
-    });
-
-    test('Herbstumstellung 25.10.2026 (25-Stunden-Tag) rechnet ebenfalls', () {
-      final s = LifetimeStats(
-        currentStreak: 3,
-        longestStreak: 3,
-        lastTrackedDate: DateTime(2026, 10, 25),
-      );
-
-      expect(s.recordTrackedDay(DateTime(2026, 10, 26)).currentStreak, 4);
-      expect(s.effectiveStreakOn(DateTime(2026, 10, 26)), 3);
-      expect(s.effectiveStreakOn(DateTime(2026, 10, 27)), 0);
     });
   });
 
@@ -253,6 +145,18 @@ void main() {
       expect(s.currentStreak, 5);
       expect(s.longestStreak, 9);
       expect(s.lastTrackedDate, DateTime(2026, 6, 4));
+    });
+
+    test('fromRow ist defensiv bei fehlenden und falsch typisierten Spalten',
+        () {
+      final back = LifetimeStats.fromRow(<String, dynamic>{
+        'workouts_completed': '5', // string instead of int
+        'meals_logged': null,
+      });
+      expect(back.workoutsCompleted, 5);
+      expect(back.mealsLogged, 0);
+      expect(back.currentStreak, 0);
+      expect(back.lastTrackedDate, isNull);
     });
 
     test('lebende Mutatoren lassen die Legacy-Zaehler unberuehrt', () {
@@ -366,22 +270,6 @@ void main() {
         LifetimeStats(lastTrackedDate: wed).yesterdayRescuesStreak(now),
         isFalse,
       );
-    });
-
-    test('ueber die Fruehjahrsumstellung zaehlt der Kalendertag', () {
-      // Monday 30.03. 00:30, an hour after the 23-hour Sunday ended: Sunday
-      // is yesterday, Saturday the day before.
-      final s = LifetimeStats(
-        currentStreak: 6,
-        lastTrackedDate: DateTime(2026, 3, 28),
-      );
-      final monday = DateTime(2026, 3, 30, 0, 30);
-      expect(
-        s.backfillContinuesStreak(DateTime(2026, 3, 29), now: monday),
-        isTrue,
-      );
-      expect(s.yesterdayRescuesStreak(monday), isTrue);
-      expect(s.recordTrackedDay(DateTime(2026, 3, 29)).currentStreak, 7);
     });
 
     test('jeder Tag eines Jahrzehnts gegen das UTC-Orakel', () {

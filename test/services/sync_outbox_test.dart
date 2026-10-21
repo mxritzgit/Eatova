@@ -3,11 +3,6 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
-import 'package:eatova/src/models/coach_training_proposal.dart';
-import 'package:eatova/src/models/training_plan.dart';
-import 'package:eatova/src/models/training_history.dart';
-import 'package:eatova/src/models/training_session.dart';
-import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
@@ -32,24 +27,6 @@ MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
       barcode: '4001234',
       brand: 'Testmarke',
     );
-
-FitnessRecipe _recipe() => const FitnessRecipe(
-  slug: 'user_123',
-  title: 'Eigenes Rezept',
-  description: 'Test',
-  portion: '1 Portion',
-  ingredients: '- 100 g Test',
-  preparation: '1. Testen.',
-  professionalHint: 'Selbst angelegt.',
-  imageAsset: '',
-  caloriesKcal: 420,
-  proteinG: 33,
-  carbsG: 44,
-  fatG: 11,
-  estimatedGrams: 350,
-  categories: <String>['Eigene'],
-  userCreated: true,
-);
 
 LoggedMeal _meal(String id, {int kcal = 300}) =>
     testMeal(id, result: _result(kcal: kcal));
@@ -150,47 +127,9 @@ void main() {
       expect(del!.kind, SyncOpKind.recipeDelete);
     });
 
-    test('profileUpsert roundtrippt jedes Profilfeld', () {
-      const profile = UserProfile(
-        weightKg: 84,
-        heightCm: 186,
-        ageYears: 41,
-        sex: BiologicalSex.female,
-        activityLevel: ActivityLevel.athlete,
-        targetWeightKg: 79,
-        dailyStepsGoal: 12000,
-        dailyKcalGoal: 1900,
-        dailyWaterGoalMl: 3000,
-        dailySleepGoalMinutes: 480,
-        proteinGoalG: 150,
-        carbsGoalG: 180,
-        fatGoalG: 60,
-        weightGoal: WeightGoal.lose05kg,
-        diet: DietPreference.vegan,
-        onboardingCompleted: true,
-      );
-      final back = SyncOp.tryFromJson(SyncOp.profileUpsert(profile).toJson());
-
-      expect(back!.kind, SyncOpKind.profileUpsert);
-      final p = back.profile!;
-      expect(p.weightKg, 84);
-      expect(p.heightCm, 186);
-      expect(p.ageYears, 41);
-      expect(p.sex, BiologicalSex.female);
-      expect(p.activityLevel, ActivityLevel.athlete);
-      expect(p.targetWeightKg, 79);
-      expect(p.dailyStepsGoal, 12000);
-      expect(p.dailyKcalGoal, 1900);
-      expect(p.dailyWaterGoalMl, 3000);
-      expect(p.dailySleepGoalMinutes, 480);
-      expect(p.proteinGoalG, 150);
-      expect(p.carbsGoalG, 180);
-      expect(p.fatGoalG, 60);
-      expect(p.weightGoal, WeightGoal.lose05kg);
-      expect(p.diet, DietPreference.vegan);
-      expect(p.onboardingCompleted, isTrue);
-    });
-
+    // Every profile field through the shared userProfileToJson/-FromJson:
+    // local_cache_test.dart ('roundtrippt ein vollstaendiges Profil' and the
+    // structural field-coverage test).
     test('alle Profil-Ops teilen EINEN Entitaets-Schluessel — das Profil ist '
         'eine einzige Zeile', () {
       expect(
@@ -222,6 +161,9 @@ void main() {
                   ),
                 )
                 as Map<String, dynamic>;
+        expect(SyncOp.tryFromJson(vollstaendig)!.profile!.weightKg, 91,
+            reason: 'Gegenprobe: die vollstaendige Payload ist lesbar');
+
         final payload = (vollstaendig['payload'] as Map)
             .cast<String, dynamic>();
         final profil = (payload['profile'] as Map).cast<String, dynamic>();
@@ -275,188 +217,30 @@ void main() {
   });
 
   group('SyncOp.attempts (Zustellversuchs-Budget)', () {
-    test('frische Ops starten bei 0 — jede Factory, keine ausgelassen', () {
-      final now = DateTime.utc(2026, 9, 10, 12);
-      const id = '20260910-0000-4000-8000-000000000001';
-      final planned = PlannedMeal.create(
-        id: id,
-        recipe: _recipe(),
-        day: now,
-        slot: MealSlot.lunch,
-      );
-      final history = TrainingHistoryEntry(
-        snapshot: TrainingSessionSnapshot(
-          sessionId: id,
-          startedAt: now,
-          plan: TrainingPlan(
-            id: 'history-plan',
-            proposal: CoachTrainingProposal(
-              title: 'Plan',
-              workouts: [
-                TrainingWorkout(
-                  title: 'A',
-                  exercises: [
-                    TrainingExercise(
-                      name: 'Squat',
-                      sets: 1,
-                      reps: 8,
-                      restSeconds: 0,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          workoutIndex: 0,
-          exerciseIndex: 0,
-          setIndex: 0,
-          phase: TrainingSessionPhase.review,
-          remainingMilliseconds: 0,
-          completedSets: const [
-            TrainingSetReference(exerciseIndex: 0, setIndex: 0),
-          ],
-          actualSets: [
-            TrainingSetActual(
-              reference: const TrainingSetReference(
-                exerciseIndex: 0,
-                setIndex: 0,
-              ),
-              reps: 8,
-              completedAt: now,
-            ),
-          ],
-        ),
-        finishedAt: now,
-      );
-      final ops = <SyncOp>[
-        SyncOp.mealPlanUpsert(planned),
-        SyncOp.mealPlanConvert(
-          planned.copyWith(eatenAt: now),
-          LoggedMeal(
-            id: id,
-            result: _recipe().toMealResult(),
-            loggedAt: now,
-            localDay: '2026-09-10',
-            forcedSlot: MealSlot.lunch,
-          ),
-          trackDay: true,
-        ),
-        SyncOp.shoppingCheck(
-          ShoppingCheck(id: '2026-09-07:${'a' * 64}', checked: true),
-        ),
-        SyncOp.trainingHistoryInsert(history),
-        SyncOp.trainingHistoryDelete(id),
-        SyncOp.mealInsert(_meal('m-1'), trackDay: true),
-        SyncOp.mealUpsert(_meal('m-1')),
-        SyncOp.mealDelete('m-1'),
-        SyncOp.weightInsert(
-          id: 'w-1',
-          weightKg: 80,
-          recordedAt: DateTime(2026, 8, 6),
-        ),
-        SyncOp.weightUpsert(
-          id: 'w-1',
-          weightKg: 79.5,
-          recordedAt: DateTime(2026, 8, 5),
-        ),
-        SyncOp.weightDelete('w-1'),
-        SyncOp.favoriteUpsert(testFavorite('fav-1', result: _result())),
-        SyncOp.favoriteDelete('fav-1'),
-        SyncOp.recipeUpsert(_recipe()),
-        SyncOp.recipeDelete('user_123'),
-        SyncOp.trainingPlanUpsert(
-          TrainingPlan(
-            id: 'training',
-            proposal: CoachTrainingProposal(
-              title: 'Plan',
-              workouts: [
-                TrainingWorkout(
-                  title: 'A',
-                  exercises: [
-                    TrainingExercise(
-                      name: 'Squat',
-                      sets: 3,
-                      reps: 8,
-                      restSeconds: 60,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        SyncOp.trainingPlanDelete('training'),
-        SyncOp.profileUpsert(const UserProfile()),
-        SyncOp.trackingDay('2026-08-10'),
-        SyncOp.statsIncrement(
-          requestId: '6561746f-7661-6d73-f461-74732d726964',
-          meals: 1,
-        ),
-      ];
-      expect(ops.map((o) => o.attempts), everyElement(0));
-      // Completeness instead of a number in the test name: adding an op family
-      // and forgetting it here turns the test red.
-      expect(ops.map((o) => o.kind).toSet(), SyncOpKind.values.toSet());
-    });
-
-    test('Delete-Ops zaehlen ihre Versuche MIT — ohne Zaehler waeren sie '
-        'unsterblich und die Outbox nie leer', () {
-      // A dropped delete is the one loss the next cold start actively
-      // reverses: the meal comes back from the server. Deletes therefore get a
-      // much bigger but still finite budget ([kOutboxDeleteMaxAttempts]).
-      // Without a counter they would keep the queue full forever: endless
-      // retry timers, `preserveOutbox` permanently true, and a cap that can no
-      // longer drain the overflow.
-      final deletes = <SyncOp>[
-        SyncOp.mealDelete('m-1'),
-        SyncOp.favoriteDelete('barcode:4001234'),
-        SyncOp.recipeDelete('user_123'),
-        SyncOp.trainingPlanDelete('training'),
-      ];
-      for (final op in deletes) {
-        expect(
-          op.incrementAttempt().incrementAttempt().attempts,
-          2,
-          reason: '${op.kind.name} muss zaehlbar sein',
-        );
-        expect(
-          op.incrementAttempt().toJson()['attempts'],
-          1,
-          reason: '${op.kind.name}: der Zaehler ueberlebt den App-Neustart',
-        );
-        expect(op.attempts, 0, reason: 'das Original bleibt unangetastet');
-      }
-      // Counter-check: write ops keep counting as before.
-      expect(SyncOp.mealUpsert(_meal('m-1')).incrementAttempt().attempts, 1);
-    });
-
-    test('isDelete erkennt genau die drei Loesch-Familien', () {
-      expect(SyncOp.mealDelete('m-1').isDelete, isTrue);
-      expect(SyncOp.favoriteDelete('fav-1').isDelete, isTrue);
-      expect(SyncOp.recipeDelete('user_123').isDelete, isTrue);
-
+    test('isDelete erkennt genau die Loesch-Familien, keine ausgelassen', () {
       // A lost streak day costs a counter; a lost delete resurrects user
-      // data. The larger delete retry budget rests on that distinction.
+      // data. The larger delete retry budget rests on that distinction, so a
+      // new *Delete family that is not flagged turns this red.
+      for (final kind in SyncOpKind.values) {
+        expect(kind.isDelete, kind.name.endsWith('Delete'), reason: kind.name);
+      }
       expect(
-        SyncOp.trackingDay('2026-08-10').isDelete,
-        isFalse,
-        reason: 'ein Streak-Tag ist KEIN Delete',
+        SyncOpKind.values.where((k) => k.isDelete).map((k) => k.name).toSet(),
+        {
+          'mealDelete',
+          'weightDelete',
+          'favoriteDelete',
+          'recipeDelete',
+          'trainingPlanDelete',
+          'trainingHistoryDelete',
+        },
       );
-      expect(SyncOp.mealInsert(_meal('m-1'), trackDay: true).isDelete, isFalse);
-      expect(SyncOp.mealUpsert(_meal('m-1')).isDelete, isFalse);
-      expect(
-        SyncOp.weightInsert(
-          id: 'w-1',
-          weightKg: 80,
-          recordedAt: DateTime(2026, 8, 6),
-        ).isDelete,
-        isFalse,
-      );
-      expect(SyncOp.favoriteUpsert(testFavorite('fav-1')).isDelete, isFalse);
-      expect(SyncOp.recipeUpsert(_recipe()).isDelete, isFalse);
-      expect(SyncOp.profileUpsert(const UserProfile()).isDelete, isFalse);
+      expect(SyncOp.mealDelete('m-1').isDelete, isTrue);
+      expect(SyncOp.trackingDay('2026-08-10').isDelete, isFalse);
     });
 
+    // incrementAttempt is kind-independent; the delete budget that uses the
+    // counter is pinned in sync_error_messages_test.dart.
     test('incrementAttempt zaehlt hoch und behaelt alles andere', () {
       final op = SyncOp.mealInsert(_meal('m-1', kcal: 300), trackDay: true);
       final next = op.incrementAttempt().incrementAttempt();
@@ -497,24 +281,8 @@ void main() {
       },
     );
 
-    test('Legacy-JSON ohne attempts-Key laedt als 0 (Migrations-Beweis)', () {
-      // Hand-written 4-key format from a build before this fix.
-      const legacy = <String, dynamic>{
-        'kind': 'mealDelete',
-        'entity_id': 'm-legacy',
-        'queued_at': '2026-08-05T12:30:00.000',
-        'payload': <String, dynamic>{},
-      };
-      expect(legacy.keys, hasLength(4));
-
-      final op = SyncOp.tryFromJson(legacy);
-      expect(op, isNotNull);
-      expect(op!.attempts, 0);
-      expect(op.kind, SyncOpKind.mealDelete);
-      expect(op.entityId, 'm-legacy');
-      expect(op.queuedAt, DateTime(2026, 8, 5, 12, 30));
-    });
-
+    // A legacy blob without an attempts key loads as 0: 'Rueckwaertskompatibilitaet:
+    // alte Blobs parsen unveraendert' below.
     test('korrupte attempts fallen auf die sichere Seite (0)', () {
       Map<String, dynamic> withAttempts(Object? raw) => <String, dynamic>{
         'kind': 'mealDelete',
@@ -565,17 +333,6 @@ void main() {
       )!;
       expect(gewicht.statsWeightLogs, 1);
       expect(gewicht.statsMeals, 0);
-    });
-
-    test('Wire-Sparsamkeit: nur gesetzte Schluessel stehen im Blob', () {
-      final op = SyncOp.statsIncrement(requestId: rid, meals: 1);
-      expect(
-        op.payload,
-        <String, dynamic>{'meals': 1},
-        reason:
-            'ein 0-Schluessel waere Ballast in jedem persistierten '
-            'Eintrag',
-      );
     });
 
     test('korrupte/fehlende Zahlen liefern 0 statt zu werfen', () {

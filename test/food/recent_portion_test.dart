@@ -76,7 +76,11 @@ void main() {
       final before = [for (final f in store.favorites) f.id];
       final key = store.favorites.firstWhere((f) => f.id != 'name:apfel');
 
-      await store.updateLoggedMealDetails(id, result: _oats(grams: 90));
+      // An hour later: a re-portion that bumped the date would show here.
+      await withClock(
+        Clock.fixed(now.add(const Duration(hours: 1))),
+        () => store.updateLoggedMealDetails(id, result: _oats(grams: 90)),
+      );
 
       expect([for (final f in store.favorites) f.id], before);
       final recent = store.favorites.firstWhere((f) => f.id == key.id);

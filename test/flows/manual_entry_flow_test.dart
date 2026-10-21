@@ -1,11 +1,14 @@
-// Manual entry (spec 2026-08-13), entry point 1: the labelled row below the
-// slot choice opens the form and logs via the search/favourite path.
+// Manual entry (spec 2026-08-13) through the real app: the labelled row below
+// the slot choice opens the form and logs into the day total, and a search
+// that finds nothing offers the form with the query as the name. When the
+// row gives way to the results and the error state's retry live in
+// add_meal_sheet_keystroke_rebuild_test.dart and
+// add_meal_search_throttle_test.dart.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
-import 'package:eatova/src/l10n/l10n.dart';
 
 import 'flow_test_helpers.dart';
 
@@ -58,41 +61,6 @@ void main() {
     await expectTagestotalAufHeute(tester, '331');
   });
 
-  testWidgetsRobust('Manuell-Zeile: sichtbar bis die Suche aktiv wird', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      EatovaApp(productService: FakeProductLookupService()),
-    );
-
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('food-search')));
-    await tester.pumpAndSettle();
-
-    // The row stays available in search mode until a query runs.
-    expect(find.byKey(const ValueKey('manual-entry-button')), findsOneWidget);
-
-    // The quiet reuse hint stays within the same content margins as search.
-    final leerTitel = find.text('Quicker next time');
-    expect(leerTitel, findsOneWidget);
-    final suchleiste = find.byKey(const ValueKey('kcal-product-search-card'));
-    expect(tester.getRect(leerTitel).left,
-        greaterThanOrEqualTo(tester.getRect(suchleiste).left));
-    expect(tester.getRect(leerTitel).right,
-        lessThanOrEqualTo(tester.getRect(suchleiste).right));
-
-    // Once a search runs the results area takes over, so the two entry
-    // points cannot compete.
-    await tester.enterText(
-      find.byKey(const ValueKey('kcal-product-search-input')),
-      'Dr Oetker',
-    );
-    await tester.pump(const Duration(milliseconds: 1100));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('manual-entry-button')), findsNothing);
-  });
-
   testWidgetsRobust(
     'Leersuche bietet den manuellen Eintrag mit Vorbelegung an',
     (WidgetTester tester) async {
@@ -133,49 +101,4 @@ void main() {
       );
     },
   );
-
-  testWidgetsRobust('Netz-Fehler fuehrt mit Erneut versuchen, nicht mit dem '
-      'Leer-CTA', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      EatovaApp(productService: AlwaysFailingProductLookupService()),
-    );
-
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('food-search')));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('kcal-product-search-input')),
-      'Bauernmozzarella',
-    );
-    // Through the MAGNIFIER, not the debounce: the typed path passes
-    // `showTransientError: false`, so a plain failure leaves the hint zone
-    // empty and the CTA branch (`_productSearchMessage != null`) is never
-    // built at all. A `findsNothing` there held no matter what
-    // `_offerManualEntry` said. The explicit search is the path that renders
-    // the hint and therefore the one where the missing CTA is a statement.
-    await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
-    await tester.pump(const Duration(milliseconds: 1300));
-    await tester.pumpAndSettle();
-
-    // The hint IS there — otherwise the assertion below is about an empty
-    // screen instead of about the error state.
-    expect(find.text(enL10n.foodSearchUnreachableHint), findsOneWidget,
-        reason: 'ohne den Fehlerhinweis prueft die naechste Zeile nichts');
-    // An error means "search is broken", not "does not exist" — not the
-    // "nothing found" CTA. The way forward is retry first; the form is the
-    // quieter second way (design pass 2026-10-11).
-    expect(find.byKey(const ValueKey('manual-entry-cta')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('product-search-retry')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('product-search-error-manual')),
-      findsOneWidget,
-    );
-  });
 }

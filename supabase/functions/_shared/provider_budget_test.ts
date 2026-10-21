@@ -58,9 +58,10 @@ Deno.test('provider budget abort before execution cannot reserve or start work',
   globalThis.fetch = (() => { calls++; throw new Error('unexpected fetch'); }) as typeof fetch;
   try {
     const signal = AbortSignal.abort();
-    try { await providerCallBudget({ ...context, signal })('coach_answer'); } catch (error) {
-      assert(error instanceof ProviderBudgetError, 'sanitized abort');
-    }
+    let error: unknown;
+    try { await providerCallBudget({ ...context, signal })('coach_answer'); } catch (caught) { error = caught; }
+    // Resolving would let the caller start the paid call without a reservation.
+    assert(error instanceof ProviderBudgetError, 'aborted reservation rejects, sanitized');
     assert(calls === 0, 'nothing sent');
   } finally { globalThis.fetch = saved; }
 });

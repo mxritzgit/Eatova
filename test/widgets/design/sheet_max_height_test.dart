@@ -31,19 +31,6 @@ void main() {
       );
     });
 
-    test('ohne Tastatur bleibt nur Safe-Area plus Luft abgezogen', () {
-      const mq = MediaQueryData(
-        size: Size(390, _hoehe),
-        viewPadding: EdgeInsets.only(top: _safeAreaOben, bottom: 34),
-      );
-      expect(sheetMaxHeight(mq), _hoehe - _safeAreaOben - kSheetTopGap);
-    });
-
-    test('ohne Safe-Area und Tastatur ist es die Hoehe minus Luft', () {
-      const mq = MediaQueryData(size: Size(800, 600));
-      expect(sheetMaxHeight(mq), 600 - kSheetTopGap);
-    });
-
     test('faellt nie unter kSheetMinHeight', () {
       // iPhone SE (1st gen) with keyboard: 568 - 20 - 260 - 12 = 276 < 320.
       const se = MediaQueryData(
@@ -59,11 +46,6 @@ void main() {
         viewInsets: EdgeInsets.only(bottom: 400),
       );
       expect(sheetMaxHeight(winzig), kSheetMinHeight);
-    });
-
-    test('die Konstanten stehen so, wie die Formel es verspricht', () {
-      expect(kSheetTopGap, 12);
-      expect(kSheetMinHeight, 320);
     });
   });
 

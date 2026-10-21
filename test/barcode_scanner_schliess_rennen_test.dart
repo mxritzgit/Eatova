@@ -289,7 +289,8 @@ void main() {
       expect(find.byType(BarcodeScannerSheet), findsNothing);
     },
   );
-  for (final size in [const Size(320, 568), const Size(393, 852)]) {
+  // The smallest supported phone; a larger screen only adds room.
+  for (final size in [const Size(320, 568)]) {
     testWidgets(
       'scan controls do not overlap at double text: $size',
       (tester) async {

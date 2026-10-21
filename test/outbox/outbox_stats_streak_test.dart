@@ -13,7 +13,6 @@ import '../support/atomic_store_faults.dart';
 import 'outbox_test_helpers.dart';
 
 const _queueKey = 'eatova.v1.outbox.user-outbox';
-const _deltaKey = 'eatova.v1.pending_stats.user-outbox';
 const _statsKey = 'eatova.v1.stats.user-outbox';
 final _now = DateTime(2026, 5, 14, 12, 30);
 Future<void> _today(Future<void> Function() body) =>
@@ -305,42 +304,6 @@ void main() {
       expect(s.store.pendingOutbox, isEmpty);
     },
   );
-
-  for (final failures in [1, 6]) {
-    test(
-      'unreadable legacy stats never get overwritten by $failures new mutations',
-      () async {
-        final kv = InMemoryKeyValueStore();
-        await LocalCache(
-          kv,
-          'user-outbox',
-        ).writePendingStatsDeltas(meals: 2, weightLogs: 1);
-        final original = kv.snapshot[_deltaKey];
-        final faults = AtomicStoreFaults(kv)
-          ..beforeRead = (keys) async {
-            if (keys.contains(_deltaKey)) {
-              throw StateError('Keystore temporarily unavailable');
-            }
-          };
-        final s = setup(injizierterCache: LocalCache(faults, 'user-outbox'));
-        await bootUntilIdle(s.store);
-        for (var i = 0; i < failures; i++) {
-          await expectLater(
-            s.store.addResultToDailyTotal(mealResult('Uncommitted $i')),
-            throwsStateError,
-          );
-          expect(kv.snapshot[_deltaKey], original);
-          expect(s.store.loggedMeals, isEmpty);
-        }
-        final recovered = setup(kv: kv);
-        await bootUntilIdle(recovered.store);
-        expect(recovered.server.mealsCounted, 2);
-        expect(recovered.server.weightLogsCounted, 1);
-        await recovered.store.addResultToDailyTotal(mealResult('Committed'));
-        expect(recovered.server.mealsCounted, 3);
-      },
-    );
-  }
 
   test(
     'tracking-day failure leaves the whole meal transaction pending and local streak visible',

@@ -10,11 +10,11 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
-for (const fixture of fixtures) {
-  Deno.test(`server/client nutrition conflict contract: ${fixture.name}`, async () => {
+Deno.test('server/client nutrition conflict contract: every shared fixture', async () => {
+  for (const fixture of fixtures) {
     const actual = await parseExtraction(JSON.stringify(fixture.provider), fixture.source, 2);
     if (JSON.stringify(canonical(actual)) !== JSON.stringify(canonical(fixture.expected))) {
       throw new Error(`Source validation differs from the shared client fixture: ${fixture.name}`);
     }
-  });
-}
+  }
+});

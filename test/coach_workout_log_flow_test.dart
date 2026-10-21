@@ -1054,7 +1054,7 @@ void main() {
   // see: an unsent draft is kept behind the command, never replaced.
   for (final (draft, prepared, cursor) in <(String, String, int)>[
     ('', '/log ', 5),
-    ('/recipe ', '/log ', 5),
+    // A bare or partial command is replaced, like "/recipe ".
     ('/re', '/log ', 5),
     (
       'was esse ich nach dem Beintag?',

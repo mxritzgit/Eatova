@@ -122,6 +122,9 @@ int _erwarteteKcal(HomeStore store, int steps) => estimateKcalBurnedFromSteps(
       sex: store.profile.sex,
     );
 
+/// Pinned "now": the day keys and the archive days hang off the clock.
+final DateTime _jetzt = DateTime(2026, 9, 16, 12);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -129,7 +132,7 @@ void main() {
       DateUtils.dateOnly(clock.now()).subtract(Duration(days: n));
 
   test('Health-Refresh schreibt den heutigen Tageswert in Map + Cache fest',
-      () async {
+      () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setupSynced(InMemoryKeyValueStore());
     s.store.start();
     await s.store.profileReady;
@@ -144,10 +147,10 @@ void main() {
     expect(s.store.dailyActivity[key], (steps: 12000, kcal: kcal));
     expect(await s.cache.readDailyActivity(),
         containsPair(key, (steps: 12000, kcal: kcal)));
-  });
+  }));
 
   test('burnedKcalForFoodDate: heute live, Archivtag gespeichert, sonst 0',
-      () async {
+      () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setupLight();
     await s.store.refreshHealthSteps();
 
@@ -177,10 +180,10 @@ void main() {
     expect(s.store.dailyActivity[localDayKey(vorgestern)],
         (steps: 4000, kcal: 115));
     expect(s.store.burnedKcalForFoodDate(vorgestern), 115);
-  });
+  }));
 
   test('stepsForFoodDate: null ohne Schrittquelle, heute live, Archivtag '
-      'gespeichert', () async {
+      'gespeichert', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setupLight();
 
     // No verified permission and no step count yet: no source -> null.
@@ -202,10 +205,10 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(s.store.stepsForFoodDate(gestern), 9000);
     expect(s.store.burnedKcalForFoodDate(gestern), _erwarteteKcal(s.store, 9000));
-  });
+  }));
 
   test('Backfill fragt die Historie genau einmal pro Tag und Sitzung',
-      () async {
+      () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setupLight();
     final gestern = tageZurueck(1);
     s.health.stepsByDay[localDayKey(gestern)] = 6000;
@@ -218,9 +221,9 @@ void main() {
 
     // Today never triggers a history query, yesterday exactly one.
     expect(s.health.dayReads, hasLength(1));
-  });
+  }));
 
-  test('Backfill ohne Daten (null) schreibt nichts fest', () async {
+  test('Backfill ohne Daten (null) schreibt nichts fest', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setupLight();
     final vorgestern = tageZurueck(2);
 
@@ -229,9 +232,9 @@ void main() {
 
     expect(s.store.dailyActivity, isEmpty);
     expect(s.store.burnedKcalForFoodDate(vorgestern), 0);
-  });
+  }));
 
-  test('Hydration: der Tageswert uebersteht den Kaltstart', () async {
+  test('Hydration: der Tageswert uebersteht den Kaltstart', () => withClock(Clock.fixed(_jetzt), () async {
     final kv = InMemoryKeyValueStore();
     final erste = _setupSynced(kv);
     erste.store.start();
@@ -247,9 +250,9 @@ void main() {
     await zweite.store.profileReady;
 
     expect(zweite.store.dailyActivity[key], erwartet);
-  });
+  }));
 
-  test('korrupter Slot liefert null bzw. ueberspringt kaputte Tage', () async {
+  test('korrupter Slot liefert null bzw. ueberspringt kaputte Tage', () => withClock(Clock.fixed(_jetzt), () async {
     final kv = InMemoryKeyValueStore({
       'eatova.v1.daily_activity.user-activity': jsonEncode({
         'days': {
@@ -267,5 +270,5 @@ void main() {
     });
     expect(await LocalCache(kaputt, 'user-activity').readDailyActivity(),
         isNull);
-  });
+  }));
 }

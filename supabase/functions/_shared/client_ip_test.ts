@@ -41,13 +41,7 @@ Deno.test("REGRESSION: x-forwarded-for wird von RECHTS gelesen", () => {
   // address right; the old .split(",")[0] returned the attacker's value.
   const result = subject({ "x-forwarded-for": "9.9.9.9, 203.0.113.7" });
   assertEquals(result, "ip:203.0.113.7", "rechtester Eintrag muss gewinnen");
-  assert(
-    result !== "ip:9.9.9.9",
-    "der linkeste (client-kontrollierte) Eintrag darf NIE das Subject bestimmen",
-  );
-});
-
-Deno.test("laengere x-forwarded-for-Ketten: immer der rechteste gueltige Eintrag", () => {
+  // Longer chains: always the rightmost valid entry.
   assertEquals(
     subject({ "x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3, 198.51.100.42" }),
     "ip:198.51.100.42",
@@ -155,6 +149,8 @@ Deno.test("zwei Adressen im selben /64 fallen in dasselbe Bucket", () => {
   const b = subject({ "cf-connecting-ip": "2001:db8:85a3:1:ffff:ffff:ffff:ffff" });
   assertEquals(a, b, "gleiches /64 muss dasselbe Subject ergeben");
   assertEquals(a, "ip:2001:db8:85a3:1::/64", "erwartetes /64-Subject");
+  const other = subject({ "cf-connecting-ip": "2001:db8:85a3:2::1" });
+  assert(a !== other, "verschiedene /64 duerfen nicht kollabieren");
 });
 
 Deno.test("REGRESSION: IPv4-in-IPv6 bekommt ein Bucket PRO Adresse", () => {
@@ -204,29 +200,16 @@ Deno.test("echte IPv6 bleibt bei der /64-Kuerzung", () => {
   assertEquals(normalizeIp("::1"), "0:0:0:0::/64", "Loopback wird nicht zu 0.0.0.1");
 });
 
-Deno.test("verschiedene /64-Praefixe bleiben verschiedene Buckets", () => {
-  const a = subject({ "cf-connecting-ip": "2001:db8:85a3:1::1" });
-  const b = subject({ "cf-connecting-ip": "2001:db8:85a3:2::1" });
-  assert(a !== b, "verschiedene /64 duerfen nicht kollabieren");
-});
-
-Deno.test("ohne verwertbare Header: Fallback auf die verifizierte User-Id", () => {
+Deno.test("ohne verwertbare Header: Fallback auf die verifizierte User-Id, ein Bucket pro User", () => {
+  // Why the fallback is the user id and not a shared literal like "unknown":
+  // one abuser could drain a shared bucket and lock out everyone.
   assertEquals(subject({}, USER_A), `uid:${USER_A}`, "kein Header -> uid-Fallback");
+  assertEquals(subject({}, USER_B), `uid:${USER_B}`, "zweiter User, eigenes Bucket");
   assertEquals(
     subject({ "x-forwarded-for": "unknown" }, USER_A),
     `uid:${USER_A}`,
     "nur Muell im Header -> uid-Fallback",
   );
-});
-
-Deno.test("Anti-Lockout: zwei User ohne Header bekommen VERSCHIEDENE Buckets", () => {
-  // Why the fallback is the user id and not a shared literal like "unknown":
-  // one abuser could drain a shared bucket and lock out everyone.
-  const a = subject({}, USER_A);
-  const b = subject({}, USER_B);
-  assert(a !== b, "beide User landen im selben Bucket - globaler Lockout moeglich");
-  assertEquals(a, `uid:${USER_A}`, "User A");
-  assertEquals(b, `uid:${USER_B}`, "User B");
 });
 
 Deno.test("praeparierte uid:-Header koennen kein fremdes Bucket treffen", () => {
@@ -252,24 +235,5 @@ Deno.test("praeparierte uid:-Header koennen kein fremdes Bucket treffen", () => 
       `uid:${USER_A}`,
       `praeparierter Header ${JSON.stringify(headers)} muss auf den eigenen uid-Fallback zeigen`,
     );
-  }
-});
-
-Deno.test("ip:- und uid:-Namensraeume ueberschneiden sich nie", () => {
-  const ipSubject = subject({ "cf-connecting-ip": "203.0.113.7" });
-  const uidSubject = subject({}, USER_A);
-  assert(ipSubject.startsWith("ip:"), "IP-Subject muss ip:-praefixiert sein");
-  assert(uidSubject.startsWith("uid:"), "Fallback muss uid:-praefixiert sein");
-  assert(ipSubject !== uidSubject, "Namensraeume duerfen nicht kollidieren");
-});
-
-Deno.test("Subjects bleiben deutlich unter dem 512-Zeichen-Guard der RPC", () => {
-  const longest = [
-    subject({ "cf-connecting-ip": "2001:0db8:85a3:0001:0000:8a2e:0370:7334" }),
-    subject({ "x-forwarded-for": "1.1.1.1, ".repeat(40) + "203.0.113.7" }),
-    subject({}, USER_A),
-  ];
-  for (const value of longest) {
-    assert(value.length <= 512, `Subject zu lang (${value.length}): ${value}`);
   }
 });

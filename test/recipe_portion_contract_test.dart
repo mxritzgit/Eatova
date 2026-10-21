@@ -115,64 +115,61 @@ void main() {
     );
   }
 
+  // The app's language; the unit test above checks both display languages.
   for (final fixture in fixtures.take(2)) {
-    for (final locale in [const Locale('de'), const Locale('en')]) {
-      testWidgets('preview and explicit save: ${fixture['name']}, $locale', (
+    testWidgets('preview and explicit save: ${fixture['name']}', (
+      tester,
+    ) async {
+      final saved = <FitnessRecipe>[];
+      final response = fixture['response'] as Map<String, dynamic>;
+      await pumpLocalized(
         tester,
-      ) async {
-        final saved = <FitnessRecipe>[];
-        final response = fixture['response'] as Map<String, dynamic>;
-        await pumpLocalized(
-          tester,
-          Builder(
-            builder: (context) => TextButton(
-              onPressed: () => showRecipeImportSheet(
-                context: context,
-                service: _FixtureService(response),
-                initialText: (fixture['source'] as Map)['text'] as String,
-                sessionIsCurrent: () => true,
-                onSave: (recipe) async {
-                  saved.add(recipe);
-                  return SyncDelivery.delivered;
-                },
-              ),
-              child: const Text('Open import'),
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showRecipeImportSheet(
+              context: context,
+              service: _FixtureService(response),
+              initialText: (fixture['source'] as Map)['text'] as String,
+              sessionIsCurrent: () => true,
+              onSave: (recipe) async {
+                saved.add(recipe);
+                return SyncDelivery.delivered;
+              },
             ),
+            child: const Text('Open import'),
           ),
-          locale: locale,
-          surfaceSize: const Size(390, 844),
-        );
-        await tester.tap(find.text('Open import'));
-        await tester.pumpAndSettle();
-        expect(saved, isEmpty);
-        expect(
-          find.textContaining('200 g Hackfleisch', findRichText: true),
-          findsWidgets,
-        );
-        expect(find.text('500'), findsWidgets);
-        expect(tester.takeException(), isNull);
-        final save = find.byKey(const ValueKey('recipe-import-save'));
-        await tester.ensureVisible(save);
-        await tester.pumpAndSettle();
-        await tester.tap(save);
-        await tester.pumpAndSettle();
-        expect(saved, hasLength(1));
-        final restored = FitnessRecipe.fromRow(saved.single.toRow());
-        expect(restored.ingredients, '800 g Hackfleisch\n400 g Tomaten');
-        await pumpLocalized(
-          tester,
-          RecipeDetailScreen(recipe: restored, onAddMeal: (_, __) {}),
-          locale: locale,
-          surfaceSize: const Size(390, 844),
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.textContaining('200 g Hackfleisch', findRichText: true),
-          findsWidgets,
-        );
-        expect(find.text('500'), findsWidgets);
-        expect(tester.takeException(), isNull);
-      });
-    }
+        ),
+        surfaceSize: const Size(390, 844),
+      );
+      await tester.tap(find.text('Open import'));
+      await tester.pumpAndSettle();
+      expect(saved, isEmpty);
+      expect(
+        find.textContaining('200 g Hackfleisch', findRichText: true),
+        findsWidgets,
+      );
+      expect(find.text('500'), findsWidgets);
+      expect(tester.takeException(), isNull);
+      final save = find.byKey(const ValueKey('recipe-import-save'));
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+      expect(saved, hasLength(1));
+      final restored = FitnessRecipe.fromRow(saved.single.toRow());
+      expect(restored.ingredients, '800 g Hackfleisch\n400 g Tomaten');
+      await pumpLocalized(
+        tester,
+        RecipeDetailScreen(recipe: restored, onAddMeal: (_, __) {}),
+        surfaceSize: const Size(390, 844),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('200 g Hackfleisch', findRichText: true),
+        findsWidgets,
+      );
+      expect(find.text('500'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
   }
 }

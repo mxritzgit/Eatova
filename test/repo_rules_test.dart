@@ -11,7 +11,7 @@
 //     here.
 //   * wire_search_key_envelope_test.dart — pins the wire contract of ONE pair
 //     of files against each other, no tree walk, no shared allowlist.
-//   * migration_*_test.dart, fixlauf_g_manual_energy_migration_test.dart,
+//   * migration_*_test.dart, migrations/profile_columns_contract_test.dart,
 //     wiring_android_manifest_test.dart, wiring_notification_small_icon_test
 //     .dart — SQL, XML and VectorDrawable parsers; folding them in would bury
 //     these rules under three parsers.
@@ -42,8 +42,6 @@ class _Quelle {
   final String pfad;
   final String roh;
   final String ohneKommentare;
-
-  String get basisName => pfad.split('/').last;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,13 +207,6 @@ List<_Quelle> _leseLib() {
 _Quelle _quelle(String pfad) => _libQuellen.firstWhere(
       (q) => q.pfad == pfad,
       orElse: () => fail('$pfad fehlt unter lib/'),
-    );
-
-/// Direct children of [ordner] (which ends with `/`), not recursing.
-Iterable<_Quelle> _direktIn(String ordner) => _libQuellen.where(
-      (q) =>
-          q.pfad.startsWith(ordner) &&
-          !q.pfad.substring(ordner.length).contains('/'),
     );
 
 /// Sources under [pfad], which is either a directory (trailing `/`, searched
@@ -705,24 +696,6 @@ void main() {
   // Token discipline — the three hard rules from DESIGN_REFACTOR §3
   // =========================================================================
   group('Token-Disziplin in lib/', () {
-    test('niemand importiert app_colors.dart mehr (die Datei ist weg)', () {
-      expect(File('lib/src/theme/app_colors.dart').existsSync(), isFalse,
-          reason: 'die alte Dunkel-Palette wurde mit der Auth-Runde geloescht');
-      final treffer = <String>[];
-      for (final quelle in _libQuellen) {
-        if (quelle.ohneKommentare.contains('app_colors.dart')) {
-          treffer.add(quelle.pfad);
-        }
-      }
-      expect(
-        treffer,
-        isEmpty,
-        reason: 'Diese Dateien haengen noch an der festen Dunkel-Palette und '
-            'wuerden im Hell-Modus dunkle Flaechen zeichnen:\n'
-            '${treffer.join('\n')}',
-      );
-    });
-
     test(
         'kein Color(0x…), Color.fromARGB( oder Colors.* ausserhalb von '
         'lib/src/theme/ (Allowlist mit Begruendung)', () {
@@ -811,32 +784,6 @@ void main() {
       ]) {
         expect(_helligkeitsAbzweig.hasMatch(ok), isFalse, reason: ok);
       }
-    });
-
-    test('kein app_colors und keine harte Farbe mehr im Coach', () {
-      // Coach design refactor: color comes exclusively from context.t
-      // (AppTokens). Scans the RAW source on purpose — a leftover token name
-      // in a comment is a leftover too.
-      const verboten = <String>[
-        'app_colors',
-        'Color(0x',
-        'coachAccent',
-        'textPrimary',
-        'textMuted',
-        'surfaceSoft',
-        'hairline',
-        'cardShadow',
-      ];
-      final treffer = <String>[];
-      for (final quelle in _direktIn('lib/src/screens/coach/')) {
-        for (final wort in verboten) {
-          if (quelle.roh.contains(wort)) {
-            treffer.add('${quelle.basisName}: $wort');
-          }
-        }
-      }
-      expect(treffer, isEmpty,
-          reason: 'Farbe kommt ausschliesslich aus context.t (AppTokens)');
     });
   });
 

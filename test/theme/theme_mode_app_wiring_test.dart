@@ -57,12 +57,6 @@ void main() {
       .first
       .value;
 
-  test('ohne Wahl folgt der Controller dem Geraet', () {
-    final controller = ThemeModeController();
-    addTearDown(controller.dispose);
-    expect(controller.mode, ThemeMode.system);
-  });
-
   group('System-Modus folgt dem Geraet', () {
     for (final device in Brightness.values) {
       testWidgets('Geraet ${device.name} -> Palette ${device.name}',

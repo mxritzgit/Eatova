@@ -46,91 +46,88 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 
 void main() {
   for (final locale in ['de', 'en']) {
-    for (final brightness in Brightness.values) {
-      testWidgets(
-        'manual ingredient and decimal portions at 320px 2x $locale $brightness',
-        (tester) async {
-          tester.view.physicalSize = const Size(320, 760);
-          tester.view.devicePixelRatio = 1;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
-          final t = locale == 'de' ? deL10n : enL10n;
-          var ingredients = <RecipeIngredient>[];
-          double? servings = 1;
-          await pumpLocalized(
-            tester,
-            StatefulBuilder(
-              builder: (context, setState) => SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      RecipeIngredientEditor(
-                        ingredients: ingredients,
-                        productService: _Products(),
-                        onChanged: (value) => setState(() {
-                          ingredients = value;
-                        }),
-                      ),
-                      RecipePortionSelector(
-                        onChanged: (value) {
-                          servings = value;
-                        },
-                      ),
-                    ],
-                  ),
+    testWidgets(
+      'manual ingredient and decimal portions at 320px 2x $locale',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 760);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final t = locale == 'de' ? deL10n : enL10n;
+        var ingredients = <RecipeIngredient>[];
+        double? servings = 1;
+        await pumpLocalized(
+          tester,
+          StatefulBuilder(
+            builder: (context, setState) => SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    RecipeIngredientEditor(
+                      ingredients: ingredients,
+                      productService: _Products(),
+                      onChanged: (value) => setState(() {
+                        ingredients = value;
+                      }),
+                    ),
+                    RecipePortionSelector(
+                      onChanged: (value) {
+                        servings = value;
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),
-            locale: Locale(locale),
-            brightness: brightness,
-            textScale: 2,
-          );
-          await _tap(tester, find.byKey(const ValueKey('ingredient-add')));
-          await _tap(tester, find.byKey(const ValueKey('ingredient-manual')));
-          await _enter(tester, 0, 'Oats');
-          await _enter(tester, 1, '123,5');
-          await _enter(tester, 2, '350');
-          // "12.345" is 12.345 g or 12345 g: the editor asks instead of
-          // guessing; a fourth decimal makes the same value unambiguous.
-          await _enter(tester, 3, '12.345');
-          expect(
-            find.text(
-              t.numberInputAmbiguous(
-                locale == 'de' ? '12,345' : '12.345',
-                '12345',
-              ),
+          ),
+          locale: Locale(locale),
+          textScale: 2,
+        );
+        await _tap(tester, find.byKey(const ValueKey('ingredient-add')));
+        await _tap(tester, find.byKey(const ValueKey('ingredient-manual')));
+        await _enter(tester, 0, 'Oats');
+        await _enter(tester, 1, '123,5');
+        await _enter(tester, 2, '350');
+        // "12.345" is 12.345 g or 12345 g: the editor asks instead of
+        // guessing; a fourth decimal makes the same value unambiguous.
+        await _enter(tester, 3, '12.345');
+        expect(
+          find.text(
+            t.numberInputAmbiguous(
+              locale == 'de' ? '12,345' : '12.345',
+              '12345',
             ),
-            findsOneWidget,
-          );
-          await _enter(tester, 3, '12.3450');
-          await _enter(tester, 5, '0');
-          await _tap(tester, find.text(t.ingredientSave));
-          expect(ingredients.single.grams, 123.5);
-          expect(ingredients.single.per100g.proteinG, 12.345);
-          expect(ingredients.single.per100g.carbsG, isNull);
-          expect(ingredients.single.per100g.fatG, 0);
-          expect(find.text(t.ingredientIncomplete), findsOneWidget);
-          await tester.ensureVisible(
-            find.byKey(const ValueKey('recipe-portion-field')),
-          );
-          await tester.enterText(
-            find.byKey(const ValueKey('recipe-portion-field')),
-            '0,5',
-          );
-          await tester.pump();
-          expect(servings, 0.5);
-          await tester.enterText(
-            find.byKey(const ValueKey('recipe-portion-field')),
-            '0',
-          );
-          await tester.pump();
-          expect(servings, isNull);
-          expect(find.text(t.recipeCalcServingsError), findsOneWidget);
-          expect(tester.takeException(), isNull);
-        },
-      );
-    }
+          ),
+          findsOneWidget,
+        );
+        await _enter(tester, 3, '12.3450');
+        await _enter(tester, 5, '0');
+        await _tap(tester, find.text(t.ingredientSave));
+        expect(ingredients.single.grams, 123.5);
+        expect(ingredients.single.per100g.proteinG, 12.345);
+        expect(ingredients.single.per100g.carbsG, isNull);
+        expect(ingredients.single.per100g.fatG, 0);
+        expect(find.text(t.ingredientIncomplete), findsOneWidget);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('recipe-portion-field')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('recipe-portion-field')),
+          '0,5',
+        );
+        await tester.pump();
+        expect(servings, 0.5);
+        await tester.enterText(
+          find.byKey(const ValueKey('recipe-portion-field')),
+          '0',
+        );
+        await tester.pump();
+        expect(servings, isNull);
+        expect(find.text(t.recipeCalcServingsError), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets(

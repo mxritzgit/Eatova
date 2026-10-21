@@ -667,55 +667,56 @@ void main() {
   });
 
   group('layout', () {
-    for (final locale in const [Locale('de'), Locale('en')]) {
-      for (final brightness in Brightness.values) {
-        testWidgets(
-          '320 px, 2x text, $locale, ${brightness.name}: no overflow',
-          (tester) async {
-            await openDescribe(
-              tester,
-              locale: locale,
-              brightness: brightness,
-              width: 320,
-              textScale: 2,
-            );
-            expect(tester.takeException(), isNull);
-            for (final id in [
-              'meal-describe-close',
-              'meal-describe-mic',
-              'meal-describe-language',
-              'meal-describe-submit',
-            ]) {
-              await tester.ensureVisible(key(id));
-              await tester.pumpAndSettle();
-              final size = tester.getSize(key(id));
-              expect(size.height, greaterThanOrEqualTo(48), reason: id);
-              expect(size.width, greaterThanOrEqualTo(48), reason: id);
-            }
-
-            await describe(tester, 'Nutella auf einer Scheibe Toast von Lidl');
-            expect(tester.takeException(), isNull);
-            for (final id in [
-              'meal-describe-line-0',
-              'meal-describe-line-1',
-              'meal-describe-edit',
-              'meal-describe-add',
-            ]) {
-              await tester.ensureVisible(key(id));
-              await tester.pumpAndSettle();
-              expect(
-                tester.getSize(key(id)).height,
-                greaterThanOrEqualTo(48),
-                reason: id,
-              );
-            }
-            await _openLine(tester, 1);
-            await tester.ensureVisible(key('describe-line-remove'));
-            await tester.pumpAndSettle();
-            expect(tester.takeException(), isNull);
-          },
+    // Brightness changes colours, not geometry: each theme renders once.
+    for (final (locale, brightness) in const [
+      (Locale('de'), Brightness.light),
+      (Locale('en'), Brightness.dark),
+    ]) {
+      testWidgets('320 px, 2x text, $locale, ${brightness.name}: no overflow', (
+        tester,
+      ) async {
+        await openDescribe(
+          tester,
+          locale: locale,
+          brightness: brightness,
+          width: 320,
+          textScale: 2,
         );
-      }
+        expect(tester.takeException(), isNull);
+        for (final id in [
+          'meal-describe-close',
+          'meal-describe-mic',
+          'meal-describe-language',
+          'meal-describe-submit',
+        ]) {
+          await tester.ensureVisible(key(id));
+          await tester.pumpAndSettle();
+          final size = tester.getSize(key(id));
+          expect(size.height, greaterThanOrEqualTo(48), reason: id);
+          expect(size.width, greaterThanOrEqualTo(48), reason: id);
+        }
+
+        await describe(tester, 'Nutella auf einer Scheibe Toast von Lidl');
+        expect(tester.takeException(), isNull);
+        for (final id in [
+          'meal-describe-line-0',
+          'meal-describe-line-1',
+          'meal-describe-edit',
+          'meal-describe-add',
+        ]) {
+          await tester.ensureVisible(key(id));
+          await tester.pumpAndSettle();
+          expect(
+            tester.getSize(key(id)).height,
+            greaterThanOrEqualTo(48),
+            reason: id,
+          );
+        }
+        await _openLine(tester, 1);
+        await tester.ensureVisible(key('describe-line-remove'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
     }
   });
 }

@@ -50,7 +50,6 @@ void main() {
   Future<Future<SettingsResult?>> openSettings(
     WidgetTester tester, {
     UserProfile profile = basis,
-    Locale locale = const Locale('de'),
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
@@ -82,7 +81,6 @@ void main() {
           ),
         ),
       ),
-      locale: locale,
       brightness: Brightness.light,
     );
     await tester.tap(find.byKey(const ValueKey('open-settings')));
@@ -320,25 +318,6 @@ void main() {
       expect(erreichtHinweis(), findsNothing,
           reason: '755 kg ist ausserhalb der Spalte — kein Erfolg, ein Fehler');
       expect(saveHandler(tester), isNull);
-    });
-
-    testWidgets('die englische Fassung nennt denselben Erfolg', (tester) async {
-      await openSettings(
-        tester,
-        profile: basis.copyWith(
-          targetWeightKg: 90,
-          weightGoal: WeightGoal.lose05kg,
-        ),
-        locale: const Locale('en'),
-      );
-
-      expect(
-        find.text('Goal reached! At 80 kg you have hit your target weight of '
-            '90 kg. Your plan switches to holding — for a new goal, enter a '
-            'lower target weight.'),
-        findsOneWidget,
-      );
-      expect(saveHandler(tester), isNotNull);
     });
   });
 

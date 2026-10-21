@@ -27,7 +27,6 @@ Future<void> _open(
   double width = 393,
   bool keyboard = false,
   Locale locale = const Locale('de'),
-  Brightness brightness = Brightness.light,
   MealAnalysisResult meal = _meal,
   String Function(MealAnalysisResult, MealSlot)? onAdd,
 }) async {
@@ -59,7 +58,7 @@ Future<void> _open(
       ),
     ),
     locale: locale,
-    brightness: brightness,
+    brightness: Brightness.light,
     textScale: scale,
     safeArea: false,
   );
@@ -117,64 +116,62 @@ void main() {
     },
   );
 
-  for (final brightness in Brightness.values) {
-    for (final locale in [const Locale('de'), const Locale('en')]) {
-      testWidgets(
-        'library controls remain reachable with 2x text and keyboard: $brightness $locale',
-        (tester) async {
-          await _open(
-            tester,
-            width: 320,
-            scale: 2,
-            keyboard: true,
-            brightness: brightness,
-            locale: locale,
-          );
-          expect(_key('favorites-sheet-close').hitTestable(), findsOneWidget);
-          final search = _key('favorites-sheet-search');
-          expect(search.hitTestable(), findsOneWidget);
-          final title = find.text('Skyr');
-          await tester.ensureVisible(title);
-          await tester.pumpAndSettle();
-          await tester.tap(title);
-          await tester.pumpAndSettle();
-          final add = _key('favorites-sheet-add-0');
-          await tester.ensureVisible(add);
-          await tester.pumpAndSettle();
-          expect(add.hitTestable(), findsOneWidget);
-          await tester.tap(add);
-          await tester.pumpAndSettle();
-          expect(tester.takeException(), isNull);
-          expect(
-            tester.getRect(find.byType(SnackBar)).bottom,
-            lessThanOrEqualTo(852 - 300),
-          );
-          await tester.pump(const Duration(seconds: 4));
-          await tester.pumpAndSettle();
-          final unpin = _key('favorites-sheet-fav-0');
-          await tester.ensureVisible(unpin);
-          await tester.pumpAndSettle();
-          expect(unpin.hitTestable(), findsOneWidget);
-          expect(tester.getSize(unpin).height, greaterThanOrEqualTo(44));
-          await tester.enterText(search, 'nothing');
-          await tester.pumpAndSettle();
-          final noMatch = _key('favorites-sheet-no-match');
-          final reset = find.descendant(
-            of: noMatch,
-            matching: find.byType(SoftPillButton),
-          );
-          await tester.ensureVisible(reset);
-          await tester.pumpAndSettle();
-          await tester.tap(reset);
-          await tester.pumpAndSettle();
-          expect(tester.widget<TextField>(search).controller!.text, isEmpty);
-          expect(find.text('Skyr'), findsOneWidget);
-          await tester.tap(_key('favorites-sheet-close'));
-          await tester.pumpAndSettle();
-          expect(_key('favorites-sheet'), findsNothing);
-          expect(tester.takeException(), isNull);
-        },
-      );
-    }
+  // Layout depends on the language (German runs longer), not on the palette.
+  for (final locale in [const Locale('de'), const Locale('en')]) {
+    testWidgets(
+      'library controls remain reachable with 2x text and keyboard: $locale',
+      (tester) async {
+        await _open(
+          tester,
+          width: 320,
+          scale: 2,
+          keyboard: true,
+          locale: locale,
+        );
+        expect(_key('favorites-sheet-close').hitTestable(), findsOneWidget);
+        final search = _key('favorites-sheet-search');
+        expect(search.hitTestable(), findsOneWidget);
+        final title = find.text('Skyr');
+        await tester.ensureVisible(title);
+        await tester.pumpAndSettle();
+        await tester.tap(title);
+        await tester.pumpAndSettle();
+        final add = _key('favorites-sheet-add-0');
+        await tester.ensureVisible(add);
+        await tester.pumpAndSettle();
+        expect(add.hitTestable(), findsOneWidget);
+        await tester.tap(add);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(
+          tester.getRect(find.byType(SnackBar)).bottom,
+          lessThanOrEqualTo(852 - 300),
+        );
+        await tester.pump(const Duration(seconds: 4));
+        await tester.pumpAndSettle();
+        final unpin = _key('favorites-sheet-fav-0');
+        await tester.ensureVisible(unpin);
+        await tester.pumpAndSettle();
+        expect(unpin.hitTestable(), findsOneWidget);
+        expect(tester.getSize(unpin).height, greaterThanOrEqualTo(44));
+        await tester.enterText(search, 'nothing');
+        await tester.pumpAndSettle();
+        final noMatch = _key('favorites-sheet-no-match');
+        final reset = find.descendant(
+          of: noMatch,
+          matching: find.byType(SoftPillButton),
+        );
+        await tester.ensureVisible(reset);
+        await tester.pumpAndSettle();
+        await tester.tap(reset);
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(search).controller!.text, isEmpty);
+        expect(find.text('Skyr'), findsOneWidget);
+        await tester.tap(_key('favorites-sheet-close'));
+        await tester.pumpAndSettle();
+        expect(_key('favorites-sheet'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 }

@@ -17,9 +17,11 @@ import 'support/harness.dart';
 // question used to end in "No connection" with a retry marker at once, while
 // the server was still writing the answer — the retry bought a second daily
 // slot. Now the screen keeps its thinking state while the service re-checks
-// the transcript, up to the request deadline. These cases pin the screen's
-// side of that contract on fake time; the transcript loop itself is pinned
-// in coach_connection_loss_test.dart.
+// the transcript, up to the request deadline. The wait itself (answer,
+// deadline, leaving the chat, account switch, dispose) is pinned without
+// widgets in test/coach/coach_chat_controller_test.dart, the transcript loop
+// in coach_connection_loss_test.dart. This file keeps the one part only the
+// screen owns: it tells the wait when the app goes to the background.
 
 const String _frage = 'Wie viel Protein nach dem Training?';
 const String _antwort = 'Etwa 25 bis 30 g reichen.';
@@ -52,13 +54,6 @@ class _LostConnectionCoach extends CoachChatService {
           title: 'Chat A',
           createdAt: DateTime(2026, 10, 1),
           lastMessageAt: DateTime(2026, 10, 11),
-          messageCount: 0,
-        ),
-        ChatSession(
-          id: 's2',
-          title: 'Chat B',
-          createdAt: DateTime(2026, 10, 2),
-          lastMessageAt: DateTime(2026, 10, 10),
           messageCount: 0,
         ),
       ];
@@ -125,81 +120,7 @@ Future<void> _senden(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
-Finder get _denkt => find.byKey(const ValueKey('coach-thinking'));
-Finder get _fehler => find.text(deL10n.coachErrorNoConnection);
-Finder get _nochmal => find.byKey(const ValueKey('coach-unsent-retry'));
-
 void main() {
-  testWidgets('the stored answer arrives: thinking meanwhile, no error, one request',
-      (tester) async {
-    final svc = _LostConnectionCoach.create()..answerAtCheck = 3;
-    await _pumpCoach(tester, svc);
-
-    await _senden(tester);
-    expect(svc.checks, 1);
-    expect(_denkt, findsOneWidget);
-    expect(_fehler, findsNothing, reason: 'no error while the answer may come');
-    expect(_nochmal, findsNothing, reason: 'a retry would buy a second slot');
-
-    await tester.pump(_abstand);
-    expect(svc.checks, 2);
-    expect(_denkt, findsOneWidget);
-    expect(_fehler, findsNothing);
-
-    await tester.pump(_abstand);
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(svc.checks, 3);
-    expect(find.text(_antwort), findsOneWidget);
-    expect(find.text(_frage), findsOneWidget, reason: 'no duplicate question');
-    expect(_denkt, findsNothing);
-    expect(_fehler, findsNothing);
-    expect(_nochmal, findsNothing);
-    expect(svc.sends, 1);
-  });
-
-  testWidgets('no answer by the deadline: then the error and the retry marker',
-      (tester) async {
-    final svc = _LostConnectionCoach.create();
-    await _pumpCoach(tester, svc);
-
-    await _senden(tester);
-    await tester.pump(const Duration(seconds: 90));
-    expect(_denkt, findsOneWidget);
-    expect(_fehler, findsNothing);
-
-    await tester.pump(const Duration(seconds: 6));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(_fehler, findsOneWidget);
-    expect(_nochmal, findsOneWidget);
-    expect(_denkt, findsNothing);
-    // One check per 3 s up to 95 s after the send, the last one at 95 s.
-    expect(svc.checks, 33);
-    expect(svc.sends, 1);
-  });
-
-  testWidgets('leaving the conversation ends the wait at once', (tester) async {
-    final svc = _LostConnectionCoach.create();
-    await _pumpCoach(tester, svc);
-
-    await _senden(tester);
-    expect(svc.checks, 1);
-    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Chat B'));
-    await tester.pumpAndSettle();
-
-    // The composer is free at once, not only at the next check.
-    svc.answerAtCheck = 2;
-    await _senden(tester);
-    expect(svc.sends, 2);
-    expect(find.text(_antwort), findsOneWidget);
-
-    await tester.pump(const Duration(seconds: 30));
-    expect(svc.checks, 2, reason: 'no checks for a conversation left behind');
-    expect(_denkt, findsNothing);
-    expect(_fehler, findsNothing, reason: 'the error belongs to Chat A');
-  });
-
   testWidgets('in the background no timer runs; the resume checks at once',
       (tester) async {
     final svc = _LostConnectionCoach.create()..answerAtCheck = 2;
@@ -222,18 +143,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(svc.checks, 2);
     expect(find.text(_antwort), findsOneWidget);
-    expect(_fehler, findsNothing);
-  });
-
-  testWidgets('closing the screen ends the wait without a pending timer',
-      (tester) async {
-    final svc = _LostConnectionCoach.create();
-    await _pumpCoach(tester, svc);
-
-    await _senden(tester);
-    await tester.pumpWidget(const SizedBox());
-    await tester.pump(const Duration(seconds: 10));
-    expect(svc.checks, 1);
-    expect(svc.answerWaiter, isNull);
+    expect(find.text(deL10n.coachErrorNoConnection), findsNothing);
   });
 }

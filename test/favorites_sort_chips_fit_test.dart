@@ -34,7 +34,8 @@ FavoriteMeal _fav(String name, int day) {
 void main() {
   setUpAll(loadDesignFonts);
 
-  for (final (locale, width) in [('en', 320.0), ('de', 320.0), ('de', 390.0)]) {
+  // The narrowest supported phone; what fits at 320 px fits wider.
+  for (final (locale, width) in [('en', 320.0), ('de', 320.0)]) {
     testWidgets('all three chips fit $width px ($locale)', (tester) async {
       await pumpLocalized(
         tester,

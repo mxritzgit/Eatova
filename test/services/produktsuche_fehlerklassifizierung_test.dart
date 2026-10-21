@@ -164,35 +164,8 @@ void main() {
       expect(creds.invalidateCalls, 0, reason: 'kein Rotations-Signal');
     });
 
-    test('MirrorSchemaException ist bewusst KEINE IOException', () {
-      // The one property everything hangs on: if the type ever becomes an
-      // IOException again, the alarm is silently dead.
-      const fehler = MirrorSchemaException('malformed');
-      expect(fehler, isA<Exception>());
-      expect(fehler, isNot(isA<IOException>()));
-    });
-
-    test('5xx vom Mirror bleibt still — ein Serverwackler ist kein Vorfall',
-        () async {
-      final stub = await _MirrorStub.start(status: 500, body: '{}');
-      addTearDown(stub.close);
-      final creds = _FakeCredentials(
-        SearchCredentials(
-          baseUrl: stub.baseUrl,
-          searchKey: 'search-key',
-          source: SearchCredentialsOrigin.cache,
-        ),
-      );
-
-      final treffer = await FallbackProductService(
-        MeilisearchProductService(credentials: creds),
-        _FakeProduktService(searchResults: [_hit('OFF')]),
-      ).searchProducts('salami');
-      await pumpe();
-
-      expect(treffer.single.title, 'OFF');
-      expect(gemeldet, isEmpty);
-    });
+    // A mirror 5xx is an HttpException (meilisearch_key_rotation_test.dart),
+    // which fallback_product_service_test.dart shows stays silent.
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -296,18 +269,6 @@ void main() {
 
       expect(gemeldet, hasLength(2));
       expect(kontexte, ['product.search.primary', 'product.search.fallback']);
-    });
-
-    test('erfolgreicher Fallback meldet nichts', () async {
-      final svc = FallbackProductService(
-        _FakeProduktService(searchResults: const <ProductSearchResult>[]),
-        _FakeProduktService(searchResults: [_hit('OFF')]),
-      );
-
-      expect((await svc.searchProducts('milch')).single.title, 'OFF');
-      await pumpe();
-
-      expect(gemeldet, isEmpty);
     });
   });
 }

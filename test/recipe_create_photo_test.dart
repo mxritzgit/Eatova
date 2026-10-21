@@ -1,5 +1,6 @@
 import 'support/recipe_navigation.dart';
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -27,13 +28,15 @@ import 'support/harness.dart';
 // `imageAsset` field (the name comes randomly from the store, not the slug).
 // No Supabase bucket, no second pipeline.
 //
-// This suite covers the four ways it goes wrong:
-//   * The image reaches the recipe and survives a restart.
-//   * Carousel, list and detail show it, falling back to the placeholder when
-//     the file is missing (second device).
-//   * Deleting takes the bytes with it.
-//   * The sheet stays intact in both modes and at double text scale, and still
-//     has EXACTLY eight text fields (the D5 discard guard counts them).
+// This suite covers the ways it goes wrong:
+//   * The image reaches the recipe; a failed write saves without it and says
+//     so.
+//   * List and detail show it, falling back to the placeholder when the file
+//     is missing (second device).
+//   * A save with a photo keeps the draft it validated and owns the sheet
+//     until it is done.
+//   * The sheet stays intact at double text scale.
+// Deleting keeps the bytes: recipe_photo_delete_test.dart.
 
 /// A tiny, valid JPEG — real bytes, so `Image.memory`/`Image.file` can decode.
 Uint8List _jpeg({int r = 200, int g = 80, int b = 40}) {
@@ -129,6 +132,18 @@ class _TestImageStore extends RecipeImageStore {
     String? expectedSessionId,
   }) async {
     if (ordner.existsSync()) ordner.deleteSync(recursive: true);
+  }
+}
+
+/// Holds `save` until the test completes it: a photo write still in flight.
+class _HeldImageStore extends RecipeImageStore {
+  final completion = Completer<String?>();
+  int calls = 0;
+
+  @override
+  Future<String?> save({required Uint8List bytes}) {
+    calls++;
+    return completion.future;
   }
 }
 
@@ -389,6 +404,17 @@ void main() {
       expect(RecipeImageStore.isLocalReference(rezept.imageAsset), isTrue);
       expect(_store.abgelegt.keys, <String>[rezept.imageAsset]);
       expect(_store.resolveSync(rezept.imageAsset), isNotNull);
+      // Counter-check to the failed write below: a stored photo keeps the
+      // plain message, so a version that always says "without photo" fails.
+      final l10n = await AppLocalizations.delegate.load(const Locale('de'));
+      expect(
+        find.textContaining(l10n.recipesSavedSuccess('Protein-Bowl')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
+        findsNothing,
+      );
     });
 
     testWidgets(
@@ -461,44 +487,6 @@ void main() {
       },
     );
 
-    testWidgets('gelingt die Ablage, bleibt die Meldung die normale', (
-      tester,
-    ) async {
-      // Gegenprobe zum Fall darueber: ohne sie wuerde auch eine Fassung
-      // durchgehen, die IMMER „ohne Foto" sagt.
-      pinPhoneViewport(tester);
-      _store.speicherFehler = false;
-      final capture = _CreateCapture();
-      await tester.pumpWidget(
-        _app(
-          Brightness.dark,
-          photoInput: _FakeFotoquelle(bytes: _jpeg()),
-          capture: capture,
-        ),
-      );
-      await tester.pumpAndSettle();
-      await _openSheet(tester);
-
-      await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
-      await _tippe(tester, 'recipe-create-kcal', '520');
-      await tester.tap(
-        find.byKey(const ValueKey('recipe-create-photo-camera')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
-      await tester.pumpAndSettle();
-
-      final l10n = await AppLocalizations.delegate.load(const Locale('de'));
-      expect(
-        find.textContaining(l10n.recipesSavedSuccess('Protein-Bowl')),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
-        findsNothing,
-      );
-    });
-
     testWidgets('ohne Foto bleibt imageAsset leer (Abwaertskompatibilitaet)', (
       tester,
     ) async {
@@ -521,20 +509,15 @@ void main() {
       final zeile = capture.created.single.toRow();
       expect(zeile['image_asset'], '');
       expect(FitnessRecipe.fromRow(zeile).imageAsset, '');
-    });
-
-    testWidgets('eine alte Zeile ganz OHNE image_asset liest sich weiterhin', (
-      tester,
-    ) async {
-      // No widget needed — same assurance as above: the wire format gets NO new
-      // field, the marker lives in the existing `image_asset`.
-      final alt = FitnessRecipe.fromRow(<String, dynamic>{
-        'slug': 'user_alt',
-        'title': 'Alt',
-        'calories_kcal': 300,
-      });
-      expect(alt.imageAsset, '');
-      expect(RecipeImageStore.isLocalReference(alt.imageAsset), isFalse);
+      // A row from before photos, without the field at all, reads alike.
+      expect(
+        FitnessRecipe.fromRow(<String, dynamic>{
+          'slug': 'user_alt',
+          'title': 'Alt',
+          'calories_kcal': 300,
+        }).imageAsset,
+        '',
+      );
     });
   });
 
@@ -626,74 +609,96 @@ void main() {
     });
   });
 
-  testWidgets('Loeschen ohne vollstaendigen Referenzbestand bewahrt die Bytes', (
-    tester,
-  ) async {
-    final referenz = _legeAb(_store, 'user_weg', _jpeg());
-    final rezept = _eigenes(slug: 'user_weg', imageAsset: referenz);
+  // Review 2026-09-08 (R2): editing or dismissing while the photo is written
+  // could change the validated values or pop the wrong route.
+  group('Speichern mit Foto', () {
+    Future<List<FitnessRecipe>> oeffneMitEntwurf(WidgetTester tester) async {
+      pinPhoneViewport(tester);
+      final capture = _CreateCapture();
+      await pumpLocalized(
+        tester,
+        _tab(photoInput: _FakeFotoquelle(bytes: _jpeg()), capture: capture),
+        reducedMotion: false,
+        safeArea: false,
+      );
+      await _openSheet(tester);
+      await _tippe(tester, 'recipe-create-name', 'Protein Bowl');
+      await _tippe(tester, 'recipe-create-kcal', '520');
+      return capture.created;
+    }
 
-    pinPhoneViewport(tester);
-    await tester.pumpWidget(_app(Brightness.dark, userRecipes: [rezept]));
-    await tester.pumpAndSettle();
+    Future<void> starteFotoSpeichern(WidgetTester tester) async {
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-camera')),
+      );
+      await tester.pumpAndSettle();
+      final save = find.byKey(const ValueKey('recipe-create-save'));
+      await tester.ensureVisible(save);
+      await tester.tap(save);
+      await tester.pump();
+    }
 
-    await selectRecipeSection(tester, 'own');
-    final kachel = find.byKey(const ValueKey('recipe-tile-user_weg'));
-    await tester.dragUntilVisible(
-      kachel,
-      find.byKey(const ValueKey('screen-recipes')),
-      const Offset(0, -250),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(kachel);
-    await tester.pumpAndSettle();
+    TextEditingController feld(WidgetTester tester, String name) => tester
+        .widget<TextField>(find.byKey(ValueKey('recipe-create-$name')))
+        .controller!;
 
-    expect(
-      _store.resolveSync(referenz),
-      isNotNull,
-      reason: 'Vorbedingung: die Datei muss vorher da sein.',
-    );
+    testWidgets('das Speichern nimmt den beim Tippen geprueften Entwurf', (
+      tester,
+    ) async {
+      final images = _HeldImageStore();
+      RecipeImageStore.instance = images;
+      final created = await oeffneMitEntwurf(tester);
+      await _tippe(tester, 'recipe-create-protein', '40');
+      await starteFotoSpeichern(tester);
+      expect(images.calls, 1);
+      expect(created, isEmpty);
 
-    await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
-    await tester.pumpAndSettle();
+      // Input arriving after validation but before the disk write finishes
+      // must not leak into the submitted draft.
+      feld(tester, 'kcal').text = '';
+      feld(tester, 'grams').text = '0';
+      feld(tester, 'protein').text = '99999';
+      images.completion.complete(null);
+      await tester.pumpAndSettle();
 
-    // F6-03: inside the undo window nothing is committed yet, so the bytes
-    // must still be there — the recipe could come back.
-    expect(
-      _store.resolveSync(referenz),
-      isNotNull,
-      reason: 'Solange „Rueckgaengig" moeglich ist, bleibt das Foto.',
-    );
-    await tester.pump(kRecipeUndoWindow + const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
+      expect(created, hasLength(1));
+      expect(created.single.caloriesKcal, 520);
+      expect(created.single.estimatedGrams, 300);
+      expect(created.single.proteinG, 40);
+    });
 
-    expect(
-      _store.resolveSync(referenz),
-      isNotNull,
-      reason:
-          'Recipe deletion alone does not prove that no historical version uses the photo.',
-    );
+    testWidgets('Zurueck waehrend des Speicherns legt keinen Verwerfen-Dialog '
+        'darueber', (tester) async {
+      final images = _HeldImageStore();
+      RecipeImageStore.instance = images;
+      final created = await oeffneMitEntwurf(tester);
+      await starteFotoSpeichern(tester);
+      expect(images.calls, 1);
+
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 400));
+      final discard = find.byKey(const ValueKey('discard-changes-dialog'));
+      final openedDiscard = discard.evaluate().isNotEmpty;
+      // Finish the held write even on a faulty implementation, so the test
+      // does not end with an unfinished save.
+      if (openedDiscard) {
+        await tester.tap(find.byKey(const ValueKey('discard-changes-cancel')));
+        await tester.pumpAndSettle();
+      }
+      images.completion.complete(null);
+      await tester.pumpAndSettle();
+
+      expect(
+        openedDiscard,
+        isFalse,
+        reason: 'an in-flight save owns the sheet until its result is back',
+      );
+      expect(created, hasLength(1));
+    });
   });
 
   group('Das Sheet bleibt heil', () {
-    testWidgets('es hat neun Textfelder inklusive Zubereitung', (tester) async {
-      pinPhoneViewport(tester);
-      await tester.pumpWidget(
-        _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
-      );
-      await tester.pumpAndSettle();
-      await _openSheet(tester);
-
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('recipe-create-sheet')),
-          matching: find.byType(TextField),
-        ),
-        findsNWidgets(9),
-      );
-    });
-
-    // Mode loop plus the separate 2.0 case, folded into one matrix: both
-    // modes x normal and double system font, so hell@2.0 is covered too.
+    // Normal and double system font; the palette does not change the layout.
     renderMatrix('Das Anlege-Sheet mit Foto rendert overflow-frei', (
       tester,
       c,
@@ -717,7 +722,9 @@ void main() {
         find.byKey(const ValueKey('recipe-create-photo-preview')),
         findsOneWidget,
       );
-    }, textScales: const <double>[1.0, 2.0]);
+    },
+        brightnesses: const <Brightness>[Brightness.dark],
+        textScales: const <double>[1.0, 2.0]);
 
     testWidgets('save and close stay reachable while the form scrolls', (
       tester,
@@ -804,6 +811,8 @@ void main() {
               'buendig beginnen, gemessen: $tops',
         );
       }
-    }, textScales: const <double>[1.0, 1.3, 2.0]);
+    },
+        brightnesses: const <Brightness>[Brightness.dark],
+        textScales: const <double>[1.0, 1.3, 2.0]);
   });
 }

@@ -10,12 +10,20 @@ import 'support/harness.dart';
 
 // Manual entry: form per 100 g plus portion. Human input is REJECTED, not
 // clamped — save locks and the field shows the range error.
+//
+// Macro input (audit 2026-08-14): the digitsOnly formatter silently turned
+// "3,5" into 35, persisting a tenfold fat value while the calories stayed
+// right, so nothing looked wrong. Comma AND dot must pass, and the 0..100 g
+// bound must then apply to the DECIMAL value, not to the digit string. The
+// bound is per 100 g of food (PlausibilityLimits.macroPer100GMax): it used to
+// be the per-meal DB bound of 1000 g, which let an impossible 150 g of protein
+// per 100 g through.
 
 class _ResultHalter {
   MealAnalysisResult? result;
 }
 
-Future<_ResultHalter> _open(WidgetTester tester, {String? initialName}) async {
+Future<_ResultHalter> _open(WidgetTester tester) async {
   final halter = _ResultHalter();
   await pumpLocalized(
     tester,
@@ -24,10 +32,7 @@ Future<_ResultHalter> _open(WidgetTester tester, {String? initialName}) async {
         child: FilledButton(
           key: const ValueKey('open-manual'),
           onPressed: () async {
-            halter.result = await showManualMealSheet(
-              context,
-              initialName: initialName,
-            );
+            halter.result = await showManualMealSheet(context);
           },
           child: const Text('open'),
         ),
@@ -42,6 +47,26 @@ Future<_ResultHalter> _open(WidgetTester tester, {String? initialName}) async {
 PrimaryActionButton _saveButton(WidgetTester tester) => tester
     .widget<PrimaryActionButton>(find.byKey(const ValueKey('manual-meal-save')));
 
+Future<void> _tippe(WidgetTester tester, String key, String wert) =>
+    tester.enterText(find.byKey(ValueKey(key)), wert);
+
+String _feldText(WidgetTester tester, String key) =>
+    tester.widget<TextField>(find.byKey(ValueKey(key))).controller?.text ?? '';
+
+/// Name, kcal/100 g and portion: without them save stays disabled regardless
+/// of the macros.
+Future<void> _pflichtfelder(WidgetTester tester) async {
+  await _tippe(tester, 'manual-meal-name', 'Hofladen-Butter');
+  await _tippe(tester, 'manual-meal-kcal100', '265');
+  await _tippe(tester, 'manual-meal-grams', '125');
+}
+
+Future<void> _speichern(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const ValueKey('manual-meal-save')));
+  await tester.tap(find.byKey(const ValueKey('manual-meal-save')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('Save sperrt, bis Name + kcal/100 g + Gramm gültig sind', (
     tester,
@@ -53,14 +78,8 @@ void main() {
       reason: 'leeres Formular (Gramm ist mit 100 vorbelegt) sperrt',
     );
 
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-name')),
-      'Bauern-Mozzarella',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-kcal100')),
-      '2000',
-    );
+    await _tippe(tester, 'manual-meal-name', 'Bauern-Mozzarella');
+    await _tippe(tester, 'manual-meal-kcal100', '2000');
     await tester.pump();
     expect(
       _saveButton(tester).onTap,
@@ -73,10 +92,7 @@ void main() {
       reason: 'Ablehnen mit Bereichs-Fehler statt stiller Klemmung',
     );
 
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-kcal100')),
-      '265',
-    );
+    await _tippe(tester, 'manual-meal-kcal100', '265');
     await tester.pump();
     expect(_saveButton(tester).onTap, isNotNull);
   });
@@ -85,30 +101,16 @@ void main() {
     tester,
   ) async {
     final halter = await _open(tester);
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-name')),
-      'Bauern-Mozzarella',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-kcal100')),
-      '265',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-grams')),
-      '125',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-protein')),
-      '18',
-    );
+    await _tippe(tester, 'manual-meal-name', 'Bauern-Mozzarella');
+    await _tippe(tester, 'manual-meal-kcal100', '265');
+    await _tippe(tester, 'manual-meal-grams', '125');
+    await _tippe(tester, 'manual-meal-protein', '18');
     await tester.pump();
 
     expect(find.byKey(const ValueKey('manual-meal-computed')), findsOneWidget);
     expect(find.text('= 331 kcal für 125 g'), findsOneWidget);
 
-    await tester.ensureVisible(find.byKey(const ValueKey('manual-meal-save')));
-    await tester.tap(find.byKey(const ValueKey('manual-meal-save')));
-    await tester.pumpAndSettle();
+    await _speichern(tester);
 
     final r = halter.result;
     expect(r, isNotNull);
@@ -119,30 +121,36 @@ void main() {
     expect(r.carbs, '-');
     expect(r.sourceLabel, 'manual');
     expect(r.explicitZeroKcal, isFalse);
+
+    // The sheet rebuilds the result in _save: it must match the factory
+    // field for field, provenance codes included.
+    final referenz = MealAnalysisResult.manualEntry(
+      name: 'Bauern-Mozzarella',
+      kcalPer100G: 265,
+      grams: 125,
+      proteinPer100G: 18,
+    );
+    expect(r.protein, referenz.protein);
+    expect(r.carbs, referenz.carbs);
+    expect(r.fat, referenz.fat);
+    expect(r.caloriesKcal, referenz.caloriesKcal);
+    expect(r.kcalPer100G, referenz.kcalPer100G);
+    expect(r.confidence, referenz.confidence);
+    expect(r.portionNotes, referenz.portionNotes);
+    expect(r.sourceLabel, referenz.sourceLabel);
   });
 
   testWidgets('0 kcal (Wasser) ist speicherbar und trägt explicitZeroKcal', (
     tester,
   ) async {
     final halter = await _open(tester);
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-name')),
-      'Wasser',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-kcal100')),
-      '0',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-grams')),
-      '500',
-    );
+    await _tippe(tester, 'manual-meal-name', 'Wasser');
+    await _tippe(tester, 'manual-meal-kcal100', '0');
+    await _tippe(tester, 'manual-meal-grams', '500');
     await tester.pump();
     expect(_saveButton(tester).onTap, isNotNull);
 
-    await tester.ensureVisible(find.byKey(const ValueKey('manual-meal-save')));
-    await tester.tap(find.byKey(const ValueKey('manual-meal-save')));
-    await tester.pumpAndSettle();
+    await _speichern(tester);
 
     expect(halter.result?.caloriesKcal, 0);
     expect(halter.result?.explicitZeroKcal, isTrue);
@@ -156,37 +164,16 @@ void main() {
     tester,
   ) async {
     final halter = await _open(tester);
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-name')),
-      'Kräutertee',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-kcal100')),
-      '2',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('manual-meal-grams')),
-      '20',
-    );
+    await _tippe(tester, 'manual-meal-name', 'Kräutertee');
+    await _tippe(tester, 'manual-meal-kcal100', '2');
+    await _tippe(tester, 'manual-meal-grams', '20');
     await tester.pump();
 
-    await tester.ensureVisible(find.byKey(const ValueKey('manual-meal-save')));
-    await tester.tap(find.byKey(const ValueKey('manual-meal-save')));
-    await tester.pumpAndSettle();
+    await _speichern(tester);
 
     expect(halter.result?.caloriesKcal, 0);
     expect(halter.result?.kcalPer100G, 2);
     expect(halter.result?.explicitZeroKcal, isTrue);
-  });
-
-  testWidgets('initialName belegt das Namensfeld vor (Such-CTA)', (
-    tester,
-  ) async {
-    await _open(tester, initialName: 'Bauernmozzarella');
-    final feld = tester.widget<TextField>(
-      find.byKey(const ValueKey('manual-meal-name')),
-    );
-    expect(feld.controller?.text, 'Bauernmozzarella');
   });
 
   // Final review B-I1: the theme's text height once shrank the dense 16 px
@@ -206,5 +193,118 @@ void main() {
     await tester.tapAt(const Offset(200, 40));
     await tester.pumpAndSettle();
     expect(halter.result, isNull);
+  });
+
+  group('Makros mit Dezimalstelle', () {
+    testWidgets('Komma: „3,5" g Fett bleibt 3,5 und wird nicht 35', (
+      tester,
+    ) async {
+      final halter = await _open(tester);
+      await _pflichtfelder(tester);
+      await _tippe(tester, 'manual-meal-fat', '3,5');
+      await tester.pump();
+
+      expect(
+        _feldText(tester, 'manual-meal-fat'),
+        '3,5',
+        reason: 'der Formatter darf das Dezimalkomma nicht stumm schlucken',
+      );
+
+      await _speichern(tester);
+
+      expect(
+        halter.result?.fat,
+        '4,4 g',
+        reason: '3,5 g/100 g auf 125 g sind 4,375 g — digitsOnly machte '
+            'daraus 43,8 g',
+      );
+      expect(
+        halter.result?.caloriesKcal,
+        331,
+        reason: 'die Kalorien waren nie falsch und bleiben es nicht',
+      );
+    });
+
+    testWidgets('Punkt: „3.5" ergibt denselben Wert wie „3,5"', (
+      tester,
+    ) async {
+      final halter = await _open(tester);
+      await _pflichtfelder(tester);
+      await _tippe(tester, 'manual-meal-fat', '3.5');
+      await tester.pump();
+
+      expect(_feldText(tester, 'manual-meal-fat'), '3.5');
+
+      await _speichern(tester);
+
+      expect(halter.result?.fat, '4,4 g');
+    });
+
+    // A small portion saved and later reused (recent, favorite): the typed
+    // values per 100 g carry the new portion, not its rounded "0,2 g".
+    testWidgets('eine kleine Portion wiederverwendet rechnet mit dem Etikett', (
+      tester,
+    ) async {
+      final halter = await _open(tester);
+      await _tippe(tester, 'manual-meal-name', 'Joghurt');
+      await _tippe(tester, 'manual-meal-kcal100', '60');
+      await _tippe(tester, 'manual-meal-grams', '5');
+      await _tippe(tester, 'manual-meal-protein', '3,5');
+      await _tippe(tester, 'manual-meal-fat', '3,8');
+      await tester.pump();
+      await _speichern(tester);
+
+      final saved = halter.result!;
+      expect(saved.protein, '0,2 g');
+      expect(saved.fat, '0,2 g');
+      final reused = saved.adjustedToGrams(200);
+      expect(reused.protein, '7 g', reason: 'nicht 0,2 g mal 40 = 8 g');
+      expect(reused.fat, '7,6 g', reason: 'nicht 8 g');
+    });
+
+    testWidgets('Bereichspruefung greift auf dem Dezimalwert (0..100 g)', (
+      tester,
+    ) async {
+      await _open(tester);
+      await _pflichtfelder(tester);
+      await _tippe(tester, 'manual-meal-carbs', '1200,5');
+      await tester.pump();
+      expect(
+        _saveButton(tester).onTap,
+        isNull,
+        reason: '1200,5 g/100 g liegt ueber der DB-Grenze',
+      );
+      expect(find.text('0–100 g'), findsOneWidget);
+
+      // Below the old per-meal bound, above what 100 g of food can hold.
+      await _tippe(tester, 'manual-meal-carbs', '150');
+      await tester.pump();
+      expect(
+        _saveButton(tester).onTap,
+        isNull,
+        reason: '150 g Kohlenhydrate in 100 g Lebensmittel gibt es nicht',
+      );
+      expect(find.text('0–100 g'), findsOneWidget);
+
+      // Several separators reach the validator; unparseable input is
+      // rejected, not silently bent into shape.
+      await _tippe(tester, 'manual-meal-carbs', '3,,5');
+      await tester.pump();
+      expect(_saveButton(tester).onTap, isNull);
+      expect(find.text('0–100 g'), findsOneWidget);
+
+      await _tippe(tester, 'manual-meal-carbs', '12,5');
+      await tester.pump();
+      expect(_saveButton(tester).onTap, isNotNull);
+      expect(find.text('0–100 g'), findsNothing);
+
+      await _tippe(tester, 'manual-meal-carbs', '100');
+      await tester.pump();
+      expect(
+        _saveButton(tester).onTap,
+        isNotNull,
+        reason: '100 g/100 g (reiner Zucker) ist die inklusive Grenze',
+      );
+    });
   });
 }

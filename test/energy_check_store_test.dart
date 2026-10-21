@@ -1,5 +1,7 @@
 // The weekly energy check in the store (docs/WEIGHT-TREND.md, stage 2):
-// today's proposal from server-answered data, and the two answers.
+// today's proposal and progress from server-answered data, the two answers,
+// and the week's result without a proposal (2026-10-19): once a week
+// (EnergyCheck.resultWeekday) Today gets the check's own numbers.
 
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/energy_check.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/local_day.dart';
@@ -33,7 +36,10 @@ final UserProfile _live = const KcalCalculator().applyLiveGoals(
   ),
 );
 
-DateTime _daysAgo(int n) => DateTime(_now.year, _now.month, _now.day - n, 12);
+DateTime _daysAgo(int n, {DateTime? now}) {
+  final t = now ?? _now;
+  return DateTime(t.year, t.month, t.day - n, 12);
+}
 
 Map<String, dynamic> _meal(String id, DateTime at, int kcal) =>
     <String, dynamic>{
@@ -44,20 +50,29 @@ Map<String, dynamic> _meal(String id, DateTime at, int kcal) =>
       'payload': mealResultToJson(mealResult('Essen', kcal: kcal)),
     };
 
-/// 21 days of 2100 kcal and a daily weigh-in losing 0.02 kg/day. No step
-/// source in the fake, so the model has no steps: observed 2254 against
-/// 2650 is −396, beyond the ≈277 noise guard -> −150.
-void _seedThreeWeeks(FakeServer server) {
+/// 21 days of [kcal] before [now] and weigh-ins on [weighInDaysAgo] (every
+/// day by default) moving [kgPerDay]. The defaults have no step source, so
+/// the model has no steps: observed 2254 against 2650 is −396, beyond the
+/// ≈277 noise guard -> −150.
+void _seedThreeWeeks(
+  FakeServer server, {
+  DateTime? now,
+  int kcal = 2100,
+  double kgPerDay = -0.02,
+  Iterable<int>? weighInDaysAgo,
+}) {
   server.profileRow = serverProfileRow(_live);
   for (var n = 1; n <= 21; n++) {
     server.mealRows['meal-$n'] = _meal(
       '00000000-0000-4000-8000-${n.toString().padLeft(12, '0')}',
-      _daysAgo(n),
-      2100,
+      _daysAgo(n, now: now),
+      kcal,
     );
+  }
+  for (final n in weighInDaysAgo ?? [for (var n = 1; n <= 21; n++) n]) {
     server.weightRows['w$n'] = <String, dynamic>{
-      'recorded_at': _daysAgo(n).toUtc().toIso8601String(),
-      'weight_kg': 84 - 0.02 * (21 - n),
+      'recorded_at': _daysAgo(n, now: now).toUtc().toIso8601String(),
+      'weight_kg': 84 + kgPerDay * (21 - n),
     };
   }
 }
@@ -65,9 +80,19 @@ void _seedThreeWeeks(FakeServer server) {
 Future<({HomeStore store, FakeServer server, SnackCapture snacks})> _booted({
   void Function(FakeServer server)? tweak,
   InMemoryKeyValueStore? kv,
+  DateTime? now,
+  int kcal = 2100,
+  double kgPerDay = -0.02,
+  Iterable<int>? weighInDaysAgo,
 }) async {
   final a = setup(kv: kv);
-  _seedThreeWeeks(a.server);
+  _seedThreeWeeks(
+    a.server,
+    now: now,
+    kcal: kcal,
+    kgPerDay: kgPerDay,
+    weighInDaysAgo: weighInDaysAgo,
+  );
   tweak?.call(a.server);
   await boot(a.store);
   await settle();
@@ -77,19 +102,47 @@ Future<({HomeStore store, FakeServer server, SnackCapture snacks})> _booted({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('three weeks of server data propose −150 kcal', () => withClock(
+  test('three weeks of server data propose −150 kcal, progress ready', () => withClock(
     Clock.fixed(_now),
     () async {
       final a = await _booted();
       expect(a.store.energyCheckStepsReady, isTrue);
+      expect(a.store.energyCheckSourcesReady, isTrue);
       final p = a.store.energyCheckProposal!;
       expect(p.stepKcal, -150);
       expect(p.currentGoalKcal, 2100);
       expect(p.newGoalKcal, 1950);
       expect(p.loggedDays, 21);
       expect(p.weighInDays, 21);
+      // Ready exactly with a proposal, on the same counts.
+      final progress = a.store.energyCheckProgress!;
+      expect(progress.ready, isTrue);
+      expect(progress.loggedDays, p.loggedDays);
+      expect(progress.weighInDays, p.weighInDays);
     },
   ));
+
+  test(
+    'a weigh-in moves the progress: tomorrow without a weigh-in to go',
+    () => withClock(Clock.fixed(_now), () async {
+      final a = await _booted(weighInDaysAgo: [20, 14, 1]);
+
+      final before = a.store.energyCheckProgress!;
+      expect(before.weighInDays, 3);
+      expect(before.ready, isFalse);
+      expect(before.daysUntil, 1);
+      expect(before.weighInsToGo, 1);
+      expect(a.store.energyCheckProposal, isNull);
+
+      await a.store.logWeight(83.6);
+      await settle();
+
+      final after = a.store.energyCheckProgress!;
+      expect(after.weighInsToGo, 0);
+      expect(after.daysUntil, 1, reason: "today's window ends yesterday");
+      expect(after.weighInDays, 3);
+    }),
+  );
 
   test('adjust: offset, answered day and live goal, synced, with a notice',
       () => withClock(Clock.fixed(_now), () async {
@@ -128,7 +181,7 @@ void main() {
     expect(a.store.profile.energyAdjustmentKcal, -200);
   }));
 
-  test('not now: records the day only, the goal stays', () => withClock(
+  test('not now: records the day only, the goal stays, the pause shows', () => withClock(
     Clock.fixed(_now),
     () async {
       final a = await _booted();
@@ -144,6 +197,11 @@ void main() {
       expect(a.server.profileRow!['energy_checked_on'], '2026-10-03');
       expect(a.snacks.messages, isEmpty);
       expect(a.store.energyCheckProposal, isNull);
+      // The progress names the day the pause ends.
+      final progress = a.store.energyCheckProgress!;
+      expect(progress.dataReady, isTrue);
+      expect(progress.pausedUntil, DateTime(2026, 10, 10));
+      expect(progress.daysUntil, 7);
     },
   ));
 
@@ -165,7 +223,7 @@ void main() {
   }));
 
   group('no proposal without complete server data', () {
-    test('cached data alone', () => withClock(Clock.fixed(_now), () async {
+    test('cached data alone: no proposal and no progress', () => withClock(Clock.fixed(_now), () async {
       final kv = InMemoryKeyValueStore();
       final a = await _booted(kv: kv);
       expect(a.store.energyCheckProposal, isNotNull, reason: 'precondition');
@@ -178,6 +236,8 @@ void main() {
       await settle();
 
       expect(b.store.loggedMeals, isNotEmpty, reason: 'cache hydrated');
+      expect(b.store.energyCheckSourcesReady, isFalse);
+      expect(b.store.energyCheckProgress, isNull);
       expect(b.store.energyCheckProposal, isNull);
     }));
 
@@ -222,5 +282,51 @@ void main() {
         expect(a.store.energyCheckProposal, isNull);
       },
     ));
+  });
+
+  group('the week\'s result without a proposal', () {
+    /// Monday 5 October 2026, noon.
+    final monday = DateTime(2026, 10, 5, 12);
+
+    test('Montag ohne Vorschlag: das Ergebnis mit den Zahlen des Checks', () {
+      return withClock(Clock.fixed(monday), () async {
+        expect(monday.weekday, EnergyCheck.resultWeekday);
+        // 2700 kcal at a steady weight: observed 2700 against 2650 modelled.
+        final store =
+            (await _booted(now: monday, kcal: 2700, kgPerDay: 0)).store;
+        expect(store.energyCheckProposal, isNull);
+        final result = store.energyCheckResult!;
+        expect(result.proposal, isNull);
+        expect(result.withinNoise, isTrue);
+        expect(result.observedKcal, closeTo(2700, 0.5));
+        expect(result.modelledKcal, 2650);
+        expect(result.currentGoalKcal, 2100);
+        expect(result.weeklyRateKg, closeTo(0, 1e-9));
+        expect(
+          result.planWeeklyRateKg,
+          const KcalCalculator().calculate(_live).effectiveWeeklyRateKg,
+        );
+        expect(result.loggedDays, 21);
+        expect(result.weighInDays, 21);
+      });
+    });
+
+    test('an einem anderen Tag bleibt es bei der Zeile', () {
+      final tuesday = DateTime(2026, 10, 6, 12);
+      return withClock(Clock.fixed(tuesday), () async {
+        final store =
+            (await _booted(now: tuesday, kcal: 2700, kgPerDay: 0)).store;
+        expect(store.energyCheckResult, isNull);
+        expect(store.energyCheckProgress!.ready, isTrue);
+      });
+    });
+
+    test('ein Vorschlag geht dem Ergebnis vor', () {
+      return withClock(Clock.fixed(monday), () async {
+        final store = (await _booted(now: monday)).store;
+        expect(store.energyCheckProposal!.stepKcal, -150);
+        expect(store.energyCheckResult, isNull);
+      });
+    });
   });
 }

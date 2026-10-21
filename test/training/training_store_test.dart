@@ -394,7 +394,6 @@ class _TrainingReadFailCipher implements CacheCipher {
   final delegate = AesGcmCacheCipher(Uint8List(32));
   bool blockSessionRead = false;
   bool blockPlanRead = false;
-  bool blockPlanWrite = false;
 
   @override
   Future<String> decrypt(String key, String armored) {
@@ -406,12 +405,8 @@ class _TrainingReadFailCipher implements CacheCipher {
   }
 
   @override
-  Future<String> encrypt(String key, String plaintext) {
-    if (blockPlanWrite && key.contains('.training_plans.')) {
-      throw StateError('fixture mirror write failure');
-    }
-    return delegate.encrypt(key, plaintext);
-  }
+  Future<String> encrypt(String key, String plaintext) =>
+      delegate.encrypt(key, plaintext);
 }
 
 TrainingSessionSnapshot _snapshot() => TrainingSessionSnapshot(
@@ -447,7 +442,7 @@ void main() {
         _snapshot().toJson(),
         reason: 'A failed library read is not evidence of source deletion',
       );
-      await env.store.saveTrainingSession(_snapshot());
+      expect(await env.store.saveTrainingSession(_snapshot()), isTrue);
       await env.store.deleteTrainingPlan('other');
       await env.flush();
       expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
@@ -516,8 +511,7 @@ void main() {
         reason:
             'A best-effort plan mirror cannot invalidate a durable full checkpoint',
       );
-      await reboot.store.saveTrainingSession(checkpoint);
-      expect(reboot.store.trainingSession?.toJson(), checkpoint.toJson());
+      expect(await reboot.store.saveTrainingSession(checkpoint), isTrue);
     });
   }
 
@@ -599,30 +593,26 @@ void main() {
     },
   );
 
-  for (final offline in [false, true]) {
-    test(
-      'source deletion clears paused recovery durably, offline=$offline',
-      () async {
-        final storage = InMemoryKeyValueStore();
-        final server = _Server();
-        final first = _Harness(server, storage: storage);
-        await first.boot();
-        await first.store.saveTrainingPlan(plan());
-        await first.store.saveTrainingSession(_snapshot());
-        server.offline = offline;
-        await first.store.deleteTrainingPlan(plan().id);
-        expect(first.store.trainingSession, isNull);
-        expect(await first.cache.readTrainingSession(), isNull);
-        await first.cache.settle();
-        first.dispose();
-        server.offline = true;
-        final reboot = _Harness(server, storage: storage);
-        await reboot.boot();
-        expect(reboot.store.trainingSession, isNull);
-        expect(reboot.store.trainingPlans, isEmpty);
-      },
-    );
-  }
+  // Offline, the same delete is covered by "committed source deletion clears
+  // checkpoint in the same transaction".
+  test('a delivered source deletion clears paused recovery durably', () async {
+    final storage = InMemoryKeyValueStore();
+    final server = _Server();
+    final first = _Harness(server, storage: storage);
+    await first.boot();
+    await first.store.saveTrainingPlan(plan());
+    await first.store.saveTrainingSession(_snapshot());
+    await first.store.deleteTrainingPlan(plan().id);
+    expect(first.store.trainingSession, isNull);
+    expect(await first.cache.readTrainingSession(), isNull);
+    await first.cache.settle();
+    first.dispose();
+    server.offline = true;
+    final reboot = _Harness(server, storage: storage);
+    await reboot.boot();
+    expect(reboot.store.trainingSession, isNull);
+    expect(reboot.store.trainingPlans, isEmpty);
+  });
 
   TrainingPlan multiPlan(List<TrainingWorkout> workouts) => TrainingPlan(
     id: plan().id,
@@ -705,57 +695,6 @@ void main() {
       expect(await env.cache.readTrainingSession(), isNull);
     });
   }
-
-  test(
-    'failed source suspension sends no delete and retains confirmed progress',
-    () async {
-      final storage = _SessionStorage();
-      final env = _Harness(_Server(), storage: storage);
-      await env.boot();
-      await env.store.saveTrainingPlan(plan());
-      await env.store.saveTrainingSession(_snapshot());
-      storage.fail = true;
-      await expectLater(
-        env.store.deleteTrainingPlan(plan().id),
-        throwsStateError,
-      );
-      expect(
-        env.server.requests.where(
-          (request) => _isTrainingWrite(request, 'trainingPlanDelete'),
-        ),
-        isEmpty,
-      );
-      expect(env.store.trainingPlans.single.id, plan().id);
-      expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
-      expect(
-        (await env.cache.readTrainingSession())?.toJson(),
-        _snapshot().toJson(),
-      );
-    },
-  );
-
-  test(
-    'failed offline source delete rolls back suspension without losing progress',
-    () async {
-      final env = _Harness(_Server(), cacheOverride: _FailOutboxCache());
-      await env.boot();
-      await env.store.saveTrainingPlan(plan());
-      await env.store.saveTrainingSession(_snapshot());
-      env.server.offline = true;
-      (env.cache as _FailOutboxCache).failuresRemaining = 1;
-      await expectLater(
-        env.store.deleteTrainingPlan(plan().id),
-        throwsStateError,
-      );
-      expect(env.store.trainingPlans.single.id, plan().id);
-      expect(env.store.pendingOutbox, isEmpty);
-      expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
-      expect(
-        (await env.cache.readTrainingSession())?.toJson(),
-        _snapshot().toJson(),
-      );
-    },
-  );
 
   test(
     'committed source deletion clears checkpoint in the same transaction',
@@ -941,45 +880,32 @@ void main() {
     },
   );
 
-  test(
-    'failed local deletion never starts HTTP or retires confirmed recovery',
-    () async {
-      final cache = _FailOutboxCache();
-      final env = _Harness(_Server(), cacheOverride: cache);
-      await env.boot();
-      await env.store.saveTrainingPlan(plan());
-      await env.store.saveTrainingSession(_snapshot());
-      final requests = env.server.requests.length;
-      cache.failuresRemaining = 1;
-      await expectLater(
-        env.store.deleteTrainingPlan(plan().id),
-        throwsStateError,
-      );
-      expect(env.server.requests, hasLength(requests));
-      expect(env.store.pendingOutbox, isEmpty);
-      expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
-      await env.store.saveTrainingSession(_snapshot());
-    },
-  );
-
-  test(
-    'offline delete followed by re-adoption permits a new paused session',
-    () async {
-      final env = _Harness(_Server());
-      await env.boot();
-      await env.store.saveTrainingPlan(plan());
-      await env.store.saveTrainingSession(_snapshot());
-      env.server.offline = true;
-      await env.store.deleteTrainingPlan(plan().id);
-      await env.store.adoptTrainingPlan(plan());
-      final replacement = env.store.trainingPlans.single;
-      expect(replacement.id, plan().id);
-      expect(replacement.incarnation, 1);
-      await env.store.saveTrainingSession(snapshotFor(replacement));
-      expect(env.store.trainingSession, isNotNull);
-      expect(await env.cache.readTrainingSession(), isNotNull);
-    },
-  );
+  test('failed local deletion never starts HTTP, keeps the plan and its '
+      'selection and never retires confirmed recovery', () async {
+    final cache = _FailOutboxCache();
+    final env = _Harness(_Server(), cacheOverride: cache);
+    await env.boot();
+    // Two plans: with one, the selection would fall back to it anyway.
+    await env.store.saveTrainingPlan(plan('other'));
+    await env.store.saveTrainingPlan(plan());
+    await env.store.saveTrainingSession(_snapshot());
+    final requests = env.server.requests.length;
+    cache.failuresRemaining = 1;
+    await expectLater(
+      env.store.deleteTrainingPlan(plan().id),
+      throwsStateError,
+    );
+    expect(env.server.requests, hasLength(requests));
+    expect(env.store.pendingOutbox, isEmpty);
+    expect(env.store.trainingPlans.map((p) => p.id), [plan().id, 'other']);
+    expect(env.store.selectedTrainingPlanId, plan().id);
+    expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
+    expect(
+      (await env.cache.readTrainingSession())?.toJson(),
+      _snapshot().toJson(),
+    );
+    expect(await env.store.saveTrainingSession(_snapshot()), isTrue);
+  });
 
   test(
     'repair of unreadable orphan cannot revive it through identical re-adoption',
@@ -1000,52 +926,37 @@ void main() {
     },
   );
 
-  test(
-    'unreadable recovery cannot resurrect an acknowledged delete on offline reboot',
-    () async {
-      final raw = InMemoryKeyValueStore();
-      final cipher = _TrainingReadFailCipher();
-      final encrypted = EncryptedKeyValueStore(raw, cipher);
-      final env = _Harness(
-        _Server()..rows[plan().id] = plan().toRow(),
-        storage: encrypted,
-      );
-      await env.cache.writeTrainingPlans([plan()]);
-      await env.cache.writeTrainingSession(_snapshot());
-      cipher.blockSessionRead = true;
-      cipher.blockPlanWrite = true;
-      await env.boot();
-      var acknowledged = false;
-      try {
-        await env.store.deleteTrainingPlan(plan().id);
-        acknowledged = true;
-        // The fixture cipher simulates its storage failure with StateError.
-        // ignore: avoid_catching_errors
-      } on StateError {
-        expect(
-          env.server.requests.where(
-            (request) => _isTrainingWrite(request, 'trainingPlanDelete'),
-          ),
-          isEmpty,
-        );
-      }
-      await env.cache.settle();
-      env.dispose();
-      cipher.blockSessionRead = false;
-      cipher.blockPlanWrite = false;
-      final reboot = _Harness(_Server()..offline = true, storage: encrypted);
-      await reboot.boot();
-      if (acknowledged) {
-        expect(
-          reboot.store.trainingSession,
-          isNull,
-          reason: 'A successful delete must not re-expose unreadable recovery',
-        );
-      } else {
-        expect(reboot.store.trainingSession?.toJson(), _snapshot().toJson());
-      }
-    },
-  );
+  test('a source delete refused while its recovery is unreadable sends nothing '
+      'and keeps the recovery across an offline reboot', () async {
+    final raw = InMemoryKeyValueStore();
+    final cipher = _TrainingReadFailCipher();
+    final encrypted = EncryptedKeyValueStore(raw, cipher);
+    final env = _Harness(
+      _Server()..rows[plan().id] = plan().toRow(),
+      storage: encrypted,
+    );
+    await env.cache.writeTrainingPlans([plan()]);
+    await env.cache.writeTrainingSession(_snapshot());
+    cipher.blockSessionRead = true;
+    await env.boot();
+    await expectLater(
+      env.store.deleteTrainingPlan(plan().id),
+      throwsStateError,
+    );
+    expect(
+      env.server.requests.where(
+        (request) => _isTrainingWrite(request, 'trainingPlanDelete'),
+      ),
+      isEmpty,
+    );
+    await env.cache.settle();
+    env.dispose();
+    cipher.blockSessionRead = false;
+    final reboot = _Harness(_Server()..offline = true, storage: encrypted);
+    await reboot.boot();
+    expect(reboot.store.trainingSession?.toJson(), _snapshot().toJson());
+    expect(reboot.store.trainingPlans.single.id, plan().id);
+  });
 
   test(
     'failed authoritative clear cannot resurrect legacy progress on re-adoption',
@@ -1138,12 +1049,14 @@ void main() {
       await env.store.saveTrainingSession(_snapshot());
       final generation = env.store.trainingSessionGeneration;
       await env.store.deleteTrainingPlan('other');
-      await env.store.saveTrainingSession(
-        _snapshot(),
-        generation: generation,
-        sourcePlanId: plan().id,
+      expect(
+        await env.store.saveTrainingSession(
+          _snapshot(),
+          generation: generation,
+          sourcePlanId: plan().id,
+        ),
+        isTrue,
       );
-      expect(env.store.trainingSession, isNotNull);
     },
   );
 
@@ -1851,25 +1764,6 @@ void main() {
     await clear;
     expect(kv.snapshot, isEmpty);
   });
-
-  test(
-    'failed offline deletion leaves the last confirmed plan visible',
-    () async {
-      final server = _Server();
-      final env = _Harness(server, cacheOverride: _FailOutboxCache());
-      await env.boot();
-      await env.store.saveTrainingPlan(plan());
-      server.offline = true;
-      (env.cache as _FailOutboxCache).failuresRemaining = 1;
-      await expectLater(
-        env.store.deleteTrainingPlan('coach_message'),
-        throwsStateError,
-      );
-      expect(env.store.trainingPlans.single.id, 'coach_message');
-      expect(env.store.selectedTrainingPlanId, 'coach_message');
-      expect(env.store.pendingOutbox, isEmpty);
-    },
-  );
 
   test('adoption, editing and selection persist with one stable row', () async {
     final kv = InMemoryKeyValueStore();

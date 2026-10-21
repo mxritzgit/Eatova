@@ -56,22 +56,14 @@ void main() {
         reason: '0 g ist eine Aussage, nicht "unbekannt" — darf nicht zu null '
             'werden');
     expect(zurueck.items[1].fatG, 20);
-  });
-
-  test(
-      'B8: nach dem Roundtrip summiert adjustedToItems die Makros weiterhin '
-      'exakt, statt auf Massenskalierung zurueckzufallen', () {
-    final zurueck = mealResultFromJson(mealResultToJson(salatMitOel));
-
-    expect(zurueck.items.every((c) => c.hasMacros), isTrue);
-    // B8 scenario: 20 g of oil mean ~32 g fat overall; mass scaling
-    // (factor 1.05) would have produced 12.6 g.
+    // So adjustedToItems keeps summing exactly: 20 g of oil mean ~32 g fat
+    // overall, where mass scaling (factor 1.05) would give 12.6 g.
     expect(zurueck.adjustedToItems(zurueck.items).fat, '32 g');
   });
 
   test(
-      'B8: fehlende Makros bleiben fehlend — der Roundtrip erfindet keine 0 g',
-      () {
+      'B8: fehlende Makros bleiben fehlend — weder der Roundtrip noch eine '
+      'Alt-Zeile erfindet 0 g', () {
     const ohneMakros = MealAnalysisResult(
       mealName: 'Scan ohne Makros',
       caloriesKcal: 300,
@@ -93,10 +85,8 @@ void main() {
     expect(zurueck.items.single.carbsG, isNull);
     expect(zurueck.items.single.fatG, isNull);
     expect(zurueck.items.single.hasMacros, isFalse);
-  });
 
-  test('B8: Alt-Zeilen ohne Makro-Schluessel laden weiterhin sauber', () {
-    // Rows written before wave 2.
+    // Rows written before wave 2 carry no macro keys at all.
     final alt = <String, dynamic>{
       'mealName': 'Alte Zeile',
       'caloriesKcal': 500,

@@ -68,36 +68,6 @@ class ShoppingLine {
   final bool heading;
 }
 
-/// Whether [line] of [item] is checked. A line without its own check follows
-/// the whole recipe's: a list ticked off before lines had their own checks
-/// stays ticked off.
-bool shoppingLineChecked(
-  Map<String, bool> checks,
-  ShoppingItem item,
-  ShoppingLine line,
-) => checks[line.id] ?? checks[item.id] ?? false;
-
-/// The checks a list offers: one per weighed item, one per free-text line.
-({int done, int total}) shoppingProgress(
-  List<ShoppingItem> items,
-  Map<String, bool> checks,
-) {
-  var done = 0, total = 0;
-  for (final item in items) {
-    if (item.grams != null) {
-      total++;
-      if (checks[item.id] ?? false) done++;
-      continue;
-    }
-    for (final line in item.lines) {
-      if (line.heading) continue;
-      total++;
-      if (shoppingLineChecked(checks, item, line)) done++;
-    }
-  }
-  return (done: done, total: total);
-}
-
 /// The meals a week's shopping list covers: planned, not yet eaten. With
 /// [includeEaten] also the eaten ones, which still identify what was bought.
 Iterable<PlannedMeal> shoppingPlans(

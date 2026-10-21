@@ -37,7 +37,6 @@ Future<void> _capture(WidgetTester tester, String name) async {
 Future<void> _mount(
   WidgetTester tester,
   Widget child, {
-  Brightness brightness = Brightness.light,
   String locale = 'en',
   double scale = 1,
 }) async {
@@ -52,7 +51,7 @@ Future<void> _mount(
       key: _boundary,
       child: localizedApp(
         child,
-        brightness: brightness,
+        brightness: Brightness.light,
         locale: Locale(locale),
         textScale: scale,
         safeArea: false,
@@ -202,200 +201,195 @@ void main() {
     },
   );
 
-  for (final brightness in Brightness.values) {
-    for (final locale in ['de', 'en']) {
-      for (final scale in [1.0, 2.0]) {
-        final id = '${brightness.name}-$locale-$scale';
-        testWidgets('manual draft, slot and computed portion survive $id', (
+  // Language and text size change the layout; the palette does not, so the
+  // matrix runs in the light palette only.
+  for (final locale in ['de', 'en']) {
+    for (final scale in [1.0, 2.0]) {
+      final id = '$locale-$scale';
+      testWidgets('manual draft, slot and computed portion survive $id', (
+        tester,
+      ) async {
+        var slot = MealSlot.lunch;
+        MealAnalysisResult? saved;
+        await _mount(
           tester,
-        ) async {
-          var slot = MealSlot.lunch;
-          MealAnalysisResult? saved;
-          await _mount(
-            tester,
-            Builder(
-              builder: (context) => TextButton(
-                onPressed: () async {
-                  saved = await showManualMealSheet(
-                    context,
-                    initialName: 'Greek yoghurt',
-                    initialSlot: slot,
-                    onSlotChanged: (value) => slot = value,
-                    contextLabel: '14.09.2026',
-                  );
-                },
-                child: const Text('Open'),
-              ),
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                saved = await showManualMealSheet(
+                  context,
+                  initialName: 'Greek yoghurt',
+                  initialSlot: slot,
+                  onSlotChanged: (value) => slot = value,
+                  contextLabel: '14.09.2026',
+                );
+              },
+              child: const Text('Open'),
             ),
-            brightness: brightness,
-            locale: locale,
-            scale: scale,
-          );
-          await tester.tap(find.text('Open'));
-          await tester.pumpAndSettle();
-          final title = tester.renderObject<RenderParagraph>(
-            _key('manual-meal-title'),
-          );
-          expect(
-            title.getMinIntrinsicWidth(double.infinity),
-            lessThanOrEqualTo(title.size.width + .1),
-            reason: 'The enlarged title keeps whole words readable.',
-          );
-          await _capture(tester, 'manual-start-$id');
-          await tester.enterText(_key('manual-meal-kcal100'), '120');
-          await tester.enterText(_key('manual-meal-protein'), '10,5');
-          await tester.enterText(_key('manual-meal-grams'), '250');
-          await tester.ensureVisible(_key('manual-slot-dinner'));
-          await tester.tap(_key('manual-slot-dinner'));
-          await tester.pumpAndSettle();
-          expect(slot, MealSlot.dinner);
-          expect(saved, isNull);
-          expect(
-            tester.widget<TextField>(_key('manual-meal-name')).controller!.text,
-            'Greek yoghurt',
-          );
-          expect(
-            tester
-                .widget<TextField>(_key('manual-meal-protein'))
-                .controller!
-                .text,
-            '10,5',
-          );
-          await tester.ensureVisible(_key('manual-meal-name'));
-          await _capture(tester, 'manual-$id');
-          if (scale == 2) {
-            tester.view.viewInsets = const FakeViewPadding(bottom: 220);
-            await tester.pumpAndSettle();
-          }
-          await tester.ensureVisible(_key('manual-meal-save'));
-          await tester.pumpAndSettle();
-          expect(_key('manual-meal-save').hitTestable(), findsOneWidget);
-          await _capture(tester, 'manual-portion-$id');
-          await tester.tap(_key('manual-meal-save'));
-          await tester.pumpAndSettle();
-          expect(saved!.caloriesKcal, 300);
-          expect(saved!.protein, '26,3 g');
-          expect(saved!.estimatedGrams, 250);
-          expect(tester.takeException(), isNull);
-        });
-
-        testWidgets(
-          'calendar drafts, today and confirmation remain usable $id',
-          (tester) async {
-            DateTime? selected;
-            await _mount(
-              tester,
-              Builder(
-                builder: (context) => TextButton(
-                  onPressed: () async {
-                    selected = await showFoodDatePicker(
-                      context,
-                      initialDate: DateTime(2026, 9, 11),
-                      firstDate: DateTime(2024, 9, 14),
-                      today: _today,
-                    );
-                  },
-                  child: const Text('Open'),
-                ),
-              ),
-              brightness: brightness,
-              locale: locale,
-              scale: scale,
-            );
-            await tester.tap(find.text('Open'));
-            await tester.pumpAndSettle();
-            final day = find.descendant(
-              of: find.byType(FoodMonthCalendar),
-              matching: find.text('10'),
-            );
-            await tester.ensureVisible(day);
-            await tester.tap(day);
-            await tester.pumpAndSettle();
-            final number = tester.renderObject<RenderParagraph>(day);
-            expect(
-              number.getMaxIntrinsicWidth(double.infinity),
-              lessThanOrEqualTo(number.size.width + .1),
-              reason:
-                  'Both digits must remain visible at the requested text size.',
-            );
-            expect(selected, isNull);
-            await _capture(tester, 'calendar-$id');
-            expect(_key('food-date-confirm').hitTestable(), findsOneWidget);
-            await tester.tap(_key('food-date-today'));
-            await tester.pumpAndSettle();
-            expect(selected, isNull);
-            expect(
-              tester
-                  .widget<FoodMonthCalendar>(find.byType(FoodMonthCalendar))
-                  .selected,
-              _today,
-            );
-            await tester.tap(_key('food-date-confirm'));
-            await tester.pumpAndSettle();
-            expect(selected, _today);
-            expect(tester.takeException(), isNull);
-          },
+          ),
+          locale: locale,
+          scale: scale,
         );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        final title = tester.renderObject<RenderParagraph>(
+          _key('manual-meal-title'),
+        );
+        expect(
+          title.getMinIntrinsicWidth(double.infinity),
+          lessThanOrEqualTo(title.size.width + .1),
+          reason: 'The enlarged title keeps whole words readable.',
+        );
+        await _capture(tester, 'manual-start-$id');
+        await tester.enterText(_key('manual-meal-kcal100'), '120');
+        await tester.enterText(_key('manual-meal-protein'), '10,5');
+        await tester.enterText(_key('manual-meal-grams'), '250');
+        await tester.ensureVisible(_key('manual-slot-dinner'));
+        await tester.tap(_key('manual-slot-dinner'));
+        await tester.pumpAndSettle();
+        expect(slot, MealSlot.dinner);
+        expect(saved, isNull);
+        expect(
+          tester.widget<TextField>(_key('manual-meal-name')).controller!.text,
+          'Greek yoghurt',
+        );
+        expect(
+          tester
+              .widget<TextField>(_key('manual-meal-protein'))
+              .controller!
+              .text,
+          '10,5',
+        );
+        await tester.ensureVisible(_key('manual-meal-name'));
+        await _capture(tester, 'manual-$id');
+        if (scale == 2) {
+          tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+          await tester.pumpAndSettle();
+        }
+        await tester.ensureVisible(_key('manual-meal-save'));
+        await tester.pumpAndSettle();
+        expect(_key('manual-meal-save').hitTestable(), findsOneWidget);
+        await _capture(tester, 'manual-portion-$id');
+        await tester.tap(_key('manual-meal-save'));
+        await tester.pumpAndSettle();
+        expect(saved!.caloriesKcal, 300);
+        expect(saved!.protein, '26,3 g');
+        expect(saved!.estimatedGrams, 250);
+        expect(tester.takeException(), isNull);
+      });
 
-        testWidgets('product identity, portion, favorites and validation $id', (
+      testWidgets('calendar drafts, today and confirmation remain usable $id', (
+        tester,
+      ) async {
+        DateTime? selected;
+        await _mount(
           tester,
-        ) async {
-          final saved = <MealAnalysisResult>[];
-          var expanded = false;
-          var favorite = false;
-          await _mount(
-            tester,
-            SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
-              child: StatefulBuilder(
-                builder: (context, setState) => MealSuggestionItem(
-                  result: _product,
-                  productPresentation: true,
-                  expanded: expanded,
-                  onTap: () => setState(() => expanded = !expanded),
-                  onAdd: saved.add,
-                  addButtonKey: const ValueKey('product-add'),
-                  favoriteButtonKey: const ValueKey('product-favorite'),
-                  isFavorite: favorite,
-                  onToggleFavorite: (_) => setState(() => favorite = !favorite),
-                ),
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                selected = await showFoodDatePicker(
+                  context,
+                  initialDate: DateTime(2026, 9, 11),
+                  firstDate: DateTime(2024, 9, 14),
+                  today: _today,
+                );
+              },
+              child: const Text('Open'),
+            ),
+          ),
+          locale: locale,
+          scale: scale,
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        final day = find.descendant(
+          of: find.byType(FoodMonthCalendar),
+          matching: find.text('10'),
+        );
+        await tester.ensureVisible(day);
+        await tester.tap(day);
+        await tester.pumpAndSettle();
+        final number = tester.renderObject<RenderParagraph>(day);
+        expect(
+          number.getMaxIntrinsicWidth(double.infinity),
+          lessThanOrEqualTo(number.size.width + .1),
+          reason: 'Both digits must remain visible at the requested text size.',
+        );
+        expect(selected, isNull);
+        await _capture(tester, 'calendar-$id');
+        expect(_key('food-date-confirm').hitTestable(), findsOneWidget);
+        await tester.tap(_key('food-date-today'));
+        await tester.pumpAndSettle();
+        expect(selected, isNull);
+        expect(
+          tester
+              .widget<FoodMonthCalendar>(find.byType(FoodMonthCalendar))
+              .selected,
+          _today,
+        );
+        await tester.tap(_key('food-date-confirm'));
+        await tester.pumpAndSettle();
+        expect(selected, _today);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('product identity, portion, favorites and validation $id', (
+        tester,
+      ) async {
+        final saved = <MealAnalysisResult>[];
+        var expanded = false;
+        var favorite = false;
+        await _mount(
+          tester,
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
+            child: StatefulBuilder(
+              builder: (context, setState) => MealSuggestionItem(
+                result: _product,
+                productPresentation: true,
+                expanded: expanded,
+                onTap: () => setState(() => expanded = !expanded),
+                onAdd: saved.add,
+                addButtonKey: const ValueKey('product-add'),
+                favoriteButtonKey: const ValueKey('product-favorite'),
+                isFavorite: favorite,
+                onToggleFavorite: (_) => setState(() => favorite = !favorite),
               ),
             ),
-            brightness: brightness,
-            locale: locale,
-            scale: scale,
-          );
-          expect(find.text('The Dairy'), findsOneWidget);
-          expect(find.text('120 kcal'), findsOneWidget);
-          expect(find.textContaining('100 g'), findsOneWidget);
-          await _capture(tester, 'product-$id');
-          await tester.tap(_key('product-favorite'));
-          await tester.pumpAndSettle();
-          expect(favorite, isTrue);
-          expect(expanded, isFalse);
-          await tester.tap(find.text(_product.mealName));
-          await tester.pumpAndSettle();
-          await tester.enterText(find.byType(TextField), '250');
-          await tester.pumpAndSettle();
-          expect(find.text('300 kcal'), findsOneWidget);
-          await tester.ensureVisible(_key('product-add'));
-          await _capture(tester, 'product-portion-$id');
-          await tester.enterText(find.byType(TextField), '0');
-          await tester.pumpAndSettle();
-          expect(
-            tester.widget<FilledButton>(_key('product-add')).onPressed,
-            isNull,
-          );
-          await tester.enterText(find.byType(TextField), '250');
-          await tester.pumpAndSettle();
-          await tester.ensureVisible(_key('product-add'));
-          await tester.tap(_key('product-add'));
-          await tester.pumpAndSettle();
-          expect(saved.single.caloriesKcal, 300);
-          expect(saved.single.protein, '25 g');
-          expect(tester.takeException(), isNull);
-        });
-      }
+          ),
+          locale: locale,
+          scale: scale,
+        );
+        expect(find.text('The Dairy'), findsOneWidget);
+        expect(find.text('120 kcal'), findsOneWidget);
+        expect(find.textContaining('100 g'), findsOneWidget);
+        await _capture(tester, 'product-$id');
+        await tester.tap(_key('product-favorite'));
+        await tester.pumpAndSettle();
+        expect(favorite, isTrue);
+        expect(expanded, isFalse);
+        await tester.tap(find.text(_product.mealName));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), '250');
+        await tester.pumpAndSettle();
+        expect(find.text('300 kcal'), findsOneWidget);
+        await tester.ensureVisible(_key('product-add'));
+        await _capture(tester, 'product-portion-$id');
+        await tester.enterText(find.byType(TextField), '0');
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<FilledButton>(_key('product-add')).onPressed,
+          isNull,
+        );
+        await tester.enterText(find.byType(TextField), '250');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(_key('product-add'));
+        await tester.tap(_key('product-add'));
+        await tester.pumpAndSettle();
+        expect(saved.single.caloriesKcal, 300);
+        expect(saved.single.protein, '25 g');
+        expect(tester.takeException(), isNull);
+      });
     }
   }
 

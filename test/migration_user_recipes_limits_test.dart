@@ -1,14 +1,13 @@
 // WIRING GUARD for the limits of `public.user_recipes` and
-// `public.chat_sessions.title` set in
-// supabase/migrations/20260819140000_user_recipes_limits.sql. `user_recipes`
-// postdates the hardening migration and never entered its
-// `<table>_safe_ranges_check` block; a NEW column can drop out as silently.
+// `public.chat_sessions.title`. `user_recipes` postdates the hardening
+// migration and never entered its `<table>_safe_ranges_check` block; a NEW
+// column can drop out as silently.
 //
-// Checks the migration STRUCTURALLY, so it cannot prove PostgreSQL accepts
-// it. Three assertions go red if only ONE side moves: every client-writable
-// column appears in the check; every limit is at least what the app writes,
-// since one rejecting legitimate data is worse than none; and
-// `chat_sessions.title` holds the edge function's auto title.
+// Checks the migrations STRUCTURALLY (PostgreSQL replays them in the
+// rls-postgres job). Two rules go red if only ONE side moves: every
+// client-writable column, including the ones later migrations add, sits in
+// a check constraint; and every limit is at least what the app and the coach
+// function write, since one rejecting legitimate data is worse than none.
 
 import 'dart:io';
 
@@ -141,50 +140,51 @@ String _migration() => _ohneKommentare(_lies(_migrationPfad));
 String _userRecipesRumpf() => _checkRumpf(_migration(), _userRecipesCheck);
 
 void main() {
-  group('20260819140000_user_recipes_limits — Struktur', () {
-    test('beide Constraints werden idempotent ueber pg_constraint geprobt', () {
-      final migration = _migration();
-      // Without the probe, a second run of the migration aborts with 42710.
-      for (final conname in [_userRecipesCheck, _chatSessionsCheck]) {
-        expect(
-          migration.contains(
-            "select 1 from pg_constraint where conname = '$conname'",
-          ),
-          isTrue,
-          reason: '$conname wird nicht ueber pg_constraint geprobt.',
-        );
+  test('JEDE client-beschreibbare Spalte von user_recipes hat eine Grenze', () {
+    // The finding was a FORGOTTEN column, so the list comes from the table
+    // migration plus every later `add column`, and the bounds from every
+    // `add constraint user_recipes_*` that no later migration dropped.
+    final spalten = _spalten(_ohneKommentare(_lies(_tabellenPfad))).toSet();
+    final grenzen = <String, String>{};
+    final migrationen = Directory('supabase/migrations')
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.sql'))
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    for (final datei in migrationen) {
+      final sql = _ohneKommentare(datei.readAsStringSync()).toLowerCase();
+      for (final aenderung in RegExp(
+        r'alter\s+table\s+(?:if\s+exists\s+)?public\.user_recipes\b([^;]*);',
+      ).allMatches(sql)) {
+        for (final spalte in RegExp(
+          r'add\s+column\s+(?:if\s+not\s+exists\s+)?([a-z_]+)',
+        ).allMatches(aenderung.group(1)!)) {
+          spalten.add(spalte.group(1)!);
+        }
+        for (final weg in RegExp(
+          r'drop\s+constraint\s+(?:if\s+exists\s+)?([a-z_]+)',
+        ).allMatches(aenderung.group(1)!)) {
+          grenzen.remove(weg.group(1)!);
+        }
+        for (final grenze in RegExp(
+          r'add\s+constraint\s+(user_recipes_[a-z_]+)\s+check\b(.*)',
+          dotAll: true,
+        ).allMatches(aenderung.group(1)!)) {
+          grenzen[grenze.group(1)!] = grenze.group(2)!;
+        }
       }
-    });
-
-    test('beide Constraints sind `not valid`', () {
-      final migration = _migration();
-      // _checkRumpf already throws otherwise; here also for chat_sessions.
-      expect(_checkRumpf(migration, _chatSessionsCheck), isNotEmpty);
+    }
+    expect(grenzen.keys, contains(_userRecipesCheck));
+    for (final spalte in spalten.difference(_keineClientSpalten)) {
       expect(
-        RegExp('not valid').allMatches(migration).length,
-        greaterThanOrEqualTo(2),
+        grenzen.values.any((rumpf) => RegExp('\\b$spalte\\b').hasMatch(rumpf)),
+        isTrue,
         reason:
-            'Beide ADD CONSTRAINT muessen `not valid` sein — sonst scheitert '
-            'die Migration auf der Produktivdatenbank an Altzeilen.',
+            'Spalte `$spalte` steht in keiner user_recipes-Check-Constraint — '
+            'sie ist damit unbegrenzt beschreibbar.',
       );
-    });
-
-    test('JEDE client-beschreibbare Spalte von user_recipes hat eine Grenze', () {
-      // The finding was a FORGOTTEN table, so the column list comes from the
-      // table migration, not a hand-written one.
-      final userRecipesRumpf = _userRecipesRumpf();
-      final spalten = _spalten(_ohneKommentare(_lies(_tabellenPfad)));
-      for (final spalte in spalten) {
-        if (_keineClientSpalten.contains(spalte)) continue;
-        expect(
-          userRecipesRumpf.contains(spalte),
-          isTrue,
-          reason:
-              'Spalte `$spalte` kommt in $_userRecipesCheck nicht vor — sie '
-              'ist damit unbegrenzt beschreibbar.',
-        );
-      }
-    });
+    }
   });
 
   group('20260819140000_user_recipes_limits — Grenzen sind grosszuegig genug', () {

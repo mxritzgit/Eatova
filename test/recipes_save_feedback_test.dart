@@ -4,8 +4,9 @@ import 'support/recipe_navigation.dart';
 // claimed "saved" synchronously, then the store's queue hint replaced it, so
 // the user saw two messages of which the first over-promised.
 //
-// This suite pins that exactly ONE message appears and that it mirrors the
-// real outcome, driving the screen through the [SyncDelivery] hook contract.
+// This suite pins that the message waits for the real outcome and mirrors it,
+// driving the screen through the [SyncDelivery] hook contract. (Counting
+// snack bars proves nothing: each toast replaces the current one.)
 //
 // Second topic: `_locallyMutated` blocked every store update for the rest of
 // the session after one create or delete. The store is the more reliable
@@ -183,17 +184,6 @@ void main() {
             'du wieder online bist.'),
         findsOneWidget,
       );
-    });
-
-    testWidgetsRobust(
-        'GENAU EINE Meldung — kein Erfolg, der von einem Hinweis ueberschrieben '
-        'wird', (tester) async {
-      await _pumpHost(tester, _Host(
-        onCreate: (_) async => SyncDelivery.queuedOffline,
-      ));
-      await _legeRezeptAn(tester);
-
-      expect(find.byType(SnackBar), findsOneWidget);
     });
 
     testWidgetsRobust(

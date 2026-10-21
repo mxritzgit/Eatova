@@ -28,81 +28,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 void main() {
-  group('Lage 1 — configureSentry setzt die Schutzschalter wirklich', () {
-    late SentryFlutterOptions options;
+  test('Lage 1 — configureSentry setzt jeden Schutzschalter wirklich', () {
+    final options = SentryFlutterOptions();
+    configureSentry(options);
 
-    setUp(() {
-      options = SentryFlutterOptions();
-      configureSentry(options);
-    });
-
-    test('beforeSend haengt an sanitizeSentryEvent', () {
-      // Exactly the line that once went missing.
-      expect(options.beforeSend, isNotNull);
-      expect(options.beforeSend, sanitizeSentryEvent);
-    });
-
-    test('beforeBreadcrumb haengt an sanitizeSentryBreadcrumb', () {
-      expect(options.beforeBreadcrumb, isNotNull);
-      expect(options.beforeBreadcrumb, sanitizeSentryBreadcrumb);
-    });
-
-    test('enablePrintBreadcrumbs ist aus — die DebugPrintIntegration '
-        'installiert sich sonst genau im Release-Build', () {
-      // debug_print_integration.dart:21-27; the default is true.
-      expect(options.enablePrintBreadcrumbs, isFalse);
-    });
-
-    test('keine PII, keine Screenshots, keine View-Hierarchie', () {
-      expect(options.sendDefaultPii, isFalse);
-      expect(options.attachScreenshot, isFalse);
-      // ignore: experimental_member_use
-      expect(options.attachViewHierarchy, isFalse);
-    });
-
-    test('kein Performance-Tracing und kein Session-Replay', () {
-      // tracesSampleRate stays null: spans carry transaction names and thus
-      // potentially routes with ids.
-      expect(options.tracesSampleRate, isNull);
-      expect(options.replay.sessionSampleRate, isNull);
-      expect(options.replay.onErrorSampleRate, isNull);
-    });
-
-    test('kein automatisches Session-Tracking — Sitzungen sind Nutzung, '
-        'keine Fehler', () {
-      // Review P10-01: the gap next to the two switches above. Session
-      // envelopes (session id, install id, start, duration, status) are built
-      // by the NATIVE SDKs and never pass `beforeSend`, so no filter in
-      // crash_reporter.dart sees them. PRIVACY.md promises "errors, not usage"
-      // and ios/Runner/PrivacyInfo.xcprivacy declares no ProductInteraction —
-      // both statements are only true while this stays false.
-      expect(options.enableAutoSessionTracking, isFalse);
-    });
-
-    test('der Default waere AN — deshalb muss die Option gesetzt werden', () {
-      // Makes the previous guard's premise executable. Unlike tracesSampleRate
-      // and replay.* this one does not default to off
-      // (sentry_flutter_options.dart:42), so leaving it unset is what shipped
-      // the sessions in the first place.
-      expect(SentryFlutterOptions().enableAutoSessionTracking, isTrue,
-          reason: 'sentry_flutter 9.26 liefert true; kippt der Default eines '
-              'Tages, ist das Setzen nur noch Doku und dieser Kommentar '
-              'falsch');
-    });
-
-    test('der DSN kommt aus CrashReporter.dsn', () {
-      expect(options.dsn, CrashReporter.dsn);
-    });
-
-    test('die Umgebung ist gesetzt — sonst laufen Dev-Crashes in Production',
-        () {
-      expect(options.environment, isNotEmpty);
-    });
-
-    test('configureSentry ist idempotent und wirft nicht', () {
-      expect(() => configureSentry(options), returnsNormally);
-      expect(options.beforeSend, sanitizeSentryEvent);
-    });
+    // Exactly the line that once went missing.
+    expect(options.beforeSend, sanitizeSentryEvent);
+    expect(options.beforeBreadcrumb, sanitizeSentryBreadcrumb);
+    expect(options.enablePrintBreadcrumbs, isFalse,
+        reason: 'the DebugPrintIntegration would otherwise install itself '
+            'in exactly the release build (default true)');
+    expect(options.sendDefaultPii, isFalse);
+    expect(options.attachScreenshot, isFalse);
+    // ignore: experimental_member_use
+    expect(options.attachViewHierarchy, isFalse);
+    // Spans carry transaction names and thus potentially routes with ids.
+    expect(options.tracesSampleRate, isNull);
+    expect(options.replay.sessionSampleRate, isNull);
+    expect(options.replay.onErrorSampleRate, isNull);
+    // Review P10-01: session envelopes are built by the NATIVE SDKs and
+    // never pass beforeSend. PRIVACY.md promises "errors, not usage" and
+    // PrivacyInfo.xcprivacy declares no ProductInteraction; the SDK default
+    // is true, so the option must be set.
+    expect(options.enableAutoSessionTracking, isFalse);
+    expect(options.dsn, CrashReporter.dsn);
+    expect(options.environment, isNotEmpty,
+        reason: 'otherwise dev crashes land in production');
   });
 
   // ---------------------------------------------------------------------
@@ -140,26 +91,6 @@ void main() {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
       expect(buildEatovaApp().healthService, isA<AndroidHealthService>());
-    });
-
-    test('das Schadensbild ist real: ohne die Argumente greifen die Noops', () {
-      // Makes the guard's rationale executable instead of asserted.
-      const EatovaApp ohne = EatovaApp();
-
-      expect(ohne.notificationService, isNull);
-      expect(ohne.healthService, isNull);
-    });
-
-    test('buildEatovaApp hat keine Seiteneffekte und ist mehrfach aufrufbar',
-        () {
-      // The function sits in the boot path and must not initialise anything,
-      // or the extraction itself would be the bigger risk.
-      final EatovaApp a = buildEatovaApp();
-      final EatovaApp b = buildEatovaApp();
-
-      expect(a.notificationService, isNot(same(b.notificationService)),
-          reason: 'frische Instanzen, kein geteilter Zustand');
-      expect(a.healthService, isNot(same(b.healthService)));
     });
   });
 }

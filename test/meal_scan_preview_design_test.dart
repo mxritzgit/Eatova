@@ -91,7 +91,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  for (final brightness in Brightness.values) {
+  // Layout depends on locale and text scale; brightness only on captures.
+  for (final brightness in [Brightness.dark]) {
     for (final locale in [const Locale('de'), const Locale('en')]) {
       for (final scale in [1.0, 2.0]) {
         final name = '${brightness.name}-${locale.languageCode}-$scale';

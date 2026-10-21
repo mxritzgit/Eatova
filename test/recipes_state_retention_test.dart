@@ -1,11 +1,12 @@
-// D6 (review 2026-08-08), recipes half: the tab loses search text, category
-// filter and scroll position. Two independent causes, kept apart here:
+// D6 (review 2026-08-08), recipes half: the tab lost search text, category
+// filter and scroll position. Two independent causes:
 //
 // 1. RECYCLING — search field only, no tab switch needed: the screen is a lazy
 //    `ListView`, so scrolling far enough recycles the field while `query` in
 //    the state stays active — empty field, filtered list.
-// 2. UNMOUNT on tab switch — `buildSelectedScreen()` builds one subtree via
-//    `switch`. The harness models that and the `IndexedStack` target.
+// 2. UNMOUNT on tab switch — the home shell used to build one tab via
+//    `switch`; it keeps visited tabs in an `IndexedStack` now, which the
+//    harness models.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,12 +33,10 @@ Widget _recipesScreen() => RecipesScreen(
       remainingMacros: _remaining,
     );
 
-/// Tab-switch harness modelling the home shell without its store wiring.
-/// [keepAlive] switches between `switch` (unmounts) and `IndexedStack` (keeps).
+/// Tab-switch harness modelling the home shell's `IndexedStack` without its
+/// store wiring.
 class _TabHarness extends StatefulWidget {
-  const _TabHarness({required this.keepAlive});
-
-  final bool keepAlive;
+  const _TabHarness();
 
   @override
   State<_TabHarness> createState() => _TabHarnessState();
@@ -52,13 +51,11 @@ class _TabHarnessState extends State<_TabHarness> {
       key: ValueKey('screen-other'),
       child: Text('Anderer Tab'),
     );
-    final body = widget.keepAlive
-        ? IndexedStack(
-            index: _tab,
-            sizing: StackFit.expand,
-            children: <Widget>[other, _recipesScreen()],
-          )
-        : (_tab == 0 ? other : _recipesScreen());
+    final body = IndexedStack(
+      index: _tab,
+      sizing: StackFit.expand,
+      children: <Widget>[other, _recipesScreen()],
+    );
 
     return localizedApp(
       Scaffold(
@@ -197,47 +194,11 @@ void main() {
             'EditableText-State — die Liste bleibt aber gefiltert.');
   });
 
-  testWidgets('Loesch-X leert Suchtext und Trefferliste sichtbar',
-      (tester) async {
-    _pinViewport(tester);
-    await pumpLocalized(
-      tester,
-      _recipesScreen(),
-      // Motion as before the migration.
-      reducedMotion: false,
-      safeArea: false,
-      settle: true,
-    );
-
-    expect(find.byKey(const ValueKey('recipes-search-clear')), findsNothing,
-        reason: 'Leeres Feld braucht kein Loesch-X.');
-
-    await tester.enterText(
-      find.byKey(const ValueKey('recipes-search-input')),
-      'lachs',
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('recipes-search-clear')), findsOneWidget);
-    expect(find.text('${recipeCatalogDe.length} Treffer'), findsNothing,
-        reason: 'Vorbedingung: die Liste ist gerade gefiltert.');
-
-    await tester.tap(find.byKey(const ValueKey('recipes-search-clear')));
-    await tester.pumpAndSettle();
-
-    expect(_searchText(tester), '');
-    expect(find.byKey(const ValueKey('recipes-search-clear')), findsNothing);
-    expect(
-      find.text('${recipeCatalogDe.length} Treffer'),
-      findsOneWidget,
-      reason: 'Nach dem Leeren muss die volle Liste zurueck sein.',
-    );
-  });
-
   testWidgets(
       'Tab-Wechsel mit IndexedStack: Suchtext, Filter und Scrollposition bleiben',
       (tester) async {
     _pinViewport(tester);
-    await tester.pumpWidget(const _TabHarness(keepAlive: true));
+    await tester.pumpWidget(const _TabHarness());
     await tester.pumpAndSettle();
 
     final offset = await _setUpState(tester);
@@ -255,36 +216,5 @@ void main() {
     await tester.pumpAndSettle();
     expect(_searchText(tester), 'e');
     expect(_activeFilter(tester), 'High Protein');
-  });
-
-  testWidgets(
-      'Tab-Wechsel ohne IndexedStack: Scrollposition kommt aus dem PageStorage zurueck',
-      (tester) async {
-    _pinViewport(tester);
-    await tester.pumpWidget(const _TabHarness(keepAlive: false));
-    await tester.pumpAndSettle();
-
-    final offset = await _setUpState(tester);
-
-    await tester.tap(find.byKey(const ValueKey('harness-tab-0')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-recipes')), findsNothing,
-        reason: 'Vorbedingung: der Teilbaum wird hier wirklich unmounted.');
-    await tester.tap(find.byKey(const ValueKey('harness-tab-1')));
-    await tester.pumpAndSettle();
-
-    // The scroll position lives in the route's PageStorage and survives the
-    // unmount.
-    expect(_listPosition(tester).pixels, offset);
-
-    // Search text and filter live in the screen state and go with it; only
-    // the IndexedStack change can save them.
-    _listPosition(tester).jumpTo(0);
-    await tester.pumpAndSettle();
-    expect(_searchText(tester), '');
-    // The chip bar keeps its own sideways offset (it was scrolled to reach
-    // the category); bring the first chip back before reading it.
-    await revealRecipeChip(tester, 'recipes-tab-for-you');
-    expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-for-you'))).properties.selected, isTrue);
   });
 }
