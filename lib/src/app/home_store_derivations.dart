@@ -77,13 +77,9 @@ mixin _HomeStoreDerivationsPart on _HomeStoreBase {
 
   /// This week's finished sessions per day ([trainingWeekOf]).
   ///
-  /// Selector inputs: [trainingHistory], [trainingPlans],
-  /// [selectedTrainingPlanId].
-  TrainingWeek currentTrainingWeek() => trainingWeekOf(
-    now: clock.now(),
-    history: trainingHistory,
-    plan: selectedTrainingPlan,
-  );
+  /// Selector inputs: [trainingHistory].
+  TrainingWeek currentTrainingWeek() =>
+      trainingWeekOf(now: clock.now(), history: trainingHistory);
 
   /// Weekly load for the last five full weeks plus this one
   /// ([trainingVolumeTrend]).

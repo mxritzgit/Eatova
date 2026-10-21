@@ -3151,17 +3151,6 @@
     }
   },
   "trainingWeekTitle": "This week",
-  "trainingWeekDoneOf": "{done} of {planned}",
-  "@trainingWeekDoneOf": {
-    "placeholders": {
-      "done": {
-        "type": "int"
-      },
-      "planned": {
-        "type": "int"
-      }
-    }
-  },
   "trainingWeekDone": "done",
   "trainingWeekDayToday": "today",
   "trainingWeekDayDone": "workout done",

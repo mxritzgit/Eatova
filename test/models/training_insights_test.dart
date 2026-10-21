@@ -519,7 +519,7 @@ void main() {
     ];
 
     test('seven local days from Monday with the sessions of each day', () {
-      final week = trainingWeekOf(now: thursday, history: history, plan: _plan);
+      final week = trainingWeekOf(now: thursday, history: history);
       expect(week.start, DateTime(2026, 9, 28));
       expect(week.end, DateTime(2026, 10, 4));
       expect(week.days.map((d) => d.date.day), [28, 29, 30, 1, 2, 3, 4]);
@@ -544,14 +544,6 @@ void main() {
       // Two sessions on Wednesday, oldest first.
       expect(week.days[2].sessions.map((e) => e.snapshot.workoutIndex), [0, 2]);
       expect(week.doneSessions, 3);
-      expect(week.plannedSessions, 3);
-    });
-
-    test('without a plan nothing is planned; an empty history is a week', () {
-      final week = trainingWeekOf(now: thursday, history: const []);
-      expect(week.plannedSessions, isNull);
-      expect(week.doneSessions, 0);
-      expect(week.days, hasLength(7));
     });
 
     test('a session is filed under the local day it finished', () {
@@ -577,7 +569,7 @@ void main() {
           'Bench press': [(80, 5)],
         },
       );
-      final week = trainingWeekOf(now: now, history: [log], plan: _plan);
+      final week = trainingWeekOf(now: now, history: [log]);
       expect(week.days.map((d) => d.done), [
         false,
         true,

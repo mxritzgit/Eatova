@@ -3225,17 +3225,6 @@
     }
   },
   "trainingWeekTitle": "Diese Woche",
-  "trainingWeekDoneOf": "{done} von {planned}",
-  "@trainingWeekDoneOf": {
-    "placeholders": {
-      "done": {
-        "type": "int"
-      },
-      "planned": {
-        "type": "int"
-      }
-    }
-  },
   "trainingWeekDone": "erledigt",
   "trainingWeekDayToday": "heute",
   "trainingWeekDayDone": "Training erledigt",

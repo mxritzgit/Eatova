@@ -229,7 +229,6 @@ void main() {
     await withClock(Clock.fixed(_now), () async {
       final empty = _store();
       expect(empty.nextTrainingWorkoutForToday(), isNull);
-      expect(empty.currentTrainingWeek().plannedSessions, isNull);
       expect(empty.currentTrainingWeek().doneSessions, 0);
       expect(empty.weeklyTrainingVolume().weeks, hasLength(6));
       expect(empty.recentWorkoutSummaries(), isEmpty);
@@ -274,7 +273,6 @@ void main() {
       );
       await store.saveTrainingPlan(plan);
       expect(store.nextTrainingWorkoutForToday()!.workoutIndex, 0);
-      expect(store.currentTrainingWeek().plannedSessions, 2);
 
       final start = DateTime(2026, 9, 28, 7);
       final saved = store.trainingPlans.single;

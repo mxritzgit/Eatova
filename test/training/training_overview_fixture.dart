@@ -1,7 +1,7 @@
 // The dark redesign's Training scenario (design/training/template.html) as
 // real models: a three-workout "Strength plan" and five weeks of finished
 // workouts before Monday 2026-09-28, so the store derives what the design
-// shows — "Upper Body Push" next with "Last time 75 kg × 8", 0 of 3 done this
+// shows — "Upper Body Push" next with "Last time 75 kg × 8", 0 done this
 // week, 6.8 / 7.4 / 7.1 / 7.9 / 8.6 tonnes per week (↑ 9 %), and Lower Body
 // (Fri, 52 min, 2 PRs), Upper Body Pull (Wed, 47 min), Upper Body Push (Mon,
 // 49 min) as the recent workouts.

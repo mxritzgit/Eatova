@@ -281,11 +281,7 @@ final class TrainingWeekDay {
 
 /// The current local week, Monday to Sunday, for the "This week" strip.
 final class TrainingWeek {
-  const TrainingWeek({
-    required this.start,
-    required this.days,
-    required this.plannedSessions,
-  });
+  const TrainingWeek({required this.start, required this.days});
 
   /// Local Monday midnight ([startOfLocalWeek]).
   final DateTime start;
@@ -293,12 +289,9 @@ final class TrainingWeek {
   /// Exactly seven days, Monday first.
   final List<TrainingWeekDay> days;
 
-  /// Workouts in the selected plan, read as sessions per week ("0 of 3
-  /// done"); null without a plan. An ASSUMPTION: plans store no frequency,
-  /// and the coach builds one workout per weekly session.
-  final int? plannedSessions;
-
-  /// Completed sessions this week, any plan; may exceed [plannedSessions].
+  /// Completed sessions this week, any plan ("4 done"). No planned count:
+  /// plans store no sessions per week, and their workouts rotate (the Coach
+  /// builds 2-3 workouts for 4-5 weekly sessions).
   int get doneSessions =>
       days.fold(0, (count, day) => count + day.sessions.length);
 
@@ -309,11 +302,10 @@ final class TrainingWeek {
 /// [now]'s week with the finished sessions of [history] per day.
 ///
 /// Planned session types per weekday are NOT derivable: a plan has no
-/// weekday assignment. [plan] only supplies [TrainingWeek.plannedSessions].
+/// weekday assignment.
 TrainingWeek trainingWeekOf({
   required DateTime now,
   required List<TrainingHistoryEntry> history,
-  TrainingPlan? plan,
 }) {
   final start = startOfLocalWeek(now);
   final today = _localDay(now);
@@ -338,11 +330,7 @@ TrainingWeek trainingWeekOf({
       ),
     );
   }
-  return TrainingWeek(
-    start: start,
-    days: List.unmodifiable(days),
-    plannedSessions: plan?.workouts.length,
-  );
+  return TrainingWeek(start: start, days: List.unmodifiable(days));
 }
 
 // ---------------------------------------------------------------------------
