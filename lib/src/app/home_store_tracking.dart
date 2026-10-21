@@ -13,6 +13,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   bool healthSyncing = false;
   bool _healthConnectedByUser = false;
 
+  /// When this account first connected Health Connect, which answers back to
+  /// 30 days before the first grant ([_healthConnectReadableDays]).
+  DateTime? _healthConnectedSince;
+
   /// Daily activity: steps plus estimated burned kcal per local calendar day
   /// (key: [localDayKey]).
   ///
@@ -49,8 +53,8 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// reaches back to it ([_weightImportFrom]).
   DateTime? _weightImportSince;
 
-  /// Keys of imported samples ([_weightSampleKey]): a deleted import stays
-  /// deleted, also after a restart.
+  /// Readings already imported or deleted ([_weightSampleKey]): neither
+  /// comes in (again), also after a restart or an edit of the weigh-in.
   Set<String> _weightImportSeen = <String>{};
 
   /// New weigh-ins the last read found while the account has not answered;
@@ -94,13 +98,22 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     final cache = _cache ?? debugCache;
     if (cache != null) {
       if (_healthConnectedByUser) {
-        await cache.writeHealthConnectEnabled(true);
+        await _persistHealthConnectOptIn();
       } else {
         final enabled = await cache.readHealthConnectEnabled();
         if (_disposed || generation != _healthGeneration) return;
         if (enabled) {
           (service as HealthConnectAccess).restoreConnection();
           _healthConnectedByUser = true;
+          final since = await cache.readHealthConnectSince();
+          if (_disposed || generation != _healthGeneration) return;
+          // An opt-in an older build stored: the grant is at least as old as
+          // today, and from now on the date is known.
+          if (since == null) {
+            await _persistHealthConnectOptIn();
+          } else {
+            _healthConnectedSince = since;
+          }
         }
       }
     }
@@ -241,7 +254,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (state == HealthAuthState.granted) {
       if (health is HealthConnectAccess) {
         _healthConnectedByUser = true;
-        await (_cache ?? debugCache)?.writeHealthConnectEnabled(true);
+        await _persistHealthConnectOptIn();
         if (_disposed || generation != _healthGeneration) return;
       }
       _dailyActivityBackfillAttempted.clear();
@@ -256,6 +269,16 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         }
       });
     }
+  }
+
+  /// Keeps this account's Health Connect opt-in for the next cold start,
+  /// with the date of its first connect.
+  Future<void> _persistHealthConnectOptIn() async {
+    _healthConnectedSince ??= clock.now();
+    await (_cache ?? debugCache)?.writeHealthConnectEnabled(
+      true,
+      since: _healthConnectedSince,
+    );
   }
 
   Future<void> refreshHealthSteps() async {
@@ -303,7 +326,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         healthAuthState == HealthAuthState.granted &&
         !_healthConnectedByUser) {
       _healthConnectedByUser = true;
-      await (_cache ?? debugCache)?.writeHealthConnectEnabled(true);
+      await _persistHealthConnectOptIn();
       if (_disposed || generation != _healthGeneration) return;
     }
     // Scale weigh-ins since the last read (2026-10-22).
@@ -458,20 +481,32 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// an empty answer.
   static const int _healthConnectReadableDays = 30;
 
+  /// How many days back Health Connect answers: to 30 days before this
+  /// account's first connect. The app's grant may be older (another
+  /// account), never younger, so this never asks too far. Without a known
+  /// date (tests) today stands in.
+  int _healthConnectReadableBack(DateTime today) {
+    final since = _healthConnectedSince;
+    final connected = since == null || since.isAfter(today)
+        ? today
+        : startOfDay(since.toLocal());
+    return daysBetween(today, connected) + _healthConnectReadableDays;
+  }
+
   /// Fills the step values of the trends page's range: every past day of the
   /// last [days] without a stored value is read from the health store, one
-  /// after another and once per day and session. On Android only the last
-  /// [_healthConnectReadableDays] days. The found days land in
-  /// [dailyActivity] together, in one notify and one encrypted cache write,
-  /// instead of one each. Skipped without a usable health connection, where
-  /// every read would come back empty.
+  /// after another and once per day and session. On Android only the days
+  /// Health Connect answers ([_healthConnectReadableBack]). The found days
+  /// land in [dailyActivity] together, in one notify and one encrypted cache
+  /// write, instead of one each. Skipped without a usable health connection,
+  /// where every read would come back empty.
   Future<void> backfillStepsForTrends(int days) async {
     if (!_healthReadable) return;
     final generation = _healthGeneration;
     final today = startOfDay(clock.now());
-    final span =
-        health is HealthConnectAccess && days > _healthConnectReadableDays + 1
-        ? _healthConnectReadableDays + 1
+    final readable = _healthConnectReadableBack(today) + 1;
+    final span = health is HealthConnectAccess && days > readable
+        ? readable
         : days;
     final found = <DateTime, int>{};
     for (var n = 1; n < span; n++) {

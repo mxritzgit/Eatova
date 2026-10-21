@@ -224,12 +224,23 @@ class LocalCache {
   String get _notificationsKey => 'eatova.v1.notifications_enabled.$_userId';
   String get _healthConnectKey => 'eatova.v1.health_connect_enabled.$_userId';
 
-  Future<void> writeHealthConnectEnabled(bool enabled) =>
-      _writeJson(_healthConnectKey, {'enabled': enabled});
+  /// [since] is when this account first connected: Health Connect answers
+  /// back to 30 days before the first grant (2026-10-22).
+  Future<void> writeHealthConnectEnabled(bool enabled, {DateTime? since}) =>
+      _writeJson(_healthConnectKey, {
+        'enabled': enabled,
+        if (since != null) 'since': since.toUtc().toIso8601String(),
+      });
 
   /// Only an intact boolean opt-in permits a silent Android reconnect.
   Future<bool> readHealthConnectEnabled() async =>
       (await _readJson(_healthConnectKey))?['enabled'] == true;
+
+  /// When this account first connected Health Connect; null for an opt-in
+  /// an older build stored.
+  Future<DateTime?> readHealthConnectSince() async => DateTime.tryParse(
+    '${(await _readJson(_healthConnectKey))?['since'] ?? ''}',
+  );
 
   /// Today's Apple Health intro card for this account (2026-10-19):
   /// `pending`, `connected` or `dismissed`; missing for accounts onboarded
