@@ -91,15 +91,6 @@ class ResultVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, suite):
             verify_results(tree)
 
-    def test_one_passing_case_per_suite_does_not_prove_full_discovery(self):
-        # The real Swift files declare more than one case in every suite.
-        # The old oracle accepted this partial xcresult as a green run.
-        tree = result_tree()
-        for suite in tree["testNodes"][0]["children"]:
-            suite["children"] = suite["children"][:1]
-        with self.assertRaisesRegex(ValueError, "missing"):
-            verify_results(tree)
-
     def test_nested_destination_and_module_qualified_suite_names(self):
         tree = result_tree()
         for suite in tree["testNodes"][0]["children"]:
@@ -110,6 +101,8 @@ class ResultVerificationTests(unittest.TestCase):
         })
 
     def test_missing_empty_or_skipped_suite_fails_instead_of_false_green(self):
+        # "one omitted" is the old false green: a partial xcresult with some
+        # but not all declared cases of a suite passed the earlier oracle.
         baseline = result_tree()
         for mutation in ("missing", "empty", "one omitted", "skipped", "failed", "unknown"):
             tree = copy.deepcopy(baseline)

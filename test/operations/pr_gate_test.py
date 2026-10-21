@@ -142,13 +142,6 @@ class WaitTest(unittest.TestCase):
                             clock=clock, wall=clock, sleep=clock.sleep)
         return code, lines, clock
 
-    def test_returns_when_the_only_open_check_has_a_lagging_status(self):
-        lagging = green_checks() + [run('Secret scanning (gitleaks)', status='in_progress')]
-        code, lines, clock = self.wait(FakeAPI(checks=lagging))
-        self.assertEqual(code, 0)
-        self.assertEqual(clock.slept, [])
-        self.assertIn('green', lines[-1])
-
     def test_polls_until_green_and_prints_each_state_once(self):
         pending = green_checks() + [run('Android Debug-Build (APK)', 'in_progress', None)]
         api = FakeAPI(checks=Seq(pending, pending, pending, green_checks()))

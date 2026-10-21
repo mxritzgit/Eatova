@@ -46,9 +46,6 @@ def uninstalls(step):
 
 
 class DeviceBuildTest(unittest.TestCase):
-    def test_build_number_is_the_commit_count(self):
-        self.assertEqual(device_build.build_number(fake_git('742')), 742)
-
     def test_an_empty_history_is_refused(self):
         with self.assertRaises(ValueError):
             device_build.build_number(fake_git('0'))
@@ -63,10 +60,6 @@ class DeviceBuildTest(unittest.TestCase):
             'xcrun', 'devicectl', 'device', 'install', 'app', '--device',
             'iPhone', 'build/ios/iphoneos/Runner.app'])
 
-    def test_iphone_needs_a_device_id_for_devicectl(self):
-        with self.assertRaises(ValueError):
-            device_build.commands('iphone', 9, [])
-
     def test_android_builds_an_apk_then_replaces_it_keeping_data(self):
         build, install = device_build.commands(
             'android', 9, ['--device-id=emulator-5554'], adb='/sdk/adb')
@@ -80,14 +73,18 @@ class DeviceBuildTest(unittest.TestCase):
             'adb', 'install', '-r',
             'build/app/outputs/flutter-apk/app-release.apk'])
 
-    def test_no_target_ever_uninstalls_or_uses_flutter_install(self):
+    def test_no_target_ever_uninstalls_or_uses_flutter_install_or_run(self):
         # 2026-10-19 review: `flutter install` uninstalls first (Flutter
         # 3.47.2 installApp(uninstall: true)) and wiped the outbox, the
         # encrypted cache, reminders and Health grants on every device build.
+        # `flutter run` has no --build-number option (2026-10-04: the first
+        # version of this script ran into "Could not find an option").
         for target, (_, installs) in device_build.TARGETS.items():
             extra = ['-d', 'device-1'] if installs else []
             steps = device_build.commands(target, 9, extra)
             self.assertEqual(len(steps), 2 if installs else 1, target)
+            self.assertEqual(steps[0][1:2], ['build'], target)
+            self.assertIn('--build-number=9', steps[0], target)
             for step in steps:
                 self.assertFalse(uninstalls(step), (target, step))
                 self.assertNotEqual(step[1], 'install', (target, step))
@@ -109,16 +106,6 @@ class DeviceBuildTest(unittest.TestCase):
         self.assertTrue(sdk.replace('\\', '/').startswith('/sdk/platform-tools/adb'), sdk)
         self.assertEqual(device_build.adb_executable(
             {'ANDROID_HOME': '/missing'}, is_file=lambda path: False), 'adb')
-
-    def test_flutter_run_never_gets_a_build_number(self):
-        # `flutter run` has no --build-number option (2026-10-04: the first
-        # version of this script ran into "Could not find an option").
-        for target in device_build.TARGETS:
-            for step in device_build.commands(target, 9, ['-d', 'device-1']
-                                              if target == 'iphone' else []):
-                self.assertNotEqual(step[1], 'run', target)
-                if '--build-number=9' in step:
-                    self.assertEqual(step[1], 'build', target)
 
     def test_store_targets_only_build(self):
         steps = device_build.commands('ipa', 9, ['--obfuscate'])

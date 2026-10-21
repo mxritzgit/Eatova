@@ -42,17 +42,9 @@ class AuthEmailTemplatesTest(unittest.TestCase):
         self.assertIn('{{ else }}Deine Identität bestätigen{{ end }}', recovery)
         self.assertNotIn('.Data', recovery, 'Shared user metadata races across concurrent email requests.')
 
-    def test_codes_are_only_in_supported_otp_templates_and_never_in_subjects(self):
-        otp = {'confirmation', 'recovery', 'reauthentication', 'email_change'}
-        for name, (subject, html) in emails.templates().items():
-            with self.subTest(template=name):
-                self.assertNotIn('{{', subject)
-                self.assertEqual(html.count('{{ .Token }}'), int(name in otp))
-                if name in otp:
-                    self.assertIn('10 Minuten', html)
-                self.assertNotIn('.TokenHash', html)
-                self.assertEqual(html.count('{{ .ConfirmationURL }}'), int(name == 'invite'))
-
+    # Token, TokenHash, ConfirmationURL, subject and "10 Minuten" rules are
+    # asserted on the published files by scripts/security/test_auth_config_drift.py
+    # (test_published_templates_satisfy_every_property, test_contract_agrees_with_app_constants).
     def test_email_links_and_markup_cannot_reactivate_passwordless_login(self):
         allowed = {'https://eatova.de/datenschutz', 'https://eatova.de/impressum', 'mailto:support@eatova.de'}
         for name, (_, html) in emails.templates().items():

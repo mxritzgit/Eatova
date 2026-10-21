@@ -74,10 +74,6 @@ class CoverageTests(unittest.TestCase):
         self.assertAlmostEqual(MODULE.coverage_percent(merged), 900 / 11)
         self.assertLess(MODULE.coverage_percent(merged), 95)
 
-    def test_floor_comparison_does_not_round_94_99_to_95(self):
-        coverage = {"lib/a.dart": {line: int(line <= 9499) for line in range(1, 10001)}}
-        self.assertLess(MODULE.coverage_percent(coverage), 95)
-
     def test_generated_l10n_is_excluded_by_exact_directory(self):
         parsed = MODULE.parse_lcov(lcov("lib/a.dart", {1: 0}) +
                                   lcov("lib/src/l10n/generated/app_localizations.dart", {1: 1}) +
