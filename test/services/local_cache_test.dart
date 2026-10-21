@@ -129,9 +129,11 @@ void main() {
     });
 
     test('Zahlen-Muell im Blob liefert null statt erfundener Werte', () async {
+      // Every other number is present, so only the unreadable one can make
+      // the blob unusable.
       final store = InMemoryKeyValueStore();
       final cache = _cache(store);
-      final blob = <String, dynamic>{'weight_kg': 'kaputt'};
+      final blob = _zahlenVollstaendig()..['weight_kg'] = 'kaputt';
       await store.setString('eatova.v1.profile.user-1', jsonEncode(blob));
 
       expect(await cache.readProfile(), isNull);

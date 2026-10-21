@@ -11,7 +11,8 @@ void main() {
 
   const weightKey = 'eatova.v1.weight_log.u';
 
-  test('nur bewachte Slots werden nicht dekodiert', () async {
+  test('ein nur bewachter, nicht geschriebener Slot wird nicht dekodiert',
+      () async {
     final kv = InMemoryKeyValueStore({weightKey: 'kein JSON'});
     final cache = LocalCache(kv, 'u');
     final guards = (await cache.readMutationSnapshot(allowPartial: true))

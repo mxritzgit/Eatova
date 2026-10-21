@@ -8,21 +8,13 @@
 // key rotation is silently dead forever. Nothing over there can see that: its
 // expected names are a constant in its own file.
 //
-// So this file is the other half, and it is the one that runs the REAL client.
-// It states the contract twice, in two different kinds:
-//
-//   * SOURCE. The field set is EXTRACTED from both sources — from the client's
-//     `_fetch()` and from the function's response literal — and compared. A
-//     literal here would come from the same mental model as the code.
-//   * BEHAVIOUR. A body built from the FUNCTION's names is served over loopback
-//     to the real `EdgeFunctionSearchKeyFetcher`. A rename on either side makes
-//     the client return `null` and turns this red. This is what the Deno file's
-//     replica parser can only approximate.
-//
-// (The behavioural half became possible when `EdgeFunctionSearchKeyFetcher`
-// gained its base-URL/anon-key/token seam; the older comment here claiming
-// there is none was stale — test/services/search_key_fetcher_wire_test.dart
-// already uses it.)
+// So this file is the other half, and it runs the REAL client: a body built
+// from the field names in the FUNCTION's success literal is served over
+// loopback to the real `EdgeFunctionSearchKeyFetcher`. A rename on either
+// side, or a new field the client requires, makes the client return `null`
+// and turns this red. Source-only comparisons of the two field sets were
+// removed in the 2026-10-21 test review: this behaviour check already fails
+// on every rename they could see.
 
 import 'dart:convert';
 import 'dart:io';
@@ -31,7 +23,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/search_credentials.dart';
 
-const String _clientPfad = 'lib/src/services/search_credentials.dart';
 const String _functionPfad = 'supabase/functions/search-key/index.ts';
 
 String _lies(String pfad) {
@@ -40,17 +31,6 @@ String _lies(String pfad) {
     fail('$pfad fehlt (aufgeloest von ${Directory.current.path})');
   }
   return datei.readAsStringSync();
-}
-
-/// The body of `EdgeFunctionSearchKeyFetcher._fetch()` — deliberately only
-/// this slice: `_CachedEntry.tryParse` also reads `decoded[...]`, but from the
-/// PERSISTENCE format. Confusing the two formats is the trap.
-String _fetchRumpf(String quelle) {
-  final start = quelle.indexOf('Future<FetchedSearchCredentials?> _fetch()');
-  expect(start, greaterThan(-1), reason: '_fetch() nicht gefunden');
-  final ende = quelle.indexOf('class SearchCredentialsStore', start);
-  expect(ende, greaterThan(start), reason: 'Ende von _fetch() nicht gefunden');
-  return quelle.substring(start, ende);
 }
 
 /// The object literal `index.ts` hands to `jsonResponse` on the success path —
@@ -112,100 +92,11 @@ class _KeyServer {
 }
 
 void main() {
-  late String clientQuelle;
-  late String functionQuelle;
-  late Set<String> gelesendeFelder;
   late Map<String, String> gelieferteFelder;
 
   setUpAll(() {
-    clientQuelle = _lies(_clientPfad);
-    functionQuelle = _lies(_functionPfad);
-    gelesendeFelder = RegExp(r"decoded\['([A-Za-z0-9_]+)'\]")
-        .allMatches(_fetchRumpf(clientQuelle))
-        .map((m) => m.group(1)!)
-        .toSet();
-    gelieferteFelder = _gelieferteFelder(_antwortLiteral(functionQuelle));
-  });
-
-  test('der Client liest ueberhaupt Felder aus der Antwort', () {
-    // Safety net against a silent null statement: a rebuilt parser would make
-    // the extraction come up empty and everything below trivially true.
-    expect(
-      gelesendeFelder,
-      hasLength(3),
-      reason:
-          'Erwartet werden genau drei Felder (Basis-URL, Key, TTL). Gefunden: '
-          '$gelesendeFelder. Wurde der Parser umgebaut, muss dieser Test '
-          'nachgezogen werden statt still gruen zu bleiben.',
-    );
-  });
-
-  test('die Function liefert ueberhaupt ein lesbares Antwort-Literal', () {
-    // Same safety net for the other extraction: an unparsed literal would make
-    // the comparison below vacuous instead of red.
-    expect(
-      gelieferteFelder.keys,
-      hasLength(greaterThanOrEqualTo(3)),
-      reason:
-          'Aus dem Erfolgs-Literal von $_functionPfad liessen sich keine drei '
-          'Felder lesen. Gefunden: ${gelieferteFelder.keys.toList()}. Wurde '
-          'die Antwort umgebaut, muss dieser Test nachgezogen werden statt '
-          'still gruen zu bleiben.',
-    );
-  });
-
-  test('jedes vom Client gelesene Feld liefert die Function auch wirklich',
-      () {
-    for (final feld in gelesendeFelder) {
-      expect(
-        gelieferteFelder.keys,
-        contains(feld),
-        reason:
-            'Der Client liest `$feld` aus der Antwort von search-key, aber '
-            'das Erfolgs-Literal in $_functionPfad liefert nur '
-            '${gelieferteFelder.keys.toList()}. Der Fetcher bekommt damit '
-            '`null` — und `null` heisst per Vertrag „behalte, was du hast". '
-            'Die Key-Rotation ist still und dauerhaft tot, waehrend '
-            'FallbackProductService weiter plausible OFF-Treffer liefert.',
-      );
-    }
-  });
-
-  test('die beiden Pflichtfelder scheitern hart, nicht halb', () {
-    // The fetcher's contract: if either is missing there are NO half-filled
-    // credentials, only null.
-    expect(
-      _fetchRumpf(clientQuelle),
-      contains('if (baseUrl is! String || searchKey is! String) return null;'),
-      reason:
-          'Ohne diese Zeile koennte ein umbenanntes Feld als leerer String '
-          'durchgehen und den funktionierenden Key ueberschreiben.',
-    );
-  });
-
-  test('Wire-Format und Cache-Format werden nicht verwechselt', () {
-    // The function returns camelCase, the disk snake_case. Copying one format
-    // into the other trips here.
-    for (final wireFeld in gelesendeFelder) {
-      expect(
-        wireFeld,
-        isNot(contains('_')),
-        reason:
-            'Das Antwort-Format von search-key ist camelCase; `$wireFeld` '
-            'sieht nach dem Persistenz-Format aus (_CachedEntry.encode).',
-      );
-    }
-    for (final cacheFeld in const <String>[
-      'base_url',
-      'ttl_seconds',
-      'fetched_at',
-    ]) {
-      expect(
-        gelesendeFelder,
-        isNot(contains(cacheFeld)),
-        reason: '`$cacheFeld` gehoert in den Cache, nicht in die Antwort.',
-      );
-    }
+    gelieferteFelder =
+        _gelieferteFelder(_antwortLiteral(_lies(_functionPfad)));
   });
 
   group('Verhalten: der echte Client gegen die Feldnamen der echten Function',

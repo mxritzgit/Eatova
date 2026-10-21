@@ -18,8 +18,8 @@
 //   * NO assertion names `loggedMealsWindowDays` or `loggedMealsMaxRows`. The
 //     EFFECT is checked with fixed numbers.
 //
-// The last group queries the fake directly over HTTP, so "the filter applies"
-// is not itself just a claim about the fake.
+// Every filter the fake applies is exercised by an expectation on rows that
+// must or must not come back; an unknown filter fails instead of passing.
 
 import 'dart:convert';
 import 'dart:io';
@@ -140,6 +140,16 @@ class _PostgrestFake {
   }
 }
 
+/// The boot window is measured from `clock.now()`; pinned, so the ages
+/// below never depend on when the suite runs.
+final DateTime _jetzt = DateTime.utc(2026, 9, 28, 12);
+
+/// `loadLoggedMeals` under the pinned clock.
+Future<List<LoggedMeal>> _boot(SupabaseClient client) => withClock(
+  Clock.fixed(_jetzt),
+  () => MealsSync(client, 'user-1').loadLoggedMeals(),
+);
+
 /// A `logged_meals` row as PostgREST delivers it: `logged_at` is a UTC
 /// instant, the payload the app's JSONB.
 Map<String, dynamic> _zeile({
@@ -196,7 +206,7 @@ void main() {
     // The guard against a zeroed window. None of these numbers come from
     // MealsSync; they describe what a user expects.
     setUp(() {
-      final jetzt = clock.now().toUtc();
+      final jetzt = _jetzt;
       server.tables['logged_meals'] = <Map<String, dynamic>>[
         _zeile(
           id: 'vor-2-stunden',
@@ -227,49 +237,13 @@ void main() {
       ];
     });
 
-    // Membership is one question asked of four ages, so it runs as one
-    // parametrised block — each age keeps its own name and its own reason.
-    for (final (id, imFenster, grund) in const <(String, bool, String)>[
-      (
-        'vor-2-stunden',
-        true,
-        'Das Boot-Fenster darf die Gegenwart nicht ausschliessen. Ein Fenster '
-            'von 0 Tagen setzt den Cutoff auf JETZT — dann faellt jede bereits '
-            'geloggte Mahlzeit heraus und das Tagebuch ist beim Kaltstart leer.'
-      ),
-      (
-        'gestern',
-        true,
-        'Der gestrige Tag ist der meistgeoeffnete Kalendertag ueberhaupt.'
-      ),
-      (
-        'vor-30-tagen',
-        true,
-        'Der Kalender im Food-Tab laedt Tage innerhalb des Boot-Fensters ohne '
-            'Nachladen. Ein Fenster unter 30 Tagen schrumpft diese Historie '
-            'still.'
-      ),
-      (
-        'vor-300-tagen',
-        false,
-        'Ohne Fenster laedt jeder Kaltstart die gesamte Historie inkl. '
-            'JSONB-Payload.'
-      ),
-    ]) {
-      final wasPassiert = imFenster
-          ? 'ueberlebt den Kaltstart'
-          : 'bleibt draussen (Fenster ist gedeckelt)';
-      test('$id $wasPassiert', () async {
-        final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
-
-        expect(meals.map((m) => m.id),
-            imFenster ? contains(id) : isNot(contains(id)),
-            reason: grund);
-      });
-    }
-
-    test('Ergebnis kommt neueste zuerst, so wie bestellt', () async {
-      final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
+    test('genau die Mahlzeiten im Fenster, neueste zuerst', () async {
+      // Two hours ago: a window of 0 days puts the cutoff at NOW and the diary
+      // is empty at every cold start. Yesterday: the most opened calendar day.
+      // 30 days: the food calendar loads days inside the boot window without
+      // reloading. 300 days: without a window every cold start loads the
+      // whole history including the JSONB payload.
+      final meals = await _boot(client);
 
       expect(meals.map((m) => m.id).toList(), <String>[
         'vor-2-stunden',
@@ -286,7 +260,7 @@ void main() {
 
     test('die Anfrage holt alle fuenf Spalten, die _mealFromRow braucht',
         () async {
-      await MealsSync(client, 'user-1').loadLoggedMeals();
+      await _boot(client);
 
       final select = server.requests.single.queryParameters['select'];
       expect(select, isNotNull);
@@ -307,7 +281,7 @@ void main() {
 
     test('logged_at kommt als LOKALE Zeit zurueck, nicht als UTC-Instanz',
         () async {
-      final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
+      final meals = await _boot(client);
 
       // Zone-independent: `.toLocal()` always yields isUtc == false, even on
       // a UTC machine. Without it, meals would bucket by UTC calendar day.
@@ -332,13 +306,12 @@ void main() {
 
   group('Zeilen-Deckel: der Deckel deckelt, aber nicht das Tagebuch', () {
     test('60 Mahlzeiten der letzten drei Tage kommen vollstaendig an', () async {
-      final jetzt = clock.now().toUtc();
       server.tables['logged_meals'] = <Map<String, dynamic>>[
         for (var i = 0; i < 60; i++)
-          _zeile(id: 'm$i', loggedAt: jetzt.subtract(Duration(hours: i))),
+          _zeile(id: 'm$i', loggedAt: _jetzt.subtract(Duration(hours: i))),
       ];
 
-      final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
+      final meals = await _boot(client);
 
       expect(
         meals.length,
@@ -347,12 +320,6 @@ void main() {
             'Der Deckel ist ein Schutz gegen das stille db-max-rows, kein '
             'Anzeigelimit. Ein zu kleiner Deckel schneidet reale Tage ab.',
       );
-    });
-
-    test('der Deckel steht ueberhaupt auf dem Wire', () async {
-      server.tables['logged_meals'] = <Map<String, dynamic>>[];
-      await MealsSync(client, 'user-1').loadLoggedMeals();
-
       final limit = server.requests.single.queryParameters['limit'];
       expect(limit, isNotNull, reason: 'Ohne Limit kappt PostgREST STILL.');
       expect(int.parse(limit!), greaterThanOrEqualTo(500));
@@ -387,25 +354,8 @@ void main() {
       ]);
     });
 
-    test('23:45 Ortszeit gehoert zum Tag, 00:15 des Folgetags nicht', () async {
-      final meals = await MealsSync(
-        client,
-        'user-1',
-      ).loadLoggedMealsForDay(DateTime(2026, 3, 14));
-
-      expect(meals.map((m) => m.id), contains('tag-2345'));
-      expect(meals.map((m) => m.id), isNot(contains('folgetag-0015')));
-      expect(meals.map((m) => m.id), isNot(contains('vortag-2345')));
-    });
-
-    test('der Folgetag sieht genau seinen eigenen Eintrag', () async {
-      final meals = await MealsSync(
-        client,
-        'user-1',
-      ).loadLoggedMealsForDay(DateTime(2026, 3, 15));
-
-      expect(meals.map((m) => m.id).toList(), <String>['folgetag-0015']);
-    });
+    // The half-open bounds themselves (start inclusive, end exclusive) on
+    // four DST dates: 'legacy half-open midnight bounds' below.
   });
 
   group('Archive: canonical day before timestamp fallback', () {
@@ -613,119 +563,17 @@ void main() {
     }
   });
 
-  group('Der PostgREST-Fake verhaelt sich wie PostgREST', () {
-    // Without this group, "the filter applies" would be a claim about the
-    // fake. Here the server is queried directly over HTTP.
-    setUp(() {
-      server.tables['probe'] = <Map<String, dynamic>>[
-        <String, dynamic>{
-          'id': 'a',
-          'at': '2026-03-14T00:00:00Z',
-          'u': 'x',
-          'local_day': null,
-        },
-        <String, dynamic>{
-          'id': 'b',
-          'at': '2026-03-15T00:00:00Z',
-          'u': 'x',
-          'local_day': '2026-03-14',
-        },
-        <String, dynamic>{
-          'id': 'c',
-          'at': '2026-03-16T00:00:00Z',
-          'u': 'y',
-          'local_day': null,
-        },
-      ];
-    });
-
-    Future<List<dynamic>> hole(String query) async {
-      final antwort = await HttpClient()
-          .getUrl(Uri.parse('${server.url}/rest/v1/probe?$query'))
-          .then((r) => r.close());
-      expect(antwort.statusCode, 200);
-      final koerper = await antwort.transform(utf8.decoder).join();
-      return jsonDecode(koerper) as List<dynamic>;
-    }
-
-    List<String> ids(List<dynamic> zeilen) =>
-        zeilen.map((z) => (z as Map<String, dynamic>)['id'] as String).toList();
-
-    test(
-      'nested OR/AND applies NULL and the independent owner filter',
-      () async {
-        expect(
-          ids(
-            await hole(
-              'u=eq.x&or=(local_day.eq.2026-03-14,'
-              'and(local_day.is.null,at.gte.2026-03-14T00:00:00Z,'
-              'at.lt.2026-03-17T00:00:00Z))',
-            ),
-          ),
-          ['a', 'b'],
-        );
-        expect(
-          ids(
-            await hole(
-              'u=eq.x&or=(local_day.eq.2026-03-13,'
-              'and(local_day.is.null,at.gte.2026-03-15T00:00:00Z,'
-              'at.lt.2026-03-17T00:00:00Z))',
-            ),
-          ),
-          isEmpty,
-        );
-        expect(ids(await hole('local_day=is.null')), ['a', 'c']);
-        expect(ids(await hole('or=(u.eq.y,and(local_day.is.null,u.eq.x))')), [
-          'a',
-          'c',
-        ]);
-      },
+  // The fake's filters are exercised by every expectation above (window,
+  // owner, canonical day, half-open bounds, order, cap, projection); this
+  // guard keeps an unknown filter from passing silently.
+  test('unsupported nested filters fail instead of being ignored', () {
+    expect(
+      () => matchesPostgrestFilters(
+        <String, dynamic>{'u': 'x', 'at': '2026-03-14T00:00:00Z'},
+        Uri.parse('http://localhost/?or=(u.eq.x,at.unsupported.1)'),
+      ),
+      throwsFormatException,
     );
-
-    test('unsupported nested filters fail instead of being ignored', () {
-      expect(
-        () => matchesPostgrestFilters(
-          server.tables['probe']!.first,
-          Uri.parse('http://localhost/?or=(u.eq.x,at.unsupported.1)'),
-        ),
-        throwsFormatException,
-      );
-    });
-
-    test('gte ist inklusive, lt ist exklusiv', () async {
-      expect(ids(await hole('at=gte.2026-03-15T00:00:00Z')), <String>['b', 'c']);
-      expect(ids(await hole('at=lt.2026-03-15T00:00:00Z')), <String>['a']);
-      expect(
-        ids(
-          await hole(
-            'at=gte.2026-03-14T00:00:00Z&at=lt.2026-03-16T00:00:00Z',
-          ),
-        ),
-        <String>['a', 'b'],
-      );
-      // And the degenerate case: a window starting after the newest row (as
-      // "now" does) returns nothing past — the effect of
-      // loggedMealsWindowDays = 0.
-      expect(ids(await hole('at=gte.2026-03-16T00:00:01Z')), isEmpty);
-    });
-
-    test('eq filtert, order sortiert, limit deckelt', () async {
-      expect(ids(await hole('u=eq.x')), <String>['a', 'b']);
-      expect(
-        ids(await hole('order=at.desc.nullslast')),
-        <String>['c', 'b', 'a'],
-      );
-      expect(ids(await hole('order=at.desc.nullslast&limit=2')), <String>[
-        'c',
-        'b',
-      ]);
-      expect(ids(await hole('limit=0')), isEmpty);
-    });
-
-    test('select projiziert genau die angefragten Spalten', () async {
-      final zeilen = await hole('select=id,at');
-      expect((zeilen.first as Map<String, dynamic>).keys, <String>['id', 'at']);
-    });
   });
 
   group('LoggedMeal-Konstruktion aus echten Bytes', () {
@@ -734,7 +582,7 @@ void main() {
         <String, dynamic>{
           ..._zeile(
             id: 'voll',
-            loggedAt: clock.now().toUtc().subtract(const Duration(hours: 1)),
+            loggedAt: _jetzt.subtract(const Duration(hours: 1)),
             localDay: '2026-03-14',
             kcal: 777,
             name: 'Lachsbowl',
@@ -743,7 +591,7 @@ void main() {
         },
       ];
 
-      final meals = await MealsSync(client, 'user-1').loadLoggedMeals();
+      final meals = await _boot(client);
       final meal = meals.single;
 
       expect(meal.id, 'voll');

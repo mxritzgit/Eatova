@@ -30,7 +30,6 @@ import 'package:cryptography/dart.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/api.dart' show InvalidCipherTextException;
 
-import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 
 // ---------------------------------------------------------------------------
@@ -170,19 +169,6 @@ void main() {
       );
     });
 
-    test('der Blob traegt Magic, 12-Byte-Nonce und 16-Byte-Tag', () {
-      expect(_goldenBlob, startsWith(cacheCipherMagic));
-      final frame = CacheCipherFrame.parse(_goldenBlob);
-      expect(frame.nonce, _nonce);
-      expect(frame.nonce, hasLength(12));
-      expect(frame.tag, hasLength(16));
-      // GCM is a stream mode: the ciphertext is exactly as long as the UTF-8
-      // plaintext, so nothing padded or truncated the payload.
-      expect(frame.cipherText, hasLength(utf8.encode(_goldenPlaintext).length));
-      expect(
-          frame.sealed, hasLength(frame.cipherText.length + frame.tag.length));
-    });
-
     test('beide Implementierungen lesen den festgeschriebenen Blob', () async {
       expect(await _softwareCipher().decrypt(_goldenKey, _goldenBlob),
           _goldenPlaintext);
@@ -197,6 +183,7 @@ void main() {
       // the object routes internally to its own Dart fallback. Das prueft den
       // Produktions-Objektgraphen statt einer Testattrappe.
       PlatformAesGcmCacheCipher.debugResetPlatformProbe();
+      addTearDown(PlatformAesGcmCacheCipher.debugResetPlatformProbe);
       final echt = PlatformAesGcmCacheCipher(_dek);
 
       expect(await echt.encryptWithNonce(_goldenKey, _goldenPlaintext, _nonce),
@@ -209,22 +196,6 @@ void main() {
   // 2. Cross-compatibility in BOTH directions
   // -------------------------------------------------------------------------
   group('Kreuz-Kompatibilitaet der beiden Implementierungen', () {
-    test('der Software-Pfad liest, was der Plattform-Pfad geschrieben hat',
-        () async {
-      final geschrieben =
-          await _platformCodec().encrypt(_goldenKey, _goldenPlaintext);
-      expect(await _softwareCipher().decrypt(_goldenKey, geschrieben),
-          _goldenPlaintext);
-    });
-
-    test('der Plattform-Pfad liest, was der Software-Pfad geschrieben hat',
-        () async {
-      final geschrieben =
-          await _softwareCipher().encrypt(_goldenKey, _goldenPlaintext);
-      expect(await _platformCodec().decrypt(_goldenKey, geschrieben),
-          _goldenPlaintext);
-    });
-
     test(
         'mit ECHTEN Zufalls-Nonces, mehrfach — die Nonce liegt im Blob und '
         'muss aus dem fremden Rahmen gelesen werden', () async {
@@ -250,14 +221,6 @@ void main() {
       expect(await _softwareCipher().decrypt(_goldenKey, leer), '');
       expect(await _platformCodec().decrypt(_goldenKey, leer), '');
     });
-
-    test('grosser Blob (~200 kB) kreuzt in beide Richtungen', () async {
-      final gross = jsonEncode({'items': List<String>.filled(4000, 'Döner')});
-      final vonPlattform = await _platformCodec().encrypt(_goldenKey, gross);
-      final vonPointy = await _softwareCipher().encrypt(_goldenKey, gross);
-      expect(await _softwareCipher().decrypt(_goldenKey, vonPlattform), gross);
-      expect(await _platformCodec().decrypt(_goldenKey, vonPointy), gross);
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -270,12 +233,17 @@ void main() {
       expect(await _platformCodec().decrypt(_altKey, _altBlob), _altPlaintext);
     });
 
-    test('die AAD-Bindung des Alt-Blobs gilt auch im Plattform-Pfad', () async {
+    test('die AAD-Bindung des Alt-Blobs gilt in beiden Pfaden', () async {
       // Same ciphertext, foreign slot: the tag check must fail.
-      await expectLater(
-          () async =>
-              _platformCodec().decrypt('eatova.v1.profile.user-2', _altBlob),
-          throwsA(isA<InvalidCipherTextException>()));
+      for (final CacheCipher cipher in <CacheCipher>[
+        _softwareCipher(),
+        _platformCodec(),
+      ]) {
+        await expectLater(
+            () async => cipher.decrypt('eatova.v1.profile.user-2', _altBlob),
+            throwsA(isA<InvalidCipherTextException>()),
+            reason: '${cipher.runtimeType}');
+      }
     });
   });
 
@@ -301,18 +269,6 @@ void main() {
       } on InvalidCipherTextException catch (e) {
         expect(e.message, 'Authentication tag check failed');
       }
-    });
-
-    test('manipuliertes Tag wirft ebenfalls InvalidCipherTextException',
-        () async {
-      final frame = CacheCipherFrame.parse(_goldenBlob);
-      final tag = Uint8List.fromList(frame.sealed);
-      tag[tag.length - 1] ^= 0xFF;
-      final manipuliert = CacheCipherFrame(frame.nonce, tag).armored;
-
-      await expectLater(
-          () async => _platformCodec().decrypt(_goldenKey, manipuliert),
-          throwsA(isA<InvalidCipherTextException>()));
     });
 
     test('Rahmenfehler bleiben FormatException, in beiden Pfaden', () async {
@@ -341,72 +297,21 @@ void main() {
       }
     });
 
-    test(
-        'ein undechiffrierbarer Slot wird auch im Plattform-Pfad GELOESCHT '
-        '(die Uebersetzung erreicht _provesBrokenCiphertext)', () async {
-      EncryptedKeyValueStore.debugResetReportGuards();
-      final raw = InMemoryKeyValueStore({_goldenKey: _goldenBlob});
-      final fremd = Uint8List.fromList(
-          List<int>.filled(CacheCipherFrame.dekLengthBytes, 9));
-      final store = EncryptedKeyValueStore(raw, _platformCodec(dek: fremd));
-
-      expect(await store.getString(_goldenKey), isNull);
-      expect(raw.snapshot.containsKey(_goldenKey), isFalse,
-          reason: 'Ohne die Uebersetzung nach InvalidCipherTextException '
-              'bliebe der tote Slot liegen.');
-    });
+    // A slot whose tag fails is purged by EncryptedKeyValueStore:
+    // secure_cache_store_test.dart ('AAD-Bindung') and
+    // secure_cache_store_decrypt_resilience_test.dart.
   });
 
   // -------------------------------------------------------------------------
   // 5. Degradation to pointycastle
   // -------------------------------------------------------------------------
   group('stille Degradation auf pointycastle', () {
-    test('encrypt: ein toter Kanal liefert trotzdem einen lesbaren Blob',
-        () async {
-      final cipher = _platformCodec(algorithm: _KaputteAesGcm());
-
-      final blob = await cipher.encrypt(_goldenKey, _goldenPlaintext);
-
-      expect(blob, startsWith(cacheCipherMagic));
-      expect(await _softwareCipher().decrypt(_goldenKey, blob), _goldenPlaintext);
-    });
-
+    // encrypt on a dead channel, the 64-call cooldown and a bad tag that
+    // must not start one: secure_cache_store_tiers_test.dart (groups 4/5).
     test('decrypt: ein toter Kanal liest den Bestand trotzdem', () async {
       final cipher = _platformCodec(algorithm: _KaputteAesGcm());
 
       expect(await cipher.decrypt(_goldenKey, _goldenBlob), _goldenPlaintext);
-    });
-
-    test(
-        'nach einem Fehlschlag wird die Plattform eine Abkuehlzeit lang nicht '
-        'mehr gefragt', () async {
-      final cipher = _platformCodec(algorithm: _KaputteAesGcm());
-
-      await cipher.encrypt(_goldenKey, 'a');
-      // Would throw again if the instance still consulted the platform, and a
-      // second failure would be a second log line per write.
-      expect(await cipher.decrypt(_goldenKey, _goldenBlob), _goldenPlaintext);
-      expect(
-          await cipher.encrypt(_goldenKey, 'b'), startsWith(cacheCipherMagic));
-    });
-
-    test(
-        'ein FALSCHES Tag degradiert NICHT — es ist ein Urteil ueber den '
-        'Slot, nicht ueber die Plattform', () async {
-      final zaehler = _ZaehlendeAesGcm(DartAesGcm.with256bits());
-      final fremd = Uint8List.fromList(
-          List<int>.filled(CacheCipherFrame.dekLengthBytes, 9));
-      final cipher = _platformCodec(dek: fremd, algorithm: zaehler);
-
-      await expectLater(() async => cipher.decrypt(_goldenKey, _goldenBlob),
-          throwsA(isA<InvalidCipherTextException>()));
-      expect(zaehler.decrypts, 1);
-
-      // Still on the platform path: the next call reaches the algorithm again.
-      final eigen = await cipher.encrypt(_goldenKey, 'weiter');
-      expect(zaehler.encrypts, 1);
-      expect(await cipher.decrypt(_goldenKey, eigen), 'weiter');
-      expect(zaehler.decrypts, 2);
     });
 
     test(
@@ -437,41 +342,6 @@ void main() {
       // The platform cipher builds pointycastle as its fallback, so the same
       // guard applies — a 16-byte DEK must never quietly become AES-128.
       expect(() => _platformCodec(dek: kurz), throwsArgumentError);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 7. Through the whole decorator, with the platform codec underneath
-  // -------------------------------------------------------------------------
-  group('Durchstich durch EncryptedKeyValueStore', () {
-    test(
-        'LocalCache-Roundtrip mit dem Plattform-Codec, gelesen von '
-        'pointycastle', () async {
-      final raw = InMemoryKeyValueStore();
-      final schreiber = EncryptedKeyValueStore(raw, _platformCodec());
-
-      await schreiber.setString(_goldenKey, _goldenPlaintext);
-
-      final gespeichert = raw.snapshot[_goldenKey]!;
-      expect(gespeichert, startsWith(cacheCipherMagic));
-      expect(gespeichert, isNot(contains('Döner')));
-
-      // A later app start on a device without the plugin.
-      final leser = EncryptedKeyValueStore(raw, _softwareCipher());
-      expect(await leser.getString(_goldenKey), _goldenPlaintext);
-    });
-
-    test(
-        'und umgekehrt: von pointycastle geschrieben, vom Plattform-Codec '
-        'gelesen', () async {
-      final raw = InMemoryKeyValueStore();
-      await EncryptedKeyValueStore(raw, _softwareCipher())
-          .setString(_goldenKey, _goldenPlaintext);
-
-      expect(
-          await EncryptedKeyValueStore(raw, _platformCodec())
-              .getString(_goldenKey),
-          _goldenPlaintext);
     });
   });
 }

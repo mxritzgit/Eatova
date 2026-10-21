@@ -125,20 +125,6 @@ void main() {
               'Diagnose — er muss den Sanitizer ueberleben.');
       expect(fehler.single.toString(), isNot(contains('user-1')));
     });
-
-    test('durch LocalCache hindurch: die Outbox bleibt lesbar', () async {
-      final raw = InMemoryKeyValueStore();
-      final cipher = _ScriptedCipher('dek-a');
-      final store = EncryptedKeyValueStore(raw, cipher);
-      await LocalCache(store, 'user-1').writeOutbox(const []);
-
-      cipher.decryptErrors.add(IsolateSpawnException('kein Speicher'));
-      final cache = LocalCache(store, 'user-1');
-
-      expect(await cache.readOutbox(), isNull);
-      expect(await cache.readOutbox(), isEmpty,
-          reason: 'Der Slot war nach dem transienten Fehler noch da.');
-    });
   });
 
   group('Nachgewiesene Ciphertext-Probleme raeumen weiterhin', () {
@@ -187,52 +173,9 @@ void main() {
     // read, and the old counter-check went through the decorator a second time
     // — one failure would have been caught by that second, then successful
     // read. The dangerous window is exactly the one that covers both.
-    test('readOutboxOrThrow meldet den belegten, unlesbaren Slot', () async {
-      final (raw, cipher, store) = await _befuellt();
-      cipher.decryptErrors
-        ..add(IsolateSpawnException('kein Speicher'))
-        ..add(IsolateSpawnException('kein Speicher'));
-      final cache = LocalCache(store, 'user-1');
-
-      await expectLater(
-          cache.readOutboxOrThrow(), throwsA(isA<UnreadableCacheSlot>()),
-          reason: 'nur ein Throw setzt _outboxHydrationFailed — ohne ihn '
-              'ueberschreibt der naechste Enqueue den Blob');
-      expect(raw.snapshot.containsKey(_key), isTrue);
-    });
-
-    test('readPendingStatsDeltasOrThrow ebenso', () async {
-      final raw = InMemoryKeyValueStore();
-      final cipher = _ScriptedCipher('dek-a');
-      final store = EncryptedKeyValueStore(raw, cipher);
-      await LocalCache(store, 'user-1')
-          .writePendingStatsDeltas(meals: 3, weightLogs: 0);
-      cipher.decryptErrors
-        ..add(const OutOfMemoryError())
-        ..add(const OutOfMemoryError());
-
-      final lesen = LocalCache(store, 'user-1').readPendingStatsDeltasOrThrow();
-      await expectLater(lesen, throwsA(isA<UnreadableCacheSlot>()));
-      expect(raw.snapshot.containsKey('eatova.v1.pending_stats.user-1'), isTrue,
-          reason: 'an dem Slot haengen Lebenszeit-Zaehler und Streak-Basis');
-    });
-
-    test('gemeldet werden nur Slot-Name und Grund, nie Schluessel oder Inhalt',
-        () async {
-      final (_, cipher, store) = await _befuellt();
-      cipher.decryptErrors
-        ..add(RemoteError('kaputt', ''))
-        ..add(RemoteError('kaputt', ''));
-
-      final fehler = await LocalCache(store, 'user-1')
-          .readOutboxOrThrow()
-          .then<Object?>((_) => null, onError: (Object e) => e);
-
-      expect(fehler.toString(), contains('outbox'));
-      expect(fehler.toString(), isNot(contains('user-1')));
-      expect(fehler.toString(), isNot(contains('mealInsert')));
-    });
-
+    // The occupied-but-unreadable outbox reporting a transient
+    // UnreadableCacheSlot, the slot kept: 'nicht ausfuehrbare
+    // Entschluesselung ist transient' in the P3-02c group below.
     test('Gegenprobe: der geraeumte Slot gilt weiter als leer', () async {
       // A proven ciphertext problem clears the slot on read, so nothing is
       // left an overwrite could lose — this must NOT become a read error.

@@ -101,53 +101,9 @@ void main() {
       );
     });
 
-    test('behaelt die Server-Reihenfolge (neueste zuerst) bei', () async {
-      // A payload without caloriesKcal counts as corrupt and its row is
-      // skipped, so the fixtures carry that required field.
-      final c = _recordingClient([
-        {
-          'id': 'neu',
-          'logged_at': '2026-08-05T12:00:00Z',
-          'forced_slot': null,
-          'local_day': null,
-          'payload': <String, dynamic>{'caloriesKcal': 100},
-        },
-        {
-          'id': 'alt',
-          'logged_at': '2026-07-20T12:00:00Z',
-          'forced_slot': null,
-          'local_day': null,
-          'payload': <String, dynamic>{'caloriesKcal': 200},
-        },
-      ]);
-      final meals = await MealsSync(c.client, 'user-1').loadLoggedMeals();
-
-      expect(meals.map((m) => m.id).toList(), ['neu', 'alt']);
-    });
-  });
-
-  group('MealsSync.loadLoggedMealsForDay', () {
-    test(
-        'sendet kanonischen Tag mit Null-Fallback, id asc '
-        'und kleines Limit', () async {
-      final c = _recordingClient(const <dynamic>[]);
-      await MealsSync(c.client, 'user-1')
-          .loadLoggedMealsForDay(DateTime(2026, 3, 14, 15, 30));
-
-      final req = c.requests.single;
-      _erwarteGedeckelt(req,
-          pfad: '/logged_meals',
-          orderSpalte: 'id',
-          ascending: true,
-          limit: MealsSync.loggedMealsDayMaxRows);
-
-      expect(req.url.queryParameters.containsKey('logged_at'), isFalse,
-          reason: 'Canonical rows must not inherit the legacy timestamp window');
-      expect(req.url.queryParameters['or'],
-          '(local_day.eq.2026-03-14,and(local_day.is.null,'
-          'logged_at.gte.${DateTime(2026, 3, 14).toUtc().toIso8601String()},'
-          'logged_at.lt.${DateTime(2026, 3, 15).toUtc().toIso8601String()}))');
-    });
+    // The order, window and limit as a real PostgREST applies them, and the
+    // day query (canonical day, legacy fallback, id order, page size):
+    // test/wire_meals_sync_window_test.dart.
   });
 
   for (final (name, pfad, spalte, limit, lade) in _gedeckelteReads) {

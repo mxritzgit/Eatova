@@ -21,27 +21,8 @@ void main() {
       );
     });
 
-    test('deterministisch: dieselbe Quelle ergibt immer dieselbe Id', () {
-      const quelle = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-      final einmal = deriveStatsRequestId(quelle);
-      final nochmal = deriveStatsRequestId(quelle);
-      expect(einmal, isNotNull);
-      expect(nochmal, einmal,
-          reason: 'ohne Stabilitaet waere jeder Retry fuer den Server ein '
-              'neuer Vorgang — und die Doppelzaehlung zurueck');
-    });
-
-    test('das Ergebnis hat UUID-Form und ist NICHT die Quelle', () {
-      const quelle = '9d2f1a6c-7b3e-4c51-9f08-1e2d3c4b5a69';
-      final abgeleitet = deriveStatsRequestId(quelle)!;
-      expect(isUuidShape(abgeleitet), isTrue,
-          reason: 'der RPC-Parameter ist uuid — eine andere Form ist ein '
-              'Server-Fehler, keine Zaehlung');
-      expect(abgeleitet, isNot(quelle),
-          reason: 'die Maske haelt den Namensraum von den rohen Entitaets-Ids '
-              'getrennt');
-    });
-
+    // The golden vector above is deterministic by construction, its output
+    // differs from its source, and 'isUuidShape' below accepts it.
     test('bijektiv: zwei verschiedene Quellen ergeben zwei verschiedene Ids',
         () {
       final a = uuidV4();

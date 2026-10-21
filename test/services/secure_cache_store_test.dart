@@ -126,24 +126,14 @@ class _CountingKeyStore implements SecureKeyStore {
   Future<void> delete(String key) async => data.remove(key);
 }
 
-/// A1: flutter_secure_storage 10.x with `resetOnError = true`, where an error
-/// deletes the key and the retry returns `null` — indistinguishable from a
-/// first start, which is the finding.
-class _ResettingKeyStore implements SecureKeyStore {
+/// Plain in-memory keystore that counts writes: a second write would mint a
+/// second DEK.
+class _RecordingKeyStore implements SecureKeyStore {
   final Map<String, String> data = {};
   int writes = 0;
 
-  /// From now on the keystore behaves as after `handleStorageError`.
-  bool keystoreResetsOnRead = false;
-
   @override
-  Future<String?> read(String key) async {
-    if (keystoreResetsOnRead) {
-      data.remove(key);
-      return null;
-    }
-    return data[key];
-  }
+  Future<String?> read(String key) async => data[key];
 
   @override
   Future<void> write(String key, String value) async {
@@ -245,21 +235,8 @@ void main() {
   });
 
   group('EncryptedKeyValueStore unentschluesselbarer Slot', () {
-    test('falscher Key -> null, Slot geraeumt, kein Throw', () async {
-      const key = 'eatova.v1.logged_meals.user-1';
-      final raw = InMemoryKeyValueStore();
-      final writer = EncryptedKeyValueStore(raw, _FakeCipher('dek-a'));
-      await writer.setString(key, _profileJson);
-      expect(raw.snapshot.containsKey(key), isTrue);
-
-      // Another DEK, e.g. after an invalidated keystore key.
-      final reader = EncryptedKeyValueStore(raw, _FakeCipher('dek-b'));
-
-      expect(await reader.getString(key), isNull);
-      expect(raw.snapshot.containsKey(key), isFalse,
-          reason: 'Der kaputte Slot muss geraeumt werden (Self-Healing).');
-    });
-
+    // Wrong key at store level (purge + report on a proven ciphertext
+    // failure): secure_cache_store_decrypt_resilience_test.dart.
     test('wirft nicht aus LocalCache heraus und liefert ueberall null',
         () async {
       final raw = InMemoryKeyValueStore();
@@ -311,21 +288,30 @@ void main() {
       expect(await cipher.decrypt(key, b), _profileJson);
     });
 
-    test('manipulierter Ciphertext wirft (Auth-Tag greift)', () async {
-      const key = 'eatova.v1.stats.user-1';
+    test(
+        'Tag-Fehler kommen auch ueber den Isolate-Hop als '
+        'InvalidCipherTextException an (manipuliert und fremder DEK)',
+        () async {
+      // The TYPE, not just "it threw": `EncryptedKeyValueStore` purges the
+      // slot on this type and `crash_reporter.dart` allowlists the report by
+      // it, so a tag failure arriving as anything else is a different bug
+      // wearing the same green tick. Larger than
+      // [AesGcmCacheCipher.inlineMaxChars], so decryption runs in compute().
+      const key = 'eatova.v1.logged_meals.user-1';
+      final big = 'x' * (AesGcmCacheCipher.inlineMaxChars * 2);
       final cipher = AesGcmCacheCipher(_hardCodedDek);
-      final armored = await cipher.encrypt(key, _profileJson);
+      final armored = await cipher.encrypt(key, big);
 
       // Flip one character in the base64 part.
       final body = armored.substring(cacheCipherMagic.length);
       final flipped = (body[0] == 'A' ? 'B' : 'A') + body.substring(1);
-
-      // The TYPE, not just "it threw": `EncryptedKeyValueStore` purges the
-      // slot on this type and `crash_reporter.dart` allowlists the report by
-      // it, so a tag failure arriving as anything else is a different bug
-      // wearing the same green tick.
       await expectLater(
           () async => cipher.decrypt(key, '$cacheCipherMagic$flipped'),
+          throwsA(isA<InvalidCipherTextException>()));
+
+      final fremd = AesGcmCacheCipher(
+          Uint8List.fromList(List<int>.filled(AesGcmCacheCipher.dekLengthBytes, 9)));
+      await expectLater(() async => fremd.decrypt(key, armored),
           throwsA(isA<InvalidCipherTextException>()));
     });
 
@@ -358,14 +344,6 @@ void main() {
       expect(back[0].result.portionNotes, _pii);
       expect(back[1].id, 'm-2');
     });
-
-    test('grosser Blob (~200 kB) roundtrippt', () async {
-      const key = 'eatova.v1.logged_meals.user-1';
-      final cipher = AesGcmCacheCipher(_hardCodedDek);
-      final big = jsonEncode({'items': List<String>.filled(4000, _pii)});
-
-      expect(await cipher.decrypt(key, await cipher.encrypt(key, big)), big);
-    });
   });
 
   group('CacheKeyProvider', () {
@@ -393,38 +371,11 @@ void main() {
   // A1: resetOnError devalues the keystore protection
   // -------------------------------------------------------------------------
   group('A1 DEK-Sentinel', () {
-    test(
-        'geloeschter DEK bei gesetztem Sentinel praegt KEINEN neuen '
-        '(sonst sind bis zu 500 nicht quittierte Writes weg)', () async {
-      // The protection depends on a fresh DEK orphaning something.
-      SharedPreferences.setMockInitialValues(<String, Object>{
-        'eatova.v1.outbox.user-1': '${cacheCipherMagic}bmljaHQgcXVpdHRpZXJ0',
-      });
-      final keyStore = _ResettingKeyStore();
-
-      // 1. First start: DEK is created, sentinel moves to SharedPreferences.
-      final first = await CacheKeyProvider.obtain(keyStore: keyStore);
-      expect(first, isNotNull, reason: 'Erststart muss einen DEK praegen.');
-      expect(keyStore.writes, 1);
-
-      // 2. resetOnError=true deletes the entry and returns null.
-      CacheKeyProvider.debugReset();
-      keyStore.keystoreResetsOnRead = true;
-
-      final second = await CacheKeyProvider.obtain(keyStore: keyStore);
-
-      expect(second, isNull,
-          reason: 'Der Sentinel belegt, dass es schon einen DEK GAB — ein '
-              'frischer wuerde alle EATOVA1-Slots unentschluesselbar machen '
-              'und ueber _onUndecryptable loeschen.');
-      expect(keyStore.writes, 1,
-          reason: 'Kein zweiter Write: der alte Ciphertext bleibt liegen und '
-              'ist nach einem Restore/Reinstall wieder lesbar.');
-    });
-
+    // A vanished DEK next to EATOVA1 blobs aborts instead of minting:
+    // secure_cache_store_dek_recovery_test.dart.
     test('Erststart schreibt den Sentinel nach SharedPreferences', () async {
       // Fresh device: neither DEK nor sentinel.
-      final keyStore = _ResettingKeyStore();
+      final keyStore = _RecordingKeyStore();
 
       expect(await CacheKeyProvider.obtain(keyStore: keyStore), isNotNull,
           reason: 'ohne Sentinel bleibt der Erststart moeglich — der Schutz '
@@ -440,7 +391,7 @@ void main() {
     test(
         'Bestandsinstallation ohne Sentinel: vorhandener DEK setzt ihn nach',
         () async {
-      final keyStore = _ResettingKeyStore()
+      final keyStore = _RecordingKeyStore()
         ..data[CacheKeyProvider.dekStorageKey] = base64.encode(_hardCodedDek);
 
       expect(await CacheKeyProvider.obtain(keyStore: keyStore), _hardCodedDek,
@@ -465,33 +416,9 @@ void main() {
     final String big = 'x' * 262144;
     const String key = 'eatova.v1.logged_meals.user-1';
 
-    test('encrypt gibt den Stack vor der Krypto frei', () async {
-      final cipher = AesGcmCacheCipher(_hardCodedDek);
-      final zaehler = _zaehlerInstallieren();
-
-      final pending = cipher.encrypt(key, big);
-      expect(zaehler.aufrufe, 0,
-          reason: 'Krypto im Tap-Handler. Vor dem Fix lief sie hier synchron '
-              '(~220 ms) — eingefrorene UI bei jedem Mahlzeit-Log.');
-      final armored = await pending;
-
-      expect(zaehler.aufrufe, 0, reason: 'die Arbeit lief im fremden Isolate');
-      expect(await cipher.decrypt(key, armored), big);
-    });
-
-    test('decrypt gibt den Stack vor der Krypto frei', () async {
-      final cipher = AesGcmCacheCipher(_hardCodedDek);
-      final armored = await cipher.encrypt(key, big);
-      final zaehler = _zaehlerInstallieren();
-
-      final pending = cipher.decrypt(key, armored);
-      expect(zaehler.aufrufe, 0,
-          reason: 'Der Kaltstart-Pfad (_hydrateFromCache) waehrend der '
-              'Welcome-Animation.');
-      expect(await pending, big);
-      expect(zaehler.aufrufe, 0);
-    });
-
+    // The cipher's own isolate hop (encrypt and decrypt) is pinned in
+    // secure_cache_store_tiers_test.dart ('grosse Slots nehmen weiter den
+    // Isolate-Hop'); this is the decorator on top of it.
     test('EncryptedKeyValueStore.setString gibt den Stack frei', () async {
       final raw = InMemoryKeyValueStore();
       final store =
@@ -505,24 +432,8 @@ void main() {
       expect(zaehler.aufrufe, 0);
       expect(await store.getString(key), big);
     });
-
-    test(
-        'WIRE-FORMAT: Golden-Blob aus der SYNCHRONEN Fassung bleibt lesbar '
-        '(byte-identisches Format, AAD unveraendert)', () async {
-      // Produced by the version before the compute() rewrite, same DEK.
-      const golden = 'EATOVA1:XVBMN7A2JEKw9nyL7fLgHj53HpbeXoMtRyx6d/Nl5ATL9Mlr'
-          'wKDsaeDUxBqzt/UPSleFveICKMU0kyb2O8elPdCIDEXWtgUPLFENVkD7EyfUyPG3R+'
-          'LwSA==';
-      final cipher = AesGcmCacheCipher(_hardCodedDek);
-
-      expect(await cipher.decrypt('eatova.v1.profile.user-1', golden),
-          _profileJson);
-      // AAD stays the slot key: the same blob in a foreign slot must fail the
-      // TAG check, not merely throw something.
-      await expectLater(
-          () async => cipher.decrypt('eatova.v1.profile.user-2', golden),
-          throwsA(isA<InvalidCipherTextException>()));
-    });
+    // The blob of the version before the compute() rewrite stays readable:
+    // secure_cache_store_golden_test.dart ('Bestandsdaten').
   });
 
   group('A1 Keystore-Optionen', () {
@@ -604,19 +515,6 @@ void main() {
               'write on another slot must not overtake a slow one.');
       await first;
       expect(raw.snapshot, hasLength(2));
-    });
-
-    test(
-        'InvalidCipherTextException ueberlebt den Isolate-Hop '
-        '(sonst faellt die Sentry-Klassifikation auf runtimeType zurueck)',
-        () async {
-      final armored =
-          await AesGcmCacheCipher(_hardCodedDek).encrypt(key, _profileJson);
-      final fremd = AesGcmCacheCipher(
-          Uint8List.fromList(List<int>.filled(AesGcmCacheCipher.dekLengthBytes, 9)));
-
-      await expectLater(() async => fremd.decrypt(key, armored),
-          throwsA(isA<InvalidCipherTextException>()));
     });
   });
 }
