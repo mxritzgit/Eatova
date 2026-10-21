@@ -13,6 +13,7 @@ import '../models/weight_log.dart';
 import '../services/day_math.dart';
 import '../services/energy_check.dart' show WeightTrendLine;
 import '../services/kcal_format.dart';
+import '../services/meals_sync.dart' show MealsSync;
 import '../services/trend_report.dart';
 import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
@@ -32,6 +33,7 @@ bool _largeText(BuildContext context) =>
 class TrendLocalData {
   const TrendLocalData({
     this.dayTotals = const <String, TrendDayTotals?>{},
+    this.deviceDayTotals = const <String, TrendDayTotals?>{},
     this.stepsByDay = const <String, int>{},
     this.stepsToday,
     this.hasStepSource = false,
@@ -44,6 +46,14 @@ class TrendLocalData {
   /// Days the store knows completely, laid over the server's rows
   /// ([overlayTrendTotals]); they include writes still in the outbox.
   final Map<String, TrendDayTotals?> dayTotals;
+
+  /// Days this device holds of the store's own meal window
+  /// ([deviceWindowDays]), whether or not the server answered this session:
+  /// what the page shows offline instead of an error.
+  final Map<String, TrendDayTotals?> deviceDayTotals;
+
+  /// The store's meal window, which a range must fit to show offline.
+  static const int deviceWindowDays = MealsSync.loggedMealsWindowDays;
 
   /// Steps per local day key ([HomeStore.dailyActivity]) and today's live
   /// value.
@@ -234,7 +244,15 @@ class _TrendsScreenState extends State<TrendsScreen> {
     final data = local ?? const TrendLocalData();
     final range = TrendRange.ofDays(_rangeDays);
     final today = clock.now();
-    final totals = overlayTrendTotals(_totals, data.dayTotals);
+    // Offline (2026-10-22): a range the device holds shows calories and
+    // macros from its own days, with a note, instead of the error.
+    final offline =
+        _error != null &&
+        local != null &&
+        range.days <= TrendLocalData.deviceWindowDays;
+    final totals = offline
+        ? overlayTrendTotals(const <TrendDayTotals>[], data.deviceDayTotals)
+        : overlayTrendTotals(_totals, data.dayTotals);
     final report = TrendReport.build(
       range: range,
       today: today,
@@ -281,7 +299,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
             const SizedBox(height: 14),
             _TrainingCard(report: report),
           ];
-    if (_error != null) {
+    if (_error != null && (!offline || totals.isEmpty)) {
       return [_ErrorCard(onRetry: _load), ...localSections];
     }
     if (totals.isEmpty &&
@@ -304,6 +322,10 @@ class _TrendsScreenState extends State<TrendsScreen> {
         ? l10n.trendsNoCompleteDay
         : l10n.trendsNoCompletedDay;
     return [
+      if (offline) ...[
+        _OfflineNote(onRetry: _load),
+        const SizedBox(height: 14),
+      ],
       _ChartCard(
         // From 90 days on one bar is a week ([TrendRange.weekly]).
         values: [for (final bar in report.kcalBars) bar.value],
@@ -1494,6 +1516,55 @@ class _EmptyCard extends StatelessWidget {
       icon: Icons.query_stats_rounded,
       title: l10n.trendsEmptyTitle,
       text: l10n.trendsEmptyBody,
+    );
+  }
+}
+
+/// Offline over a range the device holds: the numbers below come from this
+/// device's days, which may miss another device's entries.
+class _OfflineNote extends StatelessWidget {
+  const _OfflineNote({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return AppCard(
+      key: const ValueKey('trends-offline'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.cloud_off_rounded, size: 20, color: t.ink2),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.trendsOfflineNote,
+                  style: AppType.ui(
+                    12.5,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SoftPillButton(
+            key: const ValueKey('trends-offline-retry'),
+            label: l10n.trendsRetryCta,
+            icon: Icons.refresh_rounded,
+            tone: SoftPillTone.neutral,
+            onTap: onRetry,
+          ),
+        ],
+      ),
     );
   }
 }

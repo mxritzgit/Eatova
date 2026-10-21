@@ -34,7 +34,12 @@ TrendLocalData _local({
   bool steps = true,
   List<WeightLogEntry>? weighIns,
   int workouts = 4,
+  bool deviceDays = false,
 }) => TrendLocalData(
+  deviceDayTotals: {
+    if (deviceDays)
+      for (final day in _days()) localDayKey(day.day): day,
+  },
   stepsByDay: steps
       ? {
           localDayKey(_day(1)): 12000,
@@ -251,10 +256,30 @@ void main() {
   );
 
   testWidgets(
-    'scheitert das Server-Fenster, bleiben die lokalen Abschnitte',
+    'offline: bis 35 Tage die Tage des Geraets, darueber der Fehler',
     (tester) => withClockAt(_now, () async {
-      await _pump(tester, loader: () async => throw StateError('offline'));
+      var loads = 0;
+      await _pump(
+        tester,
+        loader: () async {
+          loads++;
+          throw StateError('offline');
+        },
+        read: () => _local(deviceDays: true),
+      );
+      expect(find.byKey(const ValueKey('trends-offline')), findsOneWidget);
+      expect(find.byKey(const ValueKey('trends-error')), findsNothing);
+      expect(_textIn('trends-avg-kcal'), contains('2.000 kcal'));
+      await tester.tap(find.byKey(const ValueKey('trends-offline-retry')));
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+
+      // Six months exceed what the device holds: the error, and the store's
+      // own sections still below it.
+      await tester.tap(find.byKey(const ValueKey('trends-range-182')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('trends-error')), findsOneWidget);
+      expect(find.byKey(const ValueKey('trends-offline')), findsNothing);
       await _scrollTo(tester, 'trends-training');
       expect(find.byKey(const ValueKey('trends-steps')), findsOneWidget);
       expect(find.byKey(const ValueKey('trends-weight')), findsOneWidget);

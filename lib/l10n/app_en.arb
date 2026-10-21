@@ -3790,5 +3790,6 @@
   "@todayTargetReachedBodyGain": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},
   "todayTargetReachedHold": "Hold",
   "todayTargetReachedNewGoal": "New goal",
-  "targetReachedHoldSnack": "Your goal is now: maintain weight."
+  "targetReachedHoldSnack": "Your goal is now: maintain weight.",
+  "trendsOfflineNote": "Offline: calories and macros from the data on this device."
 }

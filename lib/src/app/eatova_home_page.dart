@@ -1059,7 +1059,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           burnedKcalFor: ownerStore.burnedKcalForFoodDate,
           local: TrendLocalSource(
             changes: ownerStore,
-            read: () => _trendLocalData(ownerStore),
+            read: () => _trendLocalData(ownerStore, deviceDays: true),
           ),
           onBackfillSteps: (days) => _isStoreSessionCurrent(ownerStore)
               ? ownerStore.backfillStepsForTrends(days)
@@ -1078,11 +1078,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// What the trends page reads from [store]. [confirmedOnly] limits the day
   /// overlay to a store whose meal load answered this session (see
   /// `HomeStore.trendLocalTotals`); Today's preview takes the cached days
-  /// as well.
+  /// as well. [deviceDays] adds the page's offline fallback.
   static TrendLocalData _trendLocalData(
     HomeStore store, {
     bool confirmedOnly = true,
     int days = TrendService.trendWindowDays,
+    bool deviceDays = false,
   }) {
     final today = clock.now();
     return TrendLocalData(
@@ -1090,6 +1091,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         confirmedOnly: confirmedOnly,
         days: days,
       ),
+      deviceDayTotals: deviceDays
+          ? store.trendLocalTotals(
+              confirmedOnly: false,
+              days: TrendLocalData.deviceWindowDays,
+            )
+          : const <String, TrendDayTotals?>{},
       stepsByDay: {
         for (final entry in store.dailyActivity.entries)
           entry.key: entry.value.steps,
