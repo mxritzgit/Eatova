@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/recipe_import_result.dart';
 import 'package:eatova/src/screens/recipes/recipe_import_nutrition.dart';
@@ -251,7 +252,7 @@ void main() {
     expect(find.text('The values have been imported. Before logging, confirm how many servings they cover.'), findsNothing);
   });
 
-  testWidgets('verified batch preview scales ingredients while editor and save retain source', (tester) async {
+  testWidgets('verified batch preview scales ingredients while editor and save retain source; an empty title blocks the save', (tester) async {
     const candidate = RecipeImportCandidate(
       id: 'mince', title: 'Mince pockets', ingredients: '800 g mince',
       preparation: 'Bake at 180 C for 20 minutes.', portion: '4 portions',
@@ -267,6 +268,10 @@ void main() {
     expect(find.textContaining('200 g mince'), findsOneWidget);
     await _tap(tester, 'recipe-import-edit');
     expect(tester.widget<TextField>(find.byKey(const ValueKey('recipe-import-edit-ingredients'))).controller!.text, '800 g mince');
+    await _enter(tester, 'recipe-import-edit-title', ' ');
+    await _tap(tester, 'recipe-import-save');
+    expect(saved, isEmpty);
+    expect(find.text(enL10n.recipeImportRequiredFields), findsOneWidget);
     await _enter(tester, 'recipe-import-edit-title', 'Renamed mince');
     await _tap(tester, 'recipe-import-save');
     expect(saved.single.ingredients, '800 g mince');

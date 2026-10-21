@@ -875,11 +875,13 @@ void main() {
     });
 
     testWidgets('the empty history explains both ways in', (tester) async {
+      var logs = 0;
       await _host(
         tester,
         TrainingHistoryScreen(
           entries: const [],
           onDelete: (_) async => SyncDelivery.delivered,
+          onLogWorkout: () => logs++,
         ),
       );
       expect(
@@ -889,6 +891,36 @@ void main() {
         ),
         findsOneWidget,
       );
+      await tester.tap(find.byKey(const ValueKey('training-history-empty-log')));
+      expect(logs, 1);
+    });
+
+    // A first load sketches the rows instead of claiming "empty"; a failed one
+    // says so and offers the retry, never the empty state.
+    testWidgets('a first load shows outlines, a failed one a retry', (
+      tester,
+    ) async {
+      var retries = 0;
+      Widget history({required bool loading, required bool failed}) =>
+          TrainingHistoryScreen(
+            entries: const [],
+            onDelete: (_) async => SyncDelivery.delivered,
+            loading: loading,
+            loadFailed: failed,
+            onRetry: () => retries++,
+          );
+      await _host(tester, history(loading: true, failed: false));
+      expect(find.byKey(const ValueKey('training-history-loading')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('training-history-empty')), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await _host(tester, history(loading: false, failed: true));
+      expect(find.byKey(const ValueKey('training-history-loading')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('training-history-empty')), findsNothing);
+      await tester.tap(find.text('Try again'));
+      expect(retries, 1);
     });
   });
 }

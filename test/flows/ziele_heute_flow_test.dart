@@ -150,6 +150,7 @@ void main() {
   // Rechner-Modus: goal follows body data, activity and pace.
   final rechnerProfil = _startProfil.copyWith(
     weightKg: 90,
+    sex: BiologicalSex.male,
     activityLevel: ActivityLevel.moderate,
     weightGoal: WeightGoal.lose05kg,
   );
@@ -201,7 +202,7 @@ void main() {
     // Cold start: the hero shows the server profile.
     expect(await _heuteTab(tester), _erwartet(_startProfil.dailyKcalGoal));
 
-    // --- 1. Rechner-Modus: Gewicht, Aktivität, Ziel ------------------------
+    // --- 1. Rechner-Modus: Gewicht, Geschlecht, Aktivität, Ziel ------------
     await _oeffneZiele(tester);
     expect(_manuellSchalter(tester), isFalse,
         reason: 'ein frisches Profil startet im Rechner-Modus');
@@ -219,6 +220,9 @@ void main() {
         'settings-activity-${rechnerProfil.activityLevel.name}');
     await _waehle(tester, 'settings-weight-goal',
         'settings-weight-goal-${rechnerProfil.weightGoal.name}');
+    // Last, so the hero below proves the sex picker recalculates by itself.
+    await _waehle(tester, 'settings-sex',
+        'settings-sex-${rechnerProfil.sex.name}');
 
     // The plan hero already shows the live calculation, before saving.
     expect(find.text(_erwartet(rechnerZiel.kcal)), findsOneWidget);

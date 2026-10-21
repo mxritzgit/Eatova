@@ -161,7 +161,8 @@ void main() {
     });
   });
 
-  testWidgets('„Zum Speiseplan" öffnet den Editor mit dem Rezept, gespeichert '
+  testWidgets('„Zum Speiseplan" öffnet den Editor mit dem Rezept, der Tag kommt '
+      'aus dem Kalender, gespeichert '
       'wird erst beim Speichern', (tester) async {
     await withClock(Clock.fixed(_today), () async {
       final store = _store();
@@ -194,12 +195,21 @@ void main() {
       );
       expect(store.plannedMeals, isEmpty);
 
+      // The day comes from the app's calendar sheet.
+      await tester.ensureVisible(find.byKey(const ValueKey('meal-plan-day')));
+      await tester.tap(find.byKey(const ValueKey('meal-plan-day')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('food-date-day-2026-9-9')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('food-date-confirm')));
+      await tester.pumpAndSettle();
+
       await tester.ensureVisible(find.byKey(const ValueKey('meal-plan-save')));
       await tester.tap(find.byKey(const ValueKey('meal-plan-save')));
       await tester.pumpAndSettle();
       final plan = store.plannedMeals.single;
       expect(plan.recipe.slug, skyr.slug);
-      expect(plan.day, '2026-09-07');
+      expect(plan.day, '2026-09-09');
       // A breakfast dish starts on breakfast.
       expect(plan.slot, MealSlot.breakfast);
       expect(plan.isEaten, isFalse, reason: 'planning logs nothing');

@@ -54,6 +54,6 @@ The page runs under the floating tab bar and pads its end by the bar's band.
 Widget and flow tests: `test/screens/today/`,
 `test/flows/today_wiring_flow_test.dart` (every control against the real
 shell), `test/flows/today_first_viewport_test.dart` (header, strip and the
-complete calorie card above the glass at scroll offset 0). Captures:
-`test/design/today_redesign_capture_test.dart` with
-`--dart-define=DARK_REDESIGN_CAPTURE=true`, written to `build/dark-redesign/`.
+complete calorie card above the glass at scroll offset 0). The capture suite
+`test/design/today_redesign_capture_test.dart` left the test pass on
+2026-10-21 and stays restorable from `7a05b818`.

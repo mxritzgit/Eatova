@@ -329,5 +329,23 @@ void main() {
       expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsNothing);
       expect(find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')), findsOneWidget);
     });
+
+    testWidgets('eine Suche ohne Treffer leert sich ueber ihren Ausweg', (tester) async {
+      _pinViewport(tester);
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+      await _suche(tester, 'zzzz');
+      expect(find.byKey(const ValueKey('recipes-no-result')), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const ValueKey('recipes-no-result-reset')));
+      await tester.tap(find.byKey(const ValueKey('recipes-no-result-reset')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('recipes-no-result')), findsNothing);
+      expect(
+        tester.widget<TextField>(find.byKey(const ValueKey('recipes-search-input'))).controller!.text,
+        isEmpty,
+      );
+      expect(find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')), findsOneWidget);
+    });
   });
 }

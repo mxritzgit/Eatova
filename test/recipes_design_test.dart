@@ -217,7 +217,7 @@ void main() {
     final b = t.surf.computeLuminance();
     expect((a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05)),
         greaterThanOrEqualTo(4.5));
-  });
+  }, brightnesses: bothBrightnesses);
 
   group('Textskalierung 2.0', () {
     // One mode each: the palette does not change the layout. These cases

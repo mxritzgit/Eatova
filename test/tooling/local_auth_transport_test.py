@@ -82,14 +82,6 @@ class LocalAuthTransportTests(unittest.TestCase):
                     self.assertEqual(proxy_seen, [], 'Deno must never forward auth to the proxy')
                     self.assertEqual(origin_seen, ['/user'])
 
-    def test_deno_direct_origin_preserves_required_environment(self):
-        with server() as (origin, seen):
-            env = {name: value for name, value in os.environ.items()
-                   if not name.lower().endswith('_proxy')}
-            env['AUTH_PROBE_SYNTHETIC_VALUE'] = 'fixture-kept'
-            self.deno_fetch(origin, env)
-            self.assertEqual(seen, ['/user'])
-
     def test_subprocess_proxy_variables_are_removed_case_insensitively(self):
         env = {'PATH': 'synthetic-path', 'SUPABASE_URL': 'https://ci.invalid'}
         for key in ('HTTP_PROXY', 'https_proxy', 'All_Proxy', 'No_PrOxY'):

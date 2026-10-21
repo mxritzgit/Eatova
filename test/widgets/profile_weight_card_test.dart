@@ -240,8 +240,7 @@ void main() {
     );
   });
 
-  // One case per brightness instead of a loop inside one test: a failure now
-  // names the mode, and the matrix reports an overflow instead of hiding it.
+  // A matrix case: it reports an overflow instead of hiding it.
   renderMatrix('Die Gewichtskarte rendert overflow-frei', (tester, c) async {
     pinPhoneViewport(tester);
     await c.pump(

@@ -5,7 +5,6 @@ import 'package:flutter/rendering.dart';
 
 import '../../theme/app_tokens.dart';
 import 'controls.dart' show IconTile;
-import 'spinner.dart';
 import 'surfaces.dart' show AppCard, HeadingSemantics;
 
 // ---------------------------------------------------------------------------
@@ -17,7 +16,6 @@ import 'surfaces.dart' show AppCard, HeadingSemantics;
 //   CalmState    empty / error state: glyph tile, title, guidance, soft pill
 //                actions. Inline in a sheet, or as a card on a page.
 //   AppSpinner   the app's spinner: 22 px, round caps, accent (spinner.dart).
-//   LoadingCard  a card holding the spinner and what is loading.
 //   Skeleton*    static placeholders in the geometry of the rows they stand
 //                in for. No shimmer, so reduced motion has nothing to stop.
 //
@@ -439,34 +437,6 @@ class _RenderPillBar extends RenderBox
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
       defaultHitTestChildren(result, position: position);
-}
-
-/// Something loads that has no row shape to sketch: the spinner and what is
-/// loading, in a calm card.
-class LoadingCard extends StatelessWidget {
-  const LoadingCard({super.key, required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return AppCard(
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const AppSpinner(),
-          const SizedBox(height: 10),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// One placeholder bar: `tile` fill with pill ends, [widthFactor] of the

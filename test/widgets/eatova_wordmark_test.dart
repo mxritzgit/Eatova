@@ -56,7 +56,7 @@ void main() {
         reason: '${c.brightness}: "$word" traegt die uebergebene Farbe',
       );
     }
-  });
+  }, brightnesses: bothBrightnesses);
 
   // A real site: the auth entry header sits on the mode ground `bg`, so the
   // lettering must be the mode's ink and read at 4.5:1 there.
@@ -84,7 +84,7 @@ void main() {
       greaterThanOrEqualTo(4.5),
       reason: '${c.brightness}: Schrift gegen bg',
     );
-  });
+  }, brightnesses: bothBrightnesses);
 
   // `_FocusRingPainter.shouldRepaint` needs a colour change in the SAME widget
   // tree — the matrix above builds every case from scratch, so its painter is

@@ -7,8 +7,8 @@ import 'package:eatova/src/app/eatova_app.dart';
 // on ONE callback, so the gear labelled settings opened the goals — with
 // analyzer and suite green, since both routes worked. So these tests check
 // not THAT the screens exist but that the UI gets you there. Settings ->
-// goals is walked in reminder_settings_row_test.dart; the rows of the dropped
-// "data & account" block are pinned by test/design/settings_polish_capture_test.
+// goals is walked in reminder_settings_row_test.dart; every other settings
+// row is opened by the test of the feature behind it.
 
 void main() {
   Future<void> boot(WidgetTester tester) async {

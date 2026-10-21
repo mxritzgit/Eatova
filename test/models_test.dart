@@ -190,6 +190,26 @@ void main() {
     });
   });
 
+  // Older rows hold the German or the English display text instead of the
+  // code; each still shows in the reader's language.
+  test('stored confidence resolves from code, German and English text', () {
+    for (final raw in const ['medium', 'Mittel', 'Medium']) {
+      final r = MealAnalysisResult(
+        mealName: 'Bowl',
+        caloriesKcal: 400,
+        estimatedGrams: 350,
+        kcalPer100G: 114,
+        protein: '30 g',
+        carbs: '40 g',
+        fat: '12 g',
+        confidence: raw,
+        portionNotes: '',
+      );
+      expect(r.resolvedConfidence(deL10n), 'Mittel', reason: raw);
+      expect(r.resolvedConfidence(enL10n), 'Medium', reason: raw);
+    }
+  });
+
   group('MealAnalysisResult.fromOpenFoodFacts (Barcode-Parser)', () {
     test('Portionswerte + Marken-Name + deutsche Dezimal-Makros', () {
       final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{

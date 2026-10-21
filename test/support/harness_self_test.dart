@@ -172,7 +172,9 @@ void main() {
       expect(c.t, erwartet);
       expect(Localizations.localeOf(c.context), c.locale);
       expect(c.label, '${c.locale.languageCode}/${c.brightness.name}/1.0x');
-    }, locales: const <Locale>[Locale('de'), Locale('en')]);
+    },
+        locales: const <Locale>[Locale('de'), Locale('en')],
+        brightnesses: bothBrightnesses);
 
     // Negative case to the check above: with `skipOverflowCheck: true` a real
     // overflow must NOT fail the case. The spy forwards to the collector the

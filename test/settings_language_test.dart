@@ -106,9 +106,9 @@ void main() {
     expect(find.byKey(const ValueKey('settings-language')), findsNothing);
   });
 
-  // One case per brightness instead of two hand-written tests. A double pump
-  // in ONE test would not do: the second `pumpWidget` keeps the navigator
-  // state (including the pushed route) and hides the open button.
+  // A matrix case, so an overflow fails it. Never a second pump in ONE test:
+  // the second `pumpWidget` keeps the navigator state (including the pushed
+  // route) and hides the open button.
   renderMatrix(
     'Der Einstellungen-Screen rendert englisch',
     (tester, c) async {

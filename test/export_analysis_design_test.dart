@@ -94,9 +94,7 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  // One palette: the behaviour below does not depend on it; the light palette
-  // is rendered by test/design/meal_sheets_capture_test.dart,
-  // test/design/misc_sheets_capture_test.dart and food_sheets_light_dark_test.
+  // One palette: the behaviour below does not depend on it.
   // Both languages at 2x: the English info labels are the longest and stack
   // above their values there.
   const brightness = Brightness.dark;
