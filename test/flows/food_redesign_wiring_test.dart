@@ -408,8 +408,12 @@ void main() {
         'toggles the macro details', (tester) async {
       await withClock(Clock.fixed(foodDesignNow), () async {
         await _pumpFood(tester);
+        // English on a 12-hour phone: the locale's clock, not "08:10".
         expect(
-          _inCard(MealSlot.breakfast, find.text('08:10 · 3 items')),
+          _inCard(
+            MealSlot.breakfast,
+            find.textContaining(RegExp(r'^8:10\sAM · 3 items$')),
+          ),
           findsOneWidget,
         );
         expect(_text(tester, 'food-slot-kcal-breakfast'), '401');
@@ -434,7 +438,10 @@ void main() {
         expect(find.text(_macros('P 27 g · C 10 g · F 1 g')), findsOneWidget);
         // Each entry's logged time comes back with the details.
         for (final id in ['b1', 'b2', 'b3']) {
-          expect(_text(tester, 'food-entry-time-$id'), '08:10');
+          expect(
+            _text(tester, 'food-entry-time-$id'),
+            matches(r'^8:10\sAM$'),
+          );
         }
         expect(_key('food-entry-time-l1'), findsNothing);
         await tester.tap(_key('food-slot-toggle-breakfast'));
