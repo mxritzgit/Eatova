@@ -98,12 +98,19 @@ void main() {
           foodDate: _day(1),
         );
         await store.addResultToDailyTotal(_meal(300), slot: MealSlot.lunch);
+        await store.addResultToDailyTotal(
+          MealAnalysisResult.quickEntry(name: 'Kaffee', caloriesKcal: 150),
+          slot: MealSlot.snack,
+          foodDate: _day(1),
+        );
 
         final known = store.trendLocalTotals(days: 7);
         expect(known, hasLength(7));
         final yesterday = known[localDayKey(_day(1))]!;
-        expect(yesterday.kcal, 650);
+        expect(yesterday.kcal, 800);
         expect(yesterday.proteinG, 40);
+        expect(yesterday.proteinMissing, 1, reason: 'kcal-only quick entry');
+        expect(known[localDayKey(_day(0))]!.proteinMissing, 0);
         expect(yesterday.day, _day(1));
         expect(known[localDayKey(_day(0))]!.kcal, 300);
         expect(known.containsKey(localDayKey(_day(2))), isTrue);

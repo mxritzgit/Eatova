@@ -170,8 +170,9 @@ class FoodDayNavigation extends StatelessWidget {
 /// bar (share of kcal from protein, carbs and fat) and its legend in grams.
 ///
 /// Numbers come from [DayNutritionSummary] (budget incl. activity credit), so
-/// "left" matches the Today tab. Tapping the card opens Trends, as the old
-/// kcal tile did.
+/// "left" matches the Today tab. A macro with unknown entries in its sum
+/// reads "≥48 g", with a line naming how many entries lack macros. Tapping
+/// the card opens Trends, as the old kcal tile did.
 class FoodDaySummaryCard extends StatelessWidget {
   const FoodDaySummaryCard({
     super.key,
@@ -286,11 +287,17 @@ class FoodDaySummaryCard extends StatelessWidget {
       ],
     );
     final consumed = summary.consumed;
-    final macros = <(String, double, Color)>[
-      (l10n.todayMacroProtein, consumed.proteinG, t.protein),
-      (l10n.todayMacroCarbs, consumed.carbsG, t.carbs),
-      (l10n.todayMacroFat, consumed.fatG, t.fat),
+    final macros = <(String, double, int, Color)>[
+      (
+        l10n.todayMacroProtein,
+        consumed.proteinG,
+        consumed.proteinMissing,
+        t.protein,
+      ),
+      (l10n.todayMacroCarbs, consumed.carbsG, consumed.carbsMissing, t.carbs),
+      (l10n.todayMacroFat, consumed.fatG, consumed.fatMissing, t.fat),
     ];
+    final missing = loading ? 0 : consumed.entriesMissingMacros;
     return PressScale(
       scale: kPressScaleCard,
       child: Material(
@@ -350,14 +357,24 @@ class FoodDaySummaryCard extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 6,
                     children: [
-                      for (final (label, grams, color) in macros)
+                      for (final (label, grams, unknown, color) in macros)
                         _LegendItem(
                           label: label,
-                          value: loading ? '—' : '${grams.round()} g',
+                          value: loading
+                              ? '—'
+                              : '${unknown > 0 ? '≥' : ''}${grams.round()} g',
                           color: color,
                         ),
                     ],
                   ),
+                  if (missing > 0) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.foodMacrosMissingEntries(missing),
+                      key: const ValueKey('food-day-macros-missing'),
+                      style: foodText(12, color: t.ink3),
+                    ),
+                  ],
                 ],
               ),
             ),

@@ -44,6 +44,23 @@ void main() {
     expect(p.kcal, 90);
   });
 
+  // The sums are lower bounds once an entry with energy lacks a macro; the
+  // tiles, the Food card, Trends and the coach read these counts.
+  test('fehlende Makros werden je Makro und je Eintrag gezaehlt', () {
+    final p = MacroProgress.empty
+        .add(_r(kcal: 300, protein: '20 g', carbs: '30 g', fat: '10 g'))
+        .add(_r(kcal: 120, protein: '-', carbs: '12 g', fat: '-'))
+        .add(_r(kcal: 80, protein: '-', carbs: '-', fat: '-'))
+        // Without energy there are no macros to miss (water, "0 kcal").
+        .add(_r(kcal: 0, protein: '-', carbs: '-', fat: '-'));
+    expect(p.proteinG, 20);
+    expect(p.proteinMissing, 2);
+    expect(p.carbsMissing, 1);
+    expect(p.fatMissing, 2);
+    expect(p.entriesMissingMacros, 2);
+    expect(MacroProgress.empty.entriesMissingMacros, 0);
+  });
+
   test('mehrere add() akkumulieren ab dem neutralen empty', () {
     expect(MacroProgress.empty.kcal, 0);
     expect(MacroProgress.empty.proteinG, 0);

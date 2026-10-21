@@ -74,6 +74,8 @@ void main() {
           'carbs_g': null,
           'fat_g': null,
         },
+        // No energy, no protein to miss.
+        {'local_day': '2026-08-05', 'calories_kcal': 0, 'protein_g': null},
         {
           'local_day': '2026-08-03',
           'calories_kcal': 1200,
@@ -91,6 +93,9 @@ void main() {
       expect(totals.last.proteinG, 0);
       expect(totals.last.carbsG, 0);
       expect(totals.last.fatG, 0);
+      // The 0 g is a lower bound, not a measurement.
+      expect(totals.last.proteinMissing, 1);
+      expect(totals.first.proteinMissing, 0);
     });
   });
 

@@ -188,6 +188,33 @@ void main() {
         expect(find.text('ZU VIEL'), findsOneWidget);
       }
     });
+
+    testWidgets('a macro with unknown entries reads as a lower bound', (
+      tester,
+    ) async {
+      await pumpLocalized(
+        tester,
+        FoodDaySummaryCard(
+          summary: DayNutritionSummary(
+            profile: const UserProfile(dailyKcalGoal: 2123),
+            burnedKcal: 0,
+            consumed: const MacroProgress(
+              proteinG: 48,
+              carbsG: 144,
+              fatG: 20,
+              kcal: 1221,
+              proteinMissing: 1,
+              entriesMissingMacros: 1,
+            ),
+          ),
+          loading: false,
+          onTap: () {},
+        ),
+      );
+      expect(find.text('≥48 g'), findsOneWidget);
+      expect(find.text('144 g'), findsOneWidget);
+      expect(find.text(deL10n.foodMacrosMissingEntries(1)), findsOneWidget);
+    });
   });
 
   group('Food screen text scale', () {

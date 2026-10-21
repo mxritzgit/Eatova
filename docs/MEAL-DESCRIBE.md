@@ -176,8 +176,13 @@ The feature's Dart entry points:
   Scheibe (28 g)") and the result is within 2× of the AI's grams. A plain
   weight ("50 g") may be one slice or two, and a "Portion" is the maker's,
   so those keep the AI's grams, as does a stated weight.
+- A product or favorite line without a macro takes it from the line's AI
+  estimate, unless the three macros together would then carry more than
+  1.2× the product's kcal (the estimate describes another food); without an
+  estimate value it stays unknown, and so does the meal's sum.
 - The draft's source is Open Food Facts with confidence "database" only when
-  every line is product-backed; otherwise it is an AI estimate.
+  every line is product-backed and none took a macro from the estimate;
+  otherwise it is an AI estimate.
 - The logged name is the model's meal name while every food it itemized is
   still a line; after a removal it is the remaining lines' names.
 - The model's 0 kcal means unknown, as in a photo scan. A measured 0 (a

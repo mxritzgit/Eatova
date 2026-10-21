@@ -9,8 +9,9 @@ import 'model_limits.dart';
 import 'persisted_labels.dart';
 
 /// Text marker for "macro unknown". Same string the parsers emit for missing
-/// macros; `MacroProgress._parseMacroG` reads 0 from it, so nothing invented
-/// reaches the daily rings.
+/// macros; `MacroProgress.add` adds 0 g for it and counts the entry as
+/// missing, so nothing invented reaches the daily rings and the sums say
+/// they are lower bounds.
 const String _makroUnbekannt = '-';
 
 /// The [MealResultSource.code] values as separate `static const`s, because an

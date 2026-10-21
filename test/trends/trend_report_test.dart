@@ -82,6 +82,27 @@ void main() {
       },
     );
 
+    // A day below the goal with unknown protein may have reached it; a day
+    // at the goal reached it whatever the unknown entries held.
+    test('Tage mit unbekanntem Protein zaehlen nicht als verfehlt', () {
+      TrendDayTotals day(int back, double protein, int missing) =>
+          TrendDayTotals(
+            day: _day(back),
+            kcal: 2000,
+            proteinG: protein,
+            carbsG: 200,
+            fatG: 60,
+            proteinMissing: missing,
+          );
+      final report = _build(
+        TrendRange.week,
+        totals: [day(1, 130, 1), day(2, 60, 2), day(3, 60, 0)],
+        goals: const TrendGoals(kcal: 2000, proteinG: 120),
+      );
+      expect(report.proteinGoalDays, 1);
+      expect(report.proteinUnknownDays, 1);
+    });
+
     test('ohne Proteinziel gibt es keine Zieltage', () {
       final report = _build(
         TrendRange.week,

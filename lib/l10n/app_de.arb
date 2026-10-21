@@ -3843,5 +3843,11 @@
   "@foodRenameAction": {"description": "Edit sheet action and sheet title for renaming an AI-named diary entry."},
   "foodFavoriteEdit": "Bearbeiten",
   "@foodFavoriteEdit": {"description": "Action in an open favorite row: change its name and values without logging it."},
-  "foodFavoriteSaved": "Favorit gespeichert"
+  "foodFavoriteSaved": "Favorit gespeichert",
+  "foodMacrosMissingEntries": "{count, plural, one{1 Eintrag} other{{count} Einträge}} ohne vollständige Makros",
+  "@foodMacrosMissingEntries": {"placeholders": {"count": {"type": "int"}}},
+  "todayMacroProgressValueAtLeast": "mindestens {value} von {goal} Gramm",
+  "@todayMacroProgressValueAtLeast": {"placeholders": {"value": {"type": "int"}, "goal": {"type": "int"}}},
+  "trendsProteinGoalDaysUnknown": "Proteinziel an mindestens {hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} erreicht ({unknown, plural, one{1 Tag} other{{unknown} Tage}} mit Einträgen ohne Protein)",
+  "@trendsProteinGoalDaysUnknown": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}, "unknown": {"type": "int"}}}
 }

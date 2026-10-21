@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/day_nutrition.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
@@ -82,6 +83,48 @@ void main() {
     );
     expect(find.text('160'), findsOneWidget);
     expect(find.text('/130 g'), findsOneWidget);
+    expect(find.byKey(const ValueKey('today-macros-missing')), findsNothing);
+    semantics.dispose();
+  });
+
+  // Entries without a macro add 0 g: the tile must not claim the sum is
+  // what was eaten.
+  testWidgets('unknown macros mark the sum as a lower bound', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await pumpLocalized(
+      tester,
+      TodayMacros(
+        summary: DayNutritionSummary(
+          profile: const UserProfile(
+            proteinGoalG: 130,
+            carbsGoalG: 240,
+            fatGoalG: 70,
+          ),
+          burnedKcal: 0,
+          consumed: const MacroProgress(
+            proteinG: 48,
+            carbsG: 90,
+            fatG: 20,
+            kcal: 900,
+            proteinMissing: 2,
+            entriesMissingMacros: 2,
+          ),
+        ),
+      ),
+      surfaceSize: const Size(390, 852),
+      padding: const EdgeInsets.all(20),
+      settle: true,
+    );
+    expect(find.text('≥48'), findsOneWidget);
+    expect(find.text('90'), findsOneWidget, reason: 'carbs are complete');
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Protein')).value,
+      startsWith(deL10n.todayMacroProgressValueAtLeast(48, 130)),
+    );
+    expect(
+      find.text(deL10n.foodMacrosMissingEntries(2)),
+      findsOneWidget,
+    );
     semantics.dispose();
   });
 }

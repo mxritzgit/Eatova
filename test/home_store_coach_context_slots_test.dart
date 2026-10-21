@@ -127,6 +127,28 @@ void main() {
       },
     );
 
+    // A kcal-only entry adds 0 g: the open macros are then upper bounds,
+    // and the line says so instead of handing the model exact numbers.
+    test('Eintraege ohne Makros machen die offenen Makros zu Obergrenzen', () async {
+      await withClock(Clock.fixed(_heute), () async {
+        final store = _store();
+        await store.addResultToDailyTotal(
+          _fuenfAbendessen.first,
+          slot: MealSlot.dinner,
+        );
+        expect(store.coachContext, isNot(contains('höchstens')));
+
+        await store.addResultToDailyTotal(
+          MealAnalysisResult.quickEntry(name: 'Kaffee', caloriesKcal: 90),
+          slot: MealSlot.snack,
+        );
+        expect(
+          store.coachContext,
+          contains('g (höchstens: 1 Eintrag ohne Makroangaben).'),
+        );
+      });
+    });
+
     test('ohne Mahlzeiten fehlt die Zeile komplett', () async {
       await withClock(Clock.fixed(_heute), () async {
         final ctx = _store().coachContext;

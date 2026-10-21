@@ -487,7 +487,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       'Basisziel: ${balance.goalKcal} kcal; '
           'Aktivitätsbonus: ${balance.burnedKcal} kcal.',
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
-          'Fett $remFat g.',
+          'Fett $remFat g${_unknownMacrosNote()}.',
     ];
     // Diet and avoided foods right after the core values: constraints, so the
     // cap must never reach them ([_foodPreferencesContext]).
@@ -510,6 +510,16 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     final foods = _todaysFoodSummary();
     if (foods != null) lines.add(foods);
     return lines.join(' ');
+  }
+
+  /// Qualifies the open macros when entries without macro values are in
+  /// today's sums: the eaten grams are then lower bounds and the open grams
+  /// upper bounds, which the model must not read as exact.
+  String _unknownMacrosNote() {
+    final n = macroProgress.entriesMissingMacros;
+    if (n == 0) return '';
+    final entries = n == 1 ? '1 Eintrag' : '$n Einträge';
+    return ' (höchstens: $entries ohne Makroangaben)';
   }
 
   /// The seven-day block of [coachContext] ([coachWeekSummary]) from local

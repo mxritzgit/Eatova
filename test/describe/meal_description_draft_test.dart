@@ -331,24 +331,45 @@ void main() {
       );
     });
 
-    test('toResult: eine Zeile ohne Makros macht die Summe unbekannt', () {
-      const noMacros = DraftCandidate(
-        origin: DraftItemOrigin.product,
-        title: 'Toast',
-        brand: 'Lidl',
-        kcalPer100G: 260,
-        servingGrams: 25,
-      );
-      final draft = MealDescriptionDraft(
+    // A product without macros used to make the meal's macros unknown, and
+    // the day sums counted 0 g for them. The line's estimate fills the gap
+    // when it fits the product's energy; the meal is then an estimate.
+    test('toResult: eine Produktzeile ohne Makros nimmt die Schaetzung', () {
+      MealDescriptionDraft draft(double kcalPer100G) => MealDescriptionDraft(
         meal: _meal([_toast, _nutella]),
-        items: [_line(_toast, noMacros), _line(_nutella, _nutellaProduct)],
+        items: [
+          _line(
+            _toast,
+            DraftCandidate(
+              origin: DraftItemOrigin.product,
+              title: 'Toast',
+              brand: 'Lidl',
+              kcalPer100G: kcalPer100G,
+              servingGrams: 25,
+              barcode: '4056489000001',
+            ),
+          ),
+          _line(_nutella, _nutellaProduct),
+        ],
       );
-      final result = draft.toResult();
-      expect(result.protein, '-');
-      expect(result.carbs, '-');
-      expect(result.fat, '-');
+
+      final filled = draft(260);
+      expect(filled.items.first.hasEstimatedMacros, isTrue);
+      expect(filled.items.first.proteinG, closeTo(4, 1e-9));
+      final result = filled.toResult();
+      expect(result.protein, '4,9 g', reason: '4 g Schaetzung + 0,9 g Nutella');
+      expect(result.carbs, isNot('-'));
+      expect(result.fat, isNot('-'));
       expect(result.caloriesKcal, 130 + 81);
       expect(result.items.first.name, 'Toast (Lidl)');
+      expect(result.sourceLabel, MealResultSource.aiEstimate.code);
+      expect(result.confidence, 'medium');
+
+      // The estimate's macros (about 265 kcal/100 g) cannot belong to a
+      // 50 kcal product: unknown stays unknown.
+      final implausible = draft(50);
+      expect(implausible.items.first.hasEstimatedMacros, isFalse);
+      expect(implausible.toResult().protein, '-');
     });
 
     test('toResult: nur Produkte -> Datenbank-Quelle', () {
@@ -357,6 +378,9 @@ void main() {
         title: 'Nutella · Ferrero',
         brand: 'Ferrero',
         kcalPer100G: 540,
+        proteinPer100G: 6.3,
+        carbsPer100G: 57.5,
+        fatPer100G: 30.9,
         barcode: '3017620422003',
       );
       const scanFavorite = DraftCandidate(

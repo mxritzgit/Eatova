@@ -133,6 +133,7 @@ class TrendReport {
     required this.hits,
     required this.macros,
     required this.proteinGoalDays,
+    required this.proteinUnknownDays,
     required this.loggedDays,
     required this.fullDays,
     required this.stepBars,
@@ -186,9 +187,15 @@ class TrendReport {
     }
 
     var proteinGoalDays = 0;
+    var proteinUnknownDays = 0;
     if (goals.proteinG > 0) {
       for (final day in full) {
-        if (day != null && day.proteinG >= goals.proteinG) proteinGoalDays++;
+        if (day == null) continue;
+        if (day.proteinG >= goals.proteinG) {
+          proteinGoalDays++;
+        } else if (day.proteinMissing > 0) {
+          proteinUnknownDays++;
+        }
       }
     }
     final last = window.length - 1;
@@ -219,6 +226,7 @@ class TrendReport {
       ),
       macros: averageMacrosOf(full),
       proteinGoalDays: proteinGoalDays,
+      proteinUnknownDays: proteinUnknownDays,
       loggedDays: trackedDaysOf(completed),
       fullDays: trackedDaysOf(full),
       stepBars: _bars(
@@ -265,6 +273,11 @@ class TrendReport {
 
   /// Complete completed days that reached the protein goal.
   final int proteinGoalDays;
+
+  /// Complete completed days below the protein goal with entries of unknown
+  /// protein: they may have reached it, so [proteinGoalDays] is a lower
+  /// bound.
+  final int proteinUnknownDays;
 
   /// Completed days with at least one entry.
   final int loggedDays;

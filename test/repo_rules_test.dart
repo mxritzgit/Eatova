@@ -423,6 +423,7 @@ const Map<String, List<String>> _bekannteAusnahmen = <String, List<String>>{
     "'(noch \$remKcal kcal übrig).'",
     "'Aktivitätsbonus: \${balance.burnedKcal} kcal.'",
     "'Makros heute noch offen: Protein \$remProt g, Kohlenhydrate \$remCarbs g, '",
+    "' (höchstens: \$entries ohne Makroangaben)'",
     "'\$n Einträge'",
     "'Pro Mahlzeit heute: \$parts.'",
   ],

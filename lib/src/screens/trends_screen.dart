@@ -348,7 +348,11 @@ class _TrendsScreenState extends State<TrendsScreen> {
       _MacroAveragesCard(
         macros: macros,
         proteinGoalDays: data.proteinGoalG > 0 && hits.tracked > 0
-            ? (hit: report.proteinGoalDays, tracked: hits.tracked)
+            ? (
+                hit: report.proteinGoalDays,
+                tracked: hits.tracked,
+                unknown: report.proteinUnknownDays,
+              )
             : null,
       ),
       ...localSections,
@@ -851,9 +855,9 @@ class _MacroAveragesCard extends StatelessWidget {
 
   final ({double proteinG, double carbsG, double fatG})? macros;
 
-  /// Logged completed days that reached the protein goal; null without a
-  /// goal or a logged day.
-  final ({int hit, int tracked})? proteinGoalDays;
+  /// Logged completed days that reached the protein goal, and those below it
+  /// with entries of unknown protein; null without a goal or a logged day.
+  final ({int hit, int tracked, int unknown})? proteinGoalDays;
 
   @override
   Widget build(BuildContext context) {
@@ -901,7 +905,13 @@ class _MacroAveragesCard extends StatelessWidget {
           if (proteinGoalDays case final days?) ...[
             const SizedBox(height: 10),
             Text(
-              l10n.trendsProteinGoalDays(days.hit, days.tracked),
+              days.unknown > 0
+                  ? l10n.trendsProteinGoalDaysUnknown(
+                      days.hit,
+                      days.tracked,
+                      days.unknown,
+                    )
+                  : l10n.trendsProteinGoalDays(days.hit, days.tracked),
               key: const ValueKey('trends-protein-goal-days'),
               style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
             ),

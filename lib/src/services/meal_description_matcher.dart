@@ -87,13 +87,54 @@ class DraftFoodItem {
   int get caloriesKcal =>
       clampMealCaloriesKcal(selected.kcalPer100G * grams / 100);
 
-  /// Macros in grams for [grams]; null means unknown, not 0 g.
-  double? get proteinG => _forGrams(selected.proteinPer100G);
-  double? get carbsG => _forGrams(selected.carbsPer100G);
-  double? get fatG => _forGrams(selected.fatPer100G);
+  /// Macros in grams for [grams]; null means unknown, not 0 g. A product or
+  /// favorite without one takes the line's estimate ([hasEstimatedMacros]).
+  double? get proteinG => _forGrams(_macrosPer100G.protein);
+  double? get carbsG => _forGrams(_macrosPer100G.carbs);
+  double? get fatG => _forGrams(_macrosPer100G.fat);
+
+  /// A macro of [selected] is unknown and comes from the line's AI estimate.
+  bool get hasEstimatedMacros => _macrosPer100G.estimated;
 
   double? _forGrams(double? per100G) =>
       per100G == null ? null : clampMealMacroG(per100G * grams / 100);
+
+  /// [selected]'s macros per 100 g, a missing one taken from the estimate
+  /// among [candidates] when the data allows it: all three together may not
+  /// carry more energy (4/4/9 kcal per g) than [_macroEnergySlack] times the
+  /// source's kcal, or the estimate describes another food.
+  ({double? protein, double? carbs, double? fat, bool estimated})
+  get _macrosPer100G {
+    final own = selected;
+    final known = (
+      protein: own.proteinPer100G,
+      carbs: own.carbsPer100G,
+      fat: own.fatPer100G,
+      estimated: false,
+    );
+    if (own.origin == DraftItemOrigin.estimate ||
+        (known.protein != null && known.carbs != null && known.fat != null)) {
+      return known;
+    }
+    DraftCandidate? estimate;
+    for (final candidate in candidates) {
+      if (candidate.origin == DraftItemOrigin.estimate) estimate = candidate;
+    }
+    if (estimate == null) return known;
+    final protein = known.protein ?? estimate.proteinPer100G;
+    final carbs = known.carbs ?? estimate.carbsPer100G;
+    final fat = known.fat ?? estimate.fatPer100G;
+    if (protein == known.protein && carbs == known.carbs && fat == known.fat) {
+      return known;
+    }
+    final energy = 4 * (protein ?? 0) + 4 * (carbs ?? 0) + 9 * (fat ?? 0);
+    if (energy > own.kcalPer100G * _macroEnergySlack) return known;
+    return (protein: protein, carbs: carbs, fat: fat, estimated: true);
+  }
+
+  /// Labels round and the 4/4/9 factors are averages, so the macros' energy
+  /// may exceed the stated kcal a little.
+  static const double _macroEnergySlack = 1.2;
 
   /// The same line with another portion.
   DraftFoodItem withGrams(int grams) => DraftFoodItem(
@@ -349,12 +390,13 @@ class MealDescriptionDraft {
 
   /// The loggable result: one component per line, calories and grams summed
   /// from them, macros only when every line knows them (else unknown, see
-  /// [MealAnalysisResult.adjustedToItems]).
+  /// [MealAnalysisResult.adjustedToItems]). A product line's missing macro
+  /// comes from its estimate ([DraftFoodItem.hasEstimatedMacros]).
   ///
   /// * Source "OpenFoodFacts" and confidence "database" only when every line
-  ///   is product-backed (a product, or a favorite with a barcode); otherwise
-  ///   "AI estimate" and the model's own confidence. Never "Photo AI": there
-  ///   is no photo.
+  ///   is product-backed (a product, or a favorite with a barcode) and none
+  ///   took a macro from the estimate; otherwise "AI estimate" and the
+  ///   model's own confidence. Never "Photo AI": there is no photo.
   /// * The portion note is the components note: the user confirmed the
   ///   lines and the totals are their sum, which stays true whichever
   ///   candidates were picked. The model's explanation would describe its
@@ -422,6 +464,7 @@ class MealDescriptionDraft {
   }
 
   static bool _isProductBacked(DraftFoodItem item) =>
+      !item.hasEstimatedMacros &&
       switch (item.selected.origin) {
         DraftItemOrigin.product => true,
         DraftItemOrigin.favorite => item.selected.barcode != null,
