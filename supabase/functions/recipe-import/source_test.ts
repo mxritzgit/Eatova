@@ -121,7 +121,8 @@ Deno.test('import source redirects and failed metadata do not wait for stalled b
 });
 
 Deno.test('import source blocks redirect SSRF before second fetch and preserves pasted text', async () => {
-  for (const location of ['http://127.0.0.1/private', 'https://169.254.169.254/', 'https://www.tiktok.com.evil.invalid/secret', 'https://user:secret@www.tiktok.com/@cook/video/1234567890123456789']) {
+  for (const location of ['http://127.0.0.1/private', 'https://169.254.169.254/', 'https://www.tiktok.com.evil.invalid/secret',
+    'https://user:secret@www.tiktok.com/@cook/video/1234567890123456789', 'https://www.tiktok.com/tag/pasta']) {
     const original = globalThis.fetch;
     let calls = 0;
     globalThis.fetch = (() => { calls++; return Promise.resolve(new Response(null, { status: 302, headers: { location } })); }) as typeof fetch;

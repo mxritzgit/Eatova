@@ -38,9 +38,11 @@ const cases = [
   { name: "opaque bearer", token: () => "opaque-synthetic-bearer", admitted: false },
   { name: "Auth rejects matching claims", token: () => userToken(USER), admitted: false, authStatus: 401 },
 ];
+// One test per handler: each wires hasExpectedUserTokenContext on its own, and
+// every case must hold for each of them.
 for (const [name, handler] of [["coach-chat", coach], ["analyze-meal", analyze], ["search-key", search]] as const) {
-  for (const test of cases) {
-    Deno.test(`${name}: verified token context - ${test.name}`, async () => {
+  Deno.test(`${name}: only a token whose claims match the verified user reaches application gates`, async () => {
+    for (const test of cases) {
       const original = globalThis.fetch;
       let lookups = 0;
       let applicationGates = 0;
@@ -71,13 +73,13 @@ for (const [name, handler] of [["coach-chat", coach], ["analyze-meal", analyze],
         }));
         const body = await response.json();
         assert(response.status === (test.admitted ? 429 : 401), `${name}/${test.name}: unexpected status ${response.status}`);
-        assert(lookups === 1, "Context checks must not substitute for Auth verification");
-        assert(applicationGates === (test.admitted ? 1 : 0), "Rejected context must stop before application operations");
-        assert(unexpected === 0, "Unexpected side effect");
-        assert(!("searchKey" in body), "Rejected request leaked search credentials");
+        assert(lookups === 1, `${test.name}: context checks must not substitute for Auth verification`);
+        assert(applicationGates === (test.admitted ? 1 : 0), `${test.name}: rejected context must stop before application operations`);
+        assert(unexpected === 0, `${test.name}: unexpected side effect`);
+        assert(!("searchKey" in body), `${test.name}: rejected request leaked search credentials`);
       } finally {
         globalThis.fetch = original;
       }
-    });
-  }
+    }
+  });
 }

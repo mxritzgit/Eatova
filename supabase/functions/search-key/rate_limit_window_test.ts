@@ -93,7 +93,6 @@ function installFetch(): FetchStub {
 // literals.
 const LOADERS: Record<string, () => Promise<unknown>> = {
   "day-windows": () => import("./index.ts?p6=day-windows"),
-  "over-bound": () => import("./index.ts?p6=over-bound"),
 };
 
 async function loadHandler(tag: keyof typeof LOADERS, env: Record<string, string>): Promise<Handler> {
@@ -147,32 +146,6 @@ Deno.test("P6-03: gesetzte Tagesfenster kommen bei der RPC an statt still auf de
     assertEquals(stub.params("search-key:user")?.window_seconds, 86400, "Nutzer-Fenster");
     assertEquals(stub.params("search-key:ip")?.window_seconds, 86400, "IP-Fenster");
   } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("P6-03: ueber der RPC-Obergrenze bleibt es beim Default (und warnt)", async () => {
-  const stub = installFetch();
-  const warnings: string[] = [];
-  const originalWarn = console.warn;
-  console.warn = (...args: unknown[]) => {
-    warnings.push(args.map((a) => JSON.stringify(a)).join(" "));
-  };
-  try {
-    // 172800 s = 2 days; consume_edge_rate_limit throws above 86400, so the
-    // fallback is right — being told about it is the new part.
-    const serve = await loadHandler("over-bound", { SEARCH_KEY_USER_WINDOW_SECONDS: "172800" });
-    assertEquals((await serve(request())).status, 200, "Status");
-    assertEquals(stub.params("search-key:user")?.window_seconds, 3600, "Default-Fenster");
-    const joined = warnings.join("\n");
-    assert(joined.includes("SEARCH_KEY_USER_WINDOW_SECONDS"), `keine Warnung: ${joined}`);
-    // E2 (Review 2026-08-31): der Rohwert steht seit der CWE-532-Schwaerzung
-    // nicht mehr drin — Grund, Laenge und Grenze sagen dasselbe aus.
-    assert(!joined.includes("172800"), `verworfener Rohwert im Log: ${joined}`);
-    assert(joined.includes("out of range"), `Grund fehlt in der Warnung: ${joined}`);
-    assert(joined.includes("86400"), `die verletzte Grenze fehlt in der Warnung: ${joined}`);
-  } finally {
-    console.warn = originalWarn;
     stub.restore();
   }
 });

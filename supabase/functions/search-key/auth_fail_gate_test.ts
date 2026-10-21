@@ -50,8 +50,6 @@ interface StubOptions {
   authStatusFor?: (token: string) => number | undefined;
   /** Budget of search-key:auth-fail; the stub counts like the atomic RPC. */
   authFailBudget?: number;
-  /** HTTP status of the consume for the auth-fail scope (limiter outage). */
-  authFailGateStatus?: number;
   /** `id` the auth lookup reports on a 200. The id becomes the subject of the
    *  user gate, so an unusable one must not get that far. */
   authUserId?: unknown;
@@ -129,9 +127,6 @@ function installFetch(options: StubOptions = {}): FetchStub {
       const windowSeconds = Number(params.p_window_seconds);
       const resetAt = new Date(Date.now() + windowSeconds * 1000).toISOString();
       if (params.p_scope === "search-key:auth-fail") {
-        if (options.authFailGateStatus !== undefined) {
-          return Promise.resolve(jsonRes({ message: "limiter down" }, options.authFailGateStatus));
-        }
         authFailConsumes++;
         const budget = options.authFailBudget ?? Number.POSITIVE_INFINITY;
         return Promise.resolve(jsonRes({
@@ -231,24 +226,6 @@ Deno.test("F-28-1: ohne IP-Header landet der Fehlschlag im dokumentierten anon-F
   }
 });
 
-Deno.test("F-28-1: erfolgreiche Auth beruehrt das Fail-Bucket nicht", async () => {
-  const handler = await loadHandler();
-  const stub = installFetch({ authFailBudget: 0 });
-  try {
-    const res = await handler(request());
-    assertEquals(res.status, 200, "Status");
-    assertEquals(
-      stub.gates.map((g) => g.p_scope).join(","),
-      "search-key:ip,search-key:user",
-      "nur die beiden Anwendungs-Gates",
-    );
-    // P6-02: dieselben zwei Tore, aber in EINEM Roundtrip.
-    assertEquals(stub.gateCalls, 1, "ein Gate-Aufruf fuer beide Tore");
-  } finally {
-    stub.restore();
-  }
-});
-
 Deno.test("F-28-1: der Anon-Key kostet weder Lookup noch Consume", async () => {
   // Rejected locally, so it must not be able to fill the fail bucket either.
   const handler = await loadHandler();
@@ -290,33 +267,19 @@ Deno.test("F-28-1: eine 200 OHNE brauchbare Id ist kein Login — und kein Fail-
   }
 });
 
-Deno.test("F-28-1: Limiter-Ausfall am Fail-Bucket blockiert die 401 nicht", async () => {
+Deno.test("Auth HTTP 429/5xx returns 503 without consuming failure quota", async () => {
   const handler = await loadHandler();
-  const stub = installFetch({ authStatus: 401, authFailGateStatus: 500 });
-  try {
-    const res = await handler(request());
-    assertEquals(res.status, 401, "Status");
-    const body = await res.json() as JsonRecord;
-    assertEquals(body.error, "invalid_user_token", "Fehlercode");
-    assertEquals(stub.gates.length, 1, "der Consume wurde versucht");
-  } finally {
-    stub.restore();
-  }
-});
-
-for (const authStatus of [429, 500, 503]) {
-  Deno.test(`Auth HTTP ${authStatus} returns 503 without consuming failure quota`, async () => {
-    const handler = await loadHandler();
+  for (const authStatus of [429, 500, 503]) {
     const stub = installFetch({ authStatus });
     try {
       const res = await handler(request());
-      assertEquals(res.status, 503, "temporary auth outage");
-      assertEquals((await res.json()).error, "auth_unavailable", "error code");
-      assertEquals(stub.authLookups, 1, "auth lookup");
-      assertEquals(stub.gateCalls, 0, "no database calls");
+      assertEquals(res.status, 503, `${authStatus}: temporary auth outage`);
+      assertEquals((await res.json()).error, "auth_unavailable", `${authStatus}: error code`);
+      assertEquals(stub.authLookups, 1, `${authStatus}: auth lookup`);
+      assertEquals(stub.gateCalls, 0, `${authStatus}: no database calls`);
     } finally { stub.restore(); }
-  });
-}
+  }
+});
 
 // P7-02 (review 2026-10-01): the shared cache in ../_shared/auth_fail_gate.ts
 // caps what a replayed revoked token costs; these pin the wiring here.

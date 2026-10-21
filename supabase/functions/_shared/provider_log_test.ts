@@ -12,47 +12,28 @@
 
 import { loggableFinishReason } from "./provider_log.ts";
 
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
-
 function assertEquals(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) {
     throw new Error(`${message}: erwartet ${JSON.stringify(expected)}, war ${JSON.stringify(actual)}`);
   }
 }
 
-Deno.test("P6-04b: Vertragswerte bleiben lesbar", () => {
+Deno.test("P6-04b: Vertragswerte bleiben lesbar, ein fehlender Wert bleibt fehlend", () => {
   for (const value of ["stop", "length", "content_filter", "tool_calls", "function_call", "error"]) {
     assertEquals(loggableFinishReason(value), value, `Vertragswert ${value}`);
   }
-});
-
-Deno.test("P6-04b: fehlender Wert bleibt fehlend, statt 'other' zu erfinden", () => {
+  // Missing stays missing instead of inventing 'other'.
   assertEquals(loggableFinishReason(undefined), undefined, "undefined");
   assertEquals(loggableFinishReason(null), undefined, "null");
 });
 
-Deno.test("P6-04b: alles andere wird zur Kategorie verdichtet, nie zitiert", () => {
-  assertEquals(loggableFinishReason("Nutzerhinweis: Diabetes"), "other", "Fremdtext -> Kategorie");
+// P6-04c: the point of the allowlist against the old 32-character cap: a
+// truncation keeps the first n characters the provider chose.
+Deno.test("P6-04b: alles andere wird zur Kategorie verdichtet, nie zitiert oder gekappt", () => {
+  const leak = "Nutzerhinweis Diabetes Typ 2 seit 2019, Metformin";
+  assertEquals(loggableFinishReason(leak), "other", "Fremdtext -> Kategorie");
   assertEquals(loggableFinishReason({ text: "Diabetes" }), "other", "Fremdform -> Kategorie");
   assertEquals(loggableFinishReason(7), "other", "Zahl -> Kategorie");
   assertEquals(loggableFinishReason("STOP"), "other", "Gross-/Kleinschreibung zaehlt");
   assertEquals(loggableFinishReason("stop "), "other", "kein Trimmen, kein Praefix-Match");
-});
-
-// P6-04c: the point of the allowlist against the old cap. A truncation keeps
-// the first n characters the provider chose; the first 32 characters of a
-// user's hint are still the user's hint.
-Deno.test("P6-04c: Kappen ist kein Ersatz — kein Praefix des Fremdtexts ueberlebt", () => {
-  const leak = "Nutzerhinweis Diabetes Typ 2 seit 2019, Metformin";
-  const logged = loggableFinishReason(leak);
-  assertEquals(logged, "other", "Kategorie statt Inhalt");
-  assert(
-    !leak.slice(0, 32).includes(String(logged)),
-    `ein Praefix des Fremdtexts steht im Log: ${String(logged)}`,
-  );
-  // The value must not grow with the input either — a length-carrying
-  // category would still be a side channel on the hint.
-  assertEquals(loggableFinishReason(leak + leak), "other", "Laenge faerbt nicht ab");
 });

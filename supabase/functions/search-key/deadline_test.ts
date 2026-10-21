@@ -104,10 +104,9 @@ interface StubOptions {
   /** HTTP-Status des /auth/v1/user-Lookups. */
   authStatus?: number;
   authCancelStall?: boolean;
-  /** The auth lookup answers 200, then its body stalls. */
+  /** The auth lookup answers 200, then its body stalls. Limiter bodies that
+   *  stall or garble are pinned in ../_shared/rate_limit_test.ts. */
   authBodyStall?: boolean;
-  /** Body of the gate batch's 200: "stall" never arrives, a string is sent raw. */
-  gateBody?: string;
   abortOnAuth?: AbortController;
   onAuthSignal?: (signal: AbortSignal | null | undefined) => void;
 }
@@ -164,10 +163,6 @@ function installFetch(options: StubOptions = {}): FetchStub {
       for (const gate of gates) scopes.push(String(gate.scope));
       if (options.stallGateScope !== undefined && gates.some((g) => g.scope === options.stallGateScope)) {
         return haengtBisAbbruch(init?.signal);
-      }
-      if (options.gateBody === "stall") return koerperHaengtBisAbbruch(init?.signal);
-      if (options.gateBody !== undefined) {
-        return Promise.resolve(new Response(options.gateBody, { status: 200 }));
       }
       return Promise.resolve(jsonRes(gates.map((gate) => {
         const windowSeconds = Number(gate.window_seconds);
@@ -355,21 +350,6 @@ Deno.test("E1: ein nach den Headern haengender Auth-Body meldet 503 statt 500", 
 
 // E6 for the body: a 200 whose body stalls or is not JSON (proxy page) is a
 // limiter outage, not an internal error in the key path.
-Deno.test("E1/E6: ein unlesbarer Tor-Body faellt geschlossen mit rate_limit_unavailable", async () => {
-  const serve = await loadHandler("call-cap");
-  for (const gateBody of ["stall", "<html>502 Bad Gateway</html>"]) {
-    const stub = installFetch({ gateBody });
-    try {
-      const res = await ohneHaenger(serve(request()));
-      assertEquals(res.status, 500, `${gateBody}: Status`);
-      const body = await res.json() as JsonRecord;
-      assertEquals(body.error, "rate_limit_unavailable", `${gateBody}: Fehlercode`);
-      assert(!JSON.stringify(body).includes(MIRROR_KEY), `${gateBody}: kein Key im Ausfall`);
-    } finally {
-      stub.restore();
-    }
-  }
-});
 
 Deno.test("E1: ein haengendes Fail-Bucket blockiert die ehrliche 401 nicht", async () => {
   const serve = await loadHandler("call-cap");

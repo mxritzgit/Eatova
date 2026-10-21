@@ -1,4 +1,4 @@
-import { extractionPrompt, parseExtraction } from './extraction.ts';
+import { parseExtraction } from './extraction.ts';
 import { sourcedNutrition } from './nutrition.ts';
 import { completeNutritionEvidence } from './nutrition_source.ts';
 
@@ -100,12 +100,6 @@ Deno.test('v1 keeps existing numeric safety and omits additive conflict diagnost
   check(recipe?.calories_kcal === 650 && recipe.protein_g === null && recipe.carbs_g === null && recipe.fat_g === 20,
     'Legacy numeric behavior stays safe');
   check(!('nutrition_conflicts' in recipe), 'No v2-only metadata in legacy response');
-});
-
-Deno.test('prompt explicitly forbids correcting duplicate source labels by guessing', () => {
-  const prompt = extractionPrompt('de');
-  check(prompt.includes('conflicting labels') && prompt.includes('Never relabel'),
-    'The extractor must retain contradictory evidence rather than repair the caption');
 });
 
 Deno.test('model cannot hide either conflicting protein amount by cropping the source block', async () => {

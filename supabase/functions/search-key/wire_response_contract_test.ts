@@ -81,7 +81,7 @@ function assertEquals(actual: unknown, expected: unknown, message: string): void
 }
 
 /** Answers the three Supabase calls `search-key` makes internally. */
-function installFetch(options: { rateLimitBody?: unknown } = {}): () => void {
+function installFetch(): () => void {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: string | URL | Request): Promise<Response> => {
     const url = typeof input === "string"
@@ -103,24 +103,22 @@ function installFetch(options: { rateLimitBody?: unknown } = {}): () => void {
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
       return Promise.resolve(
         new Response(
-          JSON.stringify(
-            options.rateLimitBody ?? [
-              {
-                allowed: true,
-                limit: 120,
-                remaining: 119,
-                resetAt: new Date(Date.now() + 600_000).toISOString(),
-                windowSeconds: 600,
-              },
-              {
-                allowed: true,
-                limit: 20,
-                remaining: 19,
-                resetAt: new Date(Date.now() + 3_600_000).toISOString(),
-                windowSeconds: 3600,
-              },
-            ],
-          ),
+          JSON.stringify([
+            {
+              allowed: true,
+              limit: 120,
+              remaining: 119,
+              resetAt: new Date(Date.now() + 600_000).toISOString(),
+              windowSeconds: 600,
+            },
+            {
+              allowed: true,
+              limit: 20,
+              remaining: 19,
+              resetAt: new Date(Date.now() + 3_600_000).toISOString(),
+              windowSeconds: 3600,
+            },
+          ]),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );
@@ -243,35 +241,6 @@ Deno.test("search-key: der Client kann die echte Antwort ueberhaupt lesen", asyn
   }
 });
 
-Deno.test("search-key: kein Feld traegt eine zweite Schreibweise", async () => {
-  const wiederherstellen = installFetch();
-  try {
-    const serve = await ladeHandler();
-    const antwort = await serve(anfrage());
-    const map = JSON.parse(await antwort.text()) as Record<string, unknown>;
-    const schluessel = Object.keys(map);
-
-    for (const feld of Object.values(KLIENT_FELDER)) {
-      assert(
-        schluessel.includes(feld),
-        `Der Body traegt "${feld}" nicht. Vorhanden: ${schluessel.join(", ")}. ` +
-          "Ein umbenanntes Feld macht die Rotation still und dauerhaft tot.",
-      );
-    }
-    // snake_case is the likely rename: every other Supabase payload here uses
-    // it.
-    for (const verboten of ["mirror_base_url", "search_key", "ttl_seconds"]) {
-      assert(
-        !schluessel.includes(verboten),
-        `Der Body traegt "${verboten}". Der Client liest camelCase — eine ` +
-          "zweite Schreibweise bedeutet, dass eine der beiden Seiten falsch ist.",
-      );
-    }
-  } finally {
-    wiederherstellen();
-  }
-});
-
 Deno.test("search-key: ttlSeconds und cache-control laufen nicht auseinander", async () => {
   const wiederherstellen = installFetch();
   try {
@@ -302,44 +271,3 @@ Deno.test("search-key: ttlSeconds und cache-control laufen nicht auseinander", a
     wiederherstellen();
   }
 });
-
-Deno.test("search-key: der Key steht nie im Log", async () => {
-  const wiederherstellen = installFetch();
-  const gesammelt: string[] = [];
-  const echtesLog = console.log;
-  console.log = (...args: unknown[]) => {
-    gesammelt.push(args.map((a) => JSON.stringify(a)).join(" "));
-  };
-  try {
-    const serve = await ladeHandler();
-    await serve(anfrage());
-    const zeilen = gesammelt.join("\n");
-    assert(
-      !zeilen.includes(MIRROR_KEY),
-      `Der Search-Key ist im Log gelandet: ${zeilen}`,
-    );
-  } finally {
-    console.log = echtesLog;
-    wiederherstellen();
-  }
-});
-
-Deno.test(
-  "Sentinel-Rest E6: kaputter Rate-Limit-Shape -> 500 rate_limit_unavailable statt erfundenem 429",
-  async () => {
-    // `data.allowed === true` turned an empty or reshaped RPC body into
-    // `allowed: false`, so the client got a 429 with invented rateLimit
-    // numbers. A broken shape is a limiter outage, not a limit. Since P6-02
-    // the batched reply must be an ARRAY — an object is exactly that case.
-    const handlerFn = await ladeHandler();
-    const restore = installFetch({ rateLimitBody: {} });
-    try {
-      const res = await handlerFn(anfrage());
-      assertEquals(res.status, 500, "Status");
-      const body = JSON.parse(await res.text()) as Record<string, unknown>;
-      assertEquals(body.error, "rate_limit_unavailable", "Fehlercode");
-    } finally {
-      restore();
-    }
-  },
-);

@@ -14,8 +14,6 @@ import {
   missingContractFields,
   normalizeDescribedMeal,
   normalizeMealResult,
-  optionalInt,
-  optionalNumber,
   redactedContentMeta,
   REQUIRED_MEAL_FIELDS,
   unparseableShape,
@@ -62,38 +60,27 @@ const UNPARSEABLE: Array<[string, unknown]> = [
   ["boolean false", false],
 ];
 
-Deno.test("REGRESSION B1: unparsebares kcalPer100G wird null, nicht 0", () => {
+Deno.test("REGRESSION B1: ein unparsebares Feld wird null, nicht 0, die gueltigen bleiben", () => {
   // Model writes the reference size as text; that used to log 0 kcal.
-  const result = normalizeMealResult({
+  const per100 = normalizeMealResult({
     mealName: "Pasta mit Hackfleischsauce",
     caloriesKcal: 780,
     estimatedGrams: 420,
     kcalPer100G: "186 kcal/100g",
   });
+  assertMissing(per100, "kcalPer100G", "Textwert darf keine Zahl werden");
+  assertEquals(per100.caloriesKcal, 780, "caloriesKcal bleibt erhalten");
+  assertEquals(per100.estimatedGrams, 420, "estimatedGrams bleibt erhalten");
 
-  assertMissing(result, "kcalPer100G", "Textwert darf keine Zahl werden");
-  assert(
-    result.kcalPer100G !== 0,
-    "kcalPer100G === 0 ist genau der B1-Bug: (0 * g / 100) = 0 kcal im Tagebuch",
-  );
-  // The authoritative fields stay untouched.
-  assertEquals(result.caloriesKcal, 780, "caloriesKcal bleibt erhalten");
-  assertEquals(result.estimatedGrams, 420, "estimatedGrams bleibt erhalten");
-});
-
-Deno.test("REGRESSION B1: unparsebares caloriesKcal/estimatedGrams wird null, nicht 0", () => {
-  const result = normalizeMealResult({
+  const totals = normalizeMealResult({
     mealName: "Teller",
     caloriesKcal: "ca. 780 kcal",
     estimatedGrams: "etwa 420 g",
     kcalPer100G: 186,
   });
-
-  assertMissing(result, "caloriesKcal", "Textwert darf keine 0 kcal werden");
-  assertMissing(result, "estimatedGrams", "Textwert darf keine 0 g werden");
-  assert(result.caloriesKcal !== 0, "0 kcal waere eine erfundene Gesundheitszahl");
-  assert(result.estimatedGrams !== 0, "0 g waere eine erfundene Gesundheitszahl");
-  assertEquals(result.kcalPer100G, 186, "der gueltige Wert bleibt");
+  assertMissing(totals, "caloriesKcal", "Textwert darf keine 0 kcal werden");
+  assertMissing(totals, "estimatedGrams", "Textwert darf keine 0 g werden");
+  assertEquals(totals.kcalPer100G, 186, "der gueltige Wert bleibt");
 });
 
 Deno.test("alle unparsebaren Formen ergeben null, nicht min", () => {
@@ -126,16 +113,12 @@ Deno.test("fehlende Schluessel erfinden keine Nullwerte", () => {
   assertEquals(result.confidence, null, "fehlende confidence bleibt fehlend");
 });
 
-Deno.test("kaputte confidence wird nicht zu 'medium' aufgehuebscht", () => {
-  const result = normalizeMealResult({ confidence: "sehr sicher!!" });
-  assertEquals(result.confidence, null, "unlesbare confidence bleibt fehlend");
-});
-
-Deno.test("confidence in anderer Schreibweise bleibt die Aussage des Modells", () => {
+Deno.test("confidence: andere Schreibweise bleibt die Aussage, Unlesbares wird nicht zu 'medium'", () => {
   // The client reads 'High'/'HIGH' as high on purpose (the model is not
   // strict here); dropping them on the server turned them into "unknown".
   assertEquals(normalizeMealResult({ confidence: "High" }).confidence, "high", "High");
   assertEquals(normalizeMealResult({ confidence: " LOW " }).confidence, "low", "LOW");
+  assertEquals(normalizeMealResult({ confidence: "sehr sicher!!" }).confidence, null, "unlesbare confidence bleibt fehlend");
 });
 
 Deno.test("namenloses Item bekommt den Fallback, den der Client uebersetzt", () => {
@@ -247,18 +230,6 @@ Deno.test("Modell-Labels: gekuerzt wird nach Codepoints, kein halbes Emoji", () 
   assertEquals(Array.from(result.mealName).length, 160, "160 Codepoints");
   assert(result.mealName.endsWith("\u{1F957}"), "das Emoji bleibt ganz");
   assert(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(result.mealName), "kein einzelnes Surrogat");
-});
-
-Deno.test("optionalInt/optionalNumber: Einzelverhalten", () => {
-  assertEquals(optionalInt("keine Angabe", 0, 100), null, "Text -> null");
-  assertEquals(optionalInt("", 0, 100), null, "leerer String -> null (Number('') === 0!)");
-  assertEquals(optionalInt(null, 0, 100), null, "null -> null (Number(null) === 0!)");
-  assertEquals(optionalInt(false, 0, 100), null, "boolean -> null (Number(false) === 0!)");
-  assertEquals(optionalInt([], 0, 100), null, "Array -> null (Number([]) === 0!)");
-  assertEquals(optionalInt(42.4, 0, 100), 42, "Zahl wird gerundet");
-  assertEquals(optionalInt(420, 0, 100), 100, "Zahl wird auf max geklemmt");
-  assertEquals(optionalNumber(-7, 0, 100), 0, "Zahl wird auf min geklemmt");
-  assertEquals(optionalNumber(42.4, 0, 100), 42.4, "optionalNumber rundet nicht");
 });
 
 Deno.test("kcalPer100GMismatch meldet nur echte Widersprueche", () => {

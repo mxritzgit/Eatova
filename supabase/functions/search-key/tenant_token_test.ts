@@ -4,7 +4,8 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 // With EATOVA_MIRROR_KEY_UID set the function no longer hands out the shared
 // Meilisearch search key but a per-request tenant token: an HS256 JWT signed
 // WITH that key, scoped to the product index and expiring after ttlSeconds.
-// Without the flag the old behaviour (static key) must stay byte-identical.
+// Without the flag the old behaviour (static key, private max-age cache) is
+// pinned by wire_response_contract_test.ts.
 //
 // index.ts reads its env at module load, so each mode gets its own module
 // instance via a cache-busting query on the import specifier; Deno.serve is
@@ -92,11 +93,9 @@ function installFetch(): () => void {
 const LOADERS: Record<string, () => Promise<unknown>> = {
   "tenant": () => import("./index.ts?mode=tenant"),
   "tenant-index": () => import("./index.ts?mode=tenant-index"),
-  "static": () => import("./index.ts?mode=static"),
   "tenant-disabled": () => import("./index.ts?mode=tenant-disabled"),
   "tenant-bad-uid": () => import("./index.ts?mode=tenant-bad-uid"),
   "tenant-bad-index": () => import("./index.ts?mode=tenant-bad-index"),
-  "static-cache": () => import("./index.ts?mode=static-cache"),
   "tenant-log": () => import("./index.ts?mode=tenant-log"),
   "tenant-ttl-hoch": () => import("./index.ts?mode=tenant-ttl-hoch"),
   "tenant-ttl-tief": () => import("./index.ts?mode=tenant-ttl-tief"),
@@ -272,18 +271,6 @@ Deno.test("F9-02: Index-Name kommt aus EATOVA_MIRROR_SEARCH_INDEX", async () => 
   }
 });
 
-Deno.test("F9-02: ohne Flag bleibt der statische Key (Bestandsverhalten)", async () => {
-  const restore = installFetch();
-  try {
-    const serve = await loadHandler("static", {});
-    const body = await (await serve(request())).json() as JsonRecord;
-    assertEquals(body.searchKey, MIRROR_KEY, "statischer Key");
-    assertEquals(body.ttlSeconds, TTL, "ttlSeconds");
-  } finally {
-    restore();
-  }
-});
-
 Deno.test("F9-02: Kill-Switch gewinnt auch im Tenant-Modus", async () => {
   const restore = installFetch();
   try {
@@ -328,17 +315,6 @@ Deno.test("F9-02: kaputter Index-Name ist eine Fehlkonfiguration (500)", async (
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, "server_misconfigured", "Fehlercode");
     assertEquals("searchKey" in body, false, "kein Token im Fehlerfall");
-  } finally {
-    restore();
-  }
-});
-
-Deno.test("F9-02: ohne Flag bleibt cache-control private, max-age=ttl (Bestandsverhalten)", async () => {
-  const restore = installFetch();
-  try {
-    const serve = await loadHandler("static-cache", {});
-    const res = await serve(request());
-    assertEquals(res.headers.get("cache-control"), `private, max-age=${TTL}`, "cache-control statisch");
   } finally {
     restore();
   }

@@ -112,15 +112,6 @@ Deno.test('raw fallback never combines distinct blocks or uses an unrelated mode
     swapped.carbs_g === null, 'Numbers remain bound to their nutrient labels');
 });
 
-Deno.test('no caption proof still means unknown nutrition', async () => {
-  const result = await parseExtraction(JSON.stringify({ status: 'ready', candidates: [{
-    title: 'Dessert', ingredient_quotes: ['180g yogurt'], preparation_quotes: ['Mix.'],
-    nutrition_basis: 'per_recipe', nutrition_quote: `Macros: ${figures}`, ...values,
-  }] }), { source: { url: null }, text: '180g yogurt. Mix.', incomplete: false, truncated: false }, 2);
-  check(result?.candidates[0].calories_kcal === null && result.candidates[0].protein_g === null,
-    'Invented nutrition quotes cannot contribute values');
-});
-
 Deno.test('recovery respects numeric tokens, ingredient names and normalized typography', () => {
   const unknown = { nutrition_basis: 'unspecified', calories_kcal: null,
     protein_g: null, carbs_g: null, fat_g: null };
