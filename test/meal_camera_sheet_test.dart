@@ -40,6 +40,11 @@ class _FakeCameraPlatform extends CameraPlatform
   /// Simulates a plugin error that is NOT a permission problem.
   bool failGeneric = false;
 
+  /// Flash modes set by the sheet; [noTorch] makes the call fail like a
+  /// device without a flash unit.
+  final List<FlashMode> flashModes = <FlashMode>[];
+  bool noTorch = false;
+
   final StreamController<DeviceOrientationChangedEvent> _orientationEvents =
       StreamController<DeviceOrientationChangedEvent>.broadcast();
   final StreamController<CameraErrorEvent> _errorEvents =
@@ -110,6 +115,12 @@ class _FakeCameraPlatform extends CameraPlatform
     DeviceOrientation orientation,
   ) async {
     lockCalls.add(orientation);
+  }
+
+  @override
+  Future<void> setFlashMode(int cameraId, FlashMode mode) async {
+    if (noTorch) throw CameraException('setFlashModeFailed', 'No flash');
+    flashModes.add(mode);
   }
 
   @override
@@ -246,8 +257,9 @@ void main() {
                 '${tester.getRect(find.byKey(const ValueKey('meal-camera-failed')))}');
       } else {
         expect(find.byType(CameraPreview), findsOneWidget);
-        expect(find.byKey(const ValueKey('meal-camera-shutter')).hitTestable(),
-            findsOneWidget);
+        for (final key in ['meal-camera-shutter', 'meal-camera-torch']) {
+          expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
+        }
       }
       expect(tester.takeException(), isNull);
     });
@@ -293,6 +305,31 @@ void main() {
       tester.getSemantics(find.bySemanticsLabel(deL10n.foodFromGalleryTooltip)),
       isSemantics(isButton: true, isEnabled: true, hasTapAction: true),
     );
+    semantics.dispose();
+  });
+
+  testWidgets('die Taschenlampe schaltet Licht an und aus und verschwindet '
+      'ohne Blitz am Geraet', (tester) async {
+    final fake = _FakeCameraPlatform();
+    CameraPlatform.instance = fake;
+    final semantics = tester.ensureSemantics();
+    await _pumpSheet(tester);
+    final torch = find.byKey(const ValueKey('meal-camera-torch'));
+
+    await tester.tap(torch);
+    await _flush(tester);
+    expect(
+      tester.getSemantics(find.bySemanticsLabel(deL10n.foodTorchLabel)),
+      isSemantics(isButton: true, hasToggledState: true, isToggled: true),
+    );
+    await tester.tap(torch);
+    await _flush(tester);
+    expect(fake.flashModes, [FlashMode.torch, FlashMode.off]);
+
+    fake.noTorch = true;
+    await tester.tap(torch);
+    await _flush(tester);
+    expect(torch, findsNothing);
     semantics.dispose();
   });
 

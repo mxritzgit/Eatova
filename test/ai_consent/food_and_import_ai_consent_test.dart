@@ -101,11 +101,18 @@ class _ImportService implements RecipeImportService {
   }
 }
 
-Future<({_CountingPhotos photos, DescribeHost describe})> _openAddSheet(
+typedef _AddSheet = ({
+  _CountingPhotos photos,
+  _CountingCamera camera,
+  DescribeHost describe,
+});
+
+Future<_AddSheet> _openAddSheet(
   WidgetTester tester,
   AiTrustController controller,
 ) async {
   final photos = _CountingPhotos();
+  final camera = _CountingCamera();
   final h = DescribeHost();
   phoneViewport(tester);
   await tester.pumpWidget(
@@ -120,6 +127,7 @@ Future<({_CountingPhotos photos, DescribeHost describe})> _openAddSheet(
               analyzer: _CountingAnalyzer(),
               productService: _NoProducts(),
               photoInput: photos,
+              cameraLauncher: camera,
               favorites: const [],
               onAdd: h.onAdd,
               onUpdateMeal: (_, _) {},
@@ -139,7 +147,7 @@ Future<({_CountingPhotos photos, DescribeHost describe})> _openAddSheet(
   );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
-  return (photos: photos, describe: h);
+  return (photos: photos, camera: camera, describe: h);
 }
 
 Future<void> _tapEntry(WidgetTester tester, String key) async {
@@ -152,9 +160,9 @@ Future<void> _tapEntry(WidgetTester tester, String key) async {
 
 void main() {
   group('Add-Sheet', () {
-    for (final (key, source) in <(String, ImageSource)>[
-      ('analyse-camera-button', ImageSource.camera),
-      ('analyse-gallery-button', ImageSource.gallery),
+    for (final (key, opens) in <(String, int Function(_AddSheet))>[
+      ('analyse-camera-button', (sheet) => sheet.camera.launches),
+      ('analyse-gallery-button', (sheet) => sheet.photos.picks.length),
     ]) {
       testWidgets('$key fragt vor der Auswahl; "Nicht jetzt" oeffnet nichts', (
         tester,
@@ -165,15 +173,15 @@ void main() {
 
         await _tapEntry(tester, key);
         expect(_consentSheet, findsOneWidget);
-        expect(opened.photos.picks, isEmpty);
+        expect(opens(opened), 0);
 
         await _notNow(tester);
-        expect(opened.photos.picks, isEmpty);
+        expect(opens(opened), 0);
         expect(log.rows, isEmpty);
 
         await _tapEntry(tester, key);
         await _agree(tester);
-        expect(opened.photos.picks, <ImageSource>[source]);
+        expect(opens(opened), 1);
         expect(log.rows.single.granted, isTrue);
       });
     }

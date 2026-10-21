@@ -297,7 +297,7 @@ void main() {
     await _oeffneScanner(tester, platform, _Ergebnis());
 
     expect(
-      tester.getSemantics(find.bySemanticsLabel(deL10n.foodBarcodeTorchLabel)),
+      tester.getSemantics(find.bySemanticsLabel(deL10n.foodTorchLabel)),
       isSemantics(
         isButton: true,
         hasTapAction: true,

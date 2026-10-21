@@ -9,6 +9,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
+import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/theme/meal_slot_style.dart';
@@ -23,6 +24,19 @@ class _Photos implements MealPhotoInput {
   @override
   Future<MealPhotoSelection?> pick(ImageSource source) async {
     sources.add(source);
+    return null;
+  }
+}
+
+/// Records the slot each launch starts on; the user cancels.
+class _Camera implements MealCameraLauncher {
+  final slots = <MealSlot>[];
+  @override
+  Future<MealCameraCapture?> launch(
+    BuildContext context, {
+    required MealSlot initialSlot,
+  }) async {
+    slots.add(initialSlot);
     return null;
   }
 }
@@ -65,6 +79,7 @@ Future<void> _open(
   WidgetTester tester, {
   bool searchMode = false,
   _Photos? photos,
+  _Camera? camera,
   _Products? products,
   Brightness brightness = Brightness.light,
   Locale locale = const Locale('de'),
@@ -88,6 +103,7 @@ Future<void> _open(
           searchMode: searchMode,
           analyzer: _Analyzer(),
           photoInput: photos ?? _Photos(),
+          cameraLauncher: camera ?? _Camera(),
           productService: products ?? _Products(),
           favorites: [
             for (var i = 0; i < 5; i++)
@@ -138,25 +154,25 @@ void main() {
   }
 
   testWidgets(
-    'capture choices call the intended photo source without logging',
+    'the camera opens the in-app panel in the sheet slot, the gallery the '
+    'picker, neither logs',
     (tester) async {
       final photos = _Photos();
-      await _open(tester, photos: photos);
-      for (final source in [ImageSource.camera, ImageSource.gallery]) {
-        final action = _key(
-          source == ImageSource.camera
-              ? 'analyse-camera-button'
-              : 'analyse-gallery-button',
-        );
+      final camera = _Camera();
+      await _open(tester, photos: photos, camera: camera);
+      for (final key in ['analyse-camera-button', 'analyse-gallery-button']) {
+        final action = _key(key);
         await tester.ensureVisible(action);
         await tester.pumpAndSettle();
         await tester.tap(action);
         await tester.pumpAndSettle();
-        expect(photos.sources.last, source);
         expect(_key('add-meal-sheet'), findsOneWidget);
         expect(tester.takeException(), isNull);
       }
-      expect(photos.sources, [ImageSource.camera, ImageSource.gallery]);
+      // The full-screen system camera (the picker's camera source) is never
+      // asked.
+      expect(camera.slots, [MealSlot.lunch]);
+      expect(photos.sources, [ImageSource.gallery]);
     },
   );
 
