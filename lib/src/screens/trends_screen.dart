@@ -8,8 +8,10 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../l10n/l10n.dart';
+import '../models/user_profile.dart' show paceLabelForWeeklyRateKg;
 import '../models/weight_log.dart';
 import '../services/day_math.dart';
+import '../services/energy_check.dart' show WeightTrendLine;
 import '../services/kcal_format.dart';
 import '../services/trend_report.dart';
 import '../services/trend_service.dart';
@@ -1179,9 +1181,10 @@ class _StepsChartState extends State<_StepsChart> {
 }
 
 /// Weight: the change from the first to the last weigh-in day of the range,
-/// both values, the number of weigh-ins and the weekly rate, with a line of
-/// the weigh-ins. Raw weigh-ins, not the smoothed trend: the section reports
-/// what was measured.
+/// both values and the number of weigh-ins, with a line of the weigh-ins.
+/// Raw weigh-ins, not the smoothed trend: the section reports what was
+/// measured. The weekly rate is the Monday card's measure over the range,
+/// drawn as a straight line through the weigh-ins (2026-10-22).
 class _WeightCard extends StatelessWidget {
   const _WeightCard({required this.report});
 
@@ -1226,10 +1229,12 @@ class _WeightCard extends StatelessWidget {
                       key: const ValueKey('trends-weight-line'),
                       painter: _WeightLinePainter(
                         points: weight.points,
+                        trend: weight.line,
                         firstDay: report.firstDay,
                         days: report.range.days,
                         lineColor: context.t.ink,
                         dotColor: context.t.ink,
+                        trendColor: context.t.accent,
                         gridColor: context.t.line,
                       ),
                       size: Size.infinite,
@@ -1238,7 +1243,7 @@ class _WeightCard extends StatelessWidget {
                 ),
                 if (rate != null)
                   _Fact(
-                    l10n.trendsWeightRate(_signedKg(rate, l10n, digits: 2)),
+                    l10n.trendsWeightRate(paceLabelForWeeklyRateKg(rate, l10n)),
                     key: const ValueKey('trends-weight-rate'),
                   ),
               ],
@@ -1250,15 +1255,10 @@ class _WeightCard extends StatelessWidget {
       NumberFormat('0.0', l10n.localeName).format((kg * 10).round() / 10);
 
   /// U+2212 as minus, as everywhere else in the app.
-  static String _signedKg(
-    double kg,
-    AppLocalizations l10n, {
-    int digits = 1,
-  }) {
-    final factor = math.pow(10, digits);
-    final rounded = (kg * factor).round() / factor;
+  static String _signedKg(double kg, AppLocalizations l10n) {
+    final rounded = (kg * 10).round() / 10;
     final text = NumberFormat(
-      digits == 1 ? '0.0' : '0.00',
+      '0.0',
       l10n.localeName,
     ).format(rounded.abs());
     if (rounded == 0) return text;
@@ -1267,21 +1267,25 @@ class _WeightCard extends StatelessWidget {
 }
 
 /// The weigh-ins of the range as a line with dots, placed on the range's
-/// calendar so gaps between weigh-ins stay visible as distance.
+/// calendar so gaps between weigh-ins stay visible as distance, and the
+/// weekly check's straight line through them ([trend]) when it has one.
 class _WeightLinePainter extends CustomPainter {
   _WeightLinePainter({
     required this.points,
+    this.trend,
     required this.firstDay,
     required this.days,
     required this.lineColor,
     required this.dotColor,
+    required this.trendColor,
     required this.gridColor,
   });
 
   final List<({DateTime day, double kg})> points;
+  final WeightTrendLine? trend;
   final DateTime firstDay;
   final int days;
-  final Color lineColor, dotColor, gridColor;
+  final Color lineColor, dotColor, trendColor, gridColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1293,9 +1297,16 @@ class _WeightLinePainter extends CustomPainter {
       size.width - pad,
       size.height - pad,
     );
+    final line = trend;
+    final ends = line == null
+        ? const <({DateTime day, double kg})>[]
+        : [
+            (day: line.firstDay, kg: line.kgOn(line.firstDay)),
+            (day: line.lastDay, kg: line.kgOn(line.lastDay)),
+          ];
     var lo = points.first.kg;
     var hi = points.first.kg;
-    for (final point in points) {
+    for (final point in [...points, ...ends]) {
       lo = math.min(lo, point.kg);
       hi = math.max(hi, point.kg);
     }
@@ -1328,11 +1339,22 @@ class _WeightLinePainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = lineColor.withValues(alpha: 0.75)
-        ..strokeWidth = 1.6
+        // A step back once the trend line carries the direction.
+        ..color = lineColor.withValues(alpha: line == null ? 0.75 : 0.3)
+        ..strokeWidth = line == null ? 1.6 : 1.2
         ..style = PaintingStyle.stroke
         ..strokeJoin = StrokeJoin.round,
     );
+    if (ends.length == 2) {
+      canvas.drawLine(
+        at(ends.first),
+        at(ends.last),
+        Paint()
+          ..color = trendColor
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round,
+      );
+    }
     final dot = Paint()..color = dotColor;
     for (final point in points) {
       canvas.drawCircle(at(point), 2.4, dot);
@@ -1342,10 +1364,12 @@ class _WeightLinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _WeightLinePainter old) =>
       !listEquals(old.points, points) ||
+      old.trend != trend ||
       old.firstDay != firstDay ||
       old.days != days ||
       old.lineColor != lineColor ||
       old.dotColor != dotColor ||
+      old.trendColor != trendColor ||
       old.gridColor != gridColor;
 }
 

@@ -3775,7 +3775,7 @@
   "trendsWeightSingle": "Nur eine Wiegung in diesem Zeitraum.",
   "trendsWeightFromTo": "{from} → {to} kg, {count, plural, one{1 Wiegung} other{{count} Wiegungen}}",
   "@trendsWeightFromTo": {"placeholders": {"from": {"type": "String"}, "to": {"type": "String"}, "count": {"type": "int"}}},
-  "trendsWeightRate": "{rate} kg pro Woche",
+  "trendsWeightRate": "Gemessenes Tempo: {rate}",
   "@trendsWeightRate": {"placeholders": {"rate": {"type": "String"}}},
   "trendsTrainingTitle": "TRAINING",
   "trendsTrainingCount": "{count, plural, =0{Kein Training} one{1 Training} other{{count} Trainings}}",

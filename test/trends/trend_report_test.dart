@@ -6,6 +6,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/weight_log.dart';
+import 'package:eatova/src/services/energy_check.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/trend_report.dart';
 import 'package:eatova/src/services/trend_service.dart';
@@ -291,7 +292,33 @@ void main() {
       expect(weight.first, (day: _day(20), kg: 80.6));
       expect(weight.last, (day: _day(0), kg: 79.4));
       expect(weight.changeKg, closeTo(-1.2, 1e-9));
-      expect(weight.kgPerWeek, closeTo(-1.2 / 20 * 7, 1e-9));
+    });
+
+    test('die Rate ist die des Wochen-Checks, nicht erste zu letzter', () {
+      // Down 1.4 kg over two weeks, then one high reading: first to last
+      // says +0.04 kg/week, the regression the Monday card uses about −0.15.
+      final weighIns = [
+        for (final (back, kg) in [
+          (20, 80.0),
+          (16, 79.5),
+          (12, 79.1),
+          (8, 78.8),
+          (4, 78.6),
+          (1, 80.1),
+        ])
+          at(back, 7, kg),
+      ];
+      final weight = _build(TrendRange.month, weighIns: weighIns).weight!;
+      expect(weight.changeKg, greaterThan(0));
+      expect(weight.kgPerWeek, closeTo(-0.154, 0.001));
+      expect(
+        weight.kgPerWeek,
+        EnergyCheck.weightRate(
+          WeightLog(entries: weighIns),
+          today: _day(0),
+        ).kgPerWeek,
+        reason: 'the same window holds the same weigh-ins: one rate',
+      );
     });
 
     test(

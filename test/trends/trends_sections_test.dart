@@ -56,6 +56,10 @@ TrendLocalData _local({
           weightKg: 80.2,
         ),
         WeightLogEntry(
+          timestamp: _day(5).add(const Duration(hours: 7)),
+          weightKg: 79.8,
+        ),
+        WeightLogEntry(
           timestamp: _day(1).add(const Duration(hours: 7)),
           weightKg: 79.6,
         ),
@@ -138,11 +142,11 @@ void main() {
       await _scrollTo(tester, 'trends-weight');
       final weight = _textIn('trends-weight');
       expect(weight, contains('−1,4 kg'));
-      expect(weight, contains('81,0 → 79,6 kg, 3 Wiegungen'));
+      expect(weight, contains('81,0 → 79,6 kg, 4 Wiegungen'));
       expect(
         weight,
-        contains('−0,52 kg pro Woche'),
-        reason: '−1.4 kg over 19 days',
+        contains('Gemessenes Tempo: −0,55 kg/Woche'),
+        reason: 'the regression of the four days, −0.527 kg/week',
       );
 
       await _scrollTo(tester, 'trends-training');

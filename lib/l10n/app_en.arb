@@ -3683,7 +3683,7 @@
   "trendsWeightEmpty": "No weigh-in in this range.",
   "trendsWeightSingle": "Only one weigh-in in this range.",
   "trendsWeightFromTo": "{from} → {to} kg, {count, plural, one{1 weigh-in} other{{count} weigh-ins}}",
-  "trendsWeightRate": "{rate} kg per week",
+  "trendsWeightRate": "Measured pace: {rate}",
   "trendsTrainingTitle": "TRAINING",
   "trendsTrainingCount": "{count, plural, =0{No workouts} one{1 workout} other{{count} workouts}}",
   "trendsTrainingPerWeek": "Avg {count} per week",
