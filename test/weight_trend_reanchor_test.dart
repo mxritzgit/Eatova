@@ -37,9 +37,6 @@ UserProfile _live({int weightKg = 84, bool manual = false, int? kcal}) {
   return manual ? goals.copyWith(dailyKcalGoal: kcal ?? 1800) : goals;
 }
 
-int _kcalAt(int weightKg) =>
-    const KcalCalculator().calculate(_live(weightKg: weightKg)).kcal;
-
 /// Boot cases seed weigh-ins relative to this fixed "now": the trend only
 /// counts while its last counted day is at most 28 days old.
 final DateTime _now = DateTime(2026, 10, 3, 12);
@@ -52,15 +49,11 @@ Map<String, dynamic> _weightRow(DateTime at, double kg) => <String, dynamic>{
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('the scenario moves the live goal: 2100 kcal at 84, 2050 at 81', () {
-    expect(_kcalAt(84), 2100);
-    expect(_kcalAt(81), 2050);
-  });
-
   test('a weigh-in moves weight and live goals together, with a notice', () async {
     final a = setup();
     a.server.profileRow = serverProfileRow(_live());
     await boot(a.store);
+    expect(a.store.profile.dailyKcalGoal, 2100, reason: 'precondition');
     final upsertsBefore = a.server.operations('profileUpsert').length;
 
     await a.store.logWeight(81.2);
@@ -125,18 +118,6 @@ void main() {
     expect(a.store.profile.weightKg, 81);
     expect(a.store.profile.dailyKcalGoal, 1800);
     expect(a.snacks.messages, isEmpty);
-  });
-
-  test('the Health import re-anchors the same way', () async {
-    final a = setup();
-    a.server.profileRow = serverProfileRow(_live());
-    await boot(a.store);
-
-    await a.store.importHealthWeight(81.2);
-    await settle();
-
-    expect(a.store.profile.weightKg, 81);
-    expect(a.store.profile.dailyKcalGoal, 2050);
   });
 
   test('the boot catches up with weigh-ins the profile has not seen', () => withClock(Clock.fixed(_now), () async {

@@ -1,10 +1,13 @@
 // Visual evidence for the trends page with every section (2026-10-18):
 // calories, macros, steps, weight and training over 30 days and six months,
-// plus Today's trends card. With --dart-define=DARK_REDESIGN_CAPTURE=true the
+// the first-load skeleton, the empty and the error state, plus Today's
+// trends card. With --dart-define=DARK_REDESIGN_CAPTURE=true the
 // PNGs land in build/dark-redesign/trends-full-*.png (light:
 // DESIGN_CAPTURE_BRIGHTNESS=light); without it the suite still checks that
 // every state renders without an exception or overflow, at 320 px with 2x
 // text too.
+
+import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -76,6 +79,27 @@ Future<void> _pumpPage(WidgetTester tester, {Size? size, double? scale}) async {
         scaffold: false,
         safeArea: false,
         textScale: scale ?? 1,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  expect(tester.takeException(), isNull);
+}
+
+/// The page over [loader] alone, without the store's sections.
+Future<void> _pumpServerOnly(
+  WidgetTester tester,
+  TrendTotalsLoader loader,
+) async {
+  pinDesignViewport(tester);
+  await tester.pumpWidget(
+    designCaptureBoundary(
+      localizedApp(
+        // A fresh state per pump: the loader runs in initState only.
+        TrendsScreen(key: UniqueKey(), kcalGoal: 2200, loadTotals: loader),
+        locale: const Locale('en'),
+        scaffold: false,
+        safeArea: false,
       ),
     ),
   );
@@ -162,6 +186,23 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       await captureDesignShot(tester, 'trends-full-today-card');
+    });
+  });
+
+  testWidgets('trends: first load, empty and error states', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final pending = Completer<List<TrendDayTotals>>();
+      await _pumpServerOnly(tester, () => pending.future);
+      expect(find.byKey(const ValueKey('trends-loading')), findsOneWidget);
+      await captureDesignShot(tester, 'trends-loading');
+      pending.complete(const <TrendDayTotals>[]);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('trends-empty')), findsOneWidget);
+      await captureDesignShot(tester, 'trends-empty');
+
+      await _pumpServerOnly(tester, () async => throw StateError('offline'));
+      expect(find.byKey(const ValueKey('trends-error')), findsOneWidget);
+      await captureDesignShot(tester, 'trends-error');
     });
   });
 }

@@ -89,7 +89,8 @@ Future<void> _openSheet(WidgetTester tester, {double textScale = 1.0}) async {
 }
 
 void main() {
-  for (final scale in [1.0, 2.0]) {
+  // The largest app text scale; at 1x the cell only has more room.
+  for (final scale in [2.0]) {
     testWidgets('bei ${scale}x Schrift bleiben Wochentag und Zahl im Tag', (
       tester,
     ) => withClockAt(_mittag, () async {

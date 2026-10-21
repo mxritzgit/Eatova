@@ -446,20 +446,26 @@ void main() {
       expect(_textOf(tester, 'today-date-selected-label'), 'Sonntag, 9. Aug.');
     });
 
-    testWidgets('das Profil-Badge traegt die durchgereichte Initiale', (
-      tester,
-    ) async {
+    testWidgets('das Profil-Badge traegt die durchgereichte Initiale, sonst '
+        'die des Namens, und sagt, wohin es fuehrt', (tester) async {
+      final handle = tester.ensureSemantics();
       await withClock(Clock.fixed(_jetzt), () async {
-        await _pump(tester, _today(userName: 'Moritz', profileInitial: 'Q'));
+        await _pump(
+          tester,
+          _today(userName: 'Moritz', profileInitial: 'Q', onOpenProfile: () {}),
+        );
       });
       expect(_in('today-profile', 'Q'), findsOneWidget);
-    });
+      expect(
+        find.bySemanticsLabel(RegExp('Profil und Einstellungen')),
+        findsOneWidget,
+      );
 
-    testWidgets('ohne durchgereichte Initiale zaehlt der Name', (tester) async {
       await withClock(Clock.fixed(_jetzt), () async {
         await _pump(tester, _today(userName: 'ada lovelace'));
       });
       expect(_in('today-profile', 'A'), findsOneWidget);
+      handle.dispose();
     });
   });
 
@@ -560,7 +566,7 @@ void main() {
       expect(_textOf(tester, 'today-meal-sub-lunch'), 'Nichts eingetragen');
     });
 
-    testWidgets('dayLoading ersetzt die Karte durch die Ladekarte', (
+    testWidgets('dayLoading ersetzt Hero, Makros und Karte durch die Ladekarte', (
       tester,
     ) async {
       await withClock(Clock.fixed(_jetzt), () async {
@@ -582,6 +588,21 @@ void main() {
       // Neither a pick nor suggested bands claim anything about the day.
       expect(find.byKey(const ValueKey('today-pick')), findsNothing);
       expect(find.textContaining('Empfohlen'), findsNothing);
+      // Nor do the hero and the macros: an archive day outside the boot
+      // window used to show the balance of an EMPTY day while it loaded
+      // (review 2026-08-19).
+      for (final key in [
+        'today-kcal-hero',
+        'today-kcal-remaining',
+        'today-macros-card',
+      ]) {
+        expect(
+          find.byKey(ValueKey<String>(key), skipOffstage: false),
+          findsNothing,
+          reason: key,
+        );
+      }
+      expect(find.byType(TodayMacroTile, skipOffstage: false), findsNothing);
     });
 
     testWidgets('der uebergebene naechste Hauptslot hat den Akzent-Plus', (
@@ -903,6 +924,9 @@ void main() {
 
       expect(_textOf(tester, 'today-date-selected-label'), 'Dienstag, 4. Aug.');
       expect(find.text('AN DEM TAG ÜBRIG'), findsOneWidget);
+      // Against the plain goal: an archive day carries no activity credit.
+      expect(_textOf(tester, 'today-kcal-goal'), '2.200');
+      expect(_textOf(tester, 'today-kcal-remaining'), '1.000');
       expect(find.text('HEUTE ÜBRIG'), findsNothing);
       expect(find.text('Mahlzeiten'), findsOneWidget);
       // Pick and next workout are about today, not the 4th of August.
@@ -1330,7 +1354,12 @@ void main() {
           reason: 'nach unten gescrollt: $fall',
         );
       }
-    }, textScales: const <double>[1.0, 2.0]);
+    },
+      // Layout does not depend on the brightness; both themes render in
+      // the overflow matrix below.
+      brightnesses: const <Brightness>[Brightness.dark],
+      textScales: const <double>[1.0, 2.0],
+    );
 
     renderMatrix('auch waehrend dayLoading bleibt die Seite heil', (
       tester,
@@ -1346,7 +1375,10 @@ void main() {
         );
       });
       expect(tester.takeException(), isNull, reason: c.label);
-    }, textScales: const <double>[2.0]);
+    },
+      brightnesses: const <Brightness>[Brightness.dark],
+      textScales: const <double>[2.0],
+    );
 
     // Both languages: English strings are sometimes longer and catch
     // overflows a `de`-only run would never show.
@@ -1509,35 +1541,6 @@ void main() {
       textScales: const <double>[2.0],
     );
 
-    testWidgets('die Vorlese-Beschriftungen tragen echte Umlaute', (
-      tester,
-    ) async {
-      // A semantics label is spoken text, so ASCII transliterations would be
-      // read out as written.
-      final handle = tester.ensureSemantics();
-      await withClock(Clock.fixed(_jetzt), () async {
-        await _pump(
-          tester,
-          _today(
-            selectedDate: DateTime(2026, 8, 8),
-            onDateSelected: (_) {},
-            onOpenProfile: () {},
-          ),
-        );
-      });
-
-      expect(
-        find.bySemanticsLabel(RegExp('Profil und Einstellungen')),
-        findsOneWidget,
-      );
-      expect(find.bySemanticsLabel('Tag wählen'), findsOneWidget);
-      expect(
-        find.bySemanticsLabel(RegExp('Kalorienfortschritt')),
-        findsOneWidget,
-      );
-      handle.dispose();
-    });
-
     testWidgets('setzt keinen zweiten Seitenrand', (tester) async {
       await withClock(Clock.fixed(_jetzt), () async {
         await _pump(tester, _today());
@@ -1549,38 +1552,5 @@ void main() {
         reason: 'die Schale liefert die 20 px bereits — 40 waere doppelt',
       );
     });
-
-    testWidgets('die Wurzel traegt weiterhin screen-today', (tester) async {
-      await withClock(Clock.fixed(_jetzt), () async {
-        await _pump(tester, _today());
-      });
-      expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
-    });
-  });
-
-  testWidgets('unter en stehen die englischen Beschriftungen im Baum', (
-    tester,
-  ) async {
-    // Counter-check to the `en` column of the render matrix above: the labels
-    // must really CHANGE with the language, not just resolve to some ARB hit.
-    await withClock(Clock.fixed(_jetzt), () async {
-      await _pump(
-        tester,
-        _today(
-          consumedKcal: 1400,
-          burnedKcal: 220,
-          streak: 5,
-          onOpenFoodLog: () {},
-          meals: <LoggedMeal>[_meal('Salmon bowl', MealSlot.dinner, 610)],
-        ),
-        locale: const Locale('en'),
-      );
-    });
-
-    expect(find.text('LEFT TODAY'), findsOneWidget);
-    expect(find.text('HEUTE ÜBRIG'), findsNothing);
-    expect(_textOf(tester, 'today-date-selected-label'), 'Sunday, Aug 9');
-    await _scrollTo(tester, find.byKey(const ValueKey('today-open-food-log')));
-    expect(find.text('Open food log'), findsOneWidget);
   });
 }

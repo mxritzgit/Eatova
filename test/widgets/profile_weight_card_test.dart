@@ -59,18 +59,14 @@ Future<void> _pumpCard(
 
 void main() {
   group('Delta-Pille', () {
-    testWidgets('nennt eine Abnahme mit echtem Minuszeichen und Komma', (
+    testWidgets('nennt Ab- und Zunahme mit echtem Vorzeichen und Komma', (
       tester,
     ) async {
       await _pumpCard(tester, log: _log([80.0, 78.8]));
-
       expect(find.text('−1,2 kg'), findsOneWidget);
       expect(find.text('-1.2 kg'), findsNothing);
-    });
 
-    testWidgets('nennt eine Zunahme mit Pluszeichen', (tester) async {
       await _pumpCard(tester, log: _log([78.8, 80.0]));
-
       expect(find.text('+1,2 kg'), findsOneWidget);
     });
 

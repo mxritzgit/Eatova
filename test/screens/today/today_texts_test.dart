@@ -51,21 +51,17 @@ void main() {
   });
 
   group('kcalThousands — verhaltensgleich zu _formatThousands', () {
-    test('Tausenderpunkte ab vier Stellen', () {
+    test('Tausendertrenner ab vier Stellen, je Sprache, mit Vorzeichen', () {
       expect(kcalThousands(0, _de), '0');
       expect(kcalThousands(999, _de), '999');
       expect(kcalThousands(1000, _de), '1.000');
       expect(kcalThousands(2200, _de), '2.200');
       expect(kcalThousands(12345, _de), '12.345');
       expect(kcalThousands(1234567, _de), '1.234.567');
-    });
-
-    test('das Minuszeichen steht vor der Gruppierung', () {
+      // The minus sign stands before the grouping.
       expect(kcalThousands(-1234, _de), '-1.234');
       expect(kcalThousands(-42, _de), '-42');
-    });
-
-    test('unter en steht ein Komma statt des Punkts', () {
+      // en groups with a comma.
       final en = lookupAppLocalizations(const Locale('en'));
       expect(kcalThousands(2200, en), '2,200');
       expect(kcalThousands(1234567, en), '1,234,567');
@@ -78,7 +74,7 @@ void main() {
     // correct.
     final montagNachUmstellung = DateTime(2026, 3, 30);
 
-    test('Heute / Gestern / Vor N Tagen', () {
+    test('Heute / Gestern / Vor N Tagen, unabhaengig von der Uhrzeit', () {
       expect(
         todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 30), _de),
         'Heute',
@@ -91,9 +87,7 @@ void main() {
         todayDateLabel(montagNachUmstellung, DateTime(2026, 3, 25), _de),
         'Vor 5 Tagen',
       );
-    });
-
-    test('die Uhrzeit spielt keine Rolle', () {
+      // The time of day plays no role.
       expect(
         todayDateLabel(
           DateTime(2026, 8, 9, 23, 59),
@@ -172,18 +166,13 @@ void main() {
   });
 
   group('todayInitial — gespiegelt zu HomeStore.profileInitial', () {
-    test('erster Buchstabe des Vornamens, gross', () {
+    test('erster Buchstabe des Vornamens, gross, sonst S', () {
       expect(todayInitial('Moritz'), 'M');
       expect(todayInitial('moritz kern'), 'M');
       expect(todayInitial('  ada  lovelace '), 'A');
-    });
-
-    test('leerer Name faellt auf S zurueck', () {
+      // An empty name falls back to S; an emoji stays one whole character.
       expect(todayInitial(''), 'S');
       expect(todayInitial('   '), 'S');
-    });
-
-    test('ein Emoji am Anfang bleibt ein ganzes Zeichen', () {
       expect(todayInitial('😀 Anna'), '😀');
     });
   });

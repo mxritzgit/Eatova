@@ -63,14 +63,15 @@ void main() {
         final report = _build(
           TrendRange.week,
           totals: [
-            _totals(0, 300, protein: 10),
+            // Complete by the half-goal rule, so only B6 keeps it out.
+            _totals(0, 1500, protein: 10),
             _totals(1, 2000, protein: 150),
             _totals(2, 2400, protein: 90),
           ],
           goals: const TrendGoals(kcal: 2000, proteinG: 120),
         );
         expect(report.window, hasLength(7));
-        expect(report.window.last!.kcal, 300);
+        expect(report.window.last!.kcal, 1500);
         expect(report.firstDay, _day(6));
         expect(report.avgKcal, 2200);
         expect(report.loggedDays, 2);
@@ -188,8 +189,9 @@ void main() {
       final report = _build(
         TrendRange.halfYear,
         totals: [
-          // Today's partial day must not drag the last week down.
-          _totals(0, 200),
+          // Today, though complete by the half-goal rule, stays out of its
+          // week's average.
+          _totals(0, 1800),
           _totals(1, 2000),
           _totals(2, 2400),
           // Day 7 belongs to the week before.

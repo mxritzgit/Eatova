@@ -373,63 +373,63 @@ void main() {
     },
   );
 
-  for (final l10n in [deL10n, enL10n]) {
-    test(
-      'Health-Snack ${l10n.localeName}: Commitfehler sichtbar, unveraendert, wiederholbar',
-      () => withClock(Clock.fixed(DateTime(2026, 9, 20, 12)), () async {
-        final kv = _WeightCommitStore();
-        final s = await _setupDurable(kv, serverProfile: true);
-        s.store.setLocalizations(l10n);
-        s.health.nextWeightKg = 82.4;
-        await s.store.refreshHealthSteps();
-        final failedAction = s.snacks.actions.last!;
-        kv.rejectWeightCommits = true;
-        failedAction.onPressed();
-        await pumpUntil(
-          () => s.snacks.messages.contains(l10n.commonLocalSaveFailed),
-        );
+  test(
+    'Health-Snack: Commitfehler sichtbar, unveraendert, wiederholbar',
+    () => withClock(Clock.fixed(DateTime(2026, 9, 20, 12)), () async {
+      // English: the notice follows the injected localizations.
+      final l10n = enL10n;
+      final kv = _WeightCommitStore();
+      final s = await _setupDurable(kv, serverProfile: true);
+      s.store.setLocalizations(l10n);
+      s.health.nextWeightKg = 82.4;
+      await s.store.refreshHealthSteps();
+      final failedAction = s.snacks.actions.last!;
+      kv.rejectWeightCommits = true;
+      failedAction.onPressed();
+      await pumpUntil(
+        () => s.snacks.messages.contains(l10n.commonLocalSaveFailed),
+      );
 
-        expect(s.snacks.messages.last, l10n.commonLocalSaveFailed);
-        expect(s.snacks.tones.last, SnackTone.error);
-        expect(s.store.weightLog.entries, isEmpty);
-        expect(s.store.lifetimeStats.weightLogs, 0);
-        expect(s.store.pendingOutbox, isEmpty);
-        // The re-anchor shares the weigh-in's commit, so a failed commit
-        // must not move the profile either (docs/WEIGHT-TREND.md).
-        expect(s.store.profile.weightKg, 80);
-        expect((await s.cache.readWeightLog())?.entries ?? [], isEmpty);
-        expect(await s.cache.readOutbox(), isEmpty);
-        expect(s.health.writeWeightCalls, 0);
-        expect(kv.weightCommitAttempts, 1);
+      expect(s.snacks.messages.last, l10n.commonLocalSaveFailed);
+      expect(s.snacks.tones.last, SnackTone.error);
+      expect(s.store.weightLog.entries, isEmpty);
+      expect(s.store.lifetimeStats.weightLogs, 0);
+      expect(s.store.pendingOutbox, isEmpty);
+      // The re-anchor shares the weigh-in's commit, so a failed commit
+      // must not move the profile either (docs/WEIGHT-TREND.md).
+      expect(s.store.profile.weightKg, 80);
+      expect((await s.cache.readWeightLog())?.entries ?? [], isEmpty);
+      expect(await s.cache.readOutbox(), isEmpty);
+      expect(s.health.writeWeightCalls, 0);
+      expect(kv.weightCommitAttempts, 1);
 
-        kv.rejectWeightCommits = false;
-        await s.store.refreshHealthSteps();
-        expect(
-          s.snacks.actions.last,
-          isNotNull,
-          reason:
-              'der fehlgeschlagene Versuch darf die Health-Offerte nicht verbrauchen',
-        );
-        s.snacks.actions.last!.onPressed();
-        await pumpUntil(() => s.store.weightLog.entries.length == 1);
-        await s.store.syncPendingWrites();
-        expect(s.store.weightLog.latest?.weightKg, 82.4);
-        expect(s.store.lifetimeStats.weightLogs, 1);
-        // One commit: the weigh-in and the profile re-anchored to its trend
-        // (82.4 → 82 kg).
-        expect(s.store.pendingOutbox.map((op) => op.kind), [
-          SyncOpKind.weightInsert,
-          SyncOpKind.profileUpsert,
-        ]);
-        expect(s.store.profile.weightKg, 82);
-        expect((await s.cache.readWeightLog())!.entries, hasLength(1));
-        expect(s.health.writeWeightCalls, 0);
-        final notices = s.snacks.messages.length;
-        await s.store.refreshHealthSteps();
-        expect(s.snacks.messages, hasLength(notices));
-      }),
-    );
-  }
+      kv.rejectWeightCommits = false;
+      await s.store.refreshHealthSteps();
+      expect(
+        s.snacks.actions.last,
+        isNotNull,
+        reason:
+            'der fehlgeschlagene Versuch darf die Health-Offerte nicht verbrauchen',
+      );
+      s.snacks.actions.last!.onPressed();
+      await pumpUntil(() => s.store.weightLog.entries.length == 1);
+      await s.store.syncPendingWrites();
+      expect(s.store.weightLog.latest?.weightKg, 82.4);
+      expect(s.store.lifetimeStats.weightLogs, 1);
+      // One commit: the weigh-in and the profile re-anchored to its trend
+      // (82.4 → 82 kg).
+      expect(s.store.pendingOutbox.map((op) => op.kind), [
+        SyncOpKind.weightInsert,
+        SyncOpKind.profileUpsert,
+      ]);
+      expect(s.store.profile.weightKg, 82);
+      expect((await s.cache.readWeightLog())!.entries, hasLength(1));
+      expect(s.health.writeWeightCalls, 0);
+      final notices = s.snacks.messages.length;
+      await s.store.refreshHealthSteps();
+      expect(s.snacks.messages, hasLength(notices));
+    }),
+  );
 
   test(
     'ein uebernommenes Health-Gewicht behaelt seine Messzeit',

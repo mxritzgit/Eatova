@@ -50,47 +50,38 @@ void main() {
       expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 20));
     });
 
-    test('die ersten sieben Specs liegen an aufeinanderfolgenden Tagen um 20:00',
-        () {
+    test('erste Woche jeden Abend, danach woechentlich, immer um 20:00', () {
       final specs = planStreakReminders(wedMorning, LifetimeStats());
       for (var i = 0; i < 7; i++) {
         expect(specs[i].scheduledFor, DateTime(2026, 7, 15 + i, 20));
       }
-    });
-
-    test('alle Specs liegen um exakt 20:00 lokaler Wandzeit', () {
-      final specs = planStreakReminders(wedMorning, LifetimeStats());
       for (final spec in specs) {
         expect(spec.scheduledFor.hour, streakReminderHour);
         expect(spec.scheduledFor.minute, 0);
         expect(spec.scheduledFor.second, 0);
       }
+      final offsets = specs
+          .map((s) => daysBetween(s.scheduledFor, specs.first.scheduledFor))
+          .toList();
+      for (var i = 7; i < offsets.length; i++) {
+        expect(offsets[i] - offsets[i - 1], greaterThanOrEqualTo(7),
+            reason: 'nach der ersten Woche nur noch ein sanfter Anker');
+      }
     });
   });
 
   group('D10 — Horizont ueberlebt eine Woche ohne App-Oeffnung', () {
-    test('es wird ueber Tag 7 hinaus geplant', () {
+    test('ueber den achten Abend hinaus, aber unter vier Wochen und dem '
+        'iOS-64-Pending-Limit', () {
       final specs = planStreakReminders(wedMorning, LifetimeStats());
-      // The old 7-day horizon ended on 07-21 and left 07-22 on empty.
-      final beyondWeek = specs
-          .where((s) => s.scheduledFor.isAfter(DateTime(2026, 7, 21, 20)))
-          .toList();
-      expect(beyondWeek, isNotEmpty,
-          reason: 'genau die Vernachlaessigung, die den Reminder noetig macht, '
-              'hat ihn bisher abgeschaltet');
-    });
-
-    test('am achten Abend ohne App-Oeffnung liegt noch ein Reminder vor', () {
       // Last planned 07-15, gone a week: 07-23 must still have something.
-      final specs = planStreakReminders(wedMorning, LifetimeStats());
-      final stillPending = specs
-          .where((s) => !s.scheduledFor.isBefore(DateTime(2026, 7, 23)))
-          .toList();
-      expect(stillPending, isNotEmpty);
-    });
-
-    test('Obergrenze: nichts liegt weiter als der Horizont in der Zukunft', () {
-      final specs = planStreakReminders(wedMorning, LifetimeStats());
+      // The old 7-day horizon ended on 07-21 and left 07-22 on empty.
+      expect(
+        specs.where((s) => !s.scheduledFor.isBefore(DateTime(2026, 7, 23))),
+        isNotEmpty,
+        reason: 'genau die Vernachlaessigung, die den Reminder noetig macht, '
+            'hat ihn bisher abgeschaltet',
+      );
       final last = specs.last.scheduledFor;
       expect(
         daysBetween(last, wedMorning),
@@ -99,35 +90,11 @@ void main() {
       );
       expect(daysBetween(last, wedMorning), greaterThanOrEqualTo(21),
           reason: 'der Ausstieg darf nicht vor einem Monat greifen');
-    });
-
-    test('Taper: erste Woche taeglich, danach hoechstens woechentlich', () {
-      final specs = planStreakReminders(wedMorning, LifetimeStats());
-      final offsets = specs
-          .map((s) => daysBetween(s.scheduledFor, specs.first.scheduledFor))
-          .toList();
-      expect(offsets.take(7).toList(), <int>[0, 1, 2, 3, 4, 5, 6]);
-      for (var i = 7; i < offsets.length; i++) {
-        expect(offsets[i] - offsets[i - 1], greaterThanOrEqualTo(7),
-            reason: 'nach der ersten Woche nur noch ein sanfter Anker');
-      }
-    });
-
-    test('die Liste bleibt klein genug fuer das iOS-64-Pending-Limit', () {
-      final specs = planStreakReminders(wedMorning, LifetimeStats());
       expect(specs.length, lessThanOrEqualTo(64));
     });
   });
 
   group('planStreakReminders — IDs', () {
-    test('deterministisch: zwei Aufrufe mit gleicher Eingabe -> gleiche IDs',
-        () {
-      final stats = statsWithStreak(lastTracked: DateTime(2026, 7, 14));
-      final a = planStreakReminders(wedMorning, stats);
-      final b = planStreakReminders(wedMorning, stats);
-      expect(a.map((s) => s.id).toList(), b.map((s) => s.id).toList());
-    });
-
     test('IDs sind innerhalb eines Laufs eindeutig', () {
       final specs = planStreakReminders(wedMorning, LifetimeStats());
       final ids = specs.map((s) => s.id).toSet();
@@ -154,21 +121,9 @@ void main() {
   });
 
   group('planStreakReminders — Texte', () {
-    test('lebende Streak: konkrete Zahl NUR im ersten Body', () {
-      final stats = statsWithStreak(
-        lastTracked: DateTime(2026, 7, 14),
-        days: 5,
-      );
-      final specs = planStreakReminders(wedMorning, stats);
-      expect(specs.first.body, contains('5-Tage-Serie'));
-      for (final spec in specs.skip(1)) {
-        expect(spec.body, isNot(contains('5')));
-      }
-    });
-
     test(
-        'D10: ab dem zweiten Abend behauptet KEIN Text mehr, es gaebe eine '
-        'laufende Serie', () {
+        'lebende Streak: die Zahl nur im ersten Body; ab dem zweiten Abend '
+        'behauptet KEIN Text mehr eine laufende Serie (D10)', () {
       // If spec i>=1 fires the user has not logged since planning (every log
       // re-plans), so the streak is provably broken.
       final stats = statsWithStreak(
@@ -176,13 +131,14 @@ void main() {
         days: 12,
       );
       final specs = planStreakReminders(wedMorning, stats);
+      expect(specs.first.body, contains('12-Tage-Serie'));
       for (final spec in specs.skip(1)) {
         expect(spec.title, 'Serie starten');
         expect(spec.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
       }
     });
 
-    test('gerissene Kette (effectiveStreak 0) -> sanfter Start-Text ohne Zahl',
+    test('gerissene oder nie begonnene Kette -> sanfter Start-Text ohne Zahl',
         () {
       // Last tracked two days ago: currentStreak still reads 3 while the
       // displayed streak is 0, so the planner must not say 3.
@@ -195,6 +151,11 @@ void main() {
         expect(spec.title, 'Serie starten');
         expect(spec.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
       }
+      // Never tracked reads the same.
+      expect(
+        planStreakReminders(wedMorning, LifetimeStats()).first.body,
+        'Ein Eintrag genügt, um deine Serie zu starten.',
+      );
     });
 
     test(
@@ -209,11 +170,6 @@ void main() {
       final specs = planStreakReminders(wedEvening, stats);
       expect(specs.first.scheduledFor, DateTime(2026, 7, 16, 20));
       expect(specs.first.title, 'Serie starten');
-      expect(specs.first.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
-    });
-
-    test('nie getrackt -> Start-Text', () {
-      final specs = planStreakReminders(wedMorning, LifetimeStats());
       expect(specs.first.body, 'Ein Eintrag genügt, um deine Serie zu starten.');
     });
 

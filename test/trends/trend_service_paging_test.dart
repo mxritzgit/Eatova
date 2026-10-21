@@ -13,6 +13,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:eatova/src/services/meals_sync.dart';
+import 'package:eatova/src/services/trend_report.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 final DateTime _now = DateTime(2026, 10, 18, 12);
@@ -82,13 +84,15 @@ int _kcal(List<TrendDayTotals> totals) =>
     totals.fold(0, (sum, day) => sum + day.kcal);
 
 void main() {
-  test('Fenster und Seiten: sechs Monate, Seiten so gross wie db-max-rows', () {
-    expect(TrendService.trendWindowDays, 182);
-    expect(TrendService.trendPageRows, 1000);
+  test('das Fenster deckt den laengsten Zeitraum, Seiten wie db-max-rows', () {
+    // Its own data path, longer than the diary's boot window.
+    expect(TrendService.trendWindowDays, TrendRange.values.last.days);
     expect(
-      TrendService.trendMaxRows,
-      TrendService.trendPageRows * TrendService.trendMaxPages,
+      TrendService.trendWindowDays,
+      greaterThan(MealsSync.loggedMealsWindowDays),
     );
+    // db-max-rows live (Management API, 2026-10-18).
+    expect(TrendService.trendPageRows, 1000);
     expect(
       TrendService.trendMaxRows / TrendService.trendWindowDays,
       greaterThanOrEqualTo(50),

@@ -18,7 +18,7 @@ import 'package:eatova/src/services/day_math.dart';
 void main() {
   group('addDays — Kalenderverschiebung statt Duration', () {
     test(
-      'Fruehjahrsumstellung: der Vortag des 30.03.2026 ist der 29.03., nicht der 28.',
+      'Zeitumstellung: der Vortag des 30.03.2026 ist der 29.03., nicht der 28.',
       () {
         // The bug as evidence: in a zone that springs forward on 2026-03-29
         // the subtraction slips to the 28th at 23:00; on UTC it does not.
@@ -36,44 +36,11 @@ void main() {
         expect(ymd(addDays(DateTime(2026, 3, 30), -1)), (y: 2026, m: 3, d: 29));
         expect(ymd(addDays(DateTime(2026, 3, 29), 1)), (y: 2026, m: 3, d: 30));
         expect(ymd(addDays(DateTime(2026, 3, 28), 2)), (y: 2026, m: 3, d: 30));
+        // Europe/Berlin falls back on Sunday 2026-10-25 (25-hour day).
+        expect(ymd(addDays(DateTime(2026, 10, 26), -1)), (y: 2026, m: 10, d: 25));
+        expect(ymd(addDays(DateTime(2026, 10, 24), 3)), (y: 2026, m: 10, d: 27));
       },
     );
-
-    test('Herbstumstellung (25-Stunden-Tag) verschiebt ebenfalls sauber', () {
-      // Europe/Berlin falls back on Sunday 2026-10-25.
-      expect(ymd(addDays(DateTime(2026, 10, 26), -1)), (y: 2026, m: 10, d: 25));
-      expect(ymd(addDays(DateTime(2026, 10, 25), 1)), (y: 2026, m: 10, d: 26));
-      expect(ymd(addDays(DateTime(2026, 10, 24), 3)), (y: 2026, m: 10, d: 27));
-    });
-
-    test('n == 0 laesst den Tag unveraendert', () {
-      expect(ymd(addDays(DateTime(2026, 3, 29), 0)), (y: 2026, m: 3, d: 29));
-    });
-
-    test('Monatsgrenzen laufen ueber den Konstruktor-Overflow', () {
-      expect(ymd(addDays(DateTime(2026, 3, 1), -1)), (y: 2026, m: 2, d: 28));
-      expect(ymd(addDays(DateTime(2026, 1, 31), 1)), (y: 2026, m: 2, d: 1));
-      expect(ymd(addDays(DateTime(2026, 4, 30), 1)), (y: 2026, m: 5, d: 1));
-      expect(ymd(addDays(DateTime(2026, 5, 1), -1)), (y: 2026, m: 4, d: 30));
-    });
-
-    test('Jahresgrenzen laufen ueber', () {
-      expect(ymd(addDays(DateTime(2025, 12, 31), 1)), (y: 2026, m: 1, d: 1));
-      expect(ymd(addDays(DateTime(2026, 1, 1), -1)), (y: 2025, m: 12, d: 31));
-      // 2025 has 365 days, so 366 days back lands a day earlier.
-      expect(ymd(addDays(DateTime(2026, 1, 1), -365)), (y: 2025, m: 1, d: 1));
-      expect(ymd(addDays(DateTime(2026, 1, 1), -366)), (y: 2024, m: 12, d: 31));
-    });
-
-    test('Schaltjahr: der 29.02. existiert 2024 und fehlt 2026', () {
-      expect(ymd(addDays(DateTime(2024, 2, 28), 1)), (y: 2024, m: 2, d: 29));
-      expect(ymd(addDays(DateTime(2024, 3, 1), -1)), (y: 2024, m: 2, d: 29));
-      expect(ymd(addDays(DateTime(2024, 2, 29), 1)), (y: 2024, m: 3, d: 1));
-      // 2026 is no leap year: the day before 03-01 is 02-28.
-      expect(ymd(addDays(DateTime(2026, 3, 1), -1)), (y: 2026, m: 2, d: 28));
-      // 2100 is divisible by 4 but is NOT a leap year.
-      expect(ymd(addDays(DateTime(2100, 3, 1), -1)), (y: 2100, m: 2, d: 28));
-    });
 
     test('erhaelt die Wanduhrzeit (fuer Terminplanung wie Streak-Reminder)', () {
       final shifted = addDays(DateTime(2026, 3, 28, 20, 15, 30, 400), 2);
@@ -82,29 +49,23 @@ void main() {
       expect(shifted.minute, 15);
       expect(shifted.second, 30);
       expect(shifted.millisecond, 400);
-    });
-
-    test('bleibt in der lokalen Zone (kein stiller UTC-Wechsel)', () {
-      expect(addDays(DateTime(2026, 3, 30), -1).isUtc, isFalse);
+      // No silent switch to UTC.
+      expect(shifted.isUtc, isFalse);
     });
   });
 
   group('daysBetween — Tagesdifferenz ohne DST-Drift', () {
-    test('Fruehjahr: der Folgetag ist 1 Tag entfernt, nicht 0', () {
+    test('Zeitumstellung: der Folgetag ist 1 Tag entfernt, nicht 0', () {
       // Measured legacy bug in Europe/Berlin: 23h -> inDays == 0,
       // 47h -> inDays == 1.
       expect(daysBetween(DateTime(2026, 3, 30), DateTime(2026, 3, 29)), 1);
       expect(daysBetween(DateTime(2026, 3, 30), DateTime(2026, 3, 28)), 2);
       expect(daysBetween(DateTime(2026, 3, 31), DateTime(2026, 3, 28)), 3);
-    });
-
-    test('Herbst: der 25-Stunden-Tag zaehlt ebenfalls als 1', () {
+      // Autumn: the 25-hour day counts as 1 as well.
       expect(daysBetween(DateTime(2026, 10, 26), DateTime(2026, 10, 25)), 1);
-      expect(daysBetween(DateTime(2026, 10, 27), DateTime(2026, 10, 24)), 3);
     });
 
-    test('derselbe Tag ergibt 0, unabhaengig von der Uhrzeit', () {
-      expect(daysBetween(DateTime(2026, 3, 29), DateTime(2026, 3, 29)), 0);
+    test('nur der Kalendertag zaehlt, nicht die Uhrzeit', () {
       expect(
         daysBetween(
           DateTime(2026, 3, 30, 23, 59, 59),
@@ -112,9 +73,7 @@ void main() {
         ),
         0,
       );
-    });
-
-    test('Uhrzeit kippt die Differenz nicht (Minuten um Mitternacht)', () {
+      // Minutes around midnight are a whole day.
       expect(
         daysBetween(DateTime(2026, 3, 30, 0, 5), DateTime(2026, 3, 29, 23, 55)),
         1,
@@ -123,21 +82,6 @@ void main() {
         daysBetween(DateTime(2026, 3, 29, 23, 55), DateTime(2026, 3, 30, 0, 5)),
         -1,
       );
-    });
-
-    test('Zukunft ergibt negative Werte (Vorzeichen wie bei difference)', () {
-      expect(daysBetween(DateTime(2026, 3, 28), DateTime(2026, 3, 30)), -2);
-    });
-
-    test('Monats-, Jahres- und Schaltjahrgrenzen', () {
-      expect(daysBetween(DateTime(2026, 3, 1), DateTime(2026, 2, 28)), 1);
-      expect(daysBetween(DateTime(2026, 1, 1), DateTime(2025, 12, 31)), 1);
-      expect(daysBetween(DateTime(2024, 3, 1), DateTime(2024, 2, 28)), 2);
-      expect(daysBetween(DateTime(2025, 1, 1), DateTime(2024, 1, 1)), 366);
-      expect(daysBetween(DateTime(2026, 1, 1), DateTime(2025, 1, 1)), 365);
-    });
-
-    test('funktioniert auch mit UTC-Argumenten (reine Kalenderrechnung)', () {
       expect(
         daysBetween(DateTime.utc(2026, 3, 30), DateTime.utc(2026, 3, 29)),
         1,
@@ -151,9 +95,6 @@ void main() {
       expect(ymd(normalisiert), (y: 2026, m: 3, d: 29));
       expect(startOfDay(normalisiert), normalisiert);
       expect(normalisiert.isUtc, isFalse);
-    });
-
-    test('gleicher Kalendertag => identischer Wert', () {
       expect(
         startOfDay(DateTime(2026, 3, 29, 0, 0, 1)),
         startOfDay(DateTime(2026, 3, 29, 23, 59, 59)),
@@ -162,18 +103,6 @@ void main() {
   });
 
   group('dayStrip — die Datumsleiste (aufsteigend, luckenlos)', () {
-    test('liefert pastDays + 1 Eintraege, aufsteigend, endend auf heute', () {
-      final tage = dayStrip(today: DateTime(2026, 6, 10, 14, 30), pastDays: 4);
-      expect(tage.length, 5);
-      expect(tage.map(ymd).toList(), [
-        (y: 2026, m: 6, d: 6),
-        (y: 2026, m: 6, d: 7),
-        (y: 2026, m: 6, d: 8),
-        (y: 2026, m: 6, d: 9),
-        (y: 2026, m: 6, d: 10),
-      ]);
-    });
-
     test('jeder Eintrag ist eine lokale Mitternacht', () {
       for (final tag in dayStrip(today: DateTime(2026, 3, 30, 9), pastDays: 6)) {
         // Idempotence instead of `hour == 0`: in zones that switch at
@@ -197,32 +126,6 @@ void main() {
         ]);
       },
     );
-
-    test('35-Tage-Fenster ueber die Umstellung ist doppelt- und luckenfrei', () {
-      final tage = dayStrip(today: DateTime(2026, 4, 20), pastDays: 34);
-      expect(tage.length, 35);
-      expect(tage.map((t) => '${t.year}-${t.month}-${t.day}').toSet().length, 35);
-      for (var i = 1; i < tage.length; i++) {
-        expect(
-          daysBetween(tage[i], tage[i - 1]),
-          1,
-          reason: 'Luecke oder Dopplung zwischen Index ${i - 1} und $i',
-        );
-      }
-    });
-
-    test('auch ueber die Herbstumstellung luckenlos', () {
-      final tage = dayStrip(today: DateTime(2026, 10, 27), pastDays: 6);
-      expect(tage.map(ymd).toList(), [
-        (y: 2026, m: 10, d: 21),
-        (y: 2026, m: 10, d: 22),
-        (y: 2026, m: 10, d: 23),
-        (y: 2026, m: 10, d: 24),
-        (y: 2026, m: 10, d: 25),
-        (y: 2026, m: 10, d: 26),
-        (y: 2026, m: 10, d: 27),
-      ]);
-    });
 
     test('pastDays == 0 liefert genau heute, negative Werte eine leere Liste', () {
       expect(

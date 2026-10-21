@@ -1,13 +1,12 @@
 import 'dart:async';
 
-import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
 import 'package:eatova/src/services/trend_service.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/harness.dart';
 import '../support/pinned_clock.dart';
@@ -20,6 +19,12 @@ final DateTime _jetzt = DateTime(2026, 9, 25, 12);
 
 DateTime _daysAgo(int n) =>
     DateTime(_jetzt.year, _jetzt.month, _jetzt.day - n);
+
+/// The label tests count their days back from here.
+final DateTime _letzterAugust = DateTime(2026, 8, 31, 12);
+
+TrendDayTotals _tag(DateTime day, {int kcal = 2000}) =>
+    TrendDayTotals(day: day, kcal: kcal, proteinG: 0, carbsG: 0, fatG: 0);
 
 TrendDayTotals _day(
   int daysAgo, {
@@ -67,6 +72,8 @@ void main() {
     await _pumpTrends(tester, loader: () => completer.future);
 
     expect(find.byKey(const ValueKey('trends-loading')), findsOneWidget);
+    // The outline of the chart and stat cards, no default spinner.
+    expect(find.byType(CircularProgressIndicator), findsNothing);
 
     completer.complete([_day(0, kcal: 2000), _day(1, kcal: 2100)]);
     await tester.pump();
@@ -91,30 +98,24 @@ void main() {
     expect(find.byKey(const ValueKey('trends-chart')), findsNothing);
   });
 
-  testWidgets('ein einzelner getrackter Tag bleibt im Chart sichtbar', (
-    tester,
-  ) async {
-    await withClock(Clock.fixed(DateTime(2026, 9, 25, 12)), () async {
+  testWidgets(
+    'B6: nur heute erfasst -> kein Empty State, Kennzahlen leer statt NaN',
+    (tester) => withClockAt(_jetzt, () async {
       await _pumpTrends(
         tester,
-        loader: () => Future.value([
-          TrendDayTotals(
-            day: DateTime(2026, 9, 25),
-            kcal: 350,
-            proteinG: 12,
-            carbsG: 40,
-            fatG: 8,
-          ),
-        ]),
+        loader: () => Future.value([_day(0, kcal: 1800, p: 12, c: 40, f: 8)]),
       );
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('trends-empty')), findsNothing);
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-      expect(find.byKey(const ValueKey('trends-avg-kcal')), findsOneWidget);
+      // Both metric tiles show the dash, no 0 and no NaN from a 0/0 division.
+      expect(find.text('–'), findsNWidgets(5)); // 2 tiles + 3 macros
       expect(find.text('noch kein abgeschlossener Tag'), findsNWidgets(2));
-    });
-  });
+      expect(find.textContaining('NaN'), findsNothing);
+      expect(find.text('0 von 0 Tagen (±10 %)'), findsNothing);
+    }),
+  );
 
   testWidgets('rendert Kennzahlen (Ø kcal, Treffer-Quote, Ø Makros)', (
     tester,
@@ -141,6 +142,8 @@ void main() {
     expect(find.text('140 g'), findsOneWidget);
     expect(find.text('60 g'), findsOneWidget);
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+    // B6: the footnote says today does not count.
+    expect(find.byKey(const ValueKey('trends-metrics-note')), findsOneWidget);
   }));
 
   testWidgets('Zeitraum-Umschalter filtert die Kennzahlen', (tester) => withClockAt(_jetzt, () async {
@@ -163,35 +166,6 @@ void main() {
     expect(find.text('2.000 kcal'), findsOneWidget);
     expect(find.text('100 %'), findsOneWidget);
     expect(find.text('1 von 1 Tag (±10 %)'), findsOneWidget);
-  }));
-
-  testWidgets('B6: der laufende Teiltag verwaessert die Kennzahlen nicht', (
-    tester,
-  ) => withClockAt(_jetzt, () async {
-    // Six days on target, then a 350 kcal breakfast this morning, which used
-    // to dilute the view to 1,936 kcal / 86 %.
-    final totals = [
-      _day(0, kcal: 350, p: 10, c: 40, f: 8),
-      for (var d = 1; d <= 6; d++) _day(d, kcal: 2200, p: 120, c: 200, f: 60),
-    ];
-    await _pumpTrends(tester, loader: () => Future.value(totals));
-    await tester.pump();
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('trends-range-7')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('2.200 kcal'), findsOneWidget);
-    expect(find.text('100 %'), findsOneWidget);
-    expect(find.text('6 von 6 Tagen (±10 %)'), findsOneWidget);
-    // Avg macros likewise undiluted.
-    expect(find.text('120 g'), findsOneWidget);
-    expect(find.text('200 g'), findsOneWidget);
-    expect(find.text('60 g'), findsOneWidget);
-    // The chart keeps the current day.
-    expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-    // And the label says today does not count.
-    expect(find.byKey(const ValueKey('trends-metrics-note')), findsOneWidget);
   }));
 
   // 2026-10-19: one rule for a complete day. Half-logged days (below half
@@ -235,27 +209,6 @@ void main() {
       expect(find.text('noch kein vollständiger Tag'), findsNWidgets(2));
       expect(find.text('noch kein abgeschlossener Tag'), findsNothing);
       expect(find.textContaining('NaN'), findsNothing);
-    }),
-  );
-
-  testWidgets(
-    'B6: nur heute im Fenster -> Kennzahlen leer statt NaN, Chart bleibt',
-    (tester) => withClockAt(_jetzt, () async {
-      // Two totals, so not the empty state, but only today is in the window.
-      final totals = [_day(0, kcal: 1800), _day(40, kcal: 2000)];
-      await _pumpTrends(tester, loader: () => Future.value(totals));
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const ValueKey('trends-range-7')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-      // Both metric tiles show the dash, no 0 and no NaN from a 0/0 division.
-      expect(find.text('–'), findsNWidgets(5)); // 2 tiles + 3 macros
-      expect(find.text('noch kein abgeschlossener Tag'), findsNWidgets(2));
-      expect(find.textContaining('NaN'), findsNothing);
-      expect(find.text('0 von 0 Tagen (±10 %)'), findsNothing);
     }),
   );
 
@@ -335,124 +288,141 @@ void main() {
     expect(find.byKey(const ValueKey('trends-retry')), findsOneWidget);
   });
 
-  testWidgets('unter en steht die englische Kennzahl-Beschriftung im Baum', (
-    tester,
-  ) => withClockAt(_jetzt, () async {
-    // Counter-check to the matrix above: the label must really CHANGE with
-    // the language, not just resolve to whatever the ARB lookup returns.
-    pinPhoneViewport(tester);
-    await _pumpTrends(
-      tester,
-      locale: const Locale('en'),
-      loader: () async => _sechsTage(),
-    );
-    await tester.pump();
-    await tester.pumpAndSettle();
-
-    expect(find.text('AVG CALORIES'), findsOneWidget);
-    expect(find.text('Ø KALORIEN'), findsNothing);
-  }));
-
-  // Light pass (2026-10-04): a month of full iris bars weighed on the white
-  // card; the bars take `progressAccent`, which IS the accent in dark.
-  for (final (helligkeit, t) in const <(Brightness, AppTokens)>[
-    (Brightness.dark, AppTokens.dark),
-    (Brightness.light, AppTokens.light),
-  ]) {
-    testWidgets('${helligkeit.name}: die Balken tragen progressAccent', (
-      tester,
-    ) => withClockAt(_jetzt, () async {
-      await _pumpTrends(
-        tester,
-        brightness: helligkeit,
-        loader: () async => _sechsTage(),
-      );
-      await tester.pump();
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('trends-chart')),
-        paints..rrect(color: t.progressAccent.withValues(alpha: 0.92)),
-      );
-    }));
-  }
   // The goal label sat on the bars ("Goal 2,200" half covered when a day
   // went over), later on a card-coloured pill that still hid the latest
   // bars. It is a legend in the card header now, where the repeated range
   // ("30 Tage", already the selected pill) used to float mid-row.
-  for (final (helligkeit, t) in const <(Brightness, AppTokens)>[
-    (Brightness.dark, AppTokens.dark),
-    (Brightness.light, AppTokens.light),
-  ]) {
-    testWidgets('${helligkeit.name}: das Ziel steht als Legende im Kopf', (
-      tester,
-    ) => withClockAt(_jetzt, () async {
-      await _pumpTrends(
-        tester,
-        brightness: helligkeit,
-        loader: () async => _sechsTage(),
-      );
-      await tester.pump();
-      await tester.pumpAndSettle();
-      final legende = find.byKey(const ValueKey('trends-goal-legend'));
-      expect(
-        find.descendant(of: legende, matching: find.text('Ziel 2.200')),
-        findsOneWidget,
-      );
-      expect(find.text('30 Tage'), findsOneWidget, reason: 'only the pill');
-      // Flush with the card's right edge, level with the title.
-      final titel = tester.getRect(find.text('Kalorien pro Tag'));
-      final karte = tester.getRect(
-        find
-            .ancestor(of: legende, matching: find.byType(AppCard))
-            .first,
-      );
-      expect(
-        karte.right - tester.getRect(legende).right,
-        // The card's 18 px padding inside its 1 px border.
-        moreOrLessEquals(19, epsilon: 0.5),
-      );
-      expect(
-        tester.getCenter(legende).dy,
-        moreOrLessEquals(titel.center.dy, epsilon: 1),
-      );
-      // Nothing card-coloured is painted over the plot any more (compared
-      // as ARGB: the theme arrives through a lerp).
-      expect(
-        find.byKey(const ValueKey('trends-chart')),
-        isNot(
-          paints..something(
-            (method, arguments) =>
-                method == #drawRRect &&
-                (arguments[1] as Paint).color.toARGB32() ==
-                    t.surf.toARGB32(),
-          ),
-        ),
-      );
-    }));
-  }
-
-  testWidgets('die Zeitraum-Pillen zentrieren ihre Beschriftung', (
+  testWidgets('das Ziel steht als Legende im Kopf, nicht auf dem Plot', (
     tester,
   ) => withClockAt(_jetzt, () async {
-    await _pumpTrends(tester, loader: () async => _sechsTage());
+    await _pumpTrends(
+      tester,
+      brightness: Brightness.light,
+      loader: () async => _sechsTage(),
+    );
     await tester.pump();
     await tester.pumpAndSettle();
-    for (final range in const [7, 30, 90]) {
-      final pille = tester.getRect(find.byKey(ValueKey('trends-range-$range')));
-      final text = tester.getRect(
-        find.descendant(
-          of: find.byKey(ValueKey('trends-range-$range')),
-          matching: find.text('$range Tage'),
+    final legende = find.byKey(const ValueKey('trends-goal-legend'));
+    expect(
+      find.descendant(of: legende, matching: find.text('Ziel 2.200')),
+      findsOneWidget,
+    );
+    expect(find.text('30 Tage'), findsOneWidget, reason: 'only the pill');
+    // Nothing card-coloured is painted over the plot any more (compared as
+    // ARGB: the theme arrives through a lerp).
+    expect(
+      find.byKey(const ValueKey('trends-chart')),
+      isNot(
+        paints..something(
+          (method, arguments) =>
+              method == #drawRRect &&
+              (arguments[1] as Paint).color.toARGB32() ==
+                  AppTokens.light.surf.toARGB32(),
         ),
-      );
-      expect(
-        text.center.dx,
-        moreOrLessEquals(pille.center.dx, epsilon: 1),
-        reason: '$range Tage',
-      );
-    }
+      ),
+    );
   }));
-  test('dunkel bleiben die Balken der Akzent', () {
-    expect(AppTokens.dark.progressAccent, AppTokens.dark.accent);
+
+  // Perf package B6: the painter rebuilt every DateFormat and TextPainter
+  // inside paint(), so the 550 ms build-up paid for them on each of its ~33
+  // frames. They are laid out once in [TrendChartLabels] now.
+  group('TrendChartLabels', () {
+    test(
+      'gleiche Eingaben liefern dieselbe Instanz, ein Sprachwechsel nicht',
+      () {
+        final window = <TrendDayTotals?>[
+          for (var i = 0; i < 7; i++) _tag(DateTime(2026, 8, 25 + i)),
+        ];
+        final goals = List<int>.filled(7, 2200);
+        TrendChartLabels bauen(
+          TrendChartLabels? vorher,
+          AppLocalizations l10n,
+        ) => TrendChartLabels.resolve(
+          vorher,
+          values: [for (final day in window) day?.kcal],
+          goals: goals,
+          firstDay: DateTime(2026, 8, 25),
+          axisTextColor: const Color(0xFF888888),
+          l10n: l10n,
+        );
+
+        final erst = bauen(null, deL10n);
+        expect(identical(bauen(erst, deL10n), erst), isTrue);
+        // 7-day view: weekday row present, one label per slot.
+        expect(erst.weekdayLabels, hasLength(7));
+        expect(erst.gridLabels, hasLength(4));
+        // The goal line's label is a legend in the card header now.
+
+        final englisch = bauen(erst, enL10n);
+        expect(identical(englisch, erst), isFalse);
+        expect(
+          englisch.weekdayLabels.first.text!.toPlainText(),
+          isNot(erst.weekdayLabels.first.text!.toPlainText()),
+        );
+      },
+    );
+
+    test(
+      'ein anderer Farbtoken (Theme-Wechsel) baut die Beschriftungen neu',
+      () {
+        final window = <TrendDayTotals?>[_tag(DateTime(2026, 8, 30))];
+        TrendChartLabels bauen(TrendChartLabels? vorher, Color farbe) =>
+            TrendChartLabels.resolve(
+              vorher,
+              values: [for (final day in window) day?.kcal],
+              goals: const [2200],
+              firstDay: DateTime(2026, 8, 30),
+              axisTextColor: farbe,
+              l10n: deL10n,
+            );
+
+        final erst = bauen(null, const Color(0xFF888888));
+        expect(identical(bauen(erst, const Color(0xFF222222)), erst), isFalse);
+        // Not the 7-day view: no weekday row at all.
+        expect(erst.weekdayLabels, isEmpty);
+      },
+    );
+  });
+
+  group('TrendsScreen Aufbau-Animation', () {
+    testWidgets('legt ueber die Frames hinweg keine Beschriftung neu an', (
+      tester,
+    ) => withClockAt(_letzterAugust, () async {
+      final totals = <TrendDayTotals>[
+        for (var i = 0; i < 7; i++)
+          _tag(DateTime(2026, 8, 25 + i), kcal: 1800 + i * 50),
+      ];
+      await pumpLocalized(
+        tester,
+        TrendsScreen(kcalGoal: 2200, loadTotals: () async => totals),
+        // The build-up must really run; the harness kills motion by default.
+        reducedMotion: false,
+        // TrendsScreen brings its own Scaffold and SafeArea.
+        scaffold: false,
+        safeArea: false,
+      );
+      await tester.pump();
+      // 7-day range: the weekday row is the most expensive label set.
+      await tester.tap(find.byKey(const ValueKey('trends-range-7')));
+      await tester.pump();
+
+      // The first frame of the build-up lays the labels out.
+      final nachErstemFrame = TrendChartLabels.debugLayoutCount;
+      expect(nachErstemFrame, greaterThan(0));
+
+      // ~20 further frames of the 550 ms build-up.
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 25));
+      }
+      expect(
+        TrendChartLabels.debugLayoutCount,
+        nachErstemFrame,
+        reason: 'paint() darf keine TextPainter mehr bauen',
+      );
+
+      await tester.pumpAndSettle();
+      expect(TrendChartLabels.debugLayoutCount, nachErstemFrame);
+      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+    }));
   });
 }

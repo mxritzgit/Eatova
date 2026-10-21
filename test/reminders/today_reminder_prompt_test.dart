@@ -208,15 +208,13 @@ void main() {
           await tester.pump(const Duration(seconds: 2));
         });
 
-    testWidgets('heute mit Angebot: die Karte steht da', (tester) async {
+    testWidgets('nur heute mit Angebot, nicht ohne und nicht an einem '
+        'Archivtag', (tester) async {
       await pumpToday(
         tester,
         today(selectedDate: startOfDay(_now), prompt: ReminderTime.standard),
       );
       expect(find.byKey(_card), findsOneWidget);
-    });
-
-    testWidgets('ohne Angebot oder an einem Archivtag nicht', (tester) async {
       await pumpToday(tester, today(selectedDate: startOfDay(_now)));
       expect(find.byKey(_card), findsNothing);
       await pumpToday(

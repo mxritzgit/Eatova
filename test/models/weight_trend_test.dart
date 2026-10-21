@@ -18,8 +18,9 @@ double? _trend(List<WeightLogEntry> entries) =>
     WeightLog.capped(entries).trendKg;
 
 void main() {
-  test('no weigh-ins, no trend', () {
+  test('no weigh-ins, no trend and no plan weight', () {
     expect(const WeightLog().trendKg, isNull);
+    expect(const WeightLog().planWeightKg(DateTime(2026, 10, 3, 12)), isNull);
   });
 
   test('one weigh-in is the trend', () {
@@ -69,24 +70,11 @@ void main() {
         _trend([_at(0, 81.2), _at(1, 61.2), _at(2, 81.0)]),
         closeTo(81.2 + (1 - math.pow(0.9, 2)) * (81.0 - 81.2), 1e-9),
       );
-    });
-
-    test('a typo corrected the same day leaves no trace', () {
-      // Review case: 90 typed, 80 corrected minutes later. A day mean of 85
-      // used to reseed and then drag the trend for weeks.
-      final trend = _trend([
-        _at(0, 80),
-        _at(1, 90, hour: 7),
-        _at(1, 80, hour: 8),
-        _at(2, 81),
-      ]);
-      expect(trend, closeTo(80 + 0.1 * 0 + 0.1 * (81 - 80), 1e-9));
-    });
-
-    test('an outlier 5–10 % off does not get stuck', () {
-      // 85.5 is 6.9 % above 80; the next day is back at 80.5.
-      final trend = _trend([_at(0, 80), _at(1, 85.5), _at(2, 80.5)])!;
-      expect(trend, closeTo(80 + (1 - math.pow(0.9, 2)) * 0.5, 1e-9));
+      // 85.5 is only 6.9 % above 80, and it does not get stuck either.
+      expect(
+        _trend([_at(0, 80), _at(1, 85.5), _at(2, 80.5)]),
+        closeTo(80 + (1 - math.pow(0.9, 2)) * 0.5, 1e-9),
+      );
     });
 
     test('a jump confirmed by the next weigh-in day is adopted', () {
@@ -175,9 +163,6 @@ void main() {
       expect(log.planWeightKg(now), isNull);
     });
 
-    test('none without weigh-ins', () {
-      expect(const WeightLog().planWeightKg(now), isNull);
-    });
   });
 
   test('daily water swings of ±1 kg stay smoothed', () {

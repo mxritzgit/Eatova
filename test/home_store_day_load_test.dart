@@ -244,6 +244,10 @@ Map<String, dynamic> _serverMealRow(
       'payload': mealResultToJson(_result(name, kcal: kcal)),
     };
 
+/// The clock of the tests that do not pin their own: the window is relative
+/// to it, so no test reads the wall clock.
+final DateTime _jetzt = DateTime(2026, 9, 25, 12);
+
 /// An old day clearly outside the 35-day window, on the store's clock and in
 /// calendar days: 40 x 24 h across the spring DST switch lands at 23:00 of
 /// the day before.
@@ -321,7 +325,7 @@ void main() {
   test(
       'Alt-Tag waehlen laedt den kanonischen Tag nach, merged ihn '
       'und cached ihn fuer die Session (kein zweiter GET, keine Duplikate)',
-      () async {
+      () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final oldDay = _oldDay;
     s.server.mealRows['old-1'] =
@@ -367,7 +371,7 @@ void main() {
             'die weiterhin ausgewaehlte Auswahl muss ihn neu holen');
     expect(s.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1'],
         reason: 'sonst zeigt der offene Alt-Tag nach jedem Boot-Retry leer');
-  });
+  }));
 
   test('archive loads canonical meals after timezone travel', () async {
     await withClock(Clock.fixed(DateTime(2026, 9, 19, 12)), () async {
@@ -397,7 +401,7 @@ void main() {
   });
 
   test('isLoadingFoodDay ist waehrend des Nachladens true (Spinner-Zustand)',
-      () async {
+      () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final oldDay = _oldDay;
     s.server.mealRows['old-1'] =
@@ -417,11 +421,11 @@ void main() {
 
     expect(s.store.isLoadingFoodDay(oldDay), isFalse);
     expect(s.store.mealsForFoodDate(oldDay), hasLength(1));
-  });
+  }));
 
   test(
       'Fehler beim Nachladen: klassifizierte Offline-Meldung, kein haengender '
-      'Spinner — erneuter Tap laedt erneut', () async {
+      'Spinner — erneuter Tap laedt erneut', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final oldDay = _oldDay;
     s.server.mealRows['old-1'] =
@@ -449,7 +453,7 @@ void main() {
     s.store.setFoodDate(oldDay);
     await _settle();
     expect(s.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1']);
-  });
+  }));
 
   test(
       'FOOD-8: a failed day load marks the day failed until a retry or a '
@@ -497,7 +501,7 @@ void main() {
 
   test(
       'Outbox-sicher: pendender Insert bleibt sichtbar, pendender Delete '
-      'belebt die frisch geladene Server-Zeile NICHT wieder', () async {
+      'belebt die frisch geladene Server-Zeile NICHT wieder', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final oldDay = _oldDay;
     s.server.mealRows['old-srv'] =
@@ -524,11 +528,11 @@ void main() {
       s.store.loggedMeals.map((m) => m.id).toSet().length,
       s.store.loggedMeals.length,
     );
-  });
+  }));
 
   test(
       'Cache-Write-Through blaeht nicht auf: nachgeladene Alt-Tage bleiben '
-      'In-Memory, das Boot-Fenster bleibt gecacht', () async {
+      'In-Memory, das Boot-Fenster bleibt gecacht', () => withClock(Clock.fixed(_jetzt), () async {
     final s = _setup();
     final oldDay = _oldDay;
     s.server.mealRows['old-1'] =
@@ -550,12 +554,12 @@ void main() {
     expect(cached.map((m) => m.id), isNot(contains('old-1')),
         reason: 'Alt-Tage wandern bewusst NICHT in den durablen Cache');
     expect(s.store.mealsForFoodDate(oldDay), hasLength(1));
-  });
+  }));
 
   test(
       'Naechste Session (Fenster-Refresh): keine Geister-Duplikate — der '
       'Alt-Tag ist draussen und laedt bei Auswahl exakt einmal frisch',
-      () async {
+      () => withClock(Clock.fixed(_jetzt), () async {
     final kv = InMemoryKeyValueStore();
     final oldDay = _oldDay;
 
@@ -579,7 +583,7 @@ void main() {
     await _settle();
     expect(b.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1']);
     expect(b.store.loggedMeals.where((m) => m.id == 'old-1'), hasLength(1));
-  });
+  }));
 
   // B5 (2026-08-08): _isOutsideBootWindow measured the window in absolute time
   // via `difference(...).inDays`. A span containing the spring DST switch is an

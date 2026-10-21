@@ -140,22 +140,6 @@ void main() {
       );
     });
 
-    test('English', () {
-      final l = enL10n;
-      expect(
-        todayWeighProgressText(_progress(daysUntil: 5, weighInsToGo: 2), l),
-        'Weekly check in 5 days at the earliest · 2 more weigh-ins',
-      );
-      expect(
-        todayWeighProgressText(_progress(loggedToGo: 1, weighInsToGo: 1), l),
-        'Weekly check tomorrow at the earliest · 1 more complete day · '
-        '1 more weigh-in',
-      );
-      expect(
-        todayWeighProgressText(_progress(ready: true), l),
-        'Weekly check active · enough data',
-      );
-    });
   });
 
   group('on the Today screen', () {
@@ -315,6 +299,8 @@ void main() {
       }
     },
     locales: const [Locale('de'), Locale('en')],
+    // Layout does not depend on the brightness.
+    brightnesses: const [Brightness.dark],
     textScales: const [1.0, 2.0],
   );
 

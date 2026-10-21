@@ -139,12 +139,12 @@ void main() {
     textScales: const [1.0, 2.0],
   );
 
-  testWidgets('no offset or manual mode: no row', (tester) async {
+  testWidgets('no offset: no row', (tester) async {
     await _open(tester, _profile(adjustment: 0));
     expect(_row, findsNothing);
   });
 
-  testWidgets('manual mode keeps its own goals and hides the row', (
+  testWidgets('manual mode hides the row although an offset is stored', (
     tester,
   ) async {
     await _open(tester, _profile(manual: true));

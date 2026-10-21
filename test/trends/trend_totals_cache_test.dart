@@ -8,24 +8,26 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
-import 'package:eatova/src/screens/trends_screen.dart';
+import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/macro_progress.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/trend_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
-import 'support/harness.dart';
-import 'support/pinned_clock.dart';
-
-// Performance package B6 — two separate problems of the trends view:
+// The session cache in front of the trends window (perf package B6). The
+// window used to be refetched on EVERY open; it is now served from
+// [TrendTotalsCache], which must drop its entry on every event that can make
+// it wrong: day rollover, account switch, auth event, error, TTL and every
+// meal write the server will see. The day rollover runs on an INJECTED clock
+// (finding K-02, review 2026-08-29).
 //
-//  1. The 90-day window was refetched from the server on EVERY open. It is now
-//     served from [TrendTotalsCache], which must drop its entry on every event
-//     that can make it wrong (day rollover, account switch, auth event, write,
-//     TTL). Every invalidation source gets a test; the day rollover runs on an
-//     INJECTED clock, never on the real date (finding K-02, review
-//     2026-08-29).
-//  2. The painter rebuilt every DateFormat and TextPainter inside paint(), so
-//     the 550 ms build-up paid for them on each of its ~33 frames. They are
-//     laid out once in [TrendChartLabels] now.
+// The HomeStore group pins each meal write path on its own: they were
+// forgotten one by one when the hooks were first listed (undo and
+// updateLoggedMealResult). Since mutation run T4 (2026-09-01) it also checks
+// the visible day total those paths update next to the cache.
 
 TrendDayTotals _day(DateTime day, {int kcal = 2000}) =>
     TrendDayTotals(day: day, kcal: kcal, proteinG: 0, carbsG: 0, fatG: 0);
@@ -34,12 +36,6 @@ List<TrendDayTotals> _zweiTage() => <TrendDayTotals>[
   _day(DateTime(2026, 8, 30)),
   _day(DateTime(2026, 8, 31)),
 ];
-
-/// The chart test pins its clock here; its days count back from it.
-final DateTime _jetzt = DateTime(2026, 8, 31, 12);
-
-DateTime _heuteMinus(int tage) =>
-    DateTime(_jetzt.year, _jetzt.month, _jetzt.day - tage);
 
 /// Loader that counts its calls — the stand-in for the server round trip.
 class _ZaehlenderLader {
@@ -56,12 +52,63 @@ class _ZaehlenderLader {
   }
 }
 
+/// Faengt die Undo-Aktion ab: _restoreLoggedMeal ist privat und nur ueber den
+/// Snack erreichbar, den das Loeschen ausloest.
+class _SnackCapture {
+  SnackBarAction? letzteAktion;
+
+  void call(
+    String message, {
+    IconData icon = Icons.info_outline,
+    SnackTone tone = SnackTone.positive,
+    Duration? duration,
+    SnackBarAction? action,
+  }) {
+    if (action != null) letzteAktion = action;
+  }
+}
+
+({HomeStore store, _SnackCapture snacks}) _store() {
+  final snacks = _SnackCapture();
+  final store = HomeStore(
+    sync: null,
+    health: const NoopHealthService(),
+    notificationService: const NoopNotificationService(),
+    initialUserName: 'Test',
+    emitSnack: snacks.call,
+  );
+  addTearDown(store.dispose);
+  return (store: store, snacks: snacks);
+}
+
+MealAnalysisResult _meal(String name, {int kcal = 300}) => MealAnalysisResult(
+      mealName: name,
+      caloriesKcal: kcal,
+      estimatedGrams: 300,
+      kcalPer100G: 100,
+      protein: '30 g',
+      carbs: '40 g',
+      fat: '10 g',
+      confidence: 'Mittel',
+      portionNotes: 'Test.',
+      sourceLabel: 'Foto-KI',
+    );
+
+/// Fuellt den Singleton-Cache und behauptet, dass das auch geklappt hat —
+/// sonst wuerde jeder Test unten trivial gruen, weil nie etwas drin war.
+Future<void> _fillCache() async {
+  TrendTotalsCache.instance.invalidate();
+  await TrendTotalsCache.instance.read(
+    userId: 'user-1',
+    load: () async => const <TrendDayTotals>[],
+  );
+  expect(TrendTotalsCache.instance.debugHasEntry, isTrue,
+      reason: 'Vorbedingung: der Cache muss vor dem Schreibvorgang gefuellt sein');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // =========================================================================
-  // Problem 1 — Sitzungs-Cache und seine Invalidierung
-  // =========================================================================
   group('TrendTotalsCache', () {
     late TrendTotalsCache cache;
 
@@ -82,7 +129,7 @@ void main() {
     );
 
     test(
-      'Tageswechsel laedt das 90-Tage-Fenster neu (injizierte Uhr)',
+      'Tageswechsel laedt das Trendfenster neu (injizierte Uhr)',
       () async {
         final lader = _ZaehlenderLader();
         // 23:50 on the 31st — the entry belongs to local day 2026-08-31.
@@ -100,19 +147,6 @@ void main() {
         expect(lader.calls, 2);
       },
     );
-
-    test('derselbe Tag zu einer anderen Uhrzeit laedt NICHT neu', () async {
-      final lader = _ZaehlenderLader();
-      await withClock(
-        Clock.fixed(DateTime(2026, 8, 31, 8, 0)),
-        () => cache.read(userId: 'u1', load: lader.call),
-      );
-      await withClock(
-        Clock.fixed(DateTime(2026, 8, 31, 8, 1)),
-        () => cache.read(userId: 'u1', load: lader.call),
-      );
-      expect(lader.calls, 1);
-    });
 
     test('nach Ablauf der TTL wird neu geladen', () async {
       final lader = _ZaehlenderLader();
@@ -176,32 +210,22 @@ void main() {
       },
     );
 
-    test('Abmelden ueber das Auth-Ereignis verwirft den Cache', () async {
-      final events = StreamController<AuthChangeEvent>.broadcast();
-      addTearDown(events.close);
-      cache.attachAuthEvents(events.stream);
-      final lader = _ZaehlenderLader();
-      await cache.read(userId: 'u1', load: lader.call);
+    for (final event in [AuthChangeEvent.signedOut, AuthChangeEvent.signedIn]) {
+      test('${event.name} (Abmelden, Konto-Wechsel) verwirft den Cache', () async {
+        final events = StreamController<AuthChangeEvent>.broadcast();
+        addTearDown(events.close);
+        cache.attachAuthEvents(events.stream);
+        final lader = _ZaehlenderLader();
+        await cache.read(userId: 'u1', load: lader.call);
 
-      events.add(AuthChangeEvent.signedOut);
-      await pumpEventQueue();
-      expect(cache.debugHasEntry, isFalse);
+        events.add(event);
+        await pumpEventQueue();
+        expect(cache.debugHasEntry, isFalse);
 
-      await cache.read(userId: 'u1', load: lader.call);
-      expect(lader.calls, 2);
-    });
-
-    test('ein Konto-Wechsel (signedIn) verwirft den Cache', () async {
-      final events = StreamController<AuthChangeEvent>.broadcast();
-      addTearDown(events.close);
-      cache.attachAuthEvents(events.stream);
-      final lader = _ZaehlenderLader();
-      await cache.read(userId: 'u1', load: lader.call);
-
-      events.add(AuthChangeEvent.signedIn);
-      await pumpEventQueue();
-      expect(cache.debugHasEntry, isFalse);
-    });
+        await cache.read(userId: 'u1', load: lader.call);
+        expect(lader.calls, 2);
+      });
+    }
 
     test('ein Token-Refresh verwirft den Cache NICHT', () async {
       final events = StreamController<AuthChangeEvent>.broadcast();
@@ -295,9 +319,6 @@ void main() {
     );
   });
 
-  // =========================================================================
-  // Problem 1 — der Dienst selbst spricht nur einmal mit PostgREST
-  // =========================================================================
   group('TrendService gegen einen gezaehlten Server', () {
     test('das zweite Oeffnen loest keine zweite Abfrage aus', () async {
       var anfragen = 0;
@@ -365,121 +386,113 @@ void main() {
     });
   });
 
-  // =========================================================================
-  // Problem 2 — Beschriftungen einmal setzen, nicht pro Frame
-  // =========================================================================
-  group('TrendChartLabels', () {
-    setUp(debugClearTrendDateFormats);
+  group('HomeStore-Schreibpfade verwerfen das Fenster', () {
+    tearDown(TrendTotalsCache.instance.invalidate);
 
-    test('DateFormat wird pro Sprache genau einmal gebaut', () {
-      final de = trendWeekdayFormat('de');
-      expect(identical(trendWeekdayFormat('de'), de), isTrue);
-      expect(identical(trendWeekdayFormat('en'), de), isFalse);
+    test('eine geloggte Mahlzeit verwirft das gecachte Trendfenster', () async {
+      final s = _store();
+      final store = s.store;
+      await _fillCache();
 
-      final md = trendDayMonthFormat('de');
-      expect(identical(trendDayMonthFormat('de'), md), isTrue);
-      expect(identical(trendDayMonthFormat('en'), md), isFalse);
+      await store.addResultToDailyTotal(_meal('Bowl'));
+
+      expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
     });
 
     test(
-      'gleiche Eingaben liefern dieselbe Instanz, ein Sprachwechsel nicht',
-      () {
-        final window = <TrendDayTotals?>[
-          for (var i = 0; i < 7; i++) _day(DateTime(2026, 8, 25 + i)),
-        ];
-        final goals = List<int>.filled(7, 2200);
-        TrendChartLabels bauen(
-          TrendChartLabels? vorher,
-          AppLocalizations l10n,
-        ) => TrendChartLabels.resolve(
-          vorher,
-          values: [for (final day in window) day?.kcal],
-          goals: goals,
-          firstDay: DateTime(2026, 8, 25),
-          axisTextColor: const Color(0xFF888888),
-          l10n: l10n,
-        );
+        'eine skalierte Portion (updateLoggedMealResult) verwirft es auch und '
+        'zieht die Tagessumme nach', () async {
+      final s = _store();
+      final store = s.store;
+      final id = await store.addResultToDailyTotal(_meal('Bowl'));
+      expect(store.dailyConsumedKcal, 300);
+      await _fillCache();
 
-        final erst = bauen(null, deL10n);
-        expect(identical(bauen(erst, deL10n), erst), isTrue);
-        // 7-day view: weekday row present, one label per slot.
-        expect(erst.weekdayLabels, hasLength(7));
-        expect(erst.gridLabels, hasLength(4));
-        // The goal line's label is a legend in the card header now.
+      await store.updateLoggedMealResult(id, _meal('Bowl', kcal: 600));
 
-        final englisch = bauen(erst, enL10n);
-        expect(identical(englisch, erst), isFalse);
-        expect(
-          englisch.weekdayLabels.first.text!.toPlainText(),
-          isNot(erst.weekdayLabels.first.text!.toPlainText()),
-        );
-      },
-    );
+      expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
+      expect(store.dailyConsumedKcal, 600,
+          reason: 'die Kachel zeigt sonst die alte Portion weiter, obwohl die '
+              'Zeile im Tagebuch schon die neue traegt');
+      expect(store.macroProgress.kcal, 600);
+    });
+
+    test('das Bearbeiten der Details verwirft es', () async {
+      final s = _store();
+      final store = s.store;
+      final id = await store.addResultToDailyTotal(_meal('Bowl'));
+      await _fillCache();
+
+      await store.updateLoggedMealDetails(id, slot: MealSlot.snack);
+
+      expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
+    });
+
+    test('das Loeschen verwirft es und nimmt die Kalorien vom Tag', () async {
+      final s = _store();
+      final store = s.store;
+      final id = await store.addResultToDailyTotal(_meal('Bowl'));
+      expect(store.dailyConsumedKcal, 300);
+      await _fillCache();
+
+      await store.removeLoggedMeal(id);
+
+      expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
+      expect(store.dailyConsumedKcal, 0,
+          reason: 'eine geloeschte Mahlzeit darf in der Tagessumme nicht '
+              'stehenbleiben');
+      expect(store.macroProgress, MacroProgress.empty);
+    });
 
     test(
-      'ein anderer Farbtoken (Theme-Wechsel) baut die Beschriftungen neu',
-      () {
-        final window = <TrendDayTotals?>[_day(DateTime(2026, 8, 30))];
-        TrendChartLabels bauen(TrendChartLabels? vorher, Color farbe) =>
-            TrendChartLabels.resolve(
-              vorher,
-              values: [for (final day in window) day?.kcal],
-              goals: const [2200],
-              firstDay: DateTime(2026, 8, 30),
-              axisTextColor: farbe,
-              l10n: deL10n,
-            );
+        'das RUECKGAENGIG eines Loeschens verwirft es ebenfalls und gibt die '
+        'Kalorien zurueck — auch beim Doppeltipp nur einmal', () async {
+      // Der Pfad, der bei der ersten Aufstellung der Hooks vergessen wurde:
+      // _restoreLoggedMeal legt die Zeile wieder an, also aendert es die
+      // Serversicht genauso wie das Loeschen davor.
+      final s = _store();
+      final store = s.store;
+      final id = await store.addResultToDailyTotal(_meal('Bowl'));
+      await store.removeLoggedMeal(id);
+      final undo = s.snacks.letzteAktion;
+      expect(undo, isNotNull, reason: 'das Loeschen muss einen Undo-Snack werfen');
+      expect(store.dailyConsumedKcal, 0);
+      await _fillCache();
 
-        final erst = bauen(null, const Color(0xFF888888));
-        expect(identical(bauen(erst, const Color(0xFF222222)), erst), isFalse);
-        // Not the 7-day view: no weekday row at all.
-        expect(erst.weekdayLabels, isEmpty);
-      },
-    );
-  });
+      undo!.onPressed();
+      await pumpEventQueue(times: 20);
 
-  // =========================================================================
-  // Problem 2 — im echten Baum, ueber die Frames der Aufbau-Animation
-  // =========================================================================
-  group('TrendsScreen Aufbau-Animation', () {
-    testWidgets('legt ueber die Frames hinweg keine Beschriftung neu an', (
-      tester,
-    ) => withClockAt(_jetzt, () async {
-      final totals = <TrendDayTotals>[
-        for (var i = 0; i < 7; i++)
-          _day(_heuteMinus(6 - i), kcal: 1800 + i * 50),
-      ];
-      await pumpLocalized(
-        tester,
-        TrendsScreen(kcalGoal: 2200, loadTotals: () async => totals),
-        // The build-up must really run; the harness kills motion by default.
-        reducedMotion: false,
-        // TrendsScreen brings its own Scaffold and SafeArea.
-        scaffold: false,
-        safeArea: false,
-      );
-      await tester.pump();
-      // 7-day range: the weekday row is the most expensive label set.
-      await tester.tap(find.byKey(const ValueKey('trends-range-7')));
-      await tester.pump();
+      expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
+      expect(store.dailyConsumedKcal, 300,
+          reason: 'die wiederhergestellte Mahlzeit zaehlt wieder — sonst fehlt '
+              'sie in der Tagessumme, obwohl sie im Tagebuch steht');
+      expect(store.macroProgress.proteinG, 30);
 
-      // The first frame of the build-up lays the labels out.
-      final nachErstemFrame = TrendChartLabels.debugLayoutCount;
-      expect(nachErstemFrame, greaterThan(0));
+      // Zweiter Tipp auf denselben Snack: der Idempotenz-Schutz in
+      // _restoreLoggedMeal muss halten, sonst steht die Mahlzeit doppelt im
+      // Tagebuch und der Tag zaehlt 600 kcal.
+      undo.onPressed();
+      await pumpEventQueue(times: 20);
 
-      // ~20 further frames of the 550 ms build-up.
-      for (var i = 0; i < 20; i++) {
-        await tester.pump(const Duration(milliseconds: 25));
-      }
-      expect(
-        TrendChartLabels.debugLayoutCount,
-        nachErstemFrame,
-        reason: 'paint() darf keine TextPainter mehr bauen',
-      );
+      expect(store.loggedMeals, hasLength(1));
+      expect(store.loggedMeals.single.id, isNot(id));
+      expect(store.loggedMeals.single.result.mealName, 'Bowl');
+      expect(store.dailyConsumedKcal, 300);
+    });
 
-      await tester.pumpAndSettle();
-      expect(TrendChartLabels.debugLayoutCount, nachErstemFrame);
-      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
-    }));
+    test('ein Lesevorgang allein laesst den Cache stehen', () async {
+      // Gegenprobe: haette ich die Verwerfung an _mutate gehaengt, waere der
+      // Cache staendig weg (sieben der ~40 Aufrufer sitzen im Sync-Pfad). Ein
+      // reiner Lesezugriff darf ihn nicht anfassen.
+      final s = _store();
+      final store = s.store;
+      await store.addResultToDailyTotal(_meal('Bowl'));
+      await _fillCache();
+
+      store.consumedKcalForFoodDate(clock.now());
+      store.macroProgressForFoodDate(clock.now());
+
+      expect(TrendTotalsCache.instance.debugHasEntry, isTrue);
+    });
   });
 }

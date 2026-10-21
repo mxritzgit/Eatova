@@ -98,12 +98,6 @@ EnergyCheckProposal? _evaluate({
 }
 
 void main() {
-  test('precondition: maintenance 2650, goal 2100', () {
-    final t = const KcalCalculator().calculate(_profile());
-    expect(t.maintenanceKcal, 2650);
-    expect(t.kcal, 2100);
-  });
-
   group('proposals', () {
     test('burning less than modelled lowers the goal by at most 150', () {
       // Observed 2300 + 0.02 × 7700 = 2454; modelled 2650 + 200 = 2850.
