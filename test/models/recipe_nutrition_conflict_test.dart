@@ -158,25 +158,23 @@ void main() {
     expect(recipeFor(candidate).displayNutrition.proteinG, isNull);
   });
 
-  for (final conflicts in [
-    true,
-    'protein_g',
-    ['sodium_g'],
-    ['protein_g', 'protein_g'],
-    [null],
-    ['fat_g'],
-  ]) {
-    test(
-      'malformed or contradictory conflict metadata is rejected: $conflicts',
-      () {
-        expect(
-          () => RecipeImportCandidate.fromJson({
-            ...conflictJson(),
-            'nutrition_conflicts': conflicts,
-          }),
-          throwsFormatException,
-        );
-      },
-    );
-  }
+  test('malformed or contradictory conflict metadata is rejected', () {
+    for (final conflicts in [
+      true,
+      'protein_g',
+      ['sodium_g'],
+      ['protein_g', 'protein_g'],
+      [null],
+      ['fat_g'],
+    ]) {
+      expect(
+        () => RecipeImportCandidate.fromJson({
+          ...conflictJson(),
+          'nutrition_conflicts': conflicts,
+        }),
+        throwsFormatException,
+        reason: '$conflicts',
+      );
+    }
+  });
 }

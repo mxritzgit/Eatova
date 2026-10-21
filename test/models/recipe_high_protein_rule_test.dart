@@ -72,78 +72,41 @@ void main() {
     });
   });
 
-  for (final (sprache, katalog) in <(String, List<FitnessRecipe>)>[
-    ('de', recipeCatalogDe),
-    ('en', recipeCatalogEn),
-  ]) {
-    group('Katalog $sprache: der Tag folgt der Regel', () {
-      test('alle 30 Rezepte tragen genau dann High Protein, wenn sie duerfen',
-          () {
-        expect(katalog, hasLength(30));
-        for (final r in katalog) {
-          expect(
-            r.categories.contains(highProteinCategory),
-            r.meetsHighProteinRule,
-            reason: '${r.slug}: ${r.proteinG} g / ${r.caloriesKcal} kcal = '
-                '${(_proteinAnteil(r) * 100).toStringAsFixed(1)} % — Tag '
-                '${r.categories.contains(highProteinCategory) ? "gesetzt" : "fehlt"}, '
-                'Regel sagt ${r.meetsHighProteinRule}.',
-          );
-        }
-      });
-
-      test('der Tag trennt wirklich: weder alle noch keiner', () {
-        // Eine Regel, die alle 30 durchlaesst, waere als Filter wertlos.
-        final mitTag =
-            katalog.where((r) => r.categories.contains(highProteinCategory));
-        expect(mitTag, hasLength(24));
-        expect(katalog.length - mitTag.length, 6);
-      });
-
-      test('zwischen der schwaechsten Ja- und der staerksten Nein-Portion '
-          'liegt eine Luecke', () {
-        // Genau das fehlte vorher: die Gruppen ueberlappten sich.
-        final ja = katalog
-            .where((r) => r.meetsHighProteinRule)
-            .map((r) => r.proteinG)
-            .reduce((a, b) => a < b ? a : b);
-        final nein = katalog
-            .where((r) => !r.meetsHighProteinRule)
-            .map((r) => r.proteinG)
-            .reduce((a, b) => a > b ? a : b);
-        expect(ja, greaterThan(nein),
-            reason: 'schwaechstes Ja $ja g, staerkstes Nein $nein g');
-        expect(ja, HighProteinRule.minProteinG);
-      });
-
-      test('die drei korrigierten Rezepte sind gepinnt', () {
-        FitnessRecipe bySlug(String slug) =>
-            katalog.firstWhere((r) => r.slug == slug);
-
-        // Omelett: 36 g / 23,2 % — bekam den Tag.
+  // One catalog: the English one carries the same numbers and categories
+  // (l10n/recipe_catalog_parity_test.dart).
+  group('Katalog: der Tag folgt der Regel', () {
+    test('alle 30 Rezepte tragen genau dann High Protein, wenn sie duerfen',
+        () {
+      expect(recipeCatalogDe, hasLength(30));
+      for (final r in recipeCatalogDe) {
         expect(
-          bySlug('omelett_mit_spinat_and_avocado')
-              .categories
-              .contains(highProteinCategory),
-          isTrue,
+          r.categories.contains(highProteinCategory),
+          r.meetsHighProteinRule,
+          reason: '${r.slug}: ${r.proteinG} g / ${r.caloriesKcal} kcal = '
+              '${(_proteinAnteil(r) * 100).toStringAsFixed(1)} % — Tag '
+              '${r.categories.contains(highProteinCategory) ? "gesetzt" : "fehlt"}, '
+              'Regel sagt ${r.meetsHighProteinRule}.',
         );
-        // Ruehrei: 28 g / 20,7 % — Anteil ja, Menge nein.
-        expect(
-          bySlug('ruhrei_mit_vollkornbrot_and_avocado')
-              .categories
-              .contains(highProteinCategory),
-          isFalse,
-        );
-        // Linsen-Dal: 26 g / 18,6 % — beides nein.
-        expect(
-          bySlug('linsen_dal_mit_reis')
-              .categories
-              .contains(highProteinCategory),
-          isFalse,
-        );
-      });
+      }
     });
-  }
+
+    test('zwischen der schwaechsten Ja- und der staerksten Nein-Portion '
+        'liegt eine Luecke', () {
+      // Genau das fehlte vorher: die Gruppen ueberlappten sich. Leere
+      // Gruppen (Regel laesst alle oder keinen durch) werfen hier.
+      final ja = recipeCatalogDe
+          .where((r) => r.meetsHighProteinRule)
+          .map((r) => r.proteinG)
+          .reduce((a, b) => a < b ? a : b);
+      final nein = recipeCatalogDe
+          .where((r) => !r.meetsHighProteinRule)
+          .map((r) => r.proteinG)
+          .reduce((a, b) => a > b ? a : b);
+      expect(ja, greaterThan(nein),
+          reason: 'schwaechstes Ja $ja g, staerkstes Nein $nein g');
+      expect(ja, HighProteinRule.minProteinG);
+    });
+  });
 
   test('High Protein steht als Filter-Chip zur Verfuegung', () {
     // Die Konstante und der Chip muessen dasselbe Wort sein, sonst filtert der

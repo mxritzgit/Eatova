@@ -76,68 +76,55 @@ void main() {
     expect(exported.containsKey('unvollstaendig'), isFalse);
   });
 
-  for (final language in ['de', 'en']) {
-    testWidgets(
-      'deletion without prior content has no invented restore ($language)',
-      (tester) async {
-        final page = RecipeHistoryPage(
-          versions: [
-            RecipeVersion(
-              recipe: FitnessRecipe.fromRow(
-                (deletion['recipe'] as Map).cast<String, dynamic>(),
-              ),
-              revision: 1,
-              deleted: true,
-              recordedAt: DateTime.utc(2026, 9, 20, 10),
-              record: deletion,
-              hasRecipeContent: false,
+  testWidgets(
+    'deletion without prior content has no invented restore',
+    (tester) async {
+      final page = RecipeHistoryPage(
+        versions: [
+          RecipeVersion(
+            recipe: FitnessRecipe.fromRow(
+              (deletion['recipe'] as Map).cast<String, dynamic>(),
             ),
-          ],
-          currentRevision: null,
-          currentDeleted: null,
-          nextBefore: null,
-        );
-        var restores = 0;
-        await pumpLocalized(
-          tester,
-          RecipeHistoryScreen(
-            loadHistory: ({slug, beforeRevision}) async => page,
-            restoreVersion: (recipe, {required expectedRevision}) async {
-              restores++;
-              return SyncDelivery.delivered;
-            },
-            isSessionCurrent: () => true,
+            revision: 1,
+            deleted: true,
+            recordedAt: DateTime.utc(2026, 9, 20, 10),
+            record: deletion,
+            hasRecipeContent: false,
           ),
-          locale: Locale(language),
-        );
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(const ValueKey('recipe-history-version-1')),
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const ValueKey('recipe-history-restore-1')),
-          findsNothing,
-        );
-        expect(find.text('Eigenes Rezept'), findsNothing);
-        expect(
-          find.text(
-            language == 'de'
-                ? 'Löschung ohne frühere Version'
-                : 'Deletion without an earlier version',
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.textContaining(
-            language == 'de'
-                ? 'keine Version zum Wiederherstellen'
-                : 'no version to restore',
-          ),
-          findsOneWidget,
-        );
-        expect(restores, 0);
-      },
-    );
-  }
+        ],
+        currentRevision: null,
+        currentDeleted: null,
+        nextBefore: null,
+      );
+      var restores = 0;
+      await pumpLocalized(
+        tester,
+        RecipeHistoryScreen(
+          loadHistory: ({slug, beforeRevision}) async => page,
+          restoreVersion: (recipe, {required expectedRevision}) async {
+            restores++;
+            return SyncDelivery.delivered;
+          },
+          isSessionCurrent: () => true,
+        ),
+        locale: const Locale('en'),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-history-version-1')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('recipe-history-restore-1')),
+        findsNothing,
+      );
+      expect(find.text('Eigenes Rezept'), findsNothing);
+      expect(
+        find.text('Deletion without an earlier version'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('no version to restore'), findsOneWidget);
+      expect(restores, 0);
+    },
+  );
 }

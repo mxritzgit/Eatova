@@ -64,15 +64,11 @@ void main() {
       expect(isLeanHighProtein(pancakes), isFalse);
     });
 
-    test('protein needs the HighProteinRule minimum of 30 g', () {
+    test('protein needs the HighProteinRule minimum of 30 g; own recipes '
+        'qualify by their numbers, not by a tag', () {
+      expect(_own('a').categories, isEmpty);
       expect(isLeanHighProtein(_own('a', protein: 30)), isTrue);
       expect(isLeanHighProtein(_own('b', protein: 29)), isFalse);
-    });
-
-    test('own recipes qualify by their numbers, not by a tag', () {
-      final untagged = _own('plain', kcal: 380, protein: 32);
-      expect(untagged.categories, isEmpty);
-      expect(isLeanHighProtein(untagged), isTrue);
     });
 
     test('unknown or zero energy never qualifies', () {

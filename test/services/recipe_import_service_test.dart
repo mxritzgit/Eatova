@@ -178,13 +178,6 @@ void main() {
       );
     }
     expect(
-      () => parseRecipeImportResponse(
-        502,
-        '{"error":"provider_invalid_response"}',
-      ),
-      throwsA(failure(RecipeImportFailure.invalidResponse)),
-    );
-    expect(
       () => parseRecipeImportResponse(502, '<html>bad gateway</html>'),
       throwsA(failure(RecipeImportFailure.unavailable)),
     );

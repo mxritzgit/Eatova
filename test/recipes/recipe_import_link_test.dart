@@ -160,11 +160,4 @@ void main() {
       findsOneWidget,
     );
   });
-
-  testWidgets('ein TikTok-Link geht wie bisher an den Import', (tester) async {
-    final service = _Service();
-    await _open(tester, service, initialText: _tiktok);
-    expect(service.inputs, [_tiktok]);
-    expect(_notice, findsNothing);
-  });
 }

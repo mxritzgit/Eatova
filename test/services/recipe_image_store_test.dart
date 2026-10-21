@@ -123,6 +123,8 @@ void main() {
   group('Speichern und Wiederfinden', () {
     test('gespeicherte Bytes ueberleben einen Neustart des Stores', () async {
       final reference = await store.save(bytes: _geotaggedJpeg());
+      // Random hex from Random.secure, never the old guessable
+      // `user_<ms>.jpg` scheme (Finding 5).
       expect(reference, matches(_zufallsReferenz));
 
       final neu = await neustart();
@@ -163,14 +165,12 @@ void main() {
   });
 
   group('EXIF-Scrub ist Pflicht — auch auf der Platte', () {
-    test('das Fixture traegt die Metadaten wirklich (Vorbedingung)', () {
-      final roh = _geotaggedJpeg();
-      expect(_hasExifSegment(roh), isTrue);
-      expect(img.decodeImage(roh)!.exif.gpsIfd.keys, isNotEmpty);
-    });
-
     test('die abgelegte Datei traegt weder GPS noch Geraete-Kennung', () async {
-      final reference = await store.save(bytes: _geotaggedJpeg());
+      final roh = _geotaggedJpeg();
+      expect(_hasExifSegment(roh), isTrue, reason: 'Vorbedingung: Fixture');
+      expect(img.decodeImage(roh)!.exif.gpsIfd.keys, isNotEmpty);
+
+      final reference = await store.save(bytes: roh);
       final bytes = await (await store.resolve(reference!))!.readAsBytes();
 
       expect(_hasExifSegment(bytes), isFalse,
@@ -281,15 +281,6 @@ void main() {
   });
 
   group('Finding 5 — Dateinamen sind nicht erratbar', () {
-    test('save vergibt Zufalls-Hex statt des Slug-/Timestamp-Schemas',
-        () async {
-      final reference = await store.save(bytes: _geotaggedJpeg());
-      expect(reference, matches(_zufallsReferenz));
-      // The old predictable scheme (`user_<ms>.jpg`) must never return:
-      // milliseconds are brute-forceable.
-      expect(reference, isNot(matches(RegExp(r'user_\d+'))));
-    });
-
     test('zwei Ablagen bekommen zwei verschiedene Namen', () async {
       final bytes = _geotaggedJpeg();
       final gesehen = <String>{};
@@ -420,11 +411,6 @@ void main() {
               'Wiederbelebung.');
     });
 
-    test('Gegenprobe: ohne Stoerung landet das Foto ganz normal', () async {
-      final referenz = await store.save(bytes: _geotaggedJpeg());
-      expect(referenz, matches(_zufallsReferenz));
-      expect(await store.resolve(referenz!), isNotNull);
-    });
   });
 
   // Review 2026-08-29, P3-04: no delete path releases `img_*` itself. A

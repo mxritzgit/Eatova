@@ -1,5 +1,6 @@
-// Perf-Audit 2026-09-01, Paket B4: der Rezepte-Tab faltete und sortierte den
-// ganzen Katalog bei JEDEM Build neu — also bei jedem Tastendruck.
+// Rezeptsuche und ihr Memo (Perf-Audit 2026-09-01, Paket B4): der
+// Rezepte-Tab faltete und sortierte den ganzen Katalog bei JEDEM Build neu —
+// also bei jedem Tastendruck.
 //
 // Zwei Klassen von Aussagen, beide notwendig:
 //
@@ -24,8 +25,8 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 
-import 'support/harness.dart';
-import 'support/recipe_navigation.dart';
+import '../support/harness.dart';
+import '../support/recipe_navigation.dart';
 
 const _eigenes = FitnessRecipe(
   slug: 'user_mein_teller',
@@ -463,11 +464,12 @@ void main() {
     ];
 
     for (final locale in <String>['de', 'en']) {
-      for (final filter in <String>["Alle", "Eigene", "Fisch", "Low Carb"]) {
-        testWidgets('$locale · Filter $filter', (tester) async {
-          _grosseFlaeche(tester);
-          final l10n =
-              await AppLocalizations.delegate.load(Locale(locale));
+      testWidgets('$locale: jede Query unter jedem Filter', (tester) async {
+        _grosseFlaeche(tester);
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        for (final filter in <String>["Alle", "Eigene", "Fisch", "Low Carb"]) {
+          // A fresh screen per filter: no state carried between them.
+          await tester.pumpWidget(const SizedBox.shrink());
           await _pump(tester, locale: Locale(locale), userRecipes: _einRezept);
           await selectRecipeSection(
             tester,
@@ -490,8 +492,8 @@ void main() {
               reason: 'Query "$query" unter $locale/$filter',
             );
           }
-        });
-      }
+        }
+      });
     }
   });
 }

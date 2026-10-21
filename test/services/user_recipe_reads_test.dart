@@ -227,14 +227,14 @@ void main() {
     },
   );
 
-  for (final malformed in [
-    'watermark',
-    'duplicate',
-    'cursor',
-    'oversize',
-    'revision',
-  ]) {
-    test('rejects malformed $malformed without partial publication', () async {
+  test('rejects malformed pages without partial publication', () async {
+    for (final malformed in [
+      'watermark',
+      'duplicate',
+      'cursor',
+      'oversize',
+      'revision',
+    ]) {
       var requestCount = 0;
       final reads = _reader((request) async {
         requestCount++;
@@ -265,10 +265,10 @@ void main() {
         }
         return _answer(request, page);
       }).reads;
-      await expectLater(reads.load(), throwsFormatException);
-      expect(requestCount, lessThanOrEqualTo(2));
-    });
-  }
+      await expectLater(reads.load(), throwsFormatException, reason: malformed);
+      expect(requestCount, lessThanOrEqualTo(2), reason: malformed);
+    }
+  });
 
   test(
     'history seeks by owner-global revision and preserves deleted content',

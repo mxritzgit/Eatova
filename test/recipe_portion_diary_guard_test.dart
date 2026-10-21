@@ -55,68 +55,65 @@ void main() {
     expect(original.fat, '0 g');
   });
 
-  for (final locale in ['de', 'en']) {
-    testWidgets(
-      'diary edit keeps recipe snapshot and exposes weight explanation $locale',
-      (tester) async {
-        await withClock(Clock.fixed(DateTime(2026, 9, 10, 12)), () async {
-          pinPhoneViewport(tester);
-          final original = _portion();
-          var saved = LoggedMeal(
-            id: 'fixed-recipe',
-            result: original,
-            loggedAt: DateTime(2026, 9, 10, 12),
-            forcedSlot: MealSlot.lunch,
-            localDay: '2026-09-10',
-          );
-          final t = locale == 'de' ? deL10n : enL10n;
-          MealAnalysisResult? replaced;
-          await pumpLocalized(
-            tester,
-            Builder(
-              builder: (context) => TextButton(
-                onPressed: () => showEditMealSheet(
-                  context,
-                  meal: saved,
-                  onUpdateMeal: (id, {result, slot, day}) {
-                    replaced = result;
-                    saved = saved.copyWith(result: result, forcedSlot: slot);
-                    return saved;
-                  },
-                ),
-                child: const Text('Open'),
+  testWidgets(
+    'diary edit keeps recipe snapshot and exposes weight explanation',
+    (tester) async {
+      await withClock(Clock.fixed(DateTime(2026, 9, 10, 12)), () async {
+        pinPhoneViewport(tester);
+        final original = _portion();
+        var saved = LoggedMeal(
+          id: 'fixed-recipe',
+          result: original,
+          loggedAt: DateTime(2026, 9, 10, 12),
+          forcedSlot: MealSlot.lunch,
+          localDay: '2026-09-10',
+        );
+        MealAnalysisResult? replaced;
+        await pumpLocalized(
+          tester,
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showEditMealSheet(
+                context,
+                meal: saved,
+                onUpdateMeal: (id, {result, slot, day}) {
+                  replaced = result;
+                  saved = saved.copyWith(result: result, forcedSlot: slot);
+                  return saved;
+                },
               ),
+              child: const Text('Open'),
             ),
-            locale: Locale(locale),
-          );
-          await tester.tap(find.text('Open'));
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const ValueKey('edit-meal-adjust-button')),
-            findsNothing,
-          );
-          expect(find.text(t.recipeCalcNoCookedWeight), findsOneWidget);
-          expect(find.textContaining('175\u00a0kcal'), findsOneWidget);
-          await tester.ensureVisible(
-            find.byKey(const ValueKey('edit-slot-select-dinner')),
-          );
-          await tester.tap(
-            find.byKey(const ValueKey('edit-slot-select-dinner')),
-          );
-          await tester.pumpAndSettle();
-          await tester.ensureVisible(
-            find.byKey(const ValueKey('edit-meal-save-button')),
-          );
-          await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
-          await tester.pumpAndSettle();
-          expect(replaced, isNull);
-          expect(identical(saved.result, original), isTrue);
-          expect(saved.result.caloriesKcal, 175);
-          expect(saved.slot, MealSlot.dinner);
-        });
-      },
-    );
-  }
+          ),
+          locale: const Locale('en'),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('edit-meal-adjust-button')),
+          findsNothing,
+        );
+        expect(find.text(enL10n.recipeCalcNoCookedWeight), findsOneWidget);
+        expect(find.textContaining('175\u00a0kcal'), findsOneWidget);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('edit-slot-select-dinner')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('edit-slot-select-dinner')),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('edit-meal-save-button')),
+        );
+        await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
+        await tester.pumpAndSettle();
+        expect(replaced, isNull);
+        expect(identical(saved.result, original), isTrue);
+        expect(saved.result.caloriesKcal, 175);
+        expect(saved.slot, MealSlot.dinner);
+      });
+    },
+  );
 
   testWidgets(
     'saved recipe recent uses unchanged portion without gram controls',

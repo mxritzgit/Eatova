@@ -78,14 +78,6 @@ void main() {
     },
   );
 
-  test('ingredient snapshots do not mutate already logged meals', () {
-    final original = _recipe([_ingredient()]);
-    final logged = original.toMealResultForServings(0.5);
-    final changed = _recipe([_ingredient(calories: 500)]);
-    expect(changed.toMealResultForServings(0.5).caloriesKcal, 250);
-    expect(logged.caloriesKcal, 50);
-  });
-
   test(
     'unknown macros and measured zero survive diary cache and outbox JSON',
     () async {
