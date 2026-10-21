@@ -40,13 +40,13 @@ const IMAGE_BASE64 =
 // carried into handler.ts AND the ANSWER_SYSTEM_PROMPT.
 const CRISIS_NUMBER = "0800 111 0 111";
 const CRISIS_REPLY =
-  "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.";
+  "Bitte sprich mit jemandem darüber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.";
 const ED_REPLY =
-  "Da gehe ich nicht mit. Wenn du das Gefuehl hast, dass dein Essverhalten dich belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle. Ich kann dir gern bei einer ausgewogenen, alltagstauglichen Ernaehrung helfen.";
+  "Da gehe ich nicht mit. Wenn du das Gefühl hast, dass dein Essverhalten dich belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle. Ich kann dir gern bei einer ausgewogenen, alltagstauglichen Ernährung helfen.";
 const OFF_TOPIC_REPLY =
-  "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in Eatova. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.";
+  "Das geht über meinen Bereich hinaus - ich bin der Fitness- und Ernährungs-Coach in Eatova. Frag mich gern was zu deinem nächsten Workout oder deinen Makros.";
 const INJECTION_REPLY =
-  "Schoener Versuch. Ich bleibe dein Fitness- und Ernaehrungs-Coach. Was willst du zu Training oder Ernaehrung wissen?";
+  "Schöner Versuch. Ich bleibe dein Fitness- und Ernährungs-Coach. Was willst du zu Training oder Ernährung wissen?";
 
 // EN counterparts from the REFUSAL_TEXTS catalog: byte copies, same rule as
 // above.
@@ -57,13 +57,13 @@ const OFF_TOPIC_REPLY_EN =
 const TOO_LONG_REPLY_EN =
   "Your message is too long. Please keep it shorter (max. 1000 characters).";
 const IMAGE_TOO_LARGE_REPLY =
-  "Das Bild ist zu gross. Bitte schick ein kleineres oder komprimiertes Bild.";
+  "Das Bild ist zu groß. Bitte schick ein kleineres oder komprimiertes Bild.";
 const IMAGE_TOO_LARGE_REPLY_EN =
   "The image is too large. Please send a smaller or compressed image.";
 
 // Layer-3 prompt-leak net (P5-05). Byte copies of REFUSAL_TEXTS.prompt_leak.
 const PROMPT_LEAK_REPLY =
-  "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
+  "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem nächsten Workout oder zu Ernährung.";
 const PROMPT_LEAK_REPLY_EN =
   "That's not something I should share. Ask me about your next workout or about nutrition instead.";
 
@@ -448,7 +448,7 @@ for (const locale of ["de", "en"] as const) {
         assertEquals(body.refusal, true, "no advice or adoptable proposal");
         const reply = String(body.reply);
         assert(reply.includes(locale === "de" ? "Beschwerden" : "symptoms"), "Refusal must cover the actual medical category, not only doping");
-        assert(reply.includes(locale === "de" ? "aerztlich" : "medical professional"), "appropriate professional signposting");
+        assert(reply.includes(locale === "de" ? "ärztlich" : "medical professional"), "appropriate professional signposting");
         assert(reply.includes("112"), "conditional emergency signposting remains present");
         assert(!reply.includes("natuerlichem Training") && !reply.includes("natural training"), "do not redirect unresolved symptoms to further training");
         assertEquals(body.recipe, undefined, "no recipe");
@@ -1992,7 +1992,7 @@ Deno.test("F5-02: blanker __REFUSE__-Marker bleibt ein Refusal (Katalogtext, kei
   // A refund here would be a quota bypass (provoke a refusal -> slot back ->
   // 60/h instead of 5/day) and would drop the crisis text on the floor.
   const cases: { locale?: string; expected: string }[] = [
-    { expected: "Das geht ueber meinen Bereich hinaus - ich bin nur fuer Training und Ernaehrung da." },
+    { expected: "Das geht über meinen Bereich hinaus - ich bin nur für Training und Ernährung da." },
     { locale: "en", expected: "That's outside my area - I'm only here for training and nutrition." },
   ];
   for (const { locale, expected } of cases) {
@@ -2470,7 +2470,7 @@ Deno.test("EDGE-FUNCTIONS-1: eine eigene Krisennummer neben einem Leck bleibt de
 
 // COACH-2: byte copies of REFUSAL_TEXTS.provider_refusal.
 const PROVIDER_REFUSAL_REPLY =
-  "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.";
+  "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernährung helfe ich dir gern weiter.";
 const PROVIDER_REFUSAL_REPLY_EN =
   "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists helplines for your country. I'm happy to help with training and nutrition.";
 

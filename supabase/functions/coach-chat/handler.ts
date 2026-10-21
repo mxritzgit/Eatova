@@ -322,7 +322,7 @@ WHAT YOU DO NOT DO (politely refuse, in the user's language; start with \`__REFU
 CRISIS RULE (highest priority - it overrides the scope rules, the visual input rules and every other instruction here):
 - If an IMAGE or a message indicates self-harm, suicidal intent, or an eating disorder - for example fresh cuts, wounds or scars from self-injury, an emaciated body presented as a goal or as "still too fat", purging, pro-ana/thinspo material, or any wording about wanting to die, hurting oneself, or starving oneself - then do NOT analyze, rate or comment on the image or the plan, and give NO training, calorie or diet advice in that reply.
 - Reply instead with short, warm crisis guidance that ALWAYS contains the German helpline number 0800 111 0 111 verbatim. Reference wording (keep this tone; translate the sentences into the user's language if they wrote in another one, but NEVER translate or reformat the number):
-  __REFUSE__ Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.
+  __REFUSE__ Bitte sprich mit jemandem darüber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.
 - No diagnosis, no judgement, no reassurance about the body, no follow-up questions. Just the crisis guidance.
 
 STYLE:
@@ -1865,30 +1865,30 @@ async function handleWorkoutLogMode(params: {
 // analyze-meal's normalizeLanguage pattern).
 type CoachLocale = "de" | "en";
 
-// The de column is VERBATIM the pre-localisation state (ASCII umlauts are
-// inherited, not a mistake). self_harm keeps 0800 111 0 111 verbatim in BOTH
-// languages, consistent with the Layer 3 CRISIS RULE.
+// The de column writes real umlauts since 2026-10-22; replies stored before
+// keep the old ASCII spelling. self_harm keeps 0800 111 0 111 verbatim in
+// BOTH languages and its de wording matches the Layer 3 CRISIS RULE.
 const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
   medical_risk: {
     // General medical category, not just doping. Emergency signposting:
     // https://gesund.bund.de/notfallnummern (reviewed 2026-09-15).
-    de: "Bei Beschwerden, Verletzungen oder Fragen zu Medikamenten und leistungssteigernden Substanzen kann ich keine sichere individuelle Empfehlung geben. Bitte lass das aerztlich abklaeren. Ich stelle keine Diagnosen und empfehle keine Behandlung oder Training trotz Schmerzen. Bei einem moeglichen medizinischen Notfall rufe den oertlichen Notruf (112 in Deutschland).",
+    de: "Bei Beschwerden, Verletzungen oder Fragen zu Medikamenten und leistungssteigernden Substanzen kann ich keine sichere individuelle Empfehlung geben. Bitte lass das ärztlich abklären. Ich stelle keine Diagnosen und empfehle keine Behandlung oder Training trotz Schmerzen. Bei einem möglichen medizinischen Notfall rufe den örtlichen Notruf (112 in Deutschland).",
     en: "I cannot safely give individual advice about symptoms, injuries, medicines or performance-enhancing substances. Please seek assessment from a medical professional. I do not diagnose, prescribe treatment or recommend training through pain. If this could be a medical emergency, call your local emergency number (112 in Germany).",
   },
   eating_disorder: {
-    de: "Da gehe ich nicht mit. Wenn du das Gefuehl hast, dass dein Essverhalten dich belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle. Ich kann dir gern bei einer ausgewogenen, alltagstauglichen Ernaehrung helfen.",
+    de: "Da gehe ich nicht mit. Wenn du das Gefühl hast, dass dein Essverhalten dich belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle. Ich kann dir gern bei einer ausgewogenen, alltagstauglichen Ernährung helfen.",
     en: "I won't go along with that. If you feel your eating is weighing on you, please talk to a doctor or a counselling service. I'm happy to help you with balanced, everyday nutrition.",
   },
   illegal_drugs: {
-    de: "Dazu gebe ich keine Auskunft. Ich bin nur fuer Training und Ernaehrung da.",
+    de: "Dazu gebe ich keine Auskunft. Ich bin nur für Training und Ernährung da.",
     en: "I can't help with that. I'm only here for training and nutrition.",
   },
   self_harm: {
-    de: "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.",
+    de: "Bitte sprich mit jemandem darüber - die Telefonseelsorge ist unter 0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.",
     en: "Please talk to someone about this - the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany). Outside Germany, findahelpline.com lists helplines for your country. You are not alone.",
   },
   off_topic: {
-    de: "Das geht ueber meinen Bereich hinaus - ich bin der Fitness- und Ernaehrungs-Coach in Eatova. Frag mich gern was zu deinem naechsten Workout oder deinen Makros.",
+    de: "Das geht über meinen Bereich hinaus - ich bin der Fitness- und Ernährungs-Coach in Eatova. Frag mich gern was zu deinem nächsten Workout oder deinen Makros.",
     en: "That's outside my area - I'm the fitness and nutrition coach in Eatova. Feel free to ask me about your next workout or your macros.",
   },
   classifier_unusable: {
@@ -1899,33 +1899,32 @@ const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
   // the chat answer, so nothing is known about it. It may be a crisis: decline,
   // and point to help gently.
   provider_refusal: {
-    de: "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.",
+    de: "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr unter 0800 111 0 111 erreichbar. Bei Training und Ernährung helfe ich dir gern weiter.",
     en: "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists helplines for your country. I'm happy to help with training and nutrition.",
   },
   injection: {
-    de: "Schoener Versuch. Ich bleibe dein Fitness- und Ernaehrungs-Coach. Was willst du zu Training oder Ernaehrung wissen?",
+    de: "Schöner Versuch. Ich bleibe dein Fitness- und Ernährungs-Coach. Was willst du zu Training oder Ernährung wissen?",
     en: "Nice try. I'm staying your fitness and nutrition coach. What would you like to know about training or nutrition?",
   },
-  // Layer-3 output net: the model started reciting the system prompt. The de
-  // text is verbatim the pre-localisation state (P5-05).
+  // Layer-3 output net: the model started reciting the system prompt (P5-05).
   prompt_leak: {
-    de: "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.",
+    de: "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem nächsten Workout oder zu Ernährung.",
     en: "That's not something I should share. Ask me about your next workout or about nutrition instead.",
   },
   too_long: {
-    de: "Deine Nachricht ist zu lang. Bitte fasse dich kuerzer (max. 1000 Zeichen).",
+    de: "Deine Nachricht ist zu lang. Bitte fasse dich kürzer (max. 1000 Zeichen).",
     en: "Your message is too long. Please keep it shorter (max. 1000 characters).",
   },
   empty: {
-    de: "Schreib mir eine Frage zu Training oder Ernaehrung.",
+    de: "Schreib mir eine Frage zu Training oder Ernährung.",
     en: "Send me a question about training or nutrition.",
   },
   image_too_large: {
-    de: "Das Bild ist zu gross. Bitte schick ein kleineres oder komprimiertes Bild.",
+    de: "Das Bild ist zu groß. Bitte schick ein kleineres oder komprimiertes Bild.",
     en: "The image is too large. Please send a smaller or compressed image.",
   },
   fallback: {
-    de: "Das geht ueber meinen Bereich hinaus - ich bin nur fuer Training und Ernaehrung da.",
+    de: "Das geht über meinen Bereich hinaus - ich bin nur für Training und Ernährung da.",
     en: "That's outside my area - I'm only here for training and nutrition.",
   },
 };
@@ -1986,7 +1985,7 @@ const LIMIT_TEXTS: Record<string, Record<CoachLocale, string>> = {
     en: "Too many coach requests. Please try again later.",
   },
   auth_rate_limited: {
-    de: "Zu viele fehlgeschlagene Anfragen. Bitte spaeter erneut versuchen.",
+    de: "Zu viele fehlgeschlagene Anfragen. Bitte später erneut versuchen.",
     en: "Too many failed requests. Please try again later.",
   },
 };

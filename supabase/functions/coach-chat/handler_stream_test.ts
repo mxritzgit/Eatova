@@ -45,16 +45,16 @@ const DAILY_LIMIT = 5;
 // Katalogtexte (REFUSAL_TEXTS in handler.ts) — Byte-Kopien, dieselbe Regel wie
 // in handler_test.ts: eine Aenderung dort muss hier rot werden.
 const FALLBACK_REPLY =
-  "Das geht ueber meinen Bereich hinaus - ich bin nur fuer Training und Ernaehrung da.";
+  "Das geht über meinen Bereich hinaus - ich bin nur für Training und Ernährung da.";
 const PROVIDER_REFUSAL_REPLY =
   "Dabei kann ich dir nicht helfen. Falls dich gerade etwas belastet: Die Telefonseelsorge ist rund um die Uhr " +
-  "unter 0800 111 0 111 erreichbar. Bei Training und Ernaehrung helfe ich dir gern weiter.";
+  "unter 0800 111 0 111 erreichbar. Bei Training und Ernährung helfe ich dir gern weiter.";
 const PROVIDER_REFUSAL_REPLY_EN =
   "I can't help with that. If something is weighing on you, the Telefonseelsorge crisis line is available " +
   "around the clock at 0800 111 0 111 (free of charge in Germany); outside Germany, findahelpline.com lists " +
   "helplines for your country. I'm happy to help with training and nutrition.";
 const PROMPT_LEAK_REPLY =
-  "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
+  "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem nächsten Workout oder zu Ernährung.";
 
 const RECIPE_JSON = JSON.stringify({
   title: "Huehnchenauflauf",
