@@ -132,8 +132,10 @@ muss die Weiterentwicklung absichern; doppelte Sicherheitstests dürfen weg.
   `test/tooling/local_auth_transport_test.py`).
 - **Ergebnis:** Flutter-Tests 6595 → 6325, Coverage 97,16 % → etwa 97,1 %.
   30 Zeilen ohne Test sind reine Anzeige-Varianten, `meals_sync.dart:120` (war
-  schon vorher nur zufällig erreicht) und `InAppMealCameraLauncher.launch`
-  (fünf Zeilen Verdrahtung zum direkt getesteten `MealCameraSheet`; offen).
+  schon vorher nur zufällig erreicht) und `InAppMealCameraLauncher.launch`.
+  Der Launcher hat inzwischen einen eigenen Test in `meal_camera_sheet_test`:
+  Er prüft das Panel von unten statt Vollbild. Der Test wurde mit einer
+  absichtlich eingebauten Vollbild-Route gegengeprüft und schlägt dann an.
 
 ## Offen
 

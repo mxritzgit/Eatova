@@ -308,6 +308,36 @@ void main() {
     semantics.dispose();
   });
 
+  // Food tab and add sheet both open the camera through this launcher; the
+  // full-screen system camera was the bug of 2026-10-21.
+  testWidgets('der Launcher oeffnet die Kamera als Panel von unten, nicht im '
+      'Vollbild', (tester) async {
+    CameraPlatform.instance = _FakeCameraPlatform();
+    await pumpLocalized(
+      tester,
+      Builder(
+        builder: (context) => TextButton(
+          onPressed: () => const InAppMealCameraLauncher().launch(
+            context,
+            initialSlot: MealSlot.dinner,
+          ),
+          child: const Text('open'),
+        ),
+      ),
+      safeArea: false,
+    );
+    await tester.tap(find.text('open'));
+    await _flush(tester, 20);
+
+    final sheet = find.byType(MealCameraSheet);
+    expect(
+      ModalRoute.of(tester.element(sheet)),
+      isA<ModalBottomSheetRoute<MealCameraCapture>>(),
+    );
+    expect(tester.getRect(sheet).top, greaterThan(0));
+    expect(tester.widget<MealCameraSheet>(sheet).initialSlot, MealSlot.dinner);
+  });
+
   testWidgets('die Taschenlampe schaltet Licht an und aus und verschwindet '
       'ohne Blitz am Geraet', (tester) async {
     final fake = _FakeCameraPlatform();
