@@ -4025,3 +4025,26 @@ deploy. GitHub environments `ops-watch` and `release` (names and secrets in
   and deleting a weigh-in including the sync, the Apple Health card after the
   onboarding, an in-place device install); the `ops-watch` and `release`
   environments with their secrets; the owner's review of the decisions above.
+
+### Ops watch environment, 2026-10-21
+
+- **Before:** the seven scheduled runs since 2026-10-20 10:03 UTC failed with
+  exit 2, "Supabase secrets are missing from the ops-watch environment".
+  GitHub had created the environment on the first run, empty and open to
+  every branch. The failure mails reached the owner, which covers step 4's
+  mail check in [operations](OPERATIONS.md).
+- **Owner approval:** "Ich gebe dir Freigabe, die GitHub-Umgebung ops-watch
+  auf main zu beschränken, die drei Secrets aus Infisical zu setzen und Ops
+  watch einmal von Hand zu starten."
+- **Setup:** deployment branches limited to `main`, administrators cannot
+  bypass, no required reviewers. `SUPABASE_ACCESS_TOKEN`,
+  `SUPABASE_PROJECT_REF` and `SUPABASE_ANON_KEY` were set from Infisical
+  (`--env=dev`); the access token is the existing management token, not a
+  separate one.
+- **Evidence:** the manual
+  [run 39636183149](https://github.com/mxritzgit/Eatova/actions/runs/39636183149)
+  passed: project active, healthy and identity verified, both stop-switch and
+  budget checks ok, every function's boot probe passed. Backups stay
+  unchecked until `OPS_WATCH_BACKUP_MAX_AGE_HOURS` holds an agreed RPO.
+- **Still open:** optionally a separate, revocable management token for this
+  environment (Supabase dashboard); the `release` environment.
