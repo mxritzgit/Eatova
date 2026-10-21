@@ -1,13 +1,14 @@
 // DESIGN_REFACTOR §7.2 / §5: every screen renders in both brightnesses and at
 // 200 % system font without RenderFlex overflow.
 //
-// This file covers the settings screen. Its weak spots: the three-segment
-// pills under the appearance and language rows, the identity row with a long
-// mail address, and the delete block with its explainer box.
+// This file covers the fully wired settings screen. Its weak spots: the
+// three-segment pills under the appearance and language rows, the identity row
+// with a long mail address, and the delete block with its explainer box. The
+// thinned page the shell shows without an account is walked by
+// test/responsive/app_layout_sweep_test.dart.
 //
 // Unlike the behaviour tests, overflows are NOT swallowed here — they are the
-// thing under test. The four hand-written smokes (hell / dunkel / 2.0 hell /
-// 2.0 dunkel) are one `renderMatrix` now, which also covers `en`.
+// thing under test.
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
@@ -110,28 +111,10 @@ void main() {
           textScale: c.textScale);
     },
     locales: const <Locale>[Locale('de'), Locale('en')],
+    // Brightness changes colours only; the layout is the subject here.
+    brightnesses: const <Brightness>[Brightness.dark],
     textScales: const <double>[1.0, 2.0],
   );
-
-  testWidgets('die ausgeduennte Seite rendert ebenfalls sauber',
-      (tester) async {
-    // Without mail address, auth layer and ThemeModeScope half the page is
-    // gone; an empty [SettingsStudioGroup] would be the weak spot here.
-    final overflows = await collectOverflows(() async {
-      await _pump(
-        tester,
-        brightness: Brightness.dark,
-        textScale: 2.0,
-        email: null,
-        mitScope: false,
-        mitAuth: false,
-      );
-    });
-
-    expect(overflows, isEmpty, reason: describeOverflows(overflows));
-    expect(find.text('Konto'), findsNothing);
-    expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
-  });
 
   testWidgets('das Loesch-Sheet rendert bei 2.0 ohne Overflow', (tester) async {
     // Its own route above the page, unreachable by the matrix above. Title,
@@ -244,22 +227,4 @@ void main() {
   },
       variant: const TargetPlatformVariant(
           <TargetPlatform>{TargetPlatform.android, TargetPlatform.iOS}));
-
-  testWidgets('der Seitenfuss der Einstellungen steht ohne vorheriges '
-      'Scrollen im Baum', (tester) async {
-    // The page builds every row up front (SingleChildScrollView); this pins
-    // that the legal links are found before anyone scrolls, which the
-    // behaviour tests rely on.
-    await _pump(tester, brightness: Brightness.light);
-
-    expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-imprint-link')), findsOneWidget);
-    expect(find.byKey(const ValueKey('settings-about')), findsOneWidget);
-
-    // The danger zone slipped one row down and sits just below the edge when
-    // fully wired, so this asserts reachability rather than visibility.
-    await _scrollTo(tester, const ValueKey('settings-sign-out'), 300);
-    expect(find.byKey(const ValueKey('settings-sign-out')), findsOneWidget);
-  });
 }

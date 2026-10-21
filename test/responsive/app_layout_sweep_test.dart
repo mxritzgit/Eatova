@@ -440,35 +440,38 @@ String _label(Size size, double scale, Locale locale, Brightness brightness) =>
 
 void main() {
   group('Telefone', () {
+    // Brightness only recolours: German runs dark and English light, so both
+    // palettes and both text lengths meet every size and text scale.
     for (final size in const [Size(320, 568), Size(390, 844)]) {
       for (final scale in const [1.0, 2.0]) {
-        for (final locale in const [Locale('de'), Locale('en')]) {
-          for (final brightness in Brightness.values) {
-            testWidgets(
-              'alle Tabs und Sheets ohne Layoutfehler '
-              '[${_label(size, scale, locale, brightness)}]',
-              (tester) async {
-                final errors = await _walk(
-                  tester,
-                  size: size,
-                  locale: locale,
-                  brightness: brightness,
-                  textScale: scale,
-                  onOpened: (step) {
-                    // Phones never get a side inset: pages span the window.
-                    final column = step.column;
-                    if (column == null) return;
-                    expect(
-                      tester.getRect(column).width,
-                      size.width,
-                      reason: '${step.name} ist auf dem Telefon eingerueckt',
-                    );
-                  },
-                );
-                expect(errors, isEmpty, reason: errors.join('\n'));
-              },
-            );
-          }
+        for (final (locale, brightness) in const [
+          (Locale('de'), Brightness.dark),
+          (Locale('en'), Brightness.light),
+        ]) {
+          testWidgets(
+            'alle Tabs und Sheets ohne Layoutfehler '
+            '[${_label(size, scale, locale, brightness)}]',
+            (tester) async {
+              final errors = await _walk(
+                tester,
+                size: size,
+                locale: locale,
+                brightness: brightness,
+                textScale: scale,
+                onOpened: (step) {
+                  // Phones never get a side inset: pages span the window.
+                  final column = step.column;
+                  if (column == null) return;
+                  expect(
+                    tester.getRect(column).width,
+                    size.width,
+                    reason: '${step.name} ist auf dem Telefon eingerueckt',
+                  );
+                },
+              );
+              expect(errors, isEmpty, reason: errors.join('\n'));
+            },
+          );
         }
       }
     }
@@ -481,61 +484,64 @@ void main() {
       // Phone in landscape: wide but short.
       Size(844, 390),
     ]) {
-      for (final scale in const [1.0, 2.0]) {
-        for (final locale in const [Locale('de'), Locale('en')]) {
-          testWidgets(
-            'lesbare Spalte ohne Layoutfehler '
-            '[${_label(size, scale, locale, Brightness.light)}]',
-            (tester) async {
-              void expectColumn(Rect rect, String what) {
-                expect(
-                  rect.width,
-                  lessThanOrEqualTo(kReadableContentWidth),
-                  reason: '$what ist ${rect.width} px breit',
-                );
-                expect(
-                  rect.center.dx,
-                  moreOrLessEquals(size.width / 2, epsilon: 0.5),
-                  reason: '$what ist nicht zentriert',
-                );
-              }
-
-              final errors = await _walk(
-                tester,
-                size: size,
-                locale: locale,
-                brightness: Brightness.light,
-                textScale: scale,
-                onOpened: (step) {
-                  final tabs = find.byKey(
-                    const ValueKey<String>('home-tab-stack'),
-                  );
-                  if (step.taps.isEmpty && tabs.evaluate().isNotEmpty) {
-                    expectColumn(
-                      tester.getRect(tabs),
-                      '${step.name}-Tab',
-                    );
-                    expectColumn(
-                      tester
-                          .getRect(find.byKey(const ValueKey('nav-Heute')))
-                          .expandToInclude(
-                            tester.getRect(
-                              find.byKey(const ValueKey('nav-Coach')),
-                            ),
-                          ),
-                      'Navigation',
-                    );
-                  }
-                  final column = step.column;
-                  if (column != null) {
-                    expectColumn(tester.getRect(column), step.name);
-                  }
-                },
+      // The readable column is language-independent; the longer German copy
+      // takes the 2.0x run, where length matters.
+      for (final (scale, locale) in const [
+        (1.0, Locale('en')),
+        (2.0, Locale('de')),
+      ]) {
+        testWidgets(
+          'lesbare Spalte ohne Layoutfehler '
+          '[${_label(size, scale, locale, Brightness.light)}]',
+          (tester) async {
+            void expectColumn(Rect rect, String what) {
+              expect(
+                rect.width,
+                lessThanOrEqualTo(kReadableContentWidth),
+                reason: '$what ist ${rect.width} px breit',
               );
-              expect(errors, isEmpty, reason: errors.join('\n'));
-            },
-          );
-        }
+              expect(
+                rect.center.dx,
+                moreOrLessEquals(size.width / 2, epsilon: 0.5),
+                reason: '$what ist nicht zentriert',
+              );
+            }
+
+            final errors = await _walk(
+              tester,
+              size: size,
+              locale: locale,
+              brightness: Brightness.light,
+              textScale: scale,
+              onOpened: (step) {
+                final tabs = find.byKey(
+                  const ValueKey<String>('home-tab-stack'),
+                );
+                if (step.taps.isEmpty && tabs.evaluate().isNotEmpty) {
+                  expectColumn(
+                    tester.getRect(tabs),
+                    '${step.name}-Tab',
+                  );
+                  expectColumn(
+                    tester
+                        .getRect(find.byKey(const ValueKey('nav-Heute')))
+                        .expandToInclude(
+                          tester.getRect(
+                            find.byKey(const ValueKey('nav-Coach')),
+                          ),
+                        ),
+                    'Navigation',
+                  );
+                }
+                final column = step.column;
+                if (column != null) {
+                  expectColumn(tester.getRect(column), step.name);
+                }
+              },
+            );
+            expect(errors, isEmpty, reason: errors.join('\n'));
+          },
+        );
       }
     }
   });

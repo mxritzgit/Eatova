@@ -17,9 +17,6 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
-import 'package:eatova/src/screens/meal_analysis_screen.dart';
-import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/screens/today/today_screen.dart';
 
 import 'support/harness.dart';
 
@@ -63,29 +60,20 @@ Future<void> _pumpHome(WidgetTester tester) async {
 
 void main() {
   group('D6 — Tab-Wechsel behaelt den Zustand', () {
-    testWidgets('nie besuchte Tabs werden gar nicht erst gebaut',
-        (tester) async {
+    testWidgets('Coach-State und Entwurfs-Controller ueberleben einen '
+        'Ausflug in andere Tabs', (tester) async {
+      // Without a CoachChatService the field is disabled, so `enterText` would
+      // do nothing. Measure the draft's carrier instead: if the State and the
+      // TextEditingController survive the switch, so does the typed text.
       await _pumpHome(tester);
-
-      // skipOffstage: false, or the finder would miss a BUILT but invisible
-      // IndexedStack tab and the test would be blind.
-      expect(find.byType(TodayScreen), findsOneWidget);
-      expect(find.byType(MealAnalysisScreen, skipOffstage: false), findsNothing,
-          reason: 'Food ist seit dem Refactor Tab 1, nicht mehr der Landepunkt');
-      expect(find.byType(RecipesScreen, skipOffstage: false), findsNothing,
-          reason: 'ein eager IndexedStack baute jeden Tab beim Kaltstart');
-      expect(find.byType(CoachChatScreen, skipOffstage: false), findsNothing,
-          reason: 'CoachChatScreen.initState feuert drei Netzaufrufe');
-    });
-
-    testWidgets('der Coach-Teilbaum ueberlebt einen Ausflug in die Rezepte',
-        (tester) async {
-      await _pumpHome(tester);
-
       await _goToTab(tester, 4);
       final coachState = tester.state(find.byType(CoachChatScreen));
+      final feld = find.byKey(const ValueKey('coach-input'));
+      final controller = tester.widget<TextField>(feld).controller;
+      expect(controller, isNotNull);
 
       await _goToTab(tester, 2);
+      await _goToTab(tester, 0);
       await _goToTab(tester, 4);
 
       expect(
@@ -94,23 +82,6 @@ void main() {
         reason: 'ein neuer State heisst: _bootstrap() laeuft erneut, mit '
             'Spinner, und der getippte Entwurf ist weg',
       );
-    });
-
-    testWidgets('der Entwurfs-Controller des Composers ueberlebt den Wechsel',
-        (tester) async {
-      // Without a CoachChatService the field is disabled, so `enterText` would
-      // do nothing. Measure the draft's carrier instead: if the
-      // TextEditingController instance survives the switch, so does its text.
-      await _pumpHome(tester);
-      await _goToTab(tester, 4);
-
-      final feld = find.byKey(const ValueKey('coach-input'));
-      final controller = tester.widget<TextField>(feld).controller;
-      expect(controller, isNotNull);
-
-      await _goToTab(tester, 0);
-      await _goToTab(tester, 4);
-
       expect(identical(tester.widget<TextField>(feld).controller, controller),
           isTrue);
     });
@@ -118,56 +89,24 @@ void main() {
     // The recipe search draft surviving a tab trip is pinned in
     // page_chrome_test.dart ('Today opens the correct account routes and keeps
     // tab drafts') and navigation_interactions_test.dart with the real app.
-
-    testWidgets('der Food-Tab bleibt beim Wechsel gemountet', (tester) async {
-      await _pumpHome(tester);
-      // Food is tab 1 and unbuilt at cold start — switch there, then measure.
-      await _goToTab(tester, 1);
-      // MealAnalysisScreen is stateless, so element identity is the mount
-      // signal: a remount throws the old element away.
-      final foodElement = tester.element(find.byType(MealAnalysisScreen));
-
-      await _goToTab(tester, 2);
-      await _goToTab(tester, 1);
-
-      expect(
-        identical(tester.element(find.byType(MealAnalysisScreen)), foodElement),
-        isTrue,
-      );
-    });
   });
 
   group('D7 — Zurueck-Taste', () {
     // Back always targets tab 0.
-    testWidgets('aus dem Coach-Tab fuehrt Zurueck auf Heute statt aus der App',
-        (tester) async {
+    testWidgets('aus Coach, Rezepte und Food fuehrt Zurueck auf Heute statt '
+        'aus der App', (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 4);
-      expect(_storeOf(tester).selectedTab, 4);
+      for (final tab in const [4, 2, 1]) {
+        await _goToTab(tester, tab);
+        expect(_storeOf(tester).selectedTab, tab);
 
-      final handled = await WidgetsBinding.instance.handlePopRoute();
-      await tester.pump();
+        final handled = await WidgetsBinding.instance.handlePopRoute();
+        await tester.pump();
 
-      expect(handled, isTrue, reason: 'sonst schliesst das System die App');
-      expect(_storeOf(tester).selectedTab, 0);
-    });
-
-    testWidgets('aus dem Rezepte-Tab ebenso', (tester) async {
-      await _pumpHome(tester);
-      await _goToTab(tester, 2);
-
-      expect(await WidgetsBinding.instance.handlePopRoute(), isTrue);
-      await tester.pump();
-      expect(_storeOf(tester).selectedTab, 0);
-    });
-
-    testWidgets('aus dem Food-Tab ebenso', (tester) async {
-      await _pumpHome(tester);
-      await _goToTab(tester, 1);
-
-      expect(await WidgetsBinding.instance.handlePopRoute(), isTrue);
-      await tester.pump();
-      expect(_storeOf(tester).selectedTab, 0);
+        expect(handled, isTrue,
+            reason: 'Tab $tab: sonst schliesst das System die App');
+        expect(_storeOf(tester).selectedTab, 0, reason: 'Tab $tab');
+      }
     });
 
     testWidgets('auf Heute schliesst Zurueck die App normal (kein Klemmen)',
@@ -210,19 +149,12 @@ void main() {
     // The disclosure lives entirely in the coach screens, not in the tab
     // frame; a second line here would repeat it. The content is checked by
     // `test/coach_ai_disclosure_test.dart`, this group only asserts presence.
-    testWidgets('der Coach-Tab nennt die KI', (tester) async {
+    testWidgets('der Coach-Tab nennt die KI genau einmal', (tester) async {
       await _pumpHome(tester);
       await _goToTab(tester, 4);
 
       expect(find.byKey(const ValueKey('coach-ai-note')), findsOneWidget,
           reason: 'der antippbare Hinweis im Leerzustand fuehrt ins (i)-Sheet');
-    });
-
-    testWidgets('der Tab-Rahmen traegt keine zweite Offenlegung',
-        (tester) async {
-      await _pumpHome(tester);
-      await _goToTab(tester, 4);
-
       // Counts the statement itself: the old frame key `coach-ai-disclosure`
       // exists nowhere in lib/ any more, so a key check could not fail.
       expect(

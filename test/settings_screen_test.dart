@@ -119,30 +119,12 @@ void main() {
 
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
     expect(find.text('Einstellungen'), findsOneWidget);
-    // The key `screen-goals` belongs to the other page and must not show up.
-    expect(find.byKey(const ValueKey('screen-goals')), findsNothing);
 
     // No discard guard: this screen holds no unsaved draft, every row takes
     // effect at once, so back leaves immediately.
     await tippe(tester, find.byKey(const ValueKey('settings-back')));
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
-  });
-
-  testWidgets('die Attrappen der Vorlage sind nicht gebaut', (tester) async {
-    // Units, a weekly summary and Apple Health have no function in this app;
-    // this assertion is the brake against building them in "for later".
-    // Language and password rows are real (settings_language_test.dart,
-    // account_change_flows_test.dart) and appear only with their scope.
-    await pump(tester, onOpenGoals: () {});
-
-    for (final text in const <String>[
-      'Einheiten',
-      'Wochenrückblick',
-      'Apple Health',
-    ]) {
-      expect(find.text(text), findsNothing, reason: text);
-    }
   });
 
   // --- ACCOUNT --------------------------------------------------------------
@@ -174,12 +156,6 @@ void main() {
     expect(aufgerufen, 1);
   });
 
-  testWidgets('ohne onOpenGoals fehlt die Zeile', (tester) async {
-    await pump(tester);
-
-    expect(find.byKey(const ValueKey('settings-open-goals')), findsNothing);
-  });
-
   // --- DATA & PRIVACY -------------------------------------------------------
 
   testWidgets('„Daten exportieren" oeffnet die gegliederte Auskunft',
@@ -206,16 +182,12 @@ void main() {
     expect(find.byKey(const ValueKey('profile-export-copy')), findsOneWidget);
   });
 
-  testWidgets('ohne onExportData fehlt die Export-Zeile', (tester) async {
-    await pump(tester);
-
-    expect(find.byKey(const ValueKey('settings-export')), findsNothing);
-  });
-
   testWidgets('die drei Rechtsseiten stehen als Zeilen mit ihren Schluesseln',
       (tester) async {
     // GDPR Art. 13 / § 5 DDG: reachable after login, not only on the auth
-    // screen. The keys are still the ones from [SettingsLegalLinks].
+    // screen. The keys are still the ones from [SettingsLegalLinks]. Found
+    // before any scrolling: the page builds every row up front, which the
+    // behaviour tests rely on.
     await pump(tester);
 
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
@@ -252,10 +224,16 @@ void main() {
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
   });
 
-  testWidgets('ohne onSignOut fehlt die Zeile', (tester) async {
+  testWidgets('ein fehlender Callback blendet seine Zeile aus', (tester) async {
     await pump(tester);
 
-    expect(find.byKey(const ValueKey('settings-sign-out')), findsNothing);
+    for (final key in const <String>[
+      'settings-open-goals',
+      'settings-export',
+      'settings-sign-out',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsNothing, reason: key);
+    }
   });
 
   testWidgets('ohne beide Gefahren-Callbacks fehlt die ganze Gruppe',

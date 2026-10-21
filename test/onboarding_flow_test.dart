@@ -379,9 +379,19 @@ void main() {
   });
 
   group('Zahlenwahl', () {
-    testWidgets('ein Stepper am Rand ist gesperrt, nicht tot', (tester) async {
-      await _pump(tester, profile: const UserProfile(ageYears: 16));
+    testWidgets('ein Stepper am Rand ist gesperrt, nicht tot; ein Altprofil '
+        'unter 16 wird als 16 gespeichert', (tester) async {
+      // GDPR Art. 8: a legacy profile below the minimum age is lifted to 16,
+      // and the stepper cannot go below it. The picker clamps only what it
+      // draws, so the saved plan is the proof, not the shown number.
+      final saved = <UserProfile>[];
+      await _pump(
+        tester,
+        profile: const UserProfile(ageYears: 13),
+        onComplete: saved.add,
+      );
       await goToOnboarding(tester, 'basics');
+      expect(_value(tester, 'age'), '16');
       expect(
         tester.getSemantics(_key('onboarding-age-dec')),
         isSemantics(isButton: true, isEnabled: false, hasEnabledState: true),
@@ -392,6 +402,10 @@ void main() {
       );
       await tapOnboarding(tester, 'onboarding-age-dec');
       expect(_value(tester, 'age'), '16');
+
+      await goToOnboarding(tester, 'summary');
+      await tapOnboarding(tester, 'onboarding-finish');
+      expect(saved.single.ageYears, 16);
     });
 
     testWidgets('Halten wiederholt den Schritt, Loslassen stoppt ihn', (
@@ -416,5 +430,24 @@ void main() {
       expect(int.parse(_value(tester, 'weight')), held,
           reason: 'releasing stops the repeat');
     });
+  });
+
+  testWidgets('Weiter-Knopf und Zurueck-Pfeil bleiben Knoepfe', (tester) async {
+    // [PrimaryActionButton] and [HeaderIconButton] are InkWells, not material
+    // buttons: without explicit semantics a screen reader announces the only
+    // two navigation controls of the onboarding as plain text.
+    await _pump(tester);
+    expect(
+      tester.getSemantics(_key('onboarding-next')),
+      isSemantics(isButton: true),
+    );
+
+    await _next(tester);
+    // The label is spoken aloud, so it must carry the real umlaut; the ASCII
+    // transliteration would be mispronounced by TalkBack.
+    expect(
+      tester.getSemantics(_key('onboarding-back')),
+      isSemantics(isButton: true, label: 'Zurück'),
+    );
   });
 }

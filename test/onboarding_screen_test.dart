@@ -104,58 +104,6 @@ void main() {
     expect(result.fatGoalG, greaterThan(0));
   });
 
-  testWidgets('maintain goal skips target and pace controls', (tester) async {
-    pinPhoneViewport(tester);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    UserProfile? captured;
-    await pumpLocalized(
-      tester,
-      OnboardingScreen(
-        firstName: 'Moritz',
-        initialProfile: const UserProfile(),
-        onComplete: (p) => captured = p,
-      ),
-      brightness: Brightness.light,
-      // Motion as before the migration.
-      reducedMotion: false,
-      scaffold: false,
-      safeArea: false,
-      settle: true,
-    );
-
-    Future<void> next() async {
-      await tester.tap(find.byKey(const ValueKey('onboarding-next')));
-      await tester.pumpAndSettle();
-    }
-
-    // The default goal is maintain, so target and pace are skipped and the
-    // diet step follows the activity.
-    await goToOnboarding(tester, 'activity');
-    await next(); // activity → diet
-
-    // Target and pace are skipped, the diet step is not.
-    expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing);
-    expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
-    await next(); // diet → summary, keeping the default diet
-
-    expect(find.byKey(const ValueKey('onboarding-summary-kcal')), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('onboarding-finish')));
-    await tester.pumpAndSettle();
-
-    expect(captured, isNotNull);
-    expect(captured!.weightGoal, WeightGoal.maintain);
-    expect(captured!.diet, DietPreference.none); // default unchanged
-    expect(captured!.onboardingCompleted, isTrue);
-  });
-
   // Viewport pinning and overflow tolerance as in runFullFlow, for tests that
   // do not walk the whole flow.
   Future<void> pumpOnboarding(
@@ -192,26 +140,6 @@ void main() {
       settle: true,
     );
   }
-
-  testWidgets('age is clamped to a minimum of 16 (DSGVO Art. 8)',
-      (tester) async {
-    // A legacy profile below the minimum is lifted to 16.
-    await pumpOnboarding(
-      tester,
-      initialProfile: const UserProfile(ageYears: 13),
-    );
-    await goToOnboarding(tester, 'basics');
-
-    String ageValue() => tester
-        .widget<Text>(find.byKey(const ValueKey('onboarding-age-value')))
-        .data!;
-    expect(ageValue(), '16');
-
-    // The stepper cannot go below the minimum.
-    await tapOnboarding(tester, 'onboarding-age-dec');
-    await tester.pumpAndSettle();
-    expect(ageValue(), '16');
-  });
 
   testWidgets(
       'target step shows gentle BMI hint below 18.5 and hides it again',
@@ -282,9 +210,9 @@ void main() {
   }
 
   testWidgets(
-      'Systemzurueck geht einen Schritt zurueck statt acht Antworten wegzuwerfen',
-      (tester) async {
-    // A loss goal makes the inline target and pace controls visible.
+      'Systemzurueck geht einen Schritt zurueck statt acht Antworten '
+      'wegzuwerfen, wie der Header-Pfeil', (tester) async {
+    // A loss goal makes the target and pace steps visible.
     await pumpOnboarding(
       tester,
       initialProfile: const UserProfile(
@@ -308,21 +236,6 @@ void main() {
     );
     expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget,
         reason: 'Systemzurueck muss dasselbe tun wie der Header-Pfeil.');
-  });
-
-  testWidgets('Systemzurueck und Header-Pfeil landen auf demselben Schritt',
-      (tester) async {
-    await pumpOnboarding(
-      tester,
-      initialProfile: const UserProfile(
-        weightGoal: WeightGoal.lose1kg,
-        targetWeightKg: 68,
-      ),
-    );
-    await advance(tester, 6);
-
-    await systemBackClosesApp(tester); // gesture: diet → pace
-    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('onboarding-back'))); // arrow
     await tester.pumpAndSettle();
@@ -614,43 +527,22 @@ void main() {
   }
 
   testWidgets(
-      'ein Gewicht von 210 kg ueberlebt das Onboarding — die DB erlaubt bis 300',
+      'Werte bis an die DB-Grenzen ueberleben das Onboarding ungeklemmt',
       (tester) async {
-    // initState used to clamp silently to 200, so a 210 kg user could not
-    // state their weight truthfully even though profiles.weight_kg allows it.
-    expect(
-      await pickerValue(
-        tester,
-        const UserProfile(weightKg: 210),
-        field: 'weight',
-      ),
-      '210',
-    );
-  });
-
-  testWidgets(
-      'eine Groesse von 115 cm ueberlebt das Onboarding — die DB erlaubt ab 100',
-      (tester) async {
-    expect(
-      await pickerValue(
-        tester,
-        const UserProfile(heightCm: 115),
-        field: 'height',
-      ),
-      '115',
-    );
-  });
-
-  testWidgets('das Alter reicht bis 100, genau wie die DB-Constraint',
-      (tester) async {
-    expect(
-      await pickerValue(
-        tester,
-        const UserProfile(ageYears: 100),
-        field: 'age',
-      ),
-      '100',
-    );
+    // initState used to clamp silently to 200 kg (and narrower height and age
+    // windows), so a 210 kg user could not state their weight truthfully even
+    // though profiles.weight_kg allows it.
+    for (final (profile, field, shown) in const <(UserProfile, String, String)>[
+      (UserProfile(weightKg: 210), 'weight', '210'),
+      (UserProfile(heightCm: 115), 'height', '115'),
+      (UserProfile(ageYears: 100), 'age', '100'),
+    ]) {
+      expect(
+        await pickerValue(tester, profile, field: field),
+        shown,
+        reason: field,
+      );
+    }
   });
 
   testWidgets(

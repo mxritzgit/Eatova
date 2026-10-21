@@ -32,20 +32,18 @@ HomeStore _store(String name) {
 }
 
 void main() {
-  test('ein Emoji am Namensanfang bleibt ein ganzes Zeichen', () {
-    expect(_store('😀 Max').profileInitial, '😀');
-  });
-
-  test('ein zusammengesetztes Emoji wird nicht zerschnitten', () {
-    expect(_store('👨‍👩‍👧 Familie').profileInitial, '👨‍👩‍👧');
-  });
-
-  test('Buchstaben werden weiter gross geschrieben', () {
-    expect(_store('  moritz gietl').profileInitial, 'M');
-    expect(_store('ömer').profileInitial, 'Ö');
-  });
-
-  test('ohne Namen bleibt das neutrale S', () {
-    expect(_store('   ').profileInitial, 'S');
+  test('die Initiale nimmt ein ganzes Zeichen und schreibt Buchstaben gross',
+      () {
+    for (final (name, initial) in const <(String, String)>[
+      ('😀 Max', '😀'),
+      // A ZWJ sequence stays one grapheme.
+      ('👨‍👩‍👧 Familie', '👨‍👩‍👧'),
+      ('  moritz gietl', 'M'),
+      ('ömer', 'Ö'),
+      // No name: the neutral S.
+      ('   ', 'S'),
+    ]) {
+      expect(_store(name).profileInitial, initial, reason: name);
+    }
   });
 }

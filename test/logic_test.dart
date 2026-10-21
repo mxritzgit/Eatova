@@ -1,18 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
-import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/services/food_kcal_db.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
-// Pure logic tests for money- and data-critical functions (first streak day,
-// stats rows, food-history JSON roundtrip, auto split).
-// Deterministic, no network or UI. The slot heuristic, the running streak and
-// the macro aggregation live in test/models/logged_meal_slot_test.dart,
-// lifetime_stats_test.dart and macro_progress_test.dart; the macro split in
-// test/services/kcal_macro_split_test.dart.
+// Pure logic tests: the food-history JSON roundtrip and the meal-name split.
+// Deterministic, no network or UI. Neighbours: the streak in
+// test/models/lifetime_stats_test.dart, strict payload parsing in
+// test/services/meal_payload_strict_test.dart, and the autoSplitItems totals in
+// test/food_kcal_sentinel_test.dart and test/food_kcal_db_invariants_test.dart.
 
 MealAnalysisResult _result({
   String name = 'Testmahlzeit',
@@ -42,26 +40,6 @@ MealAnalysisResult _result({
 }
 
 void main() {
-  group('LifetimeStats.recordTrackedDay (Logging-Streak)', () {
-    final day1 = DateTime(2026, 6, 1);
-
-    test('erster Log-Tag -> Streak 1', () {
-      final s = LifetimeStats().recordTrackedDay(day1);
-      expect(s.currentStreak, 1);
-      expect(s.longestStreak, 1);
-    });
-    test('fromRow ist defensiv bei fehlenden/falschen Spalten', () {
-      final back = LifetimeStats.fromRow(<String, dynamic>{
-        'workouts_completed': '5', // string instead of int
-        'meals_logged': null,
-      });
-      expect(back.workoutsCompleted, 5);
-      expect(back.mealsLogged, 0);
-      expect(back.currentStreak, 0);
-      expect(back.lastTrackedDate, isNull);
-    });
-  });
-
   group('mealResultToJson/fromJson Roundtrip (Food-History-Persistenz)', () {
     test('vollständiges Ergebnis inkl. items/barcode/brand übersteht den Trip', () {
       final r = _result(
@@ -92,15 +70,6 @@ void main() {
       expect(back.items.first.grams, 200);
       expect(back.items[1].caloriesKcal, 320);
     });
-    test('leeres JSON ist KORRUPT und wirft (Sentinel-Rest S1)', () {
-      // "Safe defaults" would not be safe: an invented 0 kcal meal without
-      // explicitZeroKcal enters the daily total and reaches the server as
-      // calories_kcal: 0. mealResultToJson always writes caloriesKcal, so a
-      // payload without the key is broken.
-      expect(() => mealResultFromJson(<String, dynamic>{}),
-          throwsFormatException);
-    });
-
     test('teilbefuelltes JSON (caloriesKcal vorhanden) behaelt Label-Defaults',
         () {
       final back = mealResultFromJson(<String, dynamic>{'caloriesKcal': 300});
@@ -122,21 +91,6 @@ void main() {
       expect(splitMealName('Lachs & Spargel + Kartoffeln auf einem Teller'),
           contains('Lachs'));
       expect(splitMealName('Pizza'), ['Pizza']); // not splittable
-    });
-    test('autoSplitItems erhält die kcal-Summe der KI', () {
-      final items = autoSplitItems(
-        mealName: 'Hähnchen mit Reis und Brokkoli',
-        totalGrams: 600,
-        totalKcal: 700,
-      );
-      expect(items.length, 3);
-      final kcalSum = items.fold<int>(0, (s, c) => s + c.caloriesKcal);
-      // EXACT, not close: autoSplitItems spreads the rounding remainder over
-      // the items (_spreadRemainder), so both totals land on the anchor. A
-      // tolerance here would wave that drift straight back through.
-      expect(kcalSum, 700);
-      final gramSum = items.fold<int>(0, (s, c) => s + c.grams);
-      expect(gramSum, 600);
     });
     test('autoSplitItems gibt [] zurück wenn nicht teilbar', () {
       expect(

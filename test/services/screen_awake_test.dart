@@ -71,14 +71,14 @@ void main() {
     ]);
   });
 
-  test('ohne native Gegenstelle: kein Wurf', () async {
+  test('fehlende Gegenstelle oder Plattformfehler brechen den Ablauf nicht ab',
+      () async {
+    // No handler: MissingPluginException.
     await expectLater(
       const MethodChannelScreenAwake().setKeepAwake(true),
       completes,
     );
-  });
-
-  test('ein Plattformfehler bricht den Ablauf nicht ab', () async {
+    MethodChannelScreenAwake.debugReset();
     messenger.setMockMethodCallHandler(_channel, (call) async {
       throw PlatformException(code: 'window', message: 'no activity');
     });
@@ -86,9 +86,5 @@ void main() {
       const MethodChannelScreenAwake().setKeepAwake(true),
       completes,
     );
-  });
-
-  test('NoopScreenAwake tut nichts', () async {
-    await expectLater(const NoopScreenAwake().setKeepAwake(true), completes);
   });
 }

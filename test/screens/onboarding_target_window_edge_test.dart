@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -151,20 +149,6 @@ void main() {
     }
   });
 
-  testWidgets('Abnehmen am 30-kg-Boden: spiegelbildlich derselbe Fall',
-      (tester) async {
-    await bisNachDerRichtung(tester, gewicht: 30, zunehmen: false);
-
-    expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing);
-    for (final goal in lossPaceGoals) {
-      expect(find.byKey(ValueKey('onboarding-pace-${goal.name}')), findsNothing);
-    }
-    expect(find.text('0 kg abnehmen'), findsNothing,
-        reason: 'vorher stand da eine 30 ueber „0 kg abnehmen" und zwei tote '
-            'Stepper');
-    expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
-  });
-
   testWidgets('der Plan am Deckel ist widerspruchsfrei und behaelt die Absicht',
       (tester) async {
     await bisNachDerRichtung(tester, gewicht: 300, zunehmen: true);
@@ -277,6 +261,9 @@ void main() {
       if (leer) {
         expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing,
             reason: '$wo: kein konsistentes Ziel, also kein Schritt');
+        // No target, no pace either: the diet follows the activity.
+        expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget,
+            reason: wo);
         continue;
       }
 
@@ -304,52 +291,5 @@ void main() {
         expect(find.text(erwartet), findsOneWidget, reason: wo);
       }
     }
-  });
-
-  // =========================================================================
-  // Die zweite Klemmregel ist weg, nicht bloss uebersteuert
-  // =========================================================================
-  test('im Bildschirm klemmt nur noch EINE Regel', () {
-    // Der Kern von J1: nicht dass die beiden Regeln heute dasselbe ergeben,
-    // sondern dass es die zweite nicht mehr gibt. Kaeme sie zurueck, koennte
-    // der Picker wieder etwas anderes zeichnen als Fussnote, BMI-Hinweis und
-    // gespeicherter Plan sagen — und genau das war unsichtbar, weil beide
-    // Seiten „irgendwie" klemmten.
-    //
-    // Der Bildschirm liegt seit 2026-10-04 auf mehrere Dateien verteilt
-    // (lib/src/screens/onboarding/); gelesen wird alles, was dazugehoert.
-    final dateien = <File>[
-      File('lib/src/screens/onboarding_screen.dart'),
-      ...Directory('lib/src/screens/onboarding')
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.dart')),
-    ];
-    expect(dateien.length, greaterThan(1));
-    final code = dateien
-        .map((f) => f.readAsStringSync())
-        .join('\n')
-        .split('\n')
-        .where((z) => !z.trimLeft().startsWith('//'))
-        .join('\n');
-
-    expect(
-      code,
-      isNot(contains('max < min ? min : max')),
-      reason: 'die Ausweichregel des Pickers: sie faltete ein leeres Fenster '
-          'nach OBEN auf min (301), waehrend der Aufrufer nach UNTEN auf den '
-          'Spaltendeckel faltete (300)',
-    );
-    expect(
-      code,
-      contains('assert(min <= max'),
-      reason: 'stattdessen ein Vertrag — ein leeres Fenster darf den Picker '
-          'gar nicht mehr erreichen',
-    );
-    expect(
-      code,
-      contains('targetWeightMinFor'),
-      reason: 'die Fensterregel selbst bleibt in user_profile.dart (P9-08b)',
-    );
   });
 }

@@ -11,10 +11,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('LocaleController', () {
-    test('Default ist System (override null)', () {
-      expect(LocaleController().override, isNull);
-    });
-
     test('load liest den gespeicherten Wert', () async {
       SharedPreferences.setMockInitialValues(
           <String, Object>{LocaleController.storageKey: 'en'});
@@ -75,9 +71,11 @@ void main() {
       expect(reloaded.getString(LocaleController.storageKey), 'en');
     });
 
-    test('unveraenderter Wert loest keine Benachrichtigung aus', () async {
+    test('Default ist System; unveraenderter Wert benachrichtigt nicht',
+        () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final c = LocaleController();
+      expect(c.override, isNull);
       var pings = 0;
       c.addListener(() => pings++);
       await c.setOverride(null);
@@ -85,26 +83,17 @@ void main() {
     });
   });
 
-  group('resolveEatovaLocale (Spec §3: Geraet deutsch -> de, sonst en)', () {
-    test('deutsches Geraet bekommt Deutsch', () {
-      expect(resolveEatovaLocale(const [Locale('de', 'DE')]),
-          const Locale('de'));
-    });
-
-    test('russisches Geraet bekommt Englisch', () {
-      expect(resolveEatovaLocale(const [Locale('ru')]), const Locale('en'));
-    });
-
-    test('Praeferenzliste wird der Reihe nach gelaufen', () {
-      expect(resolveEatovaLocale(const [Locale('fr'), Locale('de')]),
-          const Locale('de'));
-      expect(resolveEatovaLocale(const [Locale('en'), Locale('de')]),
-          const Locale('en'));
-    });
-
-    test('leere/fehlende Liste faellt auf Englisch', () {
-      expect(resolveEatovaLocale(const []), const Locale('en'));
-      expect(resolveEatovaLocale(null), const Locale('en'));
-    });
+  test('resolveEatovaLocale (Spec §3): deutsches Geraet -> de, sonst en, '
+      'Praeferenzliste der Reihe nach', () {
+    for (final (device, expected) in <(List<Locale>?, Locale)>[
+      (const [Locale('de', 'DE')], const Locale('de')),
+      (const [Locale('ru')], const Locale('en')),
+      (const [Locale('fr'), Locale('de')], const Locale('de')),
+      (const [Locale('en'), Locale('de')], const Locale('en')),
+      (const [], const Locale('en')),
+      (null, const Locale('en')),
+    ]) {
+      expect(resolveEatovaLocale(device), expected, reason: '$device');
+    }
   });
 }

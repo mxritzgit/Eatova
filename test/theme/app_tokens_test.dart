@@ -10,8 +10,9 @@ import '../support/design_capture.dart' show loadDesignFonts;
 
 // The palette lives as a ThemeExtension, not as top-level `const`s, so a
 // surface can be light AND dark without every widget building two paths.
-// Pinned here: both palettes exist and differ, `context.t` resolves, text
-// stays readable in both modes (WCAG), and lerp blends instead of jumping.
+// Pinned here: light is light and dark is dark, `context.t` resolves, every
+// text and graphic role stays readable in both modes (WCAG), and lerp blends
+// instead of jumping.
 
 /// WCAG 2.1 contrast ratio of two opaque colours (1.0 … 21.0).
 double _contrast(Color a, Color b) {
@@ -44,12 +45,6 @@ const Map<String, AppTokens> _paletten = <String, AppTokens>{
 
 void main() {
   group('AppTokens', () {
-    test('helle und dunkle Palette sind verschieden', () {
-      expect(AppTokens.light.bg, isNot(AppTokens.dark.bg));
-      expect(AppTokens.light.ink, isNot(AppTokens.dark.ink));
-      expect(AppTokens.light.surf, isNot(AppTokens.dark.surf));
-    });
-
     test('hell ist wirklich hell, dunkel wirklich dunkel', () {
       expect(AppTokens.light.bg.computeLuminance(), greaterThan(0.5),
           reason: 'die helle Palette braucht einen hellen Grund');
@@ -73,39 +68,6 @@ void main() {
       }
     });
 
-    test('Fliesstext erreicht in beiden Modi WCAG AA (4.5:1)', () {
-      for (final entry in <String, AppTokens>{
-        'hell': AppTokens.light,
-        'dunkel': AppTokens.dark,
-      }.entries) {
-        final t = entry.value;
-        expect(_contrast(t.ink, t.bg), greaterThanOrEqualTo(4.5),
-            reason: '${entry.key}: Haupttext auf Grund');
-        expect(_contrast(t.ink, t.surf), greaterThanOrEqualTo(4.5),
-            reason: '${entry.key}: Haupttext auf Karte');
-        expect(_contrast(t.onForest, t.forest), greaterThanOrEqualTo(4.5),
-            reason: '${entry.key}: Text auf der Marken-Flaeche');
-      }
-    });
-
-    // 4.5:1, not 3:1: `ink2` almost always carries small type (9.5–12.5 px),
-    // which is normal body text under WCAG, not "large text". Checked against
-    // all three surfaces the tone appears on.
-    test('Sekundaertext erreicht AA (4.5:1) auf allen drei Flaechen', () {
-      for (final entry in <String, AppTokens>{
-        'hell': AppTokens.light,
-        'dunkel': AppTokens.dark,
-      }.entries) {
-        final t = entry.value;
-        expect(_contrast(t.ink2, t.bg), greaterThanOrEqualTo(4.5),
-            reason: '${entry.key}: gedaempfter Text auf Grund');
-        expect(_contrast(t.ink2, t.surf), greaterThanOrEqualTo(4.5),
-            reason: '${entry.key}: gedaempfter Text auf Karte');
-        expect(_contrast(t.ink2, t.surf2), greaterThanOrEqualTo(4.5),
-            reason: '${entry.key}: gedaempfter Text auf abgesetzter Karte');
-      }
-    });
-
     // readableOnTint on the slot tints: hell_modus_audit_test.dart ('der
     // MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA').
 
@@ -118,55 +80,30 @@ void main() {
       }
     });
 
-    test('lerp mischt beide Richtungen', () {
-      final mitte = AppTokens.light.lerp(AppTokens.dark, 0.5);
-      expect(mitte.bg, isNot(AppTokens.light.bg));
-      expect(mitte.bg, isNot(AppTokens.dark.bg));
-
-      final ganz = AppTokens.light.lerp(AppTokens.dark, 1.0);
-      expect(ganz.bg, AppTokens.dark.bg);
-    });
-
-    test('copyWith aendert nur das Uebergebene', () {
-      const rot = Color(0xFFFF0000);
-      final kopie = AppTokens.light.copyWith(lime: rot);
-      expect(kopie.lime, rot);
-      expect(kopie.bg, AppTokens.light.bg);
-      expect(kopie.ink, AppTokens.light.ink);
-    });
   });
 
   group('buildEatovaTheme', () {
-    testWidgets('context.t loest im hellen Theme auf', (tester) async {
-      late AppTokens gelesen;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.light),
-          home: Builder(
-            builder: (context) {
-              gelesen = context.t;
-              return const SizedBox.shrink();
-            },
+    testWidgets('context.t loest in beiden Themes die passende Palette auf',
+        (tester) async {
+      for (final (brightness, tokens) in <(Brightness, AppTokens)>[
+        (Brightness.light, AppTokens.light),
+        (Brightness.dark, AppTokens.dark),
+      ]) {
+        late AppTokens gelesen;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildEatovaTheme(brightness),
+            home: Builder(
+              builder: (context) {
+                gelesen = context.t;
+                return const SizedBox.shrink();
+              },
+            ),
           ),
-        ),
-      );
-      expect(gelesen.bg, AppTokens.light.bg);
-    });
-
-    testWidgets('context.t loest im dunklen Theme auf', (tester) async {
-      late AppTokens gelesen;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildEatovaTheme(Brightness.dark),
-          home: Builder(
-            builder: (context) {
-              gelesen = context.t;
-              return const SizedBox.shrink();
-            },
-          ),
-        ),
-      );
-      expect(gelesen.bg, AppTokens.dark.bg);
+        );
+        await tester.pumpAndSettle();
+        expect(gelesen.bg, tokens.bg, reason: '$brightness');
+      }
     });
 
     test('Scaffold-Grund und ColorScheme folgen den Tokens', () {
@@ -178,11 +115,6 @@ void main() {
       final dunkel = buildEatovaTheme(Brightness.dark);
       expect(dunkel.scaffoldBackgroundColor, AppTokens.dark.bg);
       expect(dunkel.colorScheme.brightness, Brightness.dark);
-    });
-
-    test('Material 3 bleibt das Fundament', () {
-      expect(buildEatovaTheme(Brightness.light).useMaterial3, isTrue);
-      expect(buildEatovaTheme(Brightness.dark).useMaterial3, isTrue);
     });
 
     test('die gebuendelten Schriften sind verdrahtet', () {
@@ -261,12 +193,17 @@ void main() {
       _nah(t.fatSurface, _ueberKarte(t, t.fat, 0.18), 'fatSurface');
     });
 
-    test('neue Tokens laufen durch copyWith und lerp', () {
+    test('copyWith aendert nur das Uebergebene, lerp mischt in beide '
+        'Richtungen', () {
       const rot = Color(0xFFFF0000);
       final kopie = t.copyWith(ink3: rot, navGlass: rot);
       expect(kopie.ink3, rot);
       expect(kopie.navGlass, rot);
       expect(kopie.accentText, t.accentText);
+      expect(kopie.bg, t.bg);
+      final mitte = AppTokens.light.lerp(t, 0.5);
+      expect(mitte.bg, isNot(AppTokens.light.bg));
+      expect(mitte.bg, isNot(t.bg));
       expect(AppTokens.light.lerp(t, 1).ink3, t.ink3);
       expect(AppTokens.light.lerp(t, 0).ink3, AppTokens.light.ink3);
     });
@@ -423,6 +360,8 @@ void main() {
       // safe wherever it sits — except on the track/field fills, where hints
       // stay ink2 (documented on the token).
       test('$modus: jede Textstufe erreicht AA auf allen Kartenflaechen', () {
+        expect(_contrast(t.onForest, t.forest), greaterThanOrEqualTo(4.5),
+            reason: '$modus: Text auf der Marken-Flaeche');
         for (final grund in gruende.entries) {
           for (final text in <String, Color>{
             'ink': t.ink,

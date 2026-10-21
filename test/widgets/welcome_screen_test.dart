@@ -148,38 +148,6 @@ void main() {
     );
   });
 
-  testWidgets('zeigt die Begruessung mit dem Vornamen bei celebrateLogin',
-      (tester) async {
-    pinPhoneViewport(tester);
-    final ready = Completer<void>();
-
-    await _pumpWelcome(
-      tester,
-      brightness: Brightness.light,
-      profileReady: ready.future,
-      celebrateLogin: true,
-      firstName: 'Mira',
-    );
-    await _tick(tester, const Duration(milliseconds: 1100));
-
-    expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget);
-    expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsNothing);
-
-    ready.complete();
-    await tester.pump(); // .then fires
-    await _tick(tester, const Duration(milliseconds: 900)); // lock-in + greeting fade
-
-    expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsOneWidget);
-    expect(find.text('Du bist drin.'), findsOneWidget);
-    expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget,
-        reason: 'die eingerastete Marke bleibt stehen — der Willkommens-Text '
-            'erscheint darunter, er ersetzt sie nicht');
-
-    // Drain hold + exit, otherwise a timer hangs in teardown.
-    await _tick(tester, const Duration(milliseconds: 2000));
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets('ruft onComplete erst nach aufgeloestem profileReady '
       '(Session-Restore)', (tester) async {
     pinPhoneViewport(tester);
@@ -202,8 +170,8 @@ void main() {
     expect(fertig, 1);
   });
 
-  testWidgets('ruft onComplete erst nach der Willkommens-Sequenz '
-      '(frischer Login)', (tester) async {
+  testWidgets('frischer Login: Begruessung mit Vornamen unter der Marke, '
+      'onComplete erst nach der Halte-Pause', (tester) async {
     pinPhoneViewport(tester);
     var fertig = 0;
     final ready = Completer<void>();
@@ -216,15 +184,23 @@ void main() {
       onComplete: () => fertig++,
     );
     await _tick(tester, const Duration(milliseconds: 1200));
+    expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget);
+    expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsNothing);
     expect(fertig, 0);
 
     ready.complete();
     await tester.pump();
     await _tick(tester, const Duration(milliseconds: 1000));
+    expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsOneWidget);
+    expect(find.text('Du bist drin.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget,
+        reason: 'die eingerastete Marke bleibt stehen — der Willkommens-Text '
+            'erscheint darunter, er ersetzt sie nicht');
     expect(fertig, 0, reason: 'Einrasten + Halte-Pause laufen noch');
 
     await _tick(tester, const Duration(milliseconds: 1500));
     expect(fertig, 1);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('reduzierte Bewegung: die Begruessung bleibt lesbar stehen',

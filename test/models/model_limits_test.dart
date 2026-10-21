@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/model_limits.dart';
@@ -10,8 +12,8 @@ import 'package:eatova/src/models/model_limits.dart';
 // This suite checks three things:
 //   1) Every bound at min-1/min/max/max+1.
 //   2) The truncator never splits a UTF-16 surrogate pair.
-//   3) The constants match the final state of the SQL migrations, so a
-//      migration change at least shows up here.
+//   3) The constants match the check constraints the SQL migrations leave
+//      behind, read from the migration files themselves.
 
 /// Checks an integer bound at all four edges; [clamp] only where one exists
 /// (typed body data and goals are rejected, never clamped).
@@ -82,6 +84,64 @@ bool _hatKaputteSurrogate(String text) {
     }
   }
   return false;
+}
+
+/// The migrations in apply order, `--` comments stripped: a header rationale
+/// names columns and numbers and would otherwise match like a check body.
+List<String> _migrationsInOrder() {
+  final files = Directory('supabase/migrations')
+      .listSync()
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.sql'))
+      .toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+  return [
+    for (final file in files)
+      file
+          .readAsStringSync()
+          .split('\n')
+          .map((line) {
+            final i = line.indexOf('--');
+            return i < 0 ? line : line.substring(0, i);
+          })
+          .join('\n'),
+  ];
+}
+
+/// The `check (...)` body of the last migration that adds [constraint].
+String _checkBody(String constraint) {
+  String? body;
+  final kopf = RegExp('add constraint\\s+$constraint\\s+check\\s*\\(');
+  for (final sql in _migrationsInOrder()) {
+    for (final match in kopf.allMatches(sql)) {
+      var tiefe = 1;
+      var i = match.end;
+      for (; i < sql.length && tiefe > 0; i++) {
+        if (sql[i] == '(') tiefe++;
+        if (sql[i] == ')') tiefe--;
+      }
+      body = sql.substring(match.end, i - 1);
+    }
+  }
+  expect(body, isNotNull, reason: 'keine Migration legt $constraint an');
+  return body!;
+}
+
+/// `<expr> between <min> and <max>` inside [body].
+(int, int) _between(String body, String expr) {
+  final match = RegExp(
+    '${RegExp.escape(expr)}\\s+between\\s+(\\d+)\\s+and\\s+(\\d+)',
+  ).firstMatch(body);
+  expect(match, isNotNull, reason: '$expr between … fehlt');
+  return (int.parse(match!.group(1)!), int.parse(match.group(2)!));
+}
+
+/// `<expr> <= <max>` inside [body].
+int _atMost(String body, String expr) {
+  final match =
+      RegExp('${RegExp.escape(expr)}\\s*<=\\s*(\\d+)').firstMatch(body);
+  expect(match, isNotNull, reason: '$expr <= … fehlt');
+  return int.parse(match!.group(1)!);
 }
 
 void main() {
@@ -421,106 +481,126 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Drift guard: parsing SQL would be disproportionate, so the expected values
-  // are hardcoded with the migration file named in the comment. Changing a
-  // migration turns this red and points at what the client must follow.
+  // Drift guard: the constants against the check constraints the migrations
+  // leave behind. Each body is read from the LAST migration that adds the
+  // constraint (file-name order is apply order), so a migration that moves a
+  // bound turns this red and names what the client must follow.
   // -------------------------------------------------------------------------
   group('Drift-Waechter: Konstanten == Endzustand der SQL-Migrationen', () {
-    test('profiles_biometrics_range_check — 20260807090000_profiles_age_minimum_16.sql', () {
-      // check (weight_kg between 30 and 300 and height_cm between 100 and 250
-      //        and age_years between 16 and 100)
-      // NOTE: replaces the 13 lower bound from
-      // 20260517220000_security_hardening.sql.
-      expect(ProfileLimits.weightKgMin, 30);
-      expect(ProfileLimits.weightKgMax, 300);
-      expect(ProfileLimits.heightCmMin, 100);
-      expect(ProfileLimits.heightCmMax, 250);
-      expect(ProfileLimits.ageYearsMin, 16);
-      expect(ProfileLimits.ageYearsMax, 100);
-    });
+    test('profiles: Biometrie, Tagesziele, Texte, Wunschgewicht', () {
+      final bio = _checkBody('profiles_biometrics_range_check');
+      expect(_between(bio, 'weight_kg'),
+          (ProfileLimits.weightKgMin, ProfileLimits.weightKgMax));
+      expect(_between(bio, 'height_cm'),
+          (ProfileLimits.heightCmMin, ProfileLimits.heightCmMax));
+      expect(_between(bio, 'age_years'),
+          (ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax));
 
-    test('profiles_goals_range_check — 20260517220000_security_hardening.sql', () {
-      expect(ProfileLimits.dailyStepsGoalMin, 1000);
-      expect(ProfileLimits.dailyStepsGoalMax, 100000);
-      expect(ProfileLimits.dailyKcalGoalMin, 800);
-      expect(ProfileLimits.dailyKcalGoalMax, 7000);
-      expect(ProfileLimits.dailyWaterGoalMlMin, 500);
-      expect(ProfileLimits.dailyWaterGoalMlMax, 12000);
-      expect(ProfileLimits.dailySleepGoalMinutesMin, 180);
-      expect(ProfileLimits.dailySleepGoalMinutesMax, 900);
-      expect(ProfileLimits.proteinGoalGMin, 0);
-      expect(ProfileLimits.proteinGoalGMax, 400);
-      expect(ProfileLimits.carbsGoalGMin, 0);
-      expect(ProfileLimits.carbsGoalGMax, 800);
-      expect(ProfileLimits.fatGoalGMin, 0);
-      expect(ProfileLimits.fatGoalGMax, 300);
-    });
+      final goals = _checkBody('profiles_goals_range_check');
+      expect(_between(goals, 'daily_steps_goal'),
+          (ProfileLimits.dailyStepsGoalMin, ProfileLimits.dailyStepsGoalMax));
+      expect(_between(goals, 'daily_kcal_goal'),
+          (ProfileLimits.dailyKcalGoalMin, ProfileLimits.dailyKcalGoalMax));
+      expect(_between(goals, 'daily_water_goal_ml'), (
+        ProfileLimits.dailyWaterGoalMlMin,
+        ProfileLimits.dailyWaterGoalMlMax,
+      ));
+      expect(_between(goals, 'daily_sleep_goal_minutes'), (
+        ProfileLimits.dailySleepGoalMinutesMin,
+        ProfileLimits.dailySleepGoalMinutesMax,
+      ));
+      expect(_between(goals, 'protein_goal_g'),
+          (ProfileLimits.proteinGoalGMin, ProfileLimits.proteinGoalGMax));
+      expect(_between(goals, 'carbs_goal_g'),
+          (ProfileLimits.carbsGoalGMin, ProfileLimits.carbsGoalGMax));
+      expect(_between(goals, 'fat_goal_g'),
+          (ProfileLimits.fatGoalGMin, ProfileLimits.fatGoalGMax));
 
-    test('profiles Text-/Enum-Constraints', () {
-      // profiles_display_name_length_check / profiles_avatar_url_length_check
-      // — 20260517220000_security_hardening.sql
-      expect(ProfileLimits.displayNameMaxChars, 80);
-      expect(ProfileLimits.avatarUrlMaxChars, 2048);
-      // profiles_target_weight_range_check — 20260523000000_onboarding_fields.sql
-      expect(ProfileLimits.targetWeightKgMin, 30);
-      expect(ProfileLimits.targetWeightKgMax, 300);
-    });
-
-    test('logged_meals_safe_ranges_check — 20260517220000_security_hardening.sql', () {
-      expect(LoggedMealLimits.mealNameMinChars, 1);
-      expect(LoggedMealLimits.mealNameMaxChars, 160);
-      expect(LoggedMealLimits.caloriesKcalMin, 0);
-      expect(LoggedMealLimits.caloriesKcalMax, 10000);
-      expect(LoggedMealLimits.estimatedGMin, 0);
-      expect(LoggedMealLimits.estimatedGMax, 10000);
-      expect(LoggedMealLimits.macroGMin, 0);
-      expect(LoggedMealLimits.macroGMax, 1000);
-      expect(LoggedMealLimits.barcodeMaxChars, 64);
-      expect(LoggedMealLimits.brandMaxChars, 120);
-      expect(LoggedMealLimits.sourceLabelMaxChars, 80);
-      expect(LoggedMealLimits.payloadMaxBytes, 200000);
-    });
-
-    test('favorite_meals_safe_ranges_check — 20260517220000_security_hardening.sql', () {
-      expect(FavoriteMealLimits.favoriteKeyMinChars, 1);
-      expect(FavoriteMealLimits.favoriteKeyMaxChars, 180);
-      expect(FavoriteMealLimits.mealNameMinChars, 1);
-      expect(FavoriteMealLimits.mealNameMaxChars, 160);
-      expect(FavoriteMealLimits.caloriesKcalMin, 0);
-      expect(FavoriteMealLimits.caloriesKcalMax, 10000);
-      expect(FavoriteMealLimits.estimatedGMin, 0);
-      expect(FavoriteMealLimits.estimatedGMax, 10000);
-      expect(FavoriteMealLimits.barcodeMaxChars, 64);
-      expect(FavoriteMealLimits.brandMaxChars, 120);
-      expect(FavoriteMealLimits.sourceLabelMaxChars, 80);
-      expect(FavoriteMealLimits.payloadMaxBytes, 200000);
-    });
-
-    test('weight_log — 20260516160000 (> 0) + 20260517220000 (between 20 and 400)', () {
-      expect(WeightLogLimits.weightKgMin, 20);
-      expect(WeightLogLimits.weightKgMax, 400);
-      expect(WeightLogLimits.weightKgDecimals, 2); // numeric(5,2)
-    });
-
-    test('user_recipes — 20260530091000_user_recipes.sql: nur >= 0, keine Obergrenze', () {
-      expect(UserRecipeLimits.caloriesKcalMin, 0);
-      expect(UserRecipeLimits.proteinGMin, 0);
-      expect(UserRecipeLimits.carbsGMin, 0);
-      expect(UserRecipeLimits.fatGMin, 0);
-      expect(UserRecipeLimits.estimatedGMin, 0);
       expect(
-        UserRecipeLimits.hasDbUpperBound,
-        isFalse,
-        reason: 'user_recipes hat keine Obergrenze — Rezepte muessen vor dem '
-            'Loggen auf die strengeren logged_meals-Grenzen.',
+        _atMost(
+          _checkBody('profiles_display_name_length_check'),
+          'char_length(display_name)',
+        ),
+        ProfileLimits.displayNameMaxChars,
+      );
+      expect(
+        _atMost(
+          _checkBody('profiles_avatar_url_length_check'),
+          'char_length(avatar_url)',
+        ),
+        ProfileLimits.avatarUrlMaxChars,
+      );
+      expect(
+        _between(
+          _checkBody('profiles_target_weight_range_check'),
+          'target_weight_kg',
+        ),
+        (ProfileLimits.targetWeightKgMin, ProfileLimits.targetWeightKgMax),
       );
     });
 
-    test('favorite_meals hat KEINE Makro-Spalten — Grenzen kommen aus logged_meals', () {
-      // favorite_meals_safe_ranges_check names none of protein_g/carbs_g/
-      // fat_g; the table simply has no such columns
-      // (20260516160000_app_data_schema.sql, section 4).
-      expect(FavoriteMealLimits.hasMacroColumns, isFalse);
+    test('logged_meals_safe_ranges_check', () {
+      final body = _checkBody('logged_meals_safe_ranges_check');
+      expect(_between(body, 'char_length(meal_name)'),
+          (LoggedMealLimits.mealNameMinChars, LoggedMealLimits.mealNameMaxChars));
+      expect(_between(body, 'calories_kcal'),
+          (LoggedMealLimits.caloriesKcalMin, LoggedMealLimits.caloriesKcalMax));
+      expect(_between(body, 'estimated_g'),
+          (LoggedMealLimits.estimatedGMin, LoggedMealLimits.estimatedGMax));
+      for (final macro in const ['protein_g', 'carbs_g', 'fat_g']) {
+        expect(
+          _between(body, macro),
+          (LoggedMealLimits.macroGMin, LoggedMealLimits.macroGMax),
+          reason: macro,
+        );
+      }
+      expect(_atMost(body, 'char_length(barcode)'),
+          LoggedMealLimits.barcodeMaxChars);
+      expect(_atMost(body, 'char_length(brand)'),
+          LoggedMealLimits.brandMaxChars);
+      expect(_atMost(body, 'char_length(source_label)'),
+          LoggedMealLimits.sourceLabelMaxChars);
+      expect(_atMost(body, 'octet_length(payload::text)'),
+          LoggedMealLimits.payloadMaxBytes);
+    });
+
+    test('favorite_meals_safe_ranges_check', () {
+      final body = _checkBody('favorite_meals_safe_ranges_check');
+      expect(_between(body, 'char_length(favorite_key)'), (
+        FavoriteMealLimits.favoriteKeyMinChars,
+        FavoriteMealLimits.favoriteKeyMaxChars,
+      ));
+      expect(_between(body, 'char_length(meal_name)'), (
+        FavoriteMealLimits.mealNameMinChars,
+        FavoriteMealLimits.mealNameMaxChars,
+      ));
+      expect(_between(body, 'calories_kcal'), (
+        FavoriteMealLimits.caloriesKcalMin,
+        FavoriteMealLimits.caloriesKcalMax,
+      ));
+      expect(_between(body, 'estimated_g'),
+          (FavoriteMealLimits.estimatedGMin, FavoriteMealLimits.estimatedGMax));
+      expect(_atMost(body, 'char_length(barcode)'),
+          FavoriteMealLimits.barcodeMaxChars);
+      expect(_atMost(body, 'char_length(brand)'),
+          FavoriteMealLimits.brandMaxChars);
+      expect(_atMost(body, 'char_length(source_label)'),
+          FavoriteMealLimits.sourceLabelMaxChars);
+      expect(_atMost(body, 'octet_length(payload::text)'),
+          FavoriteMealLimits.payloadMaxBytes);
+    });
+
+    test('weight_log_safe_range_check und numeric(5,2)', () {
+      final (min, max) = _between(
+        _checkBody('weight_log_safe_range_check'),
+        'weight_kg',
+      );
+      expect((min.toDouble(), max.toDouble()),
+          (WeightLogLimits.weightKgMin, WeightLogLimits.weightKgMax));
+      final column = RegExp(r'weight_kg\s+numeric\(\d+,\s*(\d+)\)')
+          .firstMatch(_migrationsInOrder().join('\n'));
+      expect(column, isNotNull, reason: 'weight_log.weight_kg numeric(p,s)');
+      expect(int.parse(column!.group(1)!), WeightLogLimits.weightKgDecimals);
     });
   });
 }
