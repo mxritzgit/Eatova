@@ -1086,18 +1086,62 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     }
     final kg = log.planWeightKg(clock.now())?.round();
     if (kg == null || kg == p.weightKg) return null;
-    return const KcalCalculator().applyLiveGoals(p.copyWith(weightKg: kg));
+    // The hold follows the same log, so the commit carries the plan the
+    // getter shows for it.
+    return const KcalCalculator().applyLiveGoals(
+      _targetHoldFrom(p.copyWith(weightKg: kg), log),
+    );
   }
 
-  /// Names a live kcal goal the re-anchor changed. Manual goals do not move,
-  /// and a macro-only shift is not worth a message.
+  /// Names a live kcal goal the re-anchor changed, and says so when it is
+  /// the reached target. Manual goals do not move, and a macro-only shift is
+  /// not worth a message.
   void _announceReanchor(UserProfile before, UserProfile after) {
     if (_disposed || after.manualEnergy) return;
     if (after.dailyKcalGoal == before.dailyKcalGoal) return;
     _emitSnack(
-      _l10n.commonDailyGoalReanchored(after.dailyKcalGoal),
+      after.reachedTargetWeight && !before.reachedTargetWeight
+          ? _l10n.targetReachedGoalSnack(after.dailyKcalGoal)
+          : _l10n.commonDailyGoalReanchored(after.dailyKcalGoal),
       icon: Icons.monitor_weight_outlined,
     );
+  }
+
+  // --- Reached target (2026-10-22) -----------------------------------------
+
+  /// The reached target Today asks about once the trend got there: hold, or
+  /// a new goal; null while there is none. Asked while the plan holds a
+  /// target the user did not choose to hold, so either answer ends it
+  /// (holding stores maintain, a new target is no longer reached).
+  TargetHold? get targetReachedPrompt {
+    final p = profile;
+    if (!p.onboardingCompleted || !p.reachedTargetWeight) return null;
+    return (gain: p.weightGoal.isGain, targetKg: p.targetWeightKg);
+  }
+
+  /// The card's "Hold": maintain becomes the chosen goal, so the plan no
+  /// longer depends on the band around the target. Derived from the
+  /// published profile like a goals save, one profile op through the outbox.
+  Future<void> holdReachedTarget() async {
+    if (sync != null && !_hydratedFromRealSource) {
+      throw StateError('Profile storage is not ready');
+    }
+    await _settledLocalMutations();
+    final before = profile;
+    if (!before.reachedTargetWeight) return;
+    final next = const KcalCalculator().applyLiveGoals(
+      before.copyWith(weightGoal: WeightGoal.maintain).withTargetHold(false),
+    );
+    await _commitSyncIntents(
+      [SyncOp.profileUpsert(next)],
+      publish: () => profile = next,
+    );
+    if (!_disposed) {
+      _emitSnack(
+        _l10n.targetReachedHoldSnack,
+        icon: Icons.monitor_weight_outlined,
+      );
+    }
   }
 
   /// Catches the profile up with weigh-ins it has not seen yet: the first
@@ -1128,6 +1172,22 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       tail = _localMutationTail;
     }
   }
+}
+
+/// [p] with the target hold [log] derives ([holdsReachedTarget]); the same
+/// instance when it already carries it.
+UserProfile _targetHoldFrom(UserProfile p, WeightLog log) => p.withTargetHold(
+  p.weightGoal != WeightGoal.maintain &&
+      holdsReachedTarget(p.weightGoal, p.targetWeightKg, log.dailyTrendKg),
+);
+
+/// [p] as the store shows it: holding a reached target as [log] says, with
+/// live goals recomputed when that changes, so the daily goal on screen
+/// never disagrees with the plan. A row or a cache blob carries no hold, so
+/// this is where a stored profile gets it back.
+UserProfile _withTargetHold(UserProfile p, WeightLog log) {
+  final held = _targetHoldFrom(p, log);
+  return identical(held, p) ? p : const KcalCalculator().applyLiveGoals(held);
 }
 
 /// Where this account stands with Today's health intro card, kept per

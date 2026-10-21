@@ -328,9 +328,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   int _weightLogVersion = 0;
   int _lifetimeStatsVersion = 0;
 
-  UserProfile get profile => _profileState;
+  /// The stored profile holding a reached target as the weight log says
+  /// ([_withTargetHold]); dropped by both setters.
+  UserProfile? _heldProfile;
+
+  UserProfile get profile =>
+      _heldProfile ??= _withTargetHold(_profileState, _weightLogState);
   set profile(UserProfile value) {
     _profileState = value;
+    _heldProfile = null;
     _profileVersion++;
   }
 
@@ -370,6 +376,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   WeightLog get weightLog => _weightLogState;
   set weightLog(WeightLog value) {
     _weightLogState = value;
+    _heldProfile = null;
     _weightLogVersion++;
   }
 
@@ -1362,11 +1369,12 @@ class HomeStore extends _HomeStoreBase
         // the window may also be a cache re-hydration, not a newer write.
         _serverProfileLoaded = true;
         _hydratedFromRealSource = true;
-        healSave =
-            s.profile.lastLoadHealed && _serverGoalsLookStale(loadedProfile);
+        // Measured on [profile], which holds a reached target the row
+        // cannot carry: a held plan is no stale row to write back.
+        healSave = s.profile.lastLoadHealed && _serverGoalsLookStale(profile);
         // The adopted row is the new reference, so a retryBoot does not
         // queue the same correction twice.
-        _cachedProfileAtBoot = loadedProfile;
+        _cachedProfileAtBoot = profile;
       }
 
       final loadedMeals = results[1] as List<LoggedMeal>?;

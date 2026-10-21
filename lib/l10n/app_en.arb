@@ -3780,5 +3780,15 @@
   "@healthWeightImported": {"placeholders": {"count": {"type": "int"}, "source": {"type": "String"}}},
   "healthWeightImportNoAccess": "Weight access isn't allowed in {source}.",
   "@healthWeightImportNoAccess": {"placeholders": {"source": {"type": "String"}}},
-  "healthConnectStepsAndWeight": "Reads steps and weight. Eatova imports scale weigh-ins only once you agree."
+  "healthConnectStepsAndWeight": "Reads steps and weight. Eatova imports scale weigh-ins only once you agree.",
+  "targetReachedGoalSnack": "Target weight reached! New daily goal: {kcal} kcal to hold it.",
+  "@targetReachedGoalSnack": {"placeholders": {"kcal": {"type": "int"}}},
+  "todayTargetReachedTitle": "Goal reached – hold or set a new goal?",
+  "todayTargetReachedBodyLose": "Your trend reached your target weight of {target} kg. Your plan now holds your weight and only goes back to losing once your trend is {band} kg above it.",
+  "@todayTargetReachedBodyLose": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},
+  "todayTargetReachedBodyGain": "Your trend reached your target weight of {target} kg. Your plan now holds your weight and only goes back to gaining once your trend is {band} kg below it.",
+  "@todayTargetReachedBodyGain": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},
+  "todayTargetReachedHold": "Hold",
+  "todayTargetReachedNewGoal": "New goal",
+  "targetReachedHoldSnack": "Your goal is now: maintain weight."
 }

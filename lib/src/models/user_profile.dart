@@ -264,10 +264,87 @@ bool hasReachedTargetWeight(
     goal != WeightGoal.maintain &&
     !isConsistentTargetWeight(goal, weightKg, targetWeightKg);
 
+// ---------------------------------------------------------------------------
+// Holding a reached target (2026-10-22)
+// ---------------------------------------------------------------------------
+//
+// Reaching the target switches the plan to holding. Without a band, a trend
+// near X.5 kg rounded to either side of the target and moved the daily goal by
+// about 500 kcal from one day to the next. So holding starts when the trend
+// reaches the target and ends only 1.5 kg back past it.
+
+/// How far the ROUNDED trend must run back past the target, in the goal's
+/// own direction, to end the hold: 2 kg rounded is the trend 1.5 kg past it.
+const int targetHoldReleaseKg = 2;
+
+/// [targetHoldReleaseKg] on the raw trend, the band the UI names.
+const double targetHoldBandKg = targetHoldReleaseKg - 0.5;
+
+/// The reached target a plan holds: direction and target weight
+/// ([UserProfile.targetHold]).
+typedef TargetHold = ({bool gain, int targetKg});
+
+/// Whether [weightKg] has run [targetHoldReleaseKg] back past
+/// [targetWeightKg] in the direction of [goal], which ends a hold. Always
+/// true for [WeightGoal.maintain], which holds nothing.
+bool isPastTargetHold(WeightGoal goal, int weightKg, int targetWeightKg) {
+  if (goal.isLoss) return weightKg - targetWeightKg >= targetHoldReleaseKg;
+  if (goal.isGain) return targetWeightKg - weightKg >= targetHoldReleaseKg;
+  return true;
+}
+
+/// Whether the weight trend still holds a reached target for [goal]: its
+/// rounded value crossed into [hasReachedTargetWeight] and has not run
+/// [isPastTargetHold] since.
+///
+/// [trendKg] is the daily trend, oldest first (`WeightLog.dailyTrendKg`), so
+/// the hold follows the synced weight log on every device. A series that
+/// starts at or past the target never crossed into it: a direction chosen
+/// later ("gain to 72" after losing from 80 to 71) holds nothing from the
+/// earlier path. There is no goal history, so a target set inside the band
+/// of an earlier crossing holds at once.
+bool holdsReachedTarget(
+  WeightGoal goal,
+  int targetWeightKg,
+  Iterable<double> trendKg,
+) {
+  if (goal == WeightGoal.maintain) return false;
+  var held = false;
+  bool? wasReached;
+  for (final kg in trendKg) {
+    final weightKg = kg.round();
+    final reached = hasReachedTargetWeight(goal, weightKg, targetWeightKg);
+    if (reached && wasReached == false) {
+      held = true;
+    } else if (isPastTargetHold(goal, weightKg, targetWeightKg)) {
+      held = false;
+    }
+    wasReached = reached;
+  }
+  return held;
+}
+
 extension UserProfileWeightPlan on UserProfile {
-  /// `true` once the current weight has reached or passed the target.
-  bool get reachedTargetWeight =>
-      hasReachedTargetWeight(weightGoal, weightKg, targetWeightKg);
+  /// `true` once the current weight has reached or passed the target, and
+  /// while [targetHold] still holds it ([isPastTargetHold]).
+  bool get reachedTargetWeight {
+    if (hasReachedTargetWeight(weightGoal, weightKg, targetWeightKg)) {
+      return true;
+    }
+    return weightGoal != WeightGoal.maintain &&
+        targetHold == (gain: weightGoal.isGain, targetKg: targetWeightKg) &&
+        !isPastTargetHold(weightGoal, weightKg, targetWeightKg);
+  }
+
+  /// This profile holding the reached target, or not: [targetHold] set to
+  /// its direction and target weight when [held], else cleared. The same
+  /// instance when nothing changes.
+  UserProfile withTargetHold(bool held) {
+    final TargetHold? hold = held && weightGoal != WeightGoal.maintain
+        ? (gain: weightGoal.isGain, targetKg: targetWeightKg)
+        : null;
+    return hold == targetHold ? this : copyWith(targetHold: hold);
+  }
 
   /// The goal the plan can still act on: [WeightGoal.maintain] once the target
   /// is reached, the stored goal otherwise.
@@ -370,6 +447,7 @@ class UserProfile {
     this.manualEnergy = false,
     this.energyAdjustmentKcal = 0,
     this.energyCheckedOn,
+    this.targetHold,
   });
 
   final int weightKg;
@@ -432,6 +510,12 @@ class UserProfile {
   /// dismissed; null = never. Mirrored to public.profiles.energy_checked_on.
   final DateTime? energyCheckedOn;
 
+  /// The reached target the plan still holds ([holdsReachedTarget]), or
+  /// null. Derived by the store from the weight log, never persisted: a row
+  /// or a cache blob carries none until the store derives it again. A draft
+  /// that changes direction or target weight no longer matches it.
+  final TargetHold? targetHold;
+
   UserProfile copyWith({
     int? weightKg,
     int? heightCm,
@@ -454,6 +538,7 @@ class UserProfile {
     bool? manualEnergy,
     int? energyAdjustmentKcal,
     DateTime? energyCheckedOn,
+    Object? targetHold = _keepTargetHold,
   }) {
     return UserProfile(
       weightKg: weightKg ?? this.weightKg,
@@ -482,6 +567,12 @@ class UserProfile {
       manualEnergy: manualEnergy ?? this.manualEnergy,
       energyAdjustmentKcal: energyAdjustmentKcal ?? this.energyAdjustmentKcal,
       energyCheckedOn: energyCheckedOn ?? this.energyCheckedOn,
+      targetHold: identical(targetHold, _keepTargetHold)
+          ? this.targetHold
+          : targetHold as TargetHold?,
     );
   }
 }
+
+/// [UserProfile.copyWith]'s default for `targetHold`, so null can clear it.
+const Object _keepTargetHold = Object();

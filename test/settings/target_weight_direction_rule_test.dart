@@ -207,6 +207,52 @@ void main() {
   });
 
   // =========================================================================
+  // 2026-10-22 — erreicht wird gehalten, bis der Trend 1,5 kg zurueck ist
+  // =========================================================================
+  group('Ziel erreicht: Halten mit Puffer', () {
+    test('der Trend haelt ein ueberschrittenes Ziel bis 1,5 kg zurueck', () {
+      // Ziel 70 kg. Gerundet: 70 erreicht, 71 im Puffer, 72 = 1,5 kg zurueck.
+      const faelle = <(String, WeightGoal, int, List<double>, bool)>[
+        ('erreicht', _abnehmen, 70, [72.0, 71.0, 70.4], true),
+        ('im Puffer', _abnehmen, 70, [72.0, 70.4, 70.8], true),
+        ('1,5 kg zurueck', _abnehmen, 70, [72.0, 70.4, 71.6], false),
+        ('wieder erreicht', _abnehmen, 70, [72.0, 70.4, 71.6, 70.3], true),
+        ('ohne Ueberschreiten', _abnehmen, 70, [69.0, 70.6], false),
+        ('neue Richtung', _zunehmen, 72, [80.0, 75.0, 71.4], false),
+        ('Zunehmen erreicht', _zunehmen, 72, [70.0, 71.6], true),
+        ('Zunehmen zurueck', _zunehmen, 72, [70.0, 71.6, 70.4], false),
+        ('Halten', WeightGoal.maintain, 70, [72.0, 70.4], false),
+        ('ohne Wiegung', _abnehmen, 70, <double>[], false),
+      ];
+      for (final (name, ziel, kg, trend, erwartet) in faelle) {
+        expect(holdsReachedTarget(ziel, kg, trend), erwartet, reason: name);
+      }
+    });
+
+    test('das Profil plant im Puffer Halten, sonst die Absicht', () {
+      // Without a hold 71 kg on target 70 plans the deficit again: the
+      // day-to-day flip the band removes.
+      const profil = UserProfile(
+        weightKg: 71,
+        targetWeightKg: 70,
+        weightGoal: _abnehmen,
+      );
+      final gehalten = profil.withTargetHold(true);
+      expect(profil.effectiveWeightGoal, _abnehmen);
+      expect(gehalten.effectiveWeightGoal, WeightGoal.maintain);
+      expect(gehalten.copyWith(weightKg: 72).effectiveWeightGoal, _abnehmen,
+          reason: '1,5 kg zurueck endet das Halten');
+      expect(
+        gehalten
+            .copyWith(weightGoal: _zunehmen, targetWeightKg: 72)
+            .effectiveWeightGoal,
+        _zunehmen,
+        reason: 'ein neues Ziel haelt nicht das alte',
+      );
+    });
+  });
+
+  // =========================================================================
   // P9-08c — das Richtungs-Icon der Plan-Karte
   // =========================================================================
   group('Plan-Karte: gezeichnet wird der Plan, nicht die Absicht', () {

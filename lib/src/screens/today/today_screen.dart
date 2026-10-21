@@ -28,6 +28,7 @@ import 'today_macros.dart';
 import 'today_reminder_prompt.dart';
 import 'today_sections.dart';
 import 'today_streak_hint.dart';
+import 'today_target_reached.dart';
 import 'today_texts.dart';
 import 'today_trends.dart';
 import 'today_weekly_check.dart';
@@ -85,6 +86,7 @@ class TodayScreen extends StatelessWidget {
     this.onFillYesterday,
     this.energyCheckResult,
     this.onAskCoachAboutCheck,
+    this.targetReached,
   });
 
   final String userName;
@@ -215,6 +217,16 @@ class TodayScreen extends StatelessWidget {
   /// composer, unsent (2026-10-22). Null hides it.
   final VoidCallback? onAskCoachAboutCheck;
 
+  /// The reached target's question (`HomeStore.targetReachedPrompt`):
+  /// hold, or a new goal; null hides it. Today only.
+  final ({
+    int targetKg,
+    bool gain,
+    Future<void> Function() hold,
+    VoidCallback newGoal,
+  })?
+  targetReached;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -256,6 +268,7 @@ class TodayScreen extends StatelessWidget {
             ),
     );
     final trends = istHeute && !dayLoading ? trendsPreview : null;
+    final reached = istHeute ? targetReached : null;
     final fillYesterday = istHeute && !dayLoading ? onFillYesterday : null;
     final healthMissing = steps == null && healthConnect && healthConnectLinked;
     final showActivity =
@@ -327,6 +340,15 @@ class TodayScreen extends StatelessWidget {
                       ? null
                       : energyCheckProgress,
                   onExplain: explainCheck,
+                ),
+              ],
+              if (reached != null) ...<Widget>[
+                const SizedBox(height: 16),
+                TodayTargetReachedCard(
+                  targetKg: reached.targetKg,
+                  gain: reached.gain,
+                  onHold: reached.hold,
+                  onNewGoal: reached.newGoal,
                 ),
               ],
               if (result != null) ...<Widget>[

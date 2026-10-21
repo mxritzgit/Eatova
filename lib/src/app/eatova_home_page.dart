@@ -1017,6 +1017,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onFillYesterday: today && _store.yesterdayRescuesStreak
             ? _fillYesterday
             : null,
+        targetReached: switch (today ? _store.targetReachedPrompt : null) {
+          final reached? => (
+            targetKg: reached.targetKg,
+            gain: reached.gain,
+            hold: _store.holdReachedTarget,
+            newGoal: () => unawaited(_openGoals()),
+          ),
+          null => null,
+        },
       );
     },
   );

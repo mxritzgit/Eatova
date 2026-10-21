@@ -3875,5 +3875,15 @@
   "@healthWeightImported": {"placeholders": {"count": {"type": "int"}, "source": {"type": "String"}}},
   "healthWeightImportNoAccess": "Gewicht ist in {source} nicht freigegeben.",
   "@healthWeightImportNoAccess": {"placeholders": {"source": {"type": "String"}}},
-  "healthConnectStepsAndWeight": "Liest Schritte und Gewicht. Waagenwerte übernimmt Eatova erst, wenn du zustimmst."
+  "healthConnectStepsAndWeight": "Liest Schritte und Gewicht. Waagenwerte übernimmt Eatova erst, wenn du zustimmst.",
+  "targetReachedGoalSnack": "Zielgewicht erreicht! Neues Tagesziel: {kcal} kcal zum Halten.",
+  "@targetReachedGoalSnack": {"placeholders": {"kcal": {"type": "int"}}},
+  "todayTargetReachedTitle": "Ziel erreicht – halten oder neues Ziel?",
+  "todayTargetReachedBodyLose": "Dein Trend hat dein Wunschgewicht von {target} kg erreicht. Dein Plan hält jetzt dein Gewicht und geht erst wieder aufs Abnehmen, wenn dein Trend {band} kg darüber liegt.",
+  "@todayTargetReachedBodyLose": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},
+  "todayTargetReachedBodyGain": "Dein Trend hat dein Wunschgewicht von {target} kg erreicht. Dein Plan hält jetzt dein Gewicht und geht erst wieder aufs Zunehmen, wenn dein Trend {band} kg darunter liegt.",
+  "@todayTargetReachedBodyGain": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},
+  "todayTargetReachedHold": "Halten",
+  "todayTargetReachedNewGoal": "Neues Ziel",
+  "targetReachedHoldSnack": "Dein Ziel ist jetzt: Gewicht halten."
 }

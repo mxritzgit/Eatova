@@ -177,6 +177,13 @@ TodayScreen _today({
   VoidCallback? onResumeWorkout,
   bool Function(DateTime day)? isCompleteDay,
   VoidCallback? onFillYesterday,
+  ({
+    int targetKg,
+    bool gain,
+    Future<void> Function() hold,
+    VoidCallback newGoal,
+  })?
+  targetReached,
 }) => TodayScreen(
   userName: userName,
   profile: profile,
@@ -205,6 +212,7 @@ TodayScreen _today({
   onResumeWorkout: onResumeWorkout,
   isCompleteDay: isCompleteDay,
   onFillYesterday: onFillYesterday,
+  targetReached: targetReached,
 );
 
 /// The loading card spins forever, so `pumpAndSettle` would never settle;
@@ -983,6 +991,36 @@ void main() {
 
         await _tap(tester, 'today-workout-row');
         expect(training, 1);
+      });
+    });
+
+    testWidgets('das erreichte Ziel fragt: halten oder neues Ziel', (
+      tester,
+    ) async {
+      var gehalten = 0;
+      var neu = 0;
+      final frage = (
+        targetKg: 70,
+        gain: false,
+        hold: () async => gehalten++,
+        newGoal: () => neu++,
+      );
+
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(tester, _today(targetReached: frage));
+        await _tap(tester, 'today-target-reached-hold');
+        await _tap(tester, 'today-target-reached-new-goal');
+        expect((gehalten, neu), (1, 1));
+
+        // An archive day is about that day, not about the plan.
+        await _pump(
+          tester,
+          _today(
+            targetReached: frage,
+            selectedDate: addDays(startOfDay(_jetzt), -1),
+          ),
+        );
+        expect(find.byKey(const ValueKey('today-target-reached')), findsNothing);
       });
     });
 
