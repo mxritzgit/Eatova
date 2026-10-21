@@ -152,14 +152,18 @@ void main() {
           .allMatches(klassenRumpf)
           .map((m) => m.group(1)!)
           .toList();
-      expect(felder, hasLength(21),
+      expect(felder, hasLength(22),
           reason: 'Feldliste aus lib/src/models/user_profile.dart gelesen');
 
       // Field name -> cache key: camelCase -> snake_case, with `diet` the one
-      // exception (server-side it is `diet_preference`).
+      // exception (server-side it is `diet_preference`). The target hold is
+      // derived from the weight log and never persisted (2026-10-22).
       const aliase = <String, String>{'diet': 'diet_preference'};
-      final erwarteteSchluessel =
-          felder.map((f) => aliase[f] ?? _snake(f)).toSet();
+      const abgeleitet = <String>{'targetHold'};
+      final erwarteteSchluessel = felder
+          .where((f) => !abgeleitet.contains(f))
+          .map((f) => aliase[f] ?? _snake(f))
+          .toSet();
 
       final store = InMemoryKeyValueStore();
       await _cache(store).writeProfile(const UserProfile());
