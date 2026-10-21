@@ -430,6 +430,15 @@ Deno.test('recipe-import never pays for a second attempt that cannot finish in t
       check(response.status === 502, 'outage reported');
       check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'no retry without enough time');
     });
+    // The window outlasting the 55 s request budget (as when the stages
+    // before it ran slowly): the budget's end decides, not the window's.
+    PROVIDER_TIMINGS_MS.window = 120_000;
+    PROVIDER_TIMINGS_MS.retryMin = 60_000;
+    await stub({ providerSequence: [{ status: 503, raw: 'unavailable' }, {}] }, async (calls) => {
+      const response = await handleRequest(request());
+      check(response.status === 502, `outage reported, not ${response.status}`);
+      check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'no retry past the request budget');
+    });
   } finally {
     Object.assign(PROVIDER_TIMINGS_MS, saved);
   }

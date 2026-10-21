@@ -142,6 +142,7 @@ export async function handleRequest(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: headers(request) });
   if (request.method !== 'POST') return json(request, { error: 'method_not_allowed' }, 405);
   const total = AbortSignal.any([request.signal, AbortSignal.timeout(REQUEST_BUDGET_MS)]);
+  const requestEndsAt = Date.now() + REQUEST_BUDGET_MS;
   try {
     const secrets: Secrets = {
       supabaseUrl: Deno.env.get('SUPABASE_URL') ?? '', anonKey: Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -169,11 +170,13 @@ export async function handleRequest(request: Request): Promise<Response> {
     // source, and a three-recipe caption took ~10 s at "medium" and ~20-32 s at
     // "high". A second paid attempt follows only a quick transient failure or
     // a malformed complete answer, and only with time left to finish.
-    const providerStarted = Date.now();
     const window = PROVIDER_TIMINGS_MS.window;
     const providerDeadline = stepSignal(total, window);
+    // The window ends early when the stages before it spent part of the
+    // request budget; the retry check counts what is really left.
+    const providerEndsAt = Math.min(Date.now() + window, requestEndsAt);
     const retryPossible = () =>
-      !providerDeadline.aborted && window - (Date.now() - providerStarted) >= PROVIDER_TIMINGS_MS.retryMin;
+      !providerDeadline.aborted && providerEndsAt - Date.now() >= PROVIDER_TIMINGS_MS.retryMin;
     let lastError = new ImportError(502, 'provider_invalid_response');
     // One ai_call line per attempt (../_shared/ai_telemetry.ts); no refund here.
     const calls = new AiCallLog('recipe-import');
