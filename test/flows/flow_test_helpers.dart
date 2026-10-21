@@ -293,23 +293,6 @@ class FlakyProductLookupService implements ProductLookupService {
   }
 }
 
-class EmptyThenSuccessProductLookupService implements ProductLookupService {
-  int searchAttempts = 0;
-
-  @override
-  Future<MealAnalysisResult> lookupBarcode(String barcode) async =>
-      FakeProductLookupService.salamiPizza;
-
-  @override
-  Future<List<ProductSearchResult>> searchProducts(String query) async {
-    searchAttempts++;
-    if (searchAttempts <= 2) {
-      return const <ProductSearchResult>[];
-    }
-    return FakeProductLookupService.productSuggestions;
-  }
-}
-
 /// Search never finds anything — the path to the manual-entry CTA.
 class NeverFindsProductLookupService implements ProductLookupService {
   @override
@@ -320,19 +303,6 @@ class NeverFindsProductLookupService implements ProductLookupService {
   Future<List<ProductSearchResult>> searchProducts(String query) async =>
       const <ProductSearchResult>[];
 }
-
-/// Search always fails — the error hint must NOT show the CTA.
-class AlwaysFailingProductLookupService implements ProductLookupService {
-  @override
-  Future<MealAnalysisResult> lookupBarcode(String barcode) async =>
-      FakeProductLookupService.salamiPizza;
-
-  @override
-  Future<List<ProductSearchResult>> searchProducts(String query) async {
-    throw Exception('OpenFoodFacts down');
-  }
-}
-
 
 // Checks the displayed total (the Eaten stat), including the locale's
 // thousands separator, without pinning its layout.
