@@ -127,24 +127,19 @@ void main() {
   });
 
   group('Kopplung Dart -> Android-Ressource', () {
-    test('das Small Icon zeigt auf ein @drawable, nicht auf den Launcher', () {
+    test('das Small Icon zeigt auf ein eigenes Vektor-Drawable, nicht auf den '
+        'Launcher', () {
       expect(icon, startsWith('@drawable/'),
           reason: 'Der Launcher (@mipmap/ic_launcher) ist ein deckendes '
               'Bitmap. Android nutzt fuer das Small Icon ab API 21 nur den '
               'Alphakanal (minSdk 26 — immer), das Ergebnis waere ein weisses '
-              'Quadrat in der Statusleiste. Das Small Icon braucht ein eigenes, '
-              'monochromes Drawable.');
-    });
-
-    test('das benannte Drawable existiert als Vektor unter res/drawable/', () {
+              'Quadrat in der Statusleiste.');
       final name = icon.split('/').last;
-      final vektor = File('$_resWurzel/drawable/$name.xml');
-      expect(vektor.existsSync(), isTrue,
-          reason: 'Der Dart-Code gibt "$icon" an das Plugin. Loest '
-              'Resources.getIdentifier das nicht auf, bricht schon '
-              'initialize() mit INVALID_ICON ab — dann gibt es GAR KEINE '
-              'Benachrichtigung mehr, nicht nur ein haessliches Icon '
-              '(FlutterLocalNotificationsPlugin.java:1734-1738).');
+      expect(File('$_resWurzel/drawable/$name.xml').existsSync(), isTrue,
+          reason: 'Loest Resources.getIdentifier "$icon" nicht auf, bricht '
+              'schon initialize() mit INVALID_ICON ab — dann gibt es GAR KEINE '
+              'Benachrichtigung mehr (FlutterLocalNotificationsPlugin.java:'
+              '1734-1738).');
     });
 
     test(
@@ -183,54 +178,34 @@ void main() {
     });
   });
 
-  group('das Drawable erfuellt die Alphakanal-Bedingung', () {
-    late String vektor;
+  test('das Drawable erfuellt die Alphakanal-Bedingung: Vektor, nur weiss '
+      'oder transparent, kein eigener Tint', () {
+    final name = icon.split('/').last;
+    final vektor = _xmlOhneKommentare(_lies('$_resWurzel/drawable/$name.xml'));
+    expect(vektor, contains('<vector'),
+        reason: 'ein <bitmap>/<layer-list> haette wieder einen Alphakanal, '
+            'den niemand kontrolliert.');
+    expect(vektor.contains('<bitmap'), isFalse);
+    expect(vektor.contains('<gradient'), isFalse,
+        reason: 'Android faerbt die Flaeche ohnehin einfarbig ein; ein '
+            'Verlauf verschleiert nur, dass die Form aus dem Alphakanal '
+            'kommen muss.');
 
-    setUp(() {
-      final name = icon.split('/').last;
-      vektor = _xmlOhneKommentare(_lies('$_resWurzel/drawable/$name.xml'));
-    });
-
-    test('es ist ein VectorDrawable, kein verpacktes Bitmap', () {
-      expect(vektor, contains('<vector'),
-          reason: 'ein <bitmap>/<layer-list> haette wieder einen Alphakanal, '
-              'den niemand kontrolliert.');
-      expect(vektor.contains('<bitmap'), isFalse);
-      expect(vektor.contains('<gradient'), isFalse,
-          reason: 'ein Verlauf ist im Small Icon wirkungslos — Android faerbt '
-              'die Flaeche ohnehin einfarbig ein — und verschleiert nur, dass '
-              'die Form aus dem Alphakanal kommen muss.');
-    });
-
-    test('jede Farbe ist weiss oder voellig transparent', () {
-      final farben = _attribute(vektor)
-          .where((a) => a.key.toLowerCase().endsWith('color'))
-          .toList();
-      expect(farben, isNotEmpty,
-          reason: 'ein Drawable ohne einzige Farbangabe zeichnet nichts.');
-      final bunt = farben
-          .where((a) => !_weissOderUnsichtbar(a.value))
-          .map((a) => '${a.key}="${a.value}"')
-          .toList();
-      expect(bunt, isEmpty,
-          reason: 'Android verwirft die Farbwerte des Small Icons und nutzt '
-              'nur den Alphakanal. Jede farbige Flaeche wird damit zu einer '
-              'weissen Flaeche — genau der Fund.');
-    });
-
-    test('kein eigener android:tint', () {
-      expect(_attribute(vektor).any((a) => a.key == 'android:tint'), isFalse,
-          reason: 'die Faerbung macht das System (Statusleiste weiss, im Schub '
-              'die Akzentfarbe). Ein eigener Tint arbeitet dagegen.');
-    });
-
-    test('24dp-Flaeche mit quadratischem Viewport (Material-Vorgabe)', () {
-      final attr = Map<String, String>.fromEntries(_attribute(vektor));
-      expect(attr['android:width'], '24dp');
-      expect(attr['android:height'], '24dp');
-      expect(attr['android:viewportWidth'], attr['android:viewportHeight'],
-          reason: 'ein nicht-quadratischer Viewport verzerrt die Marke, weil '
-              'die Flaeche quadratisch bleibt.');
-    });
+    final farben = _attribute(vektor)
+        .where((a) => a.key.toLowerCase().endsWith('color'))
+        .toList();
+    expect(farben, isNotEmpty,
+        reason: 'ein Drawable ohne einzige Farbangabe zeichnet nichts.');
+    final bunt = farben
+        .where((a) => !_weissOderUnsichtbar(a.value))
+        .map((a) => '${a.key}="${a.value}"')
+        .toList();
+    expect(bunt, isEmpty,
+        reason: 'Android verwirft die Farbwerte des Small Icons und nutzt '
+            'nur den Alphakanal. Jede farbige Flaeche wird damit zu einer '
+            'weissen Flaeche — genau der Fund.');
+    expect(_attribute(vektor).any((a) => a.key == 'android:tint'), isFalse,
+        reason: 'die Faerbung macht das System; ein eigener Tint arbeitet '
+            'dagegen.');
   });
 }

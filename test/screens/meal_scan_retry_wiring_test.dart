@@ -1,8 +1,9 @@
-// Fix run for review 2026-08-27, wiring for F4-02 (Paket D): the photo-scan
-// callers hand the result sheet a `retry` from the same request plus the
-// request's cancel handle, and "enter manually" from a failed scan opens the
+// Photo-scan retry wiring (F4-02): both photo-scan callers hand the result
+// sheet a `retry` from the same request plus the request's cancel handle,
+// fence it on the account, and "enter manually" from a failed scan opens the
 // manual-entry sheet in the chosen slot. Driven through the real callers
-// (food tab via the MealCameraLauncher seam, add sheet via MealPhotoInput).
+// (food tab via the MealCameraLauncher seam, add sheet via MealPhotoInput);
+// the sheet's own retry and cancel behaviour is tested on the sheet itself.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
