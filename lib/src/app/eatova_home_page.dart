@@ -995,6 +995,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onAskCoachAboutCheck: widget.sync == null
             ? null
             : () => _askCoach(context.l10n.coachAskWeeklyCheck),
+        onAcknowledgeEnergyCheckResult: () =>
+            unawaited(_store.acknowledgeEnergyCheckResult()),
         // The weight chip: the profile's weigh-in path, for this session.
         latestWeightKg: _store.weightLog.latest?.weightKg,
         onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,

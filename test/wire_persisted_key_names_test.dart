@@ -99,6 +99,7 @@ void main() {
         await c.writeUserRecipes(const <FitnessRecipe>[]);
         await c.writeReminderTime(const ReminderTime(21, 30));
         await c.writeReminderPromptAnswered();
+        await c.writeWeeklyResultSeen(DateTime(2026, 10, 19));
         await c.writeAiConsent(const <String, dynamic>{'granted': false});
         await c.writeCoachQuota(const <String, dynamic>{'used': 1});
         await c.writeHealthConnectEnabled(true);
@@ -141,6 +142,8 @@ void main() {
           // already answered reminder card again.
           'eatova.v1.reminder_time.user-42',
           'eatova.v1.reminder_prompt.user-42',
+          // Renamed, a result card hidden with "Verstanden" comes back.
+          'eatova.v1.weekly_result_seen.user-42',
           // Renamed, every account is asked for AI consent again (and the
           // old slot would outlive the cleanup).
           'eatova.v1.ai_consent.user-42',

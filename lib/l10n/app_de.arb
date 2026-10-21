@@ -3886,5 +3886,6 @@
   "todayTargetReachedHold": "Halten",
   "todayTargetReachedNewGoal": "Neues Ziel",
   "targetReachedHoldSnack": "Dein Ziel ist jetzt: Gewicht halten.",
-  "trendsOfflineNote": "Offline: Kalorien und Makros aus den Daten auf diesem Gerät."
+  "trendsOfflineNote": "Offline: Kalorien und Makros aus den Daten auf diesem Gerät.",
+  "weeklyCheckResultSeen": "Verstanden"
 }

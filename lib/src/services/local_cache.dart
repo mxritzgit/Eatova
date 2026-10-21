@@ -339,6 +339,20 @@ class LocalCache {
   Future<bool> readReminderPromptAnswered() async =>
       (await _readJson(_reminderPromptKey))?['answered'] == true;
 
+  // The weekly check's result card on Today (2026-10-22): the day
+  // "Verstanden" hid it, so it stays away for the rest of the week. Per
+  // account, cleared in [clear].
+  String get _weeklyResultSeenKey => 'eatova.v1.weekly_result_seen.$_userId';
+
+  Future<void> writeWeeklyResultSeen(DateTime day) => _writeJson(
+    _weeklyResultSeenKey,
+    <String, dynamic>{'day': localDayKey(day)},
+  );
+
+  /// Missing or corrupt -> null: the card shows.
+  Future<DateTime?> readWeeklyResultSeen() async =>
+      parseLocalDayKey((await _readJson(_weeklyResultSeenKey))?['day']);
+
   // ---- AI consent (2026-10-19) ---------------------------------------------
   // The account's latest AI consent decision, cached so the AI entry points
   // need no round trip. The server log (`ai_consents`) is the record; this
@@ -1055,6 +1069,7 @@ class LocalCache {
       await _store.remove(_notificationsKey);
       await _store.remove(_reminderTimeKey);
       await _store.remove(_reminderPromptKey);
+      await _store.remove(_weeklyResultSeenKey);
       await _store.remove(_aiConsentKey);
       await _store.remove(_coachQuotaKey);
       await _store.remove(_healthConnectKey);

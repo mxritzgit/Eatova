@@ -45,6 +45,7 @@ TodayScreen _today({
   VoidCallback? onOpenFoodLog,
   Future<void> Function(double kg)? onLogWeight,
   VoidCallback? onAskCoach,
+  VoidCallback? onAcknowledge,
 }) => TodayScreen(
   userName: 'Moritz',
   profile: const UserProfile(weightKg: 84),
@@ -58,6 +59,7 @@ TodayScreen _today({
   onLogWeight: onLogWeight ?? (_) async {},
   onOpenFoodLog: onOpenFoodLog,
   onAskCoachAboutCheck: onAskCoach,
+  onAcknowledgeEnergyCheckResult: onAcknowledge,
 );
 
 Future<void> _pump(
@@ -155,7 +157,8 @@ void main() {
   testWidgets('das Wochen-Ergebnis zeigt die Zahlen des Checks, ohne Zeile', (
     tester,
   ) async {
-    await _pump(tester, _today(result: _fits));
+    var seen = 0;
+    await _pump(tester, _today(result: _fits, onAcknowledge: () => seen++));
 
     final card = find.byKey(const ValueKey('today-weekly-result'));
     expect(card, findsOneWidget);
@@ -180,6 +183,9 @@ void main() {
     // The card speaks for the check: no progress line beside it.
     expect(find.byKey(const ValueKey('today-weigh-progress')), findsNothing);
     expect(find.byKey(const ValueKey('today-weigh-chip')), findsOneWidget);
+
+    await _tap(tester, 'today-weekly-result-seen');
+    expect(seen, 1, reason: '"Verstanden" hides it until next week');
 
     await _tap(tester, 'today-weekly-result-more');
     expect(find.byKey(const ValueKey('weekly-check-explainer')), findsOneWidget);

@@ -87,6 +87,7 @@ class TodayScreen extends StatelessWidget {
     this.energyCheckResult,
     this.onAskCoachAboutCheck,
     this.targetReached,
+    this.onAcknowledgeEnergyCheckResult,
   });
 
   final String userName;
@@ -216,6 +217,9 @@ class TodayScreen extends StatelessWidget {
   /// "Ask the coach" on the result card: a prepared question in the Coach's
   /// composer, unsent (2026-10-22). Null hides it.
   final VoidCallback? onAskCoachAboutCheck;
+
+  /// The result card's "Verstanden" (`HomeStore.acknowledgeEnergyCheckResult`).
+  final VoidCallback? onAcknowledgeEnergyCheckResult;
 
   /// The reached target's question (`HomeStore.targetReachedPrompt`):
   /// hold, or a new goal; null hides it. Today only.
@@ -357,6 +361,7 @@ class TodayScreen extends StatelessWidget {
                   estimate: result,
                   onExplain: explainCheck,
                   onAskCoach: onAskCoachAboutCheck,
+                  onAcknowledge: onAcknowledgeEnergyCheckResult,
                 ),
               ],
               if (showCheckCard) ...<Widget>[

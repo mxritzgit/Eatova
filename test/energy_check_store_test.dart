@@ -321,6 +321,32 @@ void main() {
       });
     });
 
+    test('Verstanden blendet es bis zum naechsten Montag aus, auch nach '
+        'einem Neustart', () async {
+      final kv = InMemoryKeyValueStore();
+      await withClock(Clock.fixed(monday), () async {
+        final store =
+            (await _booted(kv: kv, now: monday, kcal: 2700, kgPerDay: 0)).store;
+        expect(store.energyCheckResult, isNotNull, reason: 'precondition');
+        await store.acknowledgeEnergyCheckResult();
+        expect(store.energyCheckResult, isNull);
+
+        final restarted =
+            (await _booted(kv: kv, now: monday, kcal: 2700, kgPerDay: 0)).store;
+        expect(restarted.energyCheckResult, isNull);
+      });
+      final nextMonday = DateTime(2026, 10, 12, 12);
+      await withClock(Clock.fixed(nextMonday), () async {
+        final store = (await _booted(
+          kv: kv,
+          now: nextMonday,
+          kcal: 2700,
+          kgPerDay: 0,
+        )).store;
+        expect(store.energyCheckResult, isNotNull);
+      });
+    });
+
     test('ein Vorschlag geht dem Ergebnis vor', () {
       return withClock(Clock.fixed(monday), () async {
         final store = (await _booted(now: monday)).store;

@@ -29,6 +29,7 @@ const durableCacheSlotNames = {
   'health_weight_import',
   'ai_consent',
   'coach_quota',
+  'weekly_result_seen',
 };
 
 bool isDurableCacheSlotKey(String key) {

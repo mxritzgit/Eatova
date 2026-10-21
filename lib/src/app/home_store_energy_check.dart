@@ -25,6 +25,11 @@ mixin _HomeStoreEnergyCheckPart
   /// The boot asked for a window refresh, so a new day asks again.
   bool _energyCheckWindowRequested = false;
 
+  /// The day "Verstanden" hid the week's result card, from this account's
+  /// cache ([_loadWeeklyResultSeen]); null = not hidden.
+  DateTime? _weeklyResultSeenOn;
+  bool _weeklyResultSeenLoaded = false;
+
   /// The window's step values were refreshed from the health store in this
   /// session for TODAY's window ([_backfillEnergyCheckWindow]); the Today
   /// shell selects it, so the card appears once and with final numbers. A
@@ -62,13 +67,37 @@ mixin _HomeStoreEnergyCheckPart
   EnergyCheckEstimate? get energyCheckResult {
     _refreshEnergyCheck();
     final estimate = _energyCheckEstimate;
+    final seen = _weeklyResultSeenOn;
     if (!energyCheckSourcesReady ||
         estimate == null ||
         estimate.proposal != null ||
-        clock.now().weekday != EnergyCheck.resultWeekday) {
+        clock.now().weekday != EnergyCheck.resultWeekday ||
+        (seen != null && daysBetween(clock.now(), seen) < 7)) {
       return null;
     }
     return estimate;
+  }
+
+  /// The result card's "Verstanden" (2026-10-22): hides it until next week,
+  /// on this device and for this account only.
+  Future<void> acknowledgeEnergyCheckResult() async {
+    if (_disposed) return;
+    final today = startOfDay(clock.now());
+    _mutate(() => _weeklyResultSeenOn = today);
+    await (_cache ?? debugCache)?.writeWeeklyResultSeen(today);
+  }
+
+  /// Reads the hidden result card once per session. The window refresh
+  /// awaits it before it marks its steps ready, which the card waits for.
+  Future<void> _loadWeeklyResultSeen() async {
+    if (_weeklyResultSeenLoaded) return;
+    _weeklyResultSeenLoaded = true;
+    final seen = await (_cache ?? debugCache)?.readWeeklyResultSeen();
+    if (_disposed || seen == null) return;
+    final current = _weeklyResultSeenOn;
+    if (current == null || current.isBefore(seen)) {
+      _mutate(() => _weeklyResultSeenOn = seen);
+    }
   }
 
   /// How far the weekly check is from an estimate, on the same sources and
@@ -141,6 +170,7 @@ mixin _HomeStoreEnergyCheckPart
     _energyCheckWindowRequested = true;
     _energyCheckWindowRuns++;
     try {
+      await _loadWeeklyResultSeen();
       final today = startOfDay(clock.now());
       var complete = true;
       for (var n = 1; n <= EnergyCheck.windowDays; n++) {

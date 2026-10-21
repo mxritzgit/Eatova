@@ -12,6 +12,7 @@ const _personalSlots = [
   'notifications_enabled',
   'reminder_time',
   'reminder_prompt',
+  'weekly_result_seen',
   'ai_consent',
   'coach_quota',
   'health_connect_enabled',
