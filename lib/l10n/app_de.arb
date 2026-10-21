@@ -3861,5 +3861,6 @@
   "@mealPlanEatOnPlannedDay": {"description": "Logs a past plan on its planned day; date: short, e.g. \"Mo., 20. Okt.\".", "placeholders": {"date": {"type": "String"}}},
   "mealPlanEatOnToday": "Heute eintragen",
   "onboardingReviewDietAvoiding": "{diet} · ohne {foods}",
-  "@onboardingReviewDietAvoiding": {"description": "Plan summary of the diet step; foods: the avoided foods, comma-separated.", "placeholders": {"diet": {"type": "String"}, "foods": {"type": "String"}}}
+  "@onboardingReviewDietAvoiding": {"description": "Plan summary of the diet step; foods: the avoided foods, comma-separated.", "placeholders": {"diet": {"type": "String"}, "foods": {"type": "String"}}},
+  "recipesFilterSnack": "Snack"
 }

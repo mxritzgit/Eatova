@@ -17,6 +17,9 @@ import 'user_profile.dart';
 /// Double-quoted like [recipeFilters]: matching data, not UI text.
 const String breakfastCategory = "Frühstück";
 
+/// The language-neutral category of snacks in both catalogs.
+const String snackCategory = "Snack";
+
 /// Where a [RecipePick] came from.
 enum RecipePickSource {
   /// The user's own meal plan for that day and slot.
@@ -68,14 +71,17 @@ final class RecipePick {
 }
 
 /// Whether [recipe] is offered for [slot]: breakfast takes only dishes tagged
-/// [breakfastCategory]; lunch and dinner take everything else, including
-/// untagged own recipes. Snacks get no pick.
+/// [breakfastCategory], the snack slot only [snackCategory]; lunch and dinner
+/// take everything else, including untagged own recipes. The snack slot
+/// still gets no pick ([pickRecipeForSlot]); it is the meal plan's default
+/// slot for a snack.
 bool recipeSuitsSlot(FitnessRecipe recipe, MealSlot slot) {
   final breakfastDish = recipe.categories.contains(breakfastCategory);
+  final snack = recipe.categories.contains(snackCategory);
   return switch (slot) {
     MealSlot.breakfast => breakfastDish,
-    MealSlot.lunch || MealSlot.dinner => !breakfastDish,
-    MealSlot.snack => false,
+    MealSlot.lunch || MealSlot.dinner => !breakfastDish && !snack,
+    MealSlot.snack => snack,
   };
 }
 

@@ -116,8 +116,30 @@ void main() {
       expect(pick(const {})!.recipe.slug, 'skyr_bowl_mit_beeren_and_granola');
       expect(
         pick(const {FoodAvoidance.nuts})!.recipe.slug,
-        'protein_pancakes_mit_beeren',
+        'gemuse_frittata_mit_kartoffeln',
       );
+    });
+
+    test('jede Ernährungsform und jedes gemiedene Lebensmittel lässt ein '
+        'Frühstück übrig, beide Kataloge', () {
+      for (final catalog in [recipeCatalogDe, recipeCatalogEn]) {
+        for (final diet in DietPreference.values) {
+          for (final avoided in [
+            for (final code in FoodAvoidance.values) {code},
+            FoodAvoidance.values.toSet(),
+          ]) {
+            final pick = pickRecipeForSlot(
+              slot: MealSlot.breakfast,
+              day: _slotTimes[MealSlot.breakfast]!,
+              remainingKcal: 2100,
+              recipes: catalog,
+              diet: diet,
+              avoidances: avoided,
+            );
+            expect(pick, isNotNull, reason: '${diet.name}, $avoided');
+          }
+        }
+      }
     });
 
     test('ein geplantes Gericht bleibt die Wahl des Nutzers, auch mit '
@@ -216,27 +238,22 @@ void main() {
         emitSnack: _noopSnack,
       );
       addTearDown(store.dispose);
-      store.profile = const UserProfile(dailyKcalGoal: 2100);
-      expect(
-        store.nextMealPick(localeName: 'de')!.recipe.slug,
-        'skyr_bowl_mit_beeren_and_granola',
-      );
-      // Skyr bowl (nuts), pancakes and omelet (egg) drop out.
-      store.profile = const UserProfile(
-        dailyKcalGoal: 2100,
-        foodAvoidances: {FoodAvoidance.nuts, FoodAvoidance.egg},
-      );
-      expect(
-        store.nextMealPick(localeName: 'de')!.recipe.slug,
-        'overnight_oats_mit_skyr_and_banane',
-      );
-      // Every breakfast dish of the catalog has dairy: no pick at all, never
-      // one that contains it.
-      store.profile = const UserProfile(
-        dailyKcalGoal: 2100,
-        foodAvoidances: {FoodAvoidance.lactose},
-      );
-      expect(store.nextMealPick(localeName: 'de'), isNull);
+      // Until 2026-10-22 every catalog breakfast had dairy, and avoiding
+      // lactose left no pick at all; now a dairy-free one is offered.
+      for (final avoided in const <Set<FoodAvoidance>>[
+        {},
+        {FoodAvoidance.nuts, FoodAvoidance.egg},
+        {FoodAvoidance.lactose},
+      ]) {
+        store.profile = UserProfile(
+          dailyKcalGoal: 2100,
+          foodAvoidances: avoided,
+        );
+        final pick = store.nextMealPick(localeName: 'de');
+        expect(pick, isNotNull, reason: '$avoided');
+        expect(pick!.slot, MealSlot.breakfast);
+        expect(pick.recipe.fitsAvoidances(avoided), isTrue, reason: '$avoided');
+      }
     });
   });
 }

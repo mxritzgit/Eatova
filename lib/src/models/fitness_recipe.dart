@@ -741,6 +741,7 @@ const recipeFilters = <String>[
   "Vegetarisch",
   "Vegan",
   "Low Carb",
+  "Snack",
 ];
 
 /// The catalog categories an own recipe may carry besides "Eigene": the
@@ -755,6 +756,7 @@ const ownRecipeCategoryChoices = <String>[
   "Vegetarisch",
   "Vegan",
   "Low Carb",
+  "Snack",
 ];
 
 /// Search normalisation: lower case plus a simple umlaut fold, so "Haehnchen"

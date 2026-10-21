@@ -204,18 +204,21 @@ void main() {
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
 
-      // "Chiasamen" steht bei den Overnight Oats nur in den Zutaten.
-      final oats = recipeCatalogDe
-          .firstWhere((r) => r.slug == 'overnight_oats_mit_skyr_and_banane');
-      expect(oats.title.toLowerCase().contains('chiasamen'), isFalse);
-      expect(oats.description.toLowerCase().contains('chiasamen'), isFalse);
-      expect(oats.ingredients.toLowerCase().contains('chiasamen'), isTrue);
+      // "Reisdrink" steht beim Hirse-Porridge nur in den Zutaten.
+      final porridge = recipeCatalogDe.firstWhere(
+        (r) => r.slug == 'hirse_porridge_mit_birne_and_kurbiskernen',
+      );
+      expect(porridge.title.toLowerCase().contains('reisdrink'), isFalse);
+      expect(porridge.description.toLowerCase().contains('reisdrink'), isFalse);
+      expect(porridge.ingredients.toLowerCase().contains('reisdrink'), isTrue);
 
-      await _suche(tester, 'chiasamen');
+      await _suche(tester, 'reisdrink');
 
       expect(find.text('1 Treffer'), findsOneWidget);
       expect(
-        find.byKey(const ValueKey('recipe-tile-overnight_oats_mit_skyr_and_banane')),
+        find.byKey(
+          const ValueKey('recipe-tile-hirse_porridge_mit_birne_and_kurbiskernen'),
+        ),
         findsOneWidget,
       );
     });

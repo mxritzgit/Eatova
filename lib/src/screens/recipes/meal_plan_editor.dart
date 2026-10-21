@@ -30,13 +30,14 @@ class _PlanEditorState extends State<_PlanEditor> {
   // Filled on the first dependency pass with the locale's separator.
   final _servings = TextEditingController();
   bool _servingsFilled = false;
-  // A breakfast dish chosen beforehand starts on breakfast.
+  // A breakfast dish or snack chosen beforehand starts on its slot.
   late MealSlot _slot =
       widget.plan?.slot ??
-      (widget.recipe != null &&
-              recipeSuitsSlot(widget.recipe!, MealSlot.breakfast)
-          ? MealSlot.breakfast
-          : MealSlot.dinner);
+      [MealSlot.breakfast, MealSlot.snack].firstWhere(
+        (slot) =>
+            widget.recipe != null && recipeSuitsSlot(widget.recipe!, slot),
+        orElse: () => MealSlot.dinner,
+      );
   late DateTime _day = widget.day;
   FitnessRecipe? _recipe;
   bool _saving = false;

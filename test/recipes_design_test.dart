@@ -21,7 +21,8 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_tokens.dart' show AppType, AppTokens;
-import 'package:eatova/src/widgets/recipes/recipe_photo.dart' show RecipeArt;
+import 'package:eatova/src/widgets/recipes/recipe_photo.dart'
+    show RecipeArt, RecipePhoto;
 
 import 'support/harness.dart';
 import 'support/recipe_navigation.dart';
@@ -359,18 +360,27 @@ void main() {
   });
 
   // The placeholder art is the exception (own recipes without a photo, see
-  // recipes_redesign_details_test.dart), never a stand-in for real photos.
+  // recipes_redesign_details_test.dart, and the catalog recipes added without
+  // one on 2026-10-22), never a stand-in for real photos.
   testWidgets('Bestandsrezepte zeigen ihr Foto, keinen Platzhalter', (
     tester,
   ) async {
     await _pumpTabPlain(tester);
 
-    expect(
-      find.byType(RecipeArt),
-      findsNothing,
-      reason: 'Alle 30 Bestandsrezepte haben ein echtes Asset — der '
-          'Platzhalter des Entwurfs darf sie nicht ersetzen.',
-    );
+    final photos = tester.widgetList<RecipePhoto>(find.byType(RecipePhoto));
+    expect(photos, isNotEmpty);
+    for (final photo in photos) {
+      final recipe = photo.recipe;
+      final art = find.descendant(
+        of: find.byWidget(photo),
+        matching: find.byType(RecipeArt),
+      );
+      expect(
+        art,
+        recipe.imageAsset.isEmpty ? findsOneWidget : findsNothing,
+        reason: '${recipe.slug}: ein echtes Asset ersetzt der Platzhalter nie',
+      );
+    }
     expect(find.byType(Image), findsWidgets);
   });
 

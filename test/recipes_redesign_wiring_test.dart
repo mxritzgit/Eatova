@@ -857,7 +857,12 @@ void main() {
         ]);
         expect(find.text('High protein, under 500 kcal'), findsOneWidget);
         expect(find.text('${expected.length} matches'), findsOneWidget);
-        expect(_rowSlugs(tester), expected.map((r) => r.slug).toList());
+        // The list builds lazily: read it down to its end.
+        final rows = [..._rowSlugs(tester)];
+        await tester.drag(recipesList(), const Offset(0, -600));
+        await tester.pumpAndSettle();
+        rows.addAll(_rowSlugs(tester).where((slug) => !rows.contains(slug)));
+        expect(rows, expected.map((r) => r.slug).toList());
         expect(await _selectedChips(tester), isEmpty);
       });
     });
@@ -868,14 +873,17 @@ void main() {
       await withClock(Clock.fixed(DateTime(2026, 9, 28, 22)), () async {
         await _pumpHome(
           tester,
-          profile: _profile.copyWith(diet: DietPreference.vegan),
+          profile: _profile.copyWith(
+            diet: DietPreference.vegan,
+            foodAvoidances: const {FoodAvoidance.soy},
+          ),
           meals: const <LoggedMeal>[],
         );
         expect(_key('recipe-hero'), findsOneWidget);
         final title = tester.widget<Text>(_key('recipe-hero-title')).data!;
         final hero = recipeCatalogEn.firstWhere((r) => r.title == title);
         expect(hero.matchesDiet(DietPreference.vegan), isTrue, reason: title);
-        // No vegan catalog recipe is lean: the shelf is gone.
+        // The one lean vegan catalog recipe has soy: the shelf is gone.
         expect(_key('recipe-shelf-lean'), findsNothing);
         await _reveal(tester, _key('recipes-more-see-all'));
         await tester.drag(recipesList(), const Offset(0, -400));
@@ -893,7 +901,7 @@ void main() {
     });
 
     testWidgets('the lean shelf hides when nothing qualifies', (tester) async {
-      // Vegan: none of the catalog's shelf recipes is vegan.
+      // Vegan without soy: none of the catalog's shelf recipes is left.
       await withClock(Clock.fixed(_now), () async {
         pinDesignViewport(tester);
         await pumpLocalized(
@@ -901,6 +909,7 @@ void main() {
           RecipesScreen(
             onAddMeal: (MealAnalysisResult _, MealSlot __) {},
             diet: DietPreference.vegan,
+            avoidances: const {FoodAvoidance.soy},
             remainingMacros: const MacroProgress(
               proteinG: 60,
               carbsG: 80,

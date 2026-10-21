@@ -269,6 +269,27 @@ void main() {
         isNull,
       );
     });
+
+    test('a snack is never the lunch or dinner pick', () {
+      // 250 kcal left: only the catalog's snacks fit, the cottage cheese
+      // with 26 g protein first; a main meal pick stays empty instead.
+      for (final slot in [MealSlot.lunch, MealSlot.dinner]) {
+        expect(
+          pickRecipeForSlot(
+            slot: slot,
+            day: evening,
+            remainingKcal: 250,
+            recipes: recipeCatalogDe,
+          ),
+          isNull,
+          reason: slot.name,
+        );
+      }
+      final snack = recipeCatalogDe.firstWhere(
+        (r) => r.categories.contains(snackCategory),
+      );
+      expect(recipeSuitsSlot(snack, MealSlot.snack), isTrue);
+    });
   });
 
   group('meal plan comes first', () {

@@ -36,7 +36,7 @@ final _day = DateTime(2026, 9, 28, 18, 30);
 
 void main() {
   group('isLeanHighProtein', () {
-    test('the German catalog has exactly three shelf recipes', () {
+    test('the German catalog has exactly four shelf recipes', () {
       final lean = recipeCatalogDe
           .where(isLeanHighProtein)
           .map((r) => r.slug)
@@ -45,6 +45,7 @@ void main() {
         'overnight_oats_mit_skyr_and_banane',
         'skyr_bowl_mit_beeren_and_granola',
         'hahnchen_caesar_salat',
+        'tofu_scramble_mit_spinat_and_vollkornbrot',
       });
       // Both catalogs carry the same numbers.
       expect(
@@ -122,7 +123,10 @@ void main() {
         recipeCatalogDe,
         now: _day.add(const Duration(days: 1)),
       );
-      expect(day1, rotatedRecommendations(catalogHits, _day, count: 3));
+      expect(
+        day1,
+        rotatedRecommendations(catalogHits, _day, count: catalogHits.length),
+      );
       expect(day2.first.slug, isNot(day1.first.slug));
       expect(day2.toSet(), day1.toSet());
     });
@@ -133,7 +137,10 @@ void main() {
         now: _day,
         diet: DietPreference.vegan,
       );
-      expect(vegan, <FitnessRecipe>[soup]);
+      expect(vegan.map((r) => r.slug), [
+        soup.slug,
+        'tofu_scramble_mit_spinat_and_vollkornbrot',
+      ]);
 
       final vegetarian = leanHighProteinShelf(
         recipeCatalogDe,
@@ -143,6 +150,7 @@ void main() {
       expect(vegetarian.map((r) => r.slug).toSet(), {
         'overnight_oats_mit_skyr_and_banane',
         'skyr_bowl_mit_beeren_and_granola',
+        'tofu_scramble_mit_spinat_and_vollkornbrot',
       });
     });
 
@@ -170,7 +178,7 @@ void main() {
       ...recipeCatalogDe,
     ]);
     expect(all.first.slug, 'user_soup');
-    expect(all, hasLength(4));
+    expect(all, hasLength(5));
   });
 
   group('isUnder600Kcal ("Under 600 kcal" chip)', () {

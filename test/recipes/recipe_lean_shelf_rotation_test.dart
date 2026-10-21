@@ -48,6 +48,7 @@ Future<void> _pumpApp(
   WidgetTester tester, {
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
   DietPreference diet = DietPreference.none,
+  Set<FoodAvoidance> avoidances = const <FoodAvoidance>{},
 }) {
   return pumpLocalized(
     tester,
@@ -55,6 +56,7 @@ Future<void> _pumpApp(
       onAddMeal: (MealAnalysisResult _, MealSlot __) {},
       initialUserRecipes: userRecipes,
       diet: diet,
+      avoidances: avoidances,
     ),
   );
 }
@@ -159,7 +161,7 @@ void main() {
   });
 
   testWidgets('Ernährungsfilter greift weiterhin: vegetarisch sieht keinen '
-      'Caesar Salad, vegan ein leeres und damit verstecktes Regal', (
+      'Caesar Salad, vegan ohne Soja ein leeres und damit verstecktes Regal', (
     tester,
   ) async {
     _pinViewport(tester);
@@ -178,12 +180,17 @@ void main() {
         );
       }
 
-      await _pumpApp(tester, diet: DietPreference.vegan);
+      // The tofu scramble is the one vegan hit; without soy none is left.
+      await _pumpApp(
+        tester,
+        diet: DietPreference.vegan,
+        avoidances: const {FoodAvoidance.soy},
+      );
       await tester.pumpAndSettle();
       expect(
         _regal(),
         findsNothing,
-        reason: 'Kein veganer Katalog-Treffer: das Regal blendet sich aus.',
+        reason: 'Kein passender Katalog-Treffer: das Regal blendet sich aus.',
       );
     });
   });

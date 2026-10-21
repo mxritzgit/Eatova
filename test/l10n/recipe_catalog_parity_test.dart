@@ -8,9 +8,9 @@ import 'package:eatova/src/models/recipe_catalog_en.dart';
 /// goal matching hang on, so a missing slug makes a recipe vanish on language
 /// switch. Counterpart to the ARB parity rule in `test/repo_rules_test.dart`.
 void main() {
-  test('beide Kataloge tragen 30 Rezepte mit identischer Slug-Menge', () {
-    expect(recipeCatalogDe, hasLength(30));
-    expect(recipeCatalogEn, hasLength(30));
+  test('beide Kataloge tragen 41 Rezepte mit identischer Slug-Menge', () {
+    expect(recipeCatalogDe, hasLength(41));
+    expect(recipeCatalogEn, hasLength(41));
 
     final slugsDe = recipeCatalogDe.map((r) => r.slug).toSet();
     final slugsEn = recipeCatalogEn.map((r) => r.slug).toSet();
