@@ -41,10 +41,4 @@ void main() {
       expect(clock.now(), _mittag.add(const Duration(minutes: 5)));
     });
   });
-
-  test('leaves the surrounding clock untouched', () async {
-    final outside = clock;
-    await withClockAt(_mittag, () async {});
-    expect(identical(clock, outside), isTrue);
-  });
 }

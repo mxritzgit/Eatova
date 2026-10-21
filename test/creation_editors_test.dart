@@ -25,94 +25,81 @@ void main() {
     }
   });
 
-  for (final brightness in Brightness.values) {
-    for (final locale in ['de', 'en']) {
-      for (final training in [false, true]) {
-        testWidgets(
-          '$training editor keeps focused input and actions reachable '
-          'at 320px / 2x with keyboard ($locale/$brightness)',
-          (tester) async {
-            await pumpLocalized(
-              tester,
-              training
-                  ? Builder(
-                      builder: (context) => TextButton(
-                        onPressed: () => showTrainingPlanEditor(
-                          context,
-                          onSave: (_) async => SyncDelivery.delivered,
-                        ),
-                        child: const Text('Open'),
-                      ),
-                    )
-                  : RecipesScreen(onAddMeal: (_, _) {}),
-              locale: Locale(locale),
-              brightness: brightness,
-              surfaceSize: const Size(320, 568),
-              textScale: 2,
-            );
-            if (training) {
-              await tester.tap(find.text('Open'));
-              await tester.pumpAndSettle();
-            } else {
-              await openRecipeCreateSheet(tester);
-            }
-            final field = find.byKey(
-              ValueKey(
-                training ? 'training-editor-title' : 'recipe-create-name',
-              ),
-            );
-            await tester.ensureVisible(field);
-            await tester.pumpAndSettle();
-            await tester.tap(field);
-            await tester.enterText(field, 'Test');
-            await tester.pump();
-            expect(
-              tester
-                  .widget<EditableText>(
-                    find.descendant(
-                      of: field,
-                      matching: find.byType(EditableText),
+  // Layout only: brightness never moves a box, and German carries the longer
+  // labels, so one locale and the default palette are the worst case.
+  for (final training in [false, true]) {
+    testWidgets(
+      '${training ? 'training' : 'recipe'} editor keeps focused input and '
+      'actions reachable at 320px / 2x with keyboard',
+      (tester) async {
+        await pumpLocalized(
+          tester,
+          training
+              ? Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () => showTrainingPlanEditor(
+                      context,
+                      onSave: (_) async => SyncDelivery.delivered,
                     ),
-                  )
-                  .focusNode
-                  .hasFocus,
-              isTrue,
-            );
-            tester.view.viewInsets = FakeViewPadding(
-              bottom: 220 * tester.view.devicePixelRatio,
-            );
-            addTearDown(tester.view.resetViewInsets);
-            await tester.pumpAndSettle();
-            final save = find.byKey(
-              ValueKey(
-                training ? 'training-editor-save' : 'recipe-create-save',
-              ),
-            );
-            final close = find.byKey(
-              ValueKey(
-                training ? 'training-editor-close' : 'recipe-create-close',
-              ),
-            );
-            final viewport = tester.getRect(
-              find.byKey(
-                ValueKey(
-                  training ? 'training-editor-scroll' : 'recipe-create-scroll',
-                ),
-              ),
-            );
-            final text = tester.getRect(
-              find.descendant(of: field, matching: find.byType(EditableText)),
-            );
-            expect(text.top, greaterThanOrEqualTo(viewport.top));
-            expect(text.bottom, lessThanOrEqualTo(viewport.bottom));
-            expect(text.bottom, lessThan(tester.getTopLeft(save).dy));
-            expect(save.hitTestable(), findsOneWidget);
-            expect(close.hitTestable(), findsOneWidget);
-            expect(tester.takeException(), isNull);
-          },
+                    child: const Text('Open'),
+                  ),
+                )
+              : RecipesScreen(onAddMeal: (_, _) {}),
+          surfaceSize: const Size(320, 568),
+          textScale: 2,
         );
-      }
-    }
+        if (training) {
+          await tester.tap(find.text('Open'));
+          await tester.pumpAndSettle();
+        } else {
+          await openRecipeCreateSheet(tester);
+        }
+        final field = find.byKey(
+          ValueKey(training ? 'training-editor-title' : 'recipe-create-name'),
+        );
+        await tester.ensureVisible(field);
+        await tester.pumpAndSettle();
+        await tester.tap(field);
+        await tester.enterText(field, 'Test');
+        await tester.pump();
+        expect(
+          tester
+              .widget<EditableText>(
+                find.descendant(of: field, matching: find.byType(EditableText)),
+              )
+              .focusNode
+              .hasFocus,
+          isTrue,
+        );
+        tester.view.viewInsets = FakeViewPadding(
+          bottom: 220 * tester.view.devicePixelRatio,
+        );
+        addTearDown(tester.view.resetViewInsets);
+        await tester.pumpAndSettle();
+        final save = find.byKey(
+          ValueKey(training ? 'training-editor-save' : 'recipe-create-save'),
+        );
+        final close = find.byKey(
+          ValueKey(training ? 'training-editor-close' : 'recipe-create-close'),
+        );
+        final viewport = tester.getRect(
+          find.byKey(
+            ValueKey(
+              training ? 'training-editor-scroll' : 'recipe-create-scroll',
+            ),
+          ),
+        );
+        final text = tester.getRect(
+          find.descendant(of: field, matching: find.byType(EditableText)),
+        );
+        expect(text.top, greaterThanOrEqualTo(viewport.top));
+        expect(text.bottom, lessThanOrEqualTo(viewport.bottom));
+        expect(text.bottom, lessThan(tester.getTopLeft(save).dy));
+        expect(save.hitTestable(), findsOneWidget);
+        expect(close.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('editing and saving workout notes preserves line breaks', (

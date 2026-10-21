@@ -185,31 +185,9 @@ void main() {
       }
     });
 
-    test('die verbleibenden Auswahl-Chips tragen SelectionTone', () {
-      // Positive counterpart to the ban: the rule going green because the
-      // code no longer paints ANY selection would be worthless.
-      const stellen = <String, int>{
-        // Food now uses plain date navigation; its former chips no longer exist.
-        // The edit sheet's day row is Today's strip since 2026-10-03.
-        'lib/src/screens/today/today_day_strip.dart': 1, // Tages-Streifen
-        // The radio of every option card (onboarding, Coach brief) and of
-        // the onboarding tiles: disc + ring. Shared since 2026-10-04.
-        'lib/src/widgets/design/option_card.dart': 2,
-      };
-      stellen.forEach((pfad, mindestens) {
-        final text = _gefaltet(File(pfad).readAsStringSync());
-        expect(
-          RegExp(r'\?\s*t\.selectedFill\b').allMatches(text).length,
-          greaterThanOrEqualTo(mindestens),
-          reason: '$pfad malt seine Auswahl nicht mehr mit t.selectedFill',
-        );
-        expect(
-          text.contains('t.onSelected'),
-          isTrue,
-          reason: '$pfad beschriftet seine Auswahl nicht mit t.onSelected',
-        );
-      });
-    });
+    // The positive counterpart (the selections really paint selectedFill and
+    // onSelected) is measured on mounted widgets in
+    // auswahl_sprache_verwendung_test.dart, not grepped here.
   });
 
   group('Selbstpruefung der Regel', () {
@@ -283,15 +261,7 @@ color: t.onForest.withValues(alpha: 0.07),
       const gemischt = 'final x = a ? b : c; Container(color: t.forest),';
       expect(_funde('probe.dart', gemischt), isEmpty);
     });
-
-    test('die Regel findet ueberhaupt etwas (kein toter Scanner)', () {
-      // Guard against the rule silently matching nothing at all — e.g. after
-      // a token rename. The allowlist entries are the live proof.
-      final gefunden = <String>[];
-      for (final pfad in _bedingtesForestErlaubt.keys) {
-        gefunden.addAll(_funde(pfad, File(pfad).readAsStringSync()));
-      }
-      expect(gefunden, isNotEmpty);
-    });
+    // A dead scanner (nothing matches any more, e.g. after a token rename)
+    // fails 'die Allowlist wird gegen ihre Dateien geprueft' above.
   });
 }

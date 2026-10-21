@@ -43,12 +43,3 @@ Map<String, dynamic> trainingMessage({Object? role = 'assistant'}) => {
   'refusal': false,
   'training_plan': trainingDraft(),
 };
-
-Map<String, dynamic> trainingReply() => {
-  'reply': 'Please review before saving.',
-  'session_id': 'session-A',
-  'assistant_message_id': 'server-message-1',
-  'training_plan': trainingDraft(),
-  'remaining': 4,
-  'daily_limit': 5,
-};

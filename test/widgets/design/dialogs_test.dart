@@ -133,6 +133,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadFonts);
 
+  // Layout and wiring run in one palette: widgets carry no brightness branch
+  // (repo_rules_test), so the other palette only swaps token values. A
+  // capture run can force it with DESIGN_CAPTURE_BRIGHTNESS.
+  const brightness = Brightness.light;
+
   for (final dismiss in ['confirm', 'cancel', 'barrier', 'back']) {
     testWidgets('$dismiss returns the original explicit or dismiss result', (
       tester,
@@ -205,107 +210,105 @@ void main() {
   );
 
   for (final locale in ['de', 'en']) {
-    for (final brightness in Brightness.values) {
-      for (final large in [false, true]) {
-        for (final destructive in [false, true]) {
-          testWidgets(
-            '$locale ${brightness.name} ${large ? '320px 2x' : '393px'} ${destructive ? 'discard' : 'pause'} stays reachable',
-            (tester) async {
-              await _host(
-                tester,
-                locale: Locale(locale),
-                brightness: brightness,
-                scale: large ? 2 : 1,
-                size: large ? const Size(320, 568) : const Size(393, 852),
-                destructive: destructive,
+    for (final large in [false, true]) {
+      for (final destructive in [false, true]) {
+        testWidgets(
+          '$locale ${large ? '320px 2x' : '393px'} ${destructive ? 'discard' : 'pause'} stays reachable',
+          (tester) async {
+            await _host(
+              tester,
+              locale: Locale(locale),
+              brightness: brightness,
+              scale: large ? 2 : 1,
+              size: large ? const Size(320, 568) : const Size(393, 852),
+              destructive: destructive,
+            );
+            expect(tester.takeException(), isNull);
+            final rect = tester.getRect(
+              find
+                  .descendant(
+                    of: find.byType(Dialog),
+                    matching: find.byType(Material),
+                  )
+                  .first,
+            );
+            expect(rect.left, greaterThanOrEqualTo(20));
+            expect(rect.right, lessThanOrEqualTo(large ? 300 : 373));
+            await _capture(
+              tester,
+              '$locale-${brightness.name}-${large ? '320-2x' : '393'}-${destructive ? 'discard' : 'pause'}',
+            );
+            if (large) {
+              await tester.drag(
+                find.byType(SingleChildScrollView),
+                const Offset(0, -600),
               );
-              expect(tester.takeException(), isNull);
-              final rect = tester.getRect(
-                find
-                    .descendant(
-                      of: find.byType(Dialog),
-                      matching: find.byType(Material),
-                    )
-                    .first,
-              );
-              expect(rect.left, greaterThanOrEqualTo(20));
-              expect(rect.right, lessThanOrEqualTo(large ? 300 : 373));
-              await _capture(
-                tester,
-                '$locale-${brightness.name}-${large ? '320-2x' : '393'}-${destructive ? 'discard' : 'pause'}',
-              );
-              if (large) {
-                await tester.drag(
-                  find.byType(SingleChildScrollView),
-                  const Offset(0, -600),
-                );
-                await tester.pumpAndSettle();
-                final dialog = tester.widget<EatovaConfirmDialog>(
-                  find.byType(EatovaConfirmDialog),
-                );
-                expect(
-                  tester.getBottomLeft(find.text(dialog.body)).dy,
-                  lessThanOrEqualTo(
-                    tester.getTopLeft(find.byKey(_confirm)).dy - 24,
-                  ),
-                );
-                await _capture(
-                  tester,
-                  '$locale-${brightness.name}-320-2x-${destructive ? 'discard' : 'pause'}-message-scrolled',
-                );
-              }
-              for (final key in [_confirm, _cancel]) {
-                await tester.ensureVisible(find.byKey(key));
-                await tester.pump();
-                final buttonRect = tester.getRect(find.byKey(key));
-                expect(
-                  buttonRect.height,
-                  greaterThanOrEqualTo(kButtonMinHeight),
-                );
-                expect(buttonRect.left, greaterThanOrEqualTo(20));
-                expect(buttonRect.right, lessThanOrEqualTo(large ? 300 : 373));
-                expect(buttonRect.top, greaterThanOrEqualTo(24));
-                expect(buttonRect.bottom, lessThanOrEqualTo(large ? 544 : 828));
-              }
-              await _capture(
-                tester,
-                '$locale-${brightness.name}-${large ? '320-2x' : '393'}-${destructive ? 'discard' : 'pause'}-actions',
-              );
-              await tester.tap(find.byKey(_cancel));
               await tester.pumpAndSettle();
-              expect(find.byType(AlertDialog), findsNothing);
-              expect(tester.takeException(), isNull);
-            },
-          );
-        }
+              final dialog = tester.widget<EatovaConfirmDialog>(
+                find.byType(EatovaConfirmDialog),
+              );
+              expect(
+                tester.getBottomLeft(find.text(dialog.body)).dy,
+                lessThanOrEqualTo(
+                  tester.getTopLeft(find.byKey(_confirm)).dy - 24,
+                ),
+              );
+              await _capture(
+                tester,
+                '$locale-${brightness.name}-320-2x-${destructive ? 'discard' : 'pause'}-message-scrolled',
+              );
+            }
+            for (final key in [_confirm, _cancel]) {
+              await tester.ensureVisible(find.byKey(key));
+              await tester.pump();
+              final buttonRect = tester.getRect(find.byKey(key));
+              expect(
+                buttonRect.height,
+                greaterThanOrEqualTo(kButtonMinHeight),
+              );
+              expect(buttonRect.left, greaterThanOrEqualTo(20));
+              expect(buttonRect.right, lessThanOrEqualTo(large ? 300 : 373));
+              expect(buttonRect.top, greaterThanOrEqualTo(24));
+              expect(buttonRect.bottom, lessThanOrEqualTo(large ? 544 : 828));
+            }
+            await _capture(
+              tester,
+              '$locale-${brightness.name}-${large ? '320-2x' : '393'}-${destructive ? 'discard' : 'pause'}-actions',
+            );
+            await tester.tap(find.byKey(_cancel));
+            await tester.pumpAndSettle();
+            expect(find.byType(AlertDialog), findsNothing);
+            expect(tester.takeException(), isNull);
+          },
+        );
       }
-      testWidgets(
-        '$locale ${brightness.name} keyboard and 2x type keep the actions reachable',
-        (tester) async {
-          final results = <bool?>[];
-          await _host(
-            tester,
-            locale: Locale(locale),
-            brightness: brightness,
-            scale: 2,
-            size: const Size(320, 568),
-            keyboard: 240,
-            onResult: results.add,
-          );
-          expect(tester.takeException(), isNull);
-          await tester.ensureVisible(find.byKey(_cancel));
-          await tester.pump();
-          expect(
-            tester.getBottomLeft(find.byKey(_cancel)).dy,
-            lessThanOrEqualTo(328),
-          );
-          await _capture(tester, '$locale-${brightness.name}-keyboard-320-2x');
-          await tester.tap(find.byKey(_cancel));
-          await tester.pumpAndSettle();
-          expect(results, [false]);
-        },
-      );
     }
+    testWidgets(
+      '$locale keyboard and 2x type keep the actions reachable',
+      (tester) async {
+        final results = <bool?>[];
+        await _host(
+          tester,
+          locale: Locale(locale),
+          brightness: brightness,
+          scale: 2,
+          size: const Size(320, 568),
+          keyboard: 240,
+          onResult: results.add,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.ensureVisible(find.byKey(_cancel));
+        await tester.pump();
+        expect(
+          tester.getBottomLeft(find.byKey(_cancel)).dy,
+          lessThanOrEqualTo(328),
+        );
+        await _capture(tester, '$locale-${brightness.name}-keyboard-320-2x');
+        await tester.tap(find.byKey(_cancel));
+        await tester.pumpAndSettle();
+        expect(results, [false]);
+      },
+    );
   }
   testWidgets(
     'focused actions show a keyboard outline without adding a touch outline',
@@ -333,122 +336,120 @@ void main() {
   );
 
   for (final locale in ['de', 'en']) {
-    for (final brightness in Brightness.values) {
-      testWidgets(
-        '$locale ${brightness.name} guarded input keeps validation and fits 320px 2x with keyboard',
-        (tester) async {
-          tester.view.physicalSize = const Size(320, 568);
-          tester.view.devicePixelRatio = 1;
-          addTearDown(tester.view.reset);
-          final scale = ValueNotifier(1.0);
-          addTearDown(scale.dispose);
-          await tester.pumpWidget(
-            RepaintBoundary(
-              key: _captureKey,
-              child: ValueListenableBuilder<double>(
-                valueListenable: scale,
-                builder: (context, textScale, _) => localizedApp(
-                  Builder(
-                    builder: (context) => TextButton(
-                      onPressed: () => showWeightAdjustmentSheet(
-                        context,
-                        const MealAnalysisResult(
-                          mealName: 'Bowl',
-                          caloriesKcal: 100,
-                          estimatedGrams: 100,
-                          kcalPer100G: 100,
-                          protein: '5 g',
-                          carbs: '10 g',
-                          fat: '2 g',
-                          confidence: '',
-                          portionNotes: '',
-                          items: [
-                            MealComponent(
-                              name: 'Rice',
-                              grams: 100,
-                              caloriesKcal: 100,
-                            ),
-                          ],
-                        ),
+    testWidgets(
+      '$locale guarded input keeps validation and fits 320px 2x with keyboard',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 568);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final scale = ValueNotifier(1.0);
+        addTearDown(scale.dispose);
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: _captureKey,
+            child: ValueListenableBuilder<double>(
+              valueListenable: scale,
+              builder: (context, textScale, _) => localizedApp(
+                Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () => showWeightAdjustmentSheet(
+                      context,
+                      const MealAnalysisResult(
+                        mealName: 'Bowl',
+                        caloriesKcal: 100,
+                        estimatedGrams: 100,
+                        kcalPer100G: 100,
+                        protein: '5 g',
+                        carbs: '10 g',
+                        fat: '2 g',
+                        confidence: '',
+                        portionNotes: '',
+                        items: [
+                          MealComponent(
+                            name: 'Rice',
+                            grams: 100,
+                            caloriesKcal: 100,
+                          ),
+                        ],
                       ),
-                      child: const Text('Open input'),
                     ),
+                    child: const Text('Open input'),
                   ),
-                  locale: Locale(locale),
-                  brightness: brightness,
-                  textScale: textScale,
                 ),
+                locale: Locale(locale),
+                brightness: brightness,
+                textScale: textScale,
               ),
             ),
-          );
-          await tester.tap(find.text('Open input'));
-          await tester.pumpAndSettle();
-          final add = find.byKey(const ValueKey('analyse-item-add-button'));
-          await tester.ensureVisible(add);
-          await tester.tap(add);
-          await tester.pumpAndSettle();
-          tester.view.viewInsets = const FakeViewPadding(bottom: 240);
-          scale.value = 2;
-          await tester.pumpAndSettle();
+          ),
+        );
+        await tester.tap(find.text('Open input'));
+        await tester.pumpAndSettle();
+        final add = find.byKey(const ValueKey('analyse-item-add-button'));
+        await tester.ensureVisible(add);
+        await tester.tap(add);
+        await tester.pumpAndSettle();
+        tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+        scale.value = 2;
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        Finder field(String name) =>
+            find.byKey(ValueKey('analyse-add-item-$name'));
+        final save = field('save');
+        expect(tester.widget<FilledButton>(save).onPressed, isNull);
+        await tester.enterText(field('name'), 'Apple');
+        await tester.enterText(field('grams'), '0');
+        await tester.enterText(field('kcal'), '52');
+        await tester.pump();
+        expect(tester.widget<FilledButton>(save).onPressed, isNull);
+        await tester.enterText(field('grams'), '100');
+        await tester.pump();
+        expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+        await tester.ensureVisible(field('macros-toggle'));
+        await tester.tap(field('macros-toggle'));
+        await tester.pumpAndSettle();
+        for (final name in [
+          'name',
+          'grams',
+          'kcal',
+          'protein',
+          'carbs',
+          'fat',
+        ]) {
+          final input = field(name);
+          await tester.ensureVisible(input);
+          await tester.pump();
+          final rect = tester.getRect(input);
+          expect(rect.left, greaterThanOrEqualTo(20));
+          expect(rect.right, lessThanOrEqualTo(300));
+          expect(rect.top, greaterThanOrEqualTo(0));
+          expect(rect.bottom, lessThanOrEqualTo(328));
+          expect(input.hitTestable(), findsOneWidget);
           expect(tester.takeException(), isNull);
-          Finder field(String name) =>
-              find.byKey(ValueKey('analyse-add-item-$name'));
-          final save = field('save');
-          expect(tester.widget<FilledButton>(save).onPressed, isNull);
-          await tester.enterText(field('name'), 'Apple');
-          await tester.enterText(field('grams'), '0');
-          await tester.enterText(field('kcal'), '52');
-          await tester.pump();
-          expect(tester.widget<FilledButton>(save).onPressed, isNull);
-          await tester.enterText(field('grams'), '100');
-          await tester.pump();
-          expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
-          await tester.ensureVisible(field('macros-toggle'));
-          await tester.tap(field('macros-toggle'));
-          await tester.pumpAndSettle();
-          for (final name in [
-            'name',
-            'grams',
-            'kcal',
-            'protein',
-            'carbs',
-            'fat',
-          ]) {
-            final input = field(name);
-            await tester.ensureVisible(input);
-            await tester.pump();
-            final rect = tester.getRect(input);
-            expect(rect.left, greaterThanOrEqualTo(20));
-            expect(rect.right, lessThanOrEqualTo(300));
-            expect(rect.top, greaterThanOrEqualTo(0));
-            expect(rect.bottom, lessThanOrEqualTo(328));
-            expect(input.hitTestable(), findsOneWidget);
-            expect(tester.takeException(), isNull);
-          }
-          await _capture(
-            tester,
-            '$locale-${brightness.name}-input-keyboard-320-2x',
-          );
-          await tester.binding.handlePopRoute();
-          await tester.pumpAndSettle();
-          final keep = find.byKey(const ValueKey('discard-changes-cancel'));
-          await tester.ensureVisible(keep);
-          await tester.tap(keep);
-          await tester.pumpAndSettle();
-          expect(
-            tester.widget<TextField>(field('name')).controller!.text,
-            'Apple',
-          );
-          await tester.ensureVisible(save);
-          await tester.pump();
-          await tester.tap(save);
-          await tester.pumpAndSettle();
-          expect(find.byType(EatovaDialog), findsNothing);
-          expect(find.text('Apple'), findsOneWidget);
-          expect(tester.takeException(), isNull);
-        },
-      );
-    }
+        }
+        await _capture(
+          tester,
+          '$locale-${brightness.name}-input-keyboard-320-2x',
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        final keep = find.byKey(const ValueKey('discard-changes-cancel'));
+        await tester.ensureVisible(keep);
+        await tester.tap(keep);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<TextField>(field('name')).controller!.text,
+          'Apple',
+        );
+        await tester.ensureVisible(save);
+        await tester.pump();
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+        expect(find.byType(EatovaDialog), findsNothing);
+        expect(find.text('Apple'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   // X-01: the decision card speaks the sheets' language instead of a
@@ -460,35 +461,32 @@ void main() {
           .first,
     );
 
-    for (final brightness in Brightness.values) {
-      testWidgets('sits at the foot in the page gutter with the sheet edge '
-          '(${brightness.name})', (tester) async {
-        final t = brightness == Brightness.light
-            ? AppTokens.light
-            : AppTokens.dark;
-        await _host(tester, destructive: true, brightness: brightness);
-        final rect = cardRect(tester);
-        // 852 view, 24 px safe area, 12 px lift.
-        expect(rect.bottom, 852 - 24 - 12);
-        expect(rect.left, 20);
-        expect(rect.right, 393 - 20);
-        expect(rect.top, greaterThan(852 / 2 - 100));
-        final dialog = tester.widget<AlertDialog>(find.byType(AlertDialog));
-        expect(dialog.backgroundColor, t.surf);
-        final shape = dialog.shape! as RoundedRectangleBorder;
-        expect(shape.borderRadius, BorderRadius.circular(rSheet));
-        expect(shape.side.color, t.lineStrong);
-        // Header: a 48 px danger tile with a 22 px glyph, the title in ink.
-        final tile = tester.widget<IconTile>(find.byType(IconTile));
-        expect(tile.size, 48);
-        expect(tile.glyphSize, 22);
-        expect(tile.color, t.danger);
-        final title = tester.widget<Text>(
-          find.text('Discard this workout?'),
-        );
-        expect(title.style!.color, t.ink);
-      });
-    }
+    testWidgets('sits at the foot in the page gutter with the sheet edge', (
+      tester,
+    ) async {
+      const t = AppTokens.light;
+      await _host(tester, destructive: true, brightness: brightness);
+      final rect = cardRect(tester);
+      // 852 view, 24 px safe area, 12 px lift.
+      expect(rect.bottom, 852 - 24 - 12);
+      expect(rect.left, 20);
+      expect(rect.right, 393 - 20);
+      expect(rect.top, greaterThan(852 / 2 - 100));
+      final dialog = tester.widget<AlertDialog>(find.byType(AlertDialog));
+      expect(dialog.backgroundColor, t.surf);
+      final shape = dialog.shape! as RoundedRectangleBorder;
+      expect(shape.borderRadius, BorderRadius.circular(rSheet));
+      expect(shape.side.color, t.lineStrong);
+      // Header: a 48 px danger tile with a 22 px glyph, the title in ink.
+      final tile = tester.widget<IconTile>(find.byType(IconTile));
+      expect(tile.size, 48);
+      expect(tile.glyphSize, 22);
+      expect(tile.color, t.danger);
+      final title = tester.widget<Text>(
+        find.text('Discard this workout?'),
+      );
+      expect(title.style!.color, t.ink);
+    });
 
     testWidgets('rises into place while the route fades in', (tester) async {
       await _host(tester, reducedMotion: false, settle: false);

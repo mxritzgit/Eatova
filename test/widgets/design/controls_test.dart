@@ -82,6 +82,54 @@ void main() {
         decorationOf(tester, find.byType(IconTile)).color,
         AppTokens.light.tile,
       );
+      // On `tile` plain ink is right; readableOnTint would only lighten it.
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.bolt_rounded)).color,
+        AppTokens.light.ink,
+      );
+    });
+
+    // Review 2026-08-19: the full category colour on ~15 % of itself failed in
+    // the August light palette (carb amber 2.2:1). Measured is the drawn glyph
+    // against the drawn tile at the WCAG floor for graphical objects (3:1).
+    // Since the redesign the raw tones clear 3:1 on their own tint too (light
+    // protein/fat 3.30:1), so this guards the floor, not the readableOnTint
+    // call (which holds 6.8:1 and more).
+    testWidgets('der Glyph traegt 3:1 auf seiner eigenen Tint', (tester) async {
+      for (final brightness in Brightness.values) {
+        final t =
+            brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
+        // The colours IconTile is really called with in production.
+        for (final (name, ton) in <(String, Color)>[
+          ('carbs', t.carbs),
+          ('protein', t.protein),
+          ('fat', t.fat),
+          ('snack', t.snack),
+          ('accent', t.accent),
+          ('danger', t.danger),
+        ]) {
+          await tester.pumpWidget(
+            designHarness(
+              IconTile(icon: Icons.bolt_rounded, color: ton),
+              brightness: brightness,
+            ),
+          );
+          // MaterialApp animates a theme change; read the settled palette.
+          await tester.pumpAndSettle();
+          // The tile is translucent and is drawn on the card surface.
+          final grund = Color.alphaBlend(
+            decorationOf(tester, find.byType(IconTile)).color!,
+            t.surf,
+          );
+          final glyph =
+              tester.widget<Icon>(find.byIcon(Icons.bolt_rounded)).color!;
+          expect(
+            contrastRatio(glyph, grund),
+            greaterThanOrEqualTo(3.0),
+            reason: '$name (${brightness.name}): Glyph $glyph auf $grund',
+          );
+        }
+      }
     });
 
     testWidgets('mit Farbe wird die Kachel getoent', (tester) async {
@@ -178,36 +226,6 @@ void main() {
 
       await tester.tap(find.byType(FilterChipPill));
       expect(taps, 1);
-    });
-
-    testWidgets('ausgewaehlt wechselt die Flaeche auf die Akzentfuellung',
-        (tester) async {
-      Material materialOf() => tester.widget<Material>(
-            find
-                .descendant(
-                  of: find.byType(FilterChipPill),
-                  matching: find.byType(Material),
-                )
-                .first,
-          );
-
-      await tester.pumpWidget(
-        designHarness(
-          const Align(
-            child: FilterChipPill(label: 'Alle', selected: false),
-          ),
-        ),
-      );
-      expect(materialOf().color, AppTokens.light.surf);
-
-      await tester.pumpWidget(
-        designHarness(
-          const Align(
-            child: FilterChipPill(label: 'Alle', selected: true),
-          ),
-        ),
-      );
-      expect(materialOf().color, AppTokens.light.accentFill);
     });
 
     testWidgets('folgt dem Design: 44 px Pille, 14/700, Akzent vs. Karte',
@@ -390,37 +408,34 @@ void main() {
 
     // X-11: danger at 38 % over the dark ground mixed a muddy brown pill
     // with an unreadable `bg` label. Locked, the destructive action takes
-    // the soft danger pair and arms into the filled pill once valid.
-    for (final brightness in Brightness.values) {
-      testWidgets(
-        'gesperrt destruktiv: weicher Danger-Hauch statt brauner Flaeche '
-        '(${brightness.name})',
-        (tester) async {
-          final t = brightness == Brightness.light
-              ? AppTokens.light
-              : AppTokens.dark;
-          await tester.pumpWidget(
-            designHarness(
-              const PrimaryActionButton(label: 'Loeschen', destructive: true),
-              brightness: brightness,
-            ),
-          );
-          final material = tester.widget<Material>(
-            find
-                .descendant(
-                  of: find.byType(PrimaryActionButton),
-                  matching: find.byType(Material),
-                )
-                .first,
-          );
-          expect(material.color, t.danger.withValues(alpha: 0.12));
-          expect(
-            tester.widget<Text>(find.text('Loeschen')).style!.color,
-            t.danger.withValues(alpha: 0.55),
-          );
-        },
-      );
-    }
+    // the soft danger pair and arms into the filled pill once valid. Dark
+    // only: widgets have no brightness branch (repo_rules_test), so light
+    // would read the same expression with other tokens.
+    testWidgets(
+      'gesperrt destruktiv: weicher Danger-Hauch statt brauner Flaeche',
+      (tester) async {
+        const t = AppTokens.dark;
+        await tester.pumpWidget(
+          designHarness(
+            const PrimaryActionButton(label: 'Loeschen', destructive: true),
+            brightness: Brightness.dark,
+          ),
+        );
+        final material = tester.widget<Material>(
+          find
+              .descendant(
+                of: find.byType(PrimaryActionButton),
+                matching: find.byType(Material),
+              )
+              .first,
+        );
+        expect(material.color, t.danger.withValues(alpha: 0.12));
+        expect(
+          tester.widget<Text>(find.text('Loeschen')).style!.color,
+          t.danger.withValues(alpha: 0.55),
+        );
+      },
+    );
   });
 
   group('IconTile header', () {

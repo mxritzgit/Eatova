@@ -69,6 +69,10 @@ void main() {
 
       final trailing = tester.widget<Text>(find.text('Tagesziele'));
       expect(trailing.style?.color, AppTokens.light.ink2);
+      expect(
+        tester.getRect(find.text('Tagesziele')).left,
+        greaterThan(tester.getRect(find.text('Makros')).right),
+      );
     });
 
     testWidgets('ohne trailing bleibt eine einzige Zeile', (tester) async {
@@ -80,34 +84,8 @@ void main() {
     });
   });
 
-  group('ImagePlaceholder', () {
-    testWidgets('zeigt das Standard-Label BILD und malt die Streifen',
-        (tester) async {
-      await tester.pumpWidget(
-        designHarness(const SizedBox(height: 120, child: ImagePlaceholder())),
-      );
-
-      expect(find.text('BILD'), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(ImagePlaceholder),
-          matching: find.byType(CustomPaint),
-        ),
-        findsWidgets,
-      );
-    });
-
-    testWidgets('eigenes Label ersetzt den Standard', (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          const SizedBox(height: 120, child: ImagePlaceholder(label: 'FOTO')),
-        ),
-      );
-
-      expect(find.text('FOTO'), findsOneWidget);
-      expect(find.text('BILD'), findsNothing);
-    });
-  });
+  // ImagePlaceholder is not used by any screen any more (no reference in
+  // lib/ outside its own file), so it has no tests here.
 
   testWidgets('alle Flaechen rendern in hell und dunkel', (tester) async {
     pinPhoneViewport(tester);
@@ -117,7 +95,6 @@ void main() {
         children: [
           AppCard(child: Text('Karte')),
           SectionHeading(title: 'Abschnitt', trailing: 'rechts'),
-          SizedBox(height: 90, child: ImagePlaceholder()),
         ],
       ),
       scrollable: true,
@@ -132,7 +109,6 @@ void main() {
         children: [
           AppCard(child: Text('Karteninhalt mit laengerem Text')),
           SectionHeading(title: 'Makros', trailing: 'Tagesziele'),
-          SizedBox(height: 90, child: ImagePlaceholder()),
         ],
       ),
     );
