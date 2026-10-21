@@ -12,7 +12,6 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
-import 'package:eatova/src/models/coach_recipe_proposal.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 
@@ -50,7 +49,7 @@ DateTime _t(int minute) => DateTime(2026, 8, 29, 10, minute);
 // ---------------------------------------------------------------------------
 
 /// Coach-Double: liefert Sessions/Verlauf lokal und protokolliert, mit welcher
-/// Session der Verlauf geladen und welcher Kontext an /rezept gereicht wurde.
+/// Session der Verlauf geladen und welcher Kontext an den Chat gereicht wurde.
 class _NotizCoach extends CoachChatService {
   _NotizCoach(super.client, super.userId);
 
@@ -69,9 +68,8 @@ class _NotizCoach extends CoachChatService {
 
   final List<String> verlaufAufrufe = <String>[];
 
-  /// Was der Screen an `requestRecipe` durchgereicht hat. `#nichts` heisst:
-  /// die Methode wurde noch nicht gerufen.
-  Object? rezeptKontext = #nichts;
+  /// Was der Screen an `send` durchgereicht hat. `#nichts` heisst: die
+  /// Methode wurde noch nicht gerufen.
   Object? chatKontext = #nichts;
 
   @override
@@ -141,36 +139,6 @@ class _NotizCoach extends CoachChatService {
     );
   }
 
-  @override
-  Future<CoachRecipeReply> requestRecipe(
-    String wish, {
-    required String sessionId,
-    required String locale,
-    // Bleibt als optionaler Zusatzparameter stehen, damit die Notiz auch dann
-    // funktioniert, wenn die Basisklasse ihn nicht mehr kennt.
-    String? userContext,
-  }) async {
-    rezeptKontext = userContext;
-    return CoachRecipeReply(
-      reply: 'Rezeptvorschlag: Bowl.',
-      refusal: false,
-      proposal: const CoachRecipeProposal(
-        title: 'Bowl',
-        description: 'Schnell und proteinreich.',
-        portion: '1 Portion',
-        ingredients: '- 200 g Kichererbsen',
-        preparation: '1. Alles mischen.',
-        caloriesKcal: 480,
-        proteinG: 26,
-        carbsG: 55,
-        fatG: 14,
-        estimatedGrams: 400,
-      ),
-      remaining: 4,
-      dailyLimit: 5,
-      sessionId: antwortSessionId,
-    );
-  }
 }
 
 Future<void> _pumpCoach(
@@ -343,24 +311,12 @@ void main() {
   });
 
   group('P5-02 · /rezept schickt keine Gesundheitsdaten mehr', () {
-    testWidgets('der Screen reicht keinen user_context an requestRecipe',
-        (tester) async {
-      final coach = _NotizCoach.create()..antwortSessionId = 's-alt';
-      await _pumpCoach(
-        tester,
-        service: coach,
-        userContext: 'Gewicht 82 kg, Ziel 78 kg, heute 1420 kcal, Haferflocken',
-      );
-
-      await _sende(tester, '/recipe Bowl mit Kichererbsen');
-
-      expect(coach.rezeptKontext, isNot(#nichts),
-          reason: 'requestRecipe muss ueberhaupt gelaufen sein');
-      expect(coach.rezeptKontext, isNull,
-          reason: 'handleRecipeMode nimmt den Parameter gar nicht entgegen — '
-              'gesendet wuerden Gewicht, Zielgewicht, Tagesbilanz und die '
-              'Namen der heute geloggten Lebensmittel');
-    });
+    // What reaches the WIRE is the guarantee ('der Rezept-Rumpf traegt genau
+    // vier Felder' below; with preferences:
+    // food_preferences/coach_recipe_preferences_test.dart). A screen-level
+    // check of the `userContext` argument stood here, but `requestRecipe`
+    // has no such parameter: it stayed green with user_context injected into
+    // the request body.
 
     testWidgets('der normale Chat behaelt seinen Kontext (Gegenprobe)',
         (tester) async {
@@ -509,45 +465,9 @@ void main() {
     });
   });
 
-  group('P5-04 · Coach-Anfragen haben eine Frist', () {
-    testWidgets(
-        'eine nie aufloesende Antwort endet in einer lesbaren Meldung und '
-        'einem wieder bedienbaren Composer', (tester) async {
-      final backend = _Backend()..funktionHaengt = true;
-      final svc = _echterService(backend);
-      await pumpLocalized(
-        tester,
-        CoachChatScreen(service: svc, userName: 'M'),
-        surfaceSize: _flaeche,
-        reducedMotion: false,
-      );
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.pump(const Duration(milliseconds: 500));
-
-      await tester.enterText(
-          find.byKey(const ValueKey('coach-input')), 'Hallo Coach');
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('coach-send')));
-      await tester.pump();
-
-      // Unterwegs: nichts geht, und genau das war der Befund.
-      expect(find.byKey(const ValueKey('coach-unsent-retry')), findsNothing);
-
-      // Ueber jede Frist hinaus (Chat: 75 s + Puffer).
-      await tester.pump(const Duration(seconds: 120));
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(
-        find.text('Der Coach hat zu lange gebraucht. Bitte versuch es nochmal.'),
-        findsOneWidget,
-        reason: 'ohne Frist laeuft der Future, bis das OS die Verbindung raeumt',
-      );
-      expect(find.byKey(const ValueKey('coach-unsent-retry')), findsOneWidget,
-          reason: 'der Wiederholen-Knopf haengt an _canInteract — er beweist, '
-              'dass _laufendeSendungen wieder 0 ist');
-      expect(_composerTippbar(tester), isTrue);
-    });
-  });
+  // P5-04 (a request that never resolves ends in a readable message and a
+  // usable composer): coach/f_coach_frist_nachzuegler_test.dart, 'stummer
+  // Server, nichts gespeichert: „Nicht gesendet" mit Wiederholen bleibt'.
 
   group('P5-06 · das Tageslimit kommt vom Server', () {
     testWidgets(
@@ -574,29 +494,9 @@ void main() {
       expect(find.byKey(const ValueKey('coach-quota-hint')), findsNothing);
     });
 
-    testWidgets(
-        'Gegenprobe: nennt der Server sein Limit, sagt der Platzhalter es auch',
-        (tester) async {
-      final backend = _Backend(
-        quotaZeile: const {'used': 5, 'remaining': 0, 'daily_limit': 5},
-      );
-      // Ein Limit, das die Edge Function selbst genannt hat — ab hier ist die
-      // 0 eine Aussage und keine Rechnung gegen die eigene Annahme.
-      final svc = _echterService(backend)..serverDailyLimit = 5;
-      await pumpLocalized(
-        tester,
-        CoachChatScreen(service: svc, userName: 'M'),
-        surfaceSize: _flaeche,
-        reducedMotion: false,
-      );
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.pump(const Duration(milliseconds: 500));
-
-      expect(_composerTippbar(tester), isFalse);
-      expect(find.text('Limit für heute erreicht'), findsOneWidget,
-          reason: 'hier gehoert die Meldung hin — sonst waere der Fix eine '
-              'Loeschung statt eines Nachzugs');
-    });
+    // Counter-check (a server-NAMED limit does lock and says so):
+    // coach_quota_unbekannt_test.dart, 'Nachzug ueber ein erschoepftes
+    // Kontingent: scheitert der RPC, bleibt die Sperre stehen'.
 
     test('nach der ersten Server-Antwort fragt die RPC mit dem Server-Limit',
         () async {

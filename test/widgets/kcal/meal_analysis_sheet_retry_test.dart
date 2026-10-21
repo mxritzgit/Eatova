@@ -273,26 +273,15 @@ void main() {
     expect(find.byKey(const ValueKey('analyse-error')), findsNothing);
   });
 
-  testWidgets('dispose-Cancel mit sofort scheiterndem Future zeigt keine '
-      'Fehlerkarte', (tester) async {
+  testWidgets('dispose bei laufendem Request cancelt; der sofort scheiternde '
+      'Future trifft keinen toten State', (tester) async {
     final never = Completer<MealAnalysisResult>();
     final cancellation = MealAnalysisCancellation();
+    // Like the real analyzer: cancel fails the pending future at once — while
+    // the sheet's State is being disposed.
     cancellation.register(
       () => never.completeError(const MealAnalysisCancelled()),
     );
-    await _pumpHost(tester, _host(never.future, cancellation: cancellation));
-    await _flush(tester);
-
-    await tester.pumpWidget(const MaterialApp(home: Scaffold()));
-    await _flush(tester);
-
-    expect(cancellation.isCancelled, isTrue);
-    expect(find.byKey(const ValueKey('analyse-error')), findsNothing);
-  });
-
-  testWidgets('dispose bei laufendem Request cancelt', (tester) async {
-    final never = Completer<MealAnalysisResult>();
-    final cancellation = MealAnalysisCancellation();
     await _pumpHost(tester, _host(never.future, cancellation: cancellation));
     await _flush(tester);
     expect(cancellation.isCancelled, isFalse);
@@ -301,6 +290,10 @@ void main() {
     await _flush(tester);
 
     expect(cancellation.isCancelled, isTrue);
+    // The sheet is gone, so there is no error card to look for: what would
+    // go wrong is a setState on the disposed State, which flutter_test
+    // reports as an error of this test.
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('dispose nach fertigem Ergebnis cancelt NICHT', (tester) async {

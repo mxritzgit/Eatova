@@ -175,22 +175,9 @@ void main() {
       expect(p.dailyWaterGoalMl, 2500);
     });
 
-    testWidgets('manuelles Profil oeffnet manuell und behaelt seine Zahlen',
-        (tester) async {
-      final result = await _speichern(
-        tester,
-        await _openGoals(tester, _manuellesProfil),
-      );
-
-      final p = result!.profile;
-      expect(p.manualEnergy, isTrue);
-      expect(p.dailyKcalGoal, 2000);
-      expect(p.proteinGoalG, 100);
-    });
-
-    testWidgets('manuelles Profil zeigt Schalter an und kcal-Feld mit 2000',
-        (tester) async {
-      await _openGoals(tester, _manuellesProfil);
+    testWidgets('manuelles Profil oeffnet manuell mit seinen Zahlen und '
+        'behaelt sie beim Speichern', (tester) async {
+      final result = await _openGoals(tester, _manuellesProfil);
 
       expect(_schalter(tester), isTrue);
       expect(
@@ -200,6 +187,11 @@ void main() {
             .text,
         '2000',
       );
+
+      final p = (await _speichern(tester, result))!.profile;
+      expect(p.manualEnergy, isTrue);
+      expect(p.dailyKcalGoal, 2000);
+      expect(p.proteinGoalG, 100);
     });
 
     testWidgets('Umschalten auf Manuell wird beim Speichern zu true',
@@ -263,12 +255,8 @@ void main() {
       expect(p.dailyKcalGoal, 2000);
     });
 
-    test('Bootstrap-Zeile (Onboarding offen) wird nicht angefasst', () async {
-      final c = _client(_serverZeile(kcal: 2000, onboarding: false));
-      final p = await ProfileSync(c.client, 'user-1').load();
-
-      expect(p!.dailyKcalGoal, 2000);
-    });
+    // A bootstrap row (onboarding open) is left alone: applyLiveGoals above
+    // ('Onboarding not done'), which load delegates to.
 
     test('load fragt die Spalte manual_energy ab', () async {
       final c = _client(_serverZeile());

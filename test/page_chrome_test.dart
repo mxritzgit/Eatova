@@ -42,76 +42,79 @@ Finder _title(String title) => find.byWidgetPredicate(
 void main() {
   setUpAll(_fonts);
 
-  for (final locale in [const Locale('de'), const Locale('en')]) {
-    for (final scale in [1.0, 2.0]) {
-      testWidgets('tab titles share scale and origin ($locale, $scale)', (
+  // Each language and each size once: the origin does not depend on the
+  // pairing, the longer English titles matter at 2.0 most.
+  for (final (locale, scale) in const [
+    (Locale('de'), 1.0),
+    (Locale('en'), 2.0),
+  ]) {
+    testWidgets('tab titles share scale and origin ($locale, $scale)', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(scale == 1 ? 390 : 320, 760);
+      // The design phone's status bar: the shell passes it on, and every
+      // tab starts its header 15 px below it (62 px from the top).
+      tester.view.padding = const FakeViewPadding(top: _statusBar);
+      tester.view.viewPadding = const FakeViewPadding(top: _statusBar);
+      addTearDown(tester.view.reset);
+      await pumpLocalized(
         tester,
-      ) async {
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = Size(scale == 1 ? 390 : 320, 760);
-        // The design phone's status bar: the shell passes it on, and every
-        // tab starts its header 15 px below it (62 px from the top).
-        tester.view.padding = const FakeViewPadding(top: _statusBar);
-        tester.view.viewPadding = const FakeViewPadding(top: _statusBar);
-        addTearDown(tester.view.reset);
-        await pumpLocalized(
-          tester,
-          EatovaHomePage(),
-          locale: locale,
-          textScale: scale,
-          scaffold: false,
-          safeArea: false,
-        );
+        EatovaHomePage(),
+        locale: locale,
+        textScale: scale,
+        scaffold: false,
+        safeArea: false,
+      );
+      await _frames(tester);
+      final context = tester.element(find.byType(EatovaHomePage));
+      final l10n = context.l10n;
+      final labels = [
+        l10n.navToday,
+        l10n.navFood,
+        l10n.navRecipes,
+        l10n.trainingPageTitle,
+        // Visible "Coach"; "AI Coach" is its semantics label.
+        l10n.navCoach,
+      ];
+      const nav = ['Heute', 'Food', 'Rezepte', 'Training', 'Coach'];
+      for (var index = 0; index < labels.length; index++) {
+        await tester.tap(find.byKey(ValueKey('nav-${nav[index]}')));
         await _frames(tester);
-        final context = tester.element(find.byType(EatovaHomePage));
-        final l10n = context.l10n;
-        final labels = [
-          l10n.navToday,
-          l10n.navFood,
-          l10n.navRecipes,
-          l10n.trainingPageTitle,
-          // Visible "Coach"; "AI Coach" is its semantics label.
-          l10n.navCoach,
-        ];
-        const nav = ['Heute', 'Food', 'Rezepte', 'Training', 'Coach'];
-        for (var index = 0; index < labels.length; index++) {
-          await tester.tap(find.byKey(ValueKey('nav-${nav[index]}')));
-          await _frames(tester);
-          final title = _title(labels[index]);
-          expect(title, findsOneWidget);
-          final paragraph = tester.renderObject<RenderParagraph>(
-            find.descendant(of: title, matching: find.byType(RichText)),
+        final title = _title(labels[index]);
+        expect(title, findsOneWidget);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: title, matching: find.byType(RichText)),
+        );
+        expect(paragraph.didExceedMaxLines, isFalse);
+        // Dark redesign: one title origin for every tab — the header row
+        // starts at the 20 px gutter, 62 px from the top on the design's
+        // phone (Today and Training carry a line above their title, so
+        // the row, not the title text, shares the top).
+        final header = find.byKey(TabChrome.headerKey);
+        expect(header, findsOneWidget, reason: labels[index]);
+        expect(
+          tester.getTopLeft(header),
+          const Offset(20, _statusBar + TabChrome.headerGap),
+          reason: labels[index],
+        );
+        expect(tester.getTopLeft(title).dx, 20, reason: labels[index]);
+        if (nav[index] == 'Food') {
+          final button = tester.getRect(
+            find.byKey(const ValueKey('food-date-calendar')),
           );
-          expect(paragraph.didExceedMaxLines, isFalse);
-          // Dark redesign: one title origin for every tab — the header row
-          // starts at the 20 px gutter, 62 px from the top on the design's
-          // phone (Today and Training carry a line above their title, so
-          // the row, not the title text, shares the top).
-          final header = find.byKey(TabChrome.headerKey);
-          expect(header, findsOneWidget, reason: labels[index]);
           expect(
-            tester.getTopLeft(header),
-            const Offset(20, _statusBar + TabChrome.headerGap),
-            reason: labels[index],
+            tester.getRect(title).center.dy,
+            closeTo(button.center.dy, 1),
           );
-          expect(tester.getTopLeft(title).dx, 20, reason: labels[index]);
-          if (nav[index] == 'Food') {
-            final button = tester.getRect(
-              find.byKey(const ValueKey('food-date-calendar')),
-            );
-            expect(
-              tester.getRect(title).center.dy,
-              closeTo(button.center.dy, 1),
-            );
-          }
-          expect(
-            find.byKey(const ValueKey('today-profile')),
-            index == 0 ? findsOneWidget : findsNothing,
-          );
-          expect(tester.takeException(), isNull);
         }
-      });
-    }
+        expect(
+          find.byKey(const ValueKey('today-profile')),
+          index == 0 ? findsOneWidget : findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      }
+    });
   }
 
   testWidgets('tabs scroll under the status bar behind one scrim', (

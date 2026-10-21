@@ -122,52 +122,40 @@ void main() {
       matching: find.text(text),
     );
 
-    testWidgets('englisch: Wochentage „Th"/„Su"', (tester) async {
-      final overflows = await _openEditSheet(tester, const Locale('en'));
-      expect(imStreifen('Th'), findsOneWidget);
-      expect(imStreifen('Su'), findsOneWidget);
-      expect(imStreifen('Do'), findsNothing);
-      expect(imStreifen('27'), findsOneWidget);
-      expect(overflows, isEmpty, reason: overflows.join('\n'));
-    });
-
-    testWidgets('deutsch: Wochentage „Do"/„So"', (tester) async {
-      final overflows = await _openEditSheet(tester, const Locale('de'));
-      expect(imStreifen('Do'), findsOneWidget);
-      expect(imStreifen('So'), findsOneWidget);
-      expect(imStreifen('Th'), findsNothing);
-      expect(imStreifen('27'), findsOneWidget);
-      expect(overflows, isEmpty, reason: overflows.join('\n'));
-    });
+    // Both languages: a format hard-coded to either one fails the other.
+    for (final (sprache, da, fremd) in const [
+      ('en', ['Th', 'Su'], 'Do'),
+      ('de', ['Do', 'So'], 'Th'),
+    ]) {
+      testWidgets('$sprache: Wochentage ${da.join('/')}', (tester) async {
+        final overflows = await _openEditSheet(tester, Locale(sprache));
+        for (final kuerzel in da) {
+          expect(imStreifen(kuerzel), findsOneWidget, reason: kuerzel);
+        }
+        expect(imStreifen(fremd), findsNothing);
+        expect(imStreifen('27'), findsOneWidget);
+        expect(overflows, isEmpty, reason: overflows.join('\n'));
+      });
+    }
   });
 
   group('Food-Tab, Datumsstreifen', () {
-    testWidgets('englisch zeigt das ausgeschriebene Datum', (tester) async {
-      final overflows = await _pumpFoodTab(tester, const Locale('en'));
-      final heute = _jetzt;
-      // Weekday written out, short month ("Monday, Sep 28").
-      expect(
-        find.text(
-          '${DateFormat.EEEE('en').format(heute)}, '
-          '${DateFormat.MMMd('en').format(heute)}',
-        ),
-        findsWidgets,
-      );
-      expect(find.text('${heute.day}.${heute.month}.'), findsNothing);
-      expect(overflows, isEmpty, reason: overflows.join('\n'));
-    });
-
-    testWidgets('deutsch zeigt das ausgeschriebene Datum', (tester) async {
-      final overflows = await _pumpFoodTab(tester, const Locale('de'));
-      final heute = _jetzt;
-      expect(
-        find.text(
-          '${DateFormat.EEEE('de').format(heute)}, '
-          '${DateFormat.MMMd('de').format(heute)}',
-        ),
-        findsWidgets,
-      );
-      expect(overflows, isEmpty, reason: overflows.join('\n'));
-    });
+    for (final sprache in const ['en', 'de']) {
+      testWidgets('$sprache zeigt das ausgeschriebene Datum', (tester) async {
+        final overflows = await _pumpFoodTab(tester, Locale(sprache));
+        final heute = _jetzt;
+        // Weekday written out, short month ("Thursday, Aug 27").
+        expect(
+          find.text(
+            '${DateFormat.EEEE(sprache).format(heute)}, '
+            '${DateFormat.MMMd(sprache).format(heute)}',
+          ),
+          findsWidgets,
+        );
+        expect(find.text('${heute.day}.${heute.month}.'), findsNothing,
+            reason: 'das hand-gebaute „27.8." von vor F3-04');
+        expect(overflows, isEmpty, reason: overflows.join('\n'));
+      });
+    }
   });
 }

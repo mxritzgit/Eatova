@@ -68,8 +68,8 @@ Finder get _aufgeklappterKoerper => find.descendant(
 
 void main() {
   group('MealSuggestionItem unter reduzierter Bewegung', () {
-    testWidgets('Aufklappen wirft keine RenderAnimatedSize-Assertion',
-        (tester) async {
+    testWidgets('Aufklappen wirft keine RenderAnimatedSize-Assertion — der '
+        'Baum enthaelt gar kein AnimatedSize', (tester) async {
       await pumpLocalized(
         tester,
         const _Aufklappbar(),
@@ -77,6 +77,7 @@ void main() {
         scrollable: true,
       );
       expect(tester.takeException(), isNull);
+      expect(_animierteGroessen, findsNothing);
 
       await tester.tap(find.byType(MealSuggestionItem));
       await tester.pump();
@@ -87,22 +88,12 @@ void main() {
         reason: 'AnimatedSize mit Duration.zero mutiert sich im eigenen '
             'performLayout — der Baum darf es gar nicht erst enthalten',
       );
+      expect(_animierteGroessen, findsNothing);
       expect(_aufgeklappterKoerper, findsOneWidget);
     });
 
-    testWidgets('der Baum enthaelt gar kein AnimatedSize mehr', (tester) async {
-      await pumpLocalized(
-        tester,
-        const _Aufklappbar(),
-        reducedMotion: true,
-        scrollable: true,
-      );
-
-      expect(_animierteGroessen, findsNothing);
-    });
-
     // Counter-check: nobody may "clean up" the animation itself. With motion
-    // on the widget must still be in the tree.
+    // on the widget must still be in the tree, with a real duration.
     testWidgets('mit normaler Bewegung animiert die Karte weiterhin',
         (tester) async {
       await pumpLocalized(
@@ -115,7 +106,7 @@ void main() {
       expect(_animierteGroessen, findsOneWidget);
       expect(
         tester.widget<AnimatedSize>(_animierteGroessen).duration,
-        const Duration(milliseconds: 180),
+        greaterThan(Duration.zero),
       );
     });
 

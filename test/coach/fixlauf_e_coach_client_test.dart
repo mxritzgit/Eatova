@@ -1,14 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart'
-    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
@@ -16,13 +13,11 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 
 import '../support/harness.dart';
 
-// Fix run 2026-08-27, package E (coach client):
+// Coach client (fix run 2026-08-27, package E):
 //
 //  F5-01  a failed question lives ONLY in the unsent marker — the field is not
-//         refilled, and sending the same text again replaces the bubble.
-//  F5-05  the mic renders on iOS only (the speech channel has no Android
-//         implementation).
-//  F5-06  dictation fills the field and never sends by itself.
+//         refilled; a different question leaves the failed bubble marked and
+//         its retry still targets it.
 //  F5-09  "new conversation" carries the localized title; stored placeholders
 //         display localized.
 //  F5-11  thinking dots show in the session that is sending, not in the one
@@ -109,54 +104,12 @@ class _ECoach extends CoachChatService {
   }
 }
 
-/// Dictation stub: resolves with [text] right away, or — with [haengt] — only
-/// once `stop()` is called.
-class _Diktat extends CoachSpeechInput {
-  _Diktat(this.text, {this.haengt = false});
-
-  final String text;
-  final bool haengt;
-  Completer<String?>? _laufend;
-
-  @override
-  Future<String?> listen({
-    String localeId = 'de_DE',
-    required AppLocalizations l10n,
-    int token = 0,
-    ValueChanged<String>? onPartial,
-    ValueChanged<CoachSpeechEnd>? onEnd,
-  }) {
-    if (!haengt) return Future<String?>.value(text);
-    final c = Completer<String?>();
-    _laufend = c;
-    return c.future;
-  }
-
-  @override
-  Future<void> stop() async {
-    _laufend?.complete(text);
-    _laufend = null;
-  }
-}
-
 const Size _usableSize = Size(402, 781);
-
-/// Runs [body] as iOS. Reset in `finally`, not in a tearDown: the binding
-/// checks foundation vars before tearDowns run.
-Future<void> _alsIOS(Future<void> Function() body) async {
-  debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-  try {
-    await body();
-  } finally {
-    debugDefaultTargetPlatformOverride = null;
-  }
-}
 
 Future<void> _pumpCoach(
   WidgetTester tester,
   _ECoach service, {
   Locale locale = const Locale('de'),
-  CoachSpeechInput speechInput = const CoachSpeechInput(),
 }) async {
   tester.view.devicePixelRatio = 3.0;
   tester.view.physicalSize = _usableSize * 3.0;
@@ -167,11 +120,7 @@ Future<void> _pumpCoach(
   // returns while sending.
   await pumpLocalized(
     tester,
-    CoachChatScreen(
-      service: service,
-      userName: 'Moritz',
-      speechInput: speechInput,
-    ),
+    CoachChatScreen(service: service, userName: 'Moritz'),
     locale: locale,
     // The coach tab owns its gutters (the shell passes no padding).
     padding: EdgeInsets.zero,
@@ -205,76 +154,21 @@ const CoachChatReply _antwort = CoachChatReply(
 );
 
 void main() {
+  // Retry and retyped-same-text both REPLACE the failed bubble:
+  // coach_chat_fix_2026_08_19_test.dart (its first two cases).
   group('F5-01 Fehlschlag: Marker statt Entwurf', () {
     testWidgets(
-        'nach dem Fehlschlag bleibt das Feld leer; derselbe Text ueber den '
-        'Senden-Knopf ersetzt die Blase, statt sie zu verdoppeln',
-        (tester) async {
-      final svc = _ECoach.create();
-      await _pumpCoach(tester, svc);
-
-      const frage = 'Wie viel Protein fehlt mir heute noch?';
-      await _tippenUndSenden(tester, frage);
-      svc.offen.first.completeError(
-        const CoachChatException('Verbindung fehlgeschlagen.'),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
-      expect(_feld(tester).controller?.text, '',
-          reason: 'Draft-Restore UND Marker waren doppelt — der Marker bleibt');
-      expect(_blasenMit(tester, frage), 1);
-
-      await _tippenUndSenden(tester, frage);
-
-      expect(svc.gesendeteTexte, <String>[frage, frage]);
-      expect(_blasenMit(tester, frage), 1,
-          reason: 'die alte unsent-Blase weicht der neuen mit gleichem Text');
-      expect(find.byKey(const ValueKey('coach-unsent')), findsNothing,
-          reason: 'ein neuer Versuch laeuft — der alte Marker ist erledigt');
-
-      svc.offen.last.complete(_antwort);
-      await tester.pumpAndSettle();
-      expect(_blasenMit(tester, frage), 1);
-      expect(find.text('Antwort vom Coach.'), findsOneWidget);
-    });
-
-    testWidgets(
-        'Fehlschlag → Erneut senden → zweiter Fehlschlag → Senden-Knopf: '
-        'immer genau eine Blase, drei Requests', (tester) async {
-      final svc = _ECoach.create();
-      await _pumpCoach(tester, svc);
-
-      const frage = 'Passt Lachs heute noch rein?';
-      await _tippenUndSenden(tester, frage);
-      svc.offen[0].completeError(const CoachChatException('Fehler 1'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const ValueKey('coach-unsent-retry')));
-      await tester.pumpAndSettle();
-      svc.offen[1].completeError(const CoachChatException('Fehler 2'));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
-      expect(_blasenMit(tester, frage), 1);
-      expect(_feld(tester).controller?.text, '');
-
-      await _tippenUndSenden(tester, frage);
-
-      expect(svc.gesendeteTexte, <String>[frage, frage, frage]);
-      expect(_blasenMit(tester, frage), 1);
-      expect(find.byKey(const ValueKey('coach-unsent')), findsNothing);
-    });
-
-    testWidgets(
         'anderer Text nach dem Fehlschlag: die alte Blase bleibt MIT Marker, '
-        'die neue steht daneben', (tester) async {
+        'die neue steht daneben; der Retry gilt weiter der alten',
+        (tester) async {
       final svc = _ECoach.create();
       await _pumpCoach(tester, svc);
 
       await _tippenUndSenden(tester, 'Frage A');
       svc.offen.first.completeError(const CoachChatException('Fehler'));
       await tester.pumpAndSettle();
+      expect(_feld(tester).controller?.text, '',
+          reason: 'Draft-Restore UND Marker waren doppelt — der Marker bleibt');
 
       await _tippenUndSenden(tester, 'Frage B');
 
@@ -300,60 +194,13 @@ void main() {
     });
   });
 
-  group('F5-06 Diktat fuellt das Feld, sendet nicht', () {
-    testWidgets('erkannter Text landet mit Cursor am Ende im Feld',
-        (tester) async {
-      await _alsIOS(() async {
-        final svc = _ECoach.create();
-        const gesprochen = 'Wie viele Kalorien hat ein Apfel';
-        await _pumpCoach(tester, svc, speechInput: _Diktat(gesprochen));
-
-        await tester.tap(find.byKey(const ValueKey('coach-mic')));
-        await tester.pumpAndSettle();
-
-        final feld = _feld(tester);
-        expect(feld.controller?.text, gesprochen);
-        expect(feld.controller?.selection.baseOffset, gesprochen.length);
-        expect(feld.focusNode?.hasFocus, isTrue);
-        expect(svc.gesendeteTexte, isEmpty,
-            reason: 'ein falsch erkannter Satz darf keinen Tages-Slot kosten');
-        expect(_blasenMit(tester, gesprochen), 0);
-
-        // The user reviews and sends by hand.
-        await tester.tap(find.byKey(const ValueKey('coach-send')));
-        await tester.pumpAndSettle();
-        expect(svc.gesendeteTexte, <String>[gesprochen]);
-      });
-    });
-
-    testWidgets('Stop waehrend listen: Feld gefuellt, nichts gesendet',
-        (tester) async {
-      await _alsIOS(() async {
-        final svc = _ECoach.create();
-        const gesprochen = 'Was esse ich heute Abend';
-        await _pumpCoach(
-          tester,
-          svc,
-          speechInput: _Diktat(gesprochen, haengt: true),
-        );
-
-        await tester.tap(find.byKey(const ValueKey('coach-mic')));
-        await tester.pumpAndSettle();
-        expect(find.text('Ich höre zu…'), findsOneWidget);
-
-        await tester.tap(find.byKey(const ValueKey('coach-mic')));
-        await tester.pumpAndSettle();
-
-        expect(find.text('Ich höre zu…'), findsNothing);
-        expect(_feld(tester).controller?.text, gesprochen);
-        expect(svc.gesendeteTexte, isEmpty);
-      });
-    });
-  });
+  // Dictation fills the field and never sends by itself (F5-06):
+  // coach_dictation_test.dart, against the real speech adapter.
 
   group('F5-09 Session-Titel lokalisiert', () {
+    // English only: the German default would pass even with a hard-coded
+    // German title, which is exactly the bug.
     for (final (locale, erwartet) in <(Locale, String)>[
-      (const Locale('de'), 'Neue Unterhaltung'),
       (const Locale('en'), 'New conversation'),
     ]) {
       testWidgets('„Neu" uebergibt unter ${locale.languageCode} „$erwartet"',

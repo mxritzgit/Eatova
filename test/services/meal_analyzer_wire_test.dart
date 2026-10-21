@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_request.dart';
-import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/eatova_http.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 
@@ -382,23 +381,8 @@ void main() {
         )),
       );
     });
-
-    test('leerer Body mit 500 -> http_500', () {
-      expect(
-        () => parseAnalyzeMealResponse(500, ''),
-        throwsA(isA<MealAnalysisServerError>()
-            .having((e) => e.code, 'code', 'http_500')),
-      );
-    });
-
-    test('gueltiges Ergebnis wird geparst', () {
-      final result = parseAnalyzeMealResponse(
-        200,
-        jsonEncode(<String, Object?>{'result': _okResult}),
-      );
-      expect(result, isA<MealAnalysisResult>());
-      expect(result.estimatedGrams, 400);
-    });
+    // A body that is no JSON at all (http_<status>) and a valid result run
+    // through the wire cases above ('502 HTML', '200 -> Ergebnis').
   });
 
   group('MealAnalysisCancellation', () {

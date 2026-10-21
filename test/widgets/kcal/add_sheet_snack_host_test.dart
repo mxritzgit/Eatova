@@ -173,21 +173,8 @@ void main() {
     );
   });
 
-  testWidgets('der Host schluckt keine Taps auf den Sheet-Inhalt',
-      (tester) async {
-    await _pumpHome(tester);
-
-    // Tapping a tile expands it — through the transparent host overlay.
-    await tester.ensureVisible(find.byKey(const ValueKey('favorite-tile-0')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('favorite-tile-0')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('favorite-tile-add-0')), findsOneWidget);
-    // And the close button works.
-    await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('add-meal-sheet')), findsNothing);
-  });
+  // Taps through the transparent host: the tile expands in _addApfel and
+  // below, the close button closes in the last case.
 
   testWidgets('der Toast liegt UNTER der letzten Zeile, die bleibt tappbar',
       (tester) async {
@@ -259,6 +246,8 @@ void main() {
     showAppSnack(_homeContext, 'Nach dem Sheet');
     await tester.pump();
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('add-meal-sheet')), findsNothing,
+        reason: 'der Host schluckt den Schliessen-Tap nicht');
 
     final toast = find.text('Nach dem Sheet');
     expect(toast, findsOneWidget);

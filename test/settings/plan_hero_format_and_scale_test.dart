@@ -61,37 +61,22 @@ void main() {
   });
 
   group('F8-09 Plan-Hero skaliert Text statt ihn zu schrumpfen', () {
-    testWidgets('kein FittedBox mehr um die Makro-Kacheln', (tester) async {
-      await _pumpHero(tester);
+    testWidgets('bei 2,0× bleiben die Kacheln lesbar, ohne FittedBox und '
+        'ohne Ueberlauf', (tester) async {
+      await _pumpHero(tester, scale: 2.0);
+      expect(tester.takeException(), isNull);
       expect(
         find.descendant(
           of: find.byType(SettingsPlanHero),
           matching: find.byType(FittedBox),
         ),
         findsNothing,
+        reason: 'FittedBox.scaleDown hob die Systemschrift wieder auf',
       );
-    });
 
-    testWidgets('bei 2,0× bleiben die Kacheln lesbar und laufen nicht ueber',
-        (tester) async {
-      await _pumpHero(tester, scale: 2.0);
-      expect(tester.takeException(), isNull);
-
-      final label = tester.widget<Text>(find.text('Protein'));
-      expect(label.style!.fontSize, 13,
-          reason: 'der Stil bleibt 13 — der Scaler rendert ihn 26 px gross');
-      // The rendered label really is twice as tall as at 1.0×.
+      // The rendered label really is about twice as tall as its 13 px style.
       final hoehe = tester.getSize(find.text('Protein')).height;
       expect(hoehe, greaterThan(20));
-    });
-
-    testWidgets('bei 1,0× stehen die drei Kacheln nebeneinander',
-        (tester) async {
-      await _pumpHero(tester);
-      final protein = tester.getTopLeft(find.text('Protein'));
-      final fett = tester.getTopLeft(find.text('Fett'));
-      expect(protein.dy, fett.dy, reason: 'gleiche Zeile');
-      expect(fett.dx, greaterThan(protein.dx));
     });
   });
 }

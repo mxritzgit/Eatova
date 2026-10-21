@@ -1,38 +1,30 @@
-// Fix-Lauf 2026-08-27, Paket I (F6-09/F8-03/F8-07/F8-10): Design des
-// Rezepte-Pakets.
+// Rezepte-Tab, Fix-Lauf 2026-08-27 (F6-09/F8-03): Suchfeld und Sheet-Felder
+// sind RAHMENLOS — weiche Kapsel mit Schatten, Fokus = Flächen-Aufhellung,
+// Fehler = Danger-Tönung plus Textzeile.
 //
-//   * Suchfeld und Sheet-Felder sind RAHMENLOS: weiche Kapsel mit Schatten,
-//     Fokus = Flächen-Aufhellung, Fehler = Danger-Tönung plus Textzeile.
-//   * Die Hero-Karte (Dark-Redesign 2026-09-28, vorher die Spotlight-Karte)
-//     steht auf der Kartenfläche mit Kartenrand, die Eyebrow im Akzent.
-//   * Keine lokalen Farbkopien mehr auf Buttons (Theme entscheidet); nur das
-//     destruktive Rot bleibt.
+// Only the light palette: the capsule's colours per palette are FieldCapsule's
+// own contract (widgets/design/fixlauf_h_design_system_test.dart); here only
+// that the recipe fields use it. The hero's readability lives in
+// recipes_design_test.dart, the discard dialog's actions in
+// widgets/design/dialogs_test.dart.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/harness.dart';
 import '../support/recipe_navigation.dart';
 
-/// The recipes screen in the tab's own padding; [remaining] brings the
-/// goal-match hero.
-Future<void> _pumpApp(
-  WidgetTester tester,
-  Brightness brightness, {
-  MacroProgress? remaining,
-}) =>
+/// The recipes screen in the tab's own padding.
+Future<void> _pumpApp(WidgetTester tester, Brightness brightness) =>
     pumpLocalized(
       tester,
       RecipesScreen(
         onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-        remainingMacros: remaining,
       ),
       reducedMotion: false,
       brightness: brightness,
@@ -69,7 +61,6 @@ Future<void> _openSheet(WidgetTester tester) => openRecipeCreateSheet(tester);
 
 void main() {
   for (final (modus, brightness, t) in <(String, Brightness, AppTokens)>[
-    ('Dark', Brightness.dark, AppTokens.dark),
     ('Light', Brightness.light, AppTokens.light),
   ]) {
     group('$modus-Modus', () {
@@ -130,75 +121,6 @@ void main() {
           reason: 'Fehler als Tönung der Fläche, nicht als roter Rand.',
         );
         expect(find.text('1–10000 kcal'), findsOneWidget);
-      });
-
-      testWidgets('Hero steht auf der Kartenflaeche, Eyebrow im Akzent',
-          (tester) async {
-        _pinViewport(tester);
-        await _pumpApp(
-          tester,
-          brightness,
-          remaining: const MacroProgress(
-            proteinG: 90,
-            carbsG: 180,
-            fatG: 50,
-            kcal: 1600,
-          ),
-        );
-        await tester.pumpAndSettle();
-        final hero = tester.widget<Container>(
-          find.byKey(const ValueKey('recipe-hero')),
-        );
-        final decoration = hero.decoration! as BoxDecoration;
-        expect(decoration.color, t.surf);
-        expect((decoration.border! as Border).top.color, t.cardBorder);
-        expect(decoration.borderRadius, BorderRadius.circular(rHero));
-        final eyebrow = tester.widget<Text>(
-          find.byKey(const ValueKey('recipe-hero-eyebrow')),
-        );
-        expect(eyebrow.data, 'EMPFEHLUNG');
-        expect(eyebrow.style?.color, t.accentText);
-      });
-
-      testWidgets('Buttons verwenden die gemeinsame Aktionshierarchie',
-          (tester) async {
-        _pinViewport(tester);
-        await _pumpApp(tester, brightness);
-        await tester.pumpAndSettle();
-        await _openSheet(tester);
-
-        final save = tester.widget<PrimaryActionButton>(
-          find.byKey(const ValueKey('recipe-create-save')),
-        );
-        expect(save.destructive, isFalse,
-            reason: 'Primärfarbe und Form kommen aus PrimaryActionButton.');
-        // Die Stature bleibt: mindestens 52 px hoch, volle Breite.
-        final groesse =
-            tester.getSize(find.byKey(const ValueKey('recipe-create-save')));
-        expect(groesse.height, greaterThanOrEqualTo(52));
-        expect(groesse.width, greaterThan(300));
-
-        // Discard dialog: soft secondary action and a clear destructive action.
-        await tester.enterText(
-          find.byKey(const ValueKey('recipe-create-name')),
-          'x',
-        );
-        await tester.pumpAndSettle();
-        await tester.tapAt(const Offset(10, 10));
-        await tester.pumpAndSettle();
-        final cancel = tester.widget<FilledButton>(
-          find.byKey(const ValueKey('discard-changes-cancel')),
-        );
-        expect(cancel.style?.backgroundColor?.resolve(<WidgetState>{}), t.field);
-        expect(cancel.style?.foregroundColor?.resolve(<WidgetState>{}), t.ink);
-        final confirm = tester.widget<FilledButton>(
-          find.byKey(const ValueKey('discard-changes-confirm')),
-        );
-        expect(
-          confirm.style?.backgroundColor?.resolve(<WidgetState>{}),
-          t.danger,
-        );
-        expect(confirm.style?.foregroundColor?.resolve(<WidgetState>{}), t.bg);
       });
     });
   }

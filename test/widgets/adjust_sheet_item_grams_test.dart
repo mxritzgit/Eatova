@@ -218,7 +218,8 @@ List<(int, int)> _postenZeilen(WidgetTester tester) {
 void main() {
   group('P8-02 — zu grosse Gewichte werden abgelehnt, nicht gebogen', () {
     testWidgetsRobust(
-      '12000 g sperrt Übernehmen und der Grund steht sichtbar da',
+      '12000 g sperrt Übernehmen mit sichtbarem Grund; Zeile und Summenkarte '
+      'nennen dieselbe, letzte gültige Zahl',
       (tester) async {
         Object? gespeichert;
         await tester.pumpWidget(_host(_einPosten, (v) => gespeichert = v));
@@ -246,20 +247,6 @@ void main() {
         );
         expect(find.textContaining('10000'), findsWidgets);
 
-        // Und nichts wurde gespeichert.
-        expect(gespeichert, isNull);
-      },
-    );
-
-    testWidgetsRobust(
-      'Zeile und Summenkarte nennen dieselbe Zahl — keine 12000 in der Zeile',
-      (tester) async {
-        await tester.pumpWidget(_host(_einPosten, (_) {}));
-        await _oeffne(tester);
-
-        await tester.enterText(_feld(0), '12000');
-        await tester.pumpAndSettle();
-
         // Vorher: Zeile "12000 g · 52100 kcal", Karte "10000 g ≈ 52100 kcal".
         expect(
           _postenZeilen(tester),
@@ -270,6 +257,9 @@ void main() {
         );
         expect(find.text('100 g ≈ 521 kcal'), findsOneWidget);
         expect(find.textContaining('12000 g'), findsNothing);
+
+        // Und nichts wurde gespeichert.
+        expect(gespeichert, isNull);
       },
     );
 
@@ -369,30 +359,9 @@ void main() {
   // P8-02b: derselbe stille Klemm-Pfad lebte an zwei weiteren Stellen, weil
   // `ungueltig` nur im Controller-Listener gesetzt wurde — und der feuert fuer
   // den Anfangstext nie.
+  // The bound itself (accepted) and bound + 1 (rejected with its hint) for the
+  // dialog's gram and kcal fields: review0829_sheet_limits_binding_test.dart.
   group('P8-02b — der Dialog „Bestandteil hinzufuegen"', () {
-    testWidgetsRobust(
-      '99999 g sperrt Hinzufuegen und nennt den Grund',
-      (tester) async {
-        await tester.pumpWidget(_host(_einPosten, (_) {}));
-        await _oeffne(tester);
-        await _oeffneDialog(tester);
-
-        await _fuelleDialog(tester, name: 'Riesenportion', gramm: '99999');
-
-        expect(
-          _hinzufuegenAktiv(tester),
-          isFalse,
-          reason:
-              'Vorher: aktiv, ohne Hinweis — gespeichert wurden 10000 g statt '
-              'der getippten 99999.',
-        );
-        expect(
-          find.byKey(const ValueKey('analyse-add-item-grams-hint')),
-          findsOneWidget,
-        );
-      },
-    );
-
     testWidgetsRobust(
       'sechs Ziffern kommen gar nicht erst ins Feld',
       (tester) async {
@@ -409,32 +378,6 @@ void main() {
     );
 
     testWidgetsRobust(
-      '99999 kcal sperrt ebenfalls — dieselbe stille Klemme, ein Feld weiter',
-      (tester) async {
-        await tester.pumpWidget(_host(_einPosten, (_) {}));
-        await _oeffne(tester);
-        await _oeffneDialog(tester);
-
-        await _fuelleDialog(
-          tester,
-          name: 'Riesenportion',
-          gramm: '200',
-          kcal: '99999',
-        );
-
-        expect(_hinzufuegenAktiv(tester), isFalse);
-        expect(
-          find.byKey(const ValueKey('analyse-add-item-kcal-hint')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey('analyse-add-item-grams-hint')),
-          findsNothing,
-        );
-      },
-    );
-
-    testWidgetsRobust(
       'die Korrektur gibt Hinzufuegen frei und legt genau diesen Posten an',
       (tester) async {
         await tester.pumpWidget(_host(_einPosten, (_) {}));
@@ -447,7 +390,17 @@ void main() {
           gramm: '99999',
           kcal: '9000',
         );
-        expect(_hinzufuegenAktiv(tester), isFalse);
+        expect(
+          _hinzufuegenAktiv(tester),
+          isFalse,
+          reason:
+              'Vorher: aktiv, ohne Hinweis — gespeichert wurden 10000 g statt '
+              'der getippten 99999.',
+        );
+        expect(
+          find.byKey(const ValueKey('analyse-add-item-grams-hint')),
+          findsOneWidget,
+        );
 
         await _fuelleDialog(tester, gramm: '200', kcal: '900');
         expect(_hinzufuegenAktiv(tester), isTrue);
@@ -487,21 +440,13 @@ void main() {
         // Zeile und Summenkarte bleiben einig (diese Haelfte war schon heil).
         expect(_postenZeilen(tester), const [(1, 1)]);
         expect(gespeichert, isNull);
-      },
-    );
-
-    testWidgetsRobust(
-      'unberuehrt gilt das Sheet trotzdem nicht als geaendert',
-      (tester) async {
-        await tester.pumpWidget(_host(_nullGramm, (_) {}));
-        await _oeffne(tester);
-
         expect(
           _kannSchliessen(tester),
           isTrue,
           reason:
-              'Ein von Anfang an ungueltiger Posten darf nicht bei jedem '
-              'Schliessen nach „Aenderungen verwerfen?" fragen.',
+              'Unberuehrt gilt das Sheet nicht als geaendert: ein von Anfang '
+              'an ungueltiger Posten darf nicht bei jedem Schliessen nach '
+              '„Aenderungen verwerfen?" fragen.',
         );
       },
     );

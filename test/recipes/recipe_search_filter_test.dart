@@ -233,10 +233,12 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('jedes Feld für sich ist findbar (Vorbedingung)',
-        (tester) async {
+    testWidgets('jedes Feld trifft für sich, eine Query über eine Feldgrenze '
+        'trifft NICHT', (tester) async {
       await pumpMitGrenzfall(tester);
 
+      // Precondition: without it, "0 Treffer" below could just mean the
+      // search finds nothing at all.
       for (final query in const <String>[
         'alphabowl',
         'betasauce',
@@ -248,10 +250,6 @@ void main() {
             findsOneWidget,
             reason: query);
       }
-    });
-
-    testWidgets('eine Query über eine Feldgrenze trifft NICHT', (tester) async {
-      await pumpMitGrenzfall(tester);
 
       for (final query in const <String>[
         // Titelende + Beschreibungsanfang.

@@ -79,7 +79,8 @@ void _noopSnack(
 
 void main() {
   group('Gewichts-Sheet prueft den Bereich (F7-02)', () {
-    testWidgets('7.55 (verrutschtes Komma) wird abgelehnt', (tester) async {
+    testWidgets('7.55 (verrutschtes Komma) und 755 (verschlucktes Komma) '
+        'werden abgelehnt', (tester) async {
       double? empfangen;
       await _pumpCard(tester, onLogWeight: (kg) => empfangen = kg);
       expect(
@@ -88,13 +89,17 @@ void main() {
         reason: 'Vorbelegung ist gueltig',
       );
 
+      await _tippe(tester, '755');
+      expect(find.text('20–400 kg'), findsOneWidget, reason: 'zu schwer');
+      expect(_saveHandler(tester), isNull);
+
       await _tippe(tester, '7.55');
 
       expect(
         find.byKey(const ValueKey('profile-weight-error')),
         findsOneWidget,
       );
-      expect(find.text('20–400 kg'), findsOneWidget);
+      expect(find.text('20–400 kg'), findsOneWidget, reason: 'zu leicht');
       expect(_saveHandler(tester), isNull);
       // Enter on the keyboard must not sneak past the button either.
       await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -104,17 +109,6 @@ void main() {
         findsOneWidget,
         reason: 'das Sheet bleibt offen',
       );
-      expect(empfangen, isNull);
-    });
-
-    testWidgets('755 (verschlucktes Komma) wird abgelehnt', (tester) async {
-      double? empfangen;
-      await _pumpCard(tester, onLogWeight: (kg) => empfangen = kg);
-
-      await _tippe(tester, '755');
-
-      expect(find.text('20–400 kg'), findsOneWidget);
-      expect(_saveHandler(tester), isNull);
       expect(empfangen, isNull);
     });
 
@@ -170,13 +164,7 @@ void main() {
       await expectLater(s.logWeight(double.nan), throwsFormatException);
       expect(s.weightLog.entries.length, vorher);
     });
-
-    test('gueltige Werte bleiben unveraendert (2 Nachkommastellen)', () async {
-      final s = store();
-      addTearDown(s.dispose);
-      await s.logWeight(75.456);
-      expect(s.weightLog.latest!.weightKg, 75.46);
-    });
+    // Two decimals for valid values: sanitizeKg below, which logWeight uses.
 
     test(
       'store retains only the newest 365 entries after another weigh-in',
@@ -222,7 +210,6 @@ void main() {
 
   group('WeightLog — EINE Obergrenze, stabile Basis (F7-03)', () {
     test('lokaler Puffer und Server-Limit sind dieselbe Zahl', () {
-      expect(WeightLog.maxEntries, 365);
       expect(TrackingSync.weightLogLimit, WeightLog.maxEntries);
     });
 

@@ -111,10 +111,15 @@ void main() {
     expect(created.single.title.runes.length, 42 * 7);
   });
 
-  testWidgets('4001 Zeichen Zutaten werden bei 4000 abgeschnitten',
-      (tester) async {
+  testWidgets('Eingabedeckel: Name 160, Portion 200, Zutaten 4000 — '
+      'und der volle Deckel ist speicherbar', (tester) async {
     _pinViewport(tester);
     final created = await _openSheet(tester);
+
+    await _tippe(tester, 'recipe-create-name', 'n' * 161);
+    expect(_inhalt(tester, 'recipe-create-name').length, 160);
+    await _tippe(tester, 'recipe-create-portion', 'p' * 201);
+    expect(_inhalt(tester, 'recipe-create-portion').length, 200);
 
     await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
     await _tippe(tester, 'recipe-create-kcal', '520');
@@ -126,25 +131,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
     await tester.pumpAndSettle();
     expect(created.single.ingredients.length, 4000);
-  });
-
-  testWidgets('201 Zeichen Portion werden bei 200 abgeschnitten',
-      (tester) async {
-    _pinViewport(tester);
-    await _openSheet(tester);
-
-    await _tippe(tester, 'recipe-create-portion', 'p' * 201);
-
-    expect(_inhalt(tester, 'recipe-create-portion').length, 200);
-  });
-
-  testWidgets('der Name-Deckel von 160 Graphemen bleibt', (tester) async {
-    _pinViewport(tester);
-    await _openSheet(tester);
-
-    await _tippe(tester, 'recipe-create-name', 'n' * 161);
-
-    expect(_inhalt(tester, 'recipe-create-name').length, 160);
+    expect(created.single.portion.length, 200);
   });
 
   testWidgets('Speichern-Tipp im selben Frame wie eine ungültige Eingabe: '

@@ -16,9 +16,9 @@ import '../support/harness.dart';
 // raised against waves 2 and 3.
 //
 // P9-01b  MacroTile (MealResultCard, the AI scan result) is the FOURTH macro
-//         tile and the worst of them: unlike the three fixed in wave 2 it sits
-//         on `surf2`, one step darker than `surf`. There the raw tone carries
-//         neither the number (4.5:1) nor even a dot (3:1, WCAG 1.4.11).
+//         tile and was the worst of them: it sat on `surf2`, one step darker
+//         than `surf`, where the raw tone carried neither the number (4.5:1)
+//         nor even a dot (3:1, WCAG 1.4.11).
 // P9-02b  _FoodQuickChip emphasised the AI scan with `forest` on a `surf`
 //         neighbour — 1.34:1 in dark mode, i.e. no emphasis at all. The app
 //         has ONE emphasis language, [SelectionTone].
@@ -153,31 +153,9 @@ void main() {
   // P9-01b — die Makro-Kachel des KI-Ergebnisses
   // =========================================================================
   group('P9-01b: die Makro-Kachel im Scan-Ergebnis', () {
-    test('rohe Makro-Toene sind keine Schriftfarben auf surf2', () {
-      const t = AppTokens.light;
-      expect(_kontrast(t.carbs, t.surf2), lessThan(4.5));
-      expect(_kontrast(t.fat, t.surf2), lessThan(4.5));
-      expect(_kontrast(t.carbs, t.surf), greaterThanOrEqualTo(3.0));
-    });
-
-    test('readableOnTint traegt den Punkt auf surf2 in beiden Modi', () {
-      for (final paar in <(String, AppTokens)>[
-        ('hell', AppTokens.light),
-        ('dunkel', AppTokens.dark),
-      ]) {
-        final t = paar.$2;
-        for (final makro in _makros(t).entries) {
-          expect(
-            _kontrast(t.readableOnTint(makro.value), t.surf2),
-            greaterThanOrEqualTo(3.0),
-            reason: '${paar.$1}: ${makro.key}-Punkt auf surf2',
-          );
-        }
-        expect(_kontrast(t.ink, t.surf2), greaterThanOrEqualTo(4.5),
-            reason: '${paar.$1}: die Zahl in ink auf surf2');
-      }
-    });
-
+    // Measured on the tile the card really draws (its macro surface), not on
+    // token pairs: the tile used to sit on `surf2` and now sits on
+    // `proteinSurface`/`carbsSurface`/`fatSurface`.
     for (final helligkeit in Brightness.values) {
       final modus = helligkeit == Brightness.light ? 'HELL' : 'DUNKEL';
 
@@ -229,7 +207,7 @@ void main() {
           expect(punkt, erwartetePunkte[i],
               reason: '$modus: der Punkt traegt den korrigierten Makroton');
           expect(_kontrast(punkt, flaeche), greaterThanOrEqualTo(3.0),
-              reason: '$modus: Punkt auf surf2 (WCAG 1.4.11)');
+              reason: '$modus: Punkt auf seiner Kachel (WCAG 1.4.11)');
         }
       });
     }
@@ -239,10 +217,6 @@ void main() {
   // P9-02b — die Betonung der beiden Schnell-Chips
   // =========================================================================
   group('P9-02b: die Betonung des KI-Scan-Chips', () {
-    // Why `forest` cannot carry emphasis or state:
-    // review0829_selection_contrast_test.dart ('forest bleibt als
-    // Zustandstraeger disqualifiziert').
-
     for (final helligkeit in Brightness.values) {
       final modus = helligkeit == Brightness.light ? 'HELL' : 'DUNKEL';
 

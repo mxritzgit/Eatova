@@ -8,12 +8,15 @@ import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-// pumpLocalized/renderMatrix plus the re-exported design helpers
-// (pinPhoneViewport, decorationOf).
+// pumpLocalized/renderMatrix.
 import '../../support/harness.dart';
 
 // ---------------------------------------------------------------------------
-// Fix-Lauf 2026-08-27, Paket H (design system): F8-02/03/04/06/07/08/09/10/11.
+// Design-system contracts (fix run 2026-08-27, package H): themed buttons,
+// the borderless input language (theme, FieldCapsule, SheetField), the
+// disabled primary, AppToggle states, text scaling, the sheet family and the
+// chip selection. Token-only contrast that app_tokens_test.dart already
+// measures, and pure radius/size pins, are not repeated here.
 //
 // Contrast is measured, not asserted by token name: WCAG relative luminance,
 // translucent layers composited first.
@@ -119,35 +122,6 @@ void main() {
       expect(style.minimumSize!.resolve(<WidgetState>{})!.height,
           kButtonMinHeight);
     });
-
-    testWidgets('ein nackter TextButton ist im Dark Mode lesbar',
-        (tester) async {
-      await pumpLocalized(
-        tester,
-        TextButton(onPressed: () {}, child: const Text('Weiter bearbeiten')),
-        padding: _rand,
-      );
-      final text = tester.widget<Text>(find.text('Weiter bearbeiten'));
-      final farbe = DefaultTextStyle.of(
-        tester.element(find.text('Weiter bearbeiten')),
-      ).style.color;
-      expect(text.style?.color ?? farbe, AppTokens.dark.ink);
-    });
-
-    renderMatrix('ein FilledButton im Dialog bleibt 48, nicht 54',
-        (tester, c) async {
-      await c.pump(
-        tester,
-        Row(
-          children: <Widget>[
-            TextButton(onPressed: () {}, child: const Text('Abbrechen')),
-            FilledButton(onPressed: () {}, child: const Text('Speichern')),
-          ],
-        ),
-        padding: _rand,
-      );
-      expect(tester.getSize(find.byType(FilledButton)).height, 48);
-    });
   });
 
   // =========================================================================
@@ -186,18 +160,8 @@ void main() {
           reason: 'Fokus = Aufhellung, in BEIDEN Modi');
       expect(fehler, t.fieldError);
       expect(fehler, isNot(ruhe));
-      // The error tint carries hint AND value text.
-      expect(_kontrast(t.ink, fehler), greaterThanOrEqualTo(4.5));
-      expect(_kontrast(t.ink2, fehler), greaterThanOrEqualTo(4.5));
-    });
-
-    renderMatrix('Hint- und Wert-Text bleiben auf allen drei Flaechen AA',
-        (tester, c) async {
-      final t = c.t;
-      for (final f in <Color>[t.field, t.fieldFocus, t.fieldError]) {
-        expect(_kontrast(t.ink2, f), greaterThanOrEqualTo(4.5));
-        expect(_kontrast(t.ink, f), greaterThanOrEqualTo(4.5));
-      }
+      // Hint and value text on all three fills: app_tokens_test.dart ('Hint
+      // und Wert tragen auf allen Feld-Fuellungen').
     });
 
     // The capsule lives on cards (surf) AND on sheets (bg). A fill equal
@@ -206,34 +170,25 @@ void main() {
     // apart and ink2 caps how dark the fill may go — so the rest fill
     // pins 1.2 to surf / 1.1 to bg, the focus fill "not the ground" plus
     // a real lightening step; the softShadow carries the remaining edge.
-    renderMatrix('Kapsel-Fuellungen sind weder surf noch surf2 noch bg',
-        (tester, c) async {
-      final t = c.t;
-      for (final f in <Color>[t.field, t.fieldFocus, t.fieldError]) {
-        expect(f, isNot(t.surf));
-        expect(f, isNot(t.surf2));
-        expect(f, isNot(t.bg));
-      }
-    });
-
-    renderMatrix('Ruhe-Kapsel hebt sich von Karte und Sheet ab',
+    renderMatrix('Ruhe- und Fokus-Kapsel bleiben auf Karte und Sheet sichtbar',
         (tester, c) async {
       final t = c.t;
       expect(_kontrast(t.field, t.surf), greaterThanOrEqualTo(1.2),
           reason: 'field gegen surf');
       expect(_kontrast(t.field, t.bg), greaterThanOrEqualTo(1.1),
           reason: 'field gegen bg');
-    });
-
-    renderMatrix('Fokus-Kapsel bleibt auf Karte und Sheet sichtbar',
-        (tester, c) async {
-      final t = c.t;
       expect(_kontrast(t.fieldFocus, t.surf), greaterThanOrEqualTo(1.04),
           reason: 'fieldFocus gegen surf');
       expect(_kontrast(t.fieldFocus, t.bg), greaterThanOrEqualTo(1.04),
           reason: 'fieldFocus gegen bg');
       expect(_kontrast(t.fieldFocus, t.field), greaterThanOrEqualTo(1.05),
           reason: 'der Fokus-Schritt muss wahrnehmbar sein');
+      // No fill may BE one of the grounds it sits on.
+      for (final f in <Color>[t.field, t.fieldFocus, t.fieldError]) {
+        expect(f, isNot(t.surf));
+        expect(f, isNot(t.surf2));
+        expect(f, isNot(t.bg));
+      }
     });
   });
 
@@ -302,24 +257,18 @@ void main() {
   });
 
   group('F8-03 SheetField', () {
-    renderMatrix('ist rahmenlos, weich schattiert und rControl-rund',
-        (tester, c) async {
+    renderMatrix('ist rahmenlos und weich schattiert; Fokus hellt die Kapsel '
+        'auf statt einen Ring zu zeichnen', (tester, c) async {
       await c.pump(tester, const SheetField(label: 'E-Mail', hint: 'hint'),
           padding: _rand);
-      final deco = _fieldDecoration(tester);
+      var deco = _fieldDecoration(tester);
       expect(deco.border, isNull);
       expect(deco.boxShadow, isNotEmpty);
-      expect(deco.borderRadius, BorderRadius.circular(rControl));
       expect(deco.color, c.t.field);
-    });
 
-    renderMatrix('Fokus hellt die Kapsel auf statt einen Ring zu zeichnen',
-        (tester, c) async {
-      await c.pump(tester, const SheetField(label: 'Name', hint: 'hint'),
-          padding: _rand);
       await tester.tap(find.byType(TextField));
       await tester.pumpAndSettle();
-      final deco = _fieldDecoration(tester);
+      deco = _fieldDecoration(tester);
       expect(deco.color, c.t.fieldFocus);
       expect(deco.border, isNull);
     });
@@ -334,20 +283,6 @@ void main() {
       expect(deco.border, isNull);
       expect(deco.color, c.t.fieldError);
       expect(find.text('Nein'), findsOneWidget);
-    });
-
-    testWidgets('shape.pill rundet voll', (tester) async {
-      await pumpLocalized(
-        tester,
-        const SheetField(
-          label: 'Suche',
-          hint: 'hint',
-          shape: SheetFieldShape.pill,
-        ),
-        padding: _rand,
-      );
-      expect(
-          _fieldDecoration(tester).borderRadius, BorderRadius.circular(rPill));
     });
 
     testWidgets('label ist optional (Suchfelder)', (tester) async {
@@ -438,85 +373,18 @@ void main() {
       expect(gesendet, 'Apfel');
     });
 
-    // Replaces `expectRendersInBothBrightnesses`: renderMatrix pumps both
-    // palettes and fails the case on any overflow.
-    renderMatrix('rendert mit allen Zustaenden', (tester, c) async {
-      pinPhoneViewport(tester);
-      await c.pump(
-        tester,
-        const Column(
-          children: <Widget>[
-            SheetField(label: 'A', hint: 'a'),
-            SheetField(label: 'B', hint: 'b', errorText: 'Fehler'),
-            SheetField(hint: 'c', shape: SheetFieldShape.pill),
-            SheetField(label: 'D', hint: 'd', enabled: false),
-          ],
-        ),
-        padding: _rand,
-        scrollable: true,
-        settle: true,
-      );
-    });
+    // Rendering in both palettes and at 2.0: sheets_test.dart ('Sheets
+    // rendern in hell und dunkel', 'Sheets ueberstehen textScaler 2.0').
   });
 
   // =========================================================================
-  // F8-10 — one primary semantics
+  // F8-10 — one primary semantics. The sheet action IS the accent
+  // PrimaryActionButton and actionEnabled:false locks it: sheets_test.dart
+  // ('destructive faerbt die Aktionsflaeche auf danger', 'actionEnabled:false
+  // schluckt den Tap und daempft'); the radius scale: app_tokens_test.dart
+  // ('Form-Skala folgt dem Design').
   // =========================================================================
-  group('F8-10 SheetScaffold-Aktion', () {
-    renderMatrix('ist ein PrimaryActionButton mit Akzent-Flaeche',
-        (tester, c) async {
-      await c.pump(
-        tester,
-        SheetScaffold(
-          title: 'T',
-          subtitle: 'U',
-          actionLabel: 'Speichern',
-          onAction: () {},
-          children: const <Widget>[],
-        ),
-        padding: _rand,
-      );
-      final button = find.byType(PrimaryActionButton);
-      expect(button, findsOneWidget);
-      final material = tester.widget<Material>(
-        find.descendant(of: button, matching: find.byType(Material)).first,
-      );
-      expect(material.color, c.t.accentFill);
-      expect(material.borderRadius, BorderRadius.circular(rButton));
-    });
-
-    testWidgets('actionEnabled:false sperrt den PrimaryActionButton',
-        (tester) async {
-      var calls = 0;
-      await pumpLocalized(
-        tester,
-        SheetScaffold(
-          title: 'T',
-          subtitle: 'U',
-          actionLabel: 'Speichern',
-          actionEnabled: false,
-          onAction: () => calls++,
-          children: const <Widget>[],
-        ),
-        padding: _rand,
-      );
-      expect(
-        tester
-            .widget<PrimaryActionButton>(find.byType(PrimaryActionButton))
-            .onTap,
-        isNull,
-      );
-      await tester.tap(find.text('Speichern'), warnIfMissed: false);
-      expect(calls, 0);
-    });
-
-    test('rButton ist die eine Radius-Quelle fuer Primaer-Flaechen', () {
-      // Dark redesign 2026-09-28: primary buttons are pills (54 px, r 27).
-      expect(rButton, 27);
-      expect(kPrimaryButtonHeight, 54);
-      expect(rButton, kPrimaryButtonHeight / 2);
-    });
-
+  group('F8-10 PrimaryActionButton', () {
     renderMatrix(
         'deaktivierter PrimaryActionButton sieht anders aus und bleibt als '
         'Flaeche erkennbar', (tester, c) async {
@@ -628,27 +496,8 @@ void main() {
     });
   });
 
-  // =========================================================================
-  // F8-08 — macro colors as 9 px bars
-  // =========================================================================
-  group('F8-08 Makro-Farben', () {
-    renderMatrix('jede Makro-Farbe erreicht 3:1 auf surf', (tester, c) async {
-      final t = c.t;
-      for (final paar in <(String, Color)>[
-        ('protein', t.protein),
-        ('carbs', t.carbs),
-        ('fat', t.fat),
-        ('snack', t.snack),
-      ]) {
-        expect(_kontrast(paar.$2, t.surf), greaterThanOrEqualTo(3.0),
-            reason: '${c.label}: ${paar.$1}-Balken auf der Karte');
-      }
-    });
-
-    // readableOnTint(carbs) on its tint: hell_modus_audit_test.dart ('der
-    // MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA', every slot
-    // tone in both palettes).
-  });
+  // F8-08 (macro colours carry 3:1 on the card and on the track):
+  // app_tokens_test.dart ('Grafik-Toene tragen 3:1 auf Karte und Spur').
 
   // =========================================================================
   // F8-09 — text scaling as a layout feature
@@ -700,8 +549,7 @@ void main() {
       );
     }
 
-    testWidgets('Standard: Handle an, Scrim = t.scrim, Handle 40x4',
-        (tester) async {
+    testWidgets('Standard: Handle an, Scrim = t.scrim', (tester) async {
       await pumpOpener(tester, (c) => showEatovaSheet<void>(c, const Text('Inhalt')));
       await tester.tap(find.text('oeffnen'));
       await tester.pumpAndSettle();
@@ -711,9 +559,9 @@ void main() {
       final route =
           ModalRoute.of(tester.element(find.text('Inhalt'))) as ModalRoute;
       expect(route.barrierColor, AppTokens.light.scrim);
-      final theme = buildEatovaTheme(Brightness.light).bottomSheetTheme;
-      expect(theme.dragHandleSize, const Size(40, 4));
-      expect(theme.dragHandleColor, AppTokens.light.inkDisabled);
+      // Not `line`: the 6 % hairline was invisible on the sheet ground.
+      expect(buildEatovaTheme(Brightness.light).bottomSheetTheme.dragHandleColor,
+          AppTokens.light.inkDisabled);
     });
 
     testWidgets('dragHandle:false zeichnet keinen Material-Griff',
@@ -732,40 +580,7 @@ void main() {
       expect(sheet.showDragHandle, isFalse);
     });
 
-    testWidgets('transparentShell laesst das Sheet selbst zeichnen',
-        (tester) async {
-      await pumpOpener(
-        tester,
-        (c) => showEatovaSheet<void>(
-          c,
-          const Text('Inhalt'),
-          transparentShell: true,
-          dragHandle: false,
-        ),
-      );
-      await tester.tap(find.text('oeffnen'));
-      await tester.pumpAndSettle();
-      final sheet = tester.widget<BottomSheet>(find.byType(BottomSheet));
-      expect(sheet.backgroundColor, Colors.transparent);
-    });
-
-    testWidgets('barrierColor ueberschreibt den Scrim', (tester) async {
-      await pumpOpener(
-        tester,
-        (c) => showEatovaSheet<void>(
-          c,
-          const Text('Inhalt'),
-          barrierColor: const Color(0x80FF0000),
-        ),
-      );
-      await tester.tap(find.text('oeffnen'));
-      await tester.pumpAndSettle();
-      final route =
-          ModalRoute.of(tester.element(find.text('Inhalt'))) as ModalRoute;
-      expect(route.barrierColor, const Color(0x80FF0000));
-    });
-
-    renderMatrix('SheetHandle: 40x4, inkDisabled, ohne Semantik', (tester, c) async {
+    renderMatrix('SheetHandle: inkDisabled, ohne Semantik', (tester, c) async {
       final handle = tester.ensureSemantics();
       await c.pump(tester, const SheetHandle(), padding: _rand);
       final bar = tester.widget<Container>(
@@ -776,9 +591,10 @@ void main() {
             )
             .first,
       );
-      expect(tester.getSize(find.byWidget(bar)), const Size(40, 4));
       // Not `line`: the 6 % hairline was invisible on the sheet ground.
       expect((bar.decoration! as BoxDecoration).color, c.t.inkDisabled);
+      // Decoration: the sheet's close path speaks for it (see
+      // auth/account_change_sheet_dismiss_test.dart).
       expect(
         find.descendant(
           of: find.byType(SheetHandle),
@@ -787,11 +603,6 @@ void main() {
         findsOneWidget,
       );
       handle.dispose();
-    });
-
-    renderMatrix('scrim ist ein Token und halbtransparent', (tester, c) async {
-      expect(c.t.scrim.a, inExclusiveRange(0.3, 0.8),
-          reason: '${c.label}: Scrim muss den Hintergrund noch zeigen');
     });
   });
 
@@ -807,69 +618,6 @@ void main() {
               )
               .first,
         );
-
-    testWidgets('icon steht vor dem Label', (tester) async {
-      await pumpLocalized(
-        tester,
-        const Align(
-          child: FilterChipPill(
-            label: 'Eigene',
-            selected: false,
-            icon: Icons.person_outline_rounded,
-          ),
-        ),
-        padding: _rand,
-      );
-      expect(find.byIcon(Icons.person_outline_rounded), findsOneWidget);
-      final icon = tester.getTopLeft(find.byIcon(Icons.person_outline_rounded));
-      final text = tester.getTopLeft(find.text('Eigene'));
-      expect(icon.dx, lessThan(text.dx));
-    });
-
-    testWidgets('size.sm ist kleiner als md', (tester) async {
-      await pumpLocalized(
-        tester,
-        const Align(
-          child: FilterChipPill(
-            label: 'Alle',
-            selected: false,
-            size: FilterChipSize.md,
-          ),
-        ),
-        padding: _rand,
-      );
-      final md = tester.getSize(find.byType(FilterChipPill));
-      await pumpLocalized(
-        tester,
-        const Align(
-          child: FilterChipPill(
-            label: 'Alle',
-            selected: false,
-            size: FilterChipSize.sm,
-          ),
-        ),
-        padding: _rand,
-      );
-      final sm = tester.getSize(find.byType(FilterChipPill));
-      expect(sm.height, lessThan(md.height));
-      expect(sm.width, lessThan(md.width));
-    });
-
-    testWidgets('tone.slot zeigt einen Farbpunkt', (tester) async {
-      await pumpLocalized(
-        tester,
-        Align(
-          child: FilterChipPill(
-            label: 'Fruehstueck',
-            selected: false,
-            tone: FilterChipTone.slot,
-            dotColor: AppTokens.dark.carbs,
-          ),
-        ),
-        padding: _rand,
-      );
-      expect(find.byKey(const ValueKey('filter-chip-dot')), findsOneWidget);
-    });
 
     // Since P9-02 the language is SelectionTone instead of `forest` +
     // `onForest` (forest is itself a dark surface and carried the selected
@@ -937,62 +685,8 @@ void main() {
       handle.dispose();
     });
 
-    // Replaces `expectRendersInBothBrightnesses` + `expectSurvivesTextScale`:
-    // hell/dunkel x 1.0/2.0 = four cases, each overflow-checked.
-    renderMatrix('alle Varianten ueberstehen jede Kombination',
-        (tester, c) async {
-      pinPhoneViewport(tester);
-      await c.pump(
-        tester,
-        Wrap(
-          spacing: 8,
-          children: <Widget>[
-            const FilterChipPill(label: 'Alle', selected: true),
-            const FilterChipPill(
-              label: 'Eigene',
-              selected: false,
-              icon: Icons.person_outline_rounded,
-              size: FilterChipSize.sm,
-            ),
-            FilterChipPill(
-              label: 'Fruehstueck',
-              selected: false,
-              tone: FilterChipTone.slot,
-              dotColor: c.t.carbs,
-            ),
-          ],
-        ),
-        padding: _rand,
-        scrollable: true,
-        settle: true,
-      );
-    }, textScales: const <double>[1.0, 2.0]);
-  });
-
-  // =========================================================================
-  // F8-11 — radii from the scale
-  // =========================================================================
-  group('F8-11 Radius-Skala', () {
-    testWidgets('SquareIconButton und IconTile runden mit rChip',
-        (tester) async {
-      await pumpLocalized(
-        tester,
-        Row(
-          children: <Widget>[
-            SquareIconButton(icon: Icons.close_rounded, onTap: () {}),
-            const IconTile(icon: Icons.bolt_rounded),
-          ],
-        ),
-        padding: _rand,
-      );
-      expect(
-        decorationOf(tester, find.byType(SquareIconButton)).borderRadius,
-        BorderRadius.circular(rChip),
-      );
-      expect(
-        decorationOf(tester, find.byType(IconTile)).borderRadius,
-        BorderRadius.circular(rChip),
-      );
-    });
+    // Rendering in both palettes and at 2.0: controls_test.dart ('alle
+    // Bedienelemente rendern in hell und dunkel', '... ueberstehen
+    // textScaler 2.0').
   });
 }

@@ -12,9 +12,14 @@ import '../support/pinned_clock.dart';
 // write) then REPLACED the whole list — the meal vanished, a deleted entry
 // came back, and the cache snapshot persisted the wrong state.
 //
-// Contract pinned here: a load result is a full replacement only if the
-// collection was not mutated during the load; otherwise it is merged (local
-// wins, missing server ids are added, locally deleted ids stay deleted).
+// Pinned here is the OUTCOME: a write in the load window survives the boot,
+// in memory and in the cache snapshot; without a write the server stays the
+// truth. Two mechanisms carry it today and the cases cannot tell them apart:
+// the merge of a raced load (local wins, missing server ids are added,
+// locally deleted ids stay deleted) and the cache-snapshot conflict that
+// re-reads once and re-hydrates the cache. Disabling the meal merge alone
+// (mutation run 2026-10-21) leaves every case green — the conflict path
+// repairs the list — so these cases do not pin `_mergeRacedLoad` by itself.
 
 /// The cached meals count towards TODAY, so their timestamp must not be able
 /// to slip over midnight: "now minus one hour" put them on the PREVIOUS day

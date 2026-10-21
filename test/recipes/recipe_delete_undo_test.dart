@@ -244,6 +244,20 @@ void main() {
         findsNothing,
         reason: 'Zugestellt ist, was der Undo-Snack schon sagte.',
       );
+      expect(
+        find.text('Rückgängig'),
+        findsNothing,
+        reason:
+            'Der Undo-Snack ist vor dem Commit verschwunden — die Frist '
+            'endet bewusst NACH seiner Dismiss-Zeit.',
+      );
+
+      // Nothing is pending any more: unmounting must not commit again.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(calls, [
+        'user_weg',
+      ], reason: 'dispose() findet keine offene Löschung mehr vor.');
     },
   );
 
@@ -463,42 +477,6 @@ void main() {
 
     await _fristAblaufen(tester);
     expect(calls, ['user_a'], reason: 'B wurde zurückgeholt, A bleibt weg.');
-  });
-
-  testWidgets('nach Ablauf gibt es nichts mehr rückgängig zu machen: der '
-      'Commit läuft genau einmal, auch wenn der Screen danach verschwindet', (
-    tester,
-  ) async {
-    final calls = <String>[];
-    _pinViewport(tester);
-    await _pumpHost(
-      tester,
-      _Host(
-        recipes: [_rezept('user_weg')],
-        onDelete: (slug) async {
-          calls.add(slug);
-          return SyncDelivery.delivered;
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await _loesche(tester, 'user_weg');
-    await _fristAblaufen(tester);
-    expect(calls, ['user_weg']);
-    expect(
-      find.text('Rückgängig'),
-      findsNothing,
-      reason:
-          'Der Undo-Snack ist vor dem Commit verschwunden — die Frist '
-          'endet bewusst NACH seiner Dismiss-Zeit.',
-    );
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-    expect(calls, [
-      'user_weg',
-    ], reason: 'dispose() findet keine offene Löschung mehr vor.');
   });
 
   // 2026-09-02: the coach card kept "Hinzugefügt" while the undo toast was up,

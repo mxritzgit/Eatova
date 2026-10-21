@@ -112,38 +112,31 @@ void main() {
     final tokens =
         helligkeit == Brightness.light ? AppTokens.light : AppTokens.dark;
 
-    test('Der Toast liegt im $helligkeit wirklich auf forest', () {
-      // The premise of every case below.
+    // One case per palette: every tone is measured, and the tones are
+    // compared with each other, so they have to be shown in one run anyway.
+    testWidgets('Snack-Icons tragen 3:1 und bleiben unterscheidbar '
+        '($helligkeit)', (tester) async {
+      // The premise of every measurement below.
       expect(
         buildEatovaTheme(helligkeit).snackBarTheme.backgroundColor,
         tokens.forest,
       );
-    });
 
-    for (final ton in SnackTone.values) {
-      testWidgets('Snack-Icon ${ton.name} traegt 3:1 im $helligkeit',
-          (tester) async {
+      final toene = <SnackTone, Color>{};
+      for (final ton in SnackTone.values) {
         final (glyph, grund) = await _zeigeToast(tester, helligkeit, ton);
-
+        toene[ton] = glyph;
         expect(
           _kontrast(glyph, grund),
           greaterThanOrEqualTo(3.0),
-          reason: 'Glyph $glyph auf seiner Scheibe $grund — die rohe '
-              'Signalfarbe reicht auf der dunkelgruenen Flaeche nicht',
+          reason: '${ton.name}: Glyph $glyph auf seiner Scheibe $grund — die '
+              'rohe Signalfarbe reicht auf der dunkelgruenen Flaeche nicht',
         );
         expect(
           _kontrast(glyph, tokens.forest),
           greaterThanOrEqualTo(3.0),
-          reason: 'Glyph $glyph auf ${tokens.forest}',
+          reason: '${ton.name}: Glyph $glyph auf ${tokens.forest}',
         );
-      });
-    }
-
-    testWidgets('Die vier Toene bleiben im $helligkeit unterscheidbar',
-        (tester) async {
-      final toene = <SnackTone, Color>{};
-      for (final ton in SnackTone.values) {
-        toene[ton] = (await _zeigeToast(tester, helligkeit, ton)).$1;
       }
 
       const liste = SnackTone.values;
@@ -158,21 +151,12 @@ void main() {
           );
         }
       }
+
+      // Lime clears the floor on forest already: the lift goes only as far
+      // as needed and leaves it untouched.
+      expect(toene[SnackTone.positive], tokens.lime);
     });
   }
-
-  testWidgets('Ein Ton, der die Schwelle schon haelt, bleibt unveraendert',
-      (tester) async {
-    // Lime clears the floor on forest in both modes; the correction must not
-    // touch it. Guards the "only as far as needed" property of the lift.
-    for (final helligkeit in Brightness.values) {
-      final tokens =
-          helligkeit == Brightness.light ? AppTokens.light : AppTokens.dark;
-      final (glyph, _) =
-          await _zeigeToast(tester, helligkeit, SnackTone.positive);
-      expect(glyph, tokens.lime, reason: '$helligkeit');
-    }
-  });
 
   // -------------------------------------------------------------------------
   // P9-04b — die Nachbedingung der Binaersuche
@@ -183,24 +167,6 @@ void main() {
   // under the threshold in silence. It has to report instead.
   // -------------------------------------------------------------------------
   group('Die Hebung sichert ihre Nachbedingung', () {
-    test('mit den echten Paletten haelt schon die volle Mischung', () {
-      // Why the guard never fires in the shipped app: `onForest` on its own
-      // 18-%-disc over `forest` is far above the 3.2 floor in both palettes,
-      // so `hi = 1.0` is always a valid answer and the search is sound.
-      for (final paar in <(String, AppTokens)>[
-        ('hell', AppTokens.light),
-        ('dunkel', AppTokens.dark),
-      ]) {
-        final t = paar.$2;
-        final scheibe = Color.alphaBlend(
-          t.onForest.withValues(alpha: 0.18),
-          t.forest,
-        );
-        expect(_kontrast(t.onForest, scheibe), greaterThanOrEqualTo(3.2),
-            reason: '${paar.$1}: die volle Mischung als obere Schranke');
-      }
-    });
-
     testWidgets('eine Flaeche ohne jede Loesung wird gemeldet, nicht '
         'stillschweigend unterschritten', (tester) async {
       // Degenerate but perfectly legal theme: the toast's text colour IS its
@@ -260,25 +226,6 @@ void main() {
     });
   });
 
-  test('readableOnTint traegt nicht auf einer historischen dunklen Toast-Flaeche', () {
-    // Documents why the app-wide helper is NOT used on the toast: it mixes
-    // towards `ink`, which is near-black in the light palette, so on the dark
-    // green toast it pushes the signal tones further down instead of up.
-    // Without this case someone "simplifies" the lift back to readableOnTint.
-    const t = AppTokens.light;
-    const legacyDarkSurface = Color(0xFF123322);
-    for (final ton in <Color>[t.danger, t.warning, t.ink2]) {
-      final korrigiert = t.readableOnTint(ton);
-      final scheibe = Color.alphaBlend(
-        korrigiert.withValues(alpha: 0.18),
-        legacyDarkSurface,
-      );
-      expect(
-        _kontrast(korrigiert, scheibe),
-        lessThan(3.0),
-        reason: 'readableOnTint($ton) = $korrigiert liegt auf dem Toast unter '
-            'der Schwelle — der Helfer ist fuer helle Karten gebaut',
-      );
-    }
-  });
+  // Why the toast does not use `readableOnTint`: whatever helper computes the
+  // glyph, the per-palette measurement above fails if it lands under 3:1.
 }

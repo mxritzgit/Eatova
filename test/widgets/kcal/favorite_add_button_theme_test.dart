@@ -1,12 +1,10 @@
-// Fix run for review 2026-08-27, F8-10 (Food part): the primary buttons of
-// the suggestion tile, the edit sheet and the manual-entry sheet overrode the
-// theme with `FilledButton.styleFrom(backgroundColor: forest …)`. They now
-// inherit the app-wide filledButtonTheme — one primary language, set once.
+// Fix run for review 2026-08-27, F8-10 (Food part): the suggestion tile's add
+// button overrode the theme with `FilledButton.styleFrom(backgroundColor:
+// forest …)` — `forest` is itself a dark surface, so in dark mode the button
+// all but vanished. It now inherits the app-wide filledButtonTheme.
 
-import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:eatova/src/models/favorite_meal.dart';
@@ -17,8 +15,6 @@ import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
-import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
-import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 
 import '../../support/harness.dart';
 
@@ -54,14 +50,6 @@ const MealAnalysisResult _apfel = MealAnalysisResult(
   confidence: 'Datenbank',
   portionNotes: '',
 );
-
-LoggedMeal? _update(
-  String id, {
-  MealAnalysisResult? result,
-  MealSlot? slot,
-  DateTime? day,
-}) =>
-    null;
 
 void _telefon(WidgetTester tester) {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -115,51 +103,8 @@ void main() {
     _expectThemed(tester, find.byKey(const ValueKey('favorite-tile-add-0')));
   });
 
-  testWidgets('Speichern-Knopf des Bearbeiten-Sheets nimmt das Theme',
-      (tester) async {
-    _telefon(tester);
-    await pumpLocalized(
-      tester,
-      Builder(
-        builder: (context) => Center(
-          child: TextButton(
-            onPressed: () => showEditMealSheet(
-              context,
-              meal: LoggedMeal(
-                id: 'meal-1',
-                result: _apfel,
-                loggedAt: clock.now(),
-                forcedSlot: MealSlot.breakfast,
-              ),
-              onUpdateMeal: _update,
-            ),
-            child: const Text('open'),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-
-    // Since 2026-10-03 the design system's primary action (token colors).
-    expect(
-      tester.widget(find.byKey(const ValueKey('edit-meal-save-button'))),
-      isA<PrimaryActionButton>(),
-    );
-  });
-
-  testWidgets('Speichern-Knopf des Manuell-Sheets nimmt das Theme',
-      (tester) async {
-    _telefon(tester);
-    await pumpLocalized(tester, const ManualMealSheet());
-    await tester.pumpAndSettle();
-
-    // Since the 2026-10-03 redesign this is the design system's primary
-    // action: fill and ink come from the tokens, with no local override.
-    expect(
-      tester.widget(find.byKey(const ValueKey('manual-meal-save'))),
-      isA<PrimaryActionButton>()
-          .having((b) => b.destructive, 'destructive', isFalse),
-    );
-  });
+  // The edit and manual sheets' save buttons are PrimaryActionButtons since
+  // the 2026-10-03 redesign: their fill comes from the tokens by
+  // construction (widgets/design/ suites), so a type check here proved
+  // nothing more.
 }

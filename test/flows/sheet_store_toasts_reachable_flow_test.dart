@@ -75,21 +75,9 @@ Future<void> _toastAblaufen(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgetsRobust('Erfolgs-Toast ist bei offenem Add-Sheet antippbar', (
-    WidgetTester tester,
-  ) async {
-    await _bootSheet(tester);
-    await _logSalami(tester);
-
-    final toast = find.text('252 kcal zu Snacks hinzugefügt.');
-    expect(toast, findsOneWidget);
-    expect(
-      toast.hitTestable(),
-      findsOneWidget,
-      reason: 'der Toast liegt unter dem Scrim des Sheets',
-    );
-  });
-
+  // The sheet's own success toast above the scrim: widget level in
+  // widgets/kcal/add_sheet_snack_host_test.dart. Here the toasts the
+  // STORE fires from below the open sheet, through the real shell.
   testWidgetsRobust(
       'Löschen im Add-Sheet: der Rückgängig-Knopf des Store-Toasts ist '
       'antippbar', (WidgetTester tester) async {

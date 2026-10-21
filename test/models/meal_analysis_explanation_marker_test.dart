@@ -24,20 +24,15 @@ Map<String, dynamic> _answer({
     };
 
 void main() {
-  test('explanation "" -> Marker wie bei null (plain)', () {
-    final r = MealAnalysisResult.fromEdgeFunction(_answer());
-    expect(r.portionNotes, MealResultPortionNote.plain.code);
-    expect(r.mealName, 'Mahlzeit');
-  });
-
-  test('explanation nur Whitespace -> Marker', () {
-    final r = MealAnalysisResult.fromEdgeFunction(_answer(explanation: '  '));
-    expect(r.portionNotes, MealResultPortionNote.plain.code);
-  });
-
-  test('explanation null -> Marker (unveraendert)', () {
-    final r = MealAnalysisResult.fromEdgeFunction(_answer(explanation: null));
-    expect(r.portionNotes, MealResultPortionNote.plain.code);
+  test('explanation "", nur Whitespace oder null -> Marker (plain)', () {
+    for (final explanation in <Object?>['', '  ', null]) {
+      final r = MealAnalysisResult.fromEdgeFunction(
+        _answer(explanation: explanation),
+      );
+      expect(r.portionNotes, MealResultPortionNote.plain.code,
+          reason: '"$explanation"');
+      expect(r.mealName, 'Mahlzeit');
+    }
   });
 
   test('explanation "" mit Einzelposten -> itemized-Marker', () {

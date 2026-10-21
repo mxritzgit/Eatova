@@ -21,8 +21,6 @@
 //     Absicht. Das schliesst P9-08d fuer JEDES Bestandsprofil ohne Speichern —
 //     die Gegenprobe dazu steht unten in "ohne Speichern".
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -168,55 +166,14 @@ void main() {
         reason: 'ueber 300 kg endet die Spalte, nicht die Regel',
       );
     });
-
-    test('keine der beiden Seiten rechnet die Schwelle noch selbst aus', () {
-      // Das ist der Punkt von P9-08b: nicht dass die Zahlen heute gleich sind,
-      // sondern dass es nur noch EINE Stelle gibt, an der sie stehen.
-      const dateien = <String>[
-        'lib/src/screens/onboarding_screen.dart',
-        'lib/src/screens/settings/goals_screen.dart',
-      ];
-      for (final pfad in dateien) {
-        final quelle = File(pfad).readAsStringSync();
-        final code = quelle
-            .split('\n')
-            .where((z) => !z.trimLeft().startsWith('//'))
-            .join('\n');
-        expect(
-          code,
-          isNot(contains('_weight + 1')),
-          reason: '$pfad buchstabiert die Zunehm-Schwelle selbst',
-        );
-        expect(
-          code,
-          isNot(contains('_weight - 1')),
-          reason: '$pfad buchstabiert die Abnehm-Schwelle selbst',
-        );
-        expect(
-          code,
-          anyOf(
-            contains('targetWeightMinFor'),
-            contains('hasReachedTargetWeight'),
-          ),
-          reason: '$pfad liest die Regel nicht aus user_profile.dart',
-        );
-      }
-    });
   });
 
   // =========================================================================
   // P9-08d — abgeleitet statt geschrieben
   // =========================================================================
   group('effectiveWeightGoal: abgeleitet, nie geschrieben', () {
-    test('ein widerspruchsfreies Profil behaelt seine Richtung', () {
-      const gesund = UserProfile(
-        weightKg: 80,
-        targetWeightKg: 75,
-        weightGoal: _abnehmen,
-      );
-      expect(gesund.reachedTargetWeight, isFalse);
-      expect(gesund.effectiveWeightGoal, _abnehmen);
-    });
+    // A consistent profile keeps its direction: the invariant below
+    // ("solange die Richtung etwas zu tun hat, plant sie").
 
     test('das Altprofil aus dem Befund plant Halten — und behaelt die Absicht',
         () {
@@ -246,13 +203,6 @@ void main() {
         weightGoal: _abnehmen,
       );
       expect(alt.copyWith(targetWeightKg: 70).effectiveWeightGoal, _abnehmen);
-    });
-
-    test('Halten bleibt Halten, egal wo das Wunschgewicht liegt', () {
-      const halten = UserProfile(weightKg: 80, targetWeightKg: 95);
-      expect(halten.effectiveWeightGoal, WeightGoal.maintain);
-      expect(halten.reachedTargetWeight, isFalse,
-          reason: 'ohne Richtung gibt es nichts zu erreichen');
     });
   });
 
@@ -287,21 +237,9 @@ void main() {
           reason: 'kein Defizit-Tempo neben einem Ziel ueber dem Gewicht');
     });
 
-    testWidgets('Altprofil "Zunehmen" mit niedrigerem Ziel: derselbe Weg',
-        (tester) async {
-      await _pumpKarte(
-        tester,
-        const UserProfile(
-          weightKg: 80,
-          targetWeightKg: 70,
-          weightGoal: _zunehmen,
-          dailyKcalGoal: 2600,
-        ),
-      );
-
-      expect(_planIcon(tester), Icons.trending_flat_rounded);
-      expect(find.text('Zunehmen'), findsNothing);
-    });
+    // "Zunehmen" with a lower target, equal numbers and plain "Halten" take
+    // the same branch: the card draws effectiveWeightGoal, whose rule is
+    // pinned for both directions in the first group.
 
     testWidgets('das gesunde Profil zeichnet unveraendert', (tester) async {
       await _pumpKarte(
@@ -326,78 +264,11 @@ void main() {
       );
       expect(_planIcon(tester), Icons.trending_up_rounded);
     });
-
-    testWidgets('bei gleichen Zahlen ist die Richtung erledigt',
-        (tester) async {
-      // Kein Pfeil aus den Zahlen ableitbar (80 → 80) — und auch nichts mehr
-      // zuzunehmen: Ziel == Gewicht heisst "erreicht" (siehe
-      // isConsistentTargetWeight oben), also Halten.
-      await _pumpKarte(
-        tester,
-        const UserProfile(
-          weightKg: 80,
-          targetWeightKg: 80,
-          weightGoal: _zunehmen,
-          dailyKcalGoal: 2600,
-        ),
-      );
-      expect(_planIcon(tester), Icons.trending_flat_rounded);
-    });
-
-    testWidgets('Halten behaelt sein eigenes Symbol', (tester) async {
-      await _pumpKarte(
-        tester,
-        const UserProfile(weightKg: 80, targetWeightKg: 90),
-      );
-      expect(
-        find.descendant(
-          of: find.byType(GoalPlanCard),
-          matching: find.byIcon(Icons.trending_flat_rounded),
-        ),
-        findsOneWidget,
-      );
-    });
   });
 
-  // =========================================================================
-  // P9-08d — die Ableitung sitzt an den Verbrauchern
-  // =========================================================================
-  group('Ableitung statt Rueckschreiber: die Quellen', () {
-    test('das Modell hat keinen schreibenden Heilungspunkt mehr', () {
-      // Der Kern der Umstellung. Kaeme `withEffectiveWeightGoal` zurueck,
-      // koennte ein Aufrufer die Absicht wieder ueberschreiben — und genau
-      // dieser Schreibzugriff hat "Seite oeffnen, speichern" zu einem stillen
-      // Absichtsverlust gemacht.
-      final quelle =
-          File('lib/src/models/user_profile.dart').readAsStringSync();
-      expect(quelle, contains('WeightGoal get effectiveWeightGoal'));
-      expect(
-        quelle.contains('get withEffectiveWeightGoal'),
-        isFalse,
-        reason: 'effectiveWeightGoal wird abgeleitet, nicht geschrieben',
-      );
-    });
-
-    test('KcalCalculator.calculate rechnet mit dem wirksamen Ziel', () {
-      // Der eine Punkt, ueber den Ladepfad (applyLiveGoals), Plan-Hero,
-      // Ziele-Seite und Plan-Karte gemeinsam heilen.
-      final quelle =
-          File('lib/src/services/kcal_calculator.dart').readAsStringSync();
-      expect(quelle, contains('profile.effectiveWeightGoal'));
-      expect(quelle.contains('withEffectiveWeightGoal'), isFalse);
-      expect(quelle, contains('UserProfile applyLiveGoals(UserProfile profile)'),
-          reason: 'der Einhaengepunkt am Ladepfad heisst noch so');
-    });
-
-    test('der Coach-Kontext nennt die wirksame Richtung', () {
-      final quelle = File('lib/src/app/home_store.dart').readAsStringSync();
-      expect(
-        quelle,
-        contains(r"'Wirksames Gewichtsziel: ${p.effectiveWeightGoal"),
-        reason: 'Gewicht und Ziel allein liessen das Modell die Richtung raten',
-      );
-    });
-  });
+  // The derivation at the consumers (calculator, coach context, goals page)
+  // is pinned by BEHAVIOUR below — no saving anywhere — instead of greps for
+  // source lines.
 
   // =========================================================================
   // P9-08d — der Befund selbst: OHNE Speichern

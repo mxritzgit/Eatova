@@ -105,7 +105,10 @@ Future<void> _oeffnePasswortCode(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  for (final brightness in Brightness.values) {
+  // The light palette only: the capsule's colours per palette are
+  // FieldCapsule's own contract (widgets/design/fixlauf_h_design_system_test
+  // .dart); here only that these two screens use it and wire focus/error.
+  for (final brightness in const [Brightness.light]) {
     testWidgets(
         'Gewichtsfeld: rahmenlos, autofocus = fieldFocus, Ruhe = field, '
         'Fehler = fieldError ($brightness)', (tester) async {

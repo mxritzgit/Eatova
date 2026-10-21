@@ -2,7 +2,7 @@
 // analysis sheet hosts its own toast surface above the modal scrim. The
 // 0-kcal guard, the add confirmation and the re-portion toast all fire while
 // the sheet stays open — on the root messenger they painted UNDER the scrim
-// and read as dead. Pattern: test/widgets/kcal/fixlauf_c_sheet_snack_widget_test.dart.
+// and read as dead. Pattern: test/widgets/kcal/add_sheet_snack_host_test.dart.
 
 import 'dart:async';
 
@@ -137,20 +137,13 @@ void main() {
         findsOneWidget);
   });
 
-  testWidgets('der Erfolgs-Toast nach dem Hinzufügen liegt über dem Scrim',
-      (tester) async {
+  testWidgets('der Erfolgs-Toast liegt über dem Scrim und unter der Karte; '
+      'der Host schluckt keine Taps', (tester) async {
     await _pumpOpenSheet(tester, _apfel);
-
     await _tapAdd(tester);
 
     _expectToastInsideSheet(find.text('52 kcal zu Snacks hinzugefügt.'));
     expect(_addCalls, 1);
-  });
-
-  testWidgets('der Host schluckt keine Taps: Toast unter der Karte, '
-      'Schließen funktioniert', (tester) async {
-    await _pumpOpenSheet(tester, _apfel);
-    await _tapAdd(tester);
 
     final toast = tester.getRect(find.byType(SnackBar));
     final card = tester.getRect(

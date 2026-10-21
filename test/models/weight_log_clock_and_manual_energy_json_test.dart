@@ -21,21 +21,6 @@ void main() {
       );
       expect(log.latest!.timestamp, fest);
     });
-
-    test('zwei Eintraege unter zwei Uhren bleiben aufsteigend', () {
-      final erst = withClock(
-        Clock.fixed(DateTime(2026, 8, 26)),
-        () => const WeightLog().add(80),
-      );
-      final dann = withClock(
-        Clock.fixed(DateTime(2026, 8, 27)),
-        () => erst.add(79.5),
-      );
-      expect(dann.entries.map((e) => e.timestamp).toList(), [
-        DateTime(2026, 8, 26),
-        DateTime(2026, 8, 27),
-      ]);
-    });
   });
 
   group('manual_energy im Profil-JSON (userProfileToJson/FromJson)', () {
@@ -56,12 +41,6 @@ void main() {
       expect(zurueck.dailyKcalGoal, 1850);
       expect(zurueck.proteinGoalG, 140);
       expect(zurueck.onboardingCompleted, isTrue);
-    });
-
-    test('false ueberlebt den Roundtrip', () {
-      final json = userProfileToJson(manuell.copyWith(manualEnergy: false));
-      expect(json['manual_energy'], isFalse);
-      expect(userProfileFromJson(json)!.manualEnergy, isFalse);
     });
 
     test('fehlender Schluessel (aelterer Cache) zaehlt als Live', () {

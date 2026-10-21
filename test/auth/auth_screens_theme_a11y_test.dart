@@ -15,12 +15,15 @@ import 'package:eatova/src/widgets/design/controls.dart';
 
 import '../support/harness.dart';
 
-// Fix run 2026-08-27, package B (F2-01/F8-01, F2-02, F2-04/F8-05, F2-06):
-// the two auth screens follow the theme (light AND dark readable), render at
-// 130 % and 200 % system font without RenderFlex overflow, use borderless
-// soft-capsule fields, carry button semantics on every control and wire the
-// password manager (AutofillGroup, finishAutofillContext, no autocorrect on
-// e-mail fields).
+// The two auth screens (fix run 2026-08-27, package B): they follow the theme
+// (light AND dark readable), walk every step at 200 % system font without
+// RenderFlex overflow, use borderless soft-capsule fields, carry button
+// semantics on every control and wire the password manager (AutofillGroup,
+// finishAutofillContext, no autocorrect on e-mail fields).
+//
+// 1.0x layout and the real-font login/signup/code pages at 1.0 and 2.0 live in
+// auth_entry_design_test.dart; this suite keeps the 2.0 walk through all three
+// recovery steps, which nothing else takes.
 
 AppTokens _tokensFor(Brightness b) =>
     b == Brightness.light ? AppTokens.light : AppTokens.dark;
@@ -113,13 +116,6 @@ class _HangingOAuthRepository extends InMemoryAuthRepository {
       Completer<void>().future;
 }
 
-/// The fill a [PrimaryActionButton] under [key] actually paints.
-Color? _flaecheVon(WidgetTester tester, Key key) => tester
-    .widget<Material>(find
-        .descendant(of: find.byKey(key), matching: find.byType(Material))
-        .first)
-    .color;
-
 BoxDecoration _capsuleOf(WidgetTester tester, Key fieldKey) {
   final capsule = find
       .ancestor(
@@ -134,70 +130,51 @@ BoxDecoration _capsuleOf(WidgetTester tester, Key fieldKey) {
 void main() {
   group('F2-01/F8-01 Theme-folgend, hell UND dunkel, ohne Overflow', () {
     for (final brightness in Brightness.values) {
-      for (final scale in const [1.0, 1.3, 2.0]) {
-        testWidgets('AuthScreen $brightness @$scale (Login + Registrieren)',
-            (tester) async {
-          _pinPhone(tester);
-          final overflows = await _overflowsDuring(() async {
-            await _pumpAuth(tester, brightness, textScale: scale);
-            final scaffold = tester
-                .widget<Scaffold>(find.byKey(const ValueKey('screen-auth')));
-            expect(scaffold.backgroundColor, _tokensFor(brightness).bg,
-                reason: 'der Grund folgt dem Modus, keine feste Dunkelbuehne');
+      // 2.0 is the WCAG cap and the tightest case.
+      const scale = 2.0;
+      testWidgets('AuthCodeScreen $brightness @$scale (alle drei Schritte)',
+          (tester) async {
+        _pinPhone(tester);
+        final overflows = await _overflowsDuring(() async {
+          await _pumpCode(tester, brightness,
+              flow: AuthCodeFlow.recovery, textScale: scale);
+          expect(find.byType(AppBar), findsNothing,
+              reason: 'kein Material-AppBar mit fremder Flaeche');
+          final scaffold = tester.widget<Scaffold>(
+              find.byKey(const ValueKey('auth-code-screen')));
+          expect(scaffold.backgroundColor, _tokensFor(brightness).bg);
 
-            await tester.ensureVisible(
-                find.byKey(const ValueKey('auth-toggle-register')));
-            await tester
-                .tap(find.byKey(const ValueKey('auth-toggle-register')));
-            await tester.pumpAndSettle();
-            expect(find.byKey(const ValueKey('auth-name-field')),
-                findsOneWidget);
-            await tester
-                .ensureVisible(find.byKey(const ValueKey('auth-submit')));
-            await tester.pumpAndSettle();
-          });
-          expect(tester.takeException(), isNull);
-          expect(overflows, isEmpty, reason: overflows.join('\n'));
+          // e-mail -> code (at 200 % the CTA sits below the fold)
+          const primary = ValueKey('code-primary');
+          await tester.ensureVisible(find.byKey(primary));
+          await tester.tap(find.byKey(primary));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const ValueKey('code-field')), findsOneWidget);
+
+          // code -> password
+          await tester.enterText(
+              find.byKey(const ValueKey('code-field')), '48291357');
+          await tester.ensureVisible(find.byKey(primary));
+          await tester.tap(find.byKey(primary));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const ValueKey('code-password-field')),
+              findsOneWidget);
         });
-
-        testWidgets('AuthCodeScreen $brightness @$scale (alle drei Schritte)',
-            (tester) async {
-          _pinPhone(tester);
-          final overflows = await _overflowsDuring(() async {
-            await _pumpCode(tester, brightness,
-                flow: AuthCodeFlow.recovery, textScale: scale);
-            expect(find.byType(AppBar), findsNothing,
-                reason: 'kein Material-AppBar mit fremder Flaeche');
-            final scaffold = tester.widget<Scaffold>(
-                find.byKey(const ValueKey('auth-code-screen')));
-            expect(scaffold.backgroundColor, _tokensFor(brightness).bg);
-
-            // e-mail -> code (at 200 % the CTA sits below the fold)
-            const primary = ValueKey('code-primary');
-            await tester.ensureVisible(find.byKey(primary));
-            await tester.tap(find.byKey(primary));
-            await tester.pumpAndSettle();
-            expect(find.byKey(const ValueKey('code-field')), findsOneWidget);
-
-            // code -> password
-            await tester.enterText(
-                find.byKey(const ValueKey('code-field')), '48291357');
-            await tester.ensureVisible(find.byKey(primary));
-            await tester.tap(find.byKey(primary));
-            await tester.pumpAndSettle();
-            expect(find.byKey(const ValueKey('code-password-field')),
-                findsOneWidget);
-          });
-          expect(tester.takeException(), isNull);
-          expect(overflows, isEmpty, reason: overflows.join('\n'));
-        });
-      }
+        expect(tester.takeException(), isNull);
+        expect(overflows, isEmpty, reason: overflows.join('\n'));
+      });
     }
 
-    testWidgets('Titel und Text des Code-Screens tragen ink des Modus',
-        (tester) async {
+    testWidgets('Grund und Titel folgen dem Modus', (tester) async {
       _pinPhone(tester);
       for (final brightness in Brightness.values) {
+        await _pumpAuth(tester, brightness);
+        final scaffold =
+            tester.widget<Scaffold>(find.byKey(const ValueKey('screen-auth')));
+        expect(scaffold.backgroundColor, _tokensFor(brightness).bg,
+            reason: '$brightness: der Grund folgt dem Modus, keine feste '
+                'Dunkelbuehne');
+
         await _pumpCode(tester, brightness, flow: AuthCodeFlow.signup);
         final title = tester.widget<Text>(find.text(deL10n.authCodeTitleCode));
         expect(title.style?.color, _tokensFor(brightness).ink,
@@ -206,29 +183,29 @@ void main() {
     });
   });
 
+  // The capsule's palette per brightness is FieldCapsule's own contract
+  // (widgets/design/fixlauf_h_design_system_test.dart); here only that the
+  // auth fields use it, in the non-default light palette.
   group('F2-02 rahmenlose Felder', () {
-    for (final brightness in Brightness.values) {
-      testWidgets(
-          '$brightness: kein Border, Tiefe via Schatten, Fokus = fieldFocus',
-          (tester) async {
-        _pinPhone(tester);
-        final tokens = _tokensFor(brightness);
-        await _pumpAuth(tester, brightness);
+    testWidgets('kein Border, Tiefe via Schatten, Fokus = fieldFocus',
+        (tester) async {
+      _pinPhone(tester);
+      final tokens = _tokensFor(Brightness.light);
+      await _pumpAuth(tester, Brightness.light);
 
-        const emailKey = ValueKey('auth-email-field');
-        var deco = _capsuleOf(tester, emailKey);
-        expect(deco.border, isNull, reason: 'kein Hairline-Rahmen');
-        expect(deco.boxShadow, isNotEmpty, reason: 'Tiefe kommt vom Schatten');
-        expect(deco.color, tokens.field);
+      const emailKey = ValueKey('auth-email-field');
+      var deco = _capsuleOf(tester, emailKey);
+      expect(deco.border, isNull, reason: 'kein Hairline-Rahmen');
+      expect(deco.boxShadow, isNotEmpty, reason: 'Tiefe kommt vom Schatten');
+      expect(deco.color, tokens.field);
 
-        await tester.tap(find.byKey(emailKey));
-        await tester.pumpAndSettle();
-        deco = _capsuleOf(tester, emailKey);
-        expect(deco.border, isNull, reason: 'auch im Fokus kein Ring');
-        expect(deco.color, tokens.fieldFocus,
-            reason: 'Fokus ist eine Flaechenaufhellung');
-      });
-    }
+      await tester.tap(find.byKey(emailKey));
+      await tester.pumpAndSettle();
+      deco = _capsuleOf(tester, emailKey);
+      expect(deco.border, isNull, reason: 'auch im Fokus kein Ring');
+      expect(deco.color, tokens.fieldFocus,
+          reason: 'Fokus ist eine Flaechenaufhellung');
+    });
 
     testWidgets('Code-Screen nutzt dasselbe Feld-Widget', (tester) async {
       _pinPhone(tester);
@@ -357,36 +334,17 @@ void main() {
           tester.widget<TextField>(find.byKey(const ValueKey('code-field')));
       expect(code.autofillHints, contains(AutofillHints.oneTimeCode));
 
-      // The real field is transparent; the eight cells draw the code.
-      const t = AppTokens.dark;
+      // The real field is transparent; the eight cells draw the code. How an
+      // empty cell looks (dot, caret) is design, not pinned here.
       final cells = find.byWidgetPredicate(
         (w) => w.runtimeType.toString() == '_CodeCell',
       );
       expect(cells, findsNWidgets(8));
-      Finder placeholder(int i, bool Function(BoxDecoration d) test) =>
-          find.descendant(
-            of: cells.at(i),
-            matching: find.byWidgetPredicate(
-              (w) =>
-                  w is Container &&
-                  w.decoration is BoxDecoration &&
-                  test(w.decoration! as BoxDecoration),
-            ),
-          );
-      bool dot(BoxDecoration d) =>
-          d.shape == BoxShape.circle && d.color == t.inkFaint;
-      bool caret(BoxDecoration d) => d.color == t.accent;
       for (var i = 0; i < 8; i++) {
         expect(
           find.descendant(of: cells.at(i), matching: find.byType(Text)),
           findsNothing,
           reason: 'Cell $i is empty before typing.',
-        );
-        expect(
-          placeholder(i, dot).evaluate().length +
-              placeholder(i, caret).evaluate().length,
-          1,
-          reason: 'Cell $i shows a dot or the caret.',
         );
       }
 
@@ -454,8 +412,10 @@ void main() {
           isSemantics(isButton: true, isEnabled: false));
     });
 
-    testWidgets('Sperre nach fuenf falschen Codes: CTA deaktiviert UND '
-        'gedimmt (Kontrakt Paket H)', (tester) async {
+    // How a disabled PrimaryActionButton dims is the button's own contract
+    // (widgets/design/dialogs_test.dart).
+    testWidgets('Sperre nach fuenf falschen Codes: CTA deaktiviert',
+        (tester) async {
       _pinPhone(tester);
       final repo = InMemoryAuthRepository();
       addTearDown(repo.dispose);
@@ -482,11 +442,8 @@ void main() {
         expect(find.text(deL10n.authCodeTooManyAttempts), findsOneWidget);
         expect(tester.widget<PrimaryActionButton>(find.byKey(primary)).onTap,
             isNull);
-        expect(
-          _flaecheVon(tester, primary),
-          AppTokens.dark.accentFill.withValues(alpha: kDisabledFillAlpha),
-          reason: 'gesperrt muss auch so aussehen: gedimmte Akzentflaeche',
-        );
+        expect(tester.getSemantics(find.byKey(primary)),
+            isSemantics(isButton: true, isEnabled: false));
 
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();

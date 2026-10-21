@@ -56,37 +56,43 @@ Future<void> _pumpHome(WidgetTester tester) async {
 void main() {
   setUpAll(loadDesignFonts);
 
-  for (final (shot, navKey) in _tabs) {
-    testWidgets('shell-$shot-00: dark page, glass nav, $navKey selected', (
-      tester,
-    ) async {
-      await withClock(Clock.fixed(_now), () async {
-        final semantics = tester.ensureSemantics();
-        try {
-          await _pumpHome(tester);
+  // One boot for all five tabs: each tab switch is the case, the shell is the
+  // same. (Five separate boots asserted the same shell five times.)
+  testWidgets('shell-<tab>-00: dark page, glass nav, the tapped tab selected', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await _pumpHome(tester);
+
+        final scaffold = tester.widget<Scaffold>(
+          find
+              .descendant(
+                of: find.byType(EatovaHomePage),
+                matching: find.byType(Scaffold),
+              )
+              .first,
+        );
+        expect(scaffold.backgroundColor, designCaptureTokens.bg);
+        expect(scaffold.extendBody, isTrue);
+
+        for (final (shot, navKey) in _tabs) {
           final nav = find.byKey(ValueKey('nav-$navKey'));
           await tester.tap(nav);
           await tester.pumpAndSettle();
 
-          expect(storeOf(tester).selectedTab, _tabs.indexOf((shot, navKey)));
-          expect(tester.getSemantics(nav), isSemantics(isSelected: true));
+          expect(storeOf(tester).selectedTab, _tabs.indexOf((shot, navKey)),
+              reason: navKey);
+          expect(tester.getSemantics(nav), isSemantics(isSelected: true),
+              reason: navKey);
           for (final (_, other) in _tabs.where((tab) => tab.$2 != navKey)) {
             expect(
               tester.getSemantics(find.byKey(ValueKey('nav-$other'))),
               isSemantics(isSelected: false),
+              reason: '$navKey selected, $other not',
             );
           }
-
-          final scaffold = tester.widget<Scaffold>(
-            find
-                .descendant(
-                  of: find.byType(EatovaHomePage),
-                  matching: find.byType(Scaffold),
-                )
-                .first,
-          );
-          expect(scaffold.backgroundColor, designCaptureTokens.bg);
-          expect(scaffold.extendBody, isTrue);
 
           // The glass bar floats 14 px from the sides and 22 px above the
           // screen edge; the 34 px home indicator sits in that gap.
@@ -98,13 +104,13 @@ void main() {
 
           await precacheDesignImages(tester);
           await captureDesignShot(tester, 'shell-$shot-00');
-          expect(tester.takeException(), isNull);
-        } finally {
-          semantics.dispose();
+          expect(tester.takeException(), isNull, reason: navKey);
         }
-      });
+      } finally {
+        semantics.dispose();
+      }
     });
-  }
+  });
 
   testWidgets('pinned bottom elements sit on the bar\'s band, '
       '12 px above the glass', (tester) async {

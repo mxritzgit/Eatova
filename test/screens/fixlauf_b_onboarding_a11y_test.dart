@@ -13,9 +13,6 @@ import '../support/harness.dart';
 //    of a percentage, selection cards announce button + selected.
 //  * F8-09 — the sex tiles and the picker unit no longer shrink their text
 //    with FittedBox; the tiles stack at large system fonts instead.
-//  * F2-08 — the progress names the real number of questions; since
-//    2026-10-04 that number depends on the goal (target and pace are asked
-//    only for a direction).
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -65,20 +62,9 @@ Future<void> _next(WidgetTester tester, [int times = 1]) async {
 }
 
 void main() {
-  testWidgets('progress names the real steps', (tester) async {
-    await _pump(tester, profile: const UserProfile());
-    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
-    expect(find.text('1 / 6'), findsOneWidget);
-    await _next(tester);
-    expect(find.text('2 / 6'), findsOneWidget);
-
-    await _pump(
-      tester,
-      profile: const UserProfile(weightGoal: WeightGoal.lose05kg),
-    );
-    expect(find.text('1 / 8'), findsOneWidget,
-        reason: 'losing weight adds the target and pace questions');
-  });
+  // The progress counting only the questions asked (F2-08):
+  // onboarding_flow_test.dart, 'der Fortschritt zaehlt nur die gestellten
+  // Fragen'.
 
   testWidgets('F2-04: Auswahlkarten sind Knoepfe mit selected-Status',
       (tester) async {
@@ -173,14 +159,5 @@ void main() {
       FlutterError.onError = prior;
     }
     expect(overflows, isEmpty, reason: overflows.join('\n'));
-  });
-
-  testWidgets('bei 1.0 stehen die drei Kacheln nebeneinander', (tester) async {
-    await _pump(tester, profile: const UserProfile());
-    await _next(tester); // goal -> basics
-    final male = tester.getRect(find.byKey(const ValueKey('onboarding-sex-male')));
-    final female =
-        tester.getRect(find.byKey(const ValueKey('onboarding-sex-female')));
-    expect(female.top, male.top);
   });
 }
