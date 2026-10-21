@@ -241,6 +241,7 @@ class MealAnalysisScreen extends StatelessWidget {
       analyzer: analyzer,
       productService: productService,
       photoInput: photoInput,
+      cameraLauncher: cameraLauncher,
       favorites: favorites,
       existingMeals: existingForDay,
       // Header, mirror and stored entry all name this day, also after a

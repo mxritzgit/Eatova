@@ -2,7 +2,8 @@
 // sheet a `retry` from the same request plus the request's cancel handle,
 // fence it on the account, and "enter manually" from a failed scan opens the
 // manual-entry sheet in the chosen slot. Driven through the real callers
-// (food tab via the MealCameraLauncher seam, add sheet via MealPhotoInput);
+// (food tab and add sheet camera via the MealCameraLauncher seam, the add
+// sheet's gallery via MealPhotoInput);
 // the sheet's own retry and cancel behaviour is tested on the sheet itself.
 
 import 'package:clock/clock.dart';
@@ -259,6 +260,46 @@ void main() {
             find.text('331 kcal zu Abendessen hinzugefügt.'), findsOneWidget);
       });
     });
+  });
+
+  testWidgets('Add-Sheet-Kamera: Retry behält Request und Cancel-Handle, der '
+      'Eintrag landet im Slot der Aufnahme', (tester) async {
+    _telefon(tester);
+    final analyzer = _ZweiterVersuchAnalyzer();
+    final kamera = _Kamera();
+    final geloggt = <MealSlot>[];
+    await tester.pumpWidget(_app(AddMealSheet(
+      slot: MealSlot.lunch,
+      analyzer: analyzer,
+      productService: _StummerProduktdienst(),
+      photoInput: _Galerie(),
+      cameraLauncher: kamera,
+      favorites: const [],
+      onAdd: (_, slot) {
+        geloggt.add(slot);
+        return 'id-1';
+      },
+      onUpdateMeal: (_, __) {},
+      onRemoveFavorite: (_) {},
+    )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('analyse-camera-button')));
+    await _flush(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+    await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
+    await _flush(tester);
+    await tester.tap(find.byKey(const ValueKey('analyse-retry')));
+    await _flush(tester);
+
+    expect(analyzer.requests, hasLength(2));
+    expect(analyzer.requests[1], same(analyzer.requests[0]));
+    expect(analyzer.requests[1].cancellation, same(kamera.cancellation));
+    final add = find.byKey(const ValueKey('analyse-add-daily-button'));
+    await tester.ensureVisible(add);
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    expect(geloggt, [MealSlot.dinner],
+        reason: 'die Kamera wählte Abend, das Sheet stand auf Mittag');
   });
 
   group('Add-Sheet (MealPhotoInput-Naht)', () {

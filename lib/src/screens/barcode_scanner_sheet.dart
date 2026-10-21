@@ -467,7 +467,7 @@ class _TorchButton extends StatelessWidget {
         return Semantics(
           button: true,
           toggled: on,
-          label: context.l10n.foodBarcodeTorchLabel,
+          label: context.l10n.foodTorchLabel,
           child: Material(
             key: const ValueKey('barcode-torch'),
             color: on

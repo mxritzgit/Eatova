@@ -12,6 +12,7 @@ import '../../l10n/l10n.dart';
 import '../../models/favorite_meal.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
+import '../../models/meal_analysis_request.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/dictation_language.dart';
@@ -20,6 +21,7 @@ import '../../services/food_history_search.dart';
 import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
+import '../../services/meal_camera_launcher.dart';
 import '../../services/meal_describer.dart';
 import '../../services/meal_description_matcher.dart';
 import '../../services/meal_photo_input.dart';
@@ -128,6 +130,7 @@ Future<void> showAddMealSheet(
   required MealAnalyzer analyzer,
   required ProductLookupService productService,
   required MealPhotoInput photoInput,
+  MealCameraLauncher cameraLauncher = const InAppMealCameraLauncher(),
   required List<FavoriteMeal> favorites,
   required FutureOr<String> Function(MealAnalysisResult, MealSlot) onAdd,
   required FutureOr<void> Function(String id, MealAnalysisResult scaled)
@@ -169,6 +172,7 @@ Future<void> showAddMealSheet(
           analyzer: analyzer,
           productService: productService,
           photoInput: photoInput,
+          cameraLauncher: cameraLauncher,
           favorites: favoriteMeals,
           existingMeals: meals,
           foodDate: foodDate,
@@ -273,6 +277,7 @@ class AddMealSheet extends StatefulWidget {
     required this.analyzer,
     required this.productService,
     required this.photoInput,
+    this.cameraLauncher = const InAppMealCameraLauncher(),
     required this.favorites,
     required this.onAdd,
     required this.onUpdateMeal,
@@ -297,7 +302,12 @@ class AddMealSheet extends StatefulWidget {
   final bool searchMode;
   final MealAnalyzer analyzer;
   final ProductLookupService productService;
+  /// The gallery path; the camera goes through [cameraLauncher].
   final MealPhotoInput photoInput;
+
+  /// The AI scan's camera: the Food tab's in-app panel, not the full-screen
+  /// system camera.
+  final MealCameraLauncher cameraLauncher;
   final List<FavoriteMeal> favorites;
 
   /// Logs the result and returns the client UUID (see MealAnalysisSheet) for
@@ -957,37 +967,59 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   // ─── Photo / gallery / barcode ────────────────────────────────────────
 
-  Future<void> _pickAndAnalyze(ImageSource source) async {
+  /// The hero's AI scan, in the same camera panel as the Food tab's dock. A
+  /// slot changed in the camera applies to this sheet too, as after a scan.
+  Future<void> _scanWithCamera() => _scanPhoto(() async {
+    final capture = await widget.cameraLauncher.launch(
+      context,
+      initialSlot: _selectedSlot,
+    );
+    if (capture == null || !mounted) return null;
+    _selectSlot(capture.slot);
+    return (request: capture.request, previewBytes: capture.previewBytes);
+  });
+
+  Future<void> _pickFromGallery() => _scanPhoto(() async {
+    MealPhotoSelection? selection;
+    try {
+      selection = await widget.photoInput.pick(ImageSource.gallery);
+    } on PlatformException catch (_) {
+      if (mounted) {
+        showAppSnack(
+          context,
+          context.l10n.foodGalleryPermissionError,
+          icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
+          duration: kSnackError,
+        );
+      }
+      return null;
+    }
+    if (selection == null) return null;
+    return (request: selection.request, previewBytes: selection.previewBytes);
+  });
+
+  /// Consent, the photo from [takePhoto], the note sheet, then the analysis
+  /// in the selected slot.
+  Future<void> _scanPhoto(
+    Future<({MealAnalysisRequest request, Uint8List? previewBytes})?>
+    Function()
+    takePhoto,
+  ) async {
     // AI consent before the camera or gallery opens (2026-10-19).
     if (!await ensureAiConsent(context) || !mounted) return;
     final identity = MealScanIdentity();
     final analyzer = widget.analyzer;
-    MealPhotoSelection? selection;
-    try {
-      selection = await widget.photoInput.pick(source);
-    } on PlatformException catch (_) {
-      if (!mounted) return;
-      final l10n = context.l10n;
-      showAppSnack(
-        context,
-        source == ImageSource.camera
-            ? l10n.foodCameraPermissionError
-            : l10n.foodGalleryPermissionError,
-        icon: Icons.error_outline_rounded,
-        tone: SnackTone.error,
-        duration: kSnackError,
-      );
-      return;
-    }
-    if (selection == null || !mounted || !identity.isCurrent) return;
+    final photo = await takePhoto();
+    if (photo == null || !mounted || !identity.isCurrent) return;
 
     // One request for first try and retries: the sheet re-runs it from the
     // same bytes, and the shared cancel handle lets a swiped-away sheet abort
     // whichever attempt is in flight (review F4-02).
     final request = await showMealScanPreviewSheet(
       context,
-      request: selection.request.withLanguage(context.l10n.localeName),
-      previewBytes: selection.previewBytes,
+      request: photo.request.withLanguage(context.l10n.localeName),
+      previewBytes: photo.previewBytes,
     );
     if (request == null || !mounted || !identity.isCurrent) return;
     // An attempt that fails before the sheet listens (validation, already
@@ -1004,7 +1036,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
           ? analyzer.analyze(request)
           : Future.error(const MealAnalysisReauthRequired()),
       cancellation: request.cancellation,
-      previewImage: selection.previewBytes,
+      previewImage: photo.previewBytes,
       onAdd: _logAndMirror,
       onUpdateMeal: _updateAndMirror,
       isFavorite: widget.isFavorite,
@@ -1300,8 +1332,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
                       )
                     else
                       MealEntryMethods(
-                        onCamera: () => _pickAndAnalyze(ImageSource.camera),
-                        onGallery: () => _pickAndAnalyze(ImageSource.gallery),
+                        onCamera: _scanWithCamera,
+                        onGallery: _pickFromGallery,
                         onBarcode: _scanBarcode,
                         onDescribe: _openDescribe,
                         onManual: () => _openManualEntry(),

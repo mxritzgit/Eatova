@@ -54,6 +54,10 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   late MealSlot _slot;
   bool _busy = false;
   _CameraFailure? _failure;
+  bool _torchOn = false;
+
+  /// Set once the device refuses the torch (no flash unit); hides the button.
+  bool _torchUnavailable = false;
 
   /// Serialises camera setup/teardown: lifecycle events outrun `initialize()`,
   /// so two controllers could coexist or a pause be lost.
@@ -105,7 +109,11 @@ class _MealCameraSheetState extends State<MealCameraSheet>
     final controller = _controller;
     if (controller == null) return;
     if (mounted) {
-      setState(() => _controller = null);
+      setState(() {
+        _controller = null;
+        // The next controller starts with its torch off.
+        _torchOn = false;
+      });
     } else {
       _controller = null;
     }
@@ -201,6 +209,23 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       name: 'meal_camera',
     );
     return bytes;
+  }
+
+  Future<void> _toggleTorch() async {
+    final controller = _controller;
+    if (_busy || controller == null || !controller.value.isInitialized) return;
+    final on = !_torchOn;
+    try {
+      // Off means `off`, not the platform default: iOS starts on `auto`, and
+      // a flash that fires on its own glares on a plate.
+      await controller.setFlashMode(on ? FlashMode.torch : FlashMode.off);
+    } catch (_) {
+      if (mounted) setState(() => _torchUnavailable = true);
+      return;
+    }
+    if (mounted && identical(_controller, controller)) {
+      setState(() => _torchOn = on);
+    }
   }
 
   void _selectSlot(MealSlot slot) {
@@ -350,7 +375,10 @@ class _MealCameraSheetState extends State<MealCameraSheet>
                         )
                       else
                         const _CameraLoadingLayer(),
-                      if (ready) const _EdgeScrim(),
+                      if (ready) ...[
+                        const _EdgeScrim(),
+                        const _ViewfinderGuide(),
+                      ],
                       Positioned(
                         bottom: 14,
                         left: 20,
@@ -360,6 +388,10 @@ class _MealCameraSheetState extends State<MealCameraSheet>
                           busy: _busy,
                           onCapture: _capture,
                           onGallery: _pickFromGallery,
+                          torchOn: _torchOn,
+                          onTorch: ready && !_torchUnavailable
+                              ? _toggleTorch
+                              : null,
                         ),
                       ),
                     ],
@@ -524,6 +556,132 @@ class _EdgeScrim extends StatelessWidget {
   }
 }
 
+/// What to aim at, on the live image: a hint pill and corner marks around a
+/// square for the plate. Decoration only; taps reach the preview.
+class _ViewfinderGuide extends StatelessWidget {
+  const _ViewfinderGuide();
+
+  /// Below this viewfinder height (small phone, large text) pill and frame
+  /// would crowd the capture bar; the image stays clear instead.
+  static const double _minHeight = 260;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxHeight < _minHeight
+          ? const SizedBox.shrink()
+          : _guide(context, t),
+    );
+  }
+
+  Widget _guide(BuildContext context, AppTokens t) {
+    return IgnorePointer(
+      child: Padding(
+        // The bottom keeps the frame clear of the capture bar.
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+        child: Column(
+          children: [
+            Container(
+              key: const ValueKey('meal-camera-hint'),
+              padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
+              // The barcode scanner's hint pill: dark glass on the image.
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.42),
+                borderRadius: BorderRadius.circular(rPill),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 14,
+                    color: t.imageAccent,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      context.l10n.foodScanMealHint,
+                      textAlign: TextAlign.center,
+                      style: AppType.ui(
+                        11.5,
+                        weight: FontWeight.w700,
+                        color: t.onImage,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: CustomPaint(
+                      key: const ValueKey('meal-camera-frame'),
+                      painter: _FrameCornersPainter(t.imageAccent),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Four rounded corner marks; the frame stays open so the plate is not
+/// boxed in.
+class _FrameCornersPainter extends CustomPainter {
+  const _FrameCornersPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.shortestSide < 40) return;
+    final arm = (size.shortestSide * 0.14).clamp(18.0, 36.0);
+    const radius = 14.0;
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    // Top left, drawn once and mirrored into the other three corners.
+    final corner = Path()
+      ..moveTo(0, arm)
+      ..lineTo(0, radius)
+      ..arcToPoint(
+        const Offset(radius, 0),
+        radius: const Radius.circular(radius),
+      )
+      ..lineTo(arm, 0);
+    for (final (dx, dy) in const [
+      (1.0, 1.0),
+      (-1.0, 1.0),
+      (1.0, -1.0),
+      (-1.0, -1.0),
+    ]) {
+      canvas
+        ..save()
+        ..translate(dx > 0 ? 0 : size.width, dy > 0 ? 0 : size.height)
+        ..scale(dx, dy)
+        ..drawPath(corner, paint)
+        ..restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FrameCornersPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 class _HeaderRow extends StatelessWidget {
   const _HeaderRow({required this.onClose});
 
@@ -532,9 +690,21 @@ class _HeaderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    // Compact title: the height belongs to the viewfinder.
+    final eyebrow = l10n.foodEntryAiEyebrow;
+    // Compact title: the height belongs to the viewfinder. The eyebrow is the
+    // add sheet's "AI scan" label, so the panel reads as that scan.
     return SheetHeader(
       title: l10n.foodScanMealTitle,
+      eyebrow: Text(
+        eyebrow.toUpperCase(),
+        semanticsLabel: eyebrow,
+        style: AppType.ui(
+          11.5,
+          weight: FontWeight.w700,
+          color: context.t.accentText,
+          letterSpacing: 11.5 * 0.08,
+        ),
+      ),
       compact: true,
       onClose: onClose,
       closeKey: const ValueKey('meal-camera-close'),
@@ -544,19 +714,25 @@ class _HeaderRow extends StatelessWidget {
   }
 }
 
-/// Bottom bar: gallery, shutter, symmetric spacer.
+/// Bottom bar: gallery, shutter, torch (a spacer while there is none).
 class _CaptureBar extends StatelessWidget {
   const _CaptureBar({
     required this.canCapture,
     required this.busy,
     required this.onCapture,
     required this.onGallery,
+    required this.torchOn,
+    required this.onTorch,
   });
 
   final bool canCapture;
   final bool busy;
   final VoidCallback onCapture;
   final VoidCallback onGallery;
+  final bool torchOn;
+
+  /// Null while the camera is not running or has no torch.
+  final VoidCallback? onTorch;
 
   @override
   Widget build(BuildContext context) {
@@ -571,7 +747,16 @@ class _CaptureBar extends StatelessWidget {
           onTap: busy ? null : onGallery,
         ),
         _Shutter(enabled: canCapture, busy: busy, onTap: onCapture),
-        const SizedBox(width: 48, height: 48),
+        if (onTorch == null)
+          const SizedBox(width: 48, height: 48)
+        else
+          _RoundButton(
+            keyValue: const ValueKey('meal-camera-torch'),
+            icon: torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+            label: context.l10n.foodTorchLabel,
+            toggled: torchOn,
+            onTap: busy ? null : onTorch,
+          ),
       ],
     );
   }
@@ -583,6 +768,7 @@ class _RoundButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.toggled,
   });
 
   final Key keyValue;
@@ -592,15 +778,23 @@ class _RoundButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
 
+  /// Null for a plain button; a toggle fills with the image accent when on,
+  /// like the barcode scanner's torch.
+  final bool? toggled;
+
   @override
   Widget build(BuildContext context) {
+    final on = toggled ?? false;
     return Semantics(
       button: true,
       enabled: onTap != null,
+      toggled: toggled,
       label: label,
       child: Material(
         key: keyValue,
-        color: Colors.black.withValues(alpha: 0.45),
+        color: on
+            ? context.t.imageAccent.withValues(alpha: 0.92)
+            : Colors.black.withValues(alpha: 0.45),
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
@@ -608,7 +802,11 @@ class _RoundButton extends StatelessWidget {
           child: SizedBox(
             width: 48,
             height: 48,
-            child: Icon(icon, color: Colors.white, size: 21),
+            child: Icon(
+              icon,
+              color: on ? Colors.black : Colors.white,
+              size: 21,
+            ),
           ),
         ),
       ),
