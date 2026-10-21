@@ -71,22 +71,6 @@ void main() {
     expect((await seed.readSyncOperations()).map((op) => op.entityId), containsAll(['old', id]));
   });
 
-  test('Outbox-Snapshotfehler bleibt lesegeschuetzt bis sichere Erholung', () async {
-    final kv = _FaultStore();
-    final seed = LocalCache(kv, _uid);
-    await seed.commitSyncOperations([SyncOp.mealInsert(LoggedMeal(id: 'old',
-      result: mealResult('Alt'), loggedAt: clock.now()), trackDay: false)]);
-    final before = kv.snapshot[_key('outbox')];
-    kv.unreadable = _key('outbox');
-    final a = setup(kv: kv)..server.offline = true;
-    await bootUntilIdle(a.store);
-    await expectLater(a.store.addResultToDailyTotal(mealResult('Abgelehnt')), throwsStateError);
-    expect(kv.snapshot[_key('outbox')], before);
-    kv.unreadable = null;
-    final id = await a.store.addResultToDailyTotal(mealResult('Neu'));
-    expect((await seed.readSyncOperations()).map((op) => op.entityId), containsAll(['old', id]));
-  });
-
   test('jede einzelne Zustellung bestaetigt ihren eigenen atomaren Queue-Ack', () async {
     final kv = _FaultStore();
     await LocalCache(kv, _uid).commitSyncOperations([

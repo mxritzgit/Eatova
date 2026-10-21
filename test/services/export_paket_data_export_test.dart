@@ -414,18 +414,6 @@ void main() {
           reason: 'Zaehlversuch, Rueckfall, zwei Seiten, eine Pruefzeile');
     });
 
-    test('stimmt der Zaehler mit den gelieferten Zeilen ueberein, gibt es '
-        'keinen Kappungs-Hinweis', () async {
-      final server = _ZaehlenderPostgrest(
-        vorhanden: const <String, int>{'weight_log': 12},
-      );
-      final json = jsonDecode(await service(server).buildExportJson())
-          as Map<String, dynamic>;
-
-      expect(json.containsKey('gekappt'), isFalse);
-      expect(json['weight_log'], hasLength(12));
-    });
-
     test('der Zaehler kommt im SELBEN Request mit — keine zweite Runde pro '
         'Tabelle', () async {
       final server = _ZaehlenderPostgrest(

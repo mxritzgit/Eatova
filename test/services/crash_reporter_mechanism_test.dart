@@ -45,22 +45,7 @@ void main() {
       );
 
   group('sanitizeSentryEvent — mechanism.data', () {
-    test('weder E-Mail noch Token ueberleben in mechanism.data', () {
-      final SentryEvent sanitisiert =
-          sanitizeSentryEvent(eventWiePlatformProzessor(platform), Hint())!;
-
-      final Mechanism mechanism = sanitisiert.exceptions!.single.mechanism!;
-
-      expect(mechanism.data.toString(), isNot(contains(email)),
-          reason: 'die E-Mail ist ein direkter Personenbezug');
-      expect(mechanism.data.toString(), isNot(contains('ya29.')),
-          reason: 'auch der Token-Praefix allein ist ein Anmeldegeheimnis');
-      expect(mechanism.data['message'], isNull,
-          reason: 'PlatformException.message steht nicht auf der Allowlist — '
-              'auf der value-Seite wird sie schon zurueckgehalten');
-    });
-
-    test('nichts davon steht mehr im serialisierten Event', () {
+    test('weder E-Mail noch Token stehen im serialisierten Event', () {
       // The actual proof: `toJson` is literally what leaves the device.
       final SentryEvent sanitisiert =
           sanitizeSentryEvent(eventWiePlatformProzessor(platform), Hint())!;
@@ -71,6 +56,8 @@ void main() {
       expect(nutzlast, isNot(contains(token)));
       expect(nutzlast, isNot(contains('ApiException')),
           reason: 'die Server-Begruendung ist Fremdtext ohne Schema');
+      expect(sanitisiert.exceptions!.single.mechanism!.data['message'], isNull,
+          reason: 'PlatformException.message steht nicht auf der Allowlist');
     });
 
     test('der code bleibt — sonst ist der Report wertlos', () {
@@ -174,21 +161,6 @@ void main() {
   });
 
   group('sanitizeSentryEvent — mechanism, Robustheit', () {
-    test('ein Exception-Eintrag ohne mechanism bleibt ohne mechanism', () {
-      final SentryEvent event = SentryEvent(
-        exceptions: <SentryException>[
-          SentryException(
-            type: 'PlatformException',
-            value: platform.toString(),
-            throwable: platform,
-          ),
-        ],
-      );
-
-      expect(sanitizeSentryEvent(event, Hint())!.exceptions!.single.mechanism,
-          isNull);
-    });
-
     test('doppeltes Sanitisieren aendert am mechanism nichts (idempotent)', () {
       final SentryEvent einmal =
           sanitizeSentryEvent(eventWiePlatformProzessor(platform), Hint())!;

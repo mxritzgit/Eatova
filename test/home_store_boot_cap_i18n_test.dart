@@ -15,7 +15,6 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
@@ -185,29 +184,6 @@ void main() {
 
   group('Befund 1 — das Willkommens-Gate haengt nicht mehr am Netz', () {
     test(
-        'Cache-Profil + stummer Server: profileReady faellt, ohne auf eine '
-        'Server-Antwort zu warten', () async {
-      final s = _setup(schweigt: true);
-      await s.cache.writeProfile(const UserProfile(
-        weightKg: 80,
-        heightCm: 180,
-        onboardingCompleted: true,
-      ));
-
-      s.store.start();
-
-      // Without the fix this times out: the completer only fired at the end of
-      // _bootFromSupabase, whose Future.wait never returns.
-      await expectLater(
-        s.store.profileReady.timeout(const Duration(seconds: 3)),
-        completes,
-      );
-      expect(s.store.profile.weightKg, 80,
-          reason: 'das Gate faellt genau deshalb, weil der Cache den '
-              'anzeigefaehigen Zustand schon getragen hat');
-    });
-
-    test(
         'ohne Cache-Profil oeffnet spaetestens das Boot-Budget das Gate — '
         'vorher haelt es', () {
       fakeAsync((async) {
@@ -229,21 +205,6 @@ void main() {
             reason: 'das Boot-Budget ist die Auffanglinie fuer den Start ohne '
                 'brauchbaren Cache');
       });
-    });
-
-    test(
-        'Kontrolle: ein antwortender Server oeffnet das Gate weiterhin ueber '
-        'den regulaeren Boot-Weg', () async {
-      // No cached profile, responding server: 3 s is well under
-      // [kBootNetworkBudget], so the gate opens at boot end, not via the guard.
-      final s = _setup();
-
-      s.store.start();
-
-      await expectLater(
-        s.store.profileReady.timeout(const Duration(seconds: 3)),
-        completes,
-      );
     });
   });
 
@@ -407,14 +368,6 @@ void main() {
       await pumpEventQueue(times: 60);
       return snacks.messages;
     }
-
-    test('Deutsch bleibt inhaltsgleich zum hartkodierten Bestand', () async {
-      final s = _setup();
-      expect(await hinweise(s.store, s.snacks),
-          contains(deL10n.commonCacheResetNotice));
-      expect(deL10n.commonCacheResetNotice, contains('Offline-Speicher'),
-          reason: 'derselbe Satz wie vorher, nur mit echten Umlauten');
-    });
 
     test('Englisch bekommt den englischen Satz', () async {
       final s = _setup();

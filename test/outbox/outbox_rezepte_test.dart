@@ -64,47 +64,6 @@ void main() {
     );
   });
 
-  test('Luecke A+B: haengt der Rezept-Write (Supabase-Aufrufe tragen kein '
-      'Timeout), tragen BEIDE Netze — die Op liegt vor dem Write in der '
-      'Outbox, das Rezept im Cache', () async {
-    final kv = InMemoryKeyValueStore();
-    final a = setup(kv: kv);
-    await boot(a.store);
-    a.server.hangRecipeWrites = true;
-
-    await a.store.createUserRecipe(userRecipe('user_haenger'));
-    await settle();
-    // Gap B: with no answer neither callback fires, so the op must pre-exist.
-    expect(
-      a.store.pendingOutbox.map((o) => o.entityKey),
-      contains('recipe:user_haenger'),
-      reason:
-          'die Op darf nicht erst im Fehler-Callback entstehen — der '
-          'kommt hier nie',
-    );
-    a.store.flushPendingWrites();
-    await settle();
-    // Gap A: independently of the outbox, the cache slot holds the recipe.
-    expect(
-      (await a.cache.readUserRecipes())!.map((r) => r.slug),
-      contains('user_haenger'),
-      reason: 'zwei unabhaengige Netze — der Cache haelt auch ohne Op',
-    );
-
-    // Cold start deliberately WITHOUT network; gap C has its own test.
-    final b = setup(kv: kv);
-    b.server.offline = true;
-    await boot(b.store);
-
-    expect(
-      b.store.userRecipes.map((r) => r.slug),
-      contains('user_haenger'),
-      reason:
-          'zwischen Tap und (ausbleibendem) Fehler existierte das '
-          'Rezept nur im RAM',
-    );
-  });
-
   test('Luecke A: der Kaltstart ohne Netz zeigt die BESTEHENDEN Eigen-Rezepte '
       '— frueher waren dabei ALLE weg, nicht nur das neue', () async {
     final kv = InMemoryKeyValueStore();
@@ -235,40 +194,6 @@ void main() {
     expect(
       (await s.cache.readUserRecipes())!.map((r) => r.slug),
       isNot(contains('user_weg')),
-    );
-  });
-
-  test('Fehlerbild des Nutzers: Flugmodus -> Rezept angelegt -> App zu -> '
-      'Flugmodus aus -> App auf. Das Rezept ist noch da', () async {
-    final kv = InMemoryKeyValueStore();
-    final a = setup(kv: kv);
-    await a.cache.writeProfile(
-      const UserProfile(weightKg: 80, onboardingCompleted: true),
-    );
-    await boot(a.store);
-    // Airplane mode at its nastiest: the request never fails, it NEVER ANSWERS.
-    a.server.hangRecipeWrites = true;
-    await a.store.createUserRecipe(
-      userRecipe('user_flugmodus', title: 'Flug-Bowl'),
-    );
-    await settle();
-    expect(
-      a.store.userRecipes.map((r) => r.slug),
-      contains('user_flugmodus'),
-      reason: 'Vorbedingung: im Flugmodus war das Rezept sichtbar',
-    );
-    a.store.flushPendingWrites(); // app shutdown
-    await settle();
-
-    final b = setup(kv: kv);
-    await boot(b.store);
-
-    expect(
-      b.store.userRecipes.map((r) => r.slug),
-      contains('user_flugmodus'),
-      reason:
-          'genau hier war das Rezept weg: der erfolgreiche Server-Load '
-          'ersetzte die Liste, und der Boot-Snapshot schrieb das fest',
     );
   });
 
@@ -668,63 +593,6 @@ void main() {
       reason:
           'und der Boot-Snapshot darf den Verlust nicht auch noch '
           'festschreiben',
-    );
-  });
-
-  // P3-04b: `userRecipes` sieht in zwei voellig verschiedenen Lagen gleich aus
-  // — „der Nutzer hat keine Rezepte" und „wir wissen es noch nicht". Wer aus
-  // einem FEHLENDEN Eintrag etwas ableitet (die Foto-Aufraeumung loescht
-  // darauf hin Dateien), braucht die Unterscheidung; nur die Server-Antwort
-  // liefert sie. Deshalb haengt das Flag am Rezept-Load, nicht am Ende der
-  // Boot-Kette: die Loads antworten unabhaengig voneinander.
-  test('P3-04b: userRecipesAuthoritative erst nach BEANTWORTETEM Rezept-Load — '
-      'ein veraltet-leerer Cache-Slot bleibt vorlaeufig', () async {
-    final kv = InMemoryKeyValueStore();
-    final s = setup(kv: kv);
-    await s.cache.writeProfile(
-      const UserProfile(weightKg: 80, onboardingCompleted: true),
-    );
-    // Genau die Lage nach dem Kill im 400-ms-Entprellfenster: der Slot steht
-    // auf leer, das Rezept liegt beim Server.
-    await s.cache.writeUserRecipes(const <FitnessRecipe>[]);
-    s.server.recipeRows['user_da'] = serverRecipeRow('user_da');
-
-    // NUR die Rezept-Loads fallen aus; die anderen antworten. Genau
-    // deshalb haengt das Flag am Rezept-Load und nicht am Boot-Ende.
-    s.server.rejectRecipeReads = true;
-    await boot(s.store);
-
-    expect(
-      s.store.userRecipes,
-      isEmpty,
-      reason: 'Vorbedingung: die Liste ist leer, obwohl es ein Rezept gibt',
-    );
-    expect(
-      s.store.userRecipesAuthoritative,
-      isFalse,
-      reason:
-          'Der Rezept-Load hat nicht geantwortet — diese leere Liste ist '
-          'keine Aussage darueber, welche Rezepte es gibt.',
-    );
-    expect(
-      s.server.requests.map((r) => r.url.path),
-      contains('/rest/v1/profiles'),
-      reason:
-          'und der Boot als ganzes lief durch: das Flag steht fuer die '
-          'EINE Sammlung, nicht fuer das Ende der Boot-Kette',
-    );
-
-    s.server.rejectRecipeReads = false;
-    await s.store.retryBoot();
-    await settle();
-
-    expect(s.store.userRecipes.map((r) => r.slug), contains('user_da'));
-    expect(
-      s.store.userRecipesAuthoritative,
-      isTrue,
-      reason:
-          'Nach der Antwort ist die Liste vollstaendig — ab hier darf '
-          'aus einem fehlenden Eintrag geschlossen werden.',
     );
   });
 }

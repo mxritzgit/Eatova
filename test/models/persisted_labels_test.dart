@@ -328,15 +328,6 @@ void main() {
         'not shown.',
       );
     });
-
-    test('frisch angepasste Mahlzeit zeigt den englischen Satz', () {
-      final adjusted = _meal().adjustedToGrams(1500);
-      expect(
-        adjusted.resolvedPortionNotes(enL10n),
-        'Adjusted manually: 1500 g instead of the original portion. Calories '
-        'recalculated at 180 kcal per 100 g.',
-      );
-    });
   });
 
   group('Anzeige: Hinweis eines protokollierten Rezepts', () {

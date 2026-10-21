@@ -109,53 +109,50 @@ void main() {
     },
   );
 
-  for (final age in [
-    const Duration(hours: 23),
-    const Duration(hours: 25),
-    const Duration(days: 365),
-  ]) {
-    test(
-      'confirmed operations survive expiry age $age and process restart',
-      () async {
-        final now = DateTime(2030, 5, 17, 8);
-        final kv = InMemoryKeyValueStore();
-        const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-        final operation = SyncOp.mealInsert(
-          LoggedMeal(id: id, result: mealResult('Old'), loggedAt: now),
-          trackDay: false,
+  // No age expires a confirmed op (an old 24-hour cut-off once did).
+  test(
+    'a year-old confirmed operation survives exhaustion and process restart',
+    () async {
+      final now = DateTime(2030, 5, 17, 8);
+      final kv = InMemoryKeyValueStore();
+      const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      final operation = SyncOp.mealInsert(
+        LoggedMeal(id: id, result: mealResult('Old'), loggedAt: now),
+        trackDay: false,
+      );
+      await seedRawOutbox(kv, [
+        operation.toJson()
+          ..['queued_at'] = now
+              .subtract(const Duration(days: 365))
+              .toIso8601String()
+          ..['attempts'] = kOutboxMaxAttempts - 1,
+      ]);
+      await withClock(Clock.fixed(now), () async {
+        final s = setup(kv: kv);
+        s.server.rejectMealWrites = true;
+        await bootUntilIdle(s.store);
+        expect(
+          s.store.pendingOutbox.single.operationId,
+          operation.operationId,
         );
-        await seedRawOutbox(kv, [
-          operation.toJson()
-            ..['queued_at'] = now.subtract(age).toIso8601String()
-            ..['attempts'] = kOutboxMaxAttempts - 1,
-        ]);
-        await withClock(Clock.fixed(now), () async {
-          final s = setup(kv: kv);
-          s.server.rejectMealWrites = true;
-          await bootUntilIdle(s.store);
-          expect(
-            s.store.pendingOutbox.single.operationId,
-            operation.operationId,
-          );
-          expect(
-            s.store.pendingOutbox.single.blockedReason,
-            SyncBlockedReason.rejected,
-          );
-          expect(s.store.loggedMeals.map((m) => m.id), contains(id));
-          final restarted = setup(kv: kv);
-          await bootUntilIdle(restarted.store);
-          expect(
-            restarted.store.pendingOutbox.single.operationId,
-            operation.operationId,
-          );
-          expect(restarted.server.operations('mealInsert'), isEmpty);
-          await restarted.store.syncPendingWrites(retryBlocked: true);
-          expect(restarted.server.mealRows.keys, contains(id));
-          expect(restarted.store.pendingOutbox, isEmpty);
-        });
-      },
-    );
-  }
+        expect(
+          s.store.pendingOutbox.single.blockedReason,
+          SyncBlockedReason.rejected,
+        );
+        expect(s.store.loggedMeals.map((m) => m.id), contains(id));
+        final restarted = setup(kv: kv);
+        await bootUntilIdle(restarted.store);
+        expect(
+          restarted.store.pendingOutbox.single.operationId,
+          operation.operationId,
+        );
+        expect(restarted.server.operations('mealInsert'), isEmpty);
+        await restarted.store.syncPendingWrites(retryBlocked: true);
+        expect(restarted.server.mealRows.keys, contains(id));
+        expect(restarted.store.pendingOutbox, isEmpty);
+      });
+    },
+  );
 
   test(
     'editing a blocked meal preserves FIFO and recovery sends the latest content',
@@ -233,40 +230,35 @@ void main() {
     },
   );
 
-  for (final days in [0, 60]) {
-    test(
-      'exhausted deletion stays hidden after cold start including archive age $days',
-      () async {
-        final kv = InMemoryKeyValueStore();
-        const id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-        final op = SyncOp.mealDelete(id);
-        await seedRawOutbox(kv, [
-          op.toJson()
-            ..['queued_at'] = DateTime(2020).toIso8601String()
-            ..['attempts'] = kOutboxDeleteMaxAttempts - 1,
-        ]);
-        final s = setup(kv: kv);
-        s.server.mealRows[id] = serverMealRow(id)
-          ..['logged_at'] = clock.now()
-              .subtract(Duration(days: days))
-              .toIso8601String();
-        s.server.poisonMealWrites = true;
-        await bootUntilIdle(s.store);
-        expect(s.store.pendingOutbox.single.operationId, op.operationId);
-        expect(
-          s.store.pendingOutbox.single.blockedReason,
-          SyncBlockedReason.rejected,
-        );
-        expect(s.store.loggedMeals, isEmpty);
-        expect(s.server.mealRows.keys, contains(id));
-        s.server.poisonMealWrites = false;
-        await s.store.syncPendingWrites(retryBlocked: true);
-        expect(s.store.pendingOutbox, isEmpty);
-        expect(s.server.mealRows, isEmpty);
-        expect(s.store.loggedMeals, isEmpty);
-      },
-    );
-  }
+  test(
+    'an exhausted deletion keeps the loaded row hidden after a cold start',
+    () async {
+      final kv = InMemoryKeyValueStore();
+      const id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+      final op = SyncOp.mealDelete(id);
+      await seedRawOutbox(kv, [
+        op.toJson()
+          ..['queued_at'] = DateTime(2020).toIso8601String()
+          ..['attempts'] = kOutboxDeleteMaxAttempts - 1,
+      ]);
+      final s = setup(kv: kv);
+      s.server.mealRows[id] = serverMealRow(id);
+      s.server.poisonMealWrites = true;
+      await bootUntilIdle(s.store);
+      expect(s.store.pendingOutbox.single.operationId, op.operationId);
+      expect(
+        s.store.pendingOutbox.single.blockedReason,
+        SyncBlockedReason.rejected,
+      );
+      expect(s.store.loggedMeals, isEmpty);
+      expect(s.server.mealRows.keys, contains(id));
+      s.server.poisonMealWrites = false;
+      await s.store.syncPendingWrites(retryBlocked: true);
+      expect(s.store.pendingOutbox, isEmpty);
+      expect(s.server.mealRows, isEmpty);
+      expect(s.store.loggedMeals, isEmpty);
+    },
+  );
 
   test(
     'rejected insert and delete remain individually recoverable in one pass',

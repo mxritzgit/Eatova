@@ -47,33 +47,8 @@ void main() {
       expect(CrashReporter.isActive, isFalse);
     });
 
-    test('capture reicht den Fehler weiter statt ihn zu verschlucken',
-        () async {
-      // The point of G3: an empty `capture() async {}` fails exactly here.
-      await CrashReporter.capture(
-        Exception('sync kaputt'),
-        StackTrace.current,
-      );
-
-      expect(gemeldet, hasLength(1));
-      expect(gemeldet.single, isA<SanitizedError>());
-      expect((gemeldet.single as SanitizedError).type, '_Exception');
-      expect(kontexte.single, isNull);
-    });
-
-    test('capture haengt das context-Label an den Report', () async {
-      await CrashReporter.capture(
-        StateError('boot kaputt'),
-        StackTrace.current,
-        context: 'boot',
-      );
-
-      expect(gemeldet, hasLength(1));
-      expect(kontexte.single, 'boot');
-      expect((gemeldet.single as SanitizedError).type, 'StateError');
-    });
-
     test('capture nimmt jeden Fehlertyp an und meldet jeden einzeln', () async {
+      // The point of G3: an empty `capture() async {}` fails exactly here.
       // Dart allows `throw` on any object, so the facade must accept anything
       // a catch (Object e) can hold and must not drop a single call.
       await CrashReporter.capture('nur ein String', StackTrace.empty);

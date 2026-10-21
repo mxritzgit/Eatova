@@ -14,37 +14,17 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
-// A1 (sweep 2026-08-08): `_writeCacheSnapshot` ran unguarded at boot end, so
-// "cache read error + offline boot" wrote pure ctor defaults over an intact
-// but momentarily unreadable cache — and the next boot took those defaults for
-// a real hydration source, opening the clobber lock towards the server.
+// A1 (sweep 2026-08-08): the boot snapshot wrote the profile even when the
+// state was not hydrated from a real source, so an offline boot replaced a
+// profile blob it could not use with the ctor defaults (78 kg) — and the next
+// boot took those defaults for a real hydration source, opening the clobber
+// lock towards the server.
 //
-// New contract: the snapshot runs only when the state was hydrated from a real
-// source (cache OR server).
+// Contract: the snapshot writes the profile slot only when the profile was
+// hydrated from a real source (cache, server or a pending profile op).
 
-/// The data IS there, but every read fails; writes are recorded, since those
-/// are the danger.
-class _LesefehlerStore implements KeyValueStore {
-  _LesefehlerStore(Map<String, String> initial) : blobs = {...initial};
-
-  final Map<String, String> blobs;
-  final List<String> writes = <String>[];
-
-  @override
-  Future<String?> getString(String key) async =>
-      throw StateError('Lesefehler: $key');
-
-  @override
-  Future<void> setString(String key, String value) async {
-    writes.add(key);
-    blobs[key] = value;
-  }
-
-  @override
-  Future<void> remove(String key) async {
-    blobs.remove(key);
-  }
-}
+const _profileKey = 'eatova.v1.profile.user-snap';
+const _statsKey = 'eatova.v1.stats.user-snap';
 
 void _noopSnack(
   String message, {
@@ -55,12 +35,14 @@ void _noopSnack(
 }) {}
 
 /// Fully offline server: every request fails with 503.
-http.Client _offlineClient() => MockClient((req) async => http.Response(
-      jsonEncode({'message': 'offline'}),
-      503,
-      headers: const {'Content-Type': 'application/json'},
-      request: req,
-    ));
+http.Client _offlineClient() => MockClient(
+  (req) async => http.Response(
+    jsonEncode({'message': 'offline'}),
+    503,
+    headers: const {'Content-Type': 'application/json'},
+    request: req,
+  ),
+);
 
 HomeStore _store(LocalCache cache) {
   final client = SupabaseClient(
@@ -91,42 +73,21 @@ Future<void> _boot(HomeStore store) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-      'A1: Lesefehler + Offline-Boot fasst den durablen Bestand NICHT an '
-      '(kein Default-Snapshot ueber echte Daten)', () async {
-    final kv = _LesefehlerStore(<String, String>{
-      // Existing content; that it is unchanged AFTER the boot is the point.
-      'eatova.v1.profile.user-snap': '<intakter, aber unlesbarer Blob>',
-      'eatova.v1.logged_meals.user-snap': '<tagebuch>',
-    });
+  test('A1: an offline boot never replaces an unusable profile blob with the '
+      'ctor defaults', () async {
+    final kv = InMemoryKeyValueStore();
+    // A blob an older build left without its numbers: no hydration source.
+    const unusable = '{"weight_kg":91,"onboarding_completed":true}';
+    await kv.setString(_profileKey, unusable);
     final store = _store(LocalCache(kv, 'user-snap'));
 
     await _boot(store);
 
-    expect(kv.writes, isEmpty,
-        reason: 'ohne echte Hydrationsquelle (Cache unlesbar, Server '
-            'offline) darf der Boot keinen Default-Snapshot schreiben — '
-            'er wuerde den vorhandenen Bestand vernichten und beim '
-            'naechsten Boot als echte Quelle gelten (Clobber-Kette)');
-    expect(kv.blobs['eatova.v1.profile.user-snap'],
-        '<intakter, aber unlesbarer Blob>');
-  });
-
-  test('Kontrolle: mit echter Cache-Quelle schreibt der Boot den Snapshot',
-      () async {
-    final kv = InMemoryKeyValueStore();
-    final cache = LocalCache(kv, 'user-snap');
-    await cache.writeProfile(const UserProfile(
-      weightKg: 80,
-      heightCm: 180,
-      onboardingCompleted: true,
-    ));
-    final store = _store(cache);
-
-    await _boot(store);
-
-    expect(kv.snapshot.keys, contains('eatova.v1.profile.user-snap'),
-        reason: 'mit echter Quelle bleibt der Snapshot-Pfad aktiv — der '
-            'Guard darf nicht ueberschiessen');
+    expect(store.profile.weightKg, const UserProfile().weightKg,
+        reason: 'precondition: nothing hydrated the profile');
+    expect(kv.snapshot[_statsKey], isNotNull,
+        reason: 'precondition: the boot snapshot did run');
+    expect(kv.snapshot[_profileKey], unusable,
+        reason: 'the defaults would count as a real source on the next boot');
   });
 }

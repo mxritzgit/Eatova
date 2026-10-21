@@ -17,39 +17,30 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 void main() {
   group('sanitizeSentryBreadcrumb — console (der Release-Kanal)', () {
-    test(
-        'ein console-Breadcrumb aus einem unbehandelten ArgumentError traegt '
-        'den getippten Gewichtswert und wird deshalb komplett verworfen', () {
-      // Exactly what `debugPrintStack(label: exception.toString())` produces
-      // when the user types 187.4 instead of 87.4 kg.
-      final crumb = Breadcrumb.console(
-        message: 'Invalid argument (weightKg): Must be between 30 and 300: '
-            '187.4',
-        level: SentryLevel.debug,
-      );
-
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), isNull,
-          reason: 'console-Text ist Freitext und nicht sanitisierbar');
-    });
-
-    test(
-        'auch der eigene Boot-debugPrint mit rohem Fehler und Stack wird '
+    test('console- und kategorielose print-Breadcrumbs werden komplett '
         'verworfen', () {
-      final crumb = Breadcrumb.console(
-        message: 'Eatova boot failed: PostgrestException(message: new row for '
-            'relation "profiles" ..., details: Failing row contains '
-            '(0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0, max@example.com, Max '
-            'Mustermann, 25, 178, 34).)\n#0 main',
-      );
-
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), isNull);
-    });
-
-    test('ein print()-Breadcrumb ohne Kategorie wird ebenfalls verworfen', () {
-      // Default branch: unknown origin -> dropped. Allowlist, not blocklist.
-      final crumb = Breadcrumb(message: 'irgendein print aus einem Plugin');
-
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), isNull);
+      // Console text is free text and cannot be sanitised; an unknown origin
+      // falls into the default branch (allowlist, not blocklist).
+      for (final crumb in <Breadcrumb>[
+        // What `debugPrintStack(label: exception.toString())` produces when
+        // the user types 187.4 instead of 87.4 kg.
+        Breadcrumb.console(
+          message: 'Invalid argument (weightKg): Must be between 30 and 300: '
+              '187.4',
+          level: SentryLevel.debug,
+        ),
+        // The app's own boot debugPrint with a raw error and stack.
+        Breadcrumb.console(
+          message: 'Eatova boot failed: PostgrestException(message: new row '
+              'for relation "profiles" ..., details: Failing row contains '
+              '(0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0, max@example.com, Max '
+              'Mustermann, 25, 178, 34).)\n#0 main',
+        ),
+        Breadcrumb(message: 'irgendein print aus einem Plugin'),
+      ]) {
+        expect(sanitizeSentryBreadcrumb(crumb, Hint()), isNull,
+            reason: crumb.message);
+      }
     });
 
     test('null bleibt null (die Signatur laesst es zu)', () {
@@ -58,54 +49,39 @@ void main() {
   });
 
   group('sanitizeSentryBreadcrumb — was diagnostisch wertvoll bleibt', () {
-    test('app.lifecycle bleibt unveraendert (Prozesszustand, konstante Strings)',
+    test('Prozess-, Geraete- und die eigene Kategorie bleiben unveraendert',
         () {
-      final crumb = Breadcrumb(
-        category: 'app.lifecycle',
-        type: 'navigation',
-        data: <String, String>{'state': 'resumed'},
-      );
-
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), same(crumb));
-    });
-
-    test('device.connectivity bleibt — wifi/cellular/none ist Geraetezustand',
-        () {
-      final crumb = Breadcrumb(
-        category: 'device.connectivity',
-        type: 'connectivity',
-        data: <String, String>{'connectivity': 'cellular'},
-      );
-
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), same(crumb));
-    });
-
-    test('device.screen und device.event bleiben (Groesse, Helligkeit, Locale)',
-        () {
-      for (final kategorie in <String>['device.screen', 'device.event']) {
-        final crumb = Breadcrumb(category: kategorie, message: 'x');
+      for (final crumb in <Breadcrumb>[
+        // Process state with constant strings.
+        Breadcrumb(
+          category: 'app.lifecycle',
+          type: 'navigation',
+          data: <String, String>{'state': 'resumed'},
+        ),
+        // wifi/cellular/none, size, brightness, locale: device state.
+        Breadcrumb(
+          category: 'device.connectivity',
+          type: 'connectivity',
+          data: <String, String>{'connectivity': 'cellular'},
+        ),
+        Breadcrumb(category: 'device.screen', message: 'x'),
+        Breadcrumb(category: 'device.event', message: 'x'),
+        // On Flutter always the same activity.
+        Breadcrumb(
+          category: 'ui.lifecycle',
+          data: <String, String>{'screen': 'MainActivity', 'state': 'started'},
+        ),
+        // Otherwise the filter would kill the app's only deliberately
+        // maintained context trail.
+        CrashReporter.buildBreadcrumb('outbox-cap: 3 ops dropped'),
+      ]) {
         expect(sanitizeSentryBreadcrumb(crumb, Hint()), same(crumb),
-            reason: '$kategorie ist reiner Geraetezustand');
+            reason: crumb.category);
       }
-    });
-
-    test('ui.lifecycle bleibt — auf Flutter ist das immer dieselbe Activity',
-        () {
-      final crumb = Breadcrumb(
-        category: 'ui.lifecycle',
-        data: <String, String>{'screen': 'MainActivity', 'state': 'started'},
+      expect(
+        CrashReporter.buildBreadcrumb('x').category,
+        CrashReporter.breadcrumbCategory,
       );
-
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), same(crumb));
-    });
-
-    test('die eigene Kategorie ueberlebt den eigenen Filter', () {
-      // Otherwise the filter would kill the app's only deliberately
-      // maintained context trail.
-      final crumb = CrashReporter.buildBreadcrumb('outbox-cap: 3 ops dropped');
-
-      expect(crumb.category, CrashReporter.breadcrumbCategory);
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), same(crumb));
     });
   });
 

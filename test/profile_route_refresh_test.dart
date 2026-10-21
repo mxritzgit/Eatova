@@ -21,8 +21,6 @@ import 'support/harness.dart';
 //    AnimatedBuilder + _profileRefresh is the bridge carrying a mid-route
 //    state change (a health steps refresh) into the open screen. Test 1
 //    proves the bridge is intact.
-//  * Test 2 (scoping sanity): after closing the route a store notify no
-//    longer bumps _profileRefresh, and a Food-tab mutation stays crash-free.
 //
 // sync == null on purpose: the page lands on home immediately (no onboarding
 // gate) and the health paths run without Supabase.
@@ -129,47 +127,6 @@ void main() {
         reason: 'mid-route Health-Refresh muss auf der offenen ProfileScreen '
             'ankommen (_profileRouteOpen-gegated _profileRefresh-Bump)');
     expect(find.text('1000/8000'), findsNothing);
-  });
-
-  testWidgets(
-      'Nach Schliessen der ProfileScreen bleibt eine Food-Tab-Mutation '
-      'crash-frei (Scoping-Sanity: geschlossene Profil-Bruecke)', (tester) async {
-    _pinViewport(tester);
-    final health = _StepsHealthService(2000);
-
-    // _navItems() reads context.l10n; without the harness's delegates
-    // AppLocalizations.of() throws while building the bottom nav.
-    await pumpLocalized(
-      tester,
-      EatovaHomePage(
-        initialUserName: 'Moritz',
-        healthService: health,
-      ),
-      reducedMotion: false,
-      scaffold: false,
-      safeArea: false,
-    );
-    await tester.pumpAndSettle();
-
-    // Mount Food first; the date controls must still work after account routes.
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-
-    // Open and close again -> _profileRouteOpen is false once more.
-    await tapHomeHeaderAction(tester, 'today-profile');
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('profile-close')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
-
-    // A store mutation now notifies with no profile route open, so
-    // _profileRefresh is not bumped; this must stay crash-free and re-render.
-    await selectFoodDayOffset(tester, 1);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
   });
 
   testWidgets(

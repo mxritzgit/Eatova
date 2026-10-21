@@ -70,23 +70,22 @@ void main() {
     await tester.pumpAndSettle();
     await tester.ensureVisible(key('manual-meal-save'));
     await tester.pumpAndSettle();
+    expect(tester.testTextInput.hasAnyClients, isTrue,
+        reason: 'precondition: the keyboard is attached to the draft');
     await tester.tap(key('manual-meal-save'));
     await tester.pump();
     expect(committed, isNotNull);
-    final controller = tester
-        .widget<TextField>(key('manual-meal-kcal100'))
-        .controller!;
-    final hadInputClient = tester.testTextInput.hasAnyClients;
-    if (hadInputClient) tester.testTextInput.enterText('999');
-    await tester.pump();
-    final textWhileSaving = controller.text;
+    expect(
+      tester.testTextInput.hasAnyClients,
+      isFalse,
+      reason: 'The keyboard must not change a draft after its commit snapshot.',
+    );
     commit.completeError(StateError('synthetic local commit failure'));
     await tester.pumpAndSettle();
     expect(committed?.kcalPer100G, 123);
     expect(
-      textWhileSaving,
+      tester.widget<TextField>(key('manual-meal-kcal100')).controller!.text,
       '123',
-      reason: 'The keyboard must not change a draft after its commit snapshot.',
     );
   });
 }

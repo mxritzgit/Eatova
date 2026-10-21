@@ -28,94 +28,40 @@ const List<String> _slots = <String>[
 ];
 
 void main() {
-  group('redactUserSegment · echte UUID wird redigiert', () {
-    test('ersetzt das User-Segment durch <uid> und behaelt den Slot', () {
-      expect(
-        redactUserSegment('eatova.v1.logged_meals.$_uuid'),
-        'eatova.v1.logged_meals.<uid>',
-      );
-    });
-
-    test('kein einziger echter Cache-Key traegt danach noch die UUID', () {
-      // The promise: WHICH slot broke stays visible, WHO the user is does not.
-      for (final slot in _slots) {
-        final redigiert = redactUserSegment('eatova.v1.$slot.$_uuid');
-
-        expect(redigiert, isNot(contains(_uuid)),
-            reason: 'Slot "$slot" leakt die volle UUID');
-        expect(redigiert, isNot(contains('3f2504e0')),
-            reason: 'Slot "$slot" leakt den UUID-Praefix — auch ein Teil '
-                'davon ist ueber Reports hinweg eine stabile Kennung');
-        expect(redigiert, contains(slot),
-            reason: 'Der Slot-Name ist die einzige Information, die der '
-                'Report noch traegt — er muss bleiben');
-        expect(redigiert, endsWith('.<uid>'));
-      }
-    });
-
-    test('ist idempotent — ein bereits redigierter Key bleibt stabil', () {
-      const einmal = 'eatova.v1.outbox.<uid>';
-
-      expect(redactUserSegment(einmal), einmal);
-    });
-
-    test('funktioniert auch fuer UUIDs ohne Bindestriche (32 Hex-Zeichen)',
-        () {
-      const kompakt = '3f2504e04f8911d39a0c0305e82c3301';
-
-      expect(redactUserSegment('eatova.v1.stats.$kompakt'),
-          'eatova.v1.stats.<uid>');
-    });
+  test('every real cache key keeps its slot and loses the user id', () {
+    // The promise: WHICH slot broke stays visible, WHO the user is does not.
+    for (final slot in _slots) {
+      final redigiert = redactUserSegment('eatova.v1.$slot.$_uuid');
+      expect(redigiert, 'eatova.v1.$slot.<uid>');
+      expect(redigiert, isNot(contains('3f2504e0')),
+          reason: 'even a UUID prefix is a stable id across reports');
+    }
+    expect(redactUserSegment('eatova.v1.stats.3f2504e04f8911d39a0c0305e82c3301'),
+        'eatova.v1.stats.<uid>');
+    // Idempotent, and a future slot name with a dot keeps its prefix.
+    expect(redactUserSegment('eatova.v1.outbox.<uid>'), 'eatova.v1.outbox.<uid>');
+    expect(redactUserSegment('eatova.v2.sync.logged_meals.$_uuid'),
+        'eatova.v2.sync.logged_meals.<uid>');
   });
 
-  group('redactUserSegment · Keys ohne User-Segment bleiben unveraendert', () {
-    test('genau drei Abschnitte bleiben stehen', () {
-      expect(redactUserSegment('eatova.v1.dek'), 'eatova.v1.dek');
-    });
-
-    test('zwei Abschnitte bleiben stehen', () {
-      expect(redactUserSegment('eatova.v1'), 'eatova.v1');
-    });
-
-    test('ein Abschnitt ohne Punkt bleibt stehen', () {
-      expect(redactUserSegment('flutter_secure_storage'),
-          'flutter_secure_storage');
-    });
-
-    test('leerer Key bleibt leer und wirft nicht', () {
-      expect(redactUserSegment(''), '');
-    });
+  test('keys with at most three segments stay unchanged', () {
+    for (final key in <String>[
+      'eatova.v1.dek',
+      'eatova.v1',
+      'flutter_secure_storage',
+      '',
+      'a.b.c',
+    ]) {
+      expect(redactUserSegment(key), key);
+    }
   });
 
-  group('redactUserSegment · Rand- und Mehrfachfaelle', () {
-    test('bei mehr als vier Abschnitten faellt NUR der letzte weg', () {
-      // A future slot name containing a dot must not lose its prefix.
-      expect(
-        redactUserSegment('eatova.v2.sync.logged_meals.$_uuid'),
-        'eatova.v2.sync.logged_meals.<uid>',
-      );
-    });
-
-    test('leeres letztes Segment (Key endet auf Punkt) wird zu <uid>', () {
-      expect(redactUserSegment('eatova.v1.stats.'), 'eatova.v1.stats.<uid>');
-    });
-
-    test('ein Key aus lauter Punkten wirft nicht', () {
-      expect(redactUserSegment('....'), '....<uid>');
-    });
-
-    test('die Redigierung haengt an der Abschnittszahl, nicht an UUID-Form',
-        () {
-      // Pinned deliberately: the function does NOT check whether the last
-      // segment looks like a UUID — four segments suffice. Over-redacting is
-      // the safe direction, but it is a choice, not a side effect.
-      expect(redactUserSegment('eatova.v1.profile.v2'),
-          'eatova.v1.profile.<uid>');
-    });
-
-    test('vier Abschnitte sind die Untergrenze, drei nicht', () {
-      expect(redactUserSegment('a.b.c.d'), 'a.b.c.<uid>');
-      expect(redactUserSegment('a.b.c'), 'a.b.c');
-    });
+  test('redaction follows the segment count, not the UUID shape', () {
+    // Over-redacting is the safe direction, but it is a choice, not a side
+    // effect: four segments suffice, whatever the last one holds.
+    expect(redactUserSegment('eatova.v1.profile.v2'), 'eatova.v1.profile.<uid>');
+    expect(redactUserSegment('a.b.c.d'), 'a.b.c.<uid>');
+    expect(redactUserSegment('eatova.v1.stats.'), 'eatova.v1.stats.<uid>');
+    expect(redactUserSegment('....'), '....<uid>');
   });
 }

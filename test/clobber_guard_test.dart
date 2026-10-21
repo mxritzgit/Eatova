@@ -211,8 +211,8 @@ Future<void> _drain(WidgetTester tester, {int rounds = 20}) async {
 
 void main() {
   testWidgets(
-      'Offline-Kaltstart OHNE Cache: Onboarding-Gate statt Clobber, kein '
-      'profiles-Write mit 78kg', (tester) async {
+      'Offline-Kaltstart OHNE Cache: Verbindungs-Screen statt Onboarding, '
+      'kein profiles-Write mit 78kg', (tester) async {
     final recorder = _Recorder();
     final sync = _sync(tester, recorder.client());
 

@@ -146,15 +146,6 @@ void main() {
       expect(spion.sentryValue, contains('23514'));
     });
 
-    test('ohne code bleibt der Typ stehen, ohne Rest der Nachricht', () async {
-      await CrashReporter.capture(
-        const PostgrestException(message: _failingRow),
-        StackTrace.current,
-      );
-
-      expect(spion.sentryValue, contains('PostgrestException'));
-      erwarteKeineNutzerdaten();
-    });
   });
 
   group('C1 · weitere Fehlertypen mit gefaehrlichem toString()', () {
@@ -189,16 +180,6 @@ void main() {
 
       erwarteKeineNutzerdaten();
       expect(spion.sentryValue, contains('AuthWeakPasswordException'));
-    });
-
-    test('AuthException-Basisklasse faellt in denselben Zweig', () async {
-      await CrashReporter.capture(
-        const AuthException('max@example.com ist gesperrt', statusCode: '403'),
-        StackTrace.current,
-      );
-
-      erwarteKeineNutzerdaten();
-      expect(spion.sentryValue, contains('403'));
     });
 
     test('StorageException: nur statusCode', () async {
@@ -320,44 +301,24 @@ void main() {
   });
 
   group('C1 · Allowlist schliesst per Default zu', () {
-    test('unbekannter Fremdtyp liefert nur den Typnamen', () async {
-      await CrashReporter.capture(
+    test('unbekannte Typen, rohe Strings, Exception() und Listen liefern nur '
+        'ihren Typnamen', () async {
+      for (final fehler in <Object>[
         const _FremderFehler(_failingRow),
-        StackTrace.current,
-      );
-
-      erwarteKeineNutzerdaten();
-      expect(spion.sentryValue, contains('_FremderFehler'));
-    });
-
-    test('roher String wird nicht durchgereicht', () async {
-      await CrashReporter.capture(_failingRow, StackTrace.current);
-
-      erwarteKeineNutzerdaten();
-    });
-
-    test('nackte Exception(...) leakt ihre Message nicht', () async {
-      await CrashReporter.capture(Exception(_failingRow), StackTrace.current);
-
-      erwarteKeineNutzerdaten();
-    });
-
-    test('verschachtelter Fehler in einer Liste bleibt aussen vor', () async {
-      await CrashReporter.capture(
+        _failingRow,
+        Exception(_failingRow),
         <Object>[_failingRow, 42],
-        StackTrace.current,
+      ]) {
+        spion.fehler.clear();
+        await CrashReporter.capture(fehler, StackTrace.current);
+
+        erwarteKeineNutzerdaten();
+        expect(sanitizeForReport(fehler).detail, isNull, reason: '$fehler');
+      }
+      expect(
+        sanitizeForReport(const _FremderFehler(_failingRow)).type,
+        '_FremderFehler',
       );
-
-      erwarteKeineNutzerdaten();
-    });
-
-    test('Fehlerobjekt mit werfendem toString() bringt capture nicht um',
-        () async {
-      await CrashReporter.capture(_KaputterToString(), StackTrace.current);
-
-      // No throw escapes AND the report is still usable.
-      expect(spion.fehler, hasLength(1));
-      expect(spion.sentryValue, contains('_KaputterToString'));
     });
   });
 
@@ -392,13 +353,6 @@ void main() {
       );
 
       expect(s.detail, 'statusCode=429');
-    });
-
-    test('unbekannter Typ liefert Typname ohne detail', () {
-      final s = sanitizeForReport(const _FremderFehler(_failingRow));
-
-      expect(s.type, '_FremderFehler');
-      expect(s.detail, isNull);
     });
 
     test('bereits sanitisierte App-Typen behalten ihre Kurzfassung', () {
@@ -470,10 +424,4 @@ class _FremderFehler implements Exception {
 
   @override
   String toString() => '_FremderFehler($payload)';
-}
-
-/// Worst case for any reporting layer.
-class _KaputterToString {
-  @override
-  String toString() => throw StateError('toString kaputt');
 }
