@@ -196,6 +196,7 @@ void main() {
       _expectBadgeOnPhoto(tester, _sheet, c);
     },
     locales: const <Locale>[Locale('de'), Locale('en')],
+    brightnesses: bothBrightnesses,
   );
 
   testWidgets('ohne Bildbytes gibt es kein Abzeichen (nichts zu kennzeichnen)',

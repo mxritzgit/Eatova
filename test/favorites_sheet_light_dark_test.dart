@@ -1,5 +1,5 @@
 // Light/dark pass for the favorites sheet (feature 2026-08-27), after
-// food_sheets_light_dark_test: every combination of palette and language
+// food_sheets_render_test: every combination of palette and language
 // renders without exception or overflow, every text is visible in this mode's
 // ink, and the search capsule is the borderless token capsule
 // (field -> fieldFocus), never a constant.
@@ -104,6 +104,7 @@ void main() {
       expect(feld.style!.color, c.t.ink);
     },
     locales: _beideSprachen,
+    brightnesses: bothBrightnesses,
   );
 
   renderMatrix(
@@ -125,6 +126,7 @@ void main() {
           reason: 'ohne Einträge gibt es nichts zu filtern');
     },
     locales: _beideSprachen,
+    brightnesses: bothBrightnesses,
   );
 
   renderMatrix(

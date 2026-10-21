@@ -2,6 +2,7 @@ import 'support/food_navigation.dart';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
@@ -418,24 +419,32 @@ void main() {
   });
 
   // Large text: the source label leaves the figure's line instead of
-  // squeezing "350 kcal · 350 g" into a word per line (review DSA-4).
-  testWidgetsRobust('Summary: source label wraps under the figure at 2x', (
-    WidgetTester tester,
-  ) async {
+  // squeezing "350 kcal · 350 g" into a word per line (review DSA-4), and the
+  // figure breaks after the "·", never inside "350 kcal" or "350 g" (DSA-11).
+  testWidgetsRobust(
+      'Summary at 2x: source label under the figure, number and unit together',
+      (WidgetTester tester) async {
     await _openSheet(
       tester,
       _EditCapture(),
       textScale: 2,
       surfaceSize: const Size(320, 900),
     );
-    final figure = tester.getRect(
-      find.byKey(const ValueKey('edit-meal-summary-figure')),
-    );
+    final figureFinder = find.byKey(const ValueKey('edit-meal-summary-figure'));
+    final figure = tester.getRect(figureFinder);
     final source = tester.getRect(
       find.byKey(const ValueKey('edit-meal-summary-source')),
     );
     expect(source.top, greaterThanOrEqualTo(figure.bottom));
     expect(source.left, closeTo(figure.left, 0.5));
+
+    // A no-break space binds each number to its unit; the line breaker of the
+    // real fonts honours it (the test font is too wide to show the break).
+    final text = tester
+        .renderObject<RenderParagraph>(figureFinder)
+        .text
+        .toPlainText();
+    expect(text, '350 kcal · 350 g');
   });
 
   // ─── Integration through the real app shell ─────────────────────────────

@@ -366,10 +366,18 @@ void main() {
     expect(find.byKey(const ValueKey('auth-error')), findsNothing);
   });
 
-  testWidgets('empty login password and short signup password stay local', (
-    tester,
-  ) async {
+  testWidgets(
+      'a malformed address, an empty login password and a short signup '
+      'password stay local', (tester) async {
     final repository = await _pump(tester);
+    await _fill(tester, 'long-password');
+    await tester.enterText(
+      find.byKey(const ValueKey('auth-email-field')),
+      'member@example',
+    );
+    await _submit(tester);
+    expect(repository.signIns, isEmpty);
+    expect(find.text(deL10n.authErrorInvalidEmail), findsOneWidget);
     await _fill(tester, '');
     await _submit(tester);
     expect(repository.signIns, isEmpty);

@@ -26,9 +26,10 @@
   history entry. Search text, filters and scroll retention across app tabs,
   delete/undo and the device-only photo lifecycle keep their guards.
 
-Pinned by `test/recipes_redesign_wiring_test.dart`,
-`test/recipes_redesign_details_test.dart` and the captures in
-`test/design/recipes_redesign_capture_test.dart`.
+Pinned by `test/recipes_redesign_wiring_test.dart` and
+`test/recipes_redesign_details_test.dart`. The capture suite
+`test/design/recipes_redesign_capture_test.dart` left the test pass on
+2026-10-21 and stays restorable from `7a05b818`.
 
 ## Avoided foods, own categories, day planning and copy (2026-10-19)
 

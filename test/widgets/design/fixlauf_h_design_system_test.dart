@@ -22,8 +22,8 @@ import '../../support/harness.dart';
 // translucent layers composited first.
 //
 // Every claim that used to be spelled out once per palette now runs through
-// `renderMatrix`, which declares one test per brightness and appends the
-// combination to the test name. `c.t` is the palette of that case, so the
+// `renderMatrix` with `bothBrightnesses`, one test per brightness with the
+// combination appended to the test name. `c.t` is the palette of that case, so the
 // assertions read the same in both modes.
 // ---------------------------------------------------------------------------
 
@@ -72,7 +72,7 @@ void main() {
       final text = style.textStyle!.resolve(<WidgetState>{})!;
       expect(text.fontWeight, FontWeight.w700);
       expect(text.fontFamily, AppType.uiFamily);
-    });
+    }, brightnesses: bothBrightnesses);
 
     // Dark redesign 2026-09-28: the primary action is the accent pill.
     renderMatrix('FilledButton-Flaeche (Akzent) auf surf >= 3:1, Text on-accent',
@@ -98,7 +98,7 @@ void main() {
       // PrimaryActionButton and the sheet action.
       expect(style.minimumSize!.resolve(<WidgetState>{})!.height,
           kButtonMinHeight);
-    });
+    }, brightnesses: bothBrightnesses);
 
     // The secondary action: a tonal `softFill` pill with an `ink` label, 700
     // (`softFill` holds on the light page ground, where `surf2` vanished).
@@ -121,7 +121,7 @@ void main() {
       expect(shape.borderRadius, BorderRadius.circular(rButton));
       expect(style.minimumSize!.resolve(<WidgetState>{})!.height,
           kButtonMinHeight);
-    });
+    }, brightnesses: bothBrightnesses);
   });
 
   // =========================================================================
@@ -144,7 +144,7 @@ void main() {
         expect(border!.borderSide, BorderSide.none,
             reason: 'Rahmen-Regel: keine Hairline an Eingabefeldern');
       }
-    });
+    }, brightnesses: bothBrightnesses);
 
     renderMatrix('Fokus hellt die Flaeche auf, Fehler toent danger',
         (tester, c) async {
@@ -162,7 +162,7 @@ void main() {
       expect(fehler, isNot(ruhe));
       // Hint and value text on all three fills: app_tokens_test.dart ('Hint
       // und Wert tragen auf allen Feld-Fuellungen').
-    });
+    }, brightnesses: bothBrightnesses);
 
     // The capsule lives on cards (surf) AND on sheets (bg). A fill equal
     // to either ground vanished there (fix round 1). ≥ 1.2:1 against both
@@ -189,7 +189,7 @@ void main() {
         expect(f, isNot(t.surf2));
         expect(f, isNot(t.bg));
       }
-    });
+    }, brightnesses: bothBrightnesses);
   });
 
   group('F8-03 FieldCapsule', () {
@@ -228,7 +228,7 @@ void main() {
       node.unfocus();
       await tester.pumpAndSettle();
       expect(deco(tester).color, t.field);
-    });
+    }, brightnesses: bothBrightnesses);
 
     renderMatrix('focused/error/shape/shadow steuern die Kapsel direkt',
         (tester, c) async {
@@ -253,7 +253,7 @@ void main() {
         padding: _rand,
       );
       expect(deco(tester).color, t.fieldError, reason: 'Fehler schlaegt Fokus');
-    });
+    }, brightnesses: bothBrightnesses);
   });
 
   group('F8-03 SheetField', () {
@@ -271,7 +271,7 @@ void main() {
       deco = _fieldDecoration(tester);
       expect(deco.color, c.t.fieldFocus);
       expect(deco.border, isNull);
-    });
+    }, brightnesses: bothBrightnesses);
 
     renderMatrix('Fehler toent die Flaeche, kein roter Rand', (tester, c) async {
       await c.pump(
@@ -283,7 +283,7 @@ void main() {
       expect(deco.border, isNull);
       expect(deco.color, c.t.fieldError);
       expect(find.text('Nein'), findsOneWidget);
-    });
+    }, brightnesses: bothBrightnesses);
 
     testWidgets('label ist optional (Suchfelder)', (tester) async {
       await pumpLocalized(tester, const SheetField(hint: 'Suchen'),
@@ -416,7 +416,7 @@ void main() {
       expect(tester.widget<InkWell>(find.byType(InkWell)).onTap, isNull);
       final label = tester.widget<Text>(find.text('Weiter'));
       expect(label.style!.color!.a, lessThan(1.0), reason: 'Label gedimmt');
-    });
+    }, brightnesses: bothBrightnesses);
   });
 
   // =========================================================================
@@ -477,7 +477,7 @@ void main() {
       // whisper against the card.
       expect(_kontrast(spur, t.surf), greaterThanOrEqualTo(1.5),
           reason: 'Spur gegen die Karte');
-    });
+    }, brightnesses: bothBrightnesses);
 
     renderMatrix('AN: Akzent-Spur und Knopf sind >= 3:1 erkennbar',
         (tester, c) async {
@@ -493,7 +493,7 @@ void main() {
           reason: 'Spur gegen die Karte');
       expect(_kontrast(knopf, spur), greaterThanOrEqualTo(3.0),
           reason: 'Knopf gegen die Spur');
-    });
+    }, brightnesses: bothBrightnesses);
   });
 
   // F8-08 (macro colours carry 3:1 on the card and on the track):
@@ -603,7 +603,7 @@ void main() {
         findsOneWidget,
       );
       handle.dispose();
-    });
+    }, brightnesses: bothBrightnesses);
   });
 
   // =========================================================================
@@ -649,7 +649,7 @@ void main() {
         final icon = tester.widget<Icon>(find.byIcon(Icons.star_rounded));
         expect(icon.color, t.onAccentFill);
       }
-    });
+    }, brightnesses: bothBrightnesses);
 
     testWidgets('semanticLabel ersetzt das sichtbare Label, ohne Doppel',
         (tester) async {

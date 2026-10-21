@@ -51,6 +51,7 @@ changes.
 
 The wiring of every control and figure is pinned in
 `test/flows/food_redesign_wiring_test.dart`; the building blocks in
-`test/widgets/kcal/food_redesign_parts_test.dart`. Captures of the design
-scenario come from `test/design/food_redesign_capture_test.dart` (run with
-`--dart-define=DARK_REDESIGN_CAPTURE=true`, output in `build/dark-redesign/`).
+`test/widgets/kcal/food_redesign_parts_test.dart`. The design scenario's
+capture suite left the test pass on 2026-10-21; it is
+`test/design/food_redesign_capture_test.dart` at `7a05b818` (see
+[docs/README.md](README.md)).

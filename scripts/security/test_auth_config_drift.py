@@ -154,27 +154,6 @@ class SettingDriftTests(Base):
             del config[key]
             self.assertEqual(self.findings(config), [key + ': missing from the live configuration'])
 
-    def test_misconfigurations_fixed_by_hand_on_2026_09_01_are_detected(self):
-        cases = {
-            'rate_limit_email_sent': (2, 'rate_limit_email_sent: expected 60, live 2'),
-            'site_url': ('eatova://login-callback/',
-                         'site_url: expected "https://eatova.de", live "eatova://login-callback/"'),
-        }
-        for key, (old, message) in cases.items():
-            with self.subTest(key=key):
-                with self.assertRaises(drift.PolicyError) as caught:
-                    drift.validate(dict(self.config, **{key: old}), self.expected)
-                self.assertIn(message, str(caught.exception))
-        findings = self.findings(self.with_template('magic_link', DEFAULT_MAGIC_LINK))
-        self.assertIn('mailer_templates_magic_link_content: contains .ConfirmationURL', findings)
-        self.assertIn('mailer_templates_magic_link_content: link outside the allowed footer links: '
-                      '"{{ .ConfirmationURL }}"', findings)
-
-    def test_password_policy_regression_is_still_detected(self):
-        config = dict(self.config, security_update_password_require_current_password=False)
-        with self.assertRaisesRegex(drift.PolicyError, 'security_update_password_require_current_password'):
-            drift.check(self.env, self.opener(json.dumps(config).encode()), self.expected)
-
 
 class AllowListTests(Base):
     def test_exact_set_with_whitespace_and_list_forms(self):

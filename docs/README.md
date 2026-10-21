@@ -58,17 +58,20 @@ earlier baseline in the same area.
 | Meal entry and calendar | [Entry baseline](MEAL-ENTRY-DESIGN.md), [camera/manual/search/calendar polish](FOOD-ENTRY-POLISH-2026-09-14.md) |
 | Recipes, plan and shopping | [Recipes (dark redesign root, Spotlight details/plan/shopping)](RECIPES-DESIGN.md) |
 | Training | [Training (dark redesign root, Nachtstudio library/player)](TRAINING-DESIGN.md), [artwork provenance](../assets/training/README.md) |
-| Coach | No separate contract; see the [handoff](PROJECT_HANDOFF.md#dark-redesign-of-the-five-tabs-2026-09-28-to-2026-09-30) and `test/design/coach_redesign_capture_test.dart` |
+| Coach | No separate contract; see the [handoff](PROJECT_HANDOFF.md#dark-redesign-of-the-five-tabs-2026-09-28-to-2026-09-30) |
 | Shared navigation and icons | [Gestures](GESTURE-NAVIGATION.md), [original icon family](ICON-FAMILY-2026-09-14.md) |
 | Account and headers | [App polish](APP-POLISH-2026-09-13.md) |
 | Login, signup and onboarding | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding questions and redesign (2026-10-04)](ONBOARDING-2026-10-04.md) |
 
 Current tab renders: [Today](dark-redesign-preview/today.png),
 [Food](dark-redesign-preview/food.png), [Recipes](dark-redesign-preview/recipes.png)
-and [Training](dark-redesign-preview/training.png). Regenerate them with the
-`test/design/*_redesign_capture_test.dart` suites and
-`--dart-define=DARK_REDESIGN_CAPTURE=true` (output in `build/dark-redesign/`; the committed copies are the `*-00` shots
-at half resolution).
+and [Training](dark-redesign-preview/training.png), the `*-00` shots of the
+`test/design/*_redesign_capture_test.dart` suites at half resolution. Those
+suites left the test pass on 2026-10-21 (see the
+[test review](TEST-REVIEW-2026-10-21.md)); to regenerate a render, restore one
+with `git show 7a05b818:test/design/<tab>_redesign_capture_test.dart` and run it
+with `--dart-define=DARK_REDESIGN_CAPTURE=true` (output in
+`build/dark-redesign/`). New captures build on `test/support/design_capture.dart`.
 
 ## Delivery records
 

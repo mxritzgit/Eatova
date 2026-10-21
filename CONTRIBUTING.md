@@ -168,9 +168,14 @@ removed over a thousand tests that guarded nothing extra; keep it that way:
 - **Tables, not one test per row.** Loop over the cases inside one test and
   name the row in `reason:`.
 - **Vary only what the code branches on.** Brightness never changes layout, so
-  overflow and geometry run in one palette; both palettes only for color or
-  contrast. Both locales only for separators, plurals or text length (ARB parity
-  covers copy). The narrowest size and the largest text scale cover overflow.
+  overflow and geometry run in one palette (`renderMatrix` runs dark unless a
+  color or contrast claim passes `bothBrightnesses`). Both locales only for
+  separators, plurals or text length (ARB parity covers copy). The narrowest
+  size and the largest text scale cover overflow.
+- **Captures are evidence, not tests.** Shoot a design round's PNGs with
+  `test/support/design_capture.dart`, then keep in the test pass only what no
+  other test guards, such as a screen the layout sweep
+  (`test/responsive/app_layout_sweep_test.dart`) never reaches.
 - **Assert outcomes.** No pins of pixels, radii, colors, tuned constants or
   translated sentences unless they are the requirement; no assertions on a
   fake's own bookkeeping or on values the test set itself.

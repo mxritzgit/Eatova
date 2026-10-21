@@ -146,7 +146,7 @@ void main() {
       c.t.bg,
       reason: '${c.brightness}: der Start steht auf dem Seitengrund',
     );
-  });
+  }, brightnesses: bothBrightnesses);
 
   testWidgets('ruft onComplete erst nach aufgeloestem profileReady '
       '(Session-Restore)', (tester) async {

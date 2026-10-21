@@ -4,9 +4,9 @@
 // grow with the text. Overflows are the subject here, so `renderMatrix`
 // asserts on them instead of swallowing them.
 //
-// 1.0 / 1.3 / 2.0 in ONE palette: the fields are borderless in both themes,
-// so the palette changes no geometry here (the light/dark render pass of the
-// same sheets is food_sheets_light_dark_test.dart).
+// 1.0 / 1.3 / 2.0 in renderMatrix's one palette: the fields are borderless
+// in both themes, so the palette changes no geometry here (the de/en render
+// pass of the same sheets is food_sheets_render_test.dart).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,9 +65,6 @@ const MealAnalysisResult _apfel = MealAnalysisResult(
 /// The three scales the sheet has to hold: normal, the 1.25 grid breakpoint's
 /// neighbour, and the WCAG 1.4.4 cap.
 const List<double> _skalen = <double>[1.0, 1.3, 2.0];
-
-/// Geometry does not depend on the palette (see the header).
-const List<Brightness> _einePalette = <Brightness>[Brightness.dark];
 
 Future<void> _pumpAddSheet(WidgetTester tester, RenderCase c) async {
   pinPhoneViewport(tester);
@@ -158,7 +155,6 @@ void main() {
       expect(tester.getSize(row).height, greaterThanOrEqualTo(textHeight));
     }),
     textScales: _skalen,
-    brightnesses: _einePalette,
   );
 
   renderMatrix(
@@ -180,7 +176,6 @@ void main() {
       }
     }),
     textScales: _skalen,
-    brightnesses: _einePalette,
   );
 
   renderMatrix(
@@ -190,6 +185,5 @@ void main() {
       expect(tester.takeException(), isNull);
     },
     textScales: _skalen,
-    brightnesses: _einePalette,
   );
 }

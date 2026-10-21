@@ -19,7 +19,8 @@
 > duotone from the hero-glow lavender (`arcStart`) to the backdrop
 > (`studioDuotone`), so it no longer fades into a grey fog. The asset itself
 > is unchanged; on a dark backdrop the photo shows as shot. Capture:
-> `test/design/training_player_capture_test.dart` (`training-plans-00`).
+> `test/design/training_player_capture_test.dart` (`training-plans-00`) at
+> `7a05b818`; the suite left the test pass on 2026-10-21.
 
 Concept 09, selected on 2026-09-13, is implemented as a native Flutter Training
 page. The dark studio photography, expressive headings, lavender start action

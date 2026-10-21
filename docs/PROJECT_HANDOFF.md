@@ -4080,8 +4080,14 @@ unnecessary or outdated ones, keep what really finds failures, and stop adding
   after every test (it hung a flow suite in random order); dead code removed:
   `ImagePlaceholder`, `shoppingLineChecked`/`shoppingProgress`,
   `UserRecipeLimits.hasDbUpperBound`, `debugClearTrendDateFormats`.
-- **Still open:** the follow-ups listed in the report (`renderMatrix` dark by
-  default, capture suites in CI, `bootUntilIdle`, fakes ignoring `select`, a
-  shared Goals route helper, `LoadingCard` and the `trendBurnedKcalFor`
-  fallback, Python security duplicates the classifier would not let an agent
-  remove, fresh shard timing hints).
+- **Follow-ups ([PR #164](https://github.com/mxritzgit/Eatova/pull/164)):**
+  27 of 30 design capture suites left the test pass (kept: onboarding at
+  320 px / 2x, the boot error page, `soft_controls_test`); every covered line
+  that guarded behaviour got a mutation-checked case in its feature's file.
+  `renderMatrix` runs dark unless a colour claim passes `bothBrightnesses`.
+  Three duplicate Python security tests and `LoadingCard` are gone. Flutter
+  tests 6595 → 6325, coverage 97.16 % → about 97.1 %.
+- **Still open:** duplicate SQL security blocks (the classifier refused the
+  edit), `bootUntilIdle`, fakes ignoring `select`, a shared Goals route
+  helper, the `trendBurnedKcalFor` fallback, fresh shard timing hints (no
+  generator script yet).

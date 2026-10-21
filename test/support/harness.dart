@@ -27,13 +27,15 @@
 //   expect(find.text(c.l10n.foodTitle), findsOneWidget);
 //   expect(color, c.t.ink);
 //
-// Same claim in light AND dark (and optionally more locales / text scales)?
-// `renderMatrix` declares one test per combination and fails on overflow:
+// Same claim over several locales / text scales? `renderMatrix` declares one
+// test per combination and fails on overflow. It runs the dark palette only:
+// brightness never changes layout. A claim about colour or contrast passes
+// `brightnesses: bothBrightnesses`:
 //
 //   renderMatrix('Karte rendert', (tester, c) async {
 //     await c.pump(tester, const MyCard());
 //     expect(decorationOf(tester, find.byType(MyCard)).color, c.t.surf);
-//   });
+//   }, brightnesses: bothBrightnesses);
 //
 // Notes for migrations:
 //  * [pumpLocalized] defaults to `Brightness.dark`, `designHarness` defaults to
@@ -404,8 +406,19 @@ class RenderCase {
   String toString() => 'RenderCase($label)';
 }
 
+/// Both palettes, for a [renderMatrix] whose claim is about colour or
+/// contrast.
+const List<Brightness> bothBrightnesses = <Brightness>[
+  Brightness.dark,
+  Brightness.light,
+];
+
 /// Declares one test per combination of [locales] x [brightnesses] x
 /// [textScales]; the combination is appended to the test name.
+///
+/// [brightnesses] defaults to the dark palette alone: no widget branches its
+/// layout on brightness (repo_rules_test), so a second palette only repeats
+/// an overflow check. Pass [bothBrightnesses] when the body asserts colours.
 ///
 /// Every case additionally asserts that no overflow/layout error occurred —
 /// switch that off with [skipOverflowCheck] for a subject that is knowingly
@@ -421,10 +434,7 @@ void renderMatrix(
   String description,
   Future<void> Function(WidgetTester tester, RenderCase c) body, {
   List<Locale> locales = const <Locale>[Locale('de')],
-  List<Brightness> brightnesses = const <Brightness>[
-    Brightness.dark,
-    Brightness.light,
-  ],
+  List<Brightness> brightnesses = const <Brightness>[Brightness.dark],
   List<double> textScales = const <double>[1.0],
   bool skipOverflowCheck = false,
 }) {

@@ -1,11 +1,7 @@
-// DESIGN_REFACTOR §7.2 for the food sheets: at least one widget test per sheet
-// pumps it under buildEatovaTheme(Brightness.light) AND (Brightness.dark).
-//
-// The existing sheet suites only pump dark, since they test flows. This covers
-// the missing half via `renderMatrix`, which also adds the `en` column the old
-// hand-written brightness loop never had: does every sheet render without
-// exception and without RenderFlex overflow in every combination? Overflows
-// are checked by the matrix itself, never swallowed.
+// The food sheets (add, analysis, edit) in German and English: does every
+// sheet render without exception and without RenderFlex overflow, with its
+// heading from the ARB? Overflows are checked by `renderMatrix` itself, never
+// swallowed. One palette, as everywhere: brightness never changes layout.
 //
 // Camera and barcode sheets are deliberately absent: their surfaces sit on a
 // live camera image and are dark in both modes, and their states depend on
@@ -117,8 +113,7 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      // Slot header and the already-added list show in every combination — the
-      // card takes its surface from the tokens, not from a constant, and its
+      // Slot header and the already-added list show in both languages, the
       // heading from the ARB, not from a German literal.
       expect(
         tester.widget<Text>(find.byKey(const ValueKey('add-meal-date-context'))).data,
