@@ -2,18 +2,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/food_kcal_db.dart';
 
-// Review 2026-08-29, P2-05 and P2-06.
+// The local kcal table and `autoSplitItems`, which turns a scanned meal's
+// totals into editable items.
 //
-// P2-05: a table row whose normalized form is not the row itself can never be
-// hit — `_normalize` runs BEFORE the table is asked, so the key the lookup
-// searches for is a different string than the one that was written down.
+// P2-05 (review 2026-08-29): a table row whose normalized form is not the row
+// itself can never be hit — `_normalize` runs BEFORE the table is asked.
 // 'gemischter salat' was exactly that: `_adjectiveStrip` removed 'gemischt'
 // with its inflection ending, leaving 'salat'.
 //
-// P2-06: autoSplitItems documents that it preserves BOTH totals. Only the kcal
-// sum was made exact; the gram sum drifted by up to n/2 g through per-item
-// rounding. Confirming the components sheet unchanged then moved the portion
-// (and with it the density the user had just seen).
+// P2-06: autoSplitItems preserves BOTH totals. Only the kcal sum used to be
+// exact; the gram sum drifted by up to n/2 g through per-item rounding, so
+// confirming the components sheet unchanged moved the portion.
+//
+// Audit 2026-08-14: without a usable total (0 is the documented unknown
+// sentinel) the split used to fall back to factor 1.0 and invent items from
+// the table's default portions, one tap from the diary.
 void main() {
   group('Tabelle: jede Zeile ist erreichbar (P2-05)', () {
     test('jeder Schluessel normalisiert auf sich selbst', () {
@@ -59,34 +62,31 @@ void main() {
     });
   });
 
-  group('autoSplitItems haelt beide Summen ein (P2-06)', () {
-    // The example from the finding: reference grams 200 + 180 + 80 = 460,
-    // gramFactor 0.217391 -> 43.478 / 39.130 / 17.391 -> 43 + 39 + 17 = 99 g.
-    test('kleines Gesamtgewicht rundet nicht unter den Zielwert', () {
+  group('autoSplitItems', () {
+    test('verteilt die Gesamtwerte nach den Tabellen-Verhaeltnissen', () {
+      const teller = 'Steak mit Ofenkartoffeln und Tomate';
       final items = autoSplitItems(
-        mealName: 'Steak mit Reis und Salat',
-        totalGrams: 100,
-        totalKcal: 300,
+        mealName: teller,
+        totalGrams: 480,
+        totalKcal: 800,
       );
-      expect(items.length, 3);
-      expect(items.fold<int>(0, (s, c) => s + c.grams), 100);
-      expect(items.fold<int>(0, (s, c) => s + c.caloriesKcal), 300);
+
+      expect(items.map((c) => c.name), ['Steak', 'Ofenkartoffeln', 'Tomate']);
+      // The table only supplies ratios: the steak outweighs the tomato, but no
+      // item sits on its reference value.
+      expect(items.first.caloriesKcal, greaterThan(items.last.caloriesKcal));
       for (final c in items) {
-        expect(c.grams, greaterThan(0));
+        // The derived density matches the item's own grams and kcal.
+        expect(c.kcalPer100G, closeTo(c.caloriesKcal * 100 / c.grams, 0.001));
       }
     });
 
-    test('Gegenprobe: der Fall ohne Drift bleibt exakt', () {
-      final items = autoSplitItems(
-        mealName: 'Steak mit Reis und Salat',
-        totalGrams: 500,
-        totalKcal: 800,
-      );
-      expect(items.fold<int>(0, (s, c) => s + c.grams), 500);
-      expect(items.fold<int>(0, (s, c) => s + c.caloriesKcal), 800);
-    });
-
-    test('beide Summen stimmen ueber eine Matrix von Gesamtwerten', () {
+    // EXACT, not close: autoSplitItems spreads the rounding remainder over the
+    // items (_spreadRemainder), so both totals land on the model's anchors. A
+    // tolerance would wave a returning drift straight through. The finding's
+    // example is in the matrix: 200 + 180 + 80 reference grams scaled to 100 g
+    // rounded to 43 + 39 + 17 = 99 g.
+    test('beide Summen stimmen ueber eine Matrix von Gesamtwerten (P2-06)', () {
       const namen = <String>[
         'Steak mit Reis und Salat',
         'Hähnchen mit Reis und Brokkoli',
@@ -105,7 +105,12 @@ void main() {
               totalGrams: g,
               totalKcal: k,
             );
-            expect(items, isNotEmpty, reason: '$name / $g g / $k kcal');
+            // A single item would hold both sums trivially.
+            expect(
+              items.length,
+              greaterThan(1),
+              reason: '$name / $g g / $k kcal',
+            );
             expect(
               items.fold<int>(0, (s, c) => s + c.grams),
               g,
@@ -124,14 +129,19 @@ void main() {
       }
     });
 
-    test('die abgeleitete Dichte passt zu Gramm und kcal des Postens', () {
-      final items = autoSplitItems(
-        mealName: 'Steak mit Reis und Salat',
-        totalGrams: 100,
-        totalKcal: 300,
-      );
-      for (final c in items) {
-        expect(c.kcalPer100G, closeTo(c.caloriesKcal * 100 / c.grams, 0.001));
+    test('ohne positive Gesamtwerte erfindet sie keine Posten', () {
+      const teller = 'Steak mit Ofenkartoffeln und Tomate';
+      for (final (grams, kcal) in const <(int, int)>[
+        (480, 0), // the unknown sentinel
+        (480, -1),
+        (0, 800), // no anchor: the grams would be the table's defaults
+        (-5, 800),
+      ]) {
+        expect(
+          autoSplitItems(mealName: teller, totalGrams: grams, totalKcal: kcal),
+          isEmpty,
+          reason: '$grams g / $kcal kcal',
+        );
       }
     });
   });

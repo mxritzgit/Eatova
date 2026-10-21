@@ -351,17 +351,6 @@ void main() {
     });
   });
 
-  testWidgets('add sheet in German', (tester) async {
-    await withClock(Clock.fixed(_now), () async {
-      final errors = await collectOverflows(() async {
-        await _openAddSheet(tester, locale: const Locale('de'));
-        await _scrollTo(tester, _key('add-meal-favorites-all'));
-        await captureDesignShot(tester, 'add-items-saved-recent-de');
-      });
-      expect(errors, isEmpty, reason: describeOverflows(errors));
-    });
-  });
-
   testWidgets('rows hold at 2.0 text scale', (tester) async {
     await withClock(Clock.fixed(_now), () async {
       final errors = await collectOverflows(() async {

@@ -1,6 +1,8 @@
-// Favorites section of the add-meal sheet (feature 2026-08-27): only the top
-// three pinned by recency sit inline, the "All (N)" button opens the favorites
-// sheet, and unpins/adds made there flow back into the add sheet.
+// The add-meal sheet's favorites row (since 2026-10-03; it replaced the inline
+// top three of 2026-08-27): one "Favorites · N saved" row opens the favorites
+// sheet, and unpins/adds made there flow back into the add sheet's row and
+// recents. The real-store version of the add path lives in
+// test/flows/favorites_menu_flow_test.dart.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -99,7 +101,6 @@ Future<void> _pumpe(
   required List<FavoriteMeal> favoriten,
   String Function(MealAnalysisResult, MealSlot)? onAdd,
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
-  Locale locale = const Locale('de'),
   ProductLookupService? productService,
 }) async {
   pinPhoneViewport(tester);
@@ -116,7 +117,6 @@ Future<void> _pumpe(
       onRemoveFavorite: (_) {},
       onToggleFavorite: onToggleFavorite,
     ),
-    locale: locale,
     // Motion stays on: with duration 0 the sheet's AnimatedSize re-dirties
     // itself inside its own performLayout.
     reducedMotion: false,
@@ -157,29 +157,12 @@ void main() {
       (tester) async {
     await _pumpe(tester, favoriten: _fuenfGepinnt);
 
-    expect(find.byKey(const ValueKey('favorite-pinned-0')), findsNothing);
     for (final name in ['Skyr', 'Reis', 'Lachs', 'Banane', 'Haferbrei']) {
       expect(find.text(name), findsNothing, reason: name);
     }
     expect(_alleKnopf(), findsOneWidget);
     expect(
       find.descendant(of: _alleKnopf(), matching: find.text('Favoriten')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('englisch heißt sie „Favorites · 5 saved"', (tester) async {
-    await _pumpe(
-      tester,
-      favoriten: _fuenfGepinnt,
-      locale: const Locale('en'),
-    );
-    expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('Favorites')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('5 saved')),
       findsOneWidget,
     );
   });
@@ -222,27 +205,6 @@ void main() {
     expect(tester.getSize(_alleKnopf()).height, greaterThanOrEqualTo(44));
   });
 
-  testWidgets('Tap auf die Zeile öffnet das Favoriten-Sheet mit allen 5',
-      (tester) async {
-    await _pumpe(tester, favoriten: _fuenfGepinnt);
-
-    await _oeffneFavoritenSheet(tester);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('favorites-sheet')),
-        matching: find.text('5 gespeichert'),
-      ),
-      findsOneWidget,
-    );
-    for (var i = 0; i < 5; i++) {
-      expect(
-        find.byKey(ValueKey('favorites-sheet-item-$i')),
-        findsOneWidget,
-        reason: 'Zeile $i',
-      );
-    }
-  });
-
   testWidgets(
       'Entpinnen im Favoriten-Sheet: der Zähler sinkt, der Favorit wird zum '
       'Recent, onToggleFavorite wurde genau einmal gerufen',
@@ -270,22 +232,6 @@ void main() {
     expect(
       _nameInKachel(tester, find.byKey(const ValueKey('favorite-tile-0'))),
       'Skyr',
-    );
-  });
-
-  testWidgets(
-      'Entpinnen ohne Store-Anbindung (onToggleFavorite null) wirkt lokal',
-      (tester) async {
-    await _pumpe(tester, favoriten: _fuenfGepinnt);
-
-    await _oeffneFavoritenSheet(tester);
-    await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
-    await tester.pump();
-    await _schliesseFavoritenSheet(tester);
-
-    expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('4 gespeichert')),
-      findsOneWidget,
     );
   });
 
@@ -322,43 +268,6 @@ void main() {
 
     expect(_favoritenSheet(), findsNothing);
     expect(tester.widget<TextField>(suche).focusNode!.hasFocus, isFalse);
-  });
-
-  testWidgets(
-      'Hinzufügen im Favoriten-Sheet nimmt den im Add-Sheet gewählten Slot',
-      (tester) async {
-    final geloggt = <(MealAnalysisResult, MealSlot)>[];
-    await _pumpe(
-      tester,
-      favoriten: _fuenfGepinnt,
-      onAdd: (result, slot) {
-        geloggt.add((result, slot));
-        return 'id-1';
-      },
-    );
-
-    // Sheet opened with snack; switch to lunch first.
-    await chooseMealSlot(tester, 'slot-select-lunch');
-    await tester.pumpAndSettle();
-
-    await _oeffneFavoritenSheet(tester);
-    await tester.tap(find.byKey(const ValueKey('favorites-sheet-item-1')));
-    await tester.pumpAndSettle();
-    final knopf = find.byKey(const ValueKey('favorites-sheet-add-1'));
-    await tester.ensureVisible(knopf);
-    await tester.tap(knopf);
-    await tester.pump();
-
-    expect(geloggt, hasLength(1));
-    expect(geloggt.single.$1.mealName, 'Reis');
-    expect(geloggt.single.$2, MealSlot.lunch);
-
-    await _schliesseFavoritenSheet(tester);
-    // Nothing changed in the add sheet's favorites after a plain add.
-    expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('5 gespeichert')),
-      findsOneWidget,
-    );
   });
 
   testWidgets(

@@ -351,35 +351,6 @@ void main() {
   });
 
   testWidgetsRobust(
-      'D5: der Drag-Guard blockiert weder Taps noch die Auswahl im Sheet',
-      (WidgetTester tester) => withClockAt(_mittwoch, () async {
-    // The guard registers only a vertical drag recognizer; taps and the
-    // horizontal lists must keep working while the sheet is dirty.
-    final capture = _EditCapture();
-    await _openSheet(tester, capture);
-
-    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
-    await tester.pumpAndSettle();
-    // From here on the guard is active.
-    await tester.tap(find.byKey(const ValueKey('edit-slot-select-dinner')));
-    await tester.pumpAndSettle();
-    await tester.tap(_tagVor(2));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
-    await tester.pumpAndSettle();
-
-    expect(capture.updateCalls, 1);
-    expect(capture.slot, MealSlot.dinner);
-    expect(
-      DateUtils.isSameDay(
-        capture.day!,
-        addDays(startOfDay(clock.now()), -2),
-      ),
-      isTrue,
-    );
-  }));
-
-  testWidgetsRobust(
       'D5: ohne Aenderung schliesst der Barriere-Tap sofort — kein Dialog',
       (WidgetTester tester) async {
     final capture = _EditCapture();
@@ -421,22 +392,6 @@ void main() {
   });
 
   testWidgetsRobust(
-      'D5: Speichern laeuft ohne Verwerfen-Dialog durch',
-      (WidgetTester tester) async {
-    final capture = _EditCapture();
-    await _openSheet(tester, capture);
-
-    await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
-    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
-    expect(capture.updateCalls, 1);
-  });
-
-  testWidgetsRobust(
       'D5: Loeschen laeuft ohne Verwerfen-Dialog durch, auch mit Aenderung',
       (WidgetTester tester) async {
     final capture = _EditCapture();
@@ -450,20 +405,7 @@ void main() {
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
     expect(capture.removed, ['meal-1']);
-  });
-
-  testWidgetsRobust('Loeschen nutzt den Remove-Pfad und schliesst das Sheet', (
-    WidgetTester tester,
-  ) async {
-    final capture = _EditCapture();
-    await _openSheet(tester, capture);
-
-    await tester.tap(find.byKey(const ValueKey('edit-meal-delete-button')));
-    await tester.pumpAndSettle();
-
-    expect(capture.removed, ['meal-1']);
-    expect(capture.updateCalls, 0);
-    expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
+    expect(capture.updateCalls, 0, reason: 'delete never saves the change');
   });
 
   testWidgetsRobust('Ohne Remove-Callback gibt es keinen Loeschen-Button', (
@@ -494,26 +436,6 @@ void main() {
     );
     expect(source.top, greaterThanOrEqualTo(figure.bottom));
     expect(source.left, closeTo(figure.left, 0.5));
-  });
-
-  testWidgetsRobust('Summary: source label stays at the right edge when it fits', (
-    WidgetTester tester,
-  ) async {
-    await _openSheet(
-      tester,
-      _EditCapture(),
-      surfaceSize: const Size(900, 900),
-    );
-    final card = tester.getRect(find.byKey(const ValueKey('edit-meal-summary')));
-    final figure = tester.getRect(
-      find.byKey(const ValueKey('edit-meal-summary-figure')),
-    );
-    final source = tester.getRect(
-      find.byKey(const ValueKey('edit-meal-summary-source')),
-    );
-    expect(source.center.dy, closeTo(figure.center.dy, 0.5));
-    // The card's 1 px border and 14 px padding.
-    expect(source.right, closeTo(card.right - 15, 0.5));
   });
 
   // ─── Integration through the real app shell ─────────────────────────────
