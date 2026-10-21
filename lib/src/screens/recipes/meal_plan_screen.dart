@@ -31,6 +31,7 @@ import '../../widgets/recipes/recipe_avoid_hint.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
 import '../today/today_texts.dart' show kcalThousands, todayWeekdayShort;
+import 'recipes_screen.dart' show RecipeDetailScreen;
 
 part 'meal_plan_editor.dart';
 part 'meal_plan_shopping.dart';
@@ -181,6 +182,78 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     );
     if (!mounted || confirmed != true) return;
     await _run(plan.id, () => store.removePlannedMeal(plan), removal: true);
+  }
+
+  /// Ticks [plan] as eaten. A plan of a past day asks first whether it goes
+  /// into the diary on that day (offered first) or today; a dismissal logs
+  /// nothing. Today's and later plans are logged today, as before.
+  Future<void> _eat(PlannedMeal plan) async {
+    if (_busy.contains(plan.id)) return;
+    final l = context.l10n;
+    final planned = DateTime.parse(plan.day);
+    DateTime? day;
+    if (planned.isBefore(DateUtils.dateOnly(clock.now()))) {
+      day = await showEatovaDialog<DateTime>(
+        context: context,
+        builder: (dialogContext) => EatovaDialog(
+          key: const ValueKey('meal-plan-eat-day-dialog'),
+          title: l.mealPlanEatDayTitle,
+          icon: Icons.event_available_outlined,
+          content: Text(
+            l.mealPlanEatDayBody(
+              plan.recipe.displayTitle(l),
+              DateFormat.MMMMEEEEd(l.localeName).format(planned),
+            ),
+          ),
+          actions: [
+            EatovaDialogAction(
+              buttonKey: const ValueKey('meal-plan-eat-planned-day'),
+              label: l.mealPlanEatOnPlannedDay(
+                _keepTogether(DateFormat.MMMEd(l.localeName).format(planned)),
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(planned),
+            ),
+            EatovaDialogAction(
+              buttonKey: const ValueKey('meal-plan-eat-today'),
+              label: l.mealPlanEatOnToday,
+              secondary: true,
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(DateUtils.dateOnly(clock.now())),
+            ),
+            EatovaDialogAction(
+              buttonKey: const ValueKey('meal-plan-eat-cancel'),
+              label: l.commonCancel,
+              secondary: true,
+              autofocus: true,
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || day == null) return;
+    }
+    await _run(plan.id, () => store.eatPlannedMeal(plan.id, day: day));
+  }
+
+  /// The planned recipe, read-only, with its ingredients for the planned
+  /// servings: it is eaten here, through the plan, never from the detail.
+  void _openRecipe(PlannedMeal plan) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => RecipeDetailScreen(
+        recipe: plan.recipe,
+        servings: plan.servings,
+        showAddAction: false,
+        onAddMeal: (_, _) {},
+        avoidances: store.profile.foodAvoidances,
+      ),
+    ),
+  );
+
+  /// The receipt note's link: the plan behind [planId], if it is still there.
+  void _openPlannedRecipe(String planId) {
+    final plan = store.plannedMeals.where((p) => p.id == planId).firstOrNull;
+    if (plan != null) _openRecipe(plan);
   }
 
   // No route handle: a pull on it would bypass the editor's save guard. The
@@ -651,6 +724,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final note = eatenOn ?? (kcal == null ? l.mealPlanCannotLog : null);
     return _MealRow(
       key: ValueKey('meal-plan-card-${plan.id}'),
+      openKey: ValueKey('meal-plan-open-${plan.id}'),
+      onOpen: () => _openRecipe(plan),
       recipe: recipe,
       slot: plan.slot,
       title: recipe.displayTitle(l),
@@ -666,10 +741,15 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
           plan.isEaten ? 'meal-plan-eaten-${plan.id}' : 'meal-plan-eat-${plan.id}',
         ),
         eaten: plan.isEaten,
-        label: eatenOn ?? l.mealPlanEatToday,
+        // A past day's plan asks for the day; its label does not say today.
+        label:
+            eatenOn ??
+            (DateUtils.dateOnly(day).isBefore(DateUtils.dateOnly(clock.now()))
+                ? l.mealPlanEat
+                : l.mealPlanEatToday),
         onTap: plan.isEaten || busy || kcal == null
             ? null
-            : () => _run(plan.id, () => store.eatPlannedMeal(plan.id)),
+            : () => _eat(plan),
       ),
       // An eaten plan is a diary entry now: nothing left to edit or delete.
       menu: plan.isEaten
@@ -798,6 +878,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 key: const ValueKey('shopping-empty-recipes'),
                 recipes: receipt.emptyRecipes,
                 spaced: receipt.rows.isNotEmpty,
+              ),
+            for (final recipe in receipt.emptyRecipes)
+              _EmptyRecipeLink(
+                key: ValueKey('shopping-empty-recipe-${recipe.planId}'),
+                recipe: recipe,
+                onTap: () => _openPlannedRecipe(recipe.planId),
               ),
           ],
         ),

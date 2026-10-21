@@ -13,6 +13,7 @@ import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/shopping_list.dart';
 import 'package:eatova/src/models/shopping_receipt.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
+import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:flutter/material.dart';
@@ -449,6 +450,18 @@ void main() {
         findsOneWidget,
       );
       expect(await _progress(tester), '0 von 1 abgehakt');
+
+      // Each one links to its recipe, where the list can be checked.
+      final pizza = store.plannedMeals.firstWhere(
+        (p) => p.recipe.title == 'Pizza',
+      );
+      final link = _key('shopping-empty-recipe-${pizza.id}');
+      await tester.ensureVisible(link);
+      await tester.pumpAndSettle();
+      await tester.tap(link);
+      await tester.pumpAndSettle();
+      expect(find.byType(RecipeDetailScreen), findsOneWidget);
+      expect(_key('recipe-detail-${pizza.recipe.slug}'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

@@ -742,6 +742,76 @@ class _EmptyRecipesNote extends StatelessWidget {
   }
 }
 
+/// Under [_EmptyRecipesNote]: one link per recipe to its read-only detail,
+/// where the missing list can be checked.
+class _EmptyRecipeLink extends StatelessWidget {
+  const _EmptyRecipeLink({
+    super.key,
+    required this.recipe,
+    required this.onTap,
+  });
+
+  final ShoppingEmptyRecipe recipe;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final t = context.t;
+    final day = DateTime.parse(recipe.day);
+    final label = '${recipe.title} (${todayWeekdayShort(day, l)})';
+    return Semantics(
+      container: true,
+      button: true,
+      label: '${recipe.title}, ${DateFormat.EEEE(l.localeName).format(day)}',
+      hint: l.mealPlanOpenRecipe,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: _kReceiptInset,
+              vertical: 8,
+            ),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: 1,
+              // The chevron follows the last word, also when it wraps.
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(text: '$label '),
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: Icon(
+                        Icons.chevron_right_rounded,
+                        size: math.min(
+                          MediaQuery.textScalerOf(context).scale(18),
+                          28,
+                        ),
+                        color: t.accentText,
+                      ),
+                    ),
+                  ],
+                ),
+                style: AppType.ui(
+                  13.5,
+                  weight: FontWeight.w600,
+                  color: t.accentText,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The heading of a receipt section, in capitals, with an optional meta
 /// line and note.
 class _ReceiptHeading extends StatelessWidget {

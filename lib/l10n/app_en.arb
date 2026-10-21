@@ -2500,7 +2500,7 @@
   "recipeEditCannotLog": "Check the servings and fill in missing ingredient calories before logging this recipe.",
   "recipeEditCoachSource": "Created with Coach",
   "mealPlanTitle": "Meal plan",
-  "mealPlanDiaryFootnote": "Tick a meal once you have eaten it to add it to today's diary. Planning alone logs nothing.",
+  "mealPlanDiaryFootnote": "Tick a meal once you have eaten it to add it to your diary. Planning alone logs nothing.",
   "mealPlanWeek": "Week",
   "mealPlanShopping": "Shopping list",
   "mealPlanPreviousWeek": "Previous week",
@@ -3754,5 +3754,15 @@
   "todayMacroProgressValueAtLeast": "at least {value} of {goal} grams",
   "@todayMacroProgressValueAtLeast": {"placeholders": {"value": {"type": "int"}, "goal": {"type": "int"}}},
   "trendsProteinGoalDaysUnknown": "Protein goal reached on at least {hit} of {tracked, plural, one{1 day} other{{tracked} days}} ({unknown, plural, one{1 day} other{{unknown} days}} with entries without protein)",
-  "@trendsProteinGoalDaysUnknown": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}, "unknown": {"type": "int"}}}
+  "@trendsProteinGoalDaysUnknown": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}, "unknown": {"type": "int"}}},
+  "mealPlanOpenRecipe": "Opens the recipe",
+  "recipeIngredientsPlannedPerServing": "Amounts for 1 serving; {count} servings planned.",
+  "@recipeIngredientsPlannedPerServing": {"description": "Ingredients hint of a planned meal whose amounts stay as written; count: the planned servings, e.g. \"2\" or \"1.5\".", "placeholders": {"count": {"type": "String"}}},
+  "mealPlanEat": "Mark as eaten",
+  "mealPlanEatDayTitle": "Planned day or today?",
+  "mealPlanEatDayBody": "{recipe} was planned for {date}.",
+  "@mealPlanEatDayBody": {"description": "Ticking a plan of a past day; date: the planned day, e.g. \"Monday, October 20\".", "placeholders": {"recipe": {"type": "String"}, "date": {"type": "String"}}},
+  "mealPlanEatOnPlannedDay": "Log on {date}",
+  "@mealPlanEatOnPlannedDay": {"description": "Logs a past plan on its planned day; date: short, e.g. \"Mon, Oct 20\".", "placeholders": {"date": {"type": "String"}}},
+  "mealPlanEatOnToday": "Log for today"
 }

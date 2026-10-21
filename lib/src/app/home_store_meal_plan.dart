@@ -72,7 +72,13 @@ mixin _HomeStoreMealPlanPart
 
   /// One outbox intent owns the recipe snapshot, conversion receipt, diary row
   /// and server counters. Subsequent diary changes follow this UUID in FIFO.
-  Future<SyncDelivery> eatPlannedMeal(String id) =>
+  ///
+  /// [day]: the diary day for a plan of a past day; null or today logs now.
+  /// A past day keeps the current time of day, like any back-dated entry,
+  /// and tracks that day only where it continues the streak
+  /// ([LifetimeStats.backfillContinuesStreak]). [PlannedMeal.eatenAt] is the
+  /// diary time, so the plan names the day the entry is on.
+  Future<SyncDelivery> eatPlannedMeal(String id, {DateTime? day}) =>
       _serializeMealPlan(() async {
         _ensureMealPlanActive();
         final plan = _plannedMeals.where((p) => p.id == id).firstOrNull;
@@ -81,15 +87,23 @@ mixin _HomeStoreMealPlanPart
         }
         if (plan.isEaten) return SyncDelivery.delivered;
         final now = clock.now();
-        final converted = plan.copyWith(eatenAt: now);
+        if (day != null && DateUtils.dateOnly(day).isAfter(now)) {
+          throw ArgumentError.value(day, 'day', 'A future diary day');
+        }
+        final pastDay = day == null || _isSameFoodDate(day, now) ? null : day;
+        final loggedAt = pastDay == null ? now : _timestampForFoodDate(pastDay);
+        final trackDay =
+            pastDay == null ||
+            lifetimeStats.backfillContinuesStreak(loggedAt, now: now);
+        final converted = plan.copyWith(eatenAt: loggedAt);
         final meal = LoggedMeal(
           id: plan.id,
           result: plan.recipe.toMealResultForServings(plan.servings, _l10n),
-          loggedAt: now,
-          localDay: localDayKey(now),
+          loggedAt: loggedAt,
+          localDay: localDayKey(loggedAt),
           forcedSlot: plan.slot,
         );
-        final op = SyncOp.mealPlanConvert(converted, meal, trackDay: true);
+        final op = SyncOp.mealPlanConvert(converted, meal, trackDay: trackDay);
         final delivery = await _commitSyncIntents(
           [op],
           notifyQueued: false,
@@ -97,16 +111,17 @@ mixin _HomeStoreMealPlanPart
             _putPlannedMeal(converted);
             if (!loggedMeals.any((m) => m.id == meal.id)) {
               loggedMeals = [meal, ...loggedMeals];
-              lifetimeStats = lifetimeStats.incrementMeals().recordTrackedDay(
-                now,
-              );
+              lifetimeStats = lifetimeStats.incrementMeals();
+              if (trackDay) {
+                lifetimeStats = lifetimeStats.recordTrackedDay(loggedAt);
+              }
             }
             dailyConsumedKcal = consumedKcalForFoodDate(now);
             macroProgress = macroProgressForFoodDate(now);
             _invalidateTrendWindow();
           },
         );
-        unawaited(_rescheduleStreakReminder());
+        if (trackDay) unawaited(_rescheduleStreakReminder());
         return delivery;
       });
 

@@ -2559,7 +2559,7 @@
   "recipeEditCannotLog": "Prüfe die Portionen und ergänze fehlende Kalorien der Zutaten, bevor du das Rezept einträgst.",
   "recipeEditCoachSource": "Mit Coach erstellt",
   "mealPlanTitle": "Speiseplan",
-  "mealPlanDiaryFootnote": "Hake eine Mahlzeit ab, sobald du sie gegessen hast, dann landet sie im heutigen Tagebuch. Planen allein trägt nichts ein.",
+  "mealPlanDiaryFootnote": "Hake eine Mahlzeit ab, sobald du sie gegessen hast, dann landet sie im Tagebuch. Planen allein trägt nichts ein.",
   "mealPlanWeek": "Woche",
   "mealPlanShopping": "Einkaufsliste",
   "mealPlanPreviousWeek": "Vorherige Woche",
@@ -3849,5 +3849,15 @@
   "todayMacroProgressValueAtLeast": "mindestens {value} von {goal} Gramm",
   "@todayMacroProgressValueAtLeast": {"placeholders": {"value": {"type": "int"}, "goal": {"type": "int"}}},
   "trendsProteinGoalDaysUnknown": "Proteinziel an mindestens {hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} erreicht ({unknown, plural, one{1 Tag} other{{unknown} Tage}} mit Einträgen ohne Protein)",
-  "@trendsProteinGoalDaysUnknown": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}, "unknown": {"type": "int"}}}
+  "@trendsProteinGoalDaysUnknown": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}, "unknown": {"type": "int"}}},
+  "mealPlanOpenRecipe": "Öffnet das Rezept",
+  "recipeIngredientsPlannedPerServing": "Mengen für 1 Portion, geplant sind {count} Portionen.",
+  "@recipeIngredientsPlannedPerServing": {"description": "Ingredients hint of a planned meal whose amounts stay as written; count: the planned servings, e.g. \"2\" or \"1,5\".", "placeholders": {"count": {"type": "String"}}},
+  "mealPlanEat": "Als gegessen abhaken",
+  "mealPlanEatDayTitle": "Am geplanten Tag oder heute?",
+  "mealPlanEatDayBody": "{recipe} war für {date} geplant.",
+  "@mealPlanEatDayBody": {"description": "Ticking a plan of a past day; date: the planned day, e.g. \"Montag, 20. Oktober\".", "placeholders": {"recipe": {"type": "String"}, "date": {"type": "String"}}},
+  "mealPlanEatOnPlannedDay": "Am {date} eintragen",
+  "@mealPlanEatOnPlannedDay": {"description": "Logs a past plan on its planned day; date: short, e.g. \"Mo., 20. Okt.\".", "placeholders": {"date": {"type": "String"}}},
+  "mealPlanEatOnToday": "Heute eintragen"
 }

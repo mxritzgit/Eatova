@@ -213,7 +213,8 @@ class _StripDay extends StatelessWidget {
 
 /// A planned meal: photo with its slot tile, name, "slot · servings · kcal",
 /// then the eaten toggle and the menu. At large text the actions move up
-/// beside the photo and the text gets the full width.
+/// beside the photo and the text gets the full width. A tap on the row
+/// outside its actions opens the recipe ([onOpen]).
 class _MealRow extends StatelessWidget {
   const _MealRow({
     super.key,
@@ -223,6 +224,8 @@ class _MealRow extends StatelessWidget {
     required this.meta,
     required this.toggle,
     required this.noteColor,
+    required this.onOpen,
+    required this.openKey,
     this.note,
     this.menu,
   });
@@ -234,11 +237,59 @@ class _MealRow extends StatelessWidget {
   final Color noteColor;
   final Widget toggle;
   final Widget? menu;
+  final VoidCallback onOpen;
+  final Key openKey;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final texts = Column(
+    // The row's own node: its texts, read as one button that opens the
+    // recipe; the toggle and the menu stay separate controls.
+    final texts = Semantics(
+      container: true,
+      button: true,
+      hint: context.l10n.mealPlanOpenRecipe,
+      onTap: onOpen,
+      child: MergeSemantics(child: _texts(t)),
+    );
+    final actions = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [toggle, ?menu],
+    );
+    final thumb = _MealThumb(recipe: recipe, slot: slot);
+    return InkWell(
+      key: openKey,
+      onTap: onOpen,
+      excludeFromSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+        child: _largeText(context)
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [thumb, const Spacer(), actions]),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: texts,
+                  ),
+                ],
+              )
+            : Row(
+                children: [
+                  thumb,
+                  const SizedBox(width: 13),
+                  Expanded(child: texts),
+                  const SizedBox(width: 2),
+                  actions,
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _texts(AppTokens t) {
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -265,32 +316,6 @@ class _MealRow extends StatelessWidget {
           ),
         ],
       ],
-    );
-    final actions = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [toggle, ?menu],
-    );
-    final thumb = _MealThumb(recipe: recipe, slot: slot);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
-      child: _largeText(context)
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(children: [thumb, const Spacer(), actions]),
-                const SizedBox(height: 10),
-                Padding(padding: const EdgeInsets.only(right: 8), child: texts),
-              ],
-            )
-          : Row(
-              children: [
-                thumb,
-                const SizedBox(width: 13),
-                Expanded(child: texts),
-                const SizedBox(width: 2),
-                actions,
-              ],
-            ),
     );
   }
 }

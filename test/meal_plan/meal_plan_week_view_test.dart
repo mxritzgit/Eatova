@@ -12,6 +12,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/shopping_receipt.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
+import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/design/design.dart';
@@ -299,6 +300,123 @@ void main() {
       await tester.tap(eaten);
       await tester.pumpAndSettle();
       expect(store.loggedMeals, hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('a meal row opens its recipe read-only, with the ingredients '
+      'for the planned servings', (tester) async {
+    await withClock(Clock.fixed(_today), () async {
+      final store = _store();
+      final catalog = recipeCatalogEn[2];
+      final cases = [
+        // A per-serving import converts every line.
+        (
+          recipe: recipeCatalogEn.first.copyWith(
+            slug: 'user_import_rice_bowl',
+            title: 'Rice bowl',
+            ingredients: '- 100 g rice\n- 2 eggs',
+            categories: ['Eigene', '${recipeIngredientsBasisPrefix}per_serving'],
+          ),
+          lines: ['200 g rice', '4 eggs'],
+          hint: enL10n.recipeIngredientsForServings('2'),
+          header: enL10n.recipesOwnTitle,
+        ),
+        // A catalog text with lines that cannot convert stays as written,
+        // and says for how many it is.
+        (
+          recipe: catalog,
+          lines: [catalog.ingredients.split('\n').first.substring(2)],
+          hint: enL10n.recipeIngredientsPlannedPerServing('2'),
+          header: enL10n.recipesBrandTitle,
+        ),
+      ];
+      final plans = [
+        for (final (i, c) in cases.indexed)
+          PlannedMeal.create(
+            recipe: c.recipe,
+            day: DateTime(2026, 9, 8 + i),
+            slot: MealSlot.lunch,
+            servings: 2,
+          ),
+      ];
+      for (final plan in plans) {
+        await store.savePlannedMeal(plan);
+      }
+      await _pump(tester, store);
+      for (final (i, c) in cases.indexed) {
+        await _tap(tester, _key('meal-plan-open-${plans[i].id}'));
+        expect(find.byType(RecipeDetailScreen), findsOneWidget);
+        // Read-only: a plan is eaten through the plan, never from here.
+        expect(_key('recipe-add-card'), findsNothing);
+        expect(find.text(c.header), findsOneWidget, reason: c.recipe.slug);
+        expect(find.text(c.hint), findsOneWidget, reason: c.recipe.slug);
+        for (final line in c.lines) {
+          expect(find.text(line), findsOneWidget, reason: c.recipe.slug);
+        }
+        await _tap(tester, _key('recipe-detail-back'));
+      }
+      expect(store.loggedMeals, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('a past day\'s meal asks for the diary day, the planned day '
+      'first', (tester) async {
+    // A Wednesday: Monday and Tuesday of the shown week are past.
+    final wednesday = DateTime(2026, 9, 9, 12);
+    await withClock(Clock.fixed(wednesday), () async {
+      final store = _store();
+      final monday = PlannedMeal.create(
+        recipe: recipeCatalogEn[2],
+        day: DateTime(2026, 9, 7),
+        slot: MealSlot.dinner,
+      );
+      final tuesday = PlannedMeal.create(
+        recipe: recipeCatalogEn[3],
+        day: DateTime(2026, 9, 8),
+        slot: MealSlot.dinner,
+      );
+      await store.savePlannedMeal(monday);
+      await store.savePlannedMeal(tuesday);
+      await _pump(tester, store);
+      expect(
+        tester.getSemantics(_key('meal-plan-eat-${monday.id}')),
+        isSemantics(
+          isButton: true,
+          hasCheckedState: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          label: 'Mark as eaten',
+        ),
+      );
+
+      await _tap(tester, _key('meal-plan-eat-${monday.id}'));
+      final planned = _key('meal-plan-eat-planned-day');
+      final today = _key('meal-plan-eat-today');
+      expect(
+        tester.getTopLeft(planned).dy,
+        lessThan(tester.getTopLeft(today).dy),
+      );
+      await _tap(tester, planned);
+      expect(store.loggedMeals.single.effectiveLocalDay, '2026-09-07');
+      expect(store.loggedMeals.single.loggedAt.hour, 12);
+      expect(find.text('Logged on Sep 7'), findsOneWidget);
+      // A back-fill two days back does not continue a streak.
+      expect(store.loggingStreak, 0);
+
+      // A dismissal logs nothing; the second choice logs today.
+      await _tap(tester, _key('meal-plan-eat-${tuesday.id}'));
+      await _tap(tester, _key('meal-plan-eat-cancel'));
+      expect(store.loggedMeals, hasLength(1));
+      await _tap(tester, _key('meal-plan-eat-${tuesday.id}'));
+      await _tap(tester, today);
+      expect(
+        store.loggedMeals.map((m) => m.effectiveLocalDay),
+        containsAll(['2026-09-07', '2026-09-09']),
+      );
+      expect(find.text('Logged on Sep 9'), findsOneWidget);
+      expect(store.loggingStreak, 1);
       expect(tester.takeException(), isNull);
     });
   });
