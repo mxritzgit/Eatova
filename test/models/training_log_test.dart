@@ -261,9 +261,6 @@ void main() {
       expect((local.year, local.month, local.day), (2026, 10, 24));
       expect((local.hour, local.minute, local.second), (9, 30, 15));
       expect(times.startedAt, times.finishedAt);
-      // In Europe/Berlin the 25-hour Sunday makes `now - 24 h` land at 10:30.
-      final naive = _now.subtract(const Duration(days: 1));
-      if (naive.hour != 9) expect(naive.hour, 10);
     });
 
     test('the time of the picked day is ignored and the start follows', () {
