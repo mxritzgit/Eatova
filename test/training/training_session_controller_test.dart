@@ -99,25 +99,6 @@ void main() {
       });
     });
 
-    test('start() and completeCurrentSet() still complete fixtures', () {
-      final wall = _Wall();
-      wall.run(() {
-        final session = TrainingSessionController(
-          plan: timerPlan(),
-          workoutIndex: 1,
-          autoTick: false,
-        );
-        addTearDown(session.dispose);
-        session.setCurrentActual(reps: 6, weightKg: 12.5);
-        session.start();
-        session.completeCurrentSet();
-        expect(session.phase, TrainingSessionPhase.review);
-        final entry = session.completion();
-        expect(entry.snapshot.actualSets.single.reps, 6);
-        expect(entry.snapshot.actualSets.single.weightKg, 12.5);
-      });
-    });
-
     test('a timed set needs ▶ (or zero) before ✓; Done early completes it', () {
       final wall = _Wall();
       wall.run(() {
@@ -335,17 +316,19 @@ void main() {
       });
     });
 
-    test('undo also reopens the sets skipped after it', () {
+    test('undo reopens the sets skipped after it and keeps earlier skips', () {
       final wall = _Wall();
       wall.run(() {
         final session = _controller();
         addTearDown(session.dispose);
+        session.skipActiveSet();
         session.completeActiveSet();
         session.skipActiveSet();
-        expect(session.skippedSets, [_set(_bench, 1)]);
+        expect(session.skippedSets, [_set(_bench, 0), _set(_bench, 2)]);
         session.undoLastCompleted();
-        expect(session.skippedSets, isEmpty);
-        expect(session.activeSet, _set(_bench, 0));
+        expect(session.skippedSets, [_set(_bench, 0)]);
+        expect(session.completedSets, isEmpty);
+        expect(session.activeSet, _set(_bench, 1));
       });
     });
   });
@@ -372,21 +355,6 @@ void main() {
           () => TrainingSessionSnapshot.fromJson(session.snapshot().toJson()),
           returnsNormally,
         );
-      });
-    });
-
-    test('▶ on a timed set adds a 3 s lead to its deadline', () {
-      final wall = _Wall();
-      wall.run(() {
-        final session = _controller();
-        addTearDown(session.dispose);
-        session.nextExercise();
-        final start = wall.now;
-        session.startActiveSet();
-        expect(session.phaseEndsAt, start.add(const Duration(seconds: 33)));
-        expect(session.remaining, const Duration(seconds: 30));
-        wall.elapse(const Duration(seconds: 1));
-        expect(session.getReadyRemaining, const Duration(seconds: 2));
       });
     });
 

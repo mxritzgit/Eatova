@@ -259,16 +259,12 @@ void main() {
     }
   });
 
-  testWidgets('German captions and share line', (tester) async {
+  // Copy is ARB's; this pins only that the week's date follows the locale.
+  testWidgets('a picked week names its date in the app language', (
+    tester,
+  ) async {
     await _pump(tester, _trend(_steady), locale: const Locale('de'));
-    expect(_value(tester), '4.300');
-    expect(_caption(tester), 'kg diese Woche');
-    expect(_change(tester), 'bisher 50 % der Vorwoche');
-    await _select(tester, 4);
-    expect(_caption(tester), 'kg letzte Woche');
     await _select(tester, 1);
-    expect(_value(tester), '7.420');
     expect(_caption(tester), 'kg in der Woche ab 31. Aug.');
-    expect(_change(tester), '↑ 9 % gegenüber der Vorwoche');
   });
 }

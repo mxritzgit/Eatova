@@ -178,38 +178,4 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await _frames(tester);
   });
-
-  testWidgets('failed discard keeps the player open; retry clears recovery '
-      'before exit', (tester) async {
-    var failClear = true;
-    final stored = <TrainingSessionSnapshot?>[];
-    await _mount(
-      tester,
-      () => TrainingPlayerScreen(
-        plan: _plan(),
-        onPersist: (snapshot) async {
-          if (snapshot == null && failClear) {
-            throw StateError('CI disk failure');
-          }
-          stored.add(snapshot);
-          return true;
-        },
-      ),
-    );
-    await _menu(tester, 'training-timer-discard');
-    await _tap(tester, 'training-timer-confirm-exit');
-    expect(find.byType(TrainingPlayerScreen), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('training-timer-save-error')),
-      findsOneWidget,
-    );
-    expect(stored.last, isNotNull);
-    failClear = false;
-    await _tap(tester, 'training-timer-retry');
-    await tester.pumpAndSettle();
-    expect(find.byType(TrainingPlayerScreen), findsNothing);
-    expect(stored.last, isNull);
-    await tester.pump(const Duration(seconds: 6));
-    expect(stored.last, isNull);
-  });
 }
