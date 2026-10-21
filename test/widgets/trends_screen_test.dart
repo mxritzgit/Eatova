@@ -241,11 +241,15 @@ void main() {
   // Design contract §7.2: both modes must render, and the painter's five
   // colours are parameters, so a drop shows up here. The old trio (both
   // brightnesses / textScaler 2.0 / EN smoke) is one matrix now, which pairs
-  // `en` with 2.0 for the first time.
+  // `en` with 2.0 for the first time. On the narrowest phone (320 px), where
+  // the chart's date captions once overflowed at 2.0.
   renderMatrix(
     'Die Trend-Ansicht rendert overflow-frei',
     (tester, c) => withClockAt(_jetzt, () async {
-      pinPhoneViewport(tester);
+      tester.view.physicalSize = const Size(960, 1704);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await c.pump(
         tester,
         TrendsScreen(kcalGoal: 2200, loadTotals: () async => _sechsTage()),

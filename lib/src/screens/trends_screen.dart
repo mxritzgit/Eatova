@@ -734,17 +734,12 @@ class _ChartCardState extends State<_ChartCard> {
             Padding(
               // Same lateral anchors as the painter's canvas.
               padding: const EdgeInsets.only(left: 40, right: 8),
-              child: Row(
-                children: [
-                  // Locale-aware day.month (F7-09): `de` "1.8.", `en` "8/1".
-                  _Caption(
-                    trendDayMonthFormat(
-                      l10n.localeName,
-                    ).format(widget.firstDay),
-                  ),
-                  const Spacer(),
-                  _Caption(l10n.todayDateToday),
-                ],
+              child: _CaptionRow(
+                // Locale-aware day.month (F7-09): `de` "1.8.", `en` "8/1".
+                start: trendDayMonthFormat(
+                  l10n.localeName,
+                ).format(widget.firstDay),
+                end: l10n.todayDateToday,
               ),
             ),
           ],
@@ -791,21 +786,37 @@ class _GoalLegend extends StatelessWidget {
   }
 }
 
-class _Caption extends StatelessWidget {
-  const _Caption(this.text);
+/// The range's first day under a chart's left edge and "today" under its
+/// right. Each label shrinks rather than overflows: on a 320 px phone at
+/// 200 % text the two did not fit side by side.
+class _CaptionRow extends StatelessWidget {
+  const _CaptionRow({required this.start, required this.end});
 
-  final String text;
+  final String start;
+  final String end;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: AppType.ui(
-        11,
-        weight: FontWeight.w500,
-        color: context.t.ink2,
-        letterSpacing: 0.2,
+    final style = AppType.ui(
+      11,
+      weight: FontWeight.w500,
+      color: context.t.ink2,
+      letterSpacing: 0.2,
+    );
+    Widget label(String text, AlignmentDirectional alignment) => Flexible(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: alignment,
+        child: Text(text, maxLines: 1, style: style),
       ),
+    );
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        label(start, AlignmentDirectional.centerStart),
+        const SizedBox(width: 8),
+        label(end, AlignmentDirectional.centerEnd),
+      ],
     );
   }
 }
@@ -1186,14 +1197,11 @@ class _StepsChartState extends State<_StepsChart> {
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.only(left: 40, right: 8),
-            child: Row(
-              children: [
-                _Caption(
-                  trendDayMonthFormat(l10n.localeName).format(report.firstDay),
-                ),
-                const Spacer(),
-                _Caption(l10n.todayDateToday),
-              ],
+            child: _CaptionRow(
+              start: trendDayMonthFormat(
+                l10n.localeName,
+              ).format(report.firstDay),
+              end: l10n.todayDateToday,
             ),
           ),
         ],
