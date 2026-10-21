@@ -3763,5 +3763,12 @@
   "settingsSignOutPhotos": "{count, plural, =1{1 photo of your own recipes is stored only on this device and will be deleted. The recipe itself stays.} other{{count} photos of your own recipes are stored only on this device and will be deleted. The recipes themselves stay.}}",
   "@settingsSignOutPhotos": {"placeholders": {"count": {"type": "int"}}},
   "settingsSignOutSafe": "Your data is saved. You can sign in again at any time.",
-  "exportRecipePhotosHint": "Photos of your own recipes are stored only on this device and are not part of the export."
+  "exportRecipePhotosHint": "Photos of your own recipes are stored only on this device and are not part of the export.",
+  "trainingRecordsNew": "{count, plural, =1{New PR} other{{count} new PRs}}",
+  "@trainingRecordsNew": {"placeholders": {"count": {"type": "int"}}},
+  "trainingExerciseHistoryOpen": "History",
+  "trainingExerciseHistoryOpenLabel": "History of {exercise}",
+  "@trainingExerciseHistoryOpenLabel": {"placeholders": {"exercise": {"type": "String"}}},
+  "trainingExerciseHistorySubtitle": "Best set per workout",
+  "trainingExerciseHistoryRecord": "PR"
 }

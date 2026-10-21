@@ -863,6 +863,14 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       activeValid: _activeValid,
       note: _note,
       onNoteChanged: _persistSoon,
+      records: sessionPersonalRecords(
+        history: widget.history,
+        workout: _session.workout,
+        sets: _session.completedSets
+            .map(_session.actualFor)
+            .whereType<TrainingSetActual>(),
+        sessionId: _session.sessionId,
+      ),
     );
     _sheetOpen = false;
     if (!mounted || !_enabled) return;

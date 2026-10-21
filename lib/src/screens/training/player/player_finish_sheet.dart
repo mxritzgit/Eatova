@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../l10n/l10n.dart';
+import '../../../models/training_insights.dart' show TrainingRecord;
 import '../../../models/training_plan.dart';
 import '../../../theme/app_tokens.dart';
 import '../../../widgets/design/design.dart';
+import '../training_overview_widgets.dart' show TrainingRecordList;
 
 enum PlayerFinishChoice {
   /// Save the completed sets; open sets count as skipped.
@@ -26,6 +28,8 @@ enum PlayerFinishChoice {
 /// With open sets the primary saves only what was done; with no completed
 /// set there is nothing to save, only Discard or Keep training.
 /// [valuesValid] covers the completed sets, [activeValid] the active row.
+/// [records] are those the completed sets set; logging the open sets can
+/// only add to them.
 Future<PlayerFinishChoice?> showPlayerFinishSheet(
   BuildContext context, {
   required int completed,
@@ -36,6 +40,7 @@ Future<PlayerFinishChoice?> showPlayerFinishSheet(
   required bool activeValid,
   required TextEditingController note,
   required VoidCallback onNoteChanged,
+  List<TrainingRecord> records = const [],
 }) => showEatovaSheet<PlayerFinishChoice>(
   context,
   _FinishSheet(
@@ -47,6 +52,7 @@ Future<PlayerFinishChoice?> showPlayerFinishSheet(
     activeValid: activeValid,
     note: note,
     onNoteChanged: onNoteChanged,
+    records: records,
   ),
 );
 
@@ -60,6 +66,7 @@ class _FinishSheet extends StatelessWidget {
     required this.activeValid,
     required this.note,
     required this.onNoteChanged,
+    required this.records,
   });
 
   final int completed;
@@ -70,6 +77,7 @@ class _FinishSheet extends StatelessWidget {
   final bool activeValid;
   final TextEditingController note;
   final VoidCallback onNoteChanged;
+  final List<TrainingRecord> records;
 
   @override
   Widget build(BuildContext context) {
@@ -128,6 +136,13 @@ class _FinishSheet extends StatelessWidget {
                 style: AppType.ui(14, color: t.ink, height: 1.4),
               )
             else ...[
+              if (records.isNotEmpty) ...[
+                TrainingRecordList(
+                  key: const ValueKey('training-finish-records'),
+                  records: records,
+                ),
+                const SizedBox(height: 16),
+              ],
               SheetField(
                 controller: note,
                 fieldKey: const ValueKey('training-history-note'),

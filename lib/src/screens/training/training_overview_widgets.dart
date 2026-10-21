@@ -1305,6 +1305,71 @@ class TrainingWorkoutGlyph extends StatelessWidget {
   }
 }
 
+/// A repetition set as the history shows it: "8 × 25 kg", or "12 reps"
+/// without weight.
+String trainingSetSummary(AppLocalizations l10n, TrainingSetActual set) {
+  final reps = set.reps ?? 0;
+  final weight = set.weightKg;
+  return weight == null || weight <= 0
+      ? l10n.trainingHistoryRepsValue(reps)
+      : l10n.trainingHistorySetRepsWeight(
+          reps,
+          formatTrainingWeight(weight, l10n),
+        );
+}
+
+/// The records a workout set, named: a trophy heading on the fat hue, then
+/// "Bench press · 5 × 80 kg" per exercise ([TrainingRecord]).
+class TrainingRecordList extends StatelessWidget {
+  const TrainingRecordList({super.key, required this.records});
+
+  final List<TrainingRecord> records;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: t.fatSurface,
+        borderRadius: BorderRadius.circular(rControl),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.emoji_events_outlined, size: 18, color: t.fatInk),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l10n.trainingRecordsNew(records.length),
+                  style: AppType.ui(
+                    14,
+                    weight: FontWeight.w800,
+                    color: t.fatInk,
+                    height: kTrainingLine,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          for (final record in records) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${record.exerciseName} · '
+              '${trainingSetSummary(l10n, record.set)}',
+              style: AppType.ui(14, color: t.ink, height: kTrainingLine),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// "2 PRs": the personal records a workout set, on the fat hue.
 class TrainingRecordBadge extends StatelessWidget {
   const TrainingRecordBadge({super.key, required this.count});

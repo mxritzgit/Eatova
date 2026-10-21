@@ -13,6 +13,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
 import 'training_actual_fields.dart' show formatTrainingWeight;
+import 'training_exercise_history_screen.dart';
 import 'training_overview_widgets.dart';
 
 class TrainingHistoryScreen extends StatelessWidget {
@@ -130,7 +131,7 @@ class TrainingHistoryScreen extends StatelessWidget {
                       builder: (_) => TrainingHistoryDetail(
                         entry: entry,
                         onDelete: onDelete,
-                        personalRecords: records[entry.id] ?? 0,
+                        history: entries,
                       ),
                     ),
                   ),
@@ -283,13 +284,15 @@ class TrainingHistoryDetail extends StatefulWidget {
     super.key,
     required this.entry,
     required this.onDelete,
-    this.personalRecords = 0,
+    this.history = const [],
   });
   final TrainingHistoryEntry entry;
   final Future<SyncDelivery> Function(String) onDelete;
 
-  /// Records this workout set ([personalRecordCounts]); 0 hides the badge.
-  final int personalRecords;
+  /// The whole history: the records this workout set ([personalRecords])
+  /// and each exercise's progress ([trainingExerciseProgress]). Empty shows
+  /// neither.
+  final List<TrainingHistoryEntry> history;
   @override
   State<TrainingHistoryDetail> createState() => _TrainingHistoryDetailState();
 }
@@ -341,12 +344,40 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
     }
   }
 
+  /// Opens exercise [index]'s progress; null without the history, for a
+  /// timed exercise and for one without a done set.
+  VoidCallback? _progressOpener(int index) {
+    final snapshot = widget.entry.snapshot;
+    final exercise = snapshot.workout.exercises[index];
+    if (widget.history.isEmpty ||
+        exercise.isTimed ||
+        !snapshot.actualSets.any((a) => a.reference.exerciseIndex == index)) {
+      return null;
+    }
+    return () {
+      if (_busy) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => TrainingExerciseHistoryScreen(
+            exerciseName: exercise.name,
+            history: widget.history,
+          ),
+        ),
+      );
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
     final entry = widget.entry;
     final snapshot = entry.snapshot;
+    final history = widget.history;
+    final records = history.isEmpty
+        ? const <TrainingRecord>[]
+        : personalRecords(history)[entry.id] ?? const <TrainingRecord>[];
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
@@ -365,10 +396,21 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
                 prominent: true,
               ),
               const SizedBox(height: 24),
-              _SummaryCard(entry: entry, records: widget.personalRecords),
+              _SummaryCard(entry: entry, records: records.length),
+              if (records.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                TrainingRecordList(
+                  key: const ValueKey('training-history-detail-records'),
+                  records: records,
+                ),
+              ],
               for (var e = 0; e < snapshot.workout.exercises.length; e++) ...[
                 const SizedBox(height: 12),
-                _ExerciseCard(entry: entry, index: e),
+                _ExerciseCard(
+                  entry: entry,
+                  index: e,
+                  onShowProgress: _progressOpener(e),
+                ),
               ],
               if (entry.note.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -526,14 +568,22 @@ class _SummaryCard extends StatelessWidget {
 /// name, then one hairline row per set with the values on the right; a
 /// skipped set shows a dash.
 class _ExerciseCard extends StatelessWidget {
-  const _ExerciseCard({required this.entry, required this.index});
+  const _ExerciseCard({
+    required this.entry,
+    required this.index,
+    this.onShowProgress,
+  });
 
   final TrainingHistoryEntry entry;
   final int index;
 
+  /// Opens this exercise's best set per workout; null hides the button.
+  final VoidCallback? onShowProgress;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l = context.l10n;
     final exercise = entry.snapshot.workout.exercises[index];
     // From 1.5x text the rows give the tile's indent to the values.
     final large = MediaQuery.textScalerOf(context).scale(16) > 24;
@@ -574,6 +624,23 @@ class _ExerciseCard extends StatelessWidget {
               ],
             ),
           ),
+          if (onShowProgress case final open?)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 12),
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: SoftPillButton(
+                  key: ValueKey('training-history-progress-$index'),
+                  tone: SoftPillTone.neutral,
+                  icon: Icons.show_chart_rounded,
+                  label: l.trainingExerciseHistoryOpen,
+                  semanticLabel: l.trainingExerciseHistoryOpenLabel(
+                    exercise.name,
+                  ),
+                  onTap: open,
+                ),
+              ),
+            ),
         ],
       ),
     );

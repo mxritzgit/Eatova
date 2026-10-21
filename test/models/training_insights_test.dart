@@ -732,41 +732,72 @@ void main() {
       expect(counts[s4.id], 0);
     });
 
-    test('records are plan-scoped and skip unweighted sets', () {
-      final copy = TrainingPlan(id: 'ppl_copy', proposal: _plan.proposal);
-      final heavierInCopy = _session(
-        copy,
-        0,
-        start: DateTime(2026, 9, 29, 18),
-        sets: {
-          'bench': [(100, 8)],
-        },
-      );
-      final bodyweight = _session(
-        _plan,
-        1,
-        start: DateTime(2026, 9, 2, 18),
-        sets: {
-          'pullup': [(null, 8)],
-        },
-      );
-      final moreReps = _session(
-        _plan,
-        1,
-        start: DateTime(2026, 9, 9, 18),
-        sets: {
-          'pullup': [(null, 12)],
-        },
-      );
-      final counts = personalRecordCounts([
-        s1,
-        s2,
-        heavierInCopy,
-        bodyweight,
-        moreReps,
+    // Shared by the two tests below: the same bench press in a copied plan
+    // and in a free log, and bodyweight pull-ups.
+    final copy = TrainingPlan(id: 'ppl_copy', proposal: _plan.proposal);
+    final heavierInCopy = _session(
+      copy,
+      0,
+      start: DateTime(2026, 9, 29, 18),
+      sets: {
+        'bench': [(100, 8)],
+      },
+    );
+    final loggedBench = _log(
+      DateTime(2026, 9, 30),
+      now: DateTime(2026, 9, 30, 21),
+      lifts: {
+        'exercise BENCH': [(90, 8), (102.5, 8)],
+      },
+    );
+    final bodyweight = _session(
+      _plan,
+      1,
+      start: DateTime(2026, 9, 2, 18),
+      sets: {
+        'pullup': [(null, 8)],
+      },
+    );
+    final moreReps = _session(
+      _plan,
+      1,
+      start: DateTime(2026, 9, 9, 18),
+      sets: {
+        'pullup': [(null, 12)],
+      },
+    );
+    final mixed = [s1, s2, heavierInCopy, loggedBench, bodyweight, moreReps];
+
+    test('records follow the exercise name across plans and logs; '
+        'bodyweight sets count by reps', () {
+      final records = personalRecords(mixed);
+      String describe(TrainingRecord r) =>
+          '${r.exerciseName}: ${r.kind.name} ${r.set.weightKg} x ${r.set.reps}';
+      for (final (entry, expected) in [
+        (heavierInCopy, ['Exercise bench: load 100.0 x 8']),
+        (loggedBench, ['exercise BENCH: load 102.5 x 8']),
+        // The first bodyweight pull-ups set the baseline; the rows tie.
+        (bodyweight, <String>[]),
+        (moreReps, ['Exercise pullup: reps null x 12']),
+      ]) {
+        expect(
+          records[entry.id]!.map(describe),
+          expected,
+          reason: entry.snapshot.workout.title,
+        );
+      }
+    });
+
+    test('exercise progress: best set per workout, newest first, by name', () {
+      final progress = trainingExerciseProgress(mixed, ' exercise  bench ');
+      expect(progress.map((row) => (row.set.weightKg, row.isRecord)), [
+        (102.5, true), // the log
+        (100.0, true), // the copied plan
+        (72.5, true),
+        (70.0, false), // the baseline
       ]);
-      expect(counts[heavierInCopy.id], 0);
-      expect(counts[moreReps.id], 0);
+      expect(progress.first.entry.id, loggedBench.id);
+      expect(trainingExerciseProgress(mixed, 'Plank'), isEmpty);
     });
 
     test('estimatedOneRepMaxKg is Epley, a single rep is the weight', () {

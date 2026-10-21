@@ -3858,5 +3858,12 @@
   "settingsSignOutPhotos": "{count, plural, =1{1 Foto deiner eigenen Rezepte liegt nur auf diesem Gerät und wird gelöscht. Das Rezept selbst bleibt.} other{{count} Fotos deiner eigenen Rezepte liegen nur auf diesem Gerät und werden gelöscht. Die Rezepte selbst bleiben.}}",
   "@settingsSignOutPhotos": {"placeholders": {"count": {"type": "int"}}},
   "settingsSignOutSafe": "Deine Daten sind gespeichert. Du kannst dich jederzeit wieder anmelden.",
-  "exportRecipePhotosHint": "Fotos deiner eigenen Rezepte liegen nur auf diesem Gerät und sind nicht im Export."
+  "exportRecipePhotosHint": "Fotos deiner eigenen Rezepte liegen nur auf diesem Gerät und sind nicht im Export.",
+  "trainingRecordsNew": "{count, plural, =1{Neuer Rekord} other{{count} neue Rekorde}}",
+  "@trainingRecordsNew": {"placeholders": {"count": {"type": "int"}}},
+  "trainingExerciseHistoryOpen": "Verlauf",
+  "trainingExerciseHistoryOpenLabel": "Verlauf von {exercise}",
+  "@trainingExerciseHistoryOpenLabel": {"placeholders": {"exercise": {"type": "String"}}},
+  "trainingExerciseHistorySubtitle": "Bester Satz pro Training",
+  "trainingExerciseHistoryRecord": "Rekord"
 }
