@@ -5,6 +5,7 @@ import 'dart:io';
 import '../l10n/l10n.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart';
+import '../models/persisted_labels.dart';
 import '../models/recipe_ingredient.dart';
 import 'eatova_http.dart';
 
@@ -497,6 +498,16 @@ class ProductWithoutNutritionException implements Exception {
   /// `true` when a value was present but impossible (kJ in the kcal field).
   bool get isImplausible => kcalPer100G > 0;
 
+  /// [productName] when the database states one, to start the manual form
+  /// with; null for the "Produkt <code>" fallback of a nameless record.
+  String? get knownProductName {
+    final fallback = PersistedLabels.productName(barcode);
+    final name = productName.trim();
+    return name.isEmpty || name == fallback || name.startsWith('$fallback · ')
+        ? null
+        : name;
+  }
+
   /// Ready-made UI message in the language of [l10n], defaulting to German
   /// ([deL10n]) so context-free callers such as tests still work.
   String userMessage([AppLocalizations? l10n]) {
@@ -511,3 +522,10 @@ class ProductWithoutNutritionException implements Exception {
       'ProductWithoutNutritionException(barcode: $barcode, '
       'kcalPer100G: $kcalPer100G)';
 }
+
+/// Whether a barcode lookup [error] is the database's final answer about the
+/// product: unknown, or known without usable energy. A retry cannot change
+/// it, unlike a network or service failure.
+bool isFinalBarcodeAnswer(Object error) =>
+    error is ProductNotFoundException ||
+    error is ProductWithoutNutritionException;

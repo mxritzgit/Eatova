@@ -216,9 +216,10 @@ enum MealAnalysisSheetOutcome {
 /// image or barcode is captured. Shows the loading card, then the
 /// `MealResultCard` with adjust + add; there is no confirm step.
 ///
-/// [retry] re-creates the analysis future from the bytes the caller still
-/// holds; null hides "try again" (barcode lookups). [cancellation] is
-/// cancelled when the sheet goes away while a request is in flight.
+/// [retry] re-creates the analysis future from the bytes or the code the
+/// caller still holds; null hides "try again", as does a final barcode
+/// answer ([isFinalBarcodeAnswer]). [cancellation] is cancelled when the
+/// sheet goes away while a request is in flight.
 Future<MealAnalysisSheetOutcome?> showMealAnalysisSheet(
   BuildContext context, {
   required MealSlot slot,
@@ -574,7 +575,10 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
                       widget.failureMessage,
                       context.l10n,
                     ),
-                    onRetry: widget.retry == null ? null : _retry,
+                    // "Not found" is final; a retry is for the connection.
+                    onRetry: widget.retry == null || isFinalBarcodeAnswer(error)
+                        ? null
+                        : _retry,
                     onManualEntry: _manualEntry,
                   )
                 else if (_result != null) ...[

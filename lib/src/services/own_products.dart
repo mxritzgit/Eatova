@@ -37,9 +37,43 @@ MealAnalysisResult? ownProductFor(
 /// remembering under its code. A network or service failure says nothing
 /// about the product, so the manual entry there stays a one-off.
 Future<bool> barcodeLookupMissedProduct(Future<MealAnalysisResult> lookup) =>
-    lookup.then(
-      (_) => false,
-      onError: (Object error) =>
-          error is ProductNotFoundException ||
-          error is ProductWithoutNutritionException,
+    lookup.then((_) => false, onError: isFinalBarcodeAnswer);
+
+/// One scanned code for the result sheet: the user's own product (E5)
+/// answers at once, otherwise the database, again on the sheet's "Try
+/// again" ([retry]). [latest] is the attempt the sheet ended on.
+class BarcodeLookup {
+  BarcodeLookup(this._service, this.code, {this.own})
+    : latest = own != null
+          ? Future<MealAnalysisResult>.value(own)
+          : _service.lookupBarcode(code) {
+    // Offline the lookup fails before the sheet listens, which must not
+    // surface as an unhandled zone error.
+    latest.ignore();
+  }
+
+  final ProductLookupService _service;
+  final String code;
+  final MealAnalysisResult? own;
+  Future<MealAnalysisResult> latest;
+
+  /// A fresh lookup for the sheet's retry; null for an own product, which
+  /// never fails.
+  Future<MealAnalysisResult> Function()? get retry =>
+      own != null ? null : () => latest = _service.lookupBarcode(code);
+
+  /// What the manual form starts from after the sheet's "Add manually": the
+  /// code to remember the entry under ([barcodeLookupMissedProduct]) and the
+  /// product's name when the database knows it without nutrition values.
+  Future<({String? barcode, String? name})> manualEntry() async {
+    if (own != null) return (barcode: code, name: null);
+    final remember = await barcodeLookupMissedProduct(latest);
+    final name = await latest.then<String?>(
+      (_) => null,
+      onError: (Object error) => error is ProductWithoutNutritionException
+          ? error.knownProductName
+          : null,
     );
+    return (barcode: remember ? code : null, name: name);
+  }
+}

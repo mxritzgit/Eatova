@@ -1065,35 +1065,33 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _selectSlot(scan.slot);
 
     // The user's own product first (E5), from the sheet's live list.
-    final own = ownProductFor(_favorites, scan.code);
-    // As for the photo scan: offline the lookup fails before the sheet
-    // listens, which must not surface as an unhandled zone error.
-    final lookup =
-        (own != null
-              ? Future<MealAnalysisResult>.value(own)
-              : widget.productService.lookupBarcode(scan.code))
-          ..ignore();
-    // No retry/cancel: a lookup is cheap and its "not found" is final.
+    final lookup = BarcodeLookup(
+      widget.productService,
+      scan.code,
+      own: ownProductFor(_favorites, scan.code),
+    );
+    // No cancel: a lookup is cheap. A failed connection can be retried; a
+    // "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: lookup,
+      resultFuture: lookup.latest,
+      retry: lookup.retry,
       previewImage: null,
       onAdd: _logAndMirror,
       onUpdateMeal: _updateAndMirror,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
-      offerEditValues: own != null,
+      offerEditValues: lookup.own != null,
     );
     if (outcome != MealAnalysisSheetOutcome.manualEntry || !mounted) return;
-    // Remembered under its code only when the database does not know the
-    // product; after a network error the entry stays a one-off.
-    final remember = own != null || await barcodeLookupMissedProduct(lookup);
+    final entry = await lookup.manualEntry();
     if (!mounted) return;
     await _openManualEntry(
-      barcode: remember ? scan.code : null,
-      initial: own,
+      initialName: entry.name,
+      barcode: entry.barcode,
+      initial: lookup.own,
     );
   }
 

@@ -312,6 +312,7 @@ class MealAnalysisScreen extends StatelessWidget {
     MealSlot slot, {
     bool chooseSlot = false,
     FutureOr<String> Function(MealAnalysisResult, MealSlot)? add,
+    String? initialName,
     String? barcode,
     MealAnalysisResult? initial,
   }) async {
@@ -320,6 +321,7 @@ class MealAnalysisScreen extends StatelessWidget {
     var selectedSlot = slot;
     final result = await showManualMealSheet(
       context,
+      initialName: initialName,
       barcode: barcode,
       initial: initial,
       initialSlot: chooseSlot ? slot : null,
@@ -361,40 +363,38 @@ class MealAnalysisScreen extends StatelessWidget {
     );
     if (scan == null || !context.mounted) return;
     // The user's own product first (E5); the database only without one.
-    final own = ownProductFor(favorites, scan.code);
-    // As for the photo scan: offline the lookup fails before the sheet
-    // listens, which must not surface as an unhandled zone error.
-    final lookup =
-        (own != null
-              ? Future<MealAnalysisResult>.value(own)
-              : productService.lookupBarcode(scan.code))
-          ..ignore();
-    // No retry/cancel: a lookup is cheap and its "not found" is final.
+    final lookup = BarcodeLookup(
+      productService,
+      scan.code,
+      own: ownProductFor(favorites, scan.code),
+    );
+    // No cancel: a lookup is cheap. A failed connection can be retried; a
+    // "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: lookup,
+      resultFuture: lookup.latest,
+      retry: lookup.retry,
       previewImage: null,
       onAdd: add,
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
-      offerEditValues: own != null,
+      offerEditValues: lookup.own != null,
     );
     if (outcome != MealAnalysisSheetOutcome.manualEntry || !context.mounted) {
       return;
     }
-    // Remembered under its code only when the database does not know the
-    // product; after a network error the entry stays a one-off.
-    final remember = own != null || await barcodeLookupMissedProduct(lookup);
+    final entry = await lookup.manualEntry();
     if (!context.mounted) return;
     await _manualEntryFor(
       context,
       scan.slot,
       add: add,
-      barcode: remember ? scan.code : null,
-      initial: own,
+      initialName: entry.name,
+      barcode: entry.barcode,
+      initial: lookup.own,
     );
   }
 
