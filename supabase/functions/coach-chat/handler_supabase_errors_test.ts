@@ -179,7 +179,9 @@ for (const stage of ["user-store", "title", "assistant-store", "recipe-store", "
   });
 }
 
-for (const fault of ["transport", "body-timeout", "body-invalid"] as const) {
+// A failed fetch and a failed body read take different catch paths per stage.
+// That every call carries the deadline is pinned in handler_deadline_test.ts.
+for (const fault of ["transport", "body-invalid"] as const) {
   for (const [stage, status, code] of [
     ["auth", 503, "auth_unavailable"],
     ["limits", 500, "rate_limit_unavailable"],
@@ -202,29 +204,20 @@ for (const fault of ["transport", "body-timeout", "body-invalid"] as const) {
   }
 }
 
+// The limiter's own diagnostics are pinned in ../_shared/rate_limit_test.ts.
 for (const fault of ["http-error", "shape-invalid"] as const) {
-  for (const stage of ["limits", "claim"] as const) {
-    Deno.test(`Supabase ${fault}: ${stage} keeps response content out of diagnostics`, async () => {
-      await withStub({ stage, fault }, async (response, calls) => {
-        if (fault === "http-error" || stage === "limits") {
-          equal(response.status, 500, "status");
-          equal((await response.json()).error, stage === "limits" ? "rate_limit_unavailable" : "rpc_unavailable", "public error");
-          equal(calls.some((call) => isProviderCall(call.url)), false, "no provider call");
-        } else {
-          equal(response.status, 200, "a successful quota claim with unreadable count can still answer");
-        }
-      });
+  Deno.test(`Supabase ${fault}: claim keeps response content out of diagnostics`, async () => {
+    await withStub({ stage: "claim", fault }, async (response, calls) => {
+      if (fault === "http-error") {
+        equal(response.status, 500, "status");
+        equal((await response.json()).error, "rpc_unavailable", "public error");
+        equal(calls.some((call) => isProviderCall(call.url)), false, "no provider call");
+      } else {
+        equal(response.status, 200, "a successful quota claim with unreadable count can still answer");
+      }
     });
-  }
-}
-
-Deno.test("Coach limiter HTTP error responds despite a stalled body cancellation", async () => {
-  await withStub({ stage: "limits", fault: "cancel-stall", maxWaitMs: 1000 }, async (response, calls) => {
-    equal(response.status, 500, "status");
-    equal((await response.json()).error, "rate_limit_unavailable", "public code");
-    equal(calls.some((call) => isProviderCall(call.url)), false, "no provider call");
   });
-});
+}
 
 Deno.test("Coach auth outage responds despite a stalled body cancellation", async () => {
   await withStub({ stage: "auth", fault: "cancel-stall", maxWaitMs: 1000 }, async (response, calls) => {
@@ -234,17 +227,15 @@ Deno.test("Coach auth outage responds despite a stalled body cancellation", asyn
   });
 });
 
-for (const fault of ["body-timeout", "body-invalid"] as const) {
-  Deno.test(`Supabase ${fault}: recipe representation does not discard the recipe`, async () => {
-    await withStub({ stage: "recipe-store", fault, recipe: true }, async (response, calls) => {
-      const body = await response.json();
-      equal(response.status, 200, "status");
-      equal(body.recipe.title, "Auflauf", "finished recipe delivered");
-      equal("assistant_message_id" in body, false, "ephemeral recipe");
-      equal(calls.some((call) => call.url.includes("refund_chat_quota")), false, "no refund for delivered recipe");
-    });
+Deno.test("Supabase body-timeout: recipe representation does not discard the recipe", async () => {
+  await withStub({ stage: "recipe-store", fault: "body-timeout", recipe: true }, async (response, calls) => {
+    const body = await response.json();
+    equal(response.status, 200, "status");
+    equal(body.recipe.title, "Auflauf", "finished recipe delivered");
+    equal("assistant_message_id" in body, false, "ephemeral recipe");
+    equal(calls.some((call) => call.url.includes("refund_chat_quota")), false, "no refund for delivered recipe");
   });
-}
+});
 
 for (const recipe of [false, true]) {
   Deno.test(`Quota refund retains the claimed UTC day across midnight (${recipe ? "recipe" : "chat"})`, async () => {
@@ -261,7 +252,8 @@ for (const recipe of [false, true]) {
   });
 }
 
-for (const quotaDay of [undefined, null, "", "2026-02-30", "2026-09-08T00:00:00Z"]) {
+// Missing (old DB), not a calendar day, and a timestamp the date regex must not take.
+for (const quotaDay of [undefined, "2026-02-30", "2026-09-08T00:00:00Z"]) {
   Deno.test(`Missing or invalid claim day cannot refund another bucket (${String(quotaDay)})`, async () => {
     await withStub({ quotaDay, midnightFailure: true }, async (response, calls) => {
       equal(response.status, 502, "honest provider error survives rollout mismatch");

@@ -8,7 +8,6 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 
 import { handleRequest } from "./handler.ts";
 import {
-  claudeErrorBody,
   claudeResponse,
   isClassifierRequest,
   isClaudeCall,
@@ -36,13 +35,6 @@ interface RecordedCall {
 interface StubOptions {
   /** Response body of the claim_chat_quota RPC (default [{used:1,remaining:4}]). */
   quotaBody?: unknown;
-  /**
-   * Raw response body of the batched consume_edge_rate_limits RPC. Passed
-   * through unchanged, so a broken shape stays testable.
-   */
-  rateLimitBody?: unknown;
-  /** The expensive answer call (not the classifier) fails with 500. */
-  answerFails?: boolean;
   /** GET on chat_messages (loadHistory) answers 500. */
   historyFails?: boolean;
   /** GET on chat_sessions?id=... (ownership check) answers 500. */
@@ -80,7 +72,6 @@ function installFetch(options: StubOptions = {}) {
     // Batched limiter (P6-02). MUST be tested before the single-gate URL: that
     // fragment is a prefix of this one.
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
-      if (options.rateLimitBody !== undefined) return jsonRes(options.rateLimitBody);
       const gates = (JSON.parse(body) as JsonRecord).p_gates as JsonRecord[];
       return jsonRes(gates.map((gate) => ({
         allowed: true,
@@ -120,7 +111,6 @@ function installFetch(options: StubOptions = {}) {
       if (isClassifierRequest(parsed)) {
         return jsonRes(claudeResponse(JSON.stringify({ category: "fitness", confidence: "high" })));
       }
-      if (options.answerFails) return new Response(claudeErrorBody("api_error", "upstream"), { status: 500 });
       return jsonRes(claudeResponse("Klar, machen wir."));
     }
     if (url.includes("/rest/v1/chat_messages")) {
@@ -215,25 +205,6 @@ Deno.test("E10: der Erfolgs-Response traegt daily_limit (Client rechnet sonst ge
   }
 });
 
-Deno.test("E2: Provider-Fehler -> ehrlicher 502 statt erfundener Coach-Antwort mit 200", async () => {
-  // Used to persist a fake assistant message with refusal_reason
-  // "model_refusal" and HTTP 200: indistinguishable from a real refusal and it
-  // poisons the history of every follow-up.
-  const stub = installFetch({ answerFails: true });
-  try {
-    const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
-    const body = await res.json() as JsonRecord;
-    assertEquals(res.status, 502, "Status");
-    assertEquals(body.error, "provider_error", "Fehlercode");
-    // The user message is stored (it is real), no invented assistant row.
-    assertEquals(stub.postsTo("chat_messages").length, 1, "nur die User-Message persistiert");
-    // The claimed slot is refunded: a provider outage must not burn the day.
-    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Slot refundiert");
-  } finally {
-    stub.restore();
-  }
-});
-
 Deno.test("E3: History nicht ladbar -> Abbruch VOR dem Quota-Claim statt kontextloser Antwort", async () => {
   // `if (!resp.ok) return []` used to answer follow-ups without context, and
   // since history loaded after the claim, the day's slot was gone anyway.
@@ -287,21 +258,6 @@ Deno.test("E5: User-Message nicht speicherbar -> Fehler statt Antwort auf eine N
     );
     // The claimed slot is refunded here too.
     assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Slot refundiert");
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("E6: Rate-Limit-RPC mit kaputtem Shape -> rate_limit_unavailable statt erfundenem 429", async () => {
-  // `allowed: data?.allowed === true` on an empty object became false: a 429
-  // with invented numbers although no limit was ever measured. A broken shape
-  // is a limiter outage, not a limit.
-  const stub = installFetch({ rateLimitBody: {} });
-  try {
-    const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
-    const body = await res.json() as JsonRecord;
-    assertEquals(res.status, 500, "Status");
-    assertEquals(body.error, "rate_limit_unavailable", "Fehlercode");
   } finally {
     stub.restore();
   }

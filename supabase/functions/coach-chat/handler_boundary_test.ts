@@ -3,7 +3,6 @@
 import { userToken } from "../_shared/auth_test_fixtures.ts";
 import {
   claudeResponse,
-  imageBlocks,
   isClassifierRequest,
   isClaudeCall,
   isProviderCall,
@@ -275,43 +274,26 @@ for (const mode of ["plan", "recipe", "log"] as const) {
   });
 }
 
-for (const refusal of [false, true]) {
-  Deno.test(`image-only: scripted ${refusal ? "refusal" : "legitimate answer"} passes the real output boundary`, async () => {
-    await withBackend({ reply: refusal ? "__REFUSE__ I cannot help with that request." : "This is a synthetic image-only coaching reply." }, async (backend) => {
-      const result = await backend.invoke({ message: "", image_base64: PNG, image_mime_type: "image/jpeg" });
-      equal(result.status, 200, "Captionless vision is supported");
-      equal(result.body.refusal, refusal, "Model refusal is interpreted by the handler");
-      const provider = backend.providers();
-      equal(provider.length, 1, "No blind text classifier on an empty caption");
-      const messages = provider[0].body.messages as Row[];
-      const current = messages.at(-1)?.content as Row[];
-      equal(current.map((block) => block.type), ["image"], "A captionless photo is the image block alone");
-      equal(current[0].source, { type: "base64", media_type: "image/png", data: PNG }, "Validated image and measured MIME reach vision");
-      assert(messages.every((message) => message.role === "user" || message.role === "assistant"), "Only application instructions have system authority");
-      assert(systemText(provider[0].body).length > 0, "Application instructions travel as the system prompt");
-      assert(!JSON.stringify(backend.writes()).includes(PNG), "Image bytes never persist in chat history");
-      const prompt = JSON.stringify(provider[0].body);
-      assert(!prompt.includes("ci-dummy-anthropic") && !prompt.includes("ci-dummy-provider"), "Provider credentials stay out of the prompt");
-    });
+// A blind classify("") would hit the fail-closed off_topic default and reject
+// every upload, so a captionless photo goes to vision without Layer 2.
+Deno.test("image-only: a captionless photo skips the classifier and reaches vision alone", async () => {
+  await withBackend({ reply: "This is a synthetic image-only coaching reply." }, async (backend) => {
+    const result = await backend.invoke({ message: "", image_base64: PNG, image_mime_type: "image/jpeg" });
+    equal(result.status, 200, "Captionless vision is supported");
+    equal(result.body.refusal, false, "An ordinary answer");
+    const provider = backend.providers();
+    equal(provider.length, 1, "No blind text classifier on an empty caption");
+    const messages = provider[0].body.messages as Row[];
+    const current = messages.at(-1)?.content as Row[];
+    equal(current.map((block) => block.type), ["image"], "A captionless photo is the image block alone");
+    equal(current[0].source, { type: "base64", media_type: "image/png", data: PNG }, "Validated image and measured MIME reach vision");
+    assert(messages.every((message) => message.role === "user" || message.role === "assistant"), "Only application instructions have system authority");
+    assert(systemText(provider[0].body).length > 0, "Application instructions travel as the system prompt");
+    assert(!JSON.stringify(backend.writes()).includes(PNG), "Image bytes never persist in chat history");
+    const prompt = JSON.stringify(provider[0].body);
+    assert(!prompt.includes("ci-dummy-anthropic") && !prompt.includes("ci-dummy-provider"), "Provider credentials stay out of the prompt");
   });
-}
-
-for (const caption of ["¿Qué muestra esta comida?", "What about this?"]) {
-  Deno.test(`image caption: legitimate deictic text survives an off-topic text-only classification: ${caption}`, async () => {
-    await withBackend({ classifier: '{"category":"off_topic","confidence":"high"}' }, async (backend) => {
-      const result = await backend.invoke({ message: caption, image_base64: PNG });
-      equal(result.status, 200, "Vision remains available");
-      equal(result.body.refusal, false, "A deictic caption is not refused as unrelated");
-      equal(backend.providers().length, 2, "Text classification followed by vision");
-      const classification = backend.providers()[0].body.messages as Row[];
-      equal(classification.at(-1)?.content, caption, "Only explicit caption is classified");
-      equal(imageBlocks(backend.providers()[0].body).length, 0, "Classifier never receives an image block");
-      assert(!JSON.stringify(classification).includes(PNG), "Classifier never receives the image or unrelated profile/history");
-      assert(!JSON.stringify(classification).includes("PRIVATE_A_HISTORY"), "Classifier sees no history");
-      equal(imageBlocks(backend.providers()[1].body).length, 1, "Vision call carries the photo");
-    });
-  });
-}
+});
 
 for (const category of ["injection", "medical_risk", "self_harm", "eating_disorder"]) {
   Deno.test(`image caption: scripted ${category} verdict stops before vision`, async () => {

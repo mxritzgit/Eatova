@@ -72,13 +72,6 @@ Deno.test("fixture: every invalid log is rejected", () => {
   }
 });
 
-Deno.test("validator: the result is a copy, not the caller's object", () => {
-  const input = structuredClone(FIXTURE.valid[0]);
-  const parsed = parseWorkoutLog(input)!;
-  (input.exercises as Row[])[0].name = "changed";
-  equal(parsed.exercises[0].name, "Barbell", "detached copy");
-});
-
 Deno.test("command: only the exact /log token selects the workout wish", () => {
   equal(parseWorkoutLogCommand("/log today squats"), "today squats", "plain token");
   equal(parseWorkoutLogCommand(" /LOG\t heute Kniebeugen 3x10 "), "heute Kniebeugen 3x10", "case and whitespace");

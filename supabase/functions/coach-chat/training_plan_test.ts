@@ -164,6 +164,10 @@ Deno.test("training plan: refusal has its own bounded shape and proposals remain
     for (const text of ["injury rehabilitation", "self-harm", "eating-disorder", "dangerous challenges", "doping", "Never execute tools", "12000"]) {
       assert(prompt.includes(text), `safety instruction ${text}`);
     }
+    // Measured 2026-10-08: larger plans ran into the token cap near the deadline.
+    for (const text of ["at most 4 distinct workouts", "rotate the workouts across the week", "at most 8 exercises per workout"]) {
+      assert(prompt.includes(text), `${locale}: plan size bound ${text}`);
+    }
   }
 });
 
@@ -181,13 +185,4 @@ Deno.test("training plan: the output schema forces reps xor duration and keeps t
   });
   assert(JSON.stringify(shapes) === JSON.stringify(["integer/null", "null/integer"]), `reps xor duration: ${shapes}`);
   assert(JSON.stringify((refusal.properties as Node).refuse) === JSON.stringify({ type: "string" }), "refusal branch");
-});
-
-Deno.test("training plan: the prompt bounds a plan to four rotated workouts", () => {
-  for (const locale of ["de", "en"] as const) {
-    const prompt = trainingPlanSystemPrompt(locale);
-    assert(prompt.includes("at most 4 distinct workouts"), `${locale}: workout cap`);
-    assert(prompt.includes("rotate the workouts across the week"), `${locale}: rotation`);
-    assert(prompt.includes("at most 8 exercises per workout"), `${locale}: exercise cap`);
-  }
 });

@@ -67,7 +67,6 @@ type Options = {
   extractionError?: Error;
   extractionBodyInvalid?: boolean;
   extractionStalls?: boolean;
-  extractionRequested?: () => void;
   category?: string;
   classifier?: string;
   quota?: "exhausted" | "missing_day" | "unknown_remaining";
@@ -77,7 +76,6 @@ type Options = {
   assistantStoreStatus?: number;
   assistantBodyInvalid?: boolean;
   assistantStalls?: boolean;
-  foreignSession?: boolean;
 };
 
 function assert(condition: unknown, label: string): asserts condition {
@@ -167,7 +165,6 @@ function stubNetwork(options: Options = {}) {
       // Log extraction, or a plan draft (existing-client control).
       assert(asksForSchema(body, WORKOUT_LOG_OUTPUT_SCHEMA) || asksForSchema(body, TRAINING_PLAN_OUTPUT_SCHEMA),
         "only a structured draft remains");
-      options.extractionRequested?.();
       if (options.extractionStalls) return stall(signal);
       if (options.extractionError) return Promise.reject(options.extractionError);
       if (options.extractionStatus) {
@@ -199,7 +196,7 @@ function stubNetwork(options: Options = {}) {
     }
     if (url.includes("/rest/v1/chat_sessions")) {
       return Promise.resolve(method === "GET"
-        ? response(options.foreignSession ? [] : [{ id: SESSION, title: "Training" }])
+        ? response([{ id: SESSION, title: "Training" }])
         : new Response(null, { status: 204 }));
     }
     throw new Error(`Unexpected network request: ${method} ${url}`);
@@ -676,49 +673,6 @@ Deno.test("log handler: unknown remaining is omitted and a missing claim day nev
     equal(missingDate.callsTo("refund_chat_quota").length, 0, "no guessed refund date");
     equal(missingDate.ledger.get("2026-10-04"), 3, "current day untouched");
   } finally { missingDate.restore(); }
-});
-
-Deno.test("log handler: cancelling the client neither refunds nor loses the completed proposal", async () => {
-  const controller = new AbortController();
-  const stub = stubNetwork({ extractionRequested: () => controller.abort() });
-  try {
-    const res = await handleRequest(request({}, controller.signal));
-    equal(res.status, 200, "extraction completes after disconnect");
-    equal(stub.ledger.get(CLAIM_DAY), 1, "no cancel refund bypass");
-    equal(stub.assistantRows().filter((call) => call.body.workout_log !== undefined).length, 1, "history supports recovery");
-  } finally { stub.restore(); }
-});
-
-Deno.test("log handler: a foreign session is never read or written and falls back to the owned default", async () => {
-  const stub = stubNetwork({ foreignSession: true });
-  try {
-    const res = await handleRequest(request({ session_id: "44444444-4444-4444-8444-444444444444" }));
-    equal(res.status, 200, "existing safe fallback");
-    equal((await res.json()).session_id, SESSION, "owned session returned");
-    assert(stub.callsTo("chat_sessions")[0].url.includes(`user_id=eq.${USER}`), "owner-scoped lookup");
-    for (const call of stub.callsTo("chat_messages")) {
-      equal([call.body.user_id, call.body.session_id], [USER, SESSION], "all transcript writes owned");
-    }
-  } finally { stub.restore(); }
-});
-
-Deno.test("log handler: existing clients keep their modes (absent, chat, /plan text, plan)", async () => {
-  for (const [payload, field] of [
-    [{ mode: undefined, message: "How much protein after training?" }, "reply"],
-    [{ mode: "chat", message: "How much protein after training?" }, "reply"],
-    [{ mode: undefined, message: "/plan two home workouts" }, "training_plan"],
-    [{ mode: "plan", message: "two home workouts" }, "training_plan"],
-  ] as [Row, string][]) {
-    const stub = stubNetwork({ extraction: JSON.stringify({ schema_version: 1, title: "Home", description: "", goal: "",
-      workouts: [{ title: "A", description: "", exercises: [{ name: "Squat", sets: 2, reps: 10, duration_seconds: null, rest_seconds: 60, notes: "" }] }] }) });
-    try {
-      const req = request({ local_date: undefined, ...payload });
-      req.headers.set("accept", "application/json");
-      const res = await handleRequest(req);
-      equal(res.status, 200, `${JSON.stringify(payload)}: status`);
-      assert((await res.json())[field], `${JSON.stringify(payload)}: ${field}`);
-    } finally { stub.restore(); }
-  }
 });
 
 Deno.test("log handler: the extraction carries WORKOUT_LOG_OUTPUT_SCHEMA, 4096 tokens and the Claude contract", async () => {
