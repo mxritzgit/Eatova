@@ -41,6 +41,11 @@ Deno.test("C2: Antworten, die die App-Daten erklaeren, loesen das Leck-Netz nich
       "Your weight trend is a 21-day slope of about -0.3 kg per week; a rate within the band counts " +
       "as stable.",
       "The weekly check compares intake with the weight trend and proposes any adjustment in the app.",
+      "Dein Wochen-Check sammelt noch Daten, es fehlen noch Wiegungen. Fuer heute Abend hast du die " +
+      "Lachs-Bowl geplant; sie passt gut in die 640 kcal, die noch offen sind.",
+      "Your weekly check is still collecting data, so there is no estimate yet. You planned the salmon " +
+      "bowl for dinner tonight, and it fits the calories you have left. If you already ate, log it with " +
+      "/meal 2 eggs and toast style, and review the entry before you add it to today's diary.",
     ]
   ) {
     assert(!PROMPT_LEAK_GUARD.leaks(answer), `falscher Leck-Treffer: ${answer}`);

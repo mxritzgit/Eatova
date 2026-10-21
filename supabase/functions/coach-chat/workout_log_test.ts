@@ -266,6 +266,10 @@ Deno.test("refusal texts: one fixed text per reason and language", () => {
     seen.add(de).add(en);
   }
   equal(seen.size, LOG_REFUSAL_REASONS.length * 2, "distinct texts");
+  // A meal under /log is sent on to the app's free /meal command.
+  for (const locale of ["de", "en"] as const) {
+    assert(workoutLogRefusalText("food", locale).includes("/meal "), `${locale}: food points to /meal`);
+  }
 });
 
 Deno.test("prompt: language, the 8-day calendar, all 19 rules and the extraction schema", () => {
@@ -280,7 +284,7 @@ Deno.test("prompt: language, the 8-day calendar, all 19 rules and the extraction
   assert(!en.includes("2026-09-25"), "exactly eight days");
   for (let rule = 1; rule <= 19; rule++) assert(en.includes(`\n${rule}. `), `rule ${rule}`);
   assert(!en.includes("\n20. "), "no extra rule");
-  for (const key of ["status", "refuse_reason", "health_mention", "not_a_workout", "not_completed", "too_large", "unsafe", "weight_unit", "other_days_omitted", "duration_seconds"]) {
+  for (const key of ["status", "refuse_reason", "health_mention", ...LOG_REFUSAL_REASONS, "weight_unit", "other_days_omitted", "duration_seconds"]) {
     assert(en.includes(key), key);
   }
   assert(/\n16\. [^\n]*health_mention true[^\n]*pain/.test(en), "rule 16 flags pain without copying it");

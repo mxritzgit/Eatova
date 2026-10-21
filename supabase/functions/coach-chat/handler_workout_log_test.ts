@@ -20,7 +20,7 @@ import {
 } from "./claude_mode_test_helpers.ts";
 import { handleRequest, PROVIDER_TIMEOUTS_MS, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
 import { TRAINING_PLAN_OUTPUT_SCHEMA } from "./training_plan.ts";
-import { WORKOUT_LOG_OUTPUT_SCHEMA, WORKOUT_LOG_SAFETY_LINE, workoutLogRefusalText } from "./workout_log.ts";
+import { LOG_REFUSAL_REASONS, WORKOUT_LOG_OUTPUT_SCHEMA, WORKOUT_LOG_SAFETY_LINE, workoutLogRefusalText } from "./workout_log.ts";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -462,7 +462,7 @@ Deno.test("log handler: pain the classifier calls fitness still ends with the sa
 
 Deno.test("log handler: model refusals use fixed localized texts and keep the slot", async () => {
   for (const locale of ["en", "de"] as const) {
-    for (const reason of ["not_a_workout", "not_completed", "too_large", "unsafe"] as const) {
+    for (const reason of LOG_REFUSAL_REASONS) {
       const stub = stubNetwork({ category: "off_topic", extraction: JSON.stringify({ status: "refuse", refuse_reason: reason, workout: null }) });
       try {
         const res = await handleRequest(request({ locale }));
