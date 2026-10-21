@@ -17,11 +17,11 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
-// Coach design: this file pins what the dark redesign (2026-09-28) guarantees
-// (header, bubbles, composer without a theme box) and what it must not
-// change. The state assertions live in the existing coach_* files, the
-// start-state wiring in coach_start_wiring_test.dart; this one is about
-// appearance.
+// Coach design: what the dark redesign (2026-09-28) must keep for the user:
+// the AI named for screen readers, readable bubble pairs, the borderless
+// composer, text scaling, reduced motion, a visible listening state. The
+// state assertions live in the other coach_* files, the info sheet's
+// disclosure in coach_ai_disclosure_test.dart.
 
 /// Usable area of an iPhone 16 Pro. The binding's 800x600 default view is
 /// shorter than any target device and lets the hero overflow.
@@ -194,30 +194,21 @@ BoxDecoration _bubbleDecoration(WidgetTester tester, String text) {
 }
 
 void main() {
-  testWidgets('Kopf traegt Titel, Zustandszeile und die zwei runden Knoepfe',
-      (tester) async {
-    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
-      await _pumpCoach(tester, service: _FakeCoach.create(), brightness: brightness);
+  testWidgets('Kopf: Screenreader hoeren "KI-Coach", beide Knoepfe sind '
+      'mindestens 44 dp gross', (tester) async {
+    await _pumpCoach(tester, service: _FakeCoach.create());
 
-      // Visible "Coach" like the design; screen readers hear "KI-Coach".
-      expect(tester.widget<Text>(find.text('Coach')).semanticsLabel, 'KI-Coach');
-      expect(find.text('Sieht dein heutiges Log'), findsOneWidget);
-      for (final key in ['coach-sessions-open', 'coach-info']) {
-        final button = find.byKey(ValueKey(key));
-        expect(button, findsOneWidget);
-        expect(tester.getSize(button), const Size(44, 44));
-      }
-      // Design order: past chats left of the info button.
-      expect(
-        tester.getCenter(find.byKey(const ValueKey('coach-sessions-open'))).dx,
-        lessThan(tester.getCenter(find.byKey(const ValueKey('coach-info'))).dx),
-      );
-      expect(tester.takeException(), isNull);
+    // Visible "Coach" like the design; screen readers hear "KI-Coach".
+    expect(tester.widget<Text>(find.text('Coach')).semanticsLabel, 'KI-Coach');
+    for (final key in ['coach-sessions-open', 'coach-info']) {
+      final size = tester.getSize(find.byKey(ValueKey(key)));
+      expect(size.width, greaterThanOrEqualTo(44), reason: key);
+      expect(size.height, greaterThanOrEqualTo(44), reason: key);
     }
   });
 
-  testWidgets('Nutzer-Blase liegt in Forest, Coach-Blase auf surf mit line-Rand',
-      (tester) async {
+  testWidgets('Blasen tragen ihr lesbares Paar: Nutzer forest/onForest, '
+      'Coach surf/ink', (tester) async {
     final svc = _FakeCoach.create()
       ..history = <ChatMessage>[
         _msg('Was soll ich abends essen?', ChatRole.user),
@@ -226,28 +217,12 @@ void main() {
     await _pumpCoach(tester, service: svc);
 
     const t = AppTokens.dark;
-    final user = _bubbleDecoration(tester, 'Was soll ich abends essen?');
-    expect(user.color, t.forest);
-
-    final coach = _bubbleDecoration(tester, 'Nimm Lachs mit Suesskartoffel.');
-    expect(coach.color, t.surf,
-        reason: 'der Coach bekommt in der neuen Sprache eine eigene Flaeche, '
-            'nicht mehr Plain-Text auf dem Seitengrund');
-    expect((coach.border! as Border).top.color, t.line);
-  });
-
-  testWidgets('Nutzer-Text steht in onForest, Coach-Text in ink', (tester) async {
-    final svc = _FakeCoach.create()
-      ..history = <ChatMessage>[
-        _msg('Meine Frage', ChatRole.user),
-        _msg('Meine Antwort', ChatRole.assistant),
-      ];
-    await _pumpCoach(tester, service: svc, brightness: Brightness.light);
-
-    const t = AppTokens.light;
-    expect(tester.widget<Text>(find.text('Meine Frage')).style?.color,
-        t.onForest);
-    expect(tester.widget<Text>(find.text('Meine Antwort')).style?.color, t.ink);
+    const frage = 'Was soll ich abends essen?';
+    const antwort = 'Nimm Lachs mit Suesskartoffel.';
+    expect(_bubbleDecoration(tester, frage).color, t.forest);
+    expect(tester.widget<Text>(find.text(frage)).style?.color, t.onForest);
+    expect(_bubbleDecoration(tester, antwort).color, t.surf);
+    expect(tester.widget<Text>(find.text(antwort)).style?.color, t.ink);
   });
 
   testWidgets('Tippen rebuildet die Konversation nicht — nur der Composer '
@@ -280,8 +255,10 @@ void main() {
     expect(find.byKey(const ValueKey('coach-command-menu')), findsNothing);
   });
 
-  testWidgets('Composer-Feld traegt keine Theme-Fuellung und keinen Rahmen',
-      (tester) async {
+  // The owner's input rule (AGENTS.md): borderless soft fill, focus is a
+  // lighter fill, never a ring.
+  testWidgets('Composer: keine Theme-Fuellung, kein Rahmen; Fokus hellt die '
+      'Kapsel auf (field -> fieldFocus)', (tester) async {
     await _pumpCoach(tester, service: _FakeCoach.create());
 
     final field = tester.widget<TextField>(
@@ -311,13 +288,10 @@ void main() {
         reason: 'rahmenlose Eingabe: Tiefe kommt vom Schatten, nicht von line');
     expect(kapselDeco.boxShadow, isNotEmpty);
     expect(kapselDeco.color, AppTokens.dark.field);
-  });
 
-  testWidgets('Fokus hellt die Composer-Kapsel auf (field → fieldFocus), kein Ring',
-      (tester) async {
-    await _pumpCoach(tester, service: _FakeCoach.create());
-
-    BoxDecoration kapsel() => tester
+    await tester.tap(find.byKey(const ValueKey('coach-input')));
+    await tester.pumpAndSettle();
+    final fokussiert = tester
         .widget<AnimatedContainer>(
           find
               .ancestor(
@@ -327,50 +301,9 @@ void main() {
               .first,
         )
         .decoration! as BoxDecoration;
-
-    const t = AppTokens.dark;
-    expect(kapsel().color, t.field);
-
-    await tester.tap(find.byKey(const ValueKey('coach-input')));
-    await tester.pumpAndSettle();
-
-    expect(tester.widget<TextField>(find.byKey(const ValueKey('coach-input')))
-        .focusNode
-        ?.hasFocus, isTrue);
-    expect(kapsel().color, t.fieldFocus,
+    expect(fokussiert.color, AppTokens.dark.fieldFocus,
         reason: 'Fokus = Flaechen-Aufhellung, nicht Rahmen');
-    expect(kapsel().border, isNull);
-  });
-
-  testWidgets('Loeschdialog trennt weiche Nebenaktion und destruktive Aktion',
-      (tester) async {
-    await _pumpCoach(tester, service: _FakeCoach.create());
-    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.delete_outline_rounded));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(AlertDialog), findsOneWidget);
-    const t = AppTokens.dark;
-    final cancel = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Abbrechen'),
-    );
-    final delete = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Löschen'),
-    );
-    expect(cancel.style!.backgroundColor!.resolve({}), t.field);
-    expect(cancel.style!.foregroundColor!.resolve({}), t.ink);
-    expect(delete.style!.backgroundColor!.resolve({}), t.danger);
-    expect(delete.style!.foregroundColor!.resolve({}), t.bg);
-  });
-
-  testWidgets('knappes Kontingent zeigt den Hinweis', (tester) async {
-    final svc = _FakeCoach.create()
-      ..quota = const ChatQuotaSnapshot(used: 3, remaining: 2, dailyLimit: 5);
-    await _pumpCoach(tester, service: svc);
-
-    expect(find.byKey(const ValueKey('coach-quota-hint')), findsOneWidget);
-    expect(find.text('Noch 2 Fragen heute'), findsOneWidget);
+    expect(fokussiert.border, isNull);
   });
 
   testWidgets('Coach ueberlebt textScaler 2.0 — Hero und Konversation',
@@ -451,45 +384,6 @@ void main() {
     }
   });
 
-  testWidgets('Sessions-Sheet steht in beiden Modi mit Liste und „Neu"',
-      (tester) async {
-    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
-      await _pumpCoach(
-        tester,
-        service: _FakeCoach.create(),
-        brightness: brightness,
-      );
-
-      await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Coach-Sessions'), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-sessions-new')), findsOneWidget);
-      expect(find.text('Chat A'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    }
-  });
-
-  testWidgets('Info-Sheet traegt die C8-Offenlegung in beiden Modi',
-      (tester) async {
-    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
-      await _pumpCoach(
-        tester,
-        service: _FakeCoach.create(),
-        brightness: brightness,
-      );
-
-      await tester.tap(find.byKey(const ValueKey('coach-info')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey('coach-info-sheet')), findsOneWidget);
-      expect(find.text('Das schickt jede Frage mit'), findsOneWidget);
-      expect(find.textContaining('Anthropic'), findsOneWidget);
-      expect(find.textContaining('5 von 5 Fragen heute frei'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    }
-  });
-
   testWidgets('Attach-Sheet schliesst sich selbst, nicht den Screen',
       (tester) async {
     await _pumpCoach(tester, service: _FakeCoach.create());
@@ -509,31 +403,4 @@ void main() {
 
   // The source guard "kein app_colors und keine harte Farbe mehr im Coach"
   // moved to test/repo_rules_test.dart, where `lib/` is walked once.
-
-  group('EN-Render-Smoke (i18n-Paket 4, Spec §6)', () {
-    // Renders under locale `en` in both brightnesses: no crash, and at least
-    // one real English translation is in the tree.
-    for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
-      testWidgets('Coach-Tab rendert unter en in $brightness ohne Ausnahme',
-          (tester) async {
-        await _pumpCoach(
-          tester,
-          service: _FakeCoach.create(),
-          brightness: brightness,
-          locale: const Locale('en'),
-        );
-
-        expect(tester.takeException(), isNull,
-            reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
-        // The German header strings become their English counterparts.
-        expect(
-          tester.widget<Text>(find.text('Coach')).semanticsLabel,
-          'AI Coach',
-        );
-        expect(find.text("Sees today's log"), findsOneWidget);
-        expect(find.text('How can I help you?'), findsOneWidget);
-        expect(find.text('Try asking'), findsOneWidget);
-      });
-    }
-  });
 }

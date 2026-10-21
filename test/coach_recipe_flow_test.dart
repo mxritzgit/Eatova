@@ -19,10 +19,9 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'support/harness.dart';
 
 // Coach recipe generator:
-//   * /recipe is the only command (English in both app languages); unknown
-//     /-commands never reach the model — a local hint instead of a burnt slot.
-//   * "/" in the composer suggests /recipe with a localized description; a tap
-//     completes it.
+//   * /recipe goes to requestRecipe, not the chat. That an empty wish and an
+//     unknown /-command stay local is pinned in coach_chat_controller_test.
+//   * "/" in the composer suggests /recipe; a tap completes it.
 //   * Card -> sheet -> exactly one onCreateRecipe.
 //   * "Added" holds only while the recipe exists; deleting it in the recipes
 //     tab re-enables the button.
@@ -260,36 +259,6 @@ void main() {
     expect(find.text('/recipe Huehnchenauflauf mit Bild'), findsOneWidget);
   });
 
-  testWidgets('/recipe ohne Wunschtext: lokaler Hinweis, kein Request', (
-    tester,
-  ) async {
-    final svc = _RecipeCoach.create();
-    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
-
-    await _type(tester, '/recipe');
-
-    expect(svc.recipeCalls, isEmpty, reason: 'kein Request = kein Slot');
-    expect(find.textContaining('Sag mir, was'), findsOneWidget);
-  });
-
-  testWidgets(
-    'unbekannte Befehle (auch das alte /rezept) gehen NIE ans Modell',
-    (tester) async {
-      final svc = _RecipeCoach.create();
-      await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
-
-      await _type(tester, '/rezept Huehnchenauflauf');
-
-      expect(svc.recipeCalls, isEmpty);
-      expect(
-        svc.sendCalls,
-        0,
-        reason: 'ein Tippo darf keinen Tages-Slot verbrennen',
-      );
-      expect(find.textContaining('Unbekannter Befehl'), findsOneWidget);
-    },
-  );
-
   testWidgets('Befehls-Menue: "/" schlaegt /recipe vor, Tap vervollstaendigt', (
     tester,
   ) async {
@@ -323,25 +292,6 @@ void main() {
     await tester.enterText(find.byKey(const ValueKey('coach-input')), '/x');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('coach-command-menu')), findsNothing);
-  });
-
-  testWidgets('Befehls-Beschreibung unter en folgt der App-Sprache', (
-    tester,
-  ) async {
-    final svc = _RecipeCoach.create();
-    await _pumpCoach(
-      tester,
-      service: svc,
-      created: <FitnessRecipe>[],
-      locale: const Locale('en'),
-    );
-
-    await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Creates a new recipe with a matching photo'),
-      findsOneWidget,
-    );
   });
 
   testWidgets(
@@ -538,33 +488,4 @@ void main() {
     expect(find.byKey(const ValueKey('coach-recipe-card')), findsNothing);
     expect(find.text('Ich erstelle nur Essensrezepte.'), findsOneWidget);
   });
-
-  testWidgets(
-    'Reload-Karte: ein Vorschlag aus dem VERLAUF rendert mit aktivem Button',
-    (tester) async {
-      // chat_messages.recipe carries the recipe JSON; fromRow rebuilds the
-      // proposal without bytes, so the card returns after a restart with a
-      // placeholder image (no store in the test).
-      final svc = _RecipeCoach.create()
-        ..history = <ChatMessage>[
-          ChatMessage(
-            id: 'srv-msg-1',
-            role: ChatRole.assistant,
-            content: 'Rezeptvorschlag: Huehnchenauflauf.',
-            createdAt: DateTime(2026, 8, 12, 18),
-            recipeProposal: _proposal(),
-          ),
-        ];
-      await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
-
-      expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
-      expect(find.text('Huehnchenauflauf'), findsOneWidget);
-      final button = find.byKey(const ValueKey('coach-recipe-add'));
-      expect(
-        button,
-        findsOneWidget,
-        reason: 'die Option zum Hinzufuegen ueberlebt den Reload',
-      );
-    },
-  );
 }

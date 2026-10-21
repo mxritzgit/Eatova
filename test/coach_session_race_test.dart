@@ -30,9 +30,12 @@ import 'support/harness.dart';
 // still free.
 //
 // The tests hold replies open on completers and switch sessions in between,
-// which is the only way to open the window the bug lives in. The first test is
-// the positive counter-check: flipping `!=` to `==` would discard every reply
-// while the findsNothing tests stayed green.
+// which is the only way to open the window the bug lives in. The plain
+// session and answer fences (A->B, A->B->A, late history, late error) are
+// pinned once, without widgets, in test/coach/coach_chat_controller_test.dart;
+// this file keeps what only the screen shows: reconciled cards and plans,
+// the sessions sheet, the retry draft, the (i) sheet and the server's
+// session fallback.
 
 class _RaceCoach extends CoachChatService {
   _RaceCoach(super.client, super.userId);
@@ -53,8 +56,7 @@ class _RaceCoach extends CoachChatService {
   /// arrives.
   static const String verlaufB = 'Das ist der Verlauf von Sitzung B.';
 
-  /// Same for session C, needed for the A -> B -> C switch where B's late
-  /// history would overwrite C's.
+  /// Same for session C.
   static const String verlaufC = 'Das ist der Verlauf von Sitzung C.';
 
   /// Pending send jobs in arrival order; tests resolve them by hand to place
@@ -64,14 +66,6 @@ class _RaceCoach extends CoachChatService {
   /// Session ids of the `send()` calls, in order.
   final List<String> gesendeteSessions = <String>[];
 
-  /// While true every `loadHistory` call hangs on a completer, so a second
-  /// switch can happen while the first history is still in flight.
-  bool verlaufHaengt = false;
-
-  /// Pending history jobs, keyed by session id.
-  final Map<String, Completer<List<ChatMessage>>> offeneVerlaeufe =
-      <String, Completer<List<ChatMessage>>>{};
-  final Map<String, List<Completer<List<ChatMessage>>>> verlaufsVersuche = {};
   final List<Completer<List<ChatSession>>> sessionLoads = [];
   Completer<String?>? createGate;
   List<ChatSession>? sessionList;
@@ -148,17 +142,9 @@ class _RaceCoach extends CoachChatService {
       nextAHistory = null;
       return job.future;
     }
-    if (!verlaufHaengt) {
-      return Future<List<ChatMessage>>.value(
-        sessionId == 's1' && historyA != null
-            ? historyA!
-            : verlaufVon(sessionId),
-      );
-    }
-    final auftrag = Completer<List<ChatMessage>>();
-    offeneVerlaeufe[sessionId] = auftrag;
-    verlaufsVersuche.putIfAbsent(sessionId, () => []).add(auftrag);
-    return auftrag.future;
+    return Future<List<ChatMessage>>.value(
+      sessionId == 's1' && historyA != null ? historyA! : verlaufVon(sessionId),
+    );
   }
 
   /// The state the server reports.
@@ -318,189 +304,6 @@ final DateTime _spaeteAntwort = DateTime(2026, 9, 8, 12, 0, 1);
 
 void main() {
   testWidgets(
-    'ohne Wechsel: die Antwort erscheint in DER Sitzung, in der gesendet wurde',
-    (tester) async {
-      final svc = _RaceCoach.create();
-      await _pumpCoach(tester, svc);
-
-      await _tippenUndSenden(tester, 'Frage aus Sitzung A');
-      svc.offen.first.complete(
-        const CoachChatReply(
-          reply: 'Antwort auf die Frage aus Sitzung A',
-          refusal: false,
-          sessionId: 's1',
-          remaining: 4,
-          dailyLimit: 5,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('Antwort auf die Frage aus Sitzung A'),
-        findsOneWidget,
-        reason:
-            'Gegenprobe zum Sitzungs-Vergleich: dreht jemand `!=` auf `==`, '
-            'verwirft der Screen JEDE Antwort — die reinen '
-            'findsNothing-Tests blieben davon gruen',
-      );
-      expect(
-        find.text('Frage aus Sitzung A'),
-        findsOneWidget,
-        reason: 'die Frage steht weiter ueber der Antwort',
-      );
-
-      // The composer is free again: the in-flight counter is back to 0.
-      await _tippenUndSenden(tester, 'Und noch eine Frage');
-      expect(svc.gesendeteSessions, <String>['s1', 's1']);
-    },
-  );
-
-  testWidgets(
-    'Sitzungswechsel waehrend der Antwort: die Antwort auf A taucht NICHT in '
-    'B auf',
-    (tester) async {
-      final svc = _RaceCoach.create();
-      await _pumpCoach(tester, svc);
-
-      await _tippenUndSenden(tester, 'Frage aus Sitzung A');
-      expect(svc.gesendeteSessions, <String>['s1']);
-      expect(svc.offen, hasLength(1), reason: 'die Antwort steht noch aus');
-
-      await _wechsleAufSitzung(tester, 'Chat B');
-      expect(
-        find.text(_RaceCoach.verlaufB),
-        findsOneWidget,
-        reason: 'ab hier sieht der Nutzer Sitzung B',
-      );
-
-      // Only now does the reply to session A's question arrive.
-      svc.offen.first.complete(
-        const CoachChatReply(
-          reply: 'Antwort auf die Frage aus Sitzung A',
-          refusal: false,
-          sessionId: 's1',
-          remaining: 4,
-          dailyLimit: 5,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('Antwort auf die Frage aus Sitzung A'),
-        findsNothing,
-        reason: 'die Antwort gehoert Sitzung A — in B stuende sie ohne die '
-            'zugehoerige Frage da',
-      );
-      expect(
-        find.text(_RaceCoach.verlaufB),
-        findsOneWidget,
-        reason: 'Sitzung B bleibt unveraendert',
-      );
-
-      // The bubble is discarded, the daily slot is not: dropping the quota
-      // with the reply would keep claiming all questions are free.
-      await _oeffneInfoSheet(tester);
-      expect(
-        find.textContaining('4 von 5 Fragen heute frei'),
-        findsOneWidget,
-        reason: 'das Kontingent gehoert dem Nutzer, nicht der Sitzung',
-      );
-    },
-  );
-
-  testWidgets(
-    '/recipe mit Sitzungswechsel: die Karte bleibt weg, der Tagesslot ist '
-    'trotzdem verbucht',
-    (tester) async {
-      // Gleiche Regel wie im Chat-Pfad, zweiter Weg: /recipe kostet denselben
-      // Tagesslot. Wird die Karte wegen des Wechsels verworfen, ist der Slot
-      // trotzdem weg — steht der Zaehler danach weiter auf 5, verspricht das
-      // (i)-Sheet eine Frage, die der Server mit 429 beantwortet.
-      final svc = _RaceCoach.create();
-      await _pumpCoach(tester, svc);
-
-      await _tippenUndSenden(tester, '/recipe Huehnchenauflauf');
-      expect(svc.offeneRezepte, hasLength(1), reason: 'der Wunsch ist raus');
-      expect(svc.gesendeteSessions, <String>['s1']);
-
-      await _wechsleAufSitzung(tester, 'Chat B');
-      expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
-
-      svc.offeneRezepte.first.complete(
-        const CoachRecipeReply(
-          reply: 'Rezeptvorschlag: Huehnchenauflauf.',
-          refusal: false,
-          proposal: _vorschlag,
-          sessionId: 's1',
-          remaining: 4,
-          dailyLimit: 5,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const ValueKey('coach-recipe-card')),
-        findsNothing,
-        reason: 'die Karte gehoert Sitzung A — in B stuende sie ohne den '
-            'Wunsch da, aus dem sie entstand',
-      );
-      expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
-
-      await _oeffneInfoSheet(tester);
-      expect(
-        find.textContaining('4 von 5 Fragen heute frei'),
-        findsOneWidget,
-        reason: 'der Slot ist verbraucht, egal wo der Nutzer gerade steht — '
-            'wird der Zaehler erst NACH dem Sitzungsvergleich uebernommen, '
-            'faellt genau diese Buchung unter den Tisch',
-      );
-    },
-  );
-
-  testWidgets(
-    'Sitzungswechsel setzt den Sende-Zustand nicht zurueck: kein zweiter '
-    'Request neben dem laufenden',
-    (tester) async {
-      final svc = _RaceCoach.create();
-      await _pumpCoach(tester, svc);
-
-      await _tippenUndSenden(tester, 'Frage aus Sitzung A');
-      await _wechsleAufSitzung(tester, 'Chat B');
-
-      // The switch used to reset `_sending`, so typing and sending in B fired
-      // a second request while the first still ran: two daily slots from one
-      // gesture.
-      await _tippenUndSenden(tester, 'Frage aus Sitzung B');
-      expect(
-        svc.gesendeteSessions,
-        <String>['s1'],
-        reason: 'solange eine Anfrage laeuft, geht keine zweite raus',
-      );
-
-      // Switching stays usable, and once the first request has an outcome the
-      // new session can send, even if the reply was discarded.
-      svc.offen.first.complete(
-        const CoachChatReply(
-          reply: 'Antwort auf die Frage aus Sitzung A',
-          refusal: false,
-          sessionId: 's1',
-          remaining: 4,
-          dailyLimit: 5,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      await _tippenUndSenden(tester, 'Frage aus Sitzung B');
-      expect(
-        svc.gesendeteSessions,
-        <String>['s1', 's2'],
-        reason: 'der Composer darf nach dem Ausgang nicht gesperrt bleiben — '
-            'der Zaehler wird auch fuer verworfene Antworten freigegeben',
-      );
-    },
-  );
-
-  testWidgets(
     'der Server hat in einer ANDEREN Sitzung gespeichert: die App folgt ihm, '
     'statt die Antwort lokal anzuhaengen',
     (tester) async {
@@ -554,118 +357,6 @@ void main() {
     },
   );
 
-  testWidgets(
-    'Wechsel A -> B -> C: der Nachzuegler von B ueberschreibt den Verlauf von '
-    'C nicht',
-    (tester) async {
-      final svc = _RaceCoach.create();
-      await _pumpCoach(tester, svc);
-      svc.verlaufHaengt = true;
-
-      await _wechsleAufSitzungOhneRuhe(tester, 'Chat B');
-      await _wechsleAufSitzungOhneRuhe(tester, 'Chat C');
-      expect(
-        svc.offeneVerlaeufe.keys,
-        containsAll(<String>['s2', 's3']),
-        reason: 'beide Verlaeufe sind unterwegs',
-      );
-
-      // The slow load of the abandoned session arrives first.
-      svc.offeneVerlaeufe['s2']!.complete(_RaceCoach.verlaufVon('s2'));
-      await _pumpFrames(tester);
-      expect(
-        find.text(_RaceCoach.verlaufB),
-        findsNothing,
-        reason: 'oben steht Chat C — ein Verlauf unter fremdem Sitzungs-Label '
-            'sind Gesundheitsdaten am falschen Ort',
-      );
-
-      // And C still arrives.
-      svc.offeneVerlaeufe['s3']!.complete(_RaceCoach.verlaufVon('s3'));
-      await tester.pumpAndSettle();
-      expect(find.text(_RaceCoach.verlaufC), findsOneWidget);
-      expect(find.text(_RaceCoach.verlaufB), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'Wechsel A -> B -> C: auch der Fehler von B bleibt bei B',
-    (tester) async {
-      final svc = _RaceCoach.create();
-      await _pumpCoach(tester, svc);
-      svc.verlaufHaengt = true;
-
-      await _wechsleAufSitzungOhneRuhe(tester, 'Chat B');
-      await _wechsleAufSitzungOhneRuhe(tester, 'Chat C');
-
-      svc.offeneVerlaeufe['s2']!.completeError(
-        const CoachDataUnavailable('Test: Verlauf von B nicht ladbar'),
-      );
-      await _pumpFrames(tester);
-
-      expect(
-        find.textContaining('Verlauf konnte nicht geladen werden'),
-        findsNothing,
-        reason: 'der Fehlerzustand gehoert der Sitzung, die ihn ausgeloest '
-            'hat — nicht der, die der Nutzer gerade ansieht',
-      );
-      expect(
-        find.byKey(const ValueKey('coach-loading')),
-        findsOneWidget,
-        reason: 'C laedt noch — der Fehler von B darf den Spinner nicht '
-            'abraeumen und eine geladene Sitzung vortaeuschen',
-      );
-
-      svc.offeneVerlaeufe['s3']!.complete(_RaceCoach.verlaufVon('s3'));
-      await tester.pumpAndSettle();
-      expect(find.text(_RaceCoach.verlaufC), findsOneWidget);
-      expect(
-        find.textContaining('Verlauf konnte nicht geladen werden'),
-        findsNothing,
-      );
-    },
-  );
-
-  testWidgets('A -> B -> A -> B: only the latest B history can render',
-      (tester) async {
-    final svc = _RaceCoach.create();
-    await _pumpCoach(tester, svc);
-    svc.verlaufHaengt = true;
-
-    await _wechsleAufSitzungOhneRuhe(tester, 'Chat B');
-    await _wechsleAufSitzungOhneRuhe(tester, 'Chat A');
-    svc.offeneVerlaeufe['s1']!.complete(const <ChatMessage>[]);
-    await _pumpFrames(tester);
-    await _wechsleAufSitzungOhneRuhe(tester, 'Chat B');
-    expect(svc.verlaufsVersuche['s2'], hasLength(2));
-
-    svc.verlaufsVersuche['s2']![1].complete([
-      ChatMessage(
-        id: 'fresh',
-        role: ChatRole.assistant,
-        content: 'New B history',
-        createdAt: DateTime(2026, 8, 14),
-      ),
-    ]);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('coach-loading')), findsNothing);
-    bool shows(String content) => tester.widgetList<Text>(find.byType(Text))
-        .any((widget) => widget.data?.contains(content) ?? false);
-    expect(shows('New B history'), isTrue);
-
-    svc.verlaufsVersuche['s2']![0].complete([
-      ChatMessage(
-        id: 'stale',
-        role: ChatRole.assistant,
-        content: 'Old B history',
-        createdAt: DateTime(2026, 8, 13),
-      ),
-    ]);
-    await tester.pumpAndSettle();
-    expect(shows('New B history'), isTrue);
-    expect(shows('Old B history'), isFalse);
-  });
-
   testWidgets('a stale quota refresh cannot restore a spent final slot',
       (tester) async {
     final svc = _RaceCoach.create();
@@ -713,33 +404,6 @@ void main() {
     svc.quotaGate!.complete(svc.quota);
     await tester.pumpAndSettle();
     expect(find.text('Fresh send error'), findsOneWidget);
-  });
-
-  testWidgets('A -> B -> A reloads an accepted late answer from A history',
-      (tester) async {
-    final svc = _RaceCoach.create();
-    await _pumpCoach(tester, svc);
-    await _tippenUndSenden(tester, 'Question from first A visit');
-    await _wechsleAufSitzung(tester, 'Chat B');
-    await _wechsleAufSitzung(tester, 'Chat A');
-
-    svc.historyA = [
-      ChatMessage(
-        id: 'persisted-answer',
-        role: ChatRole.assistant,
-        content: 'Old A answer',
-        createdAt: _spaeteAntwort,
-      ),
-    ];
-    svc.offen.single.complete(const CoachChatReply(
-      reply: 'Old A answer',
-      refusal: false,
-      sessionId: 's1',
-      remaining: 4,
-      dailyLimit: 5,
-    ));
-    await tester.pumpAndSettle();
-    expect(find.text('Old A answer'), findsOneWidget);
   });
 
   testWidgets('A -> B -> A does not duplicate an answer already in A history',
@@ -1109,42 +773,6 @@ void main() {
   });
 
   testWidgets(
-    'Fehlschlag: die Frage bleibt als Blase mit Marker, das Feld bleibt leer',
-    (tester) async {
-      // Fix run 2026-08-27 (F5-01): draft restore AND retry marker were two
-      // homes for the same text — the send button produced a duplicate. The
-      // marker is the only one now.
-      final svc = _RaceCoach.create();
-      await _pumpCoach(tester, svc);
-
-      const frage =
-          'Eine lange Frage zu meinen Restmakros, die ich nach einem '
-          'Netzabbruch nicht noch einmal tippen moechte.';
-      await _tippenUndSenden(tester, frage);
-      expect(
-        _feldText(tester),
-        isEmpty,
-        reason: 'optimistisch geleert, solange der Request laeuft',
-      );
-
-      svc.offen.first.completeError(
-        const CoachChatException('Verbindung fehlgeschlagen.'),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Verbindung fehlgeschlagen.'), findsOneWidget);
-      expect(
-        _feldText(tester),
-        isEmpty,
-        reason: 'die Frage lebt in der Blase mit „Nicht gesendet" weiter, '
-            'nicht ein zweites Mal im Feld',
-      );
-      expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-unsent-retry')), findsOneWidget);
-    },
-  );
-
-  testWidgets(
     'Erneut senden ueberschreibt keinen NEU getippten Entwurf',
     (tester) async {
       // Fix run 2026-08-27 (F5-01): the failure itself no longer touches the
@@ -1298,36 +926,6 @@ void main() {
       isSemantics(isSelected: false, hasTapAction: true),
     );
     semantics.dispose();
-  });
-
-  // Review 2026-10-11 (COACH-1): a request that FAILS after its session was
-  // left and opened again used to vanish without a word. The thinking row
-  // went away, no banner and no marker appeared, and a question the server
-  // never stored was gone with the cleared composer.
-  testWidgets('A -> B -> A: a failed question comes back with its marker',
-      (tester) async {
-    final svc = _RaceCoach.create();
-    await _pumpCoach(tester, svc);
-    await _tippenUndSenden(tester, 'Question lost on the way');
-    await _wechsleAufSitzung(tester, 'Chat B');
-    await _wechsleAufSitzung(tester, 'Chat A');
-    expect(find.text('Question lost on the way'), findsNothing,
-        reason: 'the server never stored it, so the reload cannot show it');
-
-    svc.offen.single.completeError(
-      const CoachChatException('Connection lost.'),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Connection lost.'), findsOneWidget);
-    expect(find.text('Question lost on the way'), findsOneWidget);
-    expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('coach-unsent-retry')));
-    await tester.pumpAndSettle();
-    expect(svc.gesendeteSessions, <String>['s1', 's1']);
-    expect(find.text('Question lost on the way'), findsOneWidget,
-        reason: 'the retry replaces the bubble instead of adding one');
   });
 
   testWidgets('A -> B -> A: a stored question gets the marker, no copy',

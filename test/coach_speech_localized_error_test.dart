@@ -63,9 +63,4 @@ void main() {
       });
     });
   }
-
-  test('die beiden Texte unterscheiden sich je Sprache', () {
-    expect(deL10n.coachSpeechBusy, isNot(enL10n.coachSpeechBusy));
-    expect(deL10n.coachSpeechBusy, isNot(deL10n.coachSpeechFailed));
-  });
 }

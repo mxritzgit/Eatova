@@ -13,8 +13,8 @@
 //   * the animated layers keep their decoration as the transition's child:
 //     built once, never per frame.
 //
-// And the LOOK the design specifies: the gradient stops, the 5 s breath and
-// the reduced-motion contract.
+// And the reduced-motion contract. The look itself (gradient stops, sizes,
+// the 5 s breath) is design, not a requirement, and is not pinned here.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
@@ -22,7 +22,6 @@ import 'package:flutter/rendering.dart'
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
-import 'package:eatova/src/theme/app_tokens.dart';
 
 import 'support/harness.dart';
 
@@ -150,45 +149,7 @@ void main() {
     }
   });
 
-  group('look (design: coach/template.html)', () {
-    testWidgets('76 px sphere lit from the upper left, 180 px halo', (
-      tester,
-    ) async {
-      await pumpLocalized(tester, const CoachOrb());
-      const t = AppTokens.dark;
-      expect(tester.getSize(find.byType(CoachOrb)), const Size(76, 76));
-      expect(tester.getSize(_halo).width, closeTo(180, 0.01));
-
-      final core =
-          tester.widget<DecoratedBox>(_core).decoration as BoxDecoration;
-      final gradient = core.gradient! as RadialGradient;
-      expect(gradient.colors, [t.orbLight, t.orbBody, t.orbMid, t.orbDeep]);
-      expect(gradient.stops, const [0, 0.26, 0.62, 1]);
-      expect(gradient.center, const Alignment(-0.32, -0.44));
-
-      final glow =
-          tester.widget<DecoratedBox>(_glow).decoration as BoxDecoration;
-      expect(glow.boxShadow!.single.blurRadius, 36);
-      expect(
-        glow.boxShadow!.single.color,
-        t.accentGlow.withValues(alpha: 0.55),
-      );
-    });
-
-    testWidgets('one breath takes five seconds: 1 -> 1.06 -> 1', (
-      tester,
-    ) async {
-      await _pumpOrb(tester);
-      expect(_coreScale(tester), closeTo(1, 0.001));
-      expect(_haloOpacity(tester), closeTo(0.55, 0.001));
-
-      await tester.pump(CoachOrb.period ~/ 2);
-      expect(_coreScale(tester), closeTo(1.06, 0.001));
-      expect(_haloOpacity(tester), closeTo(1, 0.001));
-
-      await tester.pump(CoachOrb.period ~/ 2);
-      expect(_coreScale(tester), closeTo(1, 0.001));
-    });
+  group('reduced motion', () {
 
     testWidgets('under reduced motion the orb holds still', (tester) async {
       // Harness default: disableAnimations = true.

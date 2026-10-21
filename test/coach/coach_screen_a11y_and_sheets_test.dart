@@ -32,8 +32,11 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 
 import '../support/harness.dart';
 
-// Spec §9 (Part E) and rulings R17: the verified Coach-tab defects of the
-// 2026-10-03 review. One regression per item; each failed before its fix.
+// Coach screen behaviour around sheets, dictation and screen readers (spec
+// §9 part E, rulings R17, review 2026-10-03): a queued training brief, answer
+// announcements and live regions, failing session actions, a photo picked
+// during dictation or the scrub, double-tapped cards, and every sheet ending
+// a running dictation. One regression per item; each failed before its fix.
 
 final _date = DateTime(2026, 10, 3, 12);
 
@@ -728,59 +731,61 @@ void main() {
       semantics.dispose();
     });
 
-    // Every answer path, on both platform kinds: iOS announces, Android
-    // reports `supportsAnnounce: false` and gets a polite live region.
-    for (final announces in [true, false]) {
-      for (final kind in _AnswerKind.values) {
-        testWidgets('eine eingetroffene ${kind.name}-Antwort wird '
-            '${announces ? 'angesagt' : 'ueber eine Live-Region gemeldet'}', (
-          tester,
-        ) async {
-          final semantics = tester.ensureSemantics();
-          _announcing(tester, announces);
-          final coach = _Coach.create();
-          if (kind == _AnswerKind.remappedPlan) coach.planSessionId = 's2';
-          final planDraft = await _mount(tester, coach);
-          tester.takeAnnouncements();
-          expect(_answerCue, findsNothing);
+    // Every answer path calls the screen's cue on its own: each one on
+    // Android (`supportsAnnounce: false`, a polite live region). iOS announces
+    // through the same function, so one path is enough there.
+    for (final (announces, kind) in <(bool, _AnswerKind)>[
+      (true, _AnswerKind.chat),
+      for (final kind in _AnswerKind.values) (false, kind),
+    ]) {
+      testWidgets('eine eingetroffene ${kind.name}-Antwort wird '
+          '${announces ? 'angesagt' : 'ueber eine Live-Region gemeldet'}', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        _announcing(tester, announces);
+        final coach = _Coach.create();
+        if (kind == _AnswerKind.remappedPlan) coach.planSessionId = 's2';
+        final planDraft = await _mount(tester, coach);
+        tester.takeAnnouncements();
+        expect(_answerCue, findsNothing);
 
-          await _ask(tester, planDraft, kind);
-          final List<Object> requests = switch (kind) {
-            _AnswerKind.chat => coach.sent,
-            _AnswerKind.recipe => coach.recipeCalls,
-            _AnswerKind.plan || _AnswerKind.remappedPlan => coach.planCalls,
-          };
-          expect(requests, hasLength(1));
+        await _ask(tester, planDraft, kind);
+        final List<Object> requests = switch (kind) {
+          _AnswerKind.chat => coach.sent,
+          _AnswerKind.recipe => coach.recipeCalls,
+          _AnswerKind.plan || _AnswerKind.remappedPlan => coach.planCalls,
+        };
+        expect(requests, hasLength(1));
 
-          final announced = tester.takeAnnouncements();
-          if (announces) {
-            expect(
-              announced,
-              contains(
-                isAccessibilityAnnouncement(deL10n.coachAnswerAnnouncement),
-              ),
-            );
-            expect(_answerCue, findsNothing, reason: 'nicht doppelt');
-          } else {
-            expect(announced, isEmpty);
-            final cue = tester.getSemantics(_answerCue);
-            expect(
-              cue,
-              isSemantics(
-                label: deL10n.coachAnswerAnnouncement,
-                isLiveRegion: true,
-              ),
-            );
-            final flags = cue.getSemanticsData().flagsCollection;
-            expect(
-              flags.isAccessibilityFocusBlocked,
-              isTrue,
-              reason: 'spricht nur, ist kein Halt beim Wischen',
-            );
-          }
-          semantics.dispose();
-        });
-      }
+        final announced = tester.takeAnnouncements();
+        if (announces) {
+          expect(
+            announced,
+            contains(
+              isAccessibilityAnnouncement(deL10n.coachAnswerAnnouncement),
+            ),
+          );
+          expect(_answerCue, findsNothing, reason: 'nicht doppelt');
+        } else {
+          expect(announced, isEmpty);
+          final cue = tester.getSemantics(_answerCue);
+          expect(
+            cue,
+            isSemantics(
+              label: deL10n.coachAnswerAnnouncement,
+              isLiveRegion: true,
+            ),
+          );
+          final flags = cue.getSemanticsData().flagsCollection;
+          expect(
+            flags.isAccessibilityFocusBlocked,
+            isTrue,
+            reason: 'spricht nur, ist kein Halt beim Wischen',
+          );
+        }
+        semantics.dispose();
+      });
     }
 
     testWidgets('ohne Ansage meldet jede weitere Antwort eine frische '

@@ -360,25 +360,30 @@ void main() {
     );
   }
 
-  test('Fixture-Vorbedingung: das Test-JPEG traegt die Koordinaten wirklich',
-      () {
-    final original = _geotaggedJpeg();
-    expect(_hasExifSegment(original), isTrue);
-    final decoded = img.decodeImage(original)!;
-    expect(decoded.exif.gpsIfd[_tagGpsLatitude]!.toDouble(), closeTo(52, 0.01));
-    expect(decoded.exif.gpsIfd[_tagGpsLongitude]!.toDouble(), closeTo(13, 0.01));
-  });
-
   testWidgets('Coach-Bild verlaesst das Geraet ohne EXIF-Segment',
       (tester) async {
+    final original = _geotaggedJpeg();
+    // Precondition: the fixture really carries the coordinates, or a missing
+    // scrub would pass unnoticed.
+    expect(_hasExifSegment(original), isTrue);
+    expect(
+      img.decodeImage(original)!.exif.gpsIfd[_tagGpsLatitude]!.toDouble(),
+      closeTo(52, 0.01),
+    );
     final service = _CapturingService.create();
-    final picker = _RecordingPicker(_geotaggedJpeg());
+    final picker = _RecordingPicker(original);
     final foto = _pickerKopie(picker);
     await _pumpCoach(tester, service: service, picker: picker);
 
     await _sendFromGallery(tester, foto);
 
+    // The picker keeps imageQuality/maxWidth: without them iOS passes HEIC
+    // through, which the scrubber cannot decode.
+    expect(picker.source, ImageSource.gallery);
+    expect(picker.imageQuality, isNotNull);
+    expect(picker.maxWidth, isNotNull);
     expect(service.sendCalls, 1);
+    expect(service.sentMimeType, 'image/jpeg');
     expect(service.sentImageBase64, isNotNull);
     final sent = Uint8List.fromList(base64Decode(service.sentImageBase64!));
 
@@ -394,32 +399,6 @@ void main() {
     // The subject survives — the scrub must not destroy the image.
     expect(decoded.width, 320);
     expect(decoded.height, 240);
-  });
-
-  testWidgets('mitgeschickter MIME-Typ passt zu den gescrubbten Bytes',
-      (tester) async {
-    final service = _CapturingService.create();
-    final picker = _RecordingPicker(_geotaggedJpeg());
-    final foto = _pickerKopie(picker);
-    await _pumpCoach(tester, service: service, picker: picker);
-
-    await _sendFromGallery(tester, foto);
-
-    expect(service.sentMimeType, 'image/jpeg');
-  });
-
-  testWidgets('Picker behaelt imageQuality/maxWidth — sonst laeuft der Scrubber '
-      'auf HEIC ins Leere', (tester) async {
-    final service = _CapturingService.create();
-    final picker = _RecordingPicker(_geotaggedJpeg());
-    final foto = _pickerKopie(picker);
-    await _pumpCoach(tester, service: service, picker: picker);
-
-    await _sendFromGallery(tester, foto);
-
-    expect(picker.source, ImageSource.gallery);
-    expect(picker.imageQuality, isNotNull);
-    expect(picker.maxWidth, isNotNull);
   });
 
   testWidgets(

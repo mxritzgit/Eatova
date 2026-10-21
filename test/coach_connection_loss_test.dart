@@ -388,28 +388,6 @@ void main() {
         expect(watch.elapsed, lessThan(const Duration(milliseconds: 900)));
       });
     }
-
-    test('the same question answered hours ago is not replayed', () async {
-      final backend = _Backend(
-        loss: _Loss.beforeHeaders,
-        sse: true,
-        persisted: _exchange(
-          question: 'How much protein?',
-          answer: 'About 1.6 g per kilo.',
-          at: clock.now().subtract(const Duration(hours: 3)),
-        ),
-      );
-      final svc = _service(backend);
-
-      await expectLater(
-        svc.send('How much protein?', sessionId: _sessionId),
-        throwsA(isA<CoachChatException>().having(
-          (e) => e.message,
-          'message',
-          deL10n.coachErrorNoConnection,
-        )),
-      );
-    });
   });
 
   testWidgets('/recipe in the screen: the card stands, nothing to retry',

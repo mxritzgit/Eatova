@@ -17,7 +17,8 @@ import 'support/harness.dart';
 // (deadline, lost connection) and for input the provider already billed. A
 // transcript-recovered answer names no count either. The composer then
 // promised one question more than the server would take, until the next tab
-// switch. Now the screen asks the server again after such a request.
+// switch. Now the screen asks the server again after such a request. The
+// answer-without-a-count case is pinned in coach_chat_controller_test.dart.
 
 class _Coach extends CoachChatService {
   _Coach(super.client, super.userId);
@@ -35,9 +36,6 @@ class _Coach extends CoachChatService {
   /// What the server reports: two left until the request spends one.
   int serverRemaining = 2;
   int quotaCalls = 0;
-
-  /// null: the request fails; otherwise the answer, without a count.
-  String? answer;
 
   @override
   Future<List<ChatSession>> loadSessions() async => <ChatSession>[
@@ -86,11 +84,7 @@ class _Coach extends CoachChatService {
     void Function(String text)? onPartialReply,
   }) async {
     serverRemaining = 1;
-    final reply = answer;
-    if (reply == null) {
-      throw CoachChatException(deL10n.coachErrorTimeout);
-    }
-    return CoachChatReply(reply: reply, refusal: false, sessionId: sessionId);
+    throw CoachChatException(deL10n.coachErrorTimeout);
   }
 
   @override
@@ -148,15 +142,4 @@ void main() {
       expect(find.text(deL10n.coachQuotaHint(2)), findsNothing);
     });
   }
-
-  testWidgets('an answer without a count refreshes the counter', (
-    tester,
-  ) async {
-    final coach = _Coach.create()..answer = 'Etwa 1,6 g pro Kilo.';
-    await _ask(tester, coach, 'Wie viel Protein?');
-
-    expect(find.text('Etwa 1,6 g pro Kilo.'), findsOneWidget);
-    expect(coach.quotaCalls, 2);
-    expect(find.text(deL10n.coachQuotaHint(1)), findsOneWidget);
-  });
 }

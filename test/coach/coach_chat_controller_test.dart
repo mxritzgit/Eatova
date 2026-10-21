@@ -100,11 +100,16 @@ class _Coach extends CoachChatService {
   }
 
   int quotaLoads = 0;
+  ChatQuotaSnapshot quota = const ChatQuotaSnapshot(
+    used: 1,
+    remaining: 4,
+    dailyLimit: 5,
+  );
 
   @override
   Future<ChatQuotaSnapshot> loadQuotaToday() async {
     quotaLoads++;
-    return const ChatQuotaSnapshot(used: 1, remaining: 4, dailyLimit: 5);
+    return quota;
   }
 
   /// Every chat send waits here until the test answers it.
@@ -990,9 +995,14 @@ void main() {
       final coach = await _ready(svc);
       final next = _Coach();
       coach.updateService(next);
-      final quota = coach.quota;
+      // The old account's server reports a different count than the one on
+      // screen, so taking it over would show.
+      svc.quota = const ChatQuotaSnapshot(used: 5, remaining: 0, dailyLimit: 5);
+      final loads = svc.quotaLoads;
       await coach.returnToChat(svc);
-      expect(coach.quota, same(quota));
+      expect(svc.quotaLoads, loads + 1, reason: 'the old answer did arrive');
+      expect(coach.quota?.remaining, 4);
+      expect(coach.quotaExhausted, isFalse);
     });
   });
 }

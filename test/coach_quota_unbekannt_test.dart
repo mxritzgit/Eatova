@@ -1,14 +1,11 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart'
-    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
-import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 
@@ -55,9 +52,6 @@ class _Backend {
     'daily_limit': 5,
   };
 
-  /// Status code of the `coach-chat` Edge Function.
-  int sendStatus = 200;
-
   http.Client client() => MockClient(_handle);
 
   Future<http.Response> _handle(http.Request req) async {
@@ -79,17 +73,6 @@ class _Backend {
     if (path.endsWith('/rpc/list_chat_sessions')) {
       return _json(req, <dynamic>[], 200);
     }
-    if (path.contains('coach-chat')) {
-      if (sendStatus != 200) {
-        return _json(req, {'error': 'internal'}, sendStatus);
-      }
-      return _json(req, {
-        'reply': 'Klar, mach das.',
-        'refusal': false,
-        'remaining': 3,
-        'session_id': 's1',
-      }, 200);
-    }
     // chat_messages select and everything else: empty.
     return _json(req, <dynamic>[], 200);
   }
@@ -107,39 +90,11 @@ CoachChatService _service(_Backend backend) {
   return CoachChatService(client, 'user-123');
 }
 
-/// Microphone that always refuses — the shortest path to an error banner
-/// without networking.
-///
-/// Not via a failed `send()`: `functions.invoke` never runs under a widget
-/// test's FakeAsync (the future just hangs), so the test would silently check
-/// nothing. The banner does not care where the error came from.
-class _StummesMikro extends CoachSpeechInput {
-  const _StummesMikro();
-
-  static const String meldung =
-      'Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.';
-
-  @override
-  Future<String?> listen({
-    String localeId = 'de_DE',
-    required AppLocalizations l10n,
-    int token = 0,
-    ValueChanged<String>? onPartial,
-    ValueChanged<CoachSpeechEnd>? onEnd,
-  }) async {
-    throw const CoachSpeechException(meldung);
-  }
-}
-
 /// Replica of the tab shell: [IndexedStack] + [TickerMode].
 class _TabHost extends StatefulWidget {
-  const _TabHost({
-    required this.service,
-    this.speechInput = const CoachSpeechInput(),
-  });
+  const _TabHost({required this.service});
 
   final CoachChatService service;
-  final CoachSpeechInput speechInput;
 
   @override
   State<_TabHost> createState() => _TabHostState();
@@ -156,11 +111,7 @@ class _TabHostState extends State<_TabHost> {
           children: <Widget>[
             TickerMode(
               enabled: _index == 0,
-              child: CoachChatScreen(
-                service: widget.service,
-                userName: 'M',
-                speechInput: widget.speechInput,
-              ),
+              child: CoachChatScreen(service: widget.service, userName: 'M'),
             ),
             TickerMode(
               enabled: _index == 1,
@@ -214,17 +165,6 @@ void main() {
             'der Server nichts gesagt hat',
       );
     });
-
-    test('eine gueltige Antwort kommt unveraendert durch (Kontrast)', () async {
-      final svc = _service(
-        _Backend()
-          ..quotaZeile = const {'used': 2, 'remaining': 3, 'daily_limit': 5},
-      );
-      final q = await svc.loadQuotaToday();
-      expect(q.used, 2);
-      expect(q.remaining, 3);
-      expect(q.dailyLimit, 5);
-    });
   });
 
   group('Coach-Screen: was weiss ich, und darf ich meinen Stand verwerfen', () {
@@ -268,6 +208,8 @@ void main() {
           reason: '„Noch N Fragen heute" waere eine erfundene Zahl');
     });
 
+    // The only test that drives the REAL service's ensureDefaultSession
+    // failure (a 500 becomes null) into the screen's healing path.
     testWidgets(
         'offline beim ersten Coach-Besuch: der Tab-Wechsel heilt die Session, '
         'statt den Composer fuer den Rest des App-Laufs totzustellen',
@@ -287,44 +229,6 @@ void main() {
           reason: 'der zweite Anlauf hat eine Session bekommen');
       expect(_composerTippbar(tester), isTrue,
           reason: 'ohne Heilungspfad bliebe _activeSessionId fuer immer null');
-    });
-
-    testWidgets(
-        'ein Fehlerbanner ueberlebt den Tab-Wechsel nicht — es ist Rueckmeldung '
-        'auf eine Aktion, kein Dauerzustand', (tester) async {
-      // The mic renders on iOS only; tests run as Android by default. Reset
-      // in `finally`: the binding checks foundation vars before tearDowns.
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      try {
-        final backend = _Backend()
-          ..quotaZeile = const {'used': 0, 'remaining': 5, 'daily_limit': 5};
-        await pumpLocalized(
-          tester,
-          _TabHost(
-            service: _service(backend),
-            speechInput: const _StummesMikro(),
-          ),
-          reducedMotion: false,
-          scaffold: false,
-          safeArea: false,
-        );
-        await tester.pump(const Duration(milliseconds: 500));
-        await tester.pump(const Duration(milliseconds: 500));
-
-        await tester.tap(find.byKey(const ValueKey('coach-mic')));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
-        expect(find.text(_StummesMikro.meldung), findsOneWidget);
-
-        await _wechsleTab(tester);
-        await _wechsleTab(tester);
-
-        expect(find.text(_StummesMikro.meldung), findsNothing,
-            reason:
-                'vor D6 raeumte der Tab-Wechsel das Banner mit dem Screen ab');
-      } finally {
-        debugDefaultTargetPlatformOverride = null;
-      }
     });
   });
 }

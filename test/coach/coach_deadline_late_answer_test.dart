@@ -13,7 +13,7 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 
 import '../support/harness.dart';
 
-// Review 2026-08-31, Paket F — coach_chat_service.dart:74.
+// Request deadline and late answers (review 2026-08-31).
 //
 // Die 75-s-Frist brach Sendevorgaenge ab, die der Server noch zu Ende brachte.
 // `coach-chat` beansprucht den nicht erstattungsfaehigen Tagesslot VOR dem
@@ -218,7 +218,7 @@ const Map<String, Object?> _rezeptZeile = <String, Object?>{
 };
 
 void main() {
-  group('F · die Frist deckt jetzt den echten Server-Worst-Case', () {
+  group('die Frist deckt den echten Server-Worst-Case', () {
     test(
         'Server antwortet nach 85 s — knapp ueber der alten 75-s-Frist: die '
         'Antwort kommt an, statt als „nicht gesendet" zu gelten', () async {
@@ -249,34 +249,9 @@ void main() {
       expect(backend.verlaufAufrufe, 0,
           reason: 'die Anfrage lief durch — es gab nichts abzugleichen');
     });
-
-    test('die Fristen stehen ueber dem, was der Server ohne Gesamtbudget '
-        'ausgeben kann', () {
-      // Provider caps from coach-chat/handler.ts. Since PR #66 the image
-      // round trip gets 60 s, including its download, instead of 30 s.
-      const chatDeckel = Duration(seconds: 15 + 45);
-      const rezeptDeckel = Duration(seconds: 15 + 45 + 60);
-
-      expect(CoachChatService.chatDeadline, const Duration(seconds: 95));
-      expect(CoachChatService.recipeDeadline, const Duration(seconds: 165));
-
-      expect(
-        CoachChatService.chatDeadline - chatDeckel,
-        greaterThanOrEqualTo(const Duration(seconds: 35)),
-        reason: 'Upload (15 s), zehn ungedeckelte PostgREST-Hops (15 s) und '
-            'die Antwort (5 s) sind serverseitig durch nichts begrenzt — die '
-            'alten 75 s liessen dafuer nur 15 s',
-      );
-      expect(
-        CoachChatService.recipeDeadline - rezeptDeckel,
-        greaterThanOrEqualTo(const Duration(seconds: 45)),
-        reason: 'Upload (15 s), Datenbank-Aufrufe (15 s) und die Antwort '
-            'mit base64-Bild (15 s) brauchen neben den Providern Platz',
-      );
-    });
   });
 
-  group('F · Nachzuegler: was der Server zu Ende brachte, kostet keinen '
+  group('Nachzuegler: was der Server zu Ende brachte, kostet keinen '
       'zweiten Slot', () {
     test('stummer Server, Austausch aber gespeichert: send liefert die '
         'Antwort statt der Fehlermeldung', () async {
@@ -417,7 +392,7 @@ void main() {
     });
   });
 
-  group('F · /rezept: derselbe Slot, derselbe Abgleich', () {
+  group('/recipe: derselbe Slot, derselbe Abgleich', () {
     test('Rezept mit Bild nach 145 s kommt vor der neuen Frist an, '
         'ohne Verlauf-Abgleich oder zweiten Aufruf', () async {
       const imageBytes = <int>[137, 80, 78, 71, 13, 10, 26, 10];
@@ -514,7 +489,7 @@ void main() {
     });
   });
 
-  group('F · im Screen: kein Wiederholen-Knopf, wo der Server durchlief', () {
+  group('im Screen: kein Wiederholen-Knopf, wo der Server durchlief', () {
     testWidgets('stummer Server, Austausch gespeichert: die Antwort steht im '
         'Chat und es gibt nichts zu wiederholen', (tester) async {
       final backend = _Backend(antwortNach: null);
