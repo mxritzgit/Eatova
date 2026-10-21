@@ -1036,9 +1036,9 @@ class MealAnalysisResult {
       caloriesKcal: resolvedCalories,
       estimatedGrams: resolvedGrams,
       kcalPer100G: dichte,
-      protein: _macroTextFromRaw(protein),
-      carbs: _macroTextFromRaw(carbs),
-      fat: _macroTextFromRaw(fat),
+      protein: _macroTextFromRaw(protein, portionGrams: gemesseneGramm),
+      carbs: _macroTextFromRaw(carbs, portionGrams: gemesseneGramm),
+      fat: _macroTextFromRaw(fat, portionGrams: gemesseneGramm),
       confidence: confidence == null || confidence.isEmpty
           ? _MealResultConfidenceCodes.unknown
           : _confidenceCodeFromModel(confidence),
@@ -1559,9 +1559,13 @@ class MealAnalysisResult {
 
   /// Turns a raw macro value from the function response into text.
   ///
-  /// `null` (the key is always present, the value may be null) and anything
-  /// unparseable becomes "unknown" rather than an invented number.
-  static String _macroTextFromRaw(Object? raw) {
+  /// `null` (the key is always present, the value may be null), anything
+  /// unparseable and a negative value become "unknown" rather than an
+  /// invented number. So does a macro heavier than the measured
+  /// [portionGrams] (above [PlausibilityLimits.macroPer100GMax] per 100 g,
+  /// the rule for product data and described meals): a "250 g" carbs line
+  /// on a 200 g plate would reach the day totals as a measurement.
+  static String _macroTextFromRaw(Object? raw, {int? portionGrams}) {
     if (raw == null) {
       return _makroUnbekannt;
     }
@@ -1570,10 +1574,15 @@ class MealAnalysisResult {
       wert = raw.toDouble();
     } else {
       final normalized = raw.toString().replaceAll(',', '.');
-      final match = RegExp(r'\d+(?:\.\d+)?').firstMatch(normalized);
+      final match = RegExp(r'-?\d+(?:\.\d+)?').firstMatch(normalized);
       wert = match == null ? null : double.tryParse(match.group(0)!);
     }
-    if (wert == null || !wert.isFinite) {
+    if (wert == null || !wert.isFinite || wert < 0) {
+      return _makroUnbekannt;
+    }
+    if (portionGrams != null &&
+        portionGrams > 0 &&
+        wert * 100 / portionGrams > PlausibilityLimits.macroPer100GMax) {
       return _makroUnbekannt;
     }
     return _formatMacroG(wert);
