@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
+import '../common/lively.dart' show PressScale;
 import '../common/persistence_action.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
+import '../../models/model_limits.dart';
 import '../../services/day_math.dart';
 import '../../services/local_day.dart';
 import '../../theme/app_tokens.dart';
@@ -32,6 +34,12 @@ typedef UpdateMealDetails =
       DateTime? day,
     });
 
+/// Store callback for "Bearbeiten" in the favorites: saves [result] into
+/// the favorite [id] without logging it and returns the key it is stored
+/// under afterwards (a rename moves it).
+typedef UpdateFavorite =
+    FutureOr<String> Function(String id, MealAnalysisResult result);
+
 /// Provides the HomeStore edit callbacks below the food tab.
 ///
 /// The diary slot cards and the AddMealSheet live under
@@ -45,6 +53,7 @@ class MealEditScope extends InheritedWidget {
     required this.onUpdateMeal,
     required this.onRemoveMeal,
     this.onCopyMeals,
+    this.onUpdateFavorite,
     required super.child,
   });
 
@@ -53,6 +62,9 @@ class MealEditScope extends InheritedWidget {
 
   /// "Copy to…" in the edit sheet; null hides the action.
   final CopyMeals? onCopyMeals;
+
+  /// "Bearbeiten" in the favorites sheet; null hides the action.
+  final UpdateFavorite? onUpdateFavorite;
 
   /// Deliberately without dependency registration (getInherited…): the
   /// callbacks are stable store tear-offs and the lookup also happens outside
@@ -64,7 +76,8 @@ class MealEditScope extends InheritedWidget {
   bool updateShouldNotify(MealEditScope oldWidget) =>
       onUpdateMeal != oldWidget.onUpdateMeal ||
       onRemoveMeal != oldWidget.onRemoveMeal ||
-      onCopyMeals != oldWidget.onCopyMeals;
+      onCopyMeals != oldWidget.onCopyMeals ||
+      onUpdateFavorite != oldWidget.onUpdateFavorite;
 }
 
 /// Edit-sheet result for callers holding a local list copy (AddMealSheet):
@@ -188,7 +201,11 @@ class EditMealSheet extends StatefulWidget {
 
 class _EditMealSheetState extends State<EditMealSheet> {
   late MealAnalysisResult _result;
-  bool _resultChanged = false;
+
+  /// What the servings stepper scales from: the logged entry, or the last
+  /// change made otherwise (values, name, portion), so stepping back and
+  /// forth never drifts by rounding.
+  late MealAnalysisResult _servingsBase;
   late MealSlot _slot;
   late DateTime _day;
 
@@ -196,11 +213,16 @@ class _EditMealSheetState extends State<EditMealSheet> {
   void initState() {
     super.initState();
     _result = widget.meal.result;
+    _servingsBase = _result;
     _slot = widget.meal.slot;
     // effectiveLocalDay ('YYYY-MM-DD') parses as local midnight, the same day
     // anchor the bucketing uses.
     _day = DateUtils.dateOnly(DateTime.parse(widget.meal.effectiveLocalDay));
   }
+
+  /// Stepping back to the logged servings restores the logged instance, so
+  /// the sheet is clean again.
+  bool get _resultChanged => !identical(_result, widget.meal.result);
 
   bool get _slotChanged => _slot != widget.meal.slot;
 
@@ -219,27 +241,84 @@ class _EditMealSheetState extends State<EditMealSheet> {
 
     final applied = mealPortionAdjustment(_result, adjustment);
     if (applied == null) return;
-    setState(() {
-      _result = applied.result;
-      _resultChanged = true;
-    });
+    setState(() => _result = _servingsBase = applied.result);
   }
 
-  /// A quick entry has no weight to rescale (E4): its totals are changed in
-  /// the manual form instead, prefilled, and like a portion change they only
-  /// land on "save".
-  Future<void> _editQuickValues() async {
+  /// A manual entry (a quick entry, an own product, label values per
+  /// 100 g) changes its values and name in the manual form, prefilled; like
+  /// a portion change they only land on "save".
+  Future<void> _editValues() async {
     final edited = await showManualMealSheet(
       context,
       initial: _result,
       barcode: _result.barcode,
     );
     if (!mounted || edited == null) return;
+    setState(() => _result = _servingsBase = edited);
+  }
+
+  /// A scan or a described meal takes the user's own name.
+  Future<void> _rename() async {
+    final shown = _result.resolvedMealName(context.l10n);
+    final name = (await showMealRenameSheet(context, initial: shown))?.trim();
+    if (!mounted || name == null || name.isEmpty || name == shown) return;
     setState(() {
-      _result = edited;
-      _resultChanged = true;
+      final renamed = _result.withMealName(name);
+      _servingsBase = identical(_servingsBase, _result)
+          ? renamed
+          : _servingsBase.withMealName(name);
+      _result = renamed;
     });
   }
+
+  static const double _servingsStep = 0.5;
+  static const double _servingsMax = 20;
+
+  /// The next half serving above (+1) or below (-1) the current one, or
+  /// null at the ends: half a serving, [_servingsMax], or a total one entry
+  /// cannot hold.
+  double? _servingsNeighbour(int direction) {
+    final steps = _result.effectiveServings / _servingsStep;
+    final next = direction > 0
+        ? (steps.floor() + 1) * _servingsStep
+        : (steps.ceil() - 1) * _servingsStep;
+    if (next < _servingsStep || next > _servingsMax) return null;
+    final base = _servingsBase;
+    final factor = next / base.effectiveServings;
+    final fits =
+        base.caloriesKcal * factor <= LoggedMealLimits.caloriesKcalMax &&
+        [base.protein, base.carbs, base.fat].every(
+          (macro) => (_grams(macro) ?? 0) * factor <= LoggedMealLimits.macroGMax,
+        );
+    return fits ? next : null;
+  }
+
+  /// The grams in a stored macro text ("12,5 g"), or null for unknown.
+  static double? _grams(String macro) {
+    final number = RegExp(r'\d+(?:[.,]\d+)?').firstMatch(macro)?.group(0);
+    return number == null ? null : double.tryParse(number.replaceAll(',', '.'));
+  }
+
+  void _stepServings(int direction) {
+    final next = _servingsNeighbour(direction);
+    if (next == null) return;
+    final base = _servingsBase;
+    setState(() {
+      _result = next == base.effectiveServings
+          ? base
+          : base.withServings(next);
+    });
+  }
+
+  bool get _isManualEntry =>
+      MealResultSource.resolve(_result.sourceLabel) == MealResultSource.manual;
+
+  bool get _isAiNamed => switch (MealResultSource.resolve(
+    _result.sourceLabel,
+  )) {
+    MealResultSource.photoAi || MealResultSource.aiEstimate => true,
+    _ => false,
+  };
 
   /// The app's calendar sheet for days beyond the strip. Same bounds as the
   /// food-tab calendar: two years back, nothing in the future. Feeds the same
@@ -402,27 +481,25 @@ class _EditMealSheetState extends State<EditMealSheet> {
                 children: [
                   _SummaryCard(result: _result, adjusted: _resultChanged),
                   const SizedBox(height: 10),
-                  if (_result.isQuickEntry) ...[
+                  // Without a weight (a quick entry, a recipe logged by
+                  // servings) the amount is servings, in half steps.
+                  if (_result.hasNoPortionWeight) ...[
+                    _ServingsStepper(
+                      label: _result.servingsLabel(l10n),
+                      onLess: _saving || _servingsNeighbour(-1) == null
+                          ? null
+                          : () => _stepServings(-1),
+                      onMore: _saving || _servingsNeighbour(1) == null
+                          ? null
+                          : () => _stepServings(1),
+                    ),
+                    const SizedBox(height: 8),
                     Text(
-                      l10n.foodQuickNoWeightHint,
-                      key: const ValueKey('edit-meal-quick-hint'),
+                      l10n.foodServingsNoWeightHint,
+                      key: const ValueKey('edit-meal-servings-hint'),
                       style: AppType.ui(13.5, color: t.ink2, height: 1.4),
                     ),
-                    const SizedBox(height: 10),
-                    SoftPillButton(
-                      key: const ValueKey('edit-meal-quick-values'),
-                      onTap: _saving ? null : _editQuickValues,
-                      icon: Icons.edit_outlined,
-                      label: l10n.foodQuickEditValues,
-                      expand: true,
-                    ),
-                  ] else if (_result.isRecipeWithoutCookedWeight)
-                    Text(
-                      l10n.recipeCalcNoCookedWeight,
-                      key: const ValueKey('edit-meal-no-cooked-weight'),
-                      style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-                    )
-                  else
+                  ] else
                     SoftPillButton(
                       key: const ValueKey('edit-meal-adjust-button'),
                       onTap: _adjustPortion,
@@ -430,6 +507,26 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       label: l10n.foodAdjustPortionButton,
                       expand: true,
                     ),
+                  if (_isManualEntry) ...[
+                    const SizedBox(height: 10),
+                    SoftPillButton(
+                      key: const ValueKey('edit-meal-quick-values'),
+                      onTap: _saving ? null : _editValues,
+                      icon: Icons.edit_outlined,
+                      label: l10n.foodQuickEditValues,
+                      expand: true,
+                    ),
+                  ],
+                  if (_isAiNamed) ...[
+                    const SizedBox(height: 10),
+                    SoftPillButton(
+                      key: const ValueKey('edit-meal-rename'),
+                      onTap: _saving ? null : _rename,
+                      icon: Icons.drive_file_rename_outline_rounded,
+                      label: l10n.foodRenameAction,
+                      expand: true,
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   _SectionLabel(l10n.foodSectionMeal),
                   const SizedBox(height: 8),
@@ -570,10 +667,8 @@ class _SummaryCard extends StatelessWidget {
                 // No-break spaces keep each number with its unit: a wrapped
                 // figure breaks after the "·" only.
                 Text(
-                  result.isRecipeWithoutCookedWeight
-                      ? '${result.caloriesKcal}\u00a0kcal · ${context.l10n.recipeCalcSavedPortion}'
-                      : result.isQuickEntry
-                      ? '${result.caloriesKcal}\u00a0kcal · ${context.l10n.foodPortionFallback}'
+                  result.hasNoPortionWeight
+                      ? '${result.caloriesKcal}\u00a0kcal · ${result.servingsLabel(context.l10n)}'
                       : '${result.caloriesKcal}\u00a0kcal · ${result.estimatedGrams}\u00a0g',
                   key: const ValueKey('edit-meal-summary-figure'),
                   style: AppType.display(16, color: t.ink),
@@ -623,6 +718,216 @@ class _SectionLabel extends StatelessWidget {
     return Text(
       text.toUpperCase(),
       style: AppType.eyebrow(context.t.ink2, size: 11),
+    );
+  }
+}
+
+/// Servings of an entry without a weight: round minus and plus around the
+/// count in a pill, half a serving per step (the meal plan's stepper).
+class _ServingsStepper extends StatelessWidget {
+  const _ServingsStepper({
+    required this.label,
+    required this.onLess,
+    required this.onMore,
+  });
+
+  final String label;
+  final VoidCallback? onLess;
+  final VoidCallback? onMore;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Semantics(
+      container: true,
+      label: l10n.foodServingsSection,
+      child: FieldCapsule(
+        key: const ValueKey('edit-meal-servings'),
+        focused: false,
+        shape: SheetFieldShape.pill,
+        padding: const EdgeInsets.all(4),
+        child: Row(
+          children: [
+            _StepButton(
+              actionKey: const ValueKey('edit-meal-servings-less'),
+              icon: Icons.remove_rounded,
+              semanticLabel: l10n.onboardingStepDownSemanticLabel,
+              onTap: onLess,
+            ),
+            Expanded(
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
+                  label,
+                  key: const ValueKey('edit-meal-servings-value'),
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(
+                    17,
+                    weight: FontWeight.w700,
+                    color: t.ink,
+                  ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+                ),
+              ),
+            ),
+            _StepButton(
+              actionKey: const ValueKey('edit-meal-servings-more'),
+              icon: Icons.add_rounded,
+              semanticLabel: l10n.onboardingStepUpSemanticLabel,
+              onTap: onMore,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Round 44 px stepper button in the accent tint.
+class _StepButton extends StatelessWidget {
+  const _StepButton({
+    required this.actionKey,
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+  });
+
+  final Key actionKey;
+  final IconData icon;
+  final String semanticLabel;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final enabled = onTap != null;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: semanticLabel,
+      child: PressScale(
+        enabled: enabled,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.4,
+          child: Material(
+            color: t.accentTint,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: actionKey,
+              onTap: onTap,
+              customBorder: const CircleBorder(),
+              child: SizedBox.square(
+                dimension: 44,
+                child: Icon(icon, size: 22, color: t.accentText),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Asks for a new name for a logged entry, prefilled with [initial]; null
+/// when closed without saving.
+Future<String?> showMealRenameSheet(
+  BuildContext context, {
+  required String initial,
+}) => showEatovaSheet<String>(context, _RenameSheet(initial: initial));
+
+class _RenameSheet extends StatefulWidget {
+  const _RenameSheet({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_RenameSheet> createState() => _RenameSheetState();
+}
+
+class _RenameSheetState extends State<_RenameSheet> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initial,
+  )..addListener(() => setState(() {}));
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  bool get _valid => _name.text.trim().isNotEmpty;
+
+  void _save() {
+    if (!_valid) return;
+    Navigator.of(context).pop(_name.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return SingleChildScrollView(
+      key: const ValueKey('meal-rename-sheet'),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        0,
+        20,
+        24 + MediaQuery.viewPaddingOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SheetHeader(
+            title: l10n.foodRenameAction,
+            onClose: () => Navigator.of(context).pop(),
+            closeKey: const ValueKey('meal-rename-close'),
+            closeTooltip: l10n.commonClose,
+            padding: EdgeInsets.zero,
+          ),
+          const SizedBox(height: 16),
+          FieldCapsule(
+            focusNode: _focus,
+            child: Semantics(
+              label: l10n.foodAddItemNameLabel,
+              child: TextField(
+                key: const ValueKey('meal-rename-field'),
+                controller: _name,
+                focusNode: _focus,
+                autofocus: true,
+                cursorOpacityAnimates: false,
+                cursorColor: t.accent,
+                maxLength: LoggedMealLimits.mealNameMaxChars,
+                textCapitalization: TextCapitalization.sentences,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _save(),
+                style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                  hintText: l10n.foodAddItemNameLabel,
+                  hintStyle: AppType.ui(14, color: t.ink2),
+                  counterText: '',
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryActionButton(
+            key: const ValueKey('meal-rename-save'),
+            onTap: _valid ? _save : null,
+            icon: Icons.check_rounded,
+            label: l10n.commonSave,
+          ),
+        ],
+      ),
     );
   }
 }

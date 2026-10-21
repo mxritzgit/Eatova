@@ -601,10 +601,11 @@ String foodPickEyebrow(RecipePick pick, AppLocalizations l10n) {
 String _macroLine(AppLocalizations l10n, MacroProgress m) =>
     l10n.foodMacroSummary(m.proteinG.round(), m.carbsG.round(), m.fatG.round());
 
-/// A diary row's amount: grams, marked "~" when they are an AI estimate.
+/// A diary row's amount: grams, marked "~" when they are an AI estimate;
+/// servings ("1,5 Portionen") for an entry without a weight.
 String diaryAmountLabel(MealAnalysisResult result, AppLocalizations l10n) {
   final grams = result.estimatedGrams;
-  if (grams <= 0) return l10n.foodPortionFallback;
+  if (grams <= 0) return result.servingsLabel(l10n);
   final estimate = switch (MealResultSource.resolve(result.sourceLabel)) {
     MealResultSource.photoAi || MealResultSource.aiEstimate => true,
     _ => false,

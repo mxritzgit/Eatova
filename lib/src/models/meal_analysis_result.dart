@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:intl/intl.dart';
+
 import '../l10n/l10n.dart';
 import '../services/food_kcal_db.dart';
 import 'meal_component.dart';
@@ -473,6 +475,35 @@ abstract final class MealResultRecipeNote {
     return matched ? text : null;
   }
 
+  /// The servings count a logged recipe note starts with, in either
+  /// language, or null: what rows logged before [MealAnalysisResult.servings]
+  /// existed still say about their amount.
+  static double? servingsOf(String raw) {
+    for (final source in <AppLocalizations>[deL10n, enL10n]) {
+      final match = _servingsPrefix(source).firstMatch(raw);
+      if (match == null) continue;
+      final count = double.tryParse((match[1] ?? '1').replaceAll(',', '.'));
+      return count != null && count > 0 ? count : null;
+    }
+    return null;
+  }
+
+  /// [raw] with its servings count set to [servings], in the language it
+  /// was written in; any other note stays as it is.
+  static String withServings(String raw, double servings) {
+    for (final source in <AppLocalizations>[deL10n, enL10n]) {
+      final match = _servingsPrefix(source).firstMatch(raw);
+      if (match == null) continue;
+      final count = (servings == servings.roundToDouble()
+              ? '${servings.round()}'
+              : '$servings')
+          .replaceAll('.', source.localeName == 'de' ? ',' : '.');
+      return '${source.recipeCalcServingsCount(servings, count)} · '
+          '${raw.substring(match.end)}';
+    }
+    return raw;
+  }
+
   /// `<count> Portionen · ` / `<count> servings · ` from the ARB template, or
   /// its singular (no group 1). Notes logged before the singular existed read
   /// `1 Portionen` / `1 servings` and match the plural. The German singular
@@ -532,6 +563,7 @@ class MealAnalysisResult {
     this.proteinPer100G,
     this.carbsPer100G,
     this.fatPer100G,
+    this.servings,
   });
 
   final String mealName;
@@ -582,6 +614,87 @@ class MealAnalysisResult {
   final double? carbsPer100G;
   final double? fatPer100G;
 
+  /// How many servings the entry stands for, where it was logged by
+  /// servings (a recipe, a quick entry changed in the edit sheet); null
+  /// elsewhere. Read [effectiveServings].
+  final double? servings;
+
+  /// Servings of this entry: [servings], else the count an older recipe
+  /// note names ([MealResultRecipeNote.servingsOf]), else 1.
+  double get effectiveServings {
+    final stored = servings;
+    if (stored != null) return stored;
+    if (MealResultSource.resolve(sourceLabel) == MealResultSource.recipe) {
+      return MealResultRecipeNote.servingsOf(portionNotes) ?? 1;
+    }
+    return 1;
+  }
+
+  /// "1 Portion", "1,5 Portionen": the amount of an entry without a weight.
+  String servingsLabel(AppLocalizations l10n) {
+    final count = effectiveServings;
+    return l10n.foodServingsCount(
+      count,
+      NumberFormat('0.##', l10n.localeName).format(count),
+    );
+  }
+
+  /// This entry at [next] servings: calories, macros and components scale
+  /// from the current [effectiveServings]; density, origin and photo stay.
+  /// Callers scale from the logged entry, not a stepped one, so stepping
+  /// back and forth never drifts by rounding.
+  MealAnalysisResult withServings(double next) {
+    final factor = next / effectiveServings;
+    return MealAnalysisResult(
+      mealName: mealName,
+      caloriesKcal: clampMealCaloriesKcal(caloriesKcal * factor),
+      estimatedGrams: estimatedGrams > 0
+          ? clampMealEstimatedG(estimatedGrams * factor)
+          : estimatedGrams,
+      kcalPer100G: kcalPer100G,
+      protein: _scaleMacroText(protein, factor),
+      carbs: _scaleMacroText(carbs, factor),
+      fat: _scaleMacroText(fat, factor),
+      confidence: confidence,
+      portionNotes: MealResultRecipeNote.withServings(portionNotes, next),
+      items: [for (final item in items) item.scaledBy(factor)],
+      isAdjusted: isAdjusted,
+      sourceLabel: sourceLabel,
+      barcode: barcode,
+      brand: brand,
+      explicitZeroKcal: explicitZeroKcal,
+      imageUrl: imageUrl,
+      proteinPer100G: proteinPer100G,
+      carbsPer100G: carbsPer100G,
+      fatPer100G: fatPer100G,
+      servings: next,
+    );
+  }
+
+  /// This result under the user's own [name] (a renamed scan).
+  MealAnalysisResult withMealName(String name) => MealAnalysisResult(
+    mealName: clampMealName(name, fallback: mealName),
+    caloriesKcal: caloriesKcal,
+    estimatedGrams: estimatedGrams,
+    kcalPer100G: kcalPer100G,
+    protein: protein,
+    carbs: carbs,
+    fat: fat,
+    confidence: confidence,
+    portionNotes: portionNotes,
+    items: items,
+    isAdjusted: isAdjusted,
+    sourceLabel: sourceLabel,
+    barcode: barcode,
+    brand: brand,
+    explicitZeroKcal: explicitZeroKcal,
+    imageUrl: imageUrl,
+    proteinPer100G: proteinPer100G,
+    carbsPer100G: carbsPer100G,
+    fatPer100G: fatPer100G,
+    servings: servings,
+  );
+
   /// This result with another photo (null removes it).
   MealAnalysisResult withImageUrl(String? url) => MealAnalysisResult(
     mealName: mealName,
@@ -603,6 +716,7 @@ class MealAnalysisResult {
     proteinPer100G: proteinPer100G,
     carbsPer100G: carbsPer100G,
     fatPer100G: fatPer100G,
+    servings: servings,
   );
 
   /// Origin value in the language of [l10n]. Known raw values resolve via
@@ -916,6 +1030,7 @@ class MealAnalysisResult {
       brand: brand,
       explicitZeroKcal: explicitZeroKcal,
       imageUrl: imageUrl,
+      servings: servings,
     );
   }
 

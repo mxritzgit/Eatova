@@ -14,7 +14,9 @@ import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
+import 'edit_meal_sheet.dart' show UpdateFavorite;
 import 'food_glyphs.dart';
+import 'manual_meal_sheet.dart';
 import 'meal_suggestion_item.dart';
 import 'saved_meal_presentation.dart';
 
@@ -38,6 +40,7 @@ Future<bool?> showFavoritesSheet(
   onAdd,
   required PersistValueChanged<MealAnalysisResult> onUnpin,
   PersistValueChanged<MealAnalysisResult>? onRepin,
+  UpdateFavorite? onEdit,
   Map<String, int> useCounts = const <String, int>{},
 }) {
   return showEatovaSheet<bool>(
@@ -48,6 +51,7 @@ Future<bool?> showFavoritesSheet(
       onAdd: onAdd,
       onUnpin: onUnpin,
       onRepin: onRepin,
+      onEdit: onEdit,
       useCounts: useCounts,
     ),
   );
@@ -61,6 +65,7 @@ class FavoritesSheet extends StatefulWidget {
     required this.onAdd,
     required this.onUnpin,
     this.onRepin,
+    this.onEdit,
     this.useCounts = const <String, int>{},
   });
 
@@ -81,6 +86,10 @@ class FavoritesSheet extends StatefulWidget {
   /// from the store entirely (the recents cap), and a scan or manual
   /// favorite cannot be found again. Null shows no undo.
   final PersistValueChanged<MealAnalysisResult>? onRepin;
+
+  /// "Bearbeiten": saves changed name and values into the favorite without
+  /// logging it. Null hides the action.
+  final UpdateFavorite? onEdit;
 
   /// Logs per favorite id for the "Frequent" order ([favoriteUseCounts]).
   final Map<String, int> useCounts;
@@ -120,9 +129,20 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     super.dispose();
   }
 
-  List<FavoriteMeal> get _pinned => pinnedFavoritesByRecency(
-    widget.favorites,
-  ).where((f) => !_unpinnedIds.contains(f.id)).toList(growable: false);
+  /// Edits saved in this sheet, by row id: the new result and the key the
+  /// store holds it under now (a rename moves it). Like the unpins, they lie
+  /// over the list the sheet was opened with.
+  final Map<String, ({MealAnalysisResult result, String storedId})> _edits =
+      {};
+
+  List<FavoriteMeal> get _pinned => [
+    for (final f in pinnedFavoritesByRecency(widget.favorites))
+      if (!_unpinnedIds.contains(f.id))
+        switch (_edits[f.id]) {
+          final edit? => f.copyWith(result: edit.result),
+          null => f,
+        },
+  ];
 
   static String _itemKey(FavoriteMeal favorite) => 'favorite:${favorite.id}';
 
@@ -217,6 +237,60 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     _savingItems.remove(savingKey);
     if (!saved || !mounted) return;
     setState(() => _unpinnedIds.remove(favorite.id));
+  }
+
+  /// "Bearbeiten": name and values in the manual form, prefilled; saving
+  /// changes the favorite without logging it. The snack offers an undo.
+  Future<void> _handleEdit(FavoriteMeal favorite) async {
+    final onEdit = widget.onEdit;
+    if (onEdit == null) return;
+    final rowId = favorite.id;
+    final before = favorite.result;
+    final storedId = _edits[rowId]?.storedId ?? rowId;
+    String? newId;
+    final edited = await showManualMealSheet(
+      context,
+      initial: before,
+      barcode: before.barcode,
+      onSave: (result) async {
+        newId = await onEdit(storedId, result);
+      },
+    );
+    final savedId = newId;
+    if (edited == null || savedId == null || !mounted) return;
+    setState(() {
+      _edits[rowId] = (
+        result: FavoriteMeal.keepImage(edited, before),
+        storedId: savedId,
+      );
+      _expandedItemKey = null;
+    });
+    showAppSnack(
+      context,
+      context.l10n.foodFavoriteSaved,
+      icon: Icons.check_circle_rounded,
+      action: SnackBarAction(
+        label: context.l10n.commonUndo,
+        onPressed: () => unawaited(_undoEdit(rowId, before)),
+      ),
+    );
+  }
+
+  /// Puts the values from before the edit back.
+  Future<void> _undoEdit(String rowId, MealAnalysisResult before) async {
+    final onEdit = widget.onEdit;
+    final edit = _edits[rowId];
+    if (onEdit == null || edit == null || !mounted) return;
+    final savingKey = 'edit:$rowId';
+    if (!_savingItems.add(savingKey)) return;
+    String? restoredId;
+    final saved = await tryPersistChange(context, () async {
+      restoredId = await onEdit(edit.storedId, before);
+    });
+    _savingItems.remove(savingKey);
+    final id = restoredId;
+    if (!saved || id == null || !mounted) return;
+    setState(() => _edits[rowId] = (result: before, storedId: id));
   }
 
   void _onQueryChanged(String value) => setState(() => _query = value);
@@ -417,6 +491,8 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       favoriteButtonKey: ValueKey('favorites-sheet-fav-$index'),
       quickAddSlotLabel: widget.slot.label(context.l10n),
       quickAddKey: ValueKey('favorites-sheet-quick-$index'),
+      onEdit: widget.onEdit == null ? null : () => _handleEdit(favorite),
+      editButtonKey: ValueKey('favorites-sheet-edit-$index'),
     );
   }
 }

@@ -135,7 +135,7 @@ class FavoriteMeal {
   }
 
   static double _perServingKcal(MealAnalysisResult r) =>
-      r.caloriesKcal.toDouble();
+      r.caloriesKcal / r.effectiveServings;
 
   static String? _code(MealAnalysisResult r) {
     final code = r.barcode;

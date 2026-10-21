@@ -79,6 +79,7 @@ Future<void> _openSheet(
   bool withRemove = true,
   double textScale = 1.0,
   Size? surfaceSize,
+  LoggedMeal? meal,
 }) async {
   await pumpLocalized(
     tester,
@@ -89,7 +90,7 @@ Future<void> _openSheet(
         child: TextButton(
           onPressed: () => showEditMealSheet(
             context,
-            meal: _loggedMeal(),
+            meal: meal ?? _loggedMeal(),
             onUpdateMeal: capture.update,
             onRemoveMeal: withRemove ? capture.removed.add : null,
           ),
@@ -185,6 +186,64 @@ void main() {
     expect(capture.result!.caloriesKcal, 200);
     expect(capture.slot, isNull);
     expect(capture.day, isNull);
+  });
+
+  testWidgetsRobust(
+      'Namen korrigieren: ein KI-Eintrag ueber „Name aendern", ein manueller '
+      'ueber „Werte aendern"', (WidgetTester tester) async {
+    Future<void> save() async {
+      final button = find.byKey(const ValueKey('edit-meal-save-button'));
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+    }
+
+    final scan = _EditCapture();
+    await _openSheet(tester, scan);
+    expect(find.byKey(const ValueKey('edit-meal-quick-values')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('edit-meal-rename')));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('meal-rename-field'));
+    expect(tester.widget<TextField>(field).controller!.text, 'Test-Bowl');
+    await tester.enterText(field, 'Lachs-Bowl');
+    await tester.tap(find.byKey(const ValueKey('meal-rename-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Lachs-Bowl'), findsOneWidget, reason: 'Kopfzeile');
+    await save();
+    expect(scan.result!.mealName, 'Lachs-Bowl');
+    expect(scan.result!.caloriesKcal, 350);
+
+    final manual = _EditCapture();
+    await _openSheet(
+      tester,
+      manual,
+      meal: LoggedMeal(
+        id: 'meal-2',
+        result: MealAnalysisResult.manualEntry(
+          name: 'Hfermilch',
+          kcalPer100G: 47,
+          grams: 250,
+          proteinPer100G: 1,
+        ),
+        loggedAt: clock.now(),
+        forcedSlot: MealSlot.breakfast,
+      ),
+    );
+    expect(find.byKey(const ValueKey('edit-meal-rename')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('edit-meal-quick-values')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('manual-meal-name')),
+      'Hafermilch',
+    );
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('manual-meal-save')));
+    await tester.tap(find.byKey(const ValueKey('manual-meal-save')));
+    await tester.pumpAndSettle();
+    await save();
+    expect(manual.result!.mealName, 'Hafermilch');
+    expect(manual.result!.estimatedGrams, 250);
+    expect(manual.result!.protein, '2,5 g', reason: 'Werte bleiben erhalten');
   });
 
   testWidgetsRobust(

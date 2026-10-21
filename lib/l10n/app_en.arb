@@ -3739,5 +3739,14 @@
   "@coachInfoBulletPlan": {"description": "Coach info sheet, list of what each question sends to the AI provider."},
   "coachAskAction": "Ask the coach",
   "coachAskWeeklyCheck": "What does my weekly check mean for this week?",
-  "coachAskWeightStall": "Why has my weight stalled?"
+  "coachAskWeightStall": "Why has my weight stalled?",
+  "foodServingsCount": "{servings, plural, =1{1 portion} other{{count} portions}}",
+  "@foodServingsCount": {"description": "Amount of a diary entry logged without a weight. servings picks the form, count is the same number already formatted for the locale.", "placeholders": {"servings": {"type": "num"}, "count": {"type": "String"}}},
+  "foodServingsSection": "Portions",
+  "foodServingsNoWeightHint": "Logged without a weight. Calories and macros change with the portions.",
+  "foodRenameAction": "Rename",
+  "@foodRenameAction": {"description": "Edit sheet action and sheet title for renaming an AI-named diary entry."},
+  "foodFavoriteEdit": "Edit",
+  "@foodFavoriteEdit": {"description": "Action in an open favorite row: change its name and values without logging it."},
+  "foodFavoriteSaved": "Favorite saved"
 }

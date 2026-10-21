@@ -1,6 +1,6 @@
 // Widget tests for the favorites sheet (feature 2026-08-27): pinned-only
 // list by recency, local search, empty states, add with pass-through slot,
-// unpin via heart, and the 0-kcal guard.
+// unpin via heart, editing without logging, and the 0-kcal guard.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -332,6 +332,73 @@ void main() {
 
     expect(geloggt, hasLength(1));
     expect(find.textContaining('Kalorienangabe'), findsNothing);
+
+    await _timerAblaufen(tester);
+  });
+
+  testWidgets(
+      'Bearbeiten speichert Name und Werte, ohne einzutragen; Rückgängig '
+      'stellt sie zurück', (tester) async {
+    _telefon(tester);
+    // A scan: macros per portion only, no label values per 100 g.
+    const scan = MealAnalysisResult(
+      mealName: 'Bowl',
+      caloriesKcal: 400,
+      estimatedGrams: 200,
+      kcalPer100G: 200,
+      protein: '30 g',
+      carbs: '40 g',
+      fat: '12 g',
+      confidence: 'high',
+      portionNotes: '',
+      sourceLabel: 'photoAi',
+    );
+    final gespeichert = <(String, MealAnalysisResult)>[];
+    final geloggt = <MealAnalysisResult>[];
+    await tester.pumpWidget(_app(FavoritesSheet(
+      favorites: [_favorit(scan, am: DateTime(2026, 8, 1))],
+      slot: MealSlot.lunch,
+      onAdd: (result, _) {
+        geloggt.add(result);
+        return 'id';
+      },
+      onUnpin: (_) {},
+      onEdit: (id, result) {
+        gespeichert.add((id, result));
+        return id == 'name:bowl' ? 'name:lachs-bowl' : 'name:bowl';
+      },
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_zeile(0));
+    await tester.pumpAndSettle();
+    final bearbeiten = find.byKey(const ValueKey('favorites-sheet-edit-0'));
+    await tester.ensureVisible(bearbeiten);
+    await tester.tap(bearbeiten);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('manual-meal-name')),
+      'Lachs-Bowl',
+    );
+    await tester.pump();
+    final speichern = find.byKey(const ValueKey('manual-meal-save'));
+    await tester.ensureVisible(speichern);
+    await tester.tap(speichern);
+    await tester.pumpAndSettle();
+
+    expect(geloggt, isEmpty);
+    final (id, result) = gespeichert.single;
+    expect(id, 'name:bowl');
+    expect(result.mealName, 'Lachs-Bowl');
+    expect(result.caloriesKcal, 400);
+    expect(result.protein, '30 g', reason: 'Makros der Portion bleiben');
+    expect(_textInZeile(0, 'Lachs-Bowl'), findsOneWidget);
+
+    await tester.tap(find.text('Rückgängig'));
+    await tester.pumpAndSettle();
+    expect(gespeichert.last.$1, 'name:lachs-bowl', reason: 'der neue Schlüssel');
+    expect(identical(gespeichert.last.$2, scan), isTrue);
+    expect(_textInZeile(0, 'Bowl'), findsOneWidget);
 
     await _timerAblaufen(tester);
   });

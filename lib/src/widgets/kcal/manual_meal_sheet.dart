@@ -100,8 +100,9 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   late final TextEditingController _fat;
 
   /// Quick mode (E4): totals without grams. Own controllers, so switching
-  /// never reads a per-100 g figure as a total or the other way round.
-  late bool _quick = widget.initial?.isQuickEntry ?? false;
+  /// never reads a per-100 g figure as a total or the other way round. An
+  /// entry without a weight (also a recipe logged by servings) opens here.
+  late bool _quick = widget.initial?.hasNoPortionWeight ?? false;
   late final TextEditingController _kcalTotal;
   late final TextEditingController _proteinTotal;
   late final TextEditingController _carbsTotal;
@@ -164,7 +165,11 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     final initial = widget.initial;
     if (initial == null) return;
     final locale = context.l10n.localeName;
-    if (initial.isQuickEntry) {
+    // A stored fallback ("Unbekannte Mahlzeit") in the user's language.
+    if (!_isFallbackName(initial)) {
+      _name.text = initial.resolvedMealName(context.l10n);
+    }
+    if (initial.hasNoPortionWeight) {
       _kcalTotal.text = '${initial.caloriesKcal}';
       _proteinTotal.text = _zahlText(_gramm(initial.protein), locale);
       _carbsTotal.text = _zahlText(_gramm(initial.carbs), locale);
@@ -175,14 +180,24 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
         initial.effectiveKcalPer100G ??
         (initial.explicitZeroKcal && initial.kcalPer100G == 0 ? 0 : null);
     if (dichte != null) _kcal100.text = '${dichte.round()}';
-    _protein.text = _zahlText(initial.proteinPer100G, locale);
-    _carbs.text = _zahlText(initial.carbsPer100G, locale);
-    _fat.text = _zahlText(initial.fatPer100G, locale);
+    // A scan or product favorite carries no label values per 100 g; its
+    // portion's macros stand in, so changing only the name keeps them.
+    String pro100(double? stored, String text) => _zahlText(
+      stored ?? _proPortion(_gramm(text), initial.estimatedGrams),
+      locale,
+    );
+    _protein.text = pro100(initial.proteinPer100G, initial.protein);
+    _carbs.text = pro100(initial.carbsPer100G, initial.carbs);
+    _fat.text = pro100(initial.fatPer100G, initial.fat);
   }
 
   /// A stored macro text ("12,5 g", "-" for unknown) as a number.
   static double? _gramm(String text) =>
       NumberInput.parse(text.replaceAll(' g', '')).value;
+
+  /// [gramm] of a [portion] in grams as an amount per 100 g.
+  static double? _proPortion(double? gramm, int portion) =>
+      gramm == null || portion <= 0 ? null : gramm * 100 / portion;
 
   /// [wert] with at most one decimal in the separator of [locale]; '' for
   /// none.

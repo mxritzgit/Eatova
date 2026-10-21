@@ -726,6 +726,8 @@ class FitnessRecipe {
       brand: 'Eatova',
       explicitZeroKcal: calories == 0 &&
           (hasStructuredIngredients || slug.startsWith('user_import_')),
+      // The diary row names it, and the edit sheet steps from it.
+      servings: servings,
     );
   }
 }

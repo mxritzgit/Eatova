@@ -1235,6 +1235,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           onUpdateMeal: _store.updateLoggedMealDetails,
           onRemoveMeal: _store.removeLoggedMeal,
           onCopyMeals: _store.copyLoggedMeals,
+          onUpdateFavorite: _store.updateFavorite,
           child: MealAnalysisScreen(
             analyzer: widget.mealAnalyzer,
             productService: widget.productService,

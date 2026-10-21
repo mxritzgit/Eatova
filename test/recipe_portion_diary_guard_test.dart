@@ -3,6 +3,7 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
@@ -56,7 +57,7 @@ void main() {
   });
 
   testWidgets(
-    'diary edit keeps recipe snapshot and exposes weight explanation',
+    'diary edit keeps recipe snapshot and explains the servings',
     (tester) async {
       await withClock(Clock.fixed(DateTime(2026, 9, 10, 12)), () async {
         pinPhoneViewport(tester);
@@ -93,7 +94,7 @@ void main() {
           find.byKey(const ValueKey('edit-meal-adjust-button')),
           findsNothing,
         );
-        expect(find.text(enL10n.recipeCalcNoCookedWeight), findsOneWidget);
+        expect(find.text(enL10n.foodServingsNoWeightHint), findsOneWidget);
         expect(find.textContaining('175\u00a0kcal'), findsOneWidget);
         await tester.ensureVisible(
           find.byKey(const ValueKey('edit-slot-select-dinner')),
@@ -111,6 +112,85 @@ void main() {
         expect(identical(saved.result, original), isTrue);
         expect(saved.result.caloriesKcal, 175);
         expect(saved.slot, MealSlot.dinner);
+      });
+    },
+  );
+
+  testWidgets(
+    'the servings stepper rescales in half steps from the logged entry',
+    (tester) async {
+      await withClock(Clock.fixed(DateTime(2026, 9, 10, 12)), () async {
+        pinPhoneViewport(tester);
+        final original = _portion();
+        final meal = LoggedMeal(
+          id: 'fixed-recipe',
+          result: original,
+          loggedAt: DateTime(2026, 9, 10, 12),
+          forcedSlot: MealSlot.lunch,
+          localDay: '2026-09-10',
+        );
+        MealAnalysisResult? replaced;
+        await pumpLocalized(
+          tester,
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showEditMealSheet(
+                context,
+                meal: meal,
+                onUpdateMeal: (id, {result, slot, day}) {
+                  replaced = result;
+                  return meal.copyWith(result: result);
+                },
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+          locale: const Locale('en'),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        final less = find.byKey(const ValueKey('edit-meal-servings-less'));
+        final more = find.byKey(const ValueKey('edit-meal-servings-more'));
+        final save = find.byKey(const ValueKey('edit-meal-save-button'));
+        String figure() => tester
+            .widget<Text>(find.byKey(const ValueKey('edit-meal-summary-figure')))
+            .data!;
+        bool enabled(Finder button) =>
+            tester.widget<InkWell>(button).onTap != null;
+
+        expect(figure(), '175 kcal · 0.5 portions');
+        expect(enabled(less), isFalse, reason: 'half a serving is the floor');
+        for (final (tap, expected) in [
+          (more, '350 kcal · 1 portion'),
+          (more, '525 kcal · 1.5 portions'),
+          (less, '350 kcal · 1 portion'),
+          (less, '175 kcal · 0.5 portions'),
+        ]) {
+          await tester.tap(tap);
+          await tester.pump();
+          expect(figure(), expected);
+        }
+        await tester.ensureVisible(save);
+        expect(
+          tester.widget<PrimaryActionButton>(save).onTap,
+          isNull,
+          reason: 'back at the logged servings nothing is left to save',
+        );
+
+        await tester.ensureVisible(more);
+        await tester.tap(more);
+        await tester.tap(more);
+        await tester.pump();
+        await tester.ensureVisible(save);
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+
+        expect(replaced!.servings, 1.5);
+        expect(replaced!.caloriesKcal, 525);
+        expect(replaced!.protein, '15 g');
+        expect(replaced!.carbs, '-', reason: 'unknown stays unknown');
+        expect(replaced!.portionNotes, startsWith('1,5 Portionen · '));
       });
     },
   );

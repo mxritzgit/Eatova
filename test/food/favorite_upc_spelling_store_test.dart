@@ -238,4 +238,91 @@ void main() {
       },
     );
   });
+
+  group('Korrigieren nach dem Eintragen', () {
+    Map<String, String> namesByKey(HomeStore store) => {
+      for (final f in store.favorites) f.id: f.result.mealName,
+    };
+
+    test('eine Umbenennung zieht den Schluessel des Recents sauber mit, '
+        'Rueckgaengig wieder zurueck', () async {
+      await withClock(Clock.fixed(_now), () async {
+        final env = setup();
+        await bootUntilIdle(env.store);
+        final store = env.store;
+        final id = await store.addResultToDailyTotal(mealResult('Bowl'));
+
+        await store.updateLoggedMealDetails(
+          id,
+          result: store.loggedMeals.single.result.withMealName('Lachs-Bowl'),
+        );
+        await settle();
+        expect(namesByKey(store), {'name:lachs-bowl': 'Lachs-Bowl'});
+        expect(env.server.favoriteRows.keys, ['name:lachs-bowl']);
+
+        env.snacks.actions.last!.onPressed();
+        await settle();
+        expect(namesByKey(store), {'name:bowl': 'Bowl'});
+        expect(env.server.favoriteRows.keys, ['name:bowl']);
+      });
+    });
+
+    test('angeheftet uebernimmt nur ein eigenes Produkt die Korrektur', () async {
+      await withClock(Clock.fixed(_now), () async {
+        final env = setup();
+        await bootUntilIdle(env.store);
+        final store = env.store;
+        MealAnalysisResult milk(String name) => MealAnalysisResult.manualEntry(
+          name: name,
+          kcalPer100G: 47,
+          grams: 200,
+          barcode: _gtin13,
+        );
+        final scanId = await store.addResultToDailyTotal(mealResult('Bowl'));
+        await store.toggleFavorite(mealResult('Bowl'));
+        final milkId = await store.addResultToDailyTotal(milk('Hfermilch'));
+
+        for (final (id, corrected) in [
+          (scanId, mealResult('Bowl').withMealName('Lachs-Bowl')),
+          (milkId, milk('Hafermilch')),
+        ]) {
+          await store.updateLoggedMealDetails(id, result: corrected);
+        }
+        await settle();
+
+        expect(namesByKey(store), {
+          'name:bowl': 'Bowl',
+          'barcode:$_gtin13': 'Hafermilch',
+        });
+      });
+    });
+
+    test('Bearbeiten speichert einen Favoriten, ohne einzutragen', () async {
+      await withClock(Clock.fixed(_now), () async {
+        final env = setup();
+        await bootUntilIdle(env.store);
+        final store = env.store;
+        await store.toggleFavorite(mealResult('Bowl'));
+
+        final movedTo = await store.updateFavorite(
+          'name:bowl',
+          mealResult('Bowl', kcal: 400).withMealName('Lachs-Bowl'),
+        );
+        await settle();
+        expect(movedTo, 'name:lachs-bowl');
+        final favorite = store.favorites.single;
+        expect(favorite.pinned, isTrue);
+        expect(favorite.result.caloriesKcal, 400);
+        expect(env.server.favoriteRows.keys, ['name:lachs-bowl']);
+        expect(store.loggedMeals, isEmpty);
+        expect(env.server.operations('mealInsert'), isEmpty);
+
+        // The sheet's undo: the old values under the key it got back.
+        final back = await store.updateFavorite(movedTo, mealResult('Bowl'));
+        await settle();
+        expect(back, 'name:bowl');
+        expect(env.server.favoriteRows.keys, ['name:bowl']);
+      });
+    });
+  });
 }

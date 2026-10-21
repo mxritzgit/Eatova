@@ -38,6 +38,8 @@ class MealSuggestionItem extends StatefulWidget {
     this.quickAddSlotLabel,
     this.quickAddKey,
     this.removeButtonKey,
+    this.onEdit,
+    this.editButtonKey,
   });
 
   final MealAnalysisResult result;
@@ -70,6 +72,11 @@ class MealSuggestionItem extends StatefulWidget {
   /// The meal a saved favorite's one-tap "+" adds to; null hides the "+".
   final String? quickAddSlotLabel;
   final Key? quickAddKey;
+
+  /// Changes a saved favorite without logging it; offered in the open
+  /// panel, null hides it.
+  final VoidCallback? onEdit;
+  final Key? editButtonKey;
 
   @override
   State<MealSuggestionItem> createState() => _MealSuggestionItemState();
@@ -240,6 +247,13 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     // above, so forgetting it and pinning it both happen here. A pinned
     // favorite unpins with its heart and is removed from here.
     final panelActions = <Widget>[
+      if (widget.savedPresentation && widget.onEdit != null)
+        _PanelAction(
+          key: widget.editButtonKey,
+          icon: Icons.edit_outlined,
+          label: l10n.foodFavoriteEdit,
+          onTap: widget.onEdit!,
+        ),
       if (!widget.savedPresentation &&
           !widget.productPresentation &&
           toggleFavorite != null)

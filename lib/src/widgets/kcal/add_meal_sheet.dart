@@ -154,6 +154,7 @@ Future<void> showAddMealSheet(
   // home page's MealEditScope. Without a scope the list stays non-editable.
   final resolvedUpdateDetails =
       onUpdateMealDetails ?? MealEditScope.maybeOf(context)?.onUpdateMeal;
+  final updateFavorite = MealEditScope.maybeOf(context)?.onUpdateFavorite;
   // Same reason, same moment: the live source of both lists (P8-01/-05).
   final live = FoodStoreScope.maybeOf(context);
   return showModalBottomSheet<void>(
@@ -183,6 +184,7 @@ Future<void> showAddMealSheet(
           onToggleFavorite: onToggleFavorite,
           onRemoveMeal: onRemoveMeal,
           onUpdateMealDetails: resolvedUpdateDetails,
+          onUpdateFavorite: updateFavorite,
           favoriteUseCounts: live?.favoriteUseCounts,
           diaryMeals: live?.diaryMeals,
           ownRecipes: live?.ownRecipes,
@@ -288,6 +290,7 @@ class AddMealSheet extends StatefulWidget {
     this.foodDate,
     this.onRemoveMeal,
     this.onUpdateMealDetails,
+    this.onUpdateFavorite,
     this.favoriteUseCounts,
     this.diaryMeals,
     this.ownRecipes,
@@ -336,6 +339,9 @@ class AddMealSheet extends StatefulWidget {
   /// Details update for the edit sheet (portion/slot/day). Null -> already
   /// added rows are not tappable.
   final UpdateMealDetails? onUpdateMealDetails;
+
+  /// "Bearbeiten" in the favorites sheet; null hides it.
+  final UpdateFavorite? onUpdateFavorite;
 
   /// Logs per favorite id for the favorites sheet's "Frequent" order; null
   /// (previews, standalone tests) orders "Frequent" by recency.
@@ -1751,6 +1757,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       onAdd: _logAndMirror,
       onUnpin: _unpinFavorite,
       onRepin: widget.onToggleFavorite == null ? null : _repinFavorite,
+      onEdit: widget.onUpdateFavorite,
       useCounts: widget.favoriteUseCounts?.call() ?? const <String, int>{},
     );
     if (!mounted) return;
