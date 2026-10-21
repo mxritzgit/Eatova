@@ -3859,5 +3859,7 @@
   "@mealPlanEatDayBody": {"description": "Ticking a plan of a past day; date: the planned day, e.g. \"Montag, 20. Oktober\".", "placeholders": {"recipe": {"type": "String"}, "date": {"type": "String"}}},
   "mealPlanEatOnPlannedDay": "Am {date} eintragen",
   "@mealPlanEatOnPlannedDay": {"description": "Logs a past plan on its planned day; date: short, e.g. \"Mo., 20. Okt.\".", "placeholders": {"date": {"type": "String"}}},
-  "mealPlanEatOnToday": "Heute eintragen"
+  "mealPlanEatOnToday": "Heute eintragen",
+  "onboardingReviewDietAvoiding": "{diet} · ohne {foods}",
+  "@onboardingReviewDietAvoiding": {"description": "Plan summary of the diet step; foods: the avoided foods, comma-separated.", "placeholders": {"diet": {"type": "String"}, "foods": {"type": "String"}}}
 }

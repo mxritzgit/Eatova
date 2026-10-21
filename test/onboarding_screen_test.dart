@@ -69,13 +69,16 @@ void main() {
     await tapOnboarding(tester, 'onboarding-pace-lose1kg');
     await next();
 
-    // diet: pick vegetarian
+    // diet: pick vegetarian, and avoid nuts and lactose (the profile's chips)
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
     await tapOnboarding(tester, 'onboarding-diet-vegetarian');
+    await tapOnboarding(tester, 'onboarding-avoid-nuts');
+    await tapOnboarding(tester, 'onboarding-avoid-lactose');
     await next();
 
     // summary
     expect(find.byKey(const ValueKey('onboarding-summary-kcal')), findsOneWidget);
+    expect(find.text('Vegetarisch · ohne Laktose, Nüsse'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('onboarding-finish')));
     await tester.pumpAndSettle();
 
@@ -93,6 +96,7 @@ void main() {
     expect(result.weightGoal, WeightGoal.lose1kg);
     expect(result.targetWeightKg, 73); // 78 − 5
     expect(result.diet, DietPreference.vegetarian);
+    expect(result.foodAvoidances, {FoodAvoidance.lactose, FoodAvoidance.nuts});
     expect(result.onboardingCompleted, isTrue);
 
     // Daily target: BMR(male,78,178,30) = 1747.5 × 1.6 (moderate) = 2796.
