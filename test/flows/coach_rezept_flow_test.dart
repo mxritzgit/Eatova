@@ -333,6 +333,14 @@ void main() {
     expect(_inList(find.text(_answer)), findsOneWidget,
         reason: 'die Coach-Antwort fehlt als Blase');
     expect(find.byKey(const ValueKey('coach-empty')), findsNothing);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('coach-input')))
+          .controller
+          ?.text,
+      isEmpty,
+      reason: 'der Composer ist nach dem Senden leer',
+    );
     expect(find.byKey(const ValueKey('coach-recipe-card')), findsNothing,
         reason: 'eine normale Frage erzeugt keine Rezeptkarte');
 

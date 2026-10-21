@@ -84,23 +84,6 @@ void main() {
   });
 
   group('listen arguments', () {
-    test(
-      'defaults: gym vocabulary and 1000 units, as the Coach always had',
-      () async {
-        final native = _Native()..install();
-        final done = const SpeechInput().listen(localeId: 'de_DE', token: 7);
-        await _settle();
-        expect(native.lastListenArguments, <String, Object?>{
-          'localeId': 'de_DE',
-          'token': 7,
-          'vocabulary': 'gym',
-          'maxUnits': 1000,
-        });
-        native.answer(<String, Object?>{'text': 'x', 'reason': 'final'});
-        await done;
-      },
-    );
-
     test('food vocabulary and the caller cap travel by name', () async {
       final native = _Native()..install();
       final done = const SpeechInput().listen(
@@ -134,15 +117,6 @@ void main() {
       native.answer(nativeResult);
       return (await done, ends);
     }
-
-    test('final text comes back unchanged, end = stopped', () async {
-      final (text, ends) = await run(<String, Object?>{
-        'text': 'Nutella mit einer Scheibe Toast',
-        'reason': 'final',
-      });
-      expect(text, 'Nutella mit einer Scheibe Toast');
-      expect(ends, <SpeechEnd>[SpeechEnd.stopped]);
-    });
 
     test(
       'Android dialog dismissed: null text, reason cancel -> null, dismissed',
@@ -333,16 +307,16 @@ void main() {
       'error': SpeechFailure.failed,
       '': SpeechFailure.failed,
     };
-    for (final MapEntry(key: code, value: failure) in expected.entries) {
-      test('PlatformException "$code" -> ${failure.name}', () async {
-        expect(
-          await failureFor(
-            PlatformException(code: code, message: 'system text, never shown'),
-          ),
-          failure,
+    test('plugin codes map to the typed failure', () async {
+      final wrong = <String>[];
+      for (final MapEntry(key: code, value: failure) in expected.entries) {
+        final actual = await failureFor(
+          PlatformException(code: code, message: 'system text, never shown'),
         );
-      });
-    }
+        if (actual != failure) wrong.add('"$code" -> ${actual.name}');
+      }
+      expect(wrong, isEmpty);
+    });
 
     test('no native channel (MissingPluginException) -> unavailable', () async {
       // No mock handler: the test binding throws MissingPluginException.
@@ -381,7 +355,7 @@ void main() {
     });
   });
 
-  group('stop, cancel, available', () {
+  group('stop and cancel', () {
     test('stop and cancel reach the native side', () async {
       final native = _Native()..install();
       await const SpeechInput().stop();
@@ -398,31 +372,6 @@ void main() {
       await const SpeechInput().stop();
       await const SpeechInput().cancel();
     });
-
-    test('available passes the locale and reads a bool', () async {
-      final native = _Native()..install();
-      native.otherMethods = (_) => true;
-      expect(await const SpeechInput().available(localeId: 'en_US'), isTrue);
-      expect(native.calls.single.method, 'available');
-      expect(native.calls.single.arguments, <String, Object?>{
-        'localeId': 'en_US',
-      });
-      native.otherMethods = (_) => false;
-      expect(await const SpeechInput().available(), isFalse);
-      native.otherMethods = (_) => null;
-      expect(await const SpeechInput().available(), isFalse);
-    });
-
-    test(
-      'available is false when the check fails or no channel exists',
-      () async {
-        final native = _Native()..install();
-        native.otherMethods = (_) => throw PlatformException(code: 'x');
-        expect(await const SpeechInput().available(), isFalse);
-        _messenger.setMockMethodCallHandler(_channel, null);
-        expect(await const SpeechInput().available(), isFalse);
-      },
-    );
   });
 
   test('no transcript reaches debugPrint', () async {

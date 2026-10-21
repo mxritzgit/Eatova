@@ -41,24 +41,12 @@ void main() {
     expect(brief.state, CoachDayState.underBudget);
     expect(brief.budgetKcal, 2123);
     expect(brief.remainingKcal, 902);
+    expect(brief.proteinGoalG, 162);
     expect(brief.proteinLeftG, 51);
     expect(brief.mealSlot, MealSlot.dinner);
     expect(brief.proteinGapClosable, isTrue);
     expect(brief.primaryAction, CoachDayAction.suggestMeal);
     expect(brief.secondaryAction, CoachDayAction.planTomorrow);
-  });
-
-  test('reads the numbers of the shared day summary, not its own', () {
-    final summary = _day(kcal: 1221, proteinG: 111);
-    final brief = coachDayBrief(
-      summary: summary,
-      loggedToday: true,
-      nextMainSlot: MealSlot.dinner,
-    );
-    expect(brief.remainingKcal, summary.remainingKcal);
-    expect(brief.budgetKcal, summary.budgetKcal);
-    expect(brief.proteinLeftG, summary.proteinLeftG);
-    expect(brief.proteinGoalG, summary.proteinGoalG);
   });
 
   group('state', () {

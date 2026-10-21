@@ -571,7 +571,7 @@ void main() {
     expect(find.text('Trainingsplan übernehmen'), findsOneWidget);
   });
 
-  testWidgets('Late generation is not shown in a different conversation', (
+  testWidgets('A late plan stays out of another chat; its quota counts', (
     tester,
   ) async {
     final coach = _PlanCoach.create()..pending = Completer<CoachPlanReply>();
@@ -783,36 +783,8 @@ void main() {
     },
   );
 
-  testWidgets('Both commands remain usable on a short screen with large text', (
-    tester,
-  ) async {
-    final errors = await collectOverflows(() async {
-      await _mount(
-        tester,
-        _PlanCoach.create(),
-        scale: 2,
-        size: const Size(320, 568),
-      );
-      await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
-      await _frames(tester);
-      final plan = find.text('/plan');
-      await tester.ensureVisible(plan);
-      await tester.pump();
-      await tester.tap(plan);
-      await _frames(tester);
-      expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
-    });
-    expect(errors, isEmpty, reason: describeOverflows(errors));
-  });
-
-  testWidgets('Training entry prepares the command without consuming quota', (
-    tester,
-  ) async {
-    final coach = _PlanCoach.create();
-    await _mount(tester, coach, planDraftRequest: 1);
-    expect(coach.calls, isEmpty);
-    expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
-  });
+  // The command menu at 320 px and 2x text: coach_workout_log_flow_test.dart;
+  // the brief there: the reflow tests at the end of this file.
 
   testWidgets(
     'brief submit sends reviewed choices once and adoption creates a separate editable copy',

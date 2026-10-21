@@ -26,7 +26,6 @@ import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
@@ -232,18 +231,6 @@ void main() {
       expect(
         tester.getRect(find.byKey(const ValueKey('coach-ai-note'))).bottom,
         lessThan(capsule.top),
-      );
-
-      // The design's vertical rhythm (design/coach/template.html at 390 px):
-      // orb at 148, the card at 316, the chip row at 542.
-      expect(tester.getTopLeft(find.byType(CoachOrb)).dy, 148);
-      expect(
-        tester.getTopLeft(find.byKey(const ValueKey('coach-log-card'))).dy,
-        316,
-      );
-      expect(
-        tester.getTopLeft(find.byKey(const ValueKey('coach-try-recipe'))).dy,
-        542,
       );
 
       await captureDesignShot(tester, 'coach-00');

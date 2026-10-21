@@ -292,21 +292,17 @@ void main() {
     });
   });
 
-  for (final platform in const [
-    TargetPlatform.linux,
-    TargetPlatform.macOS,
-    TargetPlatform.windows,
-  ]) {
-    testWidgets('${platform.name}: no mic, typing still works', (tester) async {
-      await onPlatform(platform, () async {
-        final h = await openDescribe(tester);
-        expect(describeMic, findsNothing);
-        expect(key('meal-describe-language'), findsNothing);
-        await describe(tester, 'Spaghetti Bolognese');
-        expect(h.describer.calls.single.text, 'Spaghetti Bolognese');
-      });
+  // One platform without speech stands for all: SpeechInput.supportedOn is
+  // pinned per platform in speech_input_test.dart.
+  testWidgets('macOS: no mic, typing still works', (tester) async {
+    await onPlatform(TargetPlatform.macOS, () async {
+      final h = await openDescribe(tester);
+      expect(describeMic, findsNothing);
+      expect(key('meal-describe-language'), findsNothing);
+      await describe(tester, 'Spaghetti Bolognese');
+      expect(h.describer.calls.single.text, 'Spaghetti Bolognese');
     });
-  }
+  });
 
   for (final failure in SpeechFailure.values) {
     testWidgets('a ${failure.name} failure is named, mic released', (

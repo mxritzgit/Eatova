@@ -8,9 +8,9 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 
-// Finding 4 (review 2026-08-19): `coach_chat_service.dart` did not import
-// `crash_reporter.dart` at all, so every error path ended in `dev.log` — a
-// total edge-function outage was invisible in production.
+// What CoachChatService reports to Sentry. Before review 2026-08-19 (finding
+// 4) every error path ended in `dev.log`, so a total edge-function outage was
+// invisible in production.
 //
 // The counter-check is part of the deal: EXPECTED cases (offline, daily limit,
 // expired session) must stay out, or blindness is traded for noise that scales

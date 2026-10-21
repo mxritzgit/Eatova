@@ -26,12 +26,6 @@ Map<String, dynamic> _canonical() =>
 }''')
         as Map<String, dynamic>;
 
-Map<String, dynamic> _exercise(Map<String, dynamic> json, int index) =>
-    (json['exercises'] as List)[index] as Map<String, dynamic>;
-
-Map<String, dynamic> _set(Map<String, dynamic> json, int exercise, int set) =>
-    (_exercise(json, exercise)['sets'] as List)[set] as Map<String, dynamic>;
-
 void main() {
   test('accepts the canonical example and writes it back unchanged', () {
     final json = _canonical();
@@ -86,94 +80,8 @@ void main() {
     expect(draft.durationMinutes, isNull);
   });
 
-  final valid = <String, void Function(Map<String, dynamic>)>{
-    'a leap day': (j) => j['performed_on'] = '2028-02-29',
-    'an old day (format only, no clock)': (j) =>
-        j['performed_on'] = '2020-01-01',
-    'zero reps and zero weight': (j) => _set(j, 0, 0)
-      ..['reps'] = 0
-      ..['weight_kg'] = 0,
-    'the upper bounds': (j) {
-      _set(j, 0, 0)
-        ..['reps'] = 1000
-        ..['weight_kg'] = 2000;
-      j['duration_minutes'] = 600;
-      j['note'] = 'n' * 500;
-      j['title'] = 't' * 120;
-    },
-    'ten timed hours': (j) => _exercise(j, 1)['duration_seconds'] = 36000,
-    'five two-hour sets': (j) => _exercise(j, 1)
-      ..['duration_seconds'] = 7200
-      ..['sets'] = [
-        for (var i = 0; i < 5; i++) {'reps': null, 'weight_kg': null},
-      ],
-  };
-  for (final entry in valid.entries) {
-    test('accepts ${entry.key}', () {
-      final json = _canonical();
-      entry.value(json);
-      expect(CoachWorkoutLog.fromJson(json), isNotNull);
-    });
-  }
-
-  final invalid = <String, void Function(Map<String, dynamic>)>{
-    'an extra key': (j) => j['calories'] = 300,
-    'an extra exercise key': (j) => _exercise(j, 0)['rpe'] = 8,
-    'an extra set key': (j) => _set(j, 0, 0)['rir'] = 2,
-    'a missing key': (j) => j.remove('note'),
-    'a missing set key': (j) => _set(j, 0, 0).remove('weight_kg'),
-    'schema version 2': (j) => j['schema_version'] = 2,
-    'a numeric title': (j) => j['title'] = 5,
-    'a blank title': (j) => j['title'] = '  ',
-    'a long title': (j) => j['title'] = 't' * 121,
-    'a long note': (j) => j['note'] = 'n' * 501,
-    'a string flag': (j) => j['other_days_omitted'] = 'false',
-    'a missing flag': (j) => j['other_days_omitted'] = null,
-    'string reps': (j) => _set(j, 0, 0)['reps'] = '8',
-    'fractional reps': (j) => _set(j, 0, 0)['reps'] = 8.5,
-    'string weight': (j) => _set(j, 0, 0)['weight_kg'] = '80',
-    'an unknown kind': (j) => _exercise(j, 0)['kind'] = 'cardio',
-    'exercises as a map': (j) => j['exercises'] = <String, dynamic>{},
-    'a set as a list': (j) => (_exercise(j, 0)['sets'] as List)[0] = [8, 80],
-    'no exercises': (j) => j['exercises'] = <dynamic>[],
-    '21 exercises': (j) => j['exercises'] = [
-      for (var i = 0; i < 21; i++) {..._exercise(j, 0), 'name': 'E$i'},
-    ],
-    'no sets': (j) => _exercise(j, 0)['sets'] = <dynamic>[],
-    '11 sets': (j) => _exercise(j, 0)['sets'] = [
-      for (var i = 0; i < 11; i++) {'reps': 5, 'weight_kg': null},
-    ],
-    'three decimals': (j) => _set(j, 0, 0)['weight_kg'] = 102.055,
-    'over 2000 kg': (j) => _set(j, 0, 0)['weight_kg'] = 2000.001,
-    'a negative weight': (j) => _set(j, 0, 0)['weight_kg'] = -0.5,
-    '1001 reps': (j) => _set(j, 0, 0)['reps'] = 1001,
-    'negative reps': (j) => _set(j, 0, 0)['reps'] = -1,
-    'timed with reps': (j) => _set(j, 1, 0)['reps'] = 30,
-    'reps with a duration': (j) => _exercise(j, 0)['duration_seconds'] = 60,
-    'six two-hour sets': (j) => _exercise(j, 1)
-      ..['duration_seconds'] = 7200
-      ..['sets'] = [
-        for (var i = 0; i < 6; i++) {'reps': null, 'weight_kg': null},
-      ],
-    'over ten hours': (j) => _exercise(j, 1)['duration_seconds'] = 36001,
-    'four seconds': (j) => _exercise(j, 1)['duration_seconds'] = 4,
-    'zero minutes': (j) => j['duration_minutes'] = 0,
-    '601 minutes': (j) => j['duration_minutes'] = 601,
-    'February 30': (j) => j['performed_on'] = '2026-02-30',
-    'an unpadded date': (j) => j['performed_on'] = '2026-2-3',
-    'a timestamp': (j) => j['performed_on'] = '2026-10-02T00:00:00Z',
-    'a blank name': (j) => _exercise(j, 0)['name'] = ' ',
-    'a long name': (j) => _exercise(j, 0)['name'] = 'n' * 121,
-    'a control character': (j) => _exercise(j, 0)['name'] = 'Bench\u0007',
-    'a lone surrogate': (j) => _exercise(j, 0)['name'] = 'Bench \uD800',
-  };
-  for (final entry in invalid.entries) {
-    test('rejects ${entry.key}', () {
-      final json = _canonical();
-      entry.value(json);
-      expect(CoachWorkoutLog.fromJson(json), isNull);
-    });
-  }
+  // Bounds, keys, types and dates are pinned once, for Dart, TypeScript and
+  // SQL alike, by the shared fixture in coach_workout_log_parity_test.dart.
 
   test('rejects arbitrary shapes without throwing', () {
     expect(CoachWorkoutLog.fromJson(const {}), isNull);

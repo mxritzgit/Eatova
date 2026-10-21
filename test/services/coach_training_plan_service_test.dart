@@ -472,7 +472,8 @@ void main() {
       await expectLater(_request(service), throwsA(isA<CoachChatException>()));
     });
 
-    for (final status in [401, 403, 500, 502]) {
+    // 401 and 500 through the same mapper: coach_error_mapping_test.dart.
+    for (final status in [403, 502]) {
       test('maps HTTP $status without exposing raw provider details', () async {
         final service = _service(
           (_) async => _json({
@@ -618,12 +619,12 @@ void main() {
       },
     );
 
-    for (final role in ['user', 'system', 'unknown']) {
-      test('$role history never produces a training proposal', () {
+    test('non-assistant history never produces a training proposal', () {
+      for (final role in ['user', 'system', 'unknown']) {
         final message = ChatMessage.fromRow(_row(role: role, plan: _plan()));
-        expect(message.trainingPlanProposal, isNull);
-      });
-    }
+        expect(message.trainingPlanProposal, isNull, reason: role);
+      }
+    });
 
     test('invalid, refused and conflicting history preserves text only', () {
       for (final row in [

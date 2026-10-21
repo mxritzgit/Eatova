@@ -94,18 +94,5 @@ void main() {
       expect(ends, <CoachSpeechEnd>[end], reason: reason);
     }
   });
-
-  test('a missing plugin is the localized "unavailable" text', () async {
-    _messenger.setMockMethodCallHandler(_channel, null);
-    await expectLater(
-      const CoachSpeechInput().listen(l10n: enL10n),
-      throwsA(
-        isA<CoachSpeechException>().having(
-          (e) => e.message,
-          'message',
-          enL10n.coachSpeechUnavailable,
-        ),
-      ),
-    );
-  });
+  // Failures as localized texts: coach_speech_localized_error_test.dart.
 }
