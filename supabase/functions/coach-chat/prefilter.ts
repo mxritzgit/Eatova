@@ -20,7 +20,7 @@ export const BANNED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   // Toast", "does sleep boost HGH?"), and a meal named that way dropped the
   // whole app context: only "anabolics" and growth hormone with doping intent
   // match here; Layer 2 judges the rest.
-  { pattern: /\b(steroid\w*|anabolik\w*|anabolics|trenbolon\w*|sustanon|testo(steron)?\s*kur|testo\s*shot|dianabol|d-?bol|winstrol|deca\s*durabolin|sarms?|ostarin\w*|clenbuterol|ephedrin\w*|epo\b|(wachstumshormon\w*|hgh)\s*(kur|kaufen|spritz\w*|inject\w*|cycle)|insulin\s*kur|peptid\s*kur)\b/i, reason: "doping" },
+  { pattern: /\b(steroid\w*|anabolik\w*|anabolics|trenbolon\w*|sustanon|testo(steron)?\s*kur|testo\s*shot|dianabol|d-?bol|winstrol|deca\s*durabolin|sarms?|ostarin\w*|clenbuterol|ephedrin\w*|epo\b|(wachstumshormon\w*|hgh)[\s-]*(kur|kaufen|spritz\w*|inject\w*|cycle)|insulin\s*kur|peptid\s*kur)\b/i, reason: "doping" },
   // Crash diets / eating-disorder risk. No "fasten \d+ tag" pattern: fasting
   // for N days is a legitimate nutrition question, and whether it is
   // ED-adjacent is layer 2's call by intent, not a number in the sentence.
