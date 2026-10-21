@@ -117,7 +117,7 @@ void main() {
     tester,
   ) async {
     var opened = 0;
-    Widget today(int? steps) => TodayScreen(
+    Widget today(int? steps, {bool linked = true}) => TodayScreen(
       userName: 'Test',
       profile: const UserProfile(),
       summary: todaySummary(
@@ -131,8 +131,16 @@ void main() {
       streak: 0,
       steps: steps,
       healthConnect: true,
+      healthConnectLinked: linked,
       onOpenProfile: () => opened++,
     );
+    // Never connected or declined: no permanent "check the connection".
+    await pumpLocalized(tester, today(null, linked: false));
+    expect(
+      find.byKey(const ValueKey('today-health-connect-missing')),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
     final context = await pumpLocalizedContext(tester, today(null));
     expect(find.byKey(const ValueKey('today-steps-card')), findsNothing);
     await tester.ensureVisible(find.text(context.l10n.healthConnectReview));

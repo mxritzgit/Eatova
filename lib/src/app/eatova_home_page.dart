@@ -925,6 +925,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.reminderTime,
       // Apple Health's intro card (2026-10-19).
       _store.healthIntroVisible,
+      // Health Connect's card and missing-steps row (2026-10-22).
+      _store.healthConnectLinked,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
@@ -943,6 +945,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // null = no step source -> no steps card.
         steps: _store.stepsForFoodDate(tag),
         healthConnect: _store.health is HealthConnectAccess,
+        healthConnectLinked: _store.healthConnectLinked,
         streak: _store.loggingStreak,
         profileInitial: _store.profileInitial,
         // Both are about today; archive days show neither.

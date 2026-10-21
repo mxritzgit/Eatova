@@ -52,6 +52,7 @@ class TodayScreen extends StatelessWidget {
     required this.streak,
     this.steps,
     this.healthConnect = false,
+    this.healthConnectLinked = false,
     this.profileInitial,
     this.dayLoading = false,
     this.pick,
@@ -96,7 +97,14 @@ class TodayScreen extends StatelessWidget {
   /// Step count for [selectedDate]; `null` means no step source, and the
   /// steps row is dropped rather than claiming zero. Goal comes from profile.
   final int? steps;
+
+  /// The step source is Health Connect (Android), not Apple Health.
   final bool healthConnect;
+
+  /// This account connected Health Connect (`HomeStore.healthConnectLinked`):
+  /// only then does a day without steps say so. Accounts that never
+  /// connected or declined see the intro card or nothing.
+  final bool healthConnectLinked;
 
   /// Only the meals of [selectedDate].
   final List<LoggedMeal> meals;
@@ -171,8 +179,9 @@ class TodayScreen extends StatelessWidget {
   /// The weigh-in sheet's date row and history link; null keeps "log now".
   final WeighInActions? weighIns;
 
-  /// Apple Health's intro card (`HomeStore.healthIntroVisible`); null hides
-  /// it. Today only.
+  /// The health intro card, Apple Health or Health Connect after
+  /// [healthConnect] (`HomeStore.healthIntroVisible`); null hides it. Today
+  /// only.
   final ({Future<void> Function() connect, Future<void> Function() dismiss})?
   healthPrompt;
 
@@ -241,7 +250,7 @@ class TodayScreen extends StatelessWidget {
     );
     final trends = istHeute && !dayLoading ? trendsPreview : null;
     final fillYesterday = istHeute && !dayLoading ? onFillYesterday : null;
-    final healthMissing = steps == null && healthConnect;
+    final healthMissing = steps == null && healthConnect && healthConnectLinked;
     final showActivity =
         !dayLoading &&
         TodayActivityCard.hasContent(
@@ -369,6 +378,7 @@ class TodayScreen extends StatelessWidget {
             if (health != null) ...<Widget>[
               const SizedBox(height: 16),
               TodayHealthPromptCard(
+                healthConnect: healthConnect,
                 onConnect: health.connect,
                 onDismiss: health.dismiss,
               ),

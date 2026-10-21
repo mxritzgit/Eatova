@@ -3770,5 +3770,11 @@
   "trainingExerciseHistoryOpenLabel": "History of {exercise}",
   "@trainingExerciseHistoryOpenLabel": {"placeholders": {"exercise": {"type": "String"}}},
   "trainingExerciseHistorySubtitle": "Best set per workout",
-  "trainingExerciseHistoryRecord": "PR"
+  "trainingExerciseHistoryRecord": "PR",
+  "healthConnectPromptTitle": "Steps from Health Connect",
+  "@healthConnectPromptTitle": {"description": "Today's one-time Health Connect card, shown before Health Connect's permission screen (Android)."},
+  "healthConnectPromptBody": "Your steps count as energy you burn: walk more and your daily budget grows. For that, Eatova reads your steps and weight from Health Connect.",
+  "@healthConnectPromptBody": {"description": "Today's Health Connect card: what the permission is for."},
+  "healthConnectPromptConnect": "Connect Health Connect",
+  "@healthConnectPromptConnect": {"description": "Today's Health Connect card: opens Health Connect's permission screen."}
 }

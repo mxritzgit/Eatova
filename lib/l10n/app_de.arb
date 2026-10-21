@@ -3865,5 +3865,11 @@
   "trainingExerciseHistoryOpenLabel": "Verlauf von {exercise}",
   "@trainingExerciseHistoryOpenLabel": {"placeholders": {"exercise": {"type": "String"}}},
   "trainingExerciseHistorySubtitle": "Bester Satz pro Training",
-  "trainingExerciseHistoryRecord": "Rekord"
+  "trainingExerciseHistoryRecord": "Rekord",
+  "healthConnectPromptTitle": "Schritte aus Health Connect",
+  "@healthConnectPromptTitle": {"description": "Today's one-time Health Connect card, shown before Health Connect's permission screen (Android)."},
+  "healthConnectPromptBody": "Deine Schritte zählen als Verbrauch: Wer mehr geht, hat mehr im Tagesbudget. Dafür liest Eatova Schritte und Gewicht aus Health Connect.",
+  "@healthConnectPromptBody": {"description": "Today's Health Connect card: what the permission is for."},
+  "healthConnectPromptConnect": "Mit Health Connect verbinden",
+  "@healthConnectPromptConnect": {"description": "Today's Health Connect card: opens Health Connect's permission screen."}
 }

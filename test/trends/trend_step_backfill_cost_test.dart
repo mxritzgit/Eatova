@@ -55,8 +55,11 @@ class _HealthConnect extends _Health implements HealthConnectAccess {
   void restoreConnection() {}
 }
 
-/// Counts the encrypted cache writes of the daily-activity slot.
+/// Counts the encrypted cache writes of the daily-activity slot, for an
+/// account that connected Apple Health itself.
 class _CountingStore extends InMemoryKeyValueStore {
+  _CountingStore() : super(healthConnectedKv().snapshot);
+
   int activityWrites = 0;
 
   @override
@@ -144,7 +147,7 @@ void main() {
 
   test('Apple Health reads the whole range', () => withClock(Clock.fixed(_now), () async {
     final health = _Health(const {});
-    final a = setup(health: health);
+    final a = setup(kv: healthConnectedKv(), health: health);
     a.server.profileRow = serverProfileRow(testProfile());
     await boot(a.store);
     await settle();

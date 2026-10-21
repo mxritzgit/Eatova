@@ -68,8 +68,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   Future<void> restoreHealthConnection() async {
     final service = health;
     if (_disposed || _healthSessionEnded) return;
+    // Read before the first await: the boot calls this right after the cache
+    // hydration, so a completed profile here was cached by an earlier session
+    // of this account on this device (signing out clears the cache).
+    final cachedAccount = _hydratedFromRealSource && profile.onboardingCompleted;
     if (service is! HealthConnectAccess) {
-      await _loadHealthIntro();
+      await _loadHealthIntro(connectedWhenUnset: cachedAccount);
       return;
     }
     final generation = _healthGeneration;
@@ -87,37 +91,69 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       }
     }
     if (_disposed || generation != _healthGeneration) return;
+    // Today's Health Connect card (2026-10-22); not in tests and previews.
+    if (sync != null) {
+      await _loadHealthIntro(connectedWhenUnset: _healthConnectedByUser);
+      if (_disposed || generation != _healthGeneration) return;
+    }
     await refreshHealthSteps();
   }
 
-  // --- Apple Health intro (review 2026-10-19) ---------------------------------
+  // --- Health intro per account (reviews 2026-10-19 and 2026-10-22) ----------
 
-  /// Whether the shell may ask HealthKit without a tap: Apple's permission
-  /// sheet otherwise appeared over the onboarding, before anything explained
-  /// it. Once this account's onboarding is known complete, and only while
-  /// Today's intro card is not waiting for an answer or was dismissed.
-  /// Accounts onboarded by an older build keep connecting on their own.
-  /// Without sync (tests, previews) there is no onboarding to wait for.
+  /// Whether the shell may ask HealthKit without a tap: only once this
+  /// account connected Apple Health itself. The grant belongs to the device,
+  /// so a second account would otherwise read the first person's steps and
+  /// weight, and write its weigh-ins into their Apple Health. Without sync
+  /// (tests, previews) there is no account to wait for.
   bool get healthAutoConnectAllowed {
     if (sync == null) return true;
     if (_needsOnboardingForHealth) return false;
-    return _healthIntro == _HealthIntro.none ||
-        _healthIntro == _HealthIntro.connected;
+    return _healthIntro == _HealthIntro.connected;
   }
 
-  /// Today's card that explains Apple Health before its sheet asks: after an
-  /// onboarding in this build, until connected or dismissed.
+  /// Whether this account connected its health source itself.
+  bool get _healthAccountOptedIn => health is HealthConnectAccess
+      ? _healthConnectedByUser
+      : sync == null || _healthIntro == _HealthIntro.connected;
+
+  /// Whether the store may read from or write to the health source. Health
+  /// Connect's service checks the per-account opt-in on every read and
+  /// writes nothing; HealthKit's grant belongs to the device, so its reads
+  /// and writes wait for this account's own connect.
+  bool get _healthAccessAllowed =>
+      health is HealthConnectAccess || _healthAccountOptedIn;
+
+  /// Today's card that explains the health source before its permission
+  /// prompt: until this account connects or says "Not now". On Health
+  /// Connect only while the device offers it and the account is not
+  /// connected yet.
   bool get healthIntroVisible =>
       _healthIntro == _HealthIntro.pending &&
       !_needsOnboardingForHealth &&
       !_healthSessionEnded &&
-      health is! HealthConnectAccess &&
-      health.authState != HealthAuthState.unsupported;
+      switch (health.authState) {
+        HealthAuthState.unsupported || HealthAuthState.unavailable => false,
+        _ => true,
+      } &&
+      !(health is HealthConnectAccess && _healthConnectedByUser);
+
+  /// Health Connect is this account's connected step source: a day without
+  /// steps then says so on Today instead of dropping the row. Accounts that
+  /// never connected or declined see the intro card or nothing.
+  bool get healthConnectLinked =>
+      health is HealthConnectAccess && _healthConnectedByUser;
 
   /// Provided by the profile part ([HomeStore.needsOnboarding]).
   bool get _needsOnboardingForHealth;
 
-  Future<void> _loadHealthIntro() async {
+  /// Reads this account's intro state. Unset means no build since
+  /// 2026-10-19 asked this account on this device: [connectedWhenUnset]
+  /// keeps an existing connection (HealthKit: the account was cached here
+  /// before, when HealthKit connected on its own; Health Connect: its own
+  /// opt-in), anything else gets the card. Written back either way, so the
+  /// next cold start no longer mistakes a new account for an old one.
+  Future<void> _loadHealthIntro({required bool connectedWhenUnset}) async {
     final cache = _cache ?? debugCache;
     final generation = _healthGeneration;
     final stored = await cache?.readHealthPrompt();
@@ -128,45 +164,47 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       'pending' => _HealthIntro.pending,
       'dismissed' => _HealthIntro.dismissed,
       'connected' => _HealthIntro.connected,
-      _ => _HealthIntro.none,
+      _ => connectedWhenUnset ? _HealthIntro.connected : _HealthIntro.pending,
     };
     _mutate(() => _healthIntro = next);
+    if (stored == null) {
+      await cache?.writeHealthPrompt(
+        next == _HealthIntro.connected ? 'connected' : 'pending',
+      );
+    }
   }
 
-  /// The onboarding is finishing: Apple Health waits for Today's card
+  /// The onboarding is finishing: the health source waits for Today's card
   /// instead of asking unprompted. Called inside the onboarding's publish,
   /// so the very notify that ends the onboarding already closes the shell's
-  /// unprompted path. Only while HealthKit was never asked in this session;
-  /// Health Connect keeps its own explicit connect.
+  /// unprompted path. Only while the source was never asked in this session.
   void _deferHealthToIntro() {
     if (_disposed ||
         _healthSessionEnded ||
-        health is HealthConnectAccess ||
         health.authState != HealthAuthState.unknown ||
-        _healthIntro == _HealthIntro.connected) {
+        _healthIntro == _HealthIntro.connected ||
+        (health is HealthConnectAccess && _healthConnectedByUser)) {
       return;
     }
     _healthIntro = _HealthIntro.pending;
     unawaited((_cache ?? debugCache)?.writeHealthPrompt('pending'));
   }
 
-  /// The card's connect action: asks HealthKit, which records the answer.
+  /// The card's connect action: asks the health source, which records the
+  /// answer.
   Future<void> acceptHealthIntro() => connectHealth();
 
-  /// A connect while the intro waits or was dismissed is the user's own
-  /// (the unprompted path is closed then): from here HealthKit may be asked
-  /// as before, also on the next cold start. Runs inside the mutation that
-  /// marks the connect in flight, so the shell cannot start a second one.
+  /// A connect is this account's own answer: from here HealthKit may be
+  /// asked as before, also on the next cold start, and Health Connect's card
+  /// is gone. Runs inside the mutation that marks the connect in flight, so
+  /// the shell cannot start a second one.
   void _recordHealthIntroAnswered() {
-    if (_healthIntro != _HealthIntro.pending &&
-        _healthIntro != _HealthIntro.dismissed) {
-      return;
-    }
+    if (_healthIntro == _HealthIntro.connected) return;
     _healthIntro = _HealthIntro.connected;
     unawaited((_cache ?? debugCache)?.writeHealthPrompt('connected'));
   }
 
-  /// "Not now": the card goes and HealthKit is not asked unprompted again;
+  /// "Not now": the card goes and the source is not asked unprompted again;
   /// the profile's Health card still connects.
   Future<void> dismissHealthIntro() async {
     if (_disposed || _healthSessionEnded) return;
@@ -179,7 +217,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     final generation = _healthGeneration;
     _mutate(() {
       healthSyncing = true;
-      if (health is! HealthConnectAccess) _recordHealthIntroAnswered();
+      _recordHealthIntroAnswered();
     });
     final state = await health.requestAuthorization();
     if (_disposed || generation != _healthGeneration) return;
@@ -215,6 +253,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   Future<void> _refreshHealthSteps({required bool allowDayCatchUp}) async {
     if (_disposed || _healthSessionEnded || healthSyncing) return;
+    if (!_healthAccessAllowed) return;
     final generation = _healthGeneration;
     final requestedDay = DateUtils.dateOnly(clock.now().toLocal());
     _mutate(() => healthSyncing = true);
@@ -380,7 +419,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Connect fails and HealthKit skips the read, so an empty answer proves
   /// nothing and the day stays open for a later foreground read.
   Future<bool> _maybeBackfillDailyActivity(DateTime day) async {
-    if (_disposed || _healthSessionEnded || _isSameFoodDate(day, clock.now())) {
+    if (_disposed ||
+        _healthSessionEnded ||
+        _isSameFoodDate(day, clock.now()) ||
+        !_healthAccessAllowed) {
       return true;
     }
     final generation = _healthGeneration;
@@ -446,7 +488,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   bool get _healthReadable => switch (health.authState) {
     HealthAuthState.granted ||
     HealthAuthState.unverified ||
-    HealthAuthState.noData => true,
+    HealthAuthState.noData => _healthAccessAllowed,
     HealthAuthState.unknown ||
     HealthAuthState.denied ||
     HealthAuthState.unsupported ||
@@ -620,7 +662,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       },
     );
     HapticFeedback.lightImpact();
-    if (writeToHealth) unawaited(health.writeWeight(kg, ts));
+    // Only into this account's own health store, never another person's.
+    if (writeToHealth && _healthAccessAllowed) {
+      unawaited(health.writeWeight(kg, ts));
+    }
     // The once-per-session "saved here, syncs later" hint this commit may just
     // have raised outranks the goal notice, which would replace it for good.
     final raisedSyncHint = _syncHintShown && !syncHintShown;
@@ -711,7 +756,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     );
     await _commitWeighInChange(op, (log) => log.putEntry(entry), announce: true);
     _deletedWeighIns.remove(removed.timestamp.microsecondsSinceEpoch);
-    if (await healthSample && !_disposed && !_healthSessionEnded) {
+    if (await healthSample &&
+        !_disposed &&
+        !_healthSessionEnded &&
+        _healthAccessAllowed) {
       unawaited(health.writeWeight(removed.weightKg, removed.timestamp));
     }
   }
@@ -756,7 +804,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// the capability (Android, tests) or without such a sample.
   Future<bool> _deleteOwnHealthWeight(DateTime at) async {
     final service = health;
-    if (_disposed || _healthSessionEnded || service is! HealthWeightCorrection) {
+    if (_disposed ||
+        _healthSessionEnded ||
+        !_healthAccessAllowed ||
+        service is! HealthWeightCorrection) {
       return false;
     }
     return (service as HealthWeightCorrection).deleteOwnWeight(at);
@@ -844,19 +895,18 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 }
 
-/// Where this account stands with Today's Apple Health intro card, kept per
-/// account in the encrypted cache (`health_prompt`).
+/// Where this account stands with Today's health intro card, kept per
+/// account in the encrypted cache (`health_prompt`). For HealthKit it is the
+/// account's opt-in, since the OS grant belongs to the device.
 enum _HealthIntro {
   /// Not read from the cache yet.
   unknown,
 
-  /// Nothing waits: an account onboarded by an older build, or no cache.
-  none,
-
-  /// The card shows; HealthKit is not asked unprompted.
+  /// The card shows; the source is not asked unprompted.
   pending,
 
-  /// Connected from the card; HealthKit may be asked as before.
+  /// The account connected (or, for HealthKit, was connected before the
+  /// per-account rule); HealthKit may be asked and read as before.
   connected,
 
   /// "Not now": no card, and no unprompted ask either.

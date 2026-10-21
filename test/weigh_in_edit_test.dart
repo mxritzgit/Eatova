@@ -305,7 +305,7 @@ void main() {
 
   test("Apple Health: Eatova's own sample follows an edit, a delete and its undo", () => withClock(Clock.fixed(_now), () async {
     final health = _Health();
-    final a = setup(health: health);
+    final a = setup(kv: healthConnectedKv(), health: health);
     a.server.profileRow = serverProfileRow(_live());
     await boot(a.store);
     await a.store.logWeight(84.0);
@@ -329,7 +329,7 @@ void main() {
 
   test('Apple Health: an imported weigh-in leaves the source sample alone', () => withClock(Clock.fixed(_now), () async {
     final health = _Health();
-    final a = setup(health: health);
+    final a = setup(kv: healthConnectedKv(), health: health);
     a.server.profileRow = serverProfileRow(_live());
     await boot(a.store);
     final measured = _now.subtract(const Duration(hours: 3));
@@ -350,7 +350,7 @@ void main() {
   test('a deleted import is not offered again in the same session', () => withClock(Clock.fixed(_now), () async {
     final measured = _now.subtract(const Duration(hours: 3));
     final health = _ScaleHealth(84.3, measured);
-    final a = setup(health: health);
+    final a = setup(kv: healthConnectedKv(), health: health);
     a.server.profileRow = serverProfileRow(_live());
     await boot(a.store);
     await a.store.importHealthWeight(84.3, measuredAt: measured);
