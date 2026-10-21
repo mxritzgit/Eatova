@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show SocketException;
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -716,20 +717,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
     _productSearchDebounce = Timer(
       _productSearchDebounceDelay,
-      () => _searchProducts(
-        queryOverride: query,
-        showTransientError: false,
-        explicit: false,
-      ),
+      () => _searchProducts(queryOverride: query, explicit: false),
     );
   }
 
   /// [explicit] separates magnifier/enter from the debounce: only the explicit
   /// path unlocks the results zone for a fragment below
-  /// [_autoSearchMinChars].
+  /// [_autoSearchMinChars]. A failure reaches the zone on both paths: by then
+  /// the retries are spent and the query is still the one typed.
   Future<void> _searchProducts({
     String? queryOverride,
-    bool showTransientError = true,
     bool explicit = true,
   }) async {
     _productSearchDebounce?.cancel();
@@ -825,6 +822,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
       // BOTH paths, typed one included: after 18 s of spinner an empty result
       // zone is the one answer the user cannot act on.
       final abgelaufen = error is TimeoutException;
+      // No route at all: the phone is offline, not the database down.
+      final offline = error is SocketException;
       _searchSlowTimer?.cancel();
       if (gedrosselt) {
         _retryCooldownTimer?.cancel();
@@ -835,23 +834,22 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _isSearchingProducts = false;
         _searchIsSlow = false;
-        // Rate limiting is always named, even on the typed path
-        // (showTransientError == false): otherwise the zone stays silent and
-        // the next keystroke runs into the same limit.
+        // Named on the typed path too: a silent zone left the user offline
+        // with an empty area and no way to log the meal.
         _productSearchMessage = gedrosselt
             ? context.l10n.searchRateLimited
             : abgelaufen
             ? context.l10n.foodSearchTimeoutHint
-            : (showTransientError
-                  ? context.l10n.foodSearchUnreachableHint
-                  : null);
+            : offline
+            ? context.l10n.foodAnalysisOfflineMessage
+            : context.l10n.foodSearchUnreachableHint;
         // Not "does not exist": neither rate limiting nor a deadline says
         // anything about the product.
         _searchCameUpEmpty = false;
         _searchGaveUp = abgelaufen;
         _searchFailure = gedrosselt
             ? _SearchFailure.throttled
-            : !abgelaufen && showTransientError
+            : !abgelaufen
             ? _SearchFailure.unreachable
             : null;
       });
