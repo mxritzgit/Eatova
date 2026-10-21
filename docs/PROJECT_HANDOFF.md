@@ -4048,3 +4048,40 @@ deploy. GitHub environments `ops-watch` and `release` (names and secrets in
   unchecked until `OPS_WATCH_BACKUP_MAX_AGE_HOURS` holds an agreed RPO.
 - **Still open:** optionally a separate, revocable management token for this
   environment (Supabase dashboard); the `release` environment.
+
+## Test review with 20 agents, 2026-10-21
+
+Owner request: go through every test, fix wrong ones at once, remove
+unnecessary or outdated ones, keep what really finds failures, and stop adding
+"50, 60, 70, 80 Tests" for one small task. Report:
+[test review](TEST-REVIEW-2026-10-21.md); the rules that came out of it:
+[CONTRIBUTING, "Writing tests"](../CONTRIBUTING.md#writing-tests).
+
+- **Setup:** 20 worktree agents (workflow `wf_e5e3c4a9-f86`) from `23e4ee0b`,
+  17 Dart slices by feature, 2 Deno, 1 Python/SQL, disjoint file ownership;
+  shared helpers owned by the `misc` slice. Each read its tests with the code
+  they exercise and mutation-checked suspicious and critical ones. The
+  orchestrator cherry-picked the 20 commits onto `test/review-2026-10-21`
+  ([PR #162](https://github.com/mxritzgit/Eatova/pull/162)).
+- **Result:** Flutter tests run by CI 8233 → 6591 (+4 restored), Deno cases
+  1143 → 776, declarations 8399 → 7283, about 20,000 lines of test code less;
+  test time over the four shards 38.8 → 33.6 min. 111 tests fixed (behavioral
+  fixes shown red on a deliberate break), 541 deletions and 228 merges, each
+  deletion naming the test that still covers it. No functional app bug was
+  reported.
+- **Coverage diff against `main`, line by line:** 43 lines lost their only
+  test. 23 are dead code; 19 were real gaps and got mutation-proven tests back
+  (two slices had each deleted their copy of the code-screen network-error
+  test, citing the other; a failed hydration; the stacked info lines at 2x in
+  English). `meals_sync.dart:120` was only reached incidentally before and
+  stays open.
+- **Integration:** stale CI timing hints, two unused flow fakes,
+  `test/flutter_test_config.dart` resets the process-wide `RecipeImageStore`
+  after every test (it hung a flow suite in random order); dead code removed:
+  `ImagePlaceholder`, `shoppingLineChecked`/`shoppingProgress`,
+  `UserRecipeLimits.hasDbUpperBound`, `debugClearTrendDateFormats`.
+- **Still open:** the follow-ups listed in the report (`renderMatrix` dark by
+  default, capture suites in CI, `bootUntilIdle`, fakes ignoring `select`, a
+  shared Goals route helper, `LoadingCard` and the `trendBurnedKcalFor`
+  fallback, Python security duplicates the classifier would not let an agent
+  remove, fresh shard timing hints).

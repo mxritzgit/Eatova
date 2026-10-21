@@ -152,6 +152,38 @@ If you touch `lib/l10n/*.arb`, run `flutter gen-l10n` afterwards; the
 generated code under `lib/src/l10n/generated/` is git-ignored and rebuilt in
 CI, but `test/l10n/` guards ARB parity and hard-coded text.
 
+## Writing tests
+
+A fix usually needs one regression test, a feature a handful, not dozens. The
+[test review of 2026-10-21](docs/PROJECT_HANDOFF.md#test-review-with-20-agents-2026-10-21)
+removed over a thousand tests that guarded nothing extra; keep it that way:
+
+- **One test per behavior.** Search `test/` first and extend the feature's
+  existing file instead of opening one per fix or review round. Name files and
+  tests after the behavior, never after a round (`fixlauf_*`, `review0829_*`).
+- **Test a rule once, where it lives.** Shared code (classifiers, mappers,
+  limiters, transports, shared Edge Function helpers) is tested at its layer;
+  each caller needs one case proving it uses it. A store guarantee is not
+  tested again through a widget and a flow.
+- **Tables, not one test per row.** Loop over the cases inside one test and
+  name the row in `reason:`.
+- **Vary only what the code branches on.** Brightness never changes layout, so
+  overflow and geometry run in one palette; both palettes only for color or
+  contrast. Both locales only for separators, plurals or text length (ARB parity
+  covers copy). The narrowest size and the largest text scale cover overflow.
+- **Assert outcomes.** No pins of pixels, radii, colors, tuned constants or
+  translated sentences unless they are the requirement; no assertions on a
+  fake's own bookkeeping or on values the test set itself.
+- **Prove it can fail.** A test for a fix or a critical guarantee (account
+  isolation, encrypted cache, outbox durability, quotas, RLS) must fail when
+  the behavior is broken on purpose; check that once before committing.
+- **Delete with the code.** A redesign or refactor that removes a mechanism
+  removes or rewrites its tests in the same change; tests must not keep dead
+  code alive.
+- **Stay independent.** Reset global state you change (overrides, singletons,
+  clocks); every file passes alone and with
+  `--test-randomize-ordering-seed=random`.
+
 ## Coding conventions
 
 - **Layering** (see [README → Project structure](README.md#project-structure)):
