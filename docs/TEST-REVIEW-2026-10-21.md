@@ -105,21 +105,44 @@ Docker); sie blieben unverändert und laufen in der CI.
 | python-sql | 45 → 45 | 855 → 848 | 1 | 6 | 1 |
 | **Summe** | 907 → 862 | 8399 → 7283 | 111 | 541 | 228 |
 
-## Offen (nicht in PR #162)
+## Nachtrag: Folgepunkte, PR #164
 
-Vorschläge der Agenten, die mehrere Pakete berühren oder eine Entscheidung
-brauchen:
+Der Owner hat entschieden: was sich überschneidet, fliegt raus; was bleibt,
+muss die Weiterentwicklung absichern; doppelte Sicherheitstests dürfen weg.
 
-- **`renderMatrix` nur dunkel als Standard** (`test/support/harness.dart`):
-  Hell/Dunkel verdoppelt jede Overflow-Matrix, obwohl kein Widget nach
-  Helligkeit verzweigt (das prüft `repo_rules_test`). Beide Paletten nur für
-  Farbe und Kontrast. Spart viele Läufe; jeder Aufrufer, der Farben prüft, muss
-  dafür einmal angesehen werden.
-- **Design-Capture-Suites in der CI:** mehrere `*_capture_test.dart`
-  fotografieren dieselben Sheets wie ältere Suites und prüfen dabei Verhalten
-  erneut. Ob Captures überhaupt im CI-Lauf stehen sollen, entscheidet der
-  Owner; doppelt sind z. B. `design/auth_polish_capture_test.dart` und
-  `auth_entry_design_test.dart`.
+- **Design-Capture-Suites:** 27 der 30 Dateien in `test/design/` sind raus
+  (265 → 19 Tests, rund 9.600 Zeilen, etwa 160 s Suite-Zeit in der CI). Ein
+  voller Lauf ohne `test/design` verlor 107 abgedeckte Zeilen. Jede davon, die
+  Verhalten schützt, hat jetzt einen mutationsgeprüften Fall in der Testdatei
+  ihres Features: ungültige E-Mail bleibt lokal, englische Alt-Konfidenz, Pflicht-
+  Titel beim Import, Geschlechts-Auswahl rechnet das Ziel neu, Trainingsverlauf
+  (Laden, Fehler mit Wiederholen, leer mit „Training eintragen"), Kalendertag im
+  Speiseplan-Editor, Ausweg aus der leeren Rezeptsuche, geschützte Leerzeichen
+  in der Bearbeiten-Zusammenfassung. Geblieben: `onboarding_capture_test` (jeder
+  Onboarding-Schritt bei 320 px und 2x in de/en; die Layout-Sweep erreicht das
+  Onboarding nicht), `boot_error_capture_test` (die Startfehler-Seite) und
+  `soft_controls_test` (Verhaltenstests). `test/support/design_capture.dart`
+  bleibt für PNG-Aufnahmen; gelöschte Suites lassen sich aus `7a05b818`
+  wiederherstellen. `LoadingCard` ist gelöscht.
+- **`renderMatrix` nur dunkel:** Standard ist jetzt die dunkle Palette; Farb-
+  und Kontrastaussagen geben `bothBrightnesses` an.
+  `food_sheets_light_dark_test` heißt jetzt `food_sheets_render_test`.
+- **Doppelte Sicherheitstests (Python):** drei entfernt (zwei in
+  `scripts/security/test_auth_config_drift.py`, einer in
+  `test/tooling/local_auth_transport_test.py`).
+- **Ergebnis:** Flutter-Tests 6595 → 6325, Coverage 97,16 % → etwa 97,1 %.
+  30 Zeilen ohne Test sind reine Anzeige-Varianten, `meals_sync.dart:120` (war
+  schon vorher nur zufällig erreicht) und `InAppMealCameraLauncher.launch`
+  (fünf Zeilen Verdrahtung zum direkt getesteten `MealCameraSheet`; offen).
+
+## Offen
+
+- **Doppelte SQL-Sicherheitsprüfungen:** der Konto-Löschungs-Glücksfall steht
+  in `rls_cross_user.sql`, `training_plans_rls.sql` und
+  `training_history_rls.sql` noch einmal neben `privacy_deletion.sql`;
+  `recipe_ingredients_rls.sql` und `weight_log_edit.sql` wiederholen
+  Tabellen-RLS aus `rls_cross_user.sql`. Der Auto-Mode-Klassifikator hat das
+  Löschen trotz Owner-Freigabe blockiert.
 - **`bootUntilIdle`** (`test/outbox/outbox_test_helpers.dart`): bei Offline-Boot
   wartet er still die vollen 5 s ab; etwa 15 Training-Store-Tests verlieren so
   je 5–11 s. Besser auf Hydration warten oder laut scheitern.
@@ -128,17 +151,14 @@ brauchen:
   heute fängt das nur `profile_columns_contract_test`.
 - **Ein gemeinsamer `openGoalsRoute`-Helfer** statt fünf Kopien eines
   40-Zeilen-Harness, die zudem Overflow-Fehler schlucken.
-- **Toter Code, der bleibt:** `LoadingCard` (nur eine Capture-Galerie baut
-  ihn) und der Fallback `MealAnalysisScreen.trendBurnedKcalFor`, den die Schale
-  nie erreicht.
-- **Python/SQL:** einige doppelte Sicherheitstests blieben, weil der
-  Auto-Mode-Klassifikator das Löschen von Sicherheitstests blockiert; der
-  Owner entscheidet. Die SQL-Suites wurden nur gelesen.
+- **Toter Code, der bleibt:** der Fallback
+  `MealAnalysisScreen.trendBurnedKcalFor`, den die Schale nie erreicht.
 - **Review-Präfixe** in Deno-Testnamen (`P6-02`, `F5-xx`, `Fund 1`) und
   `test/support/fixlauf_a_helpers.dart` (rund 45 Importe) tragen noch Namen
   von Review-Runden.
-
-- **Shard-Verteilung:** `tool/flutter_ci_timings.json` stammt vom 2026-09-27; der langsamste Shard (10,0 min) liegt deutlich über den anderen (7,4–8,8 min). Neue Laufzeit-Hinweise aus einem aktuellen `main`-Lauf würden ihn etwa auf 8,5 min bringen.
+- **Shard-Verteilung:** `tool/flutter_ci_timings.json` stammt vom 2026-09-27
+  und hat kein Skript zum Neuerzeugen; Laufzeit-Hinweise aus einem aktuellen
+  `main`-Lauf würden den langsamsten Shard etwa auf 8,5 min bringen.
 
 ## Kurzurteil je Paket
 
