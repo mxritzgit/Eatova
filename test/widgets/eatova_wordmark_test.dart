@@ -106,21 +106,16 @@ void main() {
           .painter!;
     }
 
-    testWidgets('andere Ringfarbe im selben Baum zeichnet neu', (tester) async {
+    testWidgets('nur eine andere Ringfarbe im selben Baum zeichnet neu',
+        (tester) async {
       final alt = await pumpeRing(tester, const Color(0xFFB4FF39));
+      final gleich = await pumpeRing(tester, const Color(0xFFB4FF39));
       final neu = await pumpeRing(tester, const Color(0xFFFF5A36));
 
-      expect(identical(alt, neu), isFalse,
+      expect(gleich.shouldRepaint(alt), isFalse);
+      expect(identical(gleich, neu), isFalse,
           reason: 'die Farbe steckt im Painter, nicht im State');
-      expect(neu.shouldRepaint(alt), isTrue);
-    });
-
-    testWidgets('gleiche Ringfarbe zeichnet NICHT neu', (tester) async {
-      const gleich = Color(0xFFB4FF39);
-      final alt = await pumpeRing(tester, gleich);
-      final neu = await pumpeRing(tester, gleich);
-
-      expect(neu.shouldRepaint(alt), isFalse);
+      expect(neu.shouldRepaint(gleich), isTrue);
     });
   });
 }

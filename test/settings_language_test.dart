@@ -72,45 +72,27 @@ LocaleController _controller({Locale? initial}) {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-  testWidgetsRobust('die Pille zeigt den Override des Controllers',
+  testWidgetsRobust('die Pille zeigt den Override des Controllers und setzt ihn',
       (tester) async {
-    await _pumpSettings(tester, controller: _controller(initial: const Locale('en')));
-
-    expect(find.text('So passt Eatova zu dir'), findsOneWidget);
-    expect(find.text('Sprache'), findsOneWidget);
-    expect(
-      tester
-          .widget<SettingsLanguagePill>(
-            find.byKey(const ValueKey('settings-language')),
-          )
-          .value,
-      const Locale('en'),
-    );
-    for (final key in const <String>[
-      'settings-language-system',
-      'settings-language-de',
-      'settings-language-en',
-    ]) {
-      expect(find.byKey(ValueKey(key)), findsOneWidget);
-    }
-  });
-
-  testWidgetsRobust('Sprach-Pill setzt den Override auf Englisch',
-      (tester) async {
-    final controller = _controller();
+    final controller = _controller(initial: const Locale('en'));
+    SettingsLanguagePill pille() => tester.widget<SettingsLanguagePill>(
+          find.byKey(const ValueKey('settings-language')),
+        );
 
     await _pumpSettings(tester, controller: controller);
-    expect(controller.override, isNull);
 
-    await tester.tap(find.byKey(const ValueKey('settings-language-en')));
-    await tester.pumpAndSettle();
-    expect(controller.override, const Locale('en'));
+    expect(find.text('Sprache'), findsOneWidget);
+    expect(pille().value, const Locale('en'));
 
-    await _tippeOption(tester, 'settings-language-de');
-    expect(controller.override, const Locale('de'));
-
-    await _tippeOption(tester, 'settings-language-system');
-    expect(controller.override, isNull);
+    for (final (option, override) in const <(String, Locale?)>[
+      ('de', Locale('de')),
+      ('system', null),
+      ('en', Locale('en')),
+    ]) {
+      await _tippeOption(tester, 'settings-language-$option');
+      expect(controller.override, override);
+      expect(pille().value, override, reason: 'die Pille folgt dem Controller');
+    }
   });
 
   testWidgetsRobust('ohne LocaleScope faellt die Zeile ersatzlos weg',

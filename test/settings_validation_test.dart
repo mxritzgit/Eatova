@@ -66,85 +66,50 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('755 kg (verschlucktes Komma) sperrt das Speichern',
-      (tester) async {
-    await openSettings(tester);
-    expect(saveHandler(tester), isNotNull);
-
-    await tippe(tester, 'settings-weight', '755');
-
-    expect(find.text('30–300 kg (ganze Zahl)'), findsOneWidget);
-    expect(saveHandler(tester), isNull,
-        reason: 'ein 23514 darf gar nicht erst abgeschickt werden');
-    expect(find.byKey(const ValueKey('settings-validation-note')),
-        findsOneWidget);
-  });
-
-  testWidgets('25 kg (Tippfehler) sperrt das Speichern ebenfalls',
-      (tester) async {
-    await openSettings(tester);
-    await tippe(tester, 'settings-weight', '25');
-
-    expect(find.text('30–300 kg (ganze Zahl)'), findsOneWidget);
-    expect(saveHandler(tester), isNull);
-  });
-
-  testWidgets('korrigiertes Gewicht gibt das Speichern wieder frei',
-      (tester) async {
+  testWidgets(
+      'jedes Feld sperrt ausserhalb seiner DB-Grenze und speichert korrigiert '
+      'genau den eingetippten Wert', (tester) async {
     final resultFuture = await openSettings(tester);
-    await tippe(tester, 'settings-weight', '755');
-    expect(saveHandler(tester), isNull);
-
-    await tippe(tester, 'settings-weight', '76');
-    expect(find.text('30–300 kg (ganze Zahl)'), findsNothing);
     expect(saveHandler(tester), isNotNull);
+
+    // (field, rejected input, the field's message, corrected value). The
+    // target weight has its own case in goals_target_consistency_test.dart.
+    for (final (feld, falsch, meldung, richtig) in const [
+      // "75,5" with the comma swallowed: the 23514 of the review.
+      ('settings-weight', '755', '30–300 kg (ganze Zahl)', '76'),
+      ('settings-weight', '25', '30–300 kg (ganze Zahl)', '76'),
+      ('settings-weight', '', 'Bitte ausfüllen', '76'),
+      ('settings-height', '17', '100–250 cm', '182'),
+      // GDPR art. 8, the same bounds as onboarding and the DB constraint.
+      // The age used to be clamped to 16 on save, writing an invented age
+      // into a 12-year-old's profile and calorie target.
+      ('settings-age', '12', '16–100 Jahre', '31'),
+      ('settings-steps-goal', '999', '1000–100000', '8000'),
+    ]) {
+      final fall = '$feld "$falsch"';
+      await tippe(tester, feld, falsch);
+      expect(find.text(meldung), findsOneWidget, reason: fall);
+      expect(saveHandler(tester), isNull,
+          reason: '$fall: ein 23514 darf gar nicht erst abgeschickt werden');
+      expect(find.byKey(const ValueKey('settings-validation-note')),
+          findsOneWidget, reason: fall);
+
+      await tippe(tester, feld, richtig);
+      expect(find.text(meldung), findsNothing, reason: fall);
+      expect(saveHandler(tester), isNotNull, reason: fall);
+    }
 
     await tester.ensureVisible(find.byKey(const ValueKey('settings-save')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('settings-save')));
     await tester.pumpAndSettle();
 
-    final result = await resultFuture;
-    expect(result!.profile.weightKg, 76);
-  });
-
-  testWidgets('Groesse ausserhalb 100–250 cm wird abgelehnt', (tester) async {
-    await openSettings(tester);
-    await tippe(tester, 'settings-height', '17');
-
-    expect(find.text('100–250 cm'), findsOneWidget);
-    expect(saveHandler(tester), isNull);
-  });
-
-  // Age below 16: settings_sheet_test.dart ('Alter unter 16 blockiert das
-  // Speichern'), which also saves the corrected value.
-
-  testWidgets('Wunschgewicht ausserhalb 30–300 kg wird abgelehnt',
-      (tester) async {
-    await openSettings(tester);
-    await tippe(tester, 'settings-target-weight', '755');
-
-    expect(find.text('30–300 kg (ganze Zahl)'), findsOneWidget);
-    expect(saveHandler(tester), isNull);
-  });
-
-  testWidgets('Schrittziel traegt seine DB-Grenze', (tester) async {
-    // The water row is gone (F7-06: nothing read it), so only steps remain.
-    await openSettings(tester);
-
-    await tippe(tester, 'settings-steps-goal', '999');
-    expect(find.text('1000–100000'), findsOneWidget);
-    expect(saveHandler(tester), isNull);
-    await tippe(tester, 'settings-steps-goal', '8000');
-    expect(saveHandler(tester), isNotNull);
-  });
-
-  testWidgets('leeres Pflichtfeld sperrt das Speichern', (tester) async {
-    await openSettings(tester);
-    await tippe(tester, 'settings-weight', '');
-
-    expect(find.text('Bitte ausfüllen'), findsOneWidget);
-    expect(saveHandler(tester), isNull);
+    // Rejected, never bent: what is saved is what the user typed last.
+    final result = (await resultFuture)!.profile;
+    expect(result.weightKg, 76);
+    expect(result.heightCm, 182);
+    expect(result.ageYears, 31);
+    expect(result.dailyStepsGoal, 8000);
   });
 
   testWidgets(

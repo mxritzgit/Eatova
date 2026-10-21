@@ -1,10 +1,16 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/widgets/shared/target_bmi_hint.dart';
+
+import 'support/harness.dart';
 
 // Pure BMI hint logic (target_bmi_hint.dart): exactly 18.5 and exactly 35.0
 // trigger NO hint, only strictly below/above. Formatting uses a German
-// decimal comma.
+// decimal comma. The last test pins the goals page wiring: the gentle hint
+// on the target weight appears and disappears live while typing.
 void main() {
   group('targetBmi', () {
     test('berechnet kg/m² korrekt', () {
@@ -66,5 +72,48 @@ void main() {
     test('unplausible Größe → kein Hinweis statt Division durch null', () {
       expect(targetBmiHintText(heightCm: 0, targetWeightKg: 55), isNull);
     });
+  });
+
+  testWidgets('Ziele-Seite: der Hinweis kommt und geht live beim Tippen',
+      (tester) async {
+    tester.view.physicalSize = const Size(1179, 2556);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await pumpLocalized(
+      tester,
+      const GoalsScreen(
+        profile: UserProfile(heightCm: 178, targetWeightKg: 70),
+      ),
+      brightness: Brightness.light,
+      scaffold: false,
+      safeArea: false,
+      settle: true,
+    );
+    final hinweis = find.byKey(const ValueKey('target-bmi-hint'));
+    Future<void> ziel(String kg) async {
+      await tester.enterText(
+        find.byKey(const ValueKey('settings-target-weight')),
+        kg,
+      );
+      await tester.pump();
+    }
+
+    // Target 70 kg / 1.78 m -> BMI 22.1: no hint.
+    expect(hinweis, findsNothing);
+
+    // Target 55 kg -> BMI 17.4 (< 18.5): the gentle hint appears.
+    await ziel('55');
+    expect(hinweis, findsOneWidget);
+    expect(find.textContaining('unterhalb'), findsOneWidget);
+
+    // Target 120 kg -> BMI 37.9 (> 35): the mild upward hint.
+    await ziel('120');
+    expect(hinweis, findsOneWidget);
+    expect(find.textContaining('oberhalb'), findsOneWidget);
+
+    // Back into the unremarkable range: the hint disappears.
+    await ziel('70');
+    expect(hinweis, findsNothing);
   });
 }

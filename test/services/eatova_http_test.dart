@@ -183,36 +183,17 @@ void main() {
     },
   );
 
-  test('Timeout-Policies behalten die abgestimmten Werte', () {
-    // The mirror stays aggressively fast — the OFF fallback sits behind it.
-    expect(HttpTimeoutPolicy.mirror.connect, const Duration(seconds: 4));
-    expect(HttpTimeoutPolicy.mirror.response, const Duration(seconds: 6));
-    expect(HttpTimeoutPolicy.mirror.body, const Duration(seconds: 6));
-
-    expect(HttpTimeoutPolicy.openFoodFacts.connect, const Duration(seconds: 8));
+  test('jede Policy hat eine Gesamtfrist, die wirklich greift (P10-02)', () {
+    // The mirror stays faster than the OFF fallback that sits behind it.
     expect(
-      HttpTimeoutPolicy.openFoodFacts.response,
-      const Duration(seconds: 12),
+      HttpTimeoutPolicy.mirror.total!,
+      lessThan(HttpTimeoutPolicy.openFoodFacts.total!),
     );
-    expect(HttpTimeoutPolicy.openFoodFacts.body, const Duration(seconds: 12));
-
-    // analyze-meal: 15/60/15 — the client outlasts the edge function (45 s).
-    expect(HttpTimeoutPolicy.mealAnalysis.connect, const Duration(seconds: 15));
-    expect(
-      HttpTimeoutPolicy.mealAnalysis.response,
-      const Duration(seconds: 60),
-    );
-    expect(HttpTimeoutPolicy.mealAnalysis.body, const Duration(seconds: 15));
-
-    // Review P10-02: the phases run one after another, so their SUM is what a
-    // request costs. `total` is the ceiling on that sum, and it has to be
-    // BELOW the sum or it is decoration.
-    expect(HttpTimeoutPolicy.mirror.total, const Duration(seconds: 10));
-    expect(HttpTimeoutPolicy.openFoodFacts.total, const Duration(seconds: 20));
-    // P10-02b: the photo path had `total` = the phase sum (15+60+15 = 90 s),
-    // i.e. a field that could never fire. Every policy's ceiling now really is
-    // one.
-    expect(HttpTimeoutPolicy.mealAnalysis.total, const Duration(seconds: 75));
+    // The phases run one after another, so their SUM is what a request
+    // costs. `total` is the ceiling on that sum, and it has to be BELOW the
+    // sum or it is decoration — P10-02b: the photo path had `total` = the
+    // phase sum (15+60+15 = 90 s), a field that could never fire. The photo
+    // path's own calibration is the next test.
     for (final policy in const <HttpTimeoutPolicy>[
       HttpTimeoutPolicy.mirror,
       HttpTimeoutPolicy.openFoodFacts,

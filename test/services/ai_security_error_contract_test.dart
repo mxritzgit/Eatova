@@ -60,104 +60,106 @@ void main() {
     );
   });
 
-  for (final language in ['de', 'en']) {
-    final l10n = lookupAppLocalizations(Locale(language));
-    test('analysis oversized provider response is localized in $language', () {
-      expect(
-        _analysisMessage(502, 'provider_response_too_large', l10n),
-        l10n.foodAnalysisProviderErrorMessage,
-      );
-    });
-    for (final entry in _budgetStatuses.entries) {
-      test('analysis ${entry.key} is service availability in $language', () {
-        final text = _analysisMessage(entry.value, entry.key, l10n);
-        expect(text, l10n.foodAnalysisServiceUnavailableMessage);
-        expect(text, isNot(l10n.foodAnalysisRateLimitError));
-        expect(text, isNot(contains(_serverDetail)));
-      });
-    }
-    test(
-      'analysis ordinary rate limit and upload timeout remain specific in $language',
-      () {
-        expect(
-          _analysisMessage(429, 'rate_limited', l10n),
-          l10n.foodAnalysisRateLimitError,
-        );
-        expect(
-          _analysisMessage(408, 'request_timeout', l10n),
-          l10n.foodAnalysisTimeoutMessage,
-        );
-      },
-    );
+  // One language: every expectation is read from the same bundle, so a second
+  // language repeats each case. English, because the services default to
+  // German and only a non-default bundle shows that they use the one given.
+  final l10n = lookupAppLocalizations(const Locale('en'));
 
-    for (final mode in ['chat', 'recipe', 'plan']) {
+  test('analysis error codes map to their own message without server detail',
+      () {
+    expect(
+      _analysisMessage(502, 'provider_response_too_large', l10n),
+      l10n.foodAnalysisProviderErrorMessage,
+    );
+    for (final entry in _budgetStatuses.entries) {
+      final text = _analysisMessage(entry.value, entry.key, l10n);
+      expect(text, l10n.foodAnalysisServiceUnavailableMessage, reason: entry.key);
+      expect(text, isNot(l10n.foodAnalysisRateLimitError), reason: entry.key);
+      expect(text, isNot(contains(_serverDetail)), reason: entry.key);
+    }
+    // The ordinary rate limit and the upload timeout stay specific.
+    expect(
+      _analysisMessage(429, 'rate_limited', l10n),
+      l10n.foodAnalysisRateLimitError,
+    );
+    expect(
+      _analysisMessage(408, 'request_timeout', l10n),
+      l10n.foodAnalysisTimeoutMessage,
+    );
+  });
+
+  // Chat, recipe and plan reach the edge function through separate paths, so
+  // each is checked against every budget and upload code.
+  for (final mode in ['chat', 'recipe', 'plan']) {
+    test('coach $mode: budget and upload codes are localized without quota '
+        'lock', () async {
       for (final entry in {..._budgetStatuses, ..._uploadStatuses}.entries) {
-        test(
-          'coach $mode ${entry.key} is localized without quota lock in $language',
-          () async {
-            var requests = 0;
-            final client = SupabaseClient(
-              'https://edge.test.invalid',
-              'synthetic-anon-key',
-              httpClient: MockClient((request) async {
-                requests++;
-                expect(request.url.path, endsWith('/functions/v1/coach-chat'));
-                return http.Response(
-                  jsonEncode({
-                    'error': entry.key,
-                    'message': _serverDetail,
-                    'reply': _serverDetail,
-                  }),
-                  entry.value,
-                  headers: {'content-type': 'application/json'},
-                );
+        var requests = 0;
+        final client = SupabaseClient(
+          'https://edge.test.invalid',
+          'synthetic-anon-key',
+          httpClient: MockClient((request) async {
+            requests++;
+            expect(request.url.path, endsWith('/functions/v1/coach-chat'));
+            return http.Response(
+              jsonEncode({
+                'error': entry.key,
+                'message': _serverDetail,
+                'reply': _serverDetail,
               }),
+              entry.value,
+              headers: {'content-type': 'application/json'},
             );
-            addTearDown(client.dispose);
-            final service = CoachChatService(client, 'synthetic-user')
-              ..l10n = l10n;
-            Object? failure;
-            try {
-              switch (mode) {
-                case 'chat':
-                  await service.send(
-                    'Dinner advice',
-                    sessionId: 'synthetic-session',
-                  );
-                case 'recipe':
-                  await service.requestRecipe(
-                    'Dinner',
-                    sessionId: 'synthetic-session',
-                    locale: language,
-                  );
-                case 'plan':
-                  await service.requestPlan(
-                    'Two workouts',
-                    sessionId: 'synthetic-session',
-                    locale: language,
-                  );
-              }
-            } catch (error) {
-              failure = error;
-            }
-            expect(failure, isA<CoachChatException>());
-            expect(failure, isNot(isA<CoachQuotaExceeded>()));
-            final expected = _budgetStatuses.containsKey(entry.key)
-                ? l10n.coachErrorUnreachable
-                : entry.key == 'request_timeout'
-                ? l10n.coachErrorTimeout
-                : l10n.coachErrorRequestFailed;
-            expect((failure as CoachChatException).message, expected);
-            expect(service.serverDailyLimit, isNull);
-            expect(
-              requests,
-              1,
-              reason:
-                  'No retry or history lookup after a completed HTTP failure.',
-            );
-          },
+          }),
+        );
+        addTearDown(client.dispose);
+        final service = CoachChatService(client, 'synthetic-user')
+          ..l10n = l10n;
+        Object? failure;
+        try {
+          switch (mode) {
+            case 'chat':
+              await service.send(
+                'Dinner advice',
+                sessionId: 'synthetic-session',
+              );
+            case 'recipe':
+              await service.requestRecipe(
+                'Dinner',
+                sessionId: 'synthetic-session',
+                locale: 'en',
+              );
+            case 'plan':
+              await service.requestPlan(
+                'Two workouts',
+                sessionId: 'synthetic-session',
+                locale: 'en',
+              );
+          }
+        } catch (error) {
+          failure = error;
+        }
+        expect(failure, isA<CoachChatException>(), reason: entry.key);
+        expect(failure, isNot(isA<CoachQuotaExceeded>()), reason: entry.key);
+        final expected = _budgetStatuses.containsKey(entry.key)
+            ? l10n.coachErrorUnreachable
+            : entry.key == 'request_timeout'
+            ? l10n.coachErrorTimeout
+            : l10n.coachErrorRequestFailed;
+        expect(
+          (failure as CoachChatException).message,
+          expected,
+          reason: entry.key,
+        );
+        expect(service.serverDailyLimit, isNull, reason: entry.key);
+        expect(
+          requests,
+          1,
+          reason:
+              '${entry.key}: no retry or history lookup after a completed '
+              'HTTP failure.',
         );
       }
-    }
+    });
   }
 }

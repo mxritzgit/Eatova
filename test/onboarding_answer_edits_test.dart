@@ -8,9 +8,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/harness.dart';
 import 'support/onboarding_harness.dart';
 
-// Every step in both palettes, both languages and at 1.0 and 2.0 text, plus
-// the plan's edit loop. The PNG evidence of the 2026-10-04 redesign lives in
-// test/design/onboarding_capture_test.dart.
+// Changing answers from the plan (summary): edits re-plan without committing,
+// a direction change keeps hand-set targets and pace, and an optional diet
+// survives the round trip. Every step's rendering is checked in
+// onboarding_screen_render_test.dart (both palettes, 1.0 and 2.0 text) and
+// test/design/onboarding_capture_test.dart (real fonts, de/en, 390 and 320 px).
 
 Finder _key(String value) => find.byKey(ValueKey(value));
 
@@ -82,36 +84,6 @@ void main() {
       await loader.load();
     }
   });
-
-  for (final brightness in Brightness.values) {
-    for (final locale in ['de', 'en']) {
-      for (final scale in [1.0, 2.0]) {
-        testWidgets('eight steps ${brightness.name} $locale at $scale', (
-          tester,
-        ) async {
-          await _mount(
-            tester,
-            brightness: brightness,
-            locale: locale,
-            scale: scale,
-          );
-          // The profile loses weight, so every step of the flow is asked.
-          for (final step in onboardingGroups) {
-            expect(_key('onboarding-step-$step'), findsOneWidget, reason: step);
-            expect(tester.takeException(), isNull);
-            if (step == 'summary') {
-              await tester.ensureVisible(_key('onboarding-edit-diet'));
-              await tester.pumpAndSettle();
-              expect(tester.takeException(), isNull);
-              break;
-            }
-            await _tap(tester, 'onboarding-next');
-          }
-          expect(_key('onboarding-finish'), findsOneWidget);
-        });
-      }
-    }
-  }
 
   testWidgets(
     'summary edits update the plan without committing or repeating questions',

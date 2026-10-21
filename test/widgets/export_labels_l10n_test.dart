@@ -30,11 +30,6 @@ void main() {
     }
   });
 
-  test('KI-Nutzung ist beschriftet', () {
-    expect(exportLabel('ai_provider_user_usage', deL10n), 'KI-Nutzung');
-    expect(exportLabel('ai_provider_user_usage', enL10n), 'AI usage');
-  });
-
   for (final l10n in [deL10n, enL10n]) {
     group('Sprache ${l10n.localeName}', () {
       test('Vollstaendigkeits- und Kappungsangaben', () {

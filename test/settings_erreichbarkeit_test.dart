@@ -1,19 +1,14 @@
-import 'support/food_navigation.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_app.dart';
-import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/screens/settings/settings_screen.dart';
-
-import 'support/harness.dart';
 
 // User finding 2026-08-10: "I cannot find the settings". Both screens hung
 // on ONE callback, so the gear labelled settings opened the goals — with
 // analyzer and suite green, since both routes worked. So these tests check
-// not THAT the screens exist but that the UI gets you there. Second job: five
-// rows of the dropped "data & account" block now live only in the settings.
+// not THAT the screens exist but that the UI gets you there. Settings ->
+// goals is walked in reminder_settings_row_test.dart; the rows of the dropped
+// "data & account" block are pinned by test/design/settings_polish_capture_test.
 
 void main() {
   Future<void> boot(WidgetTester tester) async {
@@ -100,28 +95,6 @@ void main() {
     }
   });
 
-  testWidgets('Einstellungen beginnen auf Today nach einem Food-Besuch',
-      (tester) async {
-    await boot(tester);
-    await tester.tap(find.byKey(const ValueKey('nav-Food')));
-    await tester.pumpAndSettle();
-
-    await tapHomeHeaderAction(tester, 'today-settings');
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
-  });
-
-  testWidgets('von den Einstellungen kommt man weiter zu den Zielen',
-      (tester) async {
-    await boot(tester);
-    await oeffneEinstellungen(tester);
-
-    await tippe(tester, find.byKey(const ValueKey('settings-open-goals')));
-
-    expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
-  });
-
   testWidgets('„Über Eatova" ist aus der laufenden App heraus erreichbar',
       (tester) async {
     // The only profile row without a settings counterpart, so it MOVED with
@@ -148,64 +121,5 @@ void main() {
         reason: 'die Quellennennung ist lizenzrechtlich vorgeschrieben (ODbL)');
     expect(find.byKey(const ValueKey('profile-privacy-link')), findsOneWidget,
         reason: 'Key bleibt Key — er ist mit dem Sheet mitgewandert');
-  });
-
-  testWidgets('alle Wege des entfallenen Profil-Blocks stehen im Screen',
-      (tester) async {
-    // THE guard: export and account deletion hang on the sync, absent in
-    // test/preview, so only the FULLY wired screen shows them. The daily-reset
-    // action is gone on purpose, asserted in `goals_screen_render_test`.
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final repo = InMemoryAuthRepository(
-      initialUser: const EatovaUser(id: 'u1', email: 'jonas@example.com'),
-    );
-    addTearDown(repo.dispose);
-
-    await pumpLocalized(
-      tester,
-      SettingsScreen(
-        email: 'jonas@example.com',
-        authRepository: repo,
-        onOpenGoals: () {},
-        onSignOut: () async {},
-        onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
-        onExportData: () async => '{}',
-      ),
-      brightness: Brightness.light,
-      scaffold: false,
-      safeArea: false,
-    );
-    await tester.pumpAndSettle();
-
-    final scroller = find.descendant(
-      of: find.byKey(const ValueKey('screen-settings')),
-      matching: find.byType(Scrollable),
-    );
-
-    for (final zeile in const <({String key, String text})>[
-      // formerly profile-action-edit
-      (key: 'settings-open-goals', text: 'Profil & Ziele'),
-      // formerly profile-action-export
-      (key: 'settings-export', text: 'Daten exportieren'),
-      // formerly profile-action-about
-      (key: 'settings-about', text: 'Über Eatova'),
-      // formerly profile-action-logout
-      (key: 'settings-sign-out', text: 'Abmelden'),
-      // formerly profile-action-delete
-      (key: 'settings-delete-account', text: 'Konto löschen'),
-    ]) {
-      await tester.scrollUntilVisible(
-        find.byKey(ValueKey(zeile.key)),
-        300,
-        scrollable: scroller,
-      );
-      await tester.pumpAndSettle();
-      expect(find.byKey(ValueKey(zeile.key)), findsOneWidget,
-          reason: zeile.key);
-      expect(find.text(zeile.text), findsOneWidget, reason: zeile.text);
-    }
   });
 }

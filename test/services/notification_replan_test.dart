@@ -2,17 +2,22 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/reminder_time.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/services/streak_reminder_planner.dart';
 
 // Every app resume and every meal logged today re-plans the streak nudges.
 // Each re-plan cost 28 cancels plus one schedule per spec, all platform
-// calls, even when the plan was the one already pending.
+// calls, even when the plan was the one already pending. A changed plan (a
+// new text, a new reminder time) still replaces every pending nudge.
 class _CountingGateway implements NotificationPluginGateway {
   int cancels = 0;
   int schedules = 0;
   int cancelAlls = 0;
   bool failInit = false;
   final List<String> log = <String>[];
+  final List<tz.TZDateTime> scheduledAt = <tz.TZDateTime>[];
 
   int get calls => cancels + schedules + cancelAlls;
 
@@ -50,6 +55,7 @@ class _CountingGateway implements NotificationPluginGateway {
   }) async {
     schedules++;
     log.add('schedule');
+    scheduledAt.add(scheduledDate);
   }
 
   @override
@@ -62,7 +68,10 @@ class _CountingGateway implements NotificationPluginGateway {
   }) async {}
 
   @override
-  Future<void> cancel(int id) async => cancels++;
+  Future<void> cancel(int id) async {
+    cancels++;
+    log.add('cancel');
+  }
 
   @override
   Future<void> cancelAll() async {
@@ -108,11 +117,36 @@ void main() {
     expect(gateway.calls, before);
   });
 
-  test('ein geänderter Plan wird ersetzt', () async {
-    await service.scheduleAll(_plan('a'));
-    final before = gateway.calls;
-    await service.scheduleAll(_plan('b'));
-    expect(gateway.calls - before, reminderNudgeIdCount + 3);
+  test('eine neue Uhrzeit: erst alle Nudges weg, dann der neue Plan', () async {
+    // Far ahead, so the service's "never into the past" guard keeps all slots.
+    final now = DateTime(2099, 7, 15, 9);
+    List<NotificationSpec> plan(ReminderTime time) =>
+        planStreakReminders(now, LifetimeStats(), null, time);
+    await service.scheduleAll(plan(const ReminderTime(21, 30)));
+    gateway.log.clear();
+    gateway.scheduledAt.clear();
+
+    // Both times are still ahead today: the same day ids and texts, only the
+    // instants differ — the plan must not count as unchanged.
+    await service.scheduleAll(plan(const ReminderTime(22, 45)));
+
+    expect(
+      gateway.log.where((e) => e == 'cancel'),
+      hasLength(reminderNudgeIdCount),
+    );
+    expect(
+      gateway.log.indexOf('schedule'),
+      reminderNudgeIdCount,
+      reason: 'cancel-first, so no slot of the old time survives',
+    );
+    // Instants, not wall-clock parts: the tz database and the host zone may
+    // disagree on DST that far ahead.
+    expect(
+      gateway.scheduledAt.map((when) => when.millisecondsSinceEpoch),
+      plan(
+        const ReminderTime(22, 45),
+      ).map((spec) => spec.scheduledFor.millisecondsSinceEpoch),
+    );
   });
 
   test('nach einem Abbestellen wird derselbe Plan neu gesetzt', () async {

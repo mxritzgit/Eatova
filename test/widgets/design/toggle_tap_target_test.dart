@@ -153,6 +153,7 @@ void main() {
       final schalter = find.byKey(const ValueKey('settings-notifications'));
       await tester.ensureVisible(schalter);
       await tester.pumpAndSettle();
+      expect(tester.widget<AppToggle>(schalter).enabled, isFalse);
 
       await _tippeNebenDenSchalter(tester, schalter);
       expect(_wert(tester, 'settings-notifications'), isFalse);

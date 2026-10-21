@@ -215,4 +215,36 @@ void main() {
         findsNothing,
         reason: 'Kein Widerspruch -> kein Hinweis');
   });
+
+  testWidgets('Ein eigenes Tagesziel bestimmt das Tempo, ohne Prognose',
+      (tester) async {
+    // Manual energy: the pace follows the number the user set, not the chosen
+    // goal, and no week forecast or clamp note is derived from the plan.
+    pinPhoneViewport(tester);
+    for (final (kcal, tempo) in const <(int, String)>[
+      (3000, '+0,75 kg/Woche'),
+      (1600, '−0,5 kg/Woche'),
+      (2150, 'Gewicht stabil'),
+    ]) {
+      await pumpLocalized(
+        tester,
+        GoalPlanCard(
+          profile: UserProfile(
+            weightKg: 78,
+            heightCm: 178,
+            ageYears: 30,
+            targetWeightKg: 68,
+            weightGoal: WeightGoal.lose1kg,
+            manualEnergy: true,
+            dailyKcalGoal: kcal,
+          ),
+        ),
+        padding: const EdgeInsets.all(20),
+      );
+      expect(find.text(tempo), findsOneWidget, reason: '$kcal kcal');
+      expect(find.textContaining('Ziel in ca.'), findsNothing);
+      expect(find.textContaining('Ziel frühestens'), findsNothing);
+      expect(find.byType(Tooltip), findsNothing, reason: '$kcal kcal');
+    }
+  });
 }

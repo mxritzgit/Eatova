@@ -14,48 +14,38 @@ final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 final AppLocalizations _en = lookupAppLocalizations(const Locale('en'));
 
 void main() {
-  group('formatKgDe', () {
-    test('ganze Kilogramm stehen ohne Nachkommastelle', () {
-      expect(formatKgDe(78, _de), '78');
-      expect(formatKgDe(78.0, _de), '78');
-      expect(formatKgDe(0, _de), '0');
-    });
-
-    test('Zehntel bekommen ein Komma, keinen Punkt', () {
-      expect(formatKgDe(78.4, _de), '78,4');
-      expect(formatKgDe(78.42, _de), '78,4');
-      expect(formatKgDe(78.45, _de), '78,5');
-    });
-
-    test('das Vorzeichen bleibt erhalten', () {
-      expect(formatKgDe(-2.6, _de), '-2,6');
-      expect(formatKgDe(-2.0, _de), '-2');
-    });
-
-    test('Nicht-Zahlen ergeben keinen „NaN"-Text', () {
-      expect(formatKgDe(double.nan, _de), '–');
-      expect(formatKgDe(double.infinity, _de), '–');
-    });
-
-    test('unter en steht ein Punkt statt des Kommas', () {
-      expect(formatKgDe(78.4, _en), '78.4');
-      expect(formatKgDe(-2.6, _en), '-2.6');
-    });
+  test('formatKgDe: hoechstens eine Nachkommastelle, Komma nach Sprache', () {
+    for (final (kg, l10n, text) in <(double, AppLocalizations, String)>[
+      // Whole kilograms carry no decimal.
+      (78, _de, '78'),
+      (0, _de, '0'),
+      // Tenths get a comma, not a point, rounded half up.
+      (78.4, _de, '78,4'),
+      (78.42, _de, '78,4'),
+      (78.45, _de, '78,5'),
+      // The sign survives.
+      (-2.6, _de, '-2,6'),
+      (-2.0, _de, '-2'),
+      // English uses a point.
+      (78.4, _en, '78.4'),
+      (-2.6, _en, '-2.6'),
+      // No "NaN" on screen.
+      (double.nan, _de, '–'),
+      (double.infinity, _de, '–'),
+    ]) {
+      expect(formatKgDe(kg, l10n), text, reason: '$kg ${l10n.localeName}');
+    }
   });
 
-  group('formatBmiDe', () {
-    test('BMI behaelt immer genau eine Nachkommastelle', () {
-      expect(formatBmiDe(22.44, _de), '22,4');
-      expect(formatBmiDe(22.0, _de), '22,0');
-      expect(formatBmiDe(30.55, _de), '30,6');
-    });
-
-    test('Nicht-Zahlen ergeben keinen „NaN"-Text', () {
-      expect(formatBmiDe(double.nan, _de), '–');
-    });
-
-    test('unter en steht ein Punkt statt des Kommas', () {
-      expect(formatBmiDe(22.44, _en), '22.4');
-    });
+  test('formatBmiDe: immer genau eine Nachkommastelle', () {
+    for (final (bmi, l10n, text) in <(double, AppLocalizations, String)>[
+      (22.44, _de, '22,4'),
+      (22.0, _de, '22,0'),
+      (30.55, _de, '30,6'),
+      (22.44, _en, '22.4'),
+      (double.nan, _de, '–'),
+    ]) {
+      expect(formatBmiDe(bmi, l10n), text, reason: '$bmi ${l10n.localeName}');
+    }
   });
 }

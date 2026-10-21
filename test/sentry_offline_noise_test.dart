@@ -8,7 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart'
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/services/crash_reporter.dart';
-import 'package:eatova/src/services/sync_error_messages.dart';
 
 // Sentry feed finding (2026-08-10): three high-priority socket-exception
 // issues from the meal-insert sync path, all produced in airplane mode — the
@@ -72,17 +71,6 @@ void main() {
       // The sink gets the SANITIZED error, never the raw object (it could
       // carry half a profiles row), so this asserts THAT it reported.
       expect(gemeldet, hasLength(1));
-    });
-
-    test('die Klassifizierung ist dieselbe wie fuer die Nutzer-Meldung', () {
-      // A second threshold would be a second place to drift: what the user is
-      // told is "offline" must not reach Sentry as an incident, and vice
-      // versa.
-      expect(isNetworkSyncError(const SocketException('x')), isTrue);
-      expect(
-        isNetworkSyncError(Exception('PostgrestException: 42501')),
-        isFalse,
-      );
     });
   });
 

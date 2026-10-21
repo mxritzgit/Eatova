@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
 import '../support/harness.dart';
+
+// The profile at 2x text on small phones: the stat rows stay readable, and
+// the weigh-in sheet stays usable above the keyboard.
 
 /// The two stat rows the profile draws: the streak pair inside the identity
 /// hero (unframed, large) and the lifetime counts below it (framed tiles).
@@ -125,4 +130,51 @@ void main() {
       },
     );
   }
+
+  testWidgets('weight input can scroll above the keyboard at large text', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 568);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    double? logged;
+    await pumpLocalized(
+      tester,
+      SingleChildScrollView(
+        child: WeightCard(
+          profile: const UserProfile(),
+          log: const WeightLog(),
+          onLogWeight: (value) => logged = value,
+        ),
+      ),
+      textScale: 2,
+      padding: const EdgeInsets.all(20),
+    );
+    final open = find.byKey(const ValueKey('profile-log-weight'));
+    await tester.ensureVisible(open);
+    await tester.pumpAndSettle();
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-weight-input')),
+      '7',
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-weight-input')),
+      '79,2',
+    );
+    final save = find.byKey(const ValueKey('profile-weight-save'));
+    await tester.ensureVisible(save);
+    await tester.pumpAndSettle();
+    expect(tester.getBottomLeft(save).dy, lessThanOrEqualTo(568 - 280));
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(logged, 79.2);
+  });
 }
