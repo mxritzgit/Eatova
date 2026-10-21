@@ -3850,5 +3850,13 @@
   "onboardingReviewDietAvoiding": "{diet} · ohne {foods}",
   "@onboardingReviewDietAvoiding": {"description": "Plan summary of the diet step; foods: the avoided foods, comma-separated.", "placeholders": {"diet": {"type": "String"}, "foods": {"type": "String"}}},
   "recipesFilterSnack": "Snack",
-  "shareTextAction": "Teilen"
+  "shareTextAction": "Teilen",
+  "settingsSignOutConfirmTitle": "Abmelden?",
+  "settingsSignOutPending": "{count, plural, =1{1 Änderung ist noch nicht gesendet. Sie bleibt verschlüsselt auf diesem Gerät und wird gesendet, sobald du dich wieder mit diesem Konto anmeldest.} other{{count} Änderungen sind noch nicht gesendet. Sie bleiben verschlüsselt auf diesem Gerät und werden gesendet, sobald du dich wieder mit diesem Konto anmeldest.}}",
+  "@settingsSignOutPending": {"placeholders": {"count": {"type": "int"}}},
+  "settingsSignOutPendingUnknown": "Ob alles gesendet ist, lässt sich gerade nicht prüfen. Offene Änderungen bleiben verschlüsselt auf diesem Gerät und werden gesendet, sobald du dich wieder mit diesem Konto anmeldest.",
+  "settingsSignOutPhotos": "{count, plural, =1{1 Foto deiner eigenen Rezepte liegt nur auf diesem Gerät und wird gelöscht. Das Rezept selbst bleibt.} other{{count} Fotos deiner eigenen Rezepte liegen nur auf diesem Gerät und werden gelöscht. Die Rezepte selbst bleiben.}}",
+  "@settingsSignOutPhotos": {"placeholders": {"count": {"type": "int"}}},
+  "settingsSignOutSafe": "Deine Daten sind gespeichert. Du kannst dich jederzeit wieder anmelden.",
+  "exportRecipePhotosHint": "Fotos deiner eigenen Rezepte liegen nur auf diesem Gerät und sind nicht im Export."
 }

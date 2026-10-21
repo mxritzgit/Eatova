@@ -30,6 +30,7 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/recipe_image_store.dart';
 import '../services/recipe_import_inbox.dart';
 import '../services/recipe_import_service.dart';
 import '../services/rest_alerts.dart';
@@ -538,6 +539,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           authRepository: widget.authRepository,
           onOpenGoals: _openGoals,
           onSignOut: widget.onSignOut != null ? _signOut : null,
+          localRecipePhotoCount: () => ownerStore.visibleUserRecipes
+              .where((r) => RecipeImageStore.isLocalReference(r.imageAsset))
+              .length,
           onDeleteAccount: widget.sync != null
               ? (deleteRemote, isCurrentSession) =>
                   _deleteAccount(ownerStore, deleteRemote, isCurrentSession)

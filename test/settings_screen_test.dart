@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 
 import 'support/harness.dart';
@@ -45,6 +46,8 @@ void main() {
     AuthRepository? authRepository,
     VoidCallback? onOpenGoals,
     Future<void> Function()? onSignOut,
+    int pendingSyncCount = 0,
+    int localRecipePhotos = 0,
     Future<void> Function()? onDeleteAccount,
     Future<String> Function()? onExportData,
     Brightness brightness = Brightness.light,
@@ -76,6 +79,8 @@ void main() {
                   authRepository: authRepository,
                   onOpenGoals: onOpenGoals,
                   onSignOut: onSignOut,
+                  pendingSyncCount: pendingSyncCount,
+                  localRecipePhotoCount: () => localRecipePhotos,
                   onDeleteAccount: onDeleteAccount == null ? null : (deleteRemote, _) async { await deleteRemote(); await onDeleteAccount(); },
                   onExportData: onExportData,
                 ),
@@ -173,6 +178,12 @@ void main() {
 
     expect(aufgerufen, 1);
     expect(find.text('Datenauskunft'), findsOneWidget);
+    // Sign-out deletes the device-only recipe photos; the export says it
+    // does not hold them.
+    expect(
+      find.byKey(const ValueKey('export-recipe-photos-hint')),
+      findsOneWidget,
+    );
     expect(find.byType(SelectableText), findsNothing);
     final section = find.byKey(const ValueKey('export-expand-logged_meals'));
     await tester.scrollUntilVisible(section, 200,
@@ -199,28 +210,47 @@ void main() {
 
   // --- DANGER ZONE ----------------------------------------------------------
 
-  testWidgets('„Ausloggen" schliesst erst die Seite und ruft dann den Callback',
-      (tester) async {
+  testWidgets(
+      '„Abmelden" fragt nach, nennt Offenes und Rezeptfotos, schliesst erst '
+      'die Seite und ruft dann den Callback', (tester) async {
     // The order is deliberate: `AuthGate` claims the session expired if
     // routes are still open during the auth change, which would be wrong
     // after an intentional logout. Measured on the navigator history, not the
     // tree — the route is popped but still fading out.
     final spion = _PopSpion();
+    final l10n = deL10n;
     var abgemeldet = 0;
     var popsBeimCallback = -1;
     await pump(
       tester,
       observer: spion,
+      pendingSyncCount: 3,
+      localRecipePhotos: 2,
       onSignOut: () async {
         abgemeldet++;
         popsBeimCallback = spion.pops;
       },
     );
 
+    // Sign-out deletes the device-only recipe photos; the dialog says so,
+    // and that unsent changes wait for the next sign-in.
     await tippe(tester, find.byKey(const ValueKey('settings-sign-out')));
+    expect(find.textContaining(l10n.settingsSignOutPending(3)), findsOneWidget);
+    expect(find.textContaining(l10n.settingsSignOutPhotos(2)), findsOneWidget);
+    await tippe(tester, find.byKey(const ValueKey('settings-sign-out-cancel')));
+    expect(abgemeldet, 0, reason: 'Abbrechen meldet nicht ab');
+    expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
+
+    await tippe(tester, find.byKey(const ValueKey('settings-sign-out')));
+    final vorher = spion.pops;
+    await tippe(tester, find.byKey(const ValueKey('settings-sign-out-confirm')));
 
     expect(abgemeldet, 1);
-    expect(popsBeimCallback, 1, reason: 'erst schliessen, dann abmelden');
+    expect(
+      popsBeimCallback,
+      vorher + 2,
+      reason: 'erst Dialog und Seite schliessen, dann abmelden',
+    );
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
   });
 

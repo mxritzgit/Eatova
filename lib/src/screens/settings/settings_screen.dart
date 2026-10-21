@@ -53,6 +53,7 @@ class SettingsScreen extends StatefulWidget {
     this.authRepository,
     this.onOpenGoals,
     this.onSignOut,
+    this.localRecipePhotoCount,
     this.onDeleteAccount,
     this.onExportData,
     this.pendingSyncCount = 0,
@@ -79,6 +80,10 @@ class SettingsScreen extends StatefulWidget {
   final VoidCallback? onOpenGoals;
 
   final Future<void> Function()? onSignOut;
+
+  /// Own recipes whose photo exists only on this device. Sign-out deletes
+  /// those files, so its confirmation names them; null counts none.
+  final int Function()? localRecipePhotoCount;
   final ScopedAccountDeleteAction? onDeleteAccount;
 
   /// Supplies the full data export as JSON (GDPR Art. 15). Null without sync,
@@ -651,7 +656,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Close the page first, then sign out.
+  /// Confirm, close the page, then sign out.
   ///
   /// The order matters: `AuthGate` tears down everything above the root route
   /// on an identity change and shows a session-expired message. A deliberate
@@ -659,9 +664,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _signOut() async {
     final abmelden = widget.onSignOut;
     if (abmelden == null) return;
+    final l10n = context.l10n;
+    final photos = widget.localRecipePhotoCount?.call() ?? 0;
+    final confirmed = await showEatovaDialog<bool>(
+      context: context,
+      builder: (dialogContext) => EatovaConfirmDialog(
+        title: l10n.settingsSignOutConfirmTitle,
+        body: _signOutBody(l10n, photos),
+        icon: Icons.logout_rounded,
+        // Photos are lost for good; pending changes are not.
+        destructive: photos > 0,
+        confirmKey: const ValueKey('settings-sign-out-confirm'),
+        cancelKey: const ValueKey('settings-sign-out-cancel'),
+        cancelLabel: l10n.commonCancel,
+        onCancel: () => Navigator.pop(dialogContext, false),
+        confirmLabel: l10n.settingsSignOutTitle,
+        onConfirm: () => Navigator.pop(dialogContext, true),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     final navigator = Navigator.of(context);
     await navigator.maybePop();
     await abmelden();
+  }
+
+  /// What sign-out leaves behind: unsent changes stay in the encrypted outbox
+  /// and replay on the next sign-in to this account; own recipe photos are
+  /// deleted (`HomeStore` clears `RecipeImageStore` by design).
+  String _signOutBody(AppLocalizations l10n, int photos) {
+    final pending = widget.pendingSyncCount;
+    return <String>[
+      if (!widget.syncStatusReadable)
+        l10n.settingsSignOutPendingUnknown
+      else if (pending > 0)
+        l10n.settingsSignOutPending(pending),
+      if (photos > 0) l10n.settingsSignOutPhotos(photos),
+      if (widget.syncStatusReadable && pending == 0 && photos == 0)
+        l10n.settingsSignOutSafe,
+    ].join('\n\n');
   }
 
   Future<void> _openDeleteSheet(AuthRepository repo, String email) async {
