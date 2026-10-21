@@ -30,6 +30,9 @@ mixin _HomeStoreEnergyCheckPart
   DateTime? _weeklyResultSeenOn;
   bool _weeklyResultSeenLoaded = false;
 
+  /// [energyCheckResult]'s own input, for the Today slice.
+  DateTime? get energyCheckResultSeenOn => _weeklyResultSeenOn;
+
   /// The window's step values were refreshed from the health store in this
   /// session for TODAY's window ([_backfillEnergyCheckWindow]); the Today
   /// shell selects it, so the card appears once and with final numbers. A

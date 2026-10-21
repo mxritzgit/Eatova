@@ -908,6 +908,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.weightLog,
       _store.energyCheckStepsReady,
       _store.energyCheckSourcesReady,
+      // "Verstanden" on the week's result changes nothing else.
+      _store.energyCheckResultSeenOn,
       _store.stepsForFoodDate(_store.selectedFoodDate),
       // Map identity as fingerprint (G11): an upsert replaces the map.
       _store.dailyActivity,

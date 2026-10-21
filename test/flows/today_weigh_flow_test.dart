@@ -38,15 +38,21 @@ final UserProfile _live = const KcalCalculator().applyLiveGoals(
   ),
 );
 
-DateTime _daysAgo(int n, {int hour = 12}) =>
-    DateTime(_now.year, _now.month, _now.day - n, hour);
+DateTime _daysAgo(int n, {int hour = 12, DateTime? now}) {
+  final t = now ?? _now;
+  return DateTime(t.year, t.month, t.day - n, hour);
+}
 
 /// The real shell without a backend or step source, with 21 logged days of
-/// 2100 kcal and weigh-ins on [weighInDaysAgo] (losing 0.02 kg a day).
+/// [kcal] and weigh-ins on [weighInDaysAgo] moving [kgPerDay] (by default
+/// 2100 kcal while losing 0.02 kg a day).
 Future<HomeStore> _pumpShell(
   WidgetTester tester,
-  List<int> weighInDaysAgo,
-) async {
+  List<int> weighInDaysAgo, {
+  DateTime? now,
+  int kcal = 2100,
+  double kgPerDay = -0.02,
+}) async {
   pinDesignViewport(tester);
   await tester.pumpWidget(
     localizedApp(
@@ -61,13 +67,19 @@ Future<HomeStore> _pumpShell(
     ..profile = _live
     ..loggedMeals = <LoggedMeal>[
       for (var n = 1; n <= 21; n++)
-        designMeal('m$n', 'Essen', MealSlot.lunch, _daysAgo(n), kcal: 2100),
+        designMeal(
+          'm$n',
+          'Essen',
+          MealSlot.lunch,
+          _daysAgo(n, now: now),
+          kcal: kcal,
+        ),
     ]
     ..weightLog = WeightLog.capped([
       for (final n in weighInDaysAgo)
         WeightLogEntry(
-          timestamp: _daysAgo(n, hour: 7),
-          weightKg: 84 - 0.02 * (21 - n),
+          timestamp: _daysAgo(n, hour: 7, now: now),
+          weightKg: 84 + kgPerDay * (21 - n),
         ),
     ]);
   store.setTab(0);
@@ -136,6 +148,28 @@ void main() {
         _text(tester, 'today-weigh-progress'),
         'Wochen-Check frühestens in 7 Tagen · noch 1 Wiegung',
       );
+    });
+  });
+
+  testWidgets('"Verstanden" takes the result of the week off Today', (
+    tester,
+  ) async {
+    // Monday 5 October: 2700 kcal at a steady weight fit the 2650 modelled,
+    // so the check shows its result instead of a proposal.
+    final monday = DateTime(2026, 10, 5, 12);
+    await withClock(Clock.fixed(monday), () async {
+      await _pumpShell(
+        tester,
+        [for (var n = 1; n <= 21; n++) n],
+        now: monday,
+        kcal: 2700,
+        kgPerDay: 0,
+      );
+      expect(find.byKey(const ValueKey('today-weekly-result')), findsOneWidget);
+
+      await _tap(tester, 'today-weekly-result-seen');
+
+      expect(find.byKey(const ValueKey('today-weekly-result')), findsNothing);
     });
   });
 }
