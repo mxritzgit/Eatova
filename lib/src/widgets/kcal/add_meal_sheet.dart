@@ -969,69 +969,63 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   /// The hero's AI scan, in the same camera panel as the Food tab's dock. A
   /// slot changed in the camera applies to this sheet too, as after a scan.
-  Future<void> _scanWithCamera() async {
-    // AI consent before the camera opens (2026-10-19).
-    if (!await ensureAiConsent(context) || !mounted) return;
-    final identity = MealScanIdentity();
+  Future<void> _scanWithCamera() => _scanPhoto(() async {
     final capture = await widget.cameraLauncher.launch(
       context,
       initialSlot: _selectedSlot,
     );
-    if (capture == null || !mounted || !identity.isCurrent) return;
+    if (capture == null || !mounted) return null;
     _selectSlot(capture.slot);
-    await _analyzePhoto(
-      identity,
-      request: capture.request,
-      previewBytes: capture.previewBytes,
-    );
-  }
+    return (request: capture.request, previewBytes: capture.previewBytes);
+  });
 
-  Future<void> _pickFromGallery() async {
-    // AI consent before the gallery opens (2026-10-19).
-    if (!await ensureAiConsent(context) || !mounted) return;
-    final identity = MealScanIdentity();
+  Future<void> _pickFromGallery() => _scanPhoto(() async {
     MealPhotoSelection? selection;
     try {
       selection = await widget.photoInput.pick(ImageSource.gallery);
     } on PlatformException catch (_) {
-      if (!mounted) return;
-      showAppSnack(
-        context,
-        context.l10n.foodGalleryPermissionError,
-        icon: Icons.error_outline_rounded,
-        tone: SnackTone.error,
-        duration: kSnackError,
-      );
-      return;
+      if (mounted) {
+        showAppSnack(
+          context,
+          context.l10n.foodGalleryPermissionError,
+          icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
+          duration: kSnackError,
+        );
+      }
+      return null;
     }
-    if (selection == null || !mounted || !identity.isCurrent) return;
-    await _analyzePhoto(
-      identity,
-      request: selection.request,
-      previewBytes: selection.previewBytes,
-    );
-  }
+    if (selection == null) return null;
+    return (request: selection.request, previewBytes: selection.previewBytes);
+  });
 
-  /// Note sheet, then the analysis in the selected slot.
-  Future<void> _analyzePhoto(
-    MealScanIdentity identity, {
-    required MealAnalysisRequest request,
-    required Uint8List? previewBytes,
-  }) async {
+  /// Consent, the photo from [takePhoto], the note sheet, then the analysis
+  /// in the selected slot.
+  Future<void> _scanPhoto(
+    Future<({MealAnalysisRequest request, Uint8List? previewBytes})?>
+    Function()
+    takePhoto,
+  ) async {
+    // AI consent before the camera or gallery opens (2026-10-19).
+    if (!await ensureAiConsent(context) || !mounted) return;
+    final identity = MealScanIdentity();
     final analyzer = widget.analyzer;
+    final photo = await takePhoto();
+    if (photo == null || !mounted || !identity.isCurrent) return;
+
     // One request for first try and retries: the sheet re-runs it from the
     // same bytes, and the shared cancel handle lets a swiped-away sheet abort
     // whichever attempt is in flight (review F4-02).
-    final started = await showMealScanPreviewSheet(
+    final request = await showMealScanPreviewSheet(
       context,
-      request: request.withLanguage(context.l10n.localeName),
-      previewBytes: previewBytes,
+      request: photo.request.withLanguage(context.l10n.localeName),
+      previewBytes: photo.previewBytes,
     );
-    if (started == null || !mounted || !identity.isCurrent) return;
+    if (request == null || !mounted || !identity.isCurrent) return;
     // An attempt that fails before the sheet listens (validation, already
     // cancelled) must not surface as an unhandled zone error; the sheet's
     // error card reports it once it is up. `ignore` only marks it handled.
-    final first = analyzer.analyze(started)..ignore();
+    final first = analyzer.analyze(request)..ignore();
     final outcome = await showMealAnalysisSheet(
       context,
       slot: _selectedSlot,
@@ -1039,10 +1033,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
       // Not MealAnalysisCancelled: the sheet reads that as its own close and
       // would stay on the loading card. The photo belongs to the old session.
       retry: () => identity.isCurrent
-          ? analyzer.analyze(started)
+          ? analyzer.analyze(request)
           : Future.error(const MealAnalysisReauthRequired()),
-      cancellation: started.cancellation,
-      previewImage: previewBytes,
+      cancellation: request.cancellation,
+      previewImage: photo.previewBytes,
       onAdd: _logAndMirror,
       onUpdateMeal: _updateAndMirror,
       isFavorite: widget.isFavorite,
