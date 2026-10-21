@@ -235,6 +235,29 @@ void main() {
     });
   });
 
+  test('nur ein Konto mit E-Mail-Identitaet hat ein Passwort', () async {
+    // Settings hide "Passwort ändern" only for false; unknown stays null.
+    for (final (metadata, expected) in <(Map<String, dynamic>, bool?)>[
+      (_google, false),
+      (_email, true),
+      (
+        const <String, dynamic>{
+          'provider': 'google',
+          'providers': <String>['google', 'email'],
+        },
+        true,
+      ),
+      (const <String, dynamic>{}, null),
+    ]) {
+      final (repository, _) = await _repository(_Revoker(), metadata);
+      expect(
+        repository.currentUser?.hasPassword,
+        expected,
+        reason: '$metadata',
+      );
+    }
+  });
+
   group('GoogleSignInIdTokenProvider gegen das Plugin', () {
     late _FakeGooglePlatform platform;
 

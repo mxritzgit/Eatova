@@ -149,6 +149,38 @@ void main() {
     expect(find.text('Konto'), findsNothing);
   });
 
+  testWidgets('„Passwort ändern" fehlt nur Konten ohne Passwort',
+      (tester) async {
+    // A Google-only account has no current password to confirm; an unknown
+    // provider keeps the row.
+    for (final (hasPassword, expected) in <(bool?, Matcher)>[
+      (false, findsNothing),
+      (true, findsOneWidget),
+      (null, findsOneWidget),
+    ]) {
+      final repo = InMemoryAuthRepository(
+        initialUser: EatovaUser(
+          id: 'u1',
+          email: 'jonas@example.com',
+          hasPassword: hasPassword,
+        ),
+      );
+      addTearDown(repo.dispose);
+      await pump(tester, authRepository: repo);
+
+      expect(
+        find.byKey(const ValueKey('settings-change-password')),
+        expected,
+        reason: 'hasPassword: $hasPassword',
+      );
+      expect(
+        find.byKey(const ValueKey('settings-change-email')),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
   // --- PREFERENCES ----------------------------------------------------------
 
   testWidgets('„Profil & Ziele" ruft onOpenGoals', (tester) async {

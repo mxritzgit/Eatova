@@ -317,7 +317,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // "VERIFIED" badge cannot be substantiated.
       if (email != null)
         _AccountIdentityRow(key: const ValueKey('settings-email'), email: email),
-      if (repo != null)
+      // A Google-only account has no password to change (the change asks
+      // for the current one); unknown keeps the row.
+      if (repo != null && repo.currentUser?.hasPassword != false)
         SettingsStudioRow(
           key: const ValueKey('settings-change-password'),
           leading: const SettingsRowTile(icon: Icons.lock_outline_rounded),
