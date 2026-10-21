@@ -15,8 +15,12 @@ export const MAX_INPUT_CHARS = 1000;
 // never reaches the LLMs.
 export const BANNED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   // Performance enhancing / doping (stems with open endings, because these
-  // words are frequently inflected).
-  { pattern: /\b(steroid\w*|anabolik\w*|anabolic\w*|trenbolon\w*|sustanon|testo(steron)?\s*kur|testo\s*shot|dianabol|d-?bol|winstrol|deca\s*durabolin|sarms?|ostarin\w*|clenbuterol|ephedrin\w*|epo\b|wachstumshormon\w*|\bhgh\b|insulin\s*kur|peptid\s*kur)\b/i, reason: "doping" },
+  // words are frequently inflected). The bare English "anabolic" and growth
+  // hormone are everyday fitness words ("anabolic window", "Anabolic French
+  // Toast", "does sleep boost HGH?"), and a meal named that way dropped the
+  // whole app context: only "anabolics" and growth hormone with doping intent
+  // match here; Layer 2 judges the rest.
+  { pattern: /\b(steroid\w*|anabolik\w*|anabolics|trenbolon\w*|sustanon|testo(steron)?\s*kur|testo\s*shot|dianabol|d-?bol|winstrol|deca\s*durabolin|sarms?|ostarin\w*|clenbuterol|ephedrin\w*|epo\b|(wachstumshormon\w*|hgh)\s*(kur|kaufen|spritz\w*|inject\w*|cycle)|insulin\s*kur|peptid\s*kur)\b/i, reason: "doping" },
   // Crash diets / eating-disorder risk. No "fasten \d+ tag" pattern: fasting
   // for N days is a legitimate nutrition question, and whether it is
   // ED-adjacent is layer 2's call by intent, not a number in the sentence.
