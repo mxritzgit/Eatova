@@ -534,10 +534,11 @@ void main() {
     await _oeffneSheet(tester, store, mitScope: false);
     expect(_kachelText('250 kcal'), findsOneWidget);
 
-    await _logManuell(tester, name: 'Apfel', kcal100: '500');
+    // A similar density: the same food, whose recent takes the new values.
+    await _logManuell(tester, name: 'Apfel', kcal100: '270');
 
     expect(
-      _kachelText('500 kcal'),
+      _kachelText('270 kcal'),
       findsOneWidget,
       reason: 'copyWith(addedAt:) verschiebt nur den Zeitstempel und laesst '
           'das alte result stehen — ohne Scope raeumt das niemand auf',

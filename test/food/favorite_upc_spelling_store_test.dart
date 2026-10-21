@@ -2,10 +2,13 @@
 // 12-digit `favorite_key` (no migration), and the 13-digit form every scan
 // now delivers must still find, bump and toggle them. E5: an own product is
 // remembered (pinned) with the same single favorite upsert as any log.
+// 2026-10-22: a log only refreshes the entry of the same food; a pinned
+// favorite keeps what the user saved.
 
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meals_sync.dart' show mealResultToJson;
 
@@ -73,7 +76,8 @@ void main() {
       final favorite = env.store.favorites.single;
       expect(favorite.id, _legacyKey);
       expect(favorite.pinned, isTrue, reason: 'der Stern bleibt');
-      expect(favorite.result.estimatedGrams, 300);
+      expect(favorite.result.estimatedGrams, 250, reason: 'gespeicherte Portion');
+      expect(favorite.addedAt, _now, reason: 'zuletzt benutzt');
       expect(env.server.favoriteRows.keys, <String>[_legacyKey]);
       expect(env.server.operations('favoriteUpsert'), hasLength(1));
       expect(env.server.operations('favoriteDelete'), isEmpty);
@@ -94,6 +98,66 @@ void main() {
       expect(favorite.pinned, isFalse);
       expect(env.store.isFavorite(_milk(_gtin13)), isFalse);
       expect(env.server.favoriteRows[_legacyKey]?['pinned'], isFalse);
+    });
+  });
+
+  test('ein gleichnamiges anderes Essen ueberschreibt keinen Favoriten', () {
+    MealAnalysisResult coffee(int kcal, {int grams = 250}) =>
+        MealAnalysisResult(
+          mealName: 'Kaffee',
+          caloriesKcal: kcal,
+          estimatedGrams: grams,
+          kcalPer100G: kcal * 100 / grams,
+          protein: '1 g',
+          carbs: '1 g',
+          fat: '1 g',
+          confidence: 'high',
+          portionNotes: '',
+          sourceLabel: 'photoAi',
+        );
+    MealAnalysisResult quick(int kcal) =>
+        MealAnalysisResult.quickEntry(name: '', caloriesKcal: kcal);
+    Map<String, int> kcalByKey(HomeStore store) => {
+      for (final f in store.favorites) f.id: f.result.caloriesKcal,
+    };
+
+    return withClock(Clock.fixed(_now), () async {
+      final env = setup();
+      await bootUntilIdle(env.store);
+      final store = env.store;
+      await store.addResultToDailyTotal(coffee(45));
+      await store.toggleFavorite(coffee(45));
+
+      final later = _now.add(const Duration(hours: 1));
+      await withClock(Clock.fixed(later), () async {
+        for (final result in [
+          coffee(2), // a black coffee: another food of the same name
+          coffee(3, grams: 300), // the same black coffee again
+          coffee(54, grams: 300), // the pinned latte at another portion
+          quick(300), // two unnamed quick entries and a repeat
+          quick(500),
+          quick(300),
+        ]) {
+          await store.addResultToDailyTotal(result);
+        }
+      });
+      await settle();
+
+      final pinned = store.favorites.singleWhere((f) => f.pinned);
+      expect(pinned.id, 'name:kaffee');
+      expect(pinned.result.caloriesKcal, 45);
+      expect(pinned.result.estimatedGrams, 250);
+      expect(pinned.addedAt, later);
+      expect(kcalByKey(store), {
+        'name:kaffee': 45,
+        'name:kaffee#2': 3,
+        'name:schnell-eintrag': 300,
+        'name:schnell-eintrag#2': 500,
+      });
+      expect(
+        env.server.favoriteRows.keys.toSet(),
+        kcalByKey(store).keys.toSet(),
+      );
     });
   });
 

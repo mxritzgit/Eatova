@@ -89,21 +89,21 @@ void main() {
     },
   );
 
-  test('logging a photo-less result keeps the favorite photo', () async {
+  test('logging a photo-less result keeps the recent photo', () async {
     final a = setup();
     await bootUntilIdle(a.store);
-    await a.store.toggleFavorite(_bar());
+    await a.store.addResultToDailyTotal(_bar());
 
     await a.store.addResultToDailyTotal(_bar(image: null, grams: 90));
     await settle();
 
     final favorite = a.store.favorites.single;
-    expect(favorite.pinned, isTrue);
+    expect(favorite.pinned, isFalse);
     expect(favorite.result.estimatedGrams, 90, reason: 'the log refreshes it');
     expect(favorite.result.imageUrl, _photo);
     expect(_storedPhoto(a.server), _photo);
     // The diary row keeps exactly what was logged.
-    expect(a.store.loggedMeals.single.result.imageUrl, isNull);
+    expect(a.store.loggedMeals.first.result.imageUrl, isNull);
   });
 
   test(
@@ -135,7 +135,7 @@ void main() {
       sourceLabel: 'open_food_facts',
       imageUrl: _photo,
     );
-    await a.store.toggleFavorite(product);
+    await a.store.addResultToDailyTotal(product);
     await a.store.addResultToDailyTotal(
       const MealAnalysisResult(
         mealName: 'Banane',

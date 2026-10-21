@@ -1427,7 +1427,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// portion in one tap through the same [_handleAdd] as every row here.
   Widget _historyItem(FoodHistoryHit hit, int index) {
     final key = foodHistoryItemKey(hit);
-    final id = FavoriteMeal.idFor(hit.result);
+    final id = FavoriteMeal.keyFor(_favorites, hit.result);
     return MealSuggestionItem(
       key: ValueKey('food-history-hit-$index'),
       savedPresentation: true,
@@ -1688,7 +1688,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   }
 
   Future<void> _toggleAndMirror(MealAnalysisResult result) async {
-    final id = FavoriteMeal.idFor(result);
+    final id = FavoriteMeal.keyFor(_favorites, result);
     final before = _favorites.indexWhere((f) => f.id == id);
     final pinned = before == -1 || !_favorites[before].pinned;
     final fed = widget.favorites;
@@ -1724,7 +1724,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// so a row that is already unpinned locally (or unknown) is left alone
   /// instead of being toggled back on.
   Future<void> _unpinFavorite(MealAnalysisResult result) async {
-    final id = FavoriteMeal.idFor(result);
+    final id = FavoriteMeal.keyFor(_favorites, result);
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx == -1 || !_favorites[idx].pinned) return;
     await _toggleAndMirror(result);
@@ -1733,7 +1733,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// Undo of [_unpinFavorite]: pins the row again, also when the unpin
   /// dropped it from the store (recents cap). Already pinned stays as it is.
   Future<void> _repinFavorite(MealAnalysisResult result) async {
-    final id = FavoriteMeal.idFor(result);
+    final id = FavoriteMeal.keyFor(_favorites, result);
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx != -1 && _favorites[idx].pinned) return;
     await _toggleAndMirror(result);
@@ -1763,25 +1763,25 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// copy, so the recents follow "most recently used first" within this
   /// sheet session too (review A, 2026-08-27).
   ///
-  /// Like the store: the entry is REBUILT from the logged result and moves to
-  /// the front. `copyWith(addedAt:)` only moved the timestamp and left the old
+  /// Like the store ([FavoriteMeal.logged]): a recent is REBUILT from the
+  /// logged result, a pinned favorite keeps its own, and both move to the
+  /// front. `copyWith(addedAt:)` only moved the timestamp and left the old
   /// result behind, so a re-logged meal kept showing the old density in its
   /// tile header (P8-07). What stays the store's alone is the recents cap —
   /// its outcome (including a dropped entry) arrives via [FoodStoreScope].
   /// Unknown results (fresh search hits) are left alone here for the same
   /// reason: the store creates that recent and hands it over.
   void _touchFavorite(MealAnalysisResult result) {
-    final id = FavoriteMeal.idFor(result);
-    final idx = _favorites.indexWhere((f) => f.id == id);
-    if (idx == -1) return;
-    final refreshed = FavoriteMeal(
-      id: id,
-      result: FavoriteMeal.keepImage(result, _favorites[idx].result),
-      addedAt: clock.now(),
-      pinned: _favorites[idx].pinned,
+    final old = FavoriteMeal.findFor(_favorites, result);
+    if (old == null) return;
+    final refreshed = FavoriteMeal.logged(
+      result,
+      old: old,
+      id: old.id,
+      at: clock.now(),
     );
     setState(() {
-      _favorites = [refreshed, ..._favorites.where((f) => f.id != id)];
+      _favorites = [refreshed, ..._favorites.where((f) => f.id != old.id)];
     });
   }
 }
