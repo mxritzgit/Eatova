@@ -22,7 +22,6 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/recipe_shelf.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/harness.dart';
 
@@ -117,12 +116,8 @@ void main() {
           count: _katalogTreffer.length,
         ).map((r) => r.slug),
       );
-      // Kein Foto: die leuchtende Grafik des Designs, nie der Streifen.
+      // Kein Foto: die leuchtende Grafik des Designs.
       final karte = find.byKey(ValueKey('recipe-shelf-lean-${treffer.slug}'));
-      expect(
-        find.descendant(of: karte, matching: find.byType(ImagePlaceholder)),
-        findsNothing,
-      );
       expect(
         find.descendant(
           of: karte,

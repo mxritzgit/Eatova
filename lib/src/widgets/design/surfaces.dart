@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_tokens.dart';
 
 // ---------------------------------------------------------------------------
-// SURFACES — card, section heading, image placeholder.
+// SURFACES — card, section heading.
 //
 // Geometry, radii and spacing come from the design template; colors only from
 // [AppTokens], type only from [AppType].
@@ -139,54 +139,4 @@ class SectionHeading extends StatelessWidget {
       ],
     );
   }
-}
-
-/// Diagonally striped surface standing in for a missing photo.
-class ImagePlaceholder extends StatelessWidget {
-  const ImagePlaceholder({
-    super.key,
-    this.radius = rControl,
-    this.label = 'BILD',
-  });
-
-  final double radius;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: CustomPaint(
-        painter: _StripePainter(base: t.surf2, stripe: t.tile),
-        child: Center(
-          child: Text(label, style: AppType.eyebrow(t.ink2, size: 9)),
-        ),
-      ),
-    );
-  }
-}
-
-class _StripePainter extends CustomPainter {
-  _StripePainter({required this.base, required this.stripe});
-
-  final Color base, stripe;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = base);
-    final stripePaint = Paint()
-      ..color = stripe
-      ..strokeWidth = 10;
-    for (double x = -size.height; x < size.width + size.height; x += 20) {
-      canvas.drawLine(Offset(x, size.height), Offset(x + size.height, 0),
-          stripePaint);
-    }
-  }
-
-  // The stripe pattern depends only on the two tones; size is handled by
-  // Flutter via the new canvas.
-  @override
-  bool shouldRepaint(_StripePainter old) =>
-      old.base != base || old.stripe != stripe;
 }

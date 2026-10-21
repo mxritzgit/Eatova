@@ -84,9 +84,6 @@ void main() {
     });
   });
 
-  // ImagePlaceholder is not used by any screen any more (no reference in
-  // lib/ outside its own file), so it has no tests here.
-
   testWidgets('alle Flaechen rendern in hell und dunkel', (tester) async {
     pinPhoneViewport(tester);
     await expectRendersInBothBrightnesses(
