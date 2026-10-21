@@ -144,7 +144,7 @@
 	     nirgends beobachten kann. Wer den Scope je zurueckholt, braucht zuerst
 	     das Feature, dann den Satz hier. -->
 	<key>NSHealthShareUsageDescription</key>
-	<string>Eatova reads your step count from Apple Health and credits it to your daily budget. When your scale measures a new weight, Eatova offers to add it to your weight history.</string>
+	<string>Eatova reads your step count from Apple Health and credits it to your daily budget. Once you allow the scale import, new weights from your scale are added to your weight history.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Eatova optionally writes a weight you log back to Apple Health and corrects it there when you edit or delete that weigh-in.</string>
 	<!-- PROD-1 (flutter_local_notifications, on-device): Lokale Notifications

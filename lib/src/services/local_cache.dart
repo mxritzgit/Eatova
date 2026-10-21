@@ -244,6 +244,19 @@ class LocalCache {
     return state is String ? state : null;
   }
 
+  /// This account's scale import (2026-10-22): `mode` (`auto` or `off`,
+  /// missing until answered), `since` (the newest weigh-in a read returned)
+  /// and `seen` (keys of imported samples, so a deleted import does not come
+  /// back). Health data like the steps: cleared in [clear].
+  String get _healthWeightImportKey =>
+      'eatova.v1.health_weight_import.$_userId';
+
+  Future<void> writeHealthWeightImport(Map<String, dynamic> state) =>
+      _writeJson(_healthWeightImportKey, state);
+
+  Future<Map<String, dynamic>?> readHealthWeightImport() =>
+      _readJson(_healthWeightImportKey);
+
   // DATA-7 offline persistence: diary, favorites and weight log are mirrored
   // so an offline cold start does not begin with an empty diary. Plus the
   // write outbox and the pending lifetime-stats deltas, both of which must
@@ -1035,6 +1048,7 @@ class LocalCache {
       await _store.remove(_coachQuotaKey);
       await _store.remove(_healthConnectKey);
       await _store.remove(_healthPromptKey);
+      await _store.remove(_healthWeightImportKey);
       await _store.remove(_loggedMealsKey);
       await _store.remove(_favoritesKey);
       await _store.remove(_weightLogKey);

@@ -13,4 +13,5 @@ android.permission.RECEIVE_BOOT_COMPLETED  # app manifest, androidx.work
 android.permission.VIBRATE  # app manifest, flutter_local_notifications
 android.permission.WAKE_LOCK  # androidx.work
 android.permission.health.READ_STEPS  # app manifest, Health Connect steps
+android.permission.health.READ_WEIGHT  # app manifest, Health Connect scale import
 com.eatova.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION  # androidx.core, app-private signature permission

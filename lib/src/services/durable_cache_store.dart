@@ -26,6 +26,7 @@ const durableCacheSlotNames = {
   'reminder_time',
   'reminder_prompt',
   'health_prompt',
+  'health_weight_import',
   'ai_consent',
   'coach_quota',
 };

@@ -19,7 +19,6 @@ class HealthAuthEvidence {
     required this.writeGrant,
     this.steps,
     this.latestWeightKg,
-    this.latestWeightMeasuredAt,
   });
 
   /// Truthful WRITE status for weight.
@@ -39,9 +38,6 @@ class HealthAuthEvidence {
 
   /// Most recent weight read (kg), if any.
   final double? latestWeightKg;
-
-  /// When [latestWeightKg] was measured.
-  final DateTime? latestWeightMeasuredAt;
 
   /// Positive READ signal: some datum actually arrived.
   ///
@@ -135,12 +131,7 @@ class HealthAuthVerifier {
     // read evidence still verifies the connection.
     if (e.steps == null) return null;
     if (resolve(e, now: now) != HealthAuthState.granted) return null;
-    return HealthSnapshot(
-      stepsToday: e.steps!,
-      fetchedAt: now,
-      latestWeightKg: e.latestWeightKg,
-      latestWeightMeasuredAt: e.latestWeightMeasuredAt,
-    );
+    return HealthSnapshot(stepsToday: e.steps!, fetchedAt: now);
   }
 
   /// Resets the verification (logout / account switch).
@@ -151,7 +142,8 @@ class HealthAuthVerifier {
   }
 }
 
-class AppleHealthService implements HealthService, HealthWeightCorrection {
+class AppleHealthService
+    implements HealthService, HealthWeightCorrection, HealthWeightSource {
   /// [health] and [debugIsIOS] are test seams: otherwise the plugin hangs off
   /// the MethodChannel and the platform gate off the runner OS, leaving the
   /// error branches of [requestAuthorization] untestable. [ownSourceId]
@@ -389,7 +381,6 @@ class AppleHealthService implements HealthService, HealthWeightCorrection {
       writeGrant: writeGrant,
       steps: steps,
       latestWeightKg: latestWeight?.kg,
-      latestWeightMeasuredAt: latestWeight?.measuredAt,
     );
   }
 
@@ -556,6 +547,45 @@ class AppleHealthService implements HealthService, HealthWeightCorrection {
       return false;
     }
   }
+
+  /// Weigh-ins of other sources (a scale, another app) for the scale import:
+  /// Eatova's own write-backs are left out. Foreground only, like every
+  /// read; a failure is null, not an empty history.
+  @override
+  Future<List<WeightSample>?> readWeightSamples(DateTime from, DateTime to) =>
+      _read((session) async {
+        String? own;
+        try {
+          own = await _ownSourceId();
+        } catch (_) {
+          // Unknown: the store's de-duplication against the log still
+          // catches Eatova's own samples.
+        }
+        final points = await _query(
+          session,
+          'readWeightSamples',
+          () => _health.getHealthDataFromTypes(
+            types: const [HealthDataType.WEIGHT],
+            startTime: from,
+            endTime: to,
+          ),
+          optional: true,
+        );
+        final samples = <WeightSample>[
+          for (final p in points)
+            if ((own == null || p.sourceId != own) &&
+                p.value is NumericHealthValue)
+              WeightSample(
+                kg: (p.value as NumericHealthValue).numericValue.toDouble(),
+                measuredAt: p.dateTo,
+              ),
+        ]..sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
+        return samples;
+      });
+
+  /// Weight is read with the grant Today's connect asked for.
+  @override
+  Future<bool> ensureWeightAccess() async => _isIOS;
 
   /// Ungated weight read path of [_gatherEvidence], where an auth gate would
   /// be circular.

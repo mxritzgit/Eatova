@@ -103,6 +103,7 @@ void main() {
         await c.writeCoachQuota(const <String, dynamic>{'used': 1});
         await c.writeHealthConnectEnabled(true);
         await c.writeHealthPrompt('asked');
+        await c.writeHealthWeightImport(const <String, dynamic>{'mode': 'off'});
         await c.writeDailyActivity(const {});
         await c.writeTrainingHistory(const []);
         await c.writeTrainingPlans(const []);
@@ -148,6 +149,8 @@ void main() {
           'eatova.v1.coach_quota.user-42',
           'eatova.v1.health_connect_enabled.user-42',
           'eatova.v1.health_prompt.user-42',
+          // Renamed, a deleted scale import comes back.
+          'eatova.v1.health_weight_import.user-42',
           'eatova.v1.daily_activity.user-42',
           'eatova.v1.training_history.user-42',
           'eatova.v1.training_plans.user-42',

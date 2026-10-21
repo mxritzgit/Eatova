@@ -1508,8 +1508,8 @@ class HomeStore extends _HomeStoreBase
     }
     final conflict = await _writeCacheSnapshot(cacheVersionsBeforeLoad);
     _completeProfileReady();
-    // A Health weight read during the boot is judged against the loaded log.
-    if (_serverWeightLogLoaded) _offerDeferredHealthWeight();
+    // A scale read held back during the boot is judged against the loaded log.
+    if (_serverWeightLogLoaded) _resumeDeferredHealthWeights();
     // The profile follows the weight trend (docs/WEIGHT-TREND.md), once the
     // server answered both profile and weight log in this session: a full
     // row written from a cached profile could overwrite a newer one. After

@@ -655,6 +655,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               onOpenSettings: _openSettings,
               onConnectHealth: _store.connectHealth,
               onRefreshHealth: _store.refreshHealthSteps,
+              healthWeightImport: _store.healthWeightImportEnabled,
+              onHealthWeightImportChanged: (enabled) => unawaited(
+                enabled
+                    ? _store.enableHealthWeightImport()
+                    : _store.disableHealthWeightImport(),
+              ),
               onSaveFoodPreferences: (preferences) {
                 if (!_isStoreSessionCurrent(ownerStore)) {
                   throw StateError('Profile owner changed');
@@ -925,8 +931,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.reminderTime,
       // Apple Health's intro card (2026-10-19).
       _store.healthIntroVisible,
-      // Health Connect's card and missing-steps row (2026-10-22).
+      // Health Connect's card and missing-steps row, the scale import's
+      // question (2026-10-22).
       _store.healthConnectLinked,
+      _store.healthWeightImportOfferVisible,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
@@ -995,6 +1003,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             ? (
                 connect: _store.acceptHealthIntro,
                 dismiss: _store.dismissHealthIntro,
+              )
+            : null,
+        weightImportPrompt: today && _store.healthWeightImportOfferVisible
+            ? (
+                accept: _store.enableHealthWeightImport,
+                dismiss: _store.disableHealthWeightImport,
               )
             : null,
         trendsPreview: today ? _todayTrendsPreview() : null,

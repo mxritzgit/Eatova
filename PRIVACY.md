@@ -175,15 +175,23 @@ You enter and the app stores the following, tied to your account:
   device and in the product search (see "Our own product-search index"),
   which receives only the search term. Nothing is logged until you confirm
   the draft with Add; the logged meal is then stored like any other.
-- **Apple Health (optional, iOS only):** if you grant permission, the app reads
-  your step count and body-weight history from Apple Health.
+- **Apple Health (optional, iOS only):** each Eatova account connects Apple
+  Health itself; on a shared iPhone, an account that has not connected neither
+  reads nor writes Apple Health data. Once connected and with your
+  permission, the app reads your step count and body-weight history from
+  Apple Health.
   With the same permission it also writes back to Apple Health: a body-weight
   entry when you record a weigh-in. It reads and writes only these categories
   and accesses no other Apple Health data. The step count is used on the device
   for the day's display, the calories-burned estimate and the weekly check
   (the last three weeks); it is not stored on our servers. If you use the AI
   coach, the calories-burned estimate derived from it (not the step count) is
-  part of the snapshot sent with your question.
+  part of the snapshot sent with your question. Weigh-ins from other sources,
+  such as a scale, are added to your weight history only after you allow the
+  scale import in the app; they are then stored and synced like a weigh-in you
+  enter yourself (see "Weight & progress"). Which weigh-ins were imported or
+  deleted is remembered in the encrypted app cache on the device, so none is
+  imported twice.
 - **Voice input (optional):** the coach's microphone button (iOS) and the
   meal description's microphone button (iOS and Android) turn speech into
   text. On iOS, audio is captured only while the microphone is active (tap to
@@ -203,14 +211,18 @@ You enter and the app stores the following, tied to your account:
   exercise names or weights. The app asks for permission during a workout,
   independently of the reminder setting; whether it already explained this
   and asked the system is remembered on this device.
-- **Health Connect (optional, Android only):** with permission, the app reads
-  aggregated steps during foreground refreshes for the selected day's display
-  and activity estimate, and for the weekly check (the last three weeks). It
-  does not request Android weight access or write health records. Step counts
-  and the daily totals are kept in the encrypted app cache and are not
-  persisted to our servers; as with Apple Health, the calories-burned estimate
-  derived from them is part of the coach snapshot when you use the AI coach.
-  Availability, permission and an empty source are handled as distinct states.
+- **Health Connect (optional, Android only):** each Eatova account connects
+  Health Connect itself. With permission, the app reads aggregated steps
+  during foreground refreshes for the selected day's display and activity
+  estimate, and for the weekly check (the last three weeks). With the
+  separate weight permission it reads your weight records; weigh-ins from
+  them are added to your weight history only after you allow the scale import
+  in the app, and are then stored and synced like a weigh-in you enter
+  yourself. It writes no health records. Step counts and the daily totals are
+  kept in the encrypted app cache and are not persisted to our servers; as
+  with Apple Health, the calories-burned estimate derived from them is part of
+  the coach snapshot when you use the AI coach. Availability, permission and
+  an empty source are handled as distinct states.
 
 In addition, and **not** tied to your account:
 
@@ -365,7 +377,7 @@ recognition app may process it on its provider's servers (see above).
 
 We process this data to provide the tracking features you ask for — i.e. to perform
 the service you signed up for (GDPR Art. 6(1)(b)), and, for optional Apple Health
-read/write, Health Connect steps, voice input and AI features, on the basis of the permission you
+read/write, Health Connect steps and weight, the scale import, voice input and AI features, on the basis of the permission you
 grant in-app (Art. 6(1)(a), Art. 9 for health data).
 
 **In-app AI consent.** Before the first AI use — the photo scan, describing a

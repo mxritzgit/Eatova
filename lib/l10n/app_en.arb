@@ -239,13 +239,6 @@
   "commonAdd": "Add",
   "commonMealDeleted": "Meal deleted",
   "commonUndo": "Undo",
-  "commonHealthWeightOfferMessage": "Apple Health: {kg} kg — apply?",
-  "@commonHealthWeightOfferMessage": {
-    "placeholders": {
-      "kg": { "type": "String" }
-    }
-  },
-  "commonHealthWeightOfferAction": "Apply",
   "commonDailyGoalReanchored": "New daily goal: {kcal} kcal, adjusted to your weight trend.",
   "@commonDailyGoalReanchored": {
     "placeholders": {
@@ -2641,7 +2634,6 @@
   "healthConnectUpdateRequired": "Install or update Health Connect before connecting your steps.",
   "healthConnectUnavailable": "Health Connect is unavailable on this device.",
   "healthConnectError": "Health Connect could not be checked. Try again or review its settings.",
-  "healthConnectStepsOnly": "Read steps only. Keep logging your weight here manually.",
   "healthConnectConnect": "Connect steps",
   "healthConnectRefresh": "Refresh",
   "healthConnectInstall": "Install / update",
@@ -3776,5 +3768,17 @@
   "healthConnectPromptBody": "Your steps count as energy you burn: walk more and your daily budget grows. For that, Eatova reads your steps and weight from Health Connect.",
   "@healthConnectPromptBody": {"description": "Today's Health Connect card: what the permission is for."},
   "healthConnectPromptConnect": "Connect Health Connect",
-  "@healthConnectPromptConnect": {"description": "Today's Health Connect card: opens Health Connect's permission screen."}
+  "@healthConnectPromptConnect": {"description": "Today's Health Connect card: opens Health Connect's permission screen."},
+  "healthWeightImportTitle": "Import scale weigh-ins?",
+  "@healthWeightImportTitle": {"description": "Today's one-time question whether new weigh-ins from Apple Health or Health Connect come in automatically."},
+  "healthWeightImportBody": "{source} has new weigh-ins, for example from your scale. From now on, Eatova adds them automatically, without duplicates.",
+  "@healthWeightImportBody": {"placeholders": {"source": {"type": "String"}}},
+  "healthWeightImportAccept": "Import automatically",
+  "healthWeightImportSwitch": "Import scale weigh-ins automatically",
+  "@healthWeightImportSwitch": {"description": "Switch on the profile's health card: new weigh-ins from the health source come in automatically."},
+  "healthWeightImported": "{count, plural, one{1 weigh-in imported from {source}} other{{count} weigh-ins imported from {source}}}",
+  "@healthWeightImported": {"placeholders": {"count": {"type": "int"}, "source": {"type": "String"}}},
+  "healthWeightImportNoAccess": "Weight access isn't allowed in {source}.",
+  "@healthWeightImportNoAccess": {"placeholders": {"source": {"type": "String"}}},
+  "healthConnectStepsAndWeight": "Reads steps and weight. Eatova imports scale weigh-ins only once you agree."
 }

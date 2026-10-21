@@ -43,8 +43,21 @@ abstract interface class HealthWeightCorrection {
   Future<bool> deleteOwnWeight(DateTime when);
 }
 
-/// A single weight sample from the health store, used by the import path to
-/// prefill the last known weight on connect.
+/// Optional: the health store's weigh-ins from other sources (a scale,
+/// another app) for the scale import, which runs only after the account's
+/// opt-in (review 2026-10-22). Eatova's own write-backs are left out.
+abstract interface class HealthWeightSource {
+  /// Weigh-ins measured between [from] and [to], oldest first. Null when the
+  /// store could not be read; an empty list is an answer.
+  Future<List<WeightSample>?> readWeightSamples(DateTime from, DateTime to);
+
+  /// Makes sure weight may be read, asking once where the store needs its
+  /// own grant for it (Health Connect). Whether it may.
+  Future<bool> ensureWeightAccess();
+}
+
+/// A single weight sample from the health store: read evidence on iOS, and
+/// the scale import's input.
 class WeightSample {
   const WeightSample({required this.kg, required this.measuredAt});
 
@@ -53,22 +66,10 @@ class WeightSample {
 }
 
 class HealthSnapshot {
-  const HealthSnapshot({
-    required this.stepsToday,
-    required this.fetchedAt,
-    this.latestWeightKg,
-    this.latestWeightMeasuredAt,
-  });
+  const HealthSnapshot({required this.stepsToday, required this.fetchedAt});
 
   final int stepsToday;
   final DateTime fetchedAt;
-
-  /// Last known body weight (kg) from the health store, null if unavailable.
-  final double? latestWeightKg;
-
-  /// When [latestWeightKg] was measured. Without it the weight is not
-  /// offered for import: its age and order against the log are unknown.
-  final DateTime? latestWeightMeasuredAt;
 }
 
 abstract class HealthService {
@@ -83,12 +84,11 @@ abstract class HealthService {
   void reset();
 
   /// Triggers the system permission prompt. Returns the resulting auth state.
-  /// Android requests steps READ only; iOS reads steps/weight and writes
-  /// weight. Never add scopes no feature reads.
+  /// Android requests steps and weight READ; iOS reads steps/weight and
+  /// writes weight. Never add scopes no feature reads.
   Future<HealthAuthState> requestAuthorization();
 
-  /// Reads today's step count (plus optional weight). Returns null when
-  /// not authorized or no data.
+  /// Reads today's step count. Returns null when not authorized or no data.
   Future<HealthSnapshot?> readSnapshot();
 
   /// Step total of one local calendar day [day], the backfill path for past

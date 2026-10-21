@@ -10,8 +10,18 @@ import 'health_service.dart';
 abstract interface class HealthConnectAdapter {
   Future<HealthConnectSdkStatus?> availability();
   Future<bool?> hasStepsPermission();
-  Future<void> requestStepsPermission();
+  Future<bool?> hasWeightPermission();
+
+  /// Health Connect's screen for steps and weight READ; each can be granted
+  /// on its own there.
+  Future<void> requestPermissions();
+
+  /// Health Connect's screen for weight READ alone (the scale import).
+  Future<void> requestWeightPermission();
   Future<int?> aggregateSteps(DateTime start, DateTime end);
+
+  /// Weight records between [start] and [end]; empty without the grant.
+  Future<List<WeightSample>> readWeights(DateTime start, DateTime end);
   Future<void> installOrUpdate();
   Future<void> openSettings();
 }
@@ -23,8 +33,8 @@ class PluginHealthConnectAdapter implements HealthConnectAdapter {
 
   final Health _health;
   final MethodChannel _channel;
-  static const _types = [HealthDataType.STEPS];
-  static const _permissions = [HealthDataAccess.READ];
+  static const _types = [HealthDataType.STEPS, HealthDataType.WEIGHT];
+  static const _permissions = [HealthDataAccess.READ, HealthDataAccess.READ];
 
   @override
   Future<HealthConnectSdkStatus?> availability() =>
@@ -35,8 +45,20 @@ class PluginHealthConnectAdapter implements HealthConnectAdapter {
       _channel.invokeMethod<bool>('hasStepsPermission');
 
   @override
-  Future<void> requestStepsPermission() async {
+  Future<bool?> hasWeightPermission() =>
+      _channel.invokeMethod<bool>('hasWeightPermission');
+
+  @override
+  Future<void> requestPermissions() async {
     await _health.requestAuthorization(_types, permissions: _permissions);
+  }
+
+  @override
+  Future<void> requestWeightPermission() async {
+    await _health.requestAuthorization(
+      const [HealthDataType.WEIGHT],
+      permissions: const [HealthDataAccess.READ],
+    );
   }
 
   @override
@@ -47,6 +69,23 @@ class PluginHealthConnectAdapter implements HealthConnectAdapter {
       });
 
   @override
+  Future<List<WeightSample>> readWeights(DateTime start, DateTime end) async {
+    final points = await _health.getHealthDataFromTypes(
+      types: const [HealthDataType.WEIGHT],
+      startTime: start,
+      endTime: end,
+    );
+    return <WeightSample>[
+      for (final p in points)
+        if (p.value is NumericHealthValue)
+          WeightSample(
+            kg: (p.value as NumericHealthValue).numericValue.toDouble(),
+            measuredAt: p.dateFrom,
+          ),
+    ]..sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
+  }
+
+  @override
   Future<void> installOrUpdate() =>
       _channel.invokeMethod<void>('installOrUpdate');
 
@@ -54,8 +93,10 @@ class PluginHealthConnectAdapter implements HealthConnectAdapter {
   Future<void> openSettings() => _channel.invokeMethod<void>('openSettings');
 }
 
-/// Foreground, read-only steps. No weight scopes or weight writes on Android.
-class AndroidHealthService implements HealthService, HealthConnectAccess {
+/// Foreground, read-only steps, and weight for the scale import. Nothing is
+/// written to Health Connect.
+class AndroidHealthService
+    implements HealthService, HealthConnectAccess, HealthWeightSource {
   AndroidHealthService({HealthConnectAdapter? adapter})
     : _adapter = adapter ?? PluginHealthConnectAdapter();
 
@@ -139,8 +180,7 @@ class AndroidHealthService implements HealthService, HealthConnectAccess {
       if (!_current(generation)) return HealthAuthState.unknown;
       _connectedForSession = true;
       if (granted != true) {
-        final request = _permissionRequest ??= _adapter
-            .requestStepsPermission();
+        final request = _permissionRequest ??= _adapter.requestPermissions();
         try {
           await request;
         } finally {
@@ -225,6 +265,57 @@ class AndroidHealthService implements HealthService, HealthConnectAccess {
       return _current(generation);
     } catch (error) {
       _failed(generation, error);
+      return false;
+    }
+  }
+
+  /// Weigh-ins for the scale import, only for an account connected in this
+  /// session. Without the weight grant there is nothing to read (an empty
+  /// answer); a failure is null and leaves the steps state alone.
+  @override
+  Future<List<WeightSample>?> readWeightSamples(
+    DateTime from,
+    DateTime to,
+  ) async {
+    final generation = _generation;
+    if (!_connectedForSession) return null;
+    try {
+      if (!await _available(generation)) return null;
+      final granted = await _adapter.hasWeightPermission();
+      if (!_current(generation)) return null;
+      if (granted != true) return granted == false ? const [] : null;
+      final samples = await _adapter.readWeights(from, to);
+      return _current(generation) ? samples : null;
+    } catch (_) {
+      // Plugin/platform messages can contain sensitive records. Never log them.
+      dev.log('Health Connect weight read failed', name: 'health_connect');
+      return null;
+    }
+  }
+
+  /// Weight has its own grant in Health Connect: an account that connected
+  /// steps before the scale import asks for it once here.
+  @override
+  Future<bool> ensureWeightAccess() async {
+    final generation = _generation;
+    if (!_connectedForSession || _permissionRequest != null) return false;
+    try {
+      if (!await _available(generation)) return false;
+      if (await _adapter.hasWeightPermission() == true) {
+        return _current(generation);
+      }
+      if (!_current(generation)) return false;
+      final request = _permissionRequest = _adapter.requestWeightPermission();
+      try {
+        await request;
+      } finally {
+        if (identical(_permissionRequest, request)) _permissionRequest = null;
+      }
+      return _current(generation) &&
+          await _adapter.hasWeightPermission() == true &&
+          _current(generation);
+    } catch (_) {
+      dev.log('Health Connect weight access failed', name: 'health_connect');
       return false;
     }
   }

@@ -44,6 +44,8 @@ void main() {
               onConnect: () {},
               onRefresh: () {},
               onSettings: () {},
+              weightImport: true,
+              onWeightImportChanged: (_) {},
             ),
             locale: locale,
             textScale: 2,
@@ -53,7 +55,7 @@ void main() {
           expect(find.text(context.l10n.healthConnectTitle), findsOneWidget);
           expect(find.text('Apple Health'), findsNothing);
           expect(
-            find.text(context.l10n.healthConnectStepsOnly),
+            find.text(context.l10n.healthConnectStepsAndWeight),
             findsOneWidget,
           );
           expect(tester.takeException(), isNull);
@@ -75,6 +77,7 @@ void main() {
     var connects = 0;
     var refreshes = 0;
     var settings = 0;
+    final weightImport = <bool>[];
     Widget card(HealthAuthState state, {bool syncing = false}) =>
         HealthConnectionCard(
           state: state,
@@ -84,6 +87,8 @@ void main() {
           onConnect: () => connects++,
           onRefresh: () => refreshes++,
           onSettings: () => settings++,
+          weightImport: true,
+          onWeightImportChanged: weightImport.add,
         );
     await pumpLocalized(tester, card(HealthAuthState.updateRequired));
     await tester.tap(find.byKey(const ValueKey('profile-health-connect')));
@@ -91,8 +96,10 @@ void main() {
     await pumpLocalized(tester, card(HealthAuthState.noData));
     await tester.tap(find.byKey(const ValueKey('profile-health-refresh')));
     await tester.tap(find.byKey(const ValueKey('profile-health-settings')));
+    await tester.tap(find.byKey(const ValueKey('profile-health-weight-import')));
     expect(refreshes, 1);
     expect(settings, 1);
+    expect(weightImport, [false], reason: 'the scale import switch turns off');
     await pumpLocalized(tester, card(HealthAuthState.noData, syncing: true));
     expect(
       tester

@@ -323,30 +323,45 @@ void main() {
     },
   );
 
-  test('the newest weight keeps its measurement time', () async {
+  test('the scale import reads other sources\' weigh-ins with their time, '
+      'never Eatova\'s own', () async {
     await withClock(Clock.fixed(_now), () async {
-      final measuredAt = _now.subtract(const Duration(days: 21));
-      HealthDataPoint weight(DateTime at, double kg) => HealthDataPoint(
-        uuid: 'weight-${at.millisecondsSinceEpoch}',
-        value: NumericHealthValue(numericValue: kg),
-        type: HealthDataType.WEIGHT,
-        unit: HealthDataUnit.KILOGRAM,
-        dateFrom: at,
-        dateTo: at,
-        sourcePlatform: HealthPlatformType.appleHealth,
-        sourceDeviceId: 'device',
-        sourceId: 'com.example.scale',
-        sourceName: 'Scale',
+      final scale = AppleHealthService(
+        health: plugin,
+        debugIsIOS: true,
+        ownSourceId: () async => 'com.eatova.app',
       );
+      HealthDataPoint weight(DateTime at, double kg, String source) =>
+          HealthDataPoint(
+            uuid: 'weight-${at.millisecondsSinceEpoch}',
+            value: NumericHealthValue(numericValue: kg),
+            type: HealthDataType.WEIGHT,
+            unit: HealthDataUnit.KILOGRAM,
+            dateFrom: at,
+            dateTo: at,
+            sourcePlatform: HealthPlatformType.appleHealth,
+            sourceDeviceId: 'device',
+            sourceId: source,
+            sourceName: source,
+          );
+      final monday = _now.subtract(const Duration(days: 2));
+      final earlier = _now.subtract(const Duration(days: 20));
       plugin.onWeight = () async => [
-        weight(measuredAt, 82),
-        weight(measuredAt.subtract(const Duration(days: 30)), 84),
+        weight(monday, 82, 'com.example.scale'),
+        weight(_now, 81.5, 'com.eatova.app'),
+        weight(earlier, 84, 'com.example.scale'),
       ];
 
-      final snapshot = await service.readSnapshot();
+      final samples = await scale.readWeightSamples(
+        _now.subtract(const Duration(days: 30)),
+        _now,
+      );
 
-      expect(snapshot?.latestWeightKg, 82);
-      expect(snapshot?.latestWeightMeasuredAt, measuredAt);
+      expect(
+        samples?.map((s) => (s.kg, s.measuredAt)),
+        [(84.0, earlier), (82.0, monday)],
+        reason: 'oldest first, without the write-back',
+      );
     });
   });
 

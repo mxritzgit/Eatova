@@ -239,13 +239,6 @@
   "commonAdd": "Hinzufügen",
   "commonMealDeleted": "Mahlzeit gelöscht",
   "commonUndo": "Rückgängig",
-  "commonHealthWeightOfferMessage": "Apple Health: {kg} kg übernehmen?",
-  "@commonHealthWeightOfferMessage": {
-    "placeholders": {
-      "kg": { "type": "String" }
-    }
-  },
-  "commonHealthWeightOfferAction": "Übernehmen",
   "commonDailyGoalReanchored": "Neues Tagesziel: {kcal} kcal – an deinen Gewichtstrend angepasst.",
   "@commonDailyGoalReanchored": {
     "placeholders": {
@@ -2700,7 +2693,6 @@
   "healthConnectUpdateRequired": "Health Connect muss installiert oder aktualisiert werden, bevor du Schritte verbinden kannst.",
   "healthConnectUnavailable": "Health Connect ist auf diesem Gerät nicht verfügbar.",
   "healthConnectError": "Health Connect konnte nicht geprüft werden. Versuche es erneut oder prüfe die Einstellungen.",
-  "healthConnectStepsOnly": "Nur Schritte lesen. Gewicht trägst du hier weiterhin selbst ein.",
   "healthConnectConnect": "Schritte verbinden",
   "healthConnectRefresh": "Aktualisieren",
   "healthConnectInstall": "Installieren / Aktualisieren",
@@ -3871,5 +3863,17 @@
   "healthConnectPromptBody": "Deine Schritte zählen als Verbrauch: Wer mehr geht, hat mehr im Tagesbudget. Dafür liest Eatova Schritte und Gewicht aus Health Connect.",
   "@healthConnectPromptBody": {"description": "Today's Health Connect card: what the permission is for."},
   "healthConnectPromptConnect": "Mit Health Connect verbinden",
-  "@healthConnectPromptConnect": {"description": "Today's Health Connect card: opens Health Connect's permission screen."}
+  "@healthConnectPromptConnect": {"description": "Today's Health Connect card: opens Health Connect's permission screen."},
+  "healthWeightImportTitle": "Waagenwerte übernehmen?",
+  "@healthWeightImportTitle": {"description": "Today's one-time question whether new weigh-ins from Apple Health or Health Connect come in automatically."},
+  "healthWeightImportBody": "In {source} liegen neue Wiegungen, etwa von deiner Waage. Eatova übernimmt sie ab jetzt automatisch, ohne Doppelte.",
+  "@healthWeightImportBody": {"placeholders": {"source": {"type": "String"}}},
+  "healthWeightImportAccept": "Automatisch übernehmen",
+  "healthWeightImportSwitch": "Waagenwerte automatisch übernehmen",
+  "@healthWeightImportSwitch": {"description": "Switch on the profile's health card: new weigh-ins from the health source come in automatically."},
+  "healthWeightImported": "{count, plural, one{1 Wiegung aus {source} übernommen} other{{count} Wiegungen aus {source} übernommen}}",
+  "@healthWeightImported": {"placeholders": {"count": {"type": "int"}, "source": {"type": "String"}}},
+  "healthWeightImportNoAccess": "Gewicht ist in {source} nicht freigegeben.",
+  "@healthWeightImportNoAccess": {"placeholders": {"source": {"type": "String"}}},
+  "healthConnectStepsAndWeight": "Liest Schritte und Gewicht. Waagenwerte übernimmt Eatova erst, wenn du zustimmst."
 }

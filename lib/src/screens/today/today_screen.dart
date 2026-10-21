@@ -78,6 +78,7 @@ class TodayScreen extends StatelessWidget {
     this.onLogWeight,
     this.weighIns,
     this.healthPrompt,
+    this.weightImportPrompt,
     this.trendsPreview,
     this.onOpenTrends,
     this.isCompleteDay,
@@ -185,6 +186,11 @@ class TodayScreen extends StatelessWidget {
   final ({Future<void> Function() connect, Future<void> Function() dismiss})?
   healthPrompt;
 
+  /// The scale import's one-time question
+  /// (`HomeStore.healthWeightImportOfferVisible`); null hides it. Today only.
+  final ({Future<void> Function() accept, Future<void> Function() dismiss})?
+  weightImportPrompt;
+
   /// The last seven completed days for the trends card; null hides it
   /// (archive days). Today only, at the end of the page.
   final TodayTrendsPreview? trendsPreview;
@@ -232,6 +238,7 @@ class TodayScreen extends StatelessWidget {
         onDismissEnergyCheck != null;
     final logWeight = istHeute ? onLogWeight : null;
     final health = istHeute && !dayLoading ? healthPrompt : null;
+    final weightImport = istHeute && !dayLoading ? weightImportPrompt : null;
     final result = istHeute && !dayLoading && !showCheckCard
         ? energyCheckResult
         : null;
@@ -381,6 +388,14 @@ class TodayScreen extends StatelessWidget {
                 healthConnect: healthConnect,
                 onConnect: health.connect,
                 onDismiss: health.dismiss,
+              ),
+            ],
+            if (weightImport != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayWeightImportCard(
+                healthConnect: healthConnect,
+                onAccept: weightImport.accept,
+                onDismiss: weightImport.dismiss,
               ),
             ],
             if (showActivity) ...<Widget>[

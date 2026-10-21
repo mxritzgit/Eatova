@@ -42,6 +42,42 @@ class TodayHealthPromptCard extends StatelessWidget {
   }
 }
 
+/// The scale import's one-time question on Today (review 2026-10-22): the
+/// health source holds weigh-ins Eatova does not have
+/// (`HomeStore.healthWeightImportOfferVisible`). "Import automatically"
+/// takes them and every later one, "Not now" leaves them there; the
+/// profile's Health card has the same switch.
+class TodayWeightImportCard extends StatelessWidget {
+  const TodayWeightImportCard({
+    super.key,
+    required this.onAccept,
+    required this.onDismiss,
+    this.healthConnect = false,
+  });
+
+  final Future<void> Function() onAccept;
+  final Future<void> Function() onDismiss;
+  final bool healthConnect;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return _HealthPromptCard(
+      cardKey: const ValueKey('today-weight-import'),
+      connectKey: const ValueKey('today-weight-import-accept'),
+      dismissKey: const ValueKey('today-weight-import-dismiss'),
+      title: l10n.healthWeightImportTitle,
+      body: l10n.healthWeightImportBody(
+        healthConnect ? 'Health Connect' : 'Apple Health',
+      ),
+      connectLabel: l10n.healthWeightImportAccept,
+      icon: Icons.monitor_weight_outlined,
+      onConnect: onAccept,
+      onDismiss: onDismiss,
+    );
+  }
+}
+
 /// Card body shared by Today's health prompts: an icon and title, one short
 /// paragraph, the primary answer and "Not now".
 class _HealthPromptCard extends StatefulWidget {
@@ -54,12 +90,16 @@ class _HealthPromptCard extends StatefulWidget {
     required this.connectLabel,
     required this.onConnect,
     required this.onDismiss,
+    this.icon,
   });
 
   final Key cardKey, connectKey, dismissKey;
   final String title, body, connectLabel;
   final Future<void> Function() onConnect;
   final Future<void> Function() onDismiss;
+
+  /// The topic's icon; null is the steps glyph of the connect question.
+  final IconData? icon;
 
   @override
   State<_HealthPromptCard> createState() => _HealthPromptCardState();
@@ -100,7 +140,10 @@ class _HealthPromptCardState extends State<_HealthPromptCard> {
           children: <Widget>[
             Row(
               children: <Widget>[
-                IconTile.custom(color: t.activity, child: const StepsIcon()),
+                if (widget.icon case final icon?)
+                  IconTile(icon: icon, color: t.accent)
+                else
+                  IconTile.custom(color: t.activity, child: const StepsIcon()),
                 const SizedBox(width: 12),
                 Expanded(
                   child: HeadingSemantics(
@@ -126,7 +169,9 @@ class _HealthPromptCardState extends State<_HealthPromptCard> {
             PrimaryActionButton(
               key: widget.connectKey,
               label: widget.connectLabel,
-              icon: Icons.favorite_border_rounded,
+              icon: widget.icon == null
+                  ? Icons.favorite_border_rounded
+                  : Icons.check_rounded,
               // The touch floor the other in-card primaries use.
               height: kButtonMinHeight,
               onTap: _busy ? null : () => _answer(widget.onConnect),
