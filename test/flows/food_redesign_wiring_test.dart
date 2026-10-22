@@ -521,10 +521,13 @@ void main() {
         'the recipe, which logs into the chosen slot', (tester) async {
       await withClock(Clock.fixed(foodDesignNow), () async {
         final store = await _pumpFood(tester);
+        // The pick rotates by day among the high-protein dinners.
+        final pick = store.nextMealPick(localeName: 'en')!;
+        final kcal = pick.kcal!;
         expect(_key('food-pick-row'), findsOneWidget);
         expect(_inCard(MealSlot.dinner, _key('food-pick-row')), findsOneWidget);
-        expect(find.text('FITS TONIGHT · 610 KCAL'), findsOneWidget);
-        const title = 'Turkey Steak with Quinoa & Roasted Vegetables';
+        expect(find.text('FITS TONIGHT · $kcal KCAL'), findsOneWidget);
+        final title = pick.recipe.title;
         expect(find.text(title), findsOneWidget);
 
         final before = store.loggedMeals.length;
@@ -538,7 +541,7 @@ void main() {
         final logged = store.loggedMeals.where(
           (m) => m.slot == MealSlot.dinner,
         );
-        expect(logged.single.result.caloriesKcal, 610);
+        expect(logged.single.result.caloriesKcal, kcal);
         // Exactly one new diary row.
         expect(store.loggedMeals.length, before + 1);
 
@@ -546,8 +549,8 @@ void main() {
         Navigator.of(tester.element(find.byType(RecipeDetailScreen))).pop();
         await tester.pumpAndSettle();
         expect(_key('food-pick-row'), findsNothing);
-        expect(_text(tester, 'food-slot-kcal-dinner'), '610');
-        expect(_text(tester, 'food-day-left'), '292');
+        expect(_text(tester, 'food-slot-kcal-dinner'), '$kcal');
+        expect(_text(tester, 'food-day-left'), '${pick.kcalLeftAfter}');
       });
     });
 
@@ -773,7 +776,8 @@ void main() {
     testWidgets('every control has a name and a 44 px target', (tester) async {
       final semantics = tester.ensureSemantics();
       await withClock(Clock.fixed(foodDesignNow), () async {
-        await _pumpFood(tester);
+        final store = await _pumpFood(tester);
+        final pick = store.nextMealPick(localeName: 'en')!;
         final l10n = enL10n;
         for (final label in [
           l10n.foodCalendarButtonSemantics,
@@ -829,9 +833,7 @@ void main() {
             hasTapAction: true,
             hint: l10n.recipesViewRecipe,
             // The eyebrow reads in sentence case (its semantics label).
-            label:
-                'Fits tonight · 610 kcal\n'
-                'Turkey Steak with Quinoa & Roasted Vegetables',
+            label: 'Fits tonight · ${pick.kcal} kcal\n${pick.recipe.title}',
           ),
         );
       });

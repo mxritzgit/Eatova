@@ -105,19 +105,26 @@ void main() {
       expect(pick.recipe.slug, 'linsen_dal_mit_reis');
     });
 
-    test('wer Nüsse meidet, bekommt morgens nicht die Skyr-Bowl', () {
-      RecipePick? pick(Set<FoodAvoidance> avoided) => pickRecipeForNextMeal(
-        now: _slotTimes[MealSlot.breakfast]!,
-        todaysMeals: const [],
-        remainingKcal: 2100,
-        recipes: recipeCatalogDe,
-        avoidances: avoided,
-      );
-      expect(pick(const {})!.recipe.slug, 'skyr_bowl_mit_beeren_and_granola');
-      expect(
-        pick(const {FoodAvoidance.nuts})!.recipe.slug,
-        'gemuse_frittata_mit_kartoffeln',
-      );
+    test('wer Nüsse meidet, bekommt morgens nie die Skyr-Bowl', () {
+      const skyrBowl = 'skyr_bowl_mit_beeren_and_granola';
+      String pick(DateTime day, Set<FoodAvoidance> avoided) =>
+          pickRecipeForNextMeal(
+            now: day,
+            todaysMeals: const [],
+            remainingKcal: 2100,
+            recipes: recipeCatalogDe,
+            avoidances: avoided,
+          )!.recipe.slug;
+      // The breakfast pick rotates by day; over a week it is the skyr bowl
+      // at least once, never for someone who avoids nuts.
+      final week = [
+        for (var i = 0; i < 7; i++)
+          _slotTimes[MealSlot.breakfast]!.add(Duration(days: i)),
+      ];
+      expect(week.map((day) => pick(day, const {})), contains(skyrBowl));
+      for (final day in week) {
+        expect(pick(day, const {FoodAvoidance.nuts}), isNot(skyrBowl));
+      }
     });
 
     test('jede Ernährungsform und jedes gemiedene Lebensmittel lässt ein '
