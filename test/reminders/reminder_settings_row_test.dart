@@ -341,6 +341,13 @@ void main() {
           expect(notifications.requests, 1);
           expect(_toggle(tester).value, isTrue);
 
+          await _tap(
+            tester,
+            find.byKey(const ValueKey('settings-weigh-in-reminder-toggle')),
+          );
+          expect(store.weighInReminderState, ReminderState.active);
+          expect(store.reminderState, ReminderState.active);
+
           await store.setReminderTime(const ReminderTime(21, 30));
           await tester.pumpAndSettle();
           expect(find.text('21:30'), findsOneWidget);

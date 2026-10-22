@@ -200,5 +200,38 @@ void main() {
         expect(notifications.nudgeCancels, 1);
       }),
     );
+
+    test(
+      'eine Freigabe gilt fuer beide: die blockierte Erinnerung wird wieder '
+      'aktiv und geplant',
+      () => withClock(Clock.fixed(_wednesday), () async {
+        for (final weighInFirst in [true, false]) {
+          final notifications = _Notifications()..grant = false;
+          final store = _store(
+            LocalCache(InMemoryKeyValueStore(), 'user-a'),
+            notifications,
+          );
+          Future<void> blocked() => weighInFirst
+              ? store.setWeighInReminderEnabled(true)
+              : store.setNotificationsEnabled(true);
+          Future<void> granted() => weighInFirst
+              ? store.setNotificationsEnabled(true)
+              : store.setWeighInReminderEnabled(true);
+
+          await blocked();
+          notifications.grant = true;
+          await granted();
+
+          final why = weighInFirst ? 'weigh-in first' : 'evening first';
+          expect(store.reminderState, ReminderState.active, reason: why);
+          expect(store.weighInReminderState, ReminderState.active, reason: why);
+          expect(
+            notifications.scheduled.last.where(_weighIn),
+            hasLength(8),
+            reason: why,
+          );
+        }
+      }),
+    );
   });
 }
