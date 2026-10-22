@@ -452,6 +452,11 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// in `_HomeStoreEnergyCheckPart`.
   String? _energyCheckContext();
 
+  /// Re-plans the reminder nudges and reports a failure; lives in
+  /// `_HomeStoreProfilePart`. A weigh-in calls it to drop today's weigh-in
+  /// reminder.
+  Future<void> _rescheduleGuarded(String context);
+
   /// Compact day/profile snapshot for the AI coach, so it can advise on
   /// concrete numbers.
   ///
@@ -601,9 +606,13 @@ abstract class _HomeStoreBase extends ChangeNotifier {
         .take(maxFoods)
         .map((m) {
           final raw = m.result.mealName.trim();
+          // Cut by characters: a cut by UTF-16 units split an emoji, which
+          // reached the model as U+FFFD.
           final name = raw.isEmpty
               ? 'Mahlzeit'
-              : (raw.length > 40 ? '${raw.substring(0, 39)}…' : raw);
+              : (raw.characters.length > 40
+                    ? '${raw.characters.take(39)}…'
+                    : raw);
           return '${m.slot.germanLabel}: $name (${m.result.caloriesKcal} kcal)';
         })
         .join(', ');

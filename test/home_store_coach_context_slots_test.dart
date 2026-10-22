@@ -149,6 +149,21 @@ void main() {
       });
     });
 
+    test('ein langer Name wird nicht mitten im Emoji gekuerzt', () async {
+      await withClock(Clock.fixed(_heute), () async {
+        final store = _store();
+        await store.addResultToDailyTotal(
+          MealAnalysisResult.quickEntry(
+            name: '${'x' * 38}🍝 Pasta al forno',
+            caloriesKcal: 500,
+          ),
+          slot: MealSlot.dinner,
+        );
+        final ctx = store.coachContext;
+        expect(ctx, contains('${'x' * 38}🍝… (500 kcal)'));
+      });
+    });
+
     test('ohne Mahlzeiten fehlt die Zeile komplett', () async {
       await withClock(Clock.fixed(_heute), () async {
         final ctx = _store().coachContext;
