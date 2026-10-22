@@ -96,6 +96,11 @@ Deno.test('import extraction caps a candidate title without splitting an emoji',
   check(title.isWellFormed() && title === 'x'.repeat(159), `Title cut before the emoji: ${JSON.stringify(title.slice(-3))}`);
 });
 
+Deno.test('import extraction drops bidi overrides from a candidate title', async () => {
+  const result = await extract([draft({ title: 'Feta\u202e-Pasta\u2066' })]);
+  check(result?.candidates[0].title === 'Feta -Pasta', `Bidi controls kept: ${JSON.stringify(result?.candidates[0].title)}`);
+});
+
 Deno.test('import extraction omits invented dietary variant labels', async () => {
   const result = await extract([draft({ variant_label: 'Gluten-free' })]);
   check(result?.status === 'ready' && result.candidates[0].variant_label === undefined, 'Dietary suitability needs source evidence');
