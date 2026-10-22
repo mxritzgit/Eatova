@@ -346,10 +346,14 @@ no user data:
 2. the deploy workflow's boot probe for every function (`probe --slugs all`):
    preflight 204, the gateway's 401 without a token and the handler's own 401
    with the anon key. A missing, undeployed or crashing function, or one that
-   lost `verify_jwt`, fails the run.
+   lost `verify_jwt`, fails the run. A request without an answer or with a
+   5xx is asked once more after five seconds, so one lost request does not
+   fail the run (2026-10-22: one `analyze-meal` request never reached the
+   gateway and the run went red).
 
 The job summary holds both tables (states, counters, HTTP statuses); the log
-holds the readiness JSON, which has no ref, token or response body. A failed
+holds the readiness JSON and the probe table, neither with a ref, token or
+response body. A failed
 run is the alert: GitHub mails it to the person who last changed the
 schedule, if their notification settings send Actions failures.
 
@@ -524,8 +528,10 @@ After the environment approval the run:
    graph in the commit: a missing, changed or unexpected file fails;
 7. runs the boot probe: preflight 204, 401 from the gateway without a token,
    and the handler's own 401 with the anon key, which proves it booted and
-   passed its configuration check. No user token, no paid call; a key that
-   reaches the Auth lookup counts one failed lookup for the runner's address;
+   passed its configuration check. A request without an answer or with a
+   5xx is asked once more after five seconds. No user token, no paid call;
+   a key that reaches the Auth lookup counts one failed lookup for the
+   runner's address;
 8. writes the deploy record and the job summary.
 
 The record (artifact `deploy-record-<run>-attempt-<n>`, kept 90 days) holds the
