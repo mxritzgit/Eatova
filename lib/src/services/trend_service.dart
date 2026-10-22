@@ -306,6 +306,8 @@ class TrendDayTotals {
     required this.carbsG,
     required this.fatG,
     this.proteinMissing = 0,
+    this.carbsMissing = 0,
+    this.fatMissing = 0,
   });
 
   /// Local calendar day (date-only, no time).
@@ -318,6 +320,10 @@ class TrendDayTotals {
   /// Entries with energy but without a protein value: [proteinG] is then a
   /// lower bound.
   final int proteinMissing;
+
+  /// The same for carbs and fat ([carbsG], [fatG]).
+  final int carbsMissing;
+  final int fatMissing;
 }
 
 /// A day "hits" the kcal goal within +/-10 % of it (bounds inclusive).
@@ -325,11 +331,22 @@ const double trendGoalTolerance = 0.10;
 
 /// Pure aggregation: PostgREST rows -> daily totals, ascending. Day key is
 /// `local_day` (DATA-6), falling back to `logged_at`; null macros count as 0,
-/// and a null protein on a row with energy is counted as missing
+/// and a null macro on a row with energy is counted as missing
 /// ([TrendDayTotals.proteinMissing], the rule of `MacroProgress.add`).
 List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
   final byDay =
-      <String, ({int kcal, double p, double c, double f, int pMissing})>{};
+      <
+        String,
+        ({
+          int kcal,
+          double p,
+          double c,
+          double f,
+          int pMissing,
+          int cMissing,
+          int fMissing,
+        })
+      >{};
   for (final row in rows) {
     String? key = row['local_day']?.toString();
     if (key == null) {
@@ -343,15 +360,30 @@ List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
       }
       key = localDayKey(loggedAt.toLocal());
     }
-    final prev = byDay[key] ?? (kcal: 0, p: 0.0, c: 0.0, f: 0.0, pMissing: 0);
+    final prev =
+        byDay[key] ??
+        (
+          kcal: 0,
+          p: 0.0,
+          c: 0.0,
+          f: 0.0,
+          pMissing: 0,
+          cMissing: 0,
+          fMissing: 0,
+        );
     final kcal = (row['calories_kcal'] as num?)?.toInt() ?? 0;
     final protein = (row['protein_g'] as num?)?.toDouble();
+    final carbs = (row['carbs_g'] as num?)?.toDouble();
+    final fat = (row['fat_g'] as num?)?.toDouble();
+    int missing(double? grams) => grams == null && kcal > 0 ? 1 : 0;
     byDay[key] = (
       kcal: prev.kcal + kcal,
       p: prev.p + (protein ?? 0),
-      c: prev.c + ((row['carbs_g'] as num?)?.toDouble() ?? 0),
-      f: prev.f + ((row['fat_g'] as num?)?.toDouble() ?? 0),
-      pMissing: prev.pMissing + (protein == null && kcal > 0 ? 1 : 0),
+      c: prev.c + (carbs ?? 0),
+      f: prev.f + (fat ?? 0),
+      pMissing: prev.pMissing + missing(protein),
+      cMissing: prev.cMissing + missing(carbs),
+      fMissing: prev.fMissing + missing(fat),
     );
   }
   final totals = <TrendDayTotals>[];
@@ -368,6 +400,8 @@ List<TrendDayTotals> aggregateDailyTotals(Iterable<Map<String, dynamic>> rows) {
         carbsG: entry.value.c,
         fatG: entry.value.f,
         proteinMissing: entry.value.pMissing,
+        carbsMissing: entry.value.cMissing,
+        fatMissing: entry.value.fMissing,
       ),
     );
   }

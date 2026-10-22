@@ -324,13 +324,19 @@ void main() {
       await pumpLocalized(
         tester,
         TodayTrendsCard(
-          preview: (avgKcal: 2104.4, avgProteinG: 117.6, avgSteps: 8432),
+          // A day of the week has entries without protein.
+          preview: (
+            avgKcal: 2104.4,
+            avgProteinG: 117.6,
+            proteinAtLeast: true,
+            avgSteps: 8432,
+          ),
           onOpen: () => opened++,
         ),
         locale: const Locale('de'),
       );
       expect(find.text('2.104 kcal'), findsOneWidget);
-      expect(find.text('118 g'), findsOneWidget);
+      expect(find.text('≥118 g'), findsOneWidget);
       expect(find.text('8.432'), findsOneWidget);
       expect(find.text('Ø der letzten 7 Tage'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('today-trends')));
@@ -349,11 +355,21 @@ void main() {
           Column(
             children: [
               TodayTrendsCard(
-                preview: (avgKcal: 1900, avgProteinG: null, avgSteps: null),
+                preview: (
+                  avgKcal: 1900,
+                  avgProteinG: null,
+                  proteinAtLeast: false,
+                  avgSteps: null,
+                ),
                 onOpen: () {},
               ),
               TodayTrendsCard(
-                preview: (avgKcal: null, avgProteinG: null, avgSteps: null),
+                preview: (
+                  avgKcal: null,
+                  avgProteinG: null,
+                  proteinAtLeast: false,
+                  avgSteps: null,
+                ),
                 onOpen: () {},
               ),
             ],

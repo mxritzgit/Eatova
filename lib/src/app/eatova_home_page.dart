@@ -1184,6 +1184,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     return (
       avgKcal: report.avgKcal,
       avgProteinG: report.macros?.proteinG,
+      proteinAtLeast: report.macrosAtLeast.protein,
       avgSteps: report.avgSteps,
     );
   }

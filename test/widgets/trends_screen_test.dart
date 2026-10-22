@@ -146,6 +146,40 @@ void main() {
     expect(find.byKey(const ValueKey('trends-metrics-note')), findsOneWidget);
   }));
 
+  // Entries without a macro add 0 g: an average over such a day is a lower
+  // bound (review 2026-10-22). Today is not averaged, so its gap is not
+  // either.
+  testWidgets(
+    'unbekannte Makros machen den Schnitt zur Untergrenze',
+    (tester) => withClockAt(_jetzt, () async {
+      final totals = [
+        TrendDayTotals(
+          day: _daysAgo(0),
+          kcal: 2200,
+          proteinG: 120,
+          carbsG: 200,
+          fatG: 60,
+          fatMissing: 1,
+        ),
+        _day(1, kcal: 2000, p: 100, c: 180, f: 80),
+        TrendDayTotals(
+          day: _daysAgo(2),
+          kcal: 2100,
+          proteinG: 80,
+          carbsG: 100,
+          fatG: 40,
+          carbsMissing: 1,
+        ),
+      ];
+      await _pumpTrends(tester, loader: () => Future.value(totals));
+      await tester.pumpAndSettle();
+
+      expect(find.text('90 g'), findsOneWidget);
+      expect(find.text('≥140 g'), findsOneWidget);
+      expect(find.text('60 g'), findsOneWidget);
+    }),
+  );
+
   testWidgets('Zeitraum-Umschalter filtert die Kennzahlen', (tester) => withClockAt(_jetzt, () async {
     final totals = [
       _day(0, kcal: 2200),

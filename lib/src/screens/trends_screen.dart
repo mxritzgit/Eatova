@@ -375,6 +375,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
       const SizedBox(height: 12),
       _MacroAveragesCard(
         macros: macros,
+        atLeast: report.macrosAtLeast,
         proteinGoalDays: data.proteinGoalG > 0 && hits.tracked > 0
             ? (
                 hit: report.proteinGoalDays,
@@ -890,9 +891,16 @@ class _StatCard extends StatelessWidget {
 }
 
 class _MacroAveragesCard extends StatelessWidget {
-  const _MacroAveragesCard({required this.macros, this.proteinGoalDays});
+  const _MacroAveragesCard({
+    required this.macros,
+    required this.atLeast,
+    this.proteinGoalDays,
+  });
 
   final ({double proteinG, double carbsG, double fatG})? macros;
+
+  /// Averages over days with entries without that macro, shown as "≥48 g".
+  final ({bool protein, bool carbs, bool fat}) atLeast;
 
   /// Logged completed days that reached the protein goal, and those below it
   /// with entries of unknown protein; null without a goal or a logged day.
@@ -903,21 +911,23 @@ class _MacroAveragesCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final m = macros;
+    String grams(double? value, bool lowerBound) =>
+        value == null ? '–' : '${lowerBound ? '≥' : ''}${value.round()} g';
     final cells = <Widget>[
       _MacroAvg(
         color: t.protein,
         label: l10n.todayMacroProtein,
-        value: m == null ? '–' : '${m.proteinG.round()} g',
+        value: grams(m?.proteinG, atLeast.protein),
       ),
       _MacroAvg(
         color: t.carbs,
         label: l10n.todayMacroCarbs,
-        value: m == null ? '–' : '${m.carbsG.round()} g',
+        value: grams(m?.carbsG, atLeast.carbs),
       ),
       _MacroAvg(
         color: t.fat,
         label: l10n.todayMacroFat,
-        value: m == null ? '–' : '${m.fatG.round()} g',
+        value: grams(m?.fatG, atLeast.fat),
       ),
     ];
     return AppCard(

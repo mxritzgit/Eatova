@@ -133,6 +133,7 @@ class TrendReport {
     required this.avgKcal,
     required this.hits,
     required this.macros,
+    required this.macrosAtLeast,
     required this.proteinGoalDays,
     required this.proteinUnknownDays,
     required this.loggedDays,
@@ -200,6 +201,9 @@ class TrendReport {
       }
     }
     final last = window.length - 1;
+    // An average over a day with entries of unknown macros is a lower bound.
+    bool lowerBound(int Function(TrendDayTotals day) missing) =>
+        full.any((day) => day != null && missing(day) > 0);
 
     return TrendReport._(
       range: range,
@@ -226,6 +230,11 @@ class TrendReport {
         burnedKcalFor: goals.burnedKcalFor,
       ),
       macros: averageMacrosOf(full),
+      macrosAtLeast: (
+        protein: lowerBound((day) => day.proteinMissing),
+        carbs: lowerBound((day) => day.carbsMissing),
+        fat: lowerBound((day) => day.fatMissing),
+      ),
       proteinGoalDays: proteinGoalDays,
       proteinUnknownDays: proteinUnknownDays,
       loggedDays: trackedDaysOf(completed),
@@ -271,6 +280,10 @@ class TrendReport {
 
   /// Average macros over the complete completed days.
   final ({double proteinG, double carbsG, double fatG})? macros;
+
+  /// Which [macros] are lower bounds: one of their days has entries without
+  /// that macro, which added 0 g.
+  final ({bool protein, bool carbs, bool fat}) macrosAtLeast;
 
   /// Complete completed days that reached the protein goal.
   final int proteinGoalDays;

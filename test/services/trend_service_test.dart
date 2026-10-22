@@ -95,6 +95,8 @@ void main() {
       expect(totals.last.fatG, 0);
       // The 0 g is a lower bound, not a measurement.
       expect(totals.last.proteinMissing, 1);
+      expect(totals.last.carbsMissing, 1);
+      expect(totals.last.fatMissing, 1);
       expect(totals.first.proteinMissing, 0);
     });
   });

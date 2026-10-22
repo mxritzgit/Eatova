@@ -110,6 +110,7 @@ void main() {
         expect(yesterday.kcal, 800);
         expect(yesterday.proteinG, 40);
         expect(yesterday.proteinMissing, 1, reason: 'kcal-only quick entry');
+        expect((yesterday.carbsMissing, yesterday.fatMissing), (1, 1));
         expect(known[localDayKey(_day(0))]!.proteinMissing, 0);
         expect(yesterday.day, _day(1));
         expect(known[localDayKey(_day(0))]!.kcal, 300);

@@ -558,6 +558,8 @@ mixin _HomeStoreMealsPart
         carbsG: sum.carbsG,
         fatG: sum.fatG,
         proteinMissing: sum.proteinMissing,
+        carbsMissing: sum.carbsMissing,
+        fatMissing: sum.fatMissing,
       );
     }
     return known;
