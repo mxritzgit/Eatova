@@ -172,7 +172,9 @@ void main() {
       );
       for (final (name, weighIns, offered) in <(String, List<WeightLogEntry>?, bool)>[
         ('falling 0.52 kg a week', null, false),
-        ('flat', [at(20, 80), at(10, 80.2), at(1, 80.1)], true),
+        // The weekly check's line needs 4 weigh-in days 14 days apart.
+        ('flat', [at(20, 80), at(14, 80.2), at(7, 80.1), at(1, 80.1)], true),
+        ('flat, too few weigh-ins for a pace', [at(20, 80), at(1, 80.1)], false),
       ]) {
         var asked = 0;
         await _pump(
