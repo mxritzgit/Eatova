@@ -144,12 +144,13 @@
   "foodEntryDeleteSemantics": "Eintrag löschen",
   "foodPortionFallback": "1 Portion",
   "foodEditMealTitle": "Mahlzeit bearbeiten",
-  "foodMacroSummary": "P\u00a0{protein}\u00a0g\u00a0· K\u00a0{carbs}\u00a0g\u00a0· F\u00a0{fat}\u00a0g",
+  "foodMacroSummary": "P\u00a0{protein}\u00a0· K\u00a0{carbs}\u00a0· F\u00a0{fat}",
   "@foodMacroSummary": {
+    "description": "Each value carries its unit: \"48 g\", \"≥48 g\" when entries without that macro are in the sum, \"–\" when none is known.",
     "placeholders": {
-      "protein": { "type": "int" },
-      "carbs": { "type": "int" },
-      "fat": { "type": "int" }
+      "protein": { "type": "String" },
+      "carbs": { "type": "String" },
+      "fat": { "type": "String" }
     }
   },
   "foodSlotTotalLabel": "Gesamt",

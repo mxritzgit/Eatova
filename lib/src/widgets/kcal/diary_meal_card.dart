@@ -223,7 +223,7 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
                 10,
               ),
               child: Text(
-                _macroLine(l10n, total),
+                macroSummaryLine(l10n, total),
                 key: ValueKey('food-slot-macros-${slot.name}'),
                 style: foodText(12, weight: FontWeight.w600, color: t.ink2),
               ),
@@ -598,8 +598,22 @@ String foodPickEyebrow(RecipePick pick, AppLocalizations l10n) {
       : l10n.foodPickFitsDay(value);
 }
 
-String _macroLine(AppLocalizations l10n, MacroProgress m) =>
-    l10n.foodMacroSummary(m.proteinG.round(), m.carbsG.round(), m.fatG.round());
+/// The "P 48 g · C 90 g · F 20 g" line of [m]. Entries without a macro add
+/// 0 g to it, so that macro reads "≥48 g" when such entries are in the sum
+/// and "–" when nothing known is (2026-10-22).
+String macroSummaryLine(AppLocalizations l10n, MacroProgress m) {
+  String grams(double value, int missing) {
+    final rounded = value.round();
+    if (missing == 0) return '$rounded g';
+    return rounded == 0 ? '–' : '≥$rounded g';
+  }
+
+  return l10n.foodMacroSummary(
+    grams(m.proteinG, m.proteinMissing),
+    grams(m.carbsG, m.carbsMissing),
+    grams(m.fatG, m.fatMissing),
+  );
+}
 
 /// A diary row's amount: grams, marked "~" when they are an AI estimate;
 /// servings ("1,5 Portionen") for an entry without a weight.
@@ -873,7 +887,7 @@ class _HistoryEntry extends StatelessWidget {
                           ),
                           if (showMacros && hasMacros)
                             Text(
-                              _macroLine(l10n, macros),
+                              macroSummaryLine(l10n, macros),
                               style: foodText(12, color: t.ink3),
                             ),
                         ],

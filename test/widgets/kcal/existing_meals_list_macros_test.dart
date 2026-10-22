@@ -121,6 +121,38 @@ void main() {
     );
   });
 
+  // A kcal-only entry adds 0 g: the total is a lower bound (2026-10-22).
+  testWidgets('ein Eintrag ohne Makros macht die Summe zur Untergrenze', (
+    tester,
+  ) async {
+    _pin390(tester);
+    await tester.pumpWidget(
+      designHarness(
+        ExistingMealsList(
+          meals: [
+            _meals.first,
+            _meal(
+              id: 'q',
+              name: 'Kaffee',
+              kcal: 90,
+              grams: 0,
+              protein: '-',
+              carbs: '-',
+              fat: '-',
+            ),
+          ],
+          slot: MealSlot.dinner,
+          onRemove: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      _textOf(tester, 'analyse-existing-total-macros'),
+      _macros('P ≥34 g · K ≥2 g · F ≥28 g'),
+    );
+  });
+
   testWidgets('Zeilen zeigen eigene Makros; unbekannte Makros bleiben stumm',
       (tester) async {
     _pin390(tester);
