@@ -68,13 +68,26 @@ mixin _HomeStoreProfilePart
   /// cache the card never shows, as "never again" could not be kept.
   bool? _reminderPromptAnswered;
 
-  /// C4: Today offers the reminder once — after logs on two different days,
-  /// only while reminders are off, and never again after any answer.
+  /// C4: Today offers the reminder once — from the evening of the first day
+  /// with an entry ([reminderOfferDue]), only while reminders are off, and
+  /// never again after any answer.
   bool get reminderPromptVisible =>
       _reminderPromptAnswered == false &&
       _reminderState == ReminderState.off &&
       !_notificationSessionEnded &&
-      loggedOnTwoDays(loggedMeals, lifetimeStats);
+      reminderOfferDue(loggedMeals, lifetimeStats, clock.now());
+
+  /// The weigh-in reminder (review 2026-10-22): Monday and Thursday mornings,
+  /// switched on by itself in the settings. The same three states as the
+  /// evening reminder (D11); both ride on the one OS permission, so every OS
+  /// answer applies to both.
+  ReminderState get weighInReminderState => _weighInState;
+  ReminderState _weighInState = ReminderState.off;
+
+  /// Bumped by every weigh-in choice; a later choice wins over an earlier
+  /// request or OS read (the pattern of [_notificationRevision]).
+  int _weighInRevision = 0;
+  int? _weighInOptInRevision;
 
   /// Onboarding is mandatory once a real Supabase sync exists and the profile
   /// has not been completed. Never without sync (test/preview).
@@ -105,14 +118,16 @@ mixin _HomeStoreProfilePart
       return;
     }
     final revision = _notificationRevision;
+    final weighInRevision = _weighInRevision;
     final enabled = await cache.readNotificationsEnabled() ?? false;
+    final weighIn = await cache.readWeighInReminderEnabled();
     if (!_notificationRequestIsCurrent(revision)) return;
     // Opted in before the card existed: the card has nothing to offer.
     if (enabled) unawaited(_markReminderPromptAnswered());
     // No opt-in -> the OS is never asked for permission. P2-02: but what an
     // earlier account on this device scheduled is still cancelled. The gate
     // cancels on every session end it sees; this covers one it did not.
-    if (!enabled) {
+    if (!enabled && !weighIn) {
       try {
         await _cancelStaleSchedules();
       } catch (e, st) {
@@ -126,6 +141,9 @@ mixin _HomeStoreProfilePart
       cache,
       context: 'notifications-cold-start',
       revision: revision,
+      daily: enabled,
+      // A weigh-in choice made during the read stands.
+      weighIn: weighIn && weighInRevision == _weighInRevision,
     );
   }
 
@@ -134,20 +152,29 @@ mixin _HomeStoreProfilePart
   /// Now the user lands in [ReminderState.blocked] — they opted in, the OS
   /// layer is unusable right now — and the error goes to [CrashReporter].
   /// The opt-in flag stays untouched: nothing was proven either way.
+  ///
+  /// [daily] and [weighIn] name the reminders the user wants; only those
+  /// take the OS answer.
   Future<void> _syncWithOsGuarded(
     LocalCache cache, {
     required String context,
     required int revision,
+    bool daily = true,
+    bool weighIn = false,
   }) async {
+    final weighInRevision = _weighInRevision;
     try {
       _syncNotificationLocale();
       await notificationService.init();
       if (!_notificationRequestIsCurrent(revision)) return;
-      await _applyOsPermission(cache, revision);
+      await _applyOsPermission(cache, revision, daily: daily, weighIn: weighIn);
     } catch (e, st) {
       unawaited(CrashReporter.capture(e, st, context: context));
       if (!_notificationRequestIsCurrent(revision)) return;
-      _setReminderState(ReminderState.blocked);
+      if (daily) _setReminderState(ReminderState.blocked);
+      if (weighIn && weighInRevision == _weighInRevision) {
+        _setWeighInState(ReminderState.blocked);
+      }
     }
   }
 
@@ -162,10 +189,19 @@ mixin _HomeStoreProfilePart
   }
 
   /// Re-reads the OS layer and brings state + cache in line. Never shows a
-  /// dialog — the only place allowed to ask is [_setNotificationsEnabled].
-  Future<void> _applyOsPermission(LocalCache cache, int revision) async {
+  /// dialog — the only places allowed to ask are [_setNotificationsEnabled]
+  /// and [setWeighInReminderEnabled].
+  Future<void> _applyOsPermission(
+    LocalCache cache,
+    int revision, {
+    required bool daily,
+    required bool weighIn,
+  }) async {
+    final weighInRevision = _weighInRevision;
     final granted = await _osDeliversNotifications();
     if (!_notificationRequestIsCurrent(revision)) return;
+    // A weigh-in choice made during the read carries its own answer.
+    final applyWeighIn = weighIn && weighInRevision == _weighInRevision;
 
     if (granted == null) {
       // Unknown (service without probe): claim nothing, invalidate nothing.
@@ -175,8 +211,10 @@ mixin _HomeStoreProfilePart
     }
 
     if (granted) {
-      _setReminderState(ReminderState.active);
-      await cache.writeNotificationsEnabled(true);
+      if (daily) _setReminderState(ReminderState.active);
+      if (applyWeighIn) _setWeighInState(ReminderState.active);
+      if (daily) await cache.writeNotificationsEnabled(true);
+      if (applyWeighIn) await cache.writeWeighInReminderEnabled(true);
       if (!_notificationRequestIsCurrent(revision)) return;
       await _rescheduleStreakReminder();
       return;
@@ -185,9 +223,13 @@ mixin _HomeStoreProfilePart
     // Third state: the user WANTS reminders, the OS refuses. The persisted
     // flag claims "active" and is provably wrong, so it falls — otherwise the
     // next cold start plans into the void again.
-    _setReminderState(ReminderState.blocked);
-    await cache.writeNotificationsEnabled(false);
-    if (!_notificationRequestIsCurrent(revision)) return;
+    if (daily) _setReminderState(ReminderState.blocked);
+    if (applyWeighIn) _setWeighInState(ReminderState.blocked);
+    if (daily) await cache.writeNotificationsEnabled(false);
+    if (applyWeighIn) await cache.writeWeighInReminderEnabled(false);
+    if (!_notificationRequestIsCurrent(revision) || !(daily || applyWeighIn)) {
+      return;
+    }
     await _cancelReminderNudges();
   }
 
@@ -198,6 +240,14 @@ mixin _HomeStoreProfilePart
     if (service is NotificationScopedCancel) return service.cancelNudges();
     return notificationService.cancelAll();
   }
+
+  /// After one reminder was switched off: the other one's plan stays, or
+  /// nothing does.
+  Future<void> _replanOrCancelNudges() =>
+      _reminderState == ReminderState.active ||
+          _weighInState == ReminderState.active
+      ? _rescheduleStreakReminder()
+      : _cancelReminderNudges();
 
   /// Cold-start backstop: everything an earlier session left goes, but not
   /// a rest alert the player already resumed during this boot, and the
@@ -241,6 +291,15 @@ mixin _HomeStoreProfilePart
     _mutate(() => _reminderState = state);
   }
 
+  void _setWeighInState(ReminderState state) {
+    if (_disposed) {
+      _weighInState = state;
+      return;
+    }
+    if (state == _weighInState) return;
+    _mutate(() => _weighInState = state);
+  }
+
   Future<void> _setNotificationsEnabled(bool enabled) async {
     if (_disposed || _notificationSessionEnded) return;
     // A later user choice wins over every earlier permission request/probe.
@@ -254,7 +313,7 @@ mixin _HomeStoreProfilePart
       _setReminderState(ReminderState.off);
       await cache?.writeNotificationsEnabled(false);
       if (!_notificationRequestIsCurrent(revision)) return;
-      await _cancelReminderNudges();
+      await _replanOrCancelNudges();
       return;
     }
 
@@ -290,34 +349,55 @@ mixin _HomeStoreProfilePart
     _setReminderState(ReminderState.active);
     await cache?.writeNotificationsEnabled(true);
     if (!_notificationRequestIsCurrent(revision)) return;
+    // One permission: a weigh-in reminder the OS blocked is delivered again.
+    if (_weighInState == ReminderState.blocked) {
+      _setWeighInState(ReminderState.active);
+      await cache?.writeWeighInReminderEnabled(true);
+      if (!_notificationRequestIsCurrent(revision)) return;
+    }
     await _rescheduleStreakReminder();
   }
 
-  /// Replans the evening streak reminders for the full horizon (4 weeks, see
-  /// streak_reminder_planner.dart). scheduleAll is cancel-first, so always
-  /// pass the full planner list — no duplicates on repeated calls. Guard:
-  /// never plans without granted permission.
+  /// Replans every reminder nudge for the full horizon (4 weeks, see
+  /// streak_reminder_planner.dart): the evening streak saver and the
+  /// weigh-in reminder, each while it is active. scheduleAll is cancel-first
+  /// over the whole nudge range, so always pass both full planner lists — no
+  /// duplicates on repeated calls. Guard: never plans without granted
+  /// permission.
   ///
   /// Today's intake goes along, so a half-logged day keeps its evening
   /// question; the meal paths re-plan whenever today's entries change.
   Future<void> _rescheduleStreakReminder() async {
+    final daily = _reminderState == ReminderState.active;
+    final weighIn = _weighInState == ReminderState.active;
     if (_disposed ||
         _notificationSessionEnded ||
-        _reminderState != ReminderState.active ||
+        (!daily && !weighIn) ||
         !_accountStillSignedIn) {
       return;
     }
     final now = clock.now();
-    await notificationService.scheduleAll(
-      planStreakReminders(now, lifetimeStats, _l10n, _reminderTime, (
-        kcal: totals.consumedKcalForFoodDate(loggedMeals, now),
-        goalKcal: profile.dailyKcalGoal,
-      )),
-    );
+    final today = startOfDay(now);
+    await notificationService.scheduleAll([
+      if (daily)
+        ...planStreakReminders(now, lifetimeStats, _l10n, _reminderTime, (
+          kcal: totals.consumedKcalForFoodDate(loggedMeals, now),
+          goalKcal: profile.dailyKcalGoal,
+        )),
+      if (weighIn)
+        ...planWeighInReminders(
+          now,
+          l10n: _l10n,
+          weighedToday: weightLog.entries.any(
+            (entry) => startOfDay(entry.timestamp.toLocal()) == today,
+          ),
+        ),
+    ]);
   }
 
   /// A re-plan outside the opt-in flows: a plugin failure is reported, never
   /// thrown at the caller (same fence as [_syncWithOsGuarded]).
+  @override
   Future<void> _rescheduleGuarded(String context) async {
     try {
       await _rescheduleStreakReminder();
@@ -396,7 +476,9 @@ mixin _HomeStoreProfilePart
         // A permission sheet can resume the app before its result arrives.
         // Its explicit answer takes precedence over a passive, older OS read.
         _notificationOptInRevision != null ||
-        _reminderState == ReminderState.off) {
+        _weighInOptInRevision != null ||
+        (_reminderState == ReminderState.off &&
+            _weighInState == ReminderState.off)) {
       return;
     }
     final cache = _notificationCache;
@@ -405,7 +487,69 @@ mixin _HomeStoreProfilePart
       cache,
       context: 'notifications-refresh',
       revision: ++_notificationRevision,
+      daily: _reminderState != ReminderState.off,
+      weighIn: _weighInState != ReminderState.off,
     );
+  }
+
+  /// Switches the weigh-in reminder on or off (settings). Like the evening
+  /// reminder's opt-in: ask the OS first (its dialog at most once), then
+  /// persist; a refusal is [ReminderState.blocked]. Off keeps the evening
+  /// reminder's plan.
+  Future<void> setWeighInReminderEnabled(bool enabled) async {
+    if (_disposed || _notificationSessionEnded) return;
+    final revision = ++_weighInRevision;
+    _weighInOptInRevision = enabled ? revision : null;
+    bool current() =>
+        !_disposed && !_notificationSessionEnded && revision == _weighInRevision;
+    final cache = _notificationCache;
+
+    if (!enabled) {
+      _setWeighInState(ReminderState.off);
+      await cache?.writeWeighInReminderEnabled(false);
+      if (!current()) return;
+      await _replanOrCancelNudges();
+      return;
+    }
+
+    final bool granted;
+    try {
+      _syncNotificationLocale();
+      await notificationService.init();
+      if (!current()) return;
+      granted = await notificationService.requestPermission();
+    } catch (e, st) {
+      unawaited(
+        CrashReporter.capture(e, st, context: 'notifications-weigh-in-opt-in'),
+      );
+      if (!current()) return;
+      _setWeighInState(ReminderState.blocked);
+      await cache?.writeWeighInReminderEnabled(false);
+      return;
+    } finally {
+      if (_weighInOptInRevision == revision) _weighInOptInRevision = null;
+    }
+    if (!current()) return;
+
+    _setWeighInState(granted ? ReminderState.active : ReminderState.blocked);
+    await cache?.writeWeighInReminderEnabled(granted);
+    if (!granted || !current()) return;
+    // One permission: an evening reminder the OS blocked is delivered again.
+    if (_reminderState == ReminderState.blocked) {
+      _setReminderState(ReminderState.active);
+      await cache?.writeNotificationsEnabled(true);
+      if (!current()) return;
+    }
+    await _rescheduleStreakReminder();
+  }
+
+  /// Planned reminders carry the language of their planning, so a new app
+  /// language re-plans them; the service renames its channels itself.
+  @override
+  void setLocalizations(AppLocalizations l10n) {
+    final changed = l10n.localeName != _l10n.localeName;
+    super.setLocalizations(l10n);
+    if (changed) unawaited(_rescheduleGuarded('notifications-locale'));
   }
 
   /// Cold-start path as a public facade — boot calls it from

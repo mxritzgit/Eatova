@@ -182,7 +182,6 @@ void main() {
 
         final snapshot = await service.readSnapshot();
         expect(snapshot?.stepsToday, 0);
-        expect(snapshot?.latestWeightKg, 80);
         expect(service.authState, HealthAuthState.granted);
       });
     });

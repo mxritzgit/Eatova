@@ -6,7 +6,8 @@
 //
 // Most cases mount the real home page (preview store, no sync) in the design
 // scenario: Mon 2026-09-28 18:30, a 2,123 kcal goal, 1,221 kcal logged,
-// dinner open, so the shared pick is the turkey steak (610 kcal, 58 g).
+// dinner open. The shared pick rotates by day among the high-protein
+// dinners (`pickRecipeForSlot`), so the cases read it from the store.
 
 import 'dart:async';
 
@@ -343,10 +344,13 @@ void main() {
       await withClock(Clock.fixed(_now), () async {
         final store = await _pumpHome(tester);
         final pick = store.nextMealPick(localeName: 'en')!;
-        expect(pick.recipe.slug, _turkey);
+        expect(pick.source, RecipePickSource.suggested);
+        expect(pick.slot, MealSlot.dinner);
+        // A catalog recipe with its bundled photo.
+        expect(pick.recipe.imageAsset, isNotEmpty);
         final hero = _key('recipe-hero');
         expect(
-          find.descendant(of: hero, matching: find.text(_turkeyTitle)),
+          find.descendant(of: hero, matching: find.text(pick.recipe.title)),
           findsOneWidget,
         );
         expect(find.text('PICKED FOR TONIGHT'), findsOneWidget);
@@ -354,14 +358,14 @@ void main() {
         expect(
           find.descendant(
             of: _key('recipe-hero-kcal'),
-            matching: find.text('610'),
+            matching: find.text('${pick.kcal}'),
           ),
           findsOneWidget,
         );
         expect(
           find.descendant(
             of: _key('recipe-hero-protein'),
-            matching: find.text('58 g'),
+            matching: find.text('${pick.proteinG} g'),
           ),
           findsOneWidget,
         );
@@ -379,27 +383,29 @@ void main() {
         store.setFoodDate(DateTime(2026, 9, 27));
         await tester.pumpAndSettle();
         final before = store.loggedMeals.length;
+        final pick = store.nextMealPick(localeName: 'en')!;
+        final title = pick.recipe.title;
 
         await _tapVisible(tester, _key('recipe-hero-add'));
 
         expect(store.loggedMeals.length, before + 1);
         final added = store.loggedMeals.firstWhere(
-          (m) => m.result.mealName == _turkeyTitle,
+          (m) => m.result.mealName == title,
         );
         expect(added.forcedSlot, MealSlot.dinner);
         expect(added.effectiveLocalDay, localDayKey(_now));
-        expect(added.result.caloriesKcal, 610);
-        expect(find.text('Added 610 kcal to Dinner.'), findsOneWidget);
+        expect(added.result.caloriesKcal, pick.kcal);
+        expect(find.text('Added ${pick.kcal} kcal to Dinner.'), findsOneWidget);
 
         // Dinner is filled now: the pick moves on, the hero follows.
         expect(
           store.nextMealPick(localeName: 'en')?.recipe.slug,
-          isNot(_turkey),
+          isNot(pick.recipe.slug),
         );
         expect(
           find.descendant(
             of: _key('recipe-hero'),
-            matching: find.text(_turkeyTitle),
+            matching: find.text(title),
           ),
           findsNothing,
         );
@@ -411,7 +417,7 @@ void main() {
         expect(
           find.descendant(
             of: _key('recipe-hero'),
-            matching: find.text(_turkeyTitle),
+            matching: find.text(title),
           ),
           findsOneWidget,
         );
@@ -611,6 +617,7 @@ void main() {
     ) async {
       await withClock(Clock.fixed(_now), () async {
         final store = await _pumpHome(tester);
+        final first = store.nextMealPick(localeName: 'en')!;
         // A suggestion always fits; logging 400 kcal (902 -> 502 left) moves
         // the pick to a recipe that still fits.
         await store.addResultToDailyTotal(
@@ -619,7 +626,8 @@ void main() {
         );
         await tester.pumpAndSettle();
         final pick = store.nextMealPick(localeName: 'en')!;
-        expect(pick.recipe.slug, isNot(_turkey));
+        expect(first.kcal, greaterThan(502));
+        expect(pick.recipe.slug, isNot(first.recipe.slug));
         expect(pick.kcal, lessThanOrEqualTo(502));
         expect(
           find.descendant(
@@ -690,7 +698,8 @@ void main() {
         final semantics = tester.ensureSemantics();
         try {
           final store = await _pumpHome(tester);
-          final result = _catalog(_turkey).toMealResultForServings(1, _en);
+          final pick = store.nextMealPick(localeName: 'en')!;
+          final result = pick.recipe.toMealResultForServings(1, _en);
           expect(store.isFavorite(result), isFalse);
           final save = _key('recipe-hero-save');
           expect(
@@ -710,7 +719,7 @@ void main() {
             store.favorites
                 .where((f) => f.pinned)
                 .map((f) => f.result.mealName),
-            contains(_turkeyTitle),
+            contains(pick.recipe.title),
           );
           expect(
             tester.getSemantics(save),
@@ -733,9 +742,10 @@ void main() {
 
     testWidgets('"View recipe" opens that recipe', (tester) async {
       await withClock(Clock.fixed(_now), () async {
-        await _pumpHome(tester);
+        final store = await _pumpHome(tester);
+        final pick = store.nextMealPick(localeName: 'en')!;
         await _tapVisible(tester, _key('recipe-hero-view'));
-        expect(_key('recipe-detail-$_turkey'), findsOneWidget);
+        expect(_key('recipe-detail-${pick.recipe.slug}'), findsOneWidget);
         // A suggestion's detail keeps its own add action.
         expect(_key('recipe-add-button'), findsOneWidget);
       });
@@ -857,7 +867,12 @@ void main() {
         ]);
         expect(find.text('High protein, under 500 kcal'), findsOneWidget);
         expect(find.text('${expected.length} matches'), findsOneWidget);
-        expect(_rowSlugs(tester), expected.map((r) => r.slug).toList());
+        // The list builds lazily: read it down to its end.
+        final rows = [..._rowSlugs(tester)];
+        await tester.drag(recipesList(), const Offset(0, -600));
+        await tester.pumpAndSettle();
+        rows.addAll(_rowSlugs(tester).where((slug) => !rows.contains(slug)));
+        expect(rows, expected.map((r) => r.slug).toList());
         expect(await _selectedChips(tester), isEmpty);
       });
     });
@@ -868,14 +883,17 @@ void main() {
       await withClock(Clock.fixed(DateTime(2026, 9, 28, 22)), () async {
         await _pumpHome(
           tester,
-          profile: _profile.copyWith(diet: DietPreference.vegan),
+          profile: _profile.copyWith(
+            diet: DietPreference.vegan,
+            foodAvoidances: const {FoodAvoidance.soy},
+          ),
           meals: const <LoggedMeal>[],
         );
         expect(_key('recipe-hero'), findsOneWidget);
         final title = tester.widget<Text>(_key('recipe-hero-title')).data!;
         final hero = recipeCatalogEn.firstWhere((r) => r.title == title);
         expect(hero.matchesDiet(DietPreference.vegan), isTrue, reason: title);
-        // No vegan catalog recipe is lean: the shelf is gone.
+        // The one lean vegan catalog recipe has soy: the shelf is gone.
         expect(_key('recipe-shelf-lean'), findsNothing);
         await _reveal(tester, _key('recipes-more-see-all'));
         await tester.drag(recipesList(), const Offset(0, -400));
@@ -893,7 +911,7 @@ void main() {
     });
 
     testWidgets('the lean shelf hides when nothing qualifies', (tester) async {
-      // Vegan: none of the catalog's shelf recipes is vegan.
+      // Vegan without soy: none of the catalog's shelf recipes is left.
       await withClock(Clock.fixed(_now), () async {
         pinDesignViewport(tester);
         await pumpLocalized(
@@ -901,6 +919,7 @@ void main() {
           RecipesScreen(
             onAddMeal: (MealAnalysisResult _, MealSlot __) {},
             diet: DietPreference.vegan,
+            avoidances: const {FoodAvoidance.soy},
             remainingMacros: const MacroProgress(
               proteinG: 60,
               carbsG: 80,

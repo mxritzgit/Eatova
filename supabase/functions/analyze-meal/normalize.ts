@@ -4,7 +4,8 @@
 // Guiding rule (Review 2026-08-08, B1): a NUMBER carrying a health claim has
 // two honest answers, the model's value or "missing" — a default looks like a
 // measurement but is the server's invention. Unparseable input therefore
-// yields null, never `min`; clamping PARSEABLE values stays.
+// yields null, never `min`; clamping PARSEABLE values stays, except for a
+// negative macro (see optionalMacro).
 
 export interface NormalizedMealItem {
   name: string;
@@ -172,9 +173,9 @@ function normalizeDescribedItem(item: Record<string, unknown>): NormalizedDescri
     grams,
     caloriesKcal: optionalInt(item.caloriesKcal, 0, 10000),
     kcalPer100G: optionalNumber(item.kcalPer100G, 0, 1000),
-    proteinG: optionalDecimal(item.proteinG, 0, 1000),
-    carbsG: optionalDecimal(item.carbsG, 0, 1000),
-    fatG: optionalDecimal(item.fatG, 0, 1000),
+    proteinG: optionalMacro(item.proteinG, optionalDecimal),
+    carbsG: optionalMacro(item.carbsG, optionalDecimal),
+    fatG: optionalMacro(item.fatG, optionalDecimal),
     // The client searches with it, so it is never empty: the name is the
     // closest honest stand-in.
     searchQuery: clampString(item.searchQuery, '', 80) || name,
@@ -208,9 +209,9 @@ export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMea
     caloriesKcal: optionalInt(raw.caloriesKcal, 0, 10000),
     estimatedGrams: optionalInt(raw.estimatedGrams, 0, 10000),
     kcalPer100G: optionalNumber(raw.kcalPer100G, 0, 1000),
-    proteinG: optionalInt(raw.proteinG, 0, 1000),
-    carbsG: optionalInt(raw.carbsG, 0, 1000),
-    fatG: optionalInt(raw.fatG, 0, 1000),
+    proteinG: optionalMacro(raw.proteinG, optionalInt),
+    carbsG: optionalMacro(raw.carbsG, optionalInt),
+    fatG: optionalMacro(raw.fatG, optionalInt),
     // E7: confidence is the model's statement about itself, not a label — if
     // it is missing it is missing, not "medium". The client says so.
     confidence: ['high', 'medium', 'low'].includes(confidence) ? confidence : null,
@@ -269,6 +270,19 @@ export function optionalInt(value: unknown, min: number, max: number): number | 
 export function optionalDecimal(value: unknown, min: number, max: number): number | null {
   const number = optionalNumber(value, min, max);
   return number === null ? null : Math.round(number * 10) / 10;
+}
+
+/**
+ * Macro grams through `round` within [0, 1000], except that a negative value
+ * is no statement: clamped, it would reach the app as a measured "0 g". kcal
+ * keep their clamp, since the app reads 0 kcal as unknown anyway.
+ */
+function optionalMacro(
+  value: unknown,
+  round: (value: unknown, min: number, max: number) => number | null,
+): number | null {
+  const number = toFiniteNumber(value);
+  return number !== null && number < 0 ? null : round(value, 0, 1000);
 }
 
 // ---------------------------------------------------------------------------

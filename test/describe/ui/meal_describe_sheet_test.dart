@@ -215,7 +215,7 @@ void main() {
     testWidgets('rate limit and re-auth speak of a meal, never retried', (
       tester,
     ) async {
-      final h = await openDescribe(tester);
+      final h = await openDescribe(tester, locale: const Locale('en'));
       final l10n = l10nOf(tester);
       h.describer.error = const MealAnalysisRateLimited();
       await describe(tester, 'Müsli mit Milch');
@@ -231,6 +231,16 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(l10n.foodDescribeReauthRequired), findsOneWidget);
       expect(key('meal-describe-retry'), findsNothing);
+
+      // The time the limit lifts in the phone's clock: 12 hours in English.
+      await tester.tap(key('meal-describe-edit-text'));
+      await tester.pumpAndSettle();
+      h.describer.error = MealAnalysisRateLimited(
+        resetAt: clock.now().add(const Duration(hours: 2)),
+      );
+      await tester.tap(describeSubmit);
+      await tester.pumpAndSettle();
+      expect(find.textContaining(RegExp(r'\d:\d\d\s[AP]M')), findsOneWidget);
     });
 
     // The photo scan's texts speak of a photo; none of them may reach the

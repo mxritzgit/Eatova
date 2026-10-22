@@ -200,6 +200,15 @@ Deno.test("C2: der laengste realistische Kontext kommt unter dem Cap ganz an", (
   assert(out.context === context, "Wochenblock, Slots und alle zehn Lebensmittel muessen ankommen");
 });
 
+Deno.test("ein Fitness-Gericht namens Anabolic French Toast laesst den Kontext stehen", () => {
+  // Before 2026-10-22 the bare word "anabolic" was a doping hit, so one such
+  // meal name dropped weight, goals and the whole day for every question.
+  const context = longestContext("Anabolic French Toast");
+  const out = sanitizeUserContext(context);
+  assert(out.dropped === null, `Layer 1 schlug an (${out.dropped})`);
+  assert(out.context === context, "der Kontext muss unveraendert ankommen");
+});
+
 Deno.test("C2: Layer 1 prueft auch den Teil hinter den alten 1200 Zeichen", () => {
   // A user-chosen meal name is the last thing in the context: the larger cap
   // must not let it reach the model unchecked.

@@ -268,6 +268,9 @@ Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
     if (r.proteinPer100G != null) 'proteinPer100G': r.proteinPer100G,
     if (r.carbsPer100G != null) 'carbsPer100G': r.carbsPer100G,
     if (r.fatPer100G != null) 'fatPer100G': r.fatPer100G,
+    // Servings of an entry logged by servings; additive, older builds
+    // ignore it and keep the totals.
+    if (r.servings != null) 'servings': r.servings,
   };
 }
 
@@ -342,5 +345,14 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
       estimatedGrams,
       j['fatPer100G'],
     ),
+    servings: _servingsFromJson(j['servings']),
   );
+}
+
+/// A synced servings count, or null when it is no usable number: the
+/// recipe bounds (0.1..100), checked again on read like every payload field.
+double? _servingsFromJson(Object? raw) {
+  if (raw is! num) return null;
+  final value = raw.toDouble();
+  return value.isFinite && value >= 0.1 && value <= 100 ? value : null;
 }

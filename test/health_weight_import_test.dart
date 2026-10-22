@@ -1,45 +1,31 @@
+// The scale import (review 2026-10-22): weigh-ins from Apple Health or Health
+// Connect come into the weight log only after the account's one-time
+// opt-in, then by themselves on every read. Each keeps its measurement time,
+// nothing is written back, duplicates and out-of-range values stay out, a
+// deleted import stays deleted, and a failed commit consumes nothing.
+
 import 'dart:async';
 
 import 'package:clock/clock.dart';
-import 'package:supabase/supabase.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
-import 'package:eatova/src/l10n/l10n.dart';
-import 'package:eatova/src/services/eatova_sync.dart';
-import 'package:eatova/src/services/kcal_calculator.dart';
-import 'package:eatova/src/services/local_cache.dart';
-import 'package:eatova/src/services/sync_outbox.dart';
-
-import 'outbox/outbox_test_helpers.dart'
-    show FakeServer, bootUntilIdle, pumpUntil, serverProfileRow, testProfile;
-
 import 'package:eatova/src/services/health_service.dart';
-import 'package:eatova/src/services/notification_service.dart';
-import 'package:eatova/src/widgets/common/app_snack.dart';
+import 'package:eatova/src/services/local_cache.dart';
 
-// HealthKit weight import: refreshHealthSteps() also reads
-// snapshot.latestWeightKg and offers it via a snack action. Covered:
-//  * offer on a new weight, even with no prior log,
-//  * in-memory dedup, so a resume does not re-offer the same value,
-//  * 0.1 kg threshold against the last logged weight,
-//  * importHealthWeight does not write back to HealthKit (no echo
-//    duplicate), logWeight does,
-//  * the import updates weightLog and thereby suppresses further offers,
-//  * a sample older than the latest weigh-in or than a week is not offered,
-//    and an accepted sample keeps its measurement time.
+import 'outbox/outbox_test_helpers.dart';
 
-/// Fake HealthService: controllable snapshot (steps + optional weight) and a
-/// writeWeight call counter.
-class _FakeHealthService implements HealthService {
-  int steps = 4200;
-  double? nextWeightKg;
+final DateTime _now = DateTime(2026, 10, 22, 12);
 
-  /// When [nextWeightKg] was measured; fixed, so a resume re-reads the same
-  /// sample.
-  DateTime weightMeasuredAt = clock.now();
-  int writeWeightCalls = 0;
+DateTime _at(int day, int hour, [int minute = 0]) =>
+    DateTime(2026, 10, day, hour, minute);
+
+/// A connected health store with a scale: its weigh-ins, and what the store
+/// writes back.
+class _Scale implements HealthService, HealthWeightSource {
+  List<WeightSample> samples = <WeightSample>[];
+  int writes = 0;
+  bool weightAccess = true;
 
   @override
   HealthAuthState get authState => HealthAuthState.granted;
@@ -48,62 +34,46 @@ class _FakeHealthService implements HealthService {
   void reset() {}
 
   @override
-  Future<HealthAuthState> requestAuthorization() async =>
-      HealthAuthState.granted;
+  Future<HealthAuthState> requestAuthorization() async => authState;
 
   @override
-  Future<HealthSnapshot?> readSnapshot() async => HealthSnapshot(
-    stepsToday: steps,
-    fetchedAt: clock.now(),
-    latestWeightKg: nextWeightKg,
-    latestWeightMeasuredAt: nextWeightKg == null ? null : weightMeasuredAt,
-  );
+  Future<HealthSnapshot?> readSnapshot() async =>
+      HealthSnapshot(stepsToday: 4200, fetchedAt: clock.now());
+
+  @override
+  Future<int?> readStepsOnDay(DateTime day) async => null;
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async {
-    writeWeightCalls++;
+    writes++;
     return true;
   }
 
   @override
-  Future<int?> readStepsOnDay(DateTime day) async => null;
+  Future<List<WeightSample>?> readWeightSamples(
+    DateTime from,
+    DateTime to,
+  ) async => [
+    for (final s in samples)
+      if (!s.measuredAt.isBefore(from) && !s.measuredAt.isAfter(to)) s,
+  ];
+
+  @override
+  Future<bool> ensureWeightAccess() async => weightAccess;
 }
 
-/// Capture for the store's context-free SnackEmitter: records message and
-/// action per call so tests can check the offer and its tap.
-class _SnackCapture {
-  final List<String> messages = <String>[];
-  final List<SnackTone> tones = <SnackTone>[];
-  final List<SnackBarAction?> actions = <SnackBarAction?>[];
+class _HealthConnectScale extends _Scale implements HealthConnectAccess {
+  @override
+  Future<bool> openSettings() async => true;
 
-  void call(
-    String message, {
-    IconData icon = Icons.info_outline,
-    SnackTone tone = SnackTone.positive,
-    Duration? duration,
-    SnackBarAction? action,
-  }) {
-    messages.add(message);
-    tones.add(tone);
-    actions.add(action);
-  }
+  @override
+  void restoreConnection() {}
 }
 
-({HomeStore store, _FakeHealthService health, _SnackCapture snacks}) _setup() {
-  final health = _FakeHealthService();
-  final snacks = _SnackCapture();
-  final store = HomeStore(
-    sync: null,
-    health: health,
-    notificationService: const NoopNotificationService(),
-    initialUserName: 'Test',
-    emitSnack: snacks.call,
-  );
-  addTearDown(store.dispose);
-  return (store: store, health: health, snacks: snacks);
-}
-
+/// The weight log commit can fail or be held, like a full or slow disk.
 class _WeightCommitStore extends InMemoryKeyValueStore {
+  _WeightCommitStore(super.initial);
+
   bool rejectWeightCommits = false;
   Completer<void>? heldCommit;
   int weightCommitAttempts = 0;
@@ -113,7 +83,7 @@ class _WeightCommitStore extends InMemoryKeyValueStore {
     Map<String, String?> changes, {
     Map<String, int> expectedVersions = const {},
   }) async {
-    const weightsKey = 'eatova.v1.weight_log.user-health-import';
+    const weightsKey = 'eatova.v1.weight_log.user-outbox';
     final weights = changes[weightsKey];
     if (weights != null && weights != snapshot[weightsKey]) {
       weightCommitAttempts++;
@@ -124,466 +94,202 @@ class _WeightCommitStore extends InMemoryKeyValueStore {
   }
 }
 
-Future<
-  ({
-    HomeStore store,
-    _FakeHealthService health,
-    _SnackCapture snacks,
-    LocalCache cache,
-    FakeServer server,
-  })
->
-_setupDurable(_WeightCommitStore kv, {bool serverProfile = false}) async {
-  // With [serverProfile] the server answers the profile too, which the
-  // weight-trend re-anchor requires (docs/WEIGHT-TREND.md).
-  final server = FakeServer();
-  // Live goals already computed, so the boot queues no heal save.
-  if (serverProfile) {
-    server.profileRow = serverProfileRow(
-      const KcalCalculator().applyLiveGoals(testProfile()),
-    );
-  }
-  final client = SupabaseClient(
-    'https://example.supabase.co',
-    'test-anon-key',
-    httpClient: server.client(),
-    authOptions: const AuthClientOptions(autoRefreshToken: false),
-  );
-  addTearDown(client.dispose);
-  final health = _FakeHealthService();
-  final snacks = _SnackCapture();
-  final cache = LocalCache(kv, 'user-health-import');
-  await cache.writeProfile(testProfile());
-  final store = HomeStore(
-    sync: EatovaSync.forUser(client, 'user-health-import'),
-    health: health,
-    notificationService: const NoopNotificationService(),
-    initialUserName: 'Test',
-    emitSnack: snacks.call,
-    debugCache: cache,
-  );
-  addTearDown(store.dispose);
-  await bootUntilIdle(store);
-  kv.weightCommitAttempts = 0;
-  server.offline = true;
-  return (
-    store: store,
-    health: health,
-    snacks: snacks,
-    cache: cache,
-    server: server,
-  );
-}
+/// An account that connected its health source, optionally with an answer
+/// to the import already stored.
+Map<String, String> _account({required bool android, String? mode}) => {
+  if (android)
+    'eatova.v1.health_connect_enabled.user-outbox': '{"enabled":true}'
+  else
+    'eatova.v1.health_prompt.user-outbox': '{"state":"connected"}',
+  if (mode != null)
+    'eatova.v1.health_weight_import.user-outbox': '{"mode":"$mode"}',
+};
+
+Iterable<(double, DateTime)> _log(HomeStore store) =>
+    store.weightLog.entries.map((e) => (e.weightKg, e.timestamp.toLocal()));
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'Snapshot-Gewicht ohne bisheriges Log -> Angebot mit deutschem Format',
-    () async {
-      final s = _setup();
-      s.health.nextWeightKg = 82.4;
+  for (final android in [false, true]) {
+    final source = android ? 'Health Connect' : 'Apple Health';
+    test('$source: nothing comes in before the opt-in; then every new '
+        'weigh-in, with its time and without duplicates', () => withClock(
+      Clock.fixed(_now),
+      () async {
+        final health = android ? _HealthConnectScale() : _Scale();
+        final kv = InMemoryKeyValueStore(_account(android: android));
+        final a = setup(kv: kv, health: health, disposeStore: false);
+        a.server.profileRow = serverProfileRow(testProfile());
+        a.server.weightRows['w1'] = <String, dynamic>{
+          'recorded_at': _at(19, 7).toUtc().toIso8601String(),
+          'weight_kg': 80.0,
+        };
+        health.samples = [
+          // The log's weigh-in, typed in from the scale: the same reading.
+          WeightSample(kg: 80.04, measuredAt: _at(19, 7, 2)),
+          WeightSample(kg: 79.6, measuredAt: _at(20, 7)),
+          WeightSample(kg: 79.4, measuredAt: _at(21, 7)),
+          // A second app mirroring the same reading.
+          WeightSample(kg: 79.42, measuredAt: _at(21, 7, 1)),
+          // Unit or sensor errors.
+          WeightSample(kg: 7.55, measuredAt: _at(21, 8)),
+          WeightSample(kg: 755, measuredAt: _at(21, 9)),
+        ];
+        await bootUntilIdle(a.store);
+        await a.store.refreshHealthSteps();
+        await settle();
 
-      await s.store.refreshHealthSteps();
+        expect(a.store.healthWeightImportOfferVisible, isTrue);
+        expect(a.store.weightLog.entries, hasLength(1),
+            reason: 'nothing before the answer');
 
-      expect(s.snacks.messages, ['Apple Health: 82,4 kg übernehmen?']);
-      expect(s.snacks.actions.single, isNotNull);
-      expect(s.snacks.actions.single!.label, 'Übernehmen');
-      // The steps path stays untouched.
-      expect(s.store.dailySteps, 4200);
-    },
-  );
+        // "Not now" holds across a restart.
+        await a.store.disableHealthWeightImport();
+        expect(a.store.healthWeightImportOfferVisible, isFalse);
+        a.store.dispose();
+        final b = setup(kv: kv, geteilterServer: a.server, health: health);
+        await bootUntilIdle(b.store);
+        await b.store.refreshHealthSteps();
+        await settle();
+        expect(b.store.weightLog.entries, hasLength(1));
+        expect(b.store.healthWeightImportOfferVisible, isFalse);
+        expect(b.store.healthWeightImportEnabled, isFalse);
 
-  test(
-    'derselbe Wert wird bei erneutem Refresh (Resume) NICHT erneut angeboten',
-    () async {
-      final s = _setup();
-      s.health.nextWeightKg = 82.4;
+        if (android) {
+          // Health Connect's weight grant refused: the switch stays off.
+          health.weightAccess = false;
+          await b.store.enableHealthWeightImport();
+          expect(b.store.healthWeightImportEnabled, isFalse);
+          expect(b.store.weightLog.entries, hasLength(1));
+          health.weightAccess = true;
+        }
 
-      await s.store.refreshHealthSteps();
-      await s.store.refreshHealthSteps();
-
-      expect(
-        s.snacks.messages,
-        hasLength(1),
-        reason: 'In-Memory-Dedup: pro Wert nur ein Angebot',
-      );
-    },
-  );
-
-  test(
-    'ein NEUER Wert nach einem alten Angebot wird wieder angeboten',
-    () async {
-      final s = _setup();
-      s.health.nextWeightKg = 82.4;
-      await s.store.refreshHealthSteps();
-
-      s.health.nextWeightKg = 81.2;
-      await s.store.refreshHealthSteps();
-
-      expect(s.snacks.messages, [
-        'Apple Health: 82,4 kg übernehmen?',
-        'Apple Health: 81,2 kg übernehmen?',
-      ]);
-    },
-  );
-
-  test(
-    'Abweichung < 0.1 kg vom letzten geloggten Gewicht -> kein Angebot',
-    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
-      final s = _setup();
-      await s.store.logWeight(80.0);
-      s.health
-        ..nextWeightKg = 80.05
-        ..weightMeasuredAt = DateTime(2026, 10, 11, 12, 1);
-
-      await s.store.refreshHealthSteps();
-
-      expect(s.snacks.messages, isEmpty);
-    }),
-  );
-
-  test(
-    'ein Health-Gewicht vor dem letzten Eintrag wird nicht angeboten',
-    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
-      final s = _setup();
-      // Today's weigh-in, written back to Health only partly or not at all.
-      await withClock(
-        Clock.fixed(DateTime(2026, 10, 11, 8)),
-        () => s.store.logWeight(80.0),
-      );
-      s.health
-        ..nextWeightKg = 82.0
-        ..weightMeasuredAt = DateTime(2026, 10, 9, 7);
-
-      await s.store.refreshHealthSteps();
-
-      expect(
-        s.snacks.messages,
-        isEmpty,
-        reason: 'the older reading would replace today in the trend',
-      );
-      expect(s.store.weightLog.latest?.weightKg, 80.0);
-    }),
-  );
-
-  test(
-    'ein Health-Gewicht aelter als eine Woche wird nicht angeboten',
-    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
-      final s = _setup();
-      s.health
-        ..nextWeightKg = 82.0
-        ..weightMeasuredAt = DateTime(2026, 9, 20, 7);
-
-      await s.store.refreshHealthSteps();
-
-      expect(s.snacks.messages, isEmpty);
-    }),
-  );
-
-  test('Snapshot ohne Gewicht -> kein Angebot, Steps laufen normal', () async {
-    final s = _setup();
-    s.health.nextWeightKg = null;
-
-    await s.store.refreshHealthSteps();
-
-    expect(s.snacks.messages, isEmpty);
-    expect(s.store.dailySteps, 4200);
-  });
-
-  test(
-    'importHealthWeight loggt OHNE HealthKit-Write-Back, logWeight MIT',
-    () async {
-      final s = _setup();
-
-      await s.store.importHealthWeight(82.4);
-      expect(
-        s.health.writeWeightCalls,
-        0,
-        reason: 'Import aus HealthKit darf kein Echo-Duplikat zurueckschreiben',
-      );
-      expect(s.store.weightLog.latest?.weightKg, 82.4);
-      expect(s.store.lifetimeStats.weightLogs, 1);
-
-      await s.store.logWeight(81.0);
-      expect(
-        s.health.writeWeightCalls,
-        1,
-        reason: 'manuelles Wiegen spiegelt weiterhin nach HealthKit',
-      );
-      expect(s.store.weightLog.latest?.weightKg, 81.0);
-    },
-  );
-
-  test('importHealthWeight VERWIRFT Werte ausserhalb 20..400 kg statt zu '
-      'klemmen (G M-4)', () async {
-    final s = _setup();
-
-    await s.store.importHealthWeight(7.55);
-    await s.store.importHealthWeight(755);
-    await s.store.importHealthWeight(double.nan);
-
-    expect(
-      s.store.weightLog.entries,
-      isEmpty,
-      reason: 'ein geklemmtes 20 kg / 400 kg waere eine Fiktion im Log',
-    );
-    expect(s.store.lifetimeStats.weightLogs, 0);
-    expect(s.health.writeWeightCalls, 0);
-
-    // The manual path keeps the clamp as its last barrier.
-    await s.store.logWeight(7.55);
-    expect(s.store.weightLog.latest?.weightKg, 20.0);
-  });
-
-  test('ein Snapshot-Gewicht ausserhalb 20..400 kg wird gar nicht erst '
-      'angeboten', () async {
-    final s = _setup();
-    s.health.nextWeightKg = 755;
-
-    await s.store.refreshHealthSteps();
-
-    expect(
-      s.snacks.messages,
-      isEmpty,
-      reason: 'der Tap wuerde sonst ins Leere laufen',
-    );
-    expect(s.store.dailySteps, 4200);
-  });
-
-  test(
-    'Aktions-Tap importiert den Wert und unterdrueckt weitere Angebote',
-    () async {
-      final s = _setup();
-      s.health.nextWeightKg = 82.4;
-      await s.store.refreshHealthSteps();
-      expect(s.snacks.actions.single, isNotNull);
-
-      // Tap the action; the page forwards onPressed unchanged.
-      s.snacks.actions.single!.onPressed();
-      await Future<void>.delayed(Duration.zero);
-
-      expect(s.store.weightLog.latest?.weightKg, 82.4);
-      expect(s.health.writeWeightCalls, 0);
-
-      // Next resume with unchanged HealthKit data: weightLog.latest == kg, so
-      // the 0.1 kg threshold suppresses the offer.
-      await s.store.refreshHealthSteps();
-      expect(s.snacks.messages, hasLength(1));
-    },
-  );
-
-  test(
-    'Health-Snack: Commitfehler sichtbar, unveraendert, wiederholbar',
-    () => withClock(Clock.fixed(DateTime(2026, 9, 20, 12)), () async {
-      // English: the notice follows the injected localizations.
-      final l10n = enL10n;
-      final kv = _WeightCommitStore();
-      final s = await _setupDurable(kv, serverProfile: true);
-      s.store.setLocalizations(l10n);
-      s.health.nextWeightKg = 82.4;
-      await s.store.refreshHealthSteps();
-      final failedAction = s.snacks.actions.last!;
-      kv.rejectWeightCommits = true;
-      failedAction.onPressed();
-      await pumpUntil(
-        () => s.snacks.messages.contains(l10n.commonLocalSaveFailed),
-      );
-
-      expect(s.snacks.messages.last, l10n.commonLocalSaveFailed);
-      expect(s.snacks.tones.last, SnackTone.error);
-      expect(s.store.weightLog.entries, isEmpty);
-      expect(s.store.lifetimeStats.weightLogs, 0);
-      expect(s.store.pendingOutbox, isEmpty);
-      // The re-anchor shares the weigh-in's commit, so a failed commit
-      // must not move the profile either (docs/WEIGHT-TREND.md).
-      expect(s.store.profile.weightKg, 80);
-      expect((await s.cache.readWeightLog())?.entries ?? [], isEmpty);
-      expect(await s.cache.readOutbox(), isEmpty);
-      expect(s.health.writeWeightCalls, 0);
-      expect(kv.weightCommitAttempts, 1);
-
-      kv.rejectWeightCommits = false;
-      await s.store.refreshHealthSteps();
-      expect(
-        s.snacks.actions.last,
-        isNotNull,
-        reason:
-            'der fehlgeschlagene Versuch darf die Health-Offerte nicht verbrauchen',
-      );
-      s.snacks.actions.last!.onPressed();
-      await pumpUntil(() => s.store.weightLog.entries.length == 1);
-      await s.store.syncPendingWrites();
-      expect(s.store.weightLog.latest?.weightKg, 82.4);
-      expect(s.store.lifetimeStats.weightLogs, 1);
-      // One commit: the weigh-in and the profile re-anchored to its trend
-      // (82.4 → 82 kg).
-      expect(s.store.pendingOutbox.map((op) => op.kind), [
-        SyncOpKind.weightInsert,
-        SyncOpKind.profileUpsert,
-      ]);
-      expect(s.store.profile.weightKg, 82);
-      expect((await s.cache.readWeightLog())!.entries, hasLength(1));
-      expect(s.health.writeWeightCalls, 0);
-      final notices = s.snacks.messages.length;
-      await s.store.refreshHealthSteps();
-      expect(s.snacks.messages, hasLength(notices));
-    }),
-  );
-
-  test(
-    'ein uebernommenes Health-Gewicht behaelt seine Messzeit',
-    () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
-      final kv = _WeightCommitStore();
-      final s = await _setupDurable(kv);
-      await withClock(
-        Clock.fixed(DateTime(2026, 10, 6, 8)),
-        () => s.store.logWeight(80.0),
-      );
-      final measuredAt = DateTime(2026, 10, 9, 7, 30);
-      s.health
-        ..nextWeightKg = 79.0
-        ..weightMeasuredAt = measuredAt;
-      // The weigh-in above may raise the offline sync hint.
-      s.snacks.messages.clear();
-      s.snacks.actions.clear();
-
-      await s.store.refreshHealthSteps();
-      expect(s.snacks.messages, ['Apple Health: 79,0 kg übernehmen?']);
-      s.snacks.actions.single!.onPressed();
-      await pumpUntil(() => s.store.weightLog.entries.length == 2);
-
-      expect(s.store.weightLog.latest?.weightKg, 79.0);
-      expect(
-        s.store.weightLog.latest?.timestamp,
-        measuredAt,
-        reason: 'a Thursday tap must not move a Monday reading to Thursday',
-      );
-      final insert = s.store.pendingOutbox.lastWhere(
-        (op) => op.kind == SyncOpKind.weightInsert,
-      );
-      expect(
-        insert.payload['recorded_at'],
-        measuredAt.toUtc().toIso8601String(),
-      );
-
-      // Imported, the sample is the latest weigh-in: no further offer.
-      await s.store.refreshHealthSteps();
-      expect(s.snacks.actions.whereType<SnackBarAction>(), hasLength(1));
-    }),
-  );
-
-  test(
-    'Health-Snack: doppelte Taps waehrend und nach Commit erzeugen nur ein Log',
-    () => withClock(Clock.fixed(DateTime(2026, 9, 20, 12)), () async {
-      final kv = _WeightCommitStore();
-      final s = await _setupDurable(kv);
-      s.health.nextWeightKg = 82.4;
-      await s.store.refreshHealthSteps();
-      final action = s.snacks.actions.last!;
-      final gate = kv.heldCommit = Completer<void>();
-      action.onPressed();
-      action.onPressed();
-      await pumpUntil(() => kv.weightCommitAttempts == 1);
-      expect(kv.weightCommitAttempts, 1);
-      expect(
-        s.store.weightLog.entries,
-        isEmpty,
-        reason: 'RAM darf dem noch unbestaetigten DB-Commit nicht vorauslaufen',
-      );
-      await s.store.refreshHealthSteps();
-      expect(s.snacks.actions.whereType<SnackBarAction>(), hasLength(1));
-      gate.complete();
-      await pumpUntil(() => s.store.weightLog.entries.length == 1);
-      await s.store.syncPendingWrites();
-      action.onPressed();
-      await pumpEventQueue(times: 30);
-      expect(kv.weightCommitAttempts, 1);
-      expect(s.store.weightLog.entries, hasLength(1));
-      expect(s.store.lifetimeStats.weightLogs, 1);
-      expect(
-        (await s.cache.readOutbox())!.where(
-          (op) => op.kind == SyncOpKind.weightInsert,
-        ),
-        hasLength(1),
-      );
-      expect(s.health.writeWeightCalls, 0);
-    }),
-  );
-
-  group('Health-Gewicht vor geladenem Gewichtslog', () {
-    // iOS reads Health on the first frame, before the boot load answers the
-    // weight log. Eatova's own write-back (same weight, same time) must not
-    // pass as new against a still empty log, or one tap logs it twice.
-    ({HomeStore store, _FakeHealthService health, _SnackCapture snacks})
-    unbooted(FakeServer server) {
-      final client = SupabaseClient(
-        'https://example.supabase.co',
-        'test-anon-key',
-        httpClient: server.client(),
-        authOptions: const AuthClientOptions(autoRefreshToken: false),
-      );
-      addTearDown(client.dispose);
-      final health = _FakeHealthService();
-      final snacks = _SnackCapture();
-      final cache = LocalCache(InMemoryKeyValueStore(), 'user-health-early');
-      final store = HomeStore(
-        sync: EatovaSync.forUser(client, 'user-health-early'),
-        health: health,
-        notificationService: const NoopNotificationService(),
-        initialUserName: 'Test',
-        emitSnack: snacks.call,
-        debugCache: cache,
-      );
-      addTearDown(store.dispose);
-      return (store: store, health: health, snacks: snacks);
-    }
-
-    test(
-      'die eigene Rueckschreibung wird vor dem Laden nicht angeboten',
-      () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
-        final weighedAt = DateTime(2026, 10, 11, 7, 30);
-        final server = FakeServer()
-          ..weightRows['w1'] = <String, dynamic>{
-            'recorded_at': weighedAt.toUtc().toIso8601String(),
-            'weight_kg': 80.0,
-          };
-        final s = unbooted(server);
-        s.health
-          ..nextWeightKg = 80.0
-          ..weightMeasuredAt = weighedAt;
-
-        await s.store.refreshHealthSteps();
-        expect(s.snacks.actions.whereType<SnackBarAction>(), isEmpty);
-
-        await bootUntilIdle(s.store);
-        expect(s.store.weightLog.entries, hasLength(1));
-        expect(s.snacks.actions.whereType<SnackBarAction>(), isEmpty);
-      }),
-    );
-
-    test(
-      'ein wirklich neues Gewicht wird nach dem Laden angeboten',
-      () => withClock(Clock.fixed(DateTime(2026, 10, 11, 12)), () async {
-        final server = FakeServer()
-          ..weightRows['w1'] = <String, dynamic>{
-            'recorded_at': DateTime(2026, 10, 9, 7).toUtc().toIso8601String(),
-            'weight_kg': 80.0,
-          };
-        final s = unbooted(server);
-        s.health
-          ..nextWeightKg = 79.2
-          ..weightMeasuredAt = DateTime(2026, 10, 11, 7, 30);
-
-        await s.store.refreshHealthSteps();
-        expect(s.snacks.actions.whereType<SnackBarAction>(), isEmpty);
-
-        await bootUntilIdle(s.store);
+        // The profile's switch turns it on.
+        await b.store.enableHealthWeightImport();
+        await settle();
+        expect(_log(b.store), [
+          (80.0, _at(19, 7)),
+          (79.6, _at(20, 7)),
+          (79.4, _at(21, 7)),
+        ]);
+        expect(a.server.weightRows, hasLength(3),
+            reason: 'through the weight sync path');
+        expect(health.writes, 0, reason: 'no echo into the health store');
         expect(
-          s.snacks.messages,
-          contains('Apple Health: 79,2 kg übernehmen?'),
+          (await LocalCache(kv, 'user-outbox').readHealthWeightImport())?['mode'],
+          'auto',
         );
-      }),
-    );
-  });
+
+        // From now on by itself.
+        health.samples = [
+          ...health.samples,
+          WeightSample(kg: 79.1, measuredAt: _at(22, 7)),
+        ];
+        await b.store.refreshHealthSteps();
+        await settle();
+        expect(_log(b.store).last, (79.1, _at(22, 7)));
+        expect(b.store.weightLog.entries, hasLength(4));
+      },
+    ));
+  }
+
+  test('an edited or deleted weigh-in does not come back as an import, also '
+      'after a restart', () => withClock(Clock.fixed(_now), () async {
+    final health = _Scale()
+      ..samples = [
+        WeightSample(kg: 79.6, measuredAt: _at(20, 7)),
+        WeightSample(kg: 79.4, measuredAt: _at(21, 7)),
+        // The scale's reading the user also typed in by hand.
+        WeightSample(kg: 79.12, measuredAt: _at(22, 7)),
+      ];
+    final kv = InMemoryKeyValueStore(_account(android: false, mode: 'auto'));
+    final a = setup(kv: kv, health: health, disposeStore: false);
+    a.server.profileRow = serverProfileRow(testProfile());
+    await bootUntilIdle(a.store);
+    await a.store.logWeight(79.1, at: _at(22, 7, 5));
+    await a.store.refreshHealthSteps();
+    await settle();
+    expect(a.store.weightLog.entries, hasLength(3), reason: 'precondition');
+
+    String id(int day) => a.store.weightLog.entries
+        .firstWhere((e) => e.timestamp.toLocal().day == day)
+        .id!;
+    await a.store.updateWeighIn(id(20), kg: 79.0, at: _at(20, 7));
+    await a.store.deleteWeighIn(id(21));
+    await a.store.deleteWeighIn(id(22));
+    await a.store.refreshHealthSteps();
+    await settle();
+    expect(_log(a.store), [(79.0, _at(20, 7))]);
+
+    a.store.dispose();
+    final b = setup(kv: kv, geteilterServer: a.server, health: health);
+    await bootUntilIdle(b.store);
+    await b.store.refreshHealthSteps();
+    await settle();
+    expect(_log(b.store), [(79.0, _at(20, 7))]);
+  }));
+
+  test('a read waits for the server\'s weight log', () => withClock(
+    Clock.fixed(_now),
+    () async {
+      final health = _Scale()
+        ..samples = [
+          // Already in the server's log (a write-back of another device).
+          WeightSample(kg: 80.0, measuredAt: _at(21, 7, 30)),
+          WeightSample(kg: 79.2, measuredAt: _at(22, 7, 30)),
+        ];
+      final a = setup(
+        kv: InMemoryKeyValueStore(_account(android: false, mode: 'auto')),
+        health: health,
+      );
+      a.server.profileRow = serverProfileRow(testProfile());
+      a.server.weightRows['w1'] = <String, dynamic>{
+        'recorded_at': _at(21, 7, 30).toUtc().toIso8601String(),
+        'weight_kg': 80.0,
+      };
+      a.server.rejectWeightLogReads = true;
+      await bootUntilIdle(a.store);
+
+      await a.store.refreshHealthSteps();
+      await settle();
+      expect(a.store.weightLog.entries, isEmpty,
+          reason: 'against an unknown log every weigh-in looks new');
+
+      a.server.rejectWeightLogReads = false;
+      await a.store.retryBoot();
+      await settle();
+      expect(_log(a.store), [(80.0, _at(21, 7, 30)), (79.2, _at(22, 7, 30))]);
+    },
+  ));
+
+  test('a failed commit consumes nothing; concurrent reads import once',
+      () => withClock(Clock.fixed(_now), () async {
+    final health = _Scale()
+      ..samples = [WeightSample(kg: 79.6, measuredAt: _at(21, 7))];
+    final kv = _WeightCommitStore(_account(android: false, mode: 'auto'));
+    final a = setup(kv: kv, health: health);
+    a.server.profileRow = serverProfileRow(testProfile());
+    await bootUntilIdle(a.store);
+    a.server.offline = true;
+
+    kv.rejectWeightCommits = true;
+    await a.store.refreshHealthSteps();
+    await settle();
+    expect(a.store.weightLog.entries, isEmpty);
+    expect(a.store.pendingOutbox, isEmpty);
+
+    kv.rejectWeightCommits = false;
+    final gate = kv.heldCommit = Completer<void>();
+    final attempts = kv.weightCommitAttempts;
+    final first = a.store.refreshHealthSteps();
+    await pumpUntil(() => kv.weightCommitAttempts > attempts);
+    await a.store.refreshHealthSteps();
+    gate.complete();
+    await first;
+    await settle();
+
+    expect(kv.weightCommitAttempts - attempts, 1);
+    expect(_log(a.store), [(79.6, _at(21, 7))]);
+  }));
 }

@@ -8,8 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -26,6 +28,8 @@ final DateTime _yesterday = DateTime(2026, 10, 17);
 const _week = 'Letzte 7 Tage ohne heute (11.10.–17.10.): ';
 const _slots = 'Pro Mahlzeit heute: ';
 const _foods = 'Heute gegessene Lebensmittel';
+const _check = 'Wochen-Check: ';
+const _plan = 'Speiseplan ';
 
 void _noopSnack(
   String message, {
@@ -191,12 +195,16 @@ void main() {
     });
   });
 
-  test('bindet Gewichtsverlauf und Aktivitaetsbonus der Vortage', () {
+  test('bindet Gewichtsverlauf, Aktivitaetsbonus und fehlendes Protein der '
+      'Vortage', () {
     withClock(Clock.fixed(_now), () {
       final store = _store();
       store.weightLog = _dailyWeighIns();
       store.dailyActivity = {'2026-10-17': (steps: 10000, kcal: 300)};
-      store.loggedMeals = [_logged('y', DateTime(2026, 10, 17, 13), 2400)];
+      store.loggedMeals = [
+        _logged('y', DateTime(2026, 10, 17, 13), 2000),
+        _logged('k', DateTime(2026, 10, 17, 16), 400, protein: '-'),
+      ];
       final ctx = store.coachContext;
       // Default profile: 2200 kcal goal, plus 300 kcal credited yesterday.
       expect(
@@ -206,6 +214,8 @@ void main() {
           '(Ziel Ø 2500 kcal inkl. Aktivitätsbonus)',
         ),
       );
+      // The 400 kcal entry has no protein: 30 g is a lower bound.
+      expect(ctx, contains('Protein mindestens 30 g'));
       expect(
         ctx,
         contains(
@@ -215,6 +225,69 @@ void main() {
       );
       // No training history in this store: no count rather than a zero.
       expect(ctx, isNot(contains('Trainings in der App')));
+    });
+  });
+
+  test('Wochen-Check und Speiseplan (2026-10-22) stehen nach dem Wochenblock '
+      'und vor der Slot-Zeile; ein voller Plan kuerzt nur die Essensliste', () {
+    return withClock(Clock.fixed(_now), () async {
+      final store = _store();
+      store.profile = store.profile.copyWith(
+        onboardingCompleted: true,
+        manualEnergy: true,
+      );
+      store.weightLog = _dailyWeighIns();
+      store.loggedMeals = _fullWeek();
+      const longTitle = 'Überbackene Süßkartoffel-Gnocchi mit Gorgonzola';
+      for (final day in [_now, _now.add(const Duration(days: 1))]) {
+        for (final slot in MealSlot.values) {
+          await store.savePlannedMeal(
+            PlannedMeal.create(
+              recipe: FitnessRecipe(
+                slug: 'user_plan_${slot.name}_${day.day}',
+                title: '$longTitle ${slot.name}',
+                description: '',
+                portion: '',
+                ingredients: '',
+                preparation: '',
+                professionalHint: '',
+                imageAsset: '',
+                caloriesKcal: 700,
+                proteinG: 40,
+                carbsG: 60,
+                fatG: 25,
+                estimatedGrams: 450,
+                categories: const <String>['Eigene'],
+                userCreated: true,
+              ),
+              day: day,
+              slot: slot,
+            ),
+          );
+        }
+      }
+      for (final slot in MealSlot.values) {
+        for (var i = 0; i < 3; i++) {
+          await store.addResultToDailyTotal(
+            _meal('$longTitle $i', 1234, protein: '123.4 g'),
+            slot: slot,
+          );
+        }
+      }
+
+      final ctx = store.coachContext;
+      final week = ctx.indexOf(_week);
+      final check = ctx.indexOf(_check);
+      final plan = ctx.indexOf(_plan);
+      final slots = ctx.indexOf(_slots);
+      expect(check, greaterThan(week));
+      expect(plan, greaterThan(check));
+      expect(slots, greaterThan(plan));
+      expect(ctx.indexOf(_foods), greaterThan(slots));
+      final kept = ctx.substring(0, ctx.length.clamp(0, kCoachContextCapChars));
+      final slotEnd = ctx.indexOf('. $_foods');
+      expect(kept, contains(ctx.substring(slots, slotEnd + 1)),
+          reason: 'the cap reaches the food list at most');
     });
   });
 

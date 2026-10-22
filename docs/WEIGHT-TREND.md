@@ -225,7 +225,9 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
 The Coach's seven-day block (2026-10-18) reads the same weight change through
 `EnergyCheck.weightRate`: same window, typo filter and minimum of weigh-ins.
 Its ± band is the two-standard-error noise guard, in kg/week. Without the
-minimum the block says so instead of naming a rate.
+minimum the block says so instead of naming a rate. Trends (2026-10-22)
+fits the same line over its own range (`EnergyCheck.weightLine`), see
+below.
 
 ### Progress on Today (2026-10-18)
 
@@ -264,7 +266,9 @@ minimum the block says so instead of naming a rate.
   holds it), and "Gemessen: −0,4 kg/Woche · Plan: −0,5 kg/Woche". It has no
   answer buttons and changes nothing; it links to the explainer. Monday is a
   stateless choice: nothing is stored, so a week without opening the app on
-  Monday shows no card, while the line stays tappable every day.
+  Monday shows no card, while the line stays tappable every day. Since
+  2026-10-22 "Verstanden" hides it for seven days, per account and on this
+  device only (encrypted cache slot `weekly_result_seen`).
 - The onboarding plan's footnote now says that a weekly check compares the
   estimate with the entries and weigh-ins, and to weigh in 2–3 times a
   week.
@@ -279,3 +283,43 @@ minimum the block says so instead of naming a rate.
   build) keeps the stored values instead of resetting them.
 - The live migration goes first and the client second. The client selects the
   new columns on load.
+
+## Reached target, one weight rate, Trends (2026-10-22)
+
+Review [2026-10-22](IMPROVEMENT-REVIEW-2026-10-22.md), sections 1 and 3.
+
+- **Holding a reached target.** Reaching the target switched the plan to
+  maintain on the rounded trend, so a trend near X.5 kg flipped the daily
+  goal by about 500 kcal from day to day. Now the hold starts when the
+  rounded trend crosses into the target (`holdsReachedTarget`) and ends only
+  when it runs 1.5 kg back past it (rounded: 2 kg, `targetHoldReleaseKg`).
+  - No migration: the hold is derived from the synced weight log, so every
+    device on this build agrees. The store's `profile` getter carries it as
+    the transient `UserProfile.targetHold` and recomputes live goals when it
+    changes. It is never serialized.
+  - The boot heal is measured on that profile, so a held row is not written
+    back on every boot.
+  - Limits: there is no goal history, so a series that starts at or past the
+    target holds nothing, and a target set inside the band of an earlier
+    crossing holds at once. An older build on another device heals the row
+    with the plain rule; this build derives the hold again on its next read.
+- **Today asks once:** "Ziel erreicht – halten oder neues Ziel?" while the
+  plan holds a target the user did not choose to hold. "Halten" stores
+  maintain as the goal; "Neues Ziel" opens the goals page. The weigh-in that
+  reaches the target says so in its snack.
+- **Goals page in the band.** Back short of the target but still held, the
+  page names the hold and its end ("Dein Plan hält 70 kg, bis dein Trend
+  1,5 kg darüber liegt") instead of no hint; a new target weight ends it.
+- **One weight rate.** Trends used the first and last raw weigh-in of its
+  range. It now fits the weekly check's line over the range (same typo
+  filter, minimum of 4 weigh-in days 14 days apart, least squares), draws it
+  through the weigh-ins and labels it "Gemessenes Tempo" with the shared pace
+  label. Over 90 or 182 days with more than 5 % change, the check's median
+  filter keeps the middle weigh-ins of the range.
+- **Trends offline.** Up to 35 days (the store's meal window) the page shows
+  calories and macros from this device's days with a short note and a retry.
+  Longer ranges keep the error card.
+- Today's 7-day trends card opens the page on 7 days.
+- **Not built:** judging past days against the goal of their day needs a goal
+  history, i.e. a migration (a per-day goal table or columns, plus a sync
+  operation kind).

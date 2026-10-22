@@ -122,9 +122,20 @@ class WeightLog {
     return trend.kg;
   }
 
+  /// The trend after each counted day, oldest first; the last value is
+  /// [trendKg]. Held outlier days add none. The target hold reads it
+  /// (`holdsReachedTarget`, user_profile.dart).
+  List<double> get dailyTrendKg => [for (final day in _trendDays()) day.kg];
+
   /// The trend and its last counted day (UTC midnight of the local date).
   ({double kg, DateTime counted})? _trend() {
-    if (entries.isEmpty) return null;
+    final days = _trendDays();
+    return days.isEmpty ? null : days.last;
+  }
+
+  /// The trend after each counted day, oldest first: the steps of [_trend].
+  List<({double kg, DateTime counted})> _trendDays() {
+    if (entries.isEmpty) return const [];
     final sorted = [...entries]
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final days = <(DateTime, double)>[];
@@ -140,6 +151,7 @@ class WeightLog {
         (kg - from).abs() > from * trendOutlierShare;
 
     var (counted, trend) = days.first;
+    final steps = [(kg: trend, counted: counted)];
     double? held;
     for (final (date, kg) in days.skip(1)) {
       final gap = date.difference(counted).inDays;
@@ -148,6 +160,7 @@ class WeightLog {
         trend = kg;
         counted = date;
         held = null;
+        steps.add((kg: trend, counted: counted));
         continue;
       }
       final outlier = held;
@@ -157,6 +170,7 @@ class WeightLog {
           // Two days agree on the jump: adopt it.
           trend = kg;
           counted = date;
+          steps.add((kg: trend, counted: counted));
           continue;
         }
       }
@@ -166,8 +180,9 @@ class WeightLog {
       }
       trend += (1 - math.pow(1 - trendAlphaPerDay, gap)) * (kg - trend);
       counted = date;
+      steps.add((kg: trend, counted: counted));
     }
-    return (kg: trend, counted: counted);
+    return steps;
   }
 
   WeightLog add(double kg) =>

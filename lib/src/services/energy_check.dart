@@ -82,6 +82,47 @@ class EnergyCheckEstimate {
   final EnergyCheckProposal? proposal;
 }
 
+/// A least-squares line through the weigh-in days of a window
+/// ([EnergyCheck.weightLine]): the weekly check's weight rate, and the line
+/// the trends page draws through its range (2026-10-22).
+class WeightTrendLine {
+  const WeightTrendLine({
+    required this.firstDay,
+    required this.lastDay,
+    required this.kgAtFirstDay,
+    required this.kgPerDay,
+    required this.weighInDays,
+  });
+
+  /// First and last weigh-in day of the fit, typos dropped.
+  final DateTime firstDay;
+  final DateTime lastDay;
+
+  /// The line's value on [firstDay].
+  final double kgAtFirstDay;
+  final double kgPerDay;
+  final int weighInDays;
+
+  double get kgPerWeek => kgPerDay * 7;
+
+  /// The line's value on [day].
+  double kgOn(DateTime day) =>
+      kgAtFirstDay + kgPerDay * daysBetween(day, firstDay);
+
+  @override
+  bool operator ==(Object other) =>
+      other is WeightTrendLine &&
+      other.firstDay == firstDay &&
+      other.lastDay == lastDay &&
+      other.kgAtFirstDay == kgAtFirstDay &&
+      other.kgPerDay == kgPerDay &&
+      other.weighInDays == weighInDays;
+
+  @override
+  int get hashCode =>
+      Object.hash(firstDay, lastDay, kgAtFirstDay, kgPerDay, weighInDays);
+}
+
 /// How far the data is from a weekly check, counted from the inputs
 /// [EnergyCheck.evaluate] reads and with its rules ([EnergyCheck.progress]).
 class EnergyCheckProgress {
@@ -322,6 +363,27 @@ class EnergyCheck {
     );
   }
 
+  /// The line through the weigh-in days of [first]..[last] (local days),
+  /// with [weightRate]'s typo filter, minimum and least-squares slope; null
+  /// below the minimum. [weightRate] measures the check's window, the trends
+  /// page its range, so the two never compute a rate differently.
+  static WeightTrendLine? weightLine(
+    WeightLog weightLog, {
+    required DateTime first,
+    required DateTime last,
+  }) {
+    final weighIns = _weighInDays(weightLog, first, last);
+    if (!_enoughWeighIns(weighIns)) return null;
+    final fit = _fit(weighIns);
+    return WeightTrendLine(
+      firstDay: weighIns.first.$1,
+      lastDay: weighIns.last.$1,
+      kgAtFirstDay: fit.kgAtFirstDay,
+      kgPerDay: fit.kgPerDay,
+      weighInDays: weighIns.length,
+    );
+  }
+
   static bool _enoughWeighIns(List<(DateTime, double)> weighIns) =>
       weighIns.length >= minWeighInDays &&
       daysBetween(weighIns.last.$1, weighIns.first.$1) >= minWeighInSpanDays;
@@ -475,6 +537,14 @@ class EnergyCheck {
 
   /// Least-squares slope in kg per day and its standard error.
   static (double, double) _slope(List<(DateTime, double)> points) {
+    final fit = _fit(points);
+    return (fit.kgPerDay, fit.error);
+  }
+
+  /// [_slope] with the line's value on the first point's day.
+  static ({double kgPerDay, double error, double kgAtFirstDay}) _fit(
+    List<(DateTime, double)> points,
+  ) {
     final origin = points.first.$1;
     final xs = [for (final (day, _) in points) daysBetween(day, origin).toDouble()];
     final ys = [for (final (_, kg) in points) kg];
@@ -487,7 +557,9 @@ class EnergyCheck {
       sxy += (xs[i] - meanX) * (ys[i] - meanY);
       sxx += math.pow(xs[i] - meanX, 2);
     }
-    if (sxx == 0) return (0.0, double.infinity);
+    if (sxx == 0) {
+      return (kgPerDay: 0.0, error: double.infinity, kgAtFirstDay: meanY);
+    }
     final slope = sxy / sxx;
     // Residual variance with n − 2 degrees of freedom (n >= 4 here).
     var sse = 0.0;
@@ -495,7 +567,11 @@ class EnergyCheck {
       sse += math.pow(ys[i] - (meanY + slope * (xs[i] - meanX)), 2);
     }
     final noise = math.max(math.sqrt(sse / (n - 2)), weighInNoiseFloorKg);
-    return (slope, noise / math.sqrt(sxx));
+    return (
+      kgPerDay: slope,
+      error: noise / math.sqrt(sxx),
+      kgAtFirstDay: meanY - slope * meanX,
+    );
   }
 }
 

@@ -234,6 +234,49 @@ void main() {
     expect(camera.launches, 1);
   });
 
+  testWidgets('App-Kurzbefehle Foto und Beschreiben fragen wie das Dock', (
+    tester,
+  ) async {
+    final describeSheet = find.byKey(const ValueKey('meal-describe-sheet'));
+    for (final capture in [FoodCapture.photo, FoodCapture.describe]) {
+      final camera = _CountingCamera();
+      bool opened() => capture == FoodCapture.photo
+          ? camera.launches > 0
+          : describeSheet.evaluate().isNotEmpty;
+      final request = ValueNotifier<FoodCapture?>(null);
+      addTearDown(request.dispose);
+      phoneViewport(tester);
+      await tester.pumpWidget(
+        withAiTrust(
+          await aiTrustController(),
+          localizedApp(
+            MealAnalysisScreen(
+              dailyConsumedKcal: 0,
+              analyzer: _CountingAnalyzer(),
+              productService: _NoProducts(),
+              cameraLauncher: camera,
+              captureRequest: request,
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      request.value = capture;
+      await tester.pumpAndSettle();
+      expect(_consentSheet, findsOneWidget, reason: '$capture');
+      await _notNow(tester);
+      expect(opened(), isFalse, reason: '$capture');
+
+      request.value = capture;
+      await tester.pumpAndSettle();
+      await _agree(tester);
+      expect(opened(), isTrue, reason: '$capture');
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
   testWidgets('Rezept-Import: der geteilte Text geht erst nach der '
       'Einwilligung raus und bleibt bei "Nicht jetzt" stehen', (tester) async {
     final service = _ImportService();

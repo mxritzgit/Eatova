@@ -520,6 +520,14 @@ setup({
   return (store: store, server: server, cache: cache, snacks: snacks);
 }
 
+/// An account cache whose account connected Apple Health itself (the
+/// per-account opt-in, review 2026-10-22), so the store may read and write
+/// HealthKit; a fresh cache is a new account that sees Today's card first.
+InMemoryKeyValueStore healthConnectedKv([String userId = 'user-outbox']) =>
+    InMemoryKeyValueStore({
+      'eatova.v1.health_prompt.$userId': '{"state":"connected"}',
+    });
+
 /// Like [setup] but with NO [LocalCache], the state where `LocalCache.create`
 /// returns null; nothing here touches a real SharedPreferences channel.
 ({HomeStore store, FakeServer server, SnackCapture snacks}) setupOhneCache() {

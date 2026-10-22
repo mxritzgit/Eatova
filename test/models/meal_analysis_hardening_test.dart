@@ -233,6 +233,29 @@ void main() {
       expect(r.fat, '12 g');
     });
 
+    test('Makros schwerer als die gemessene Portion oder negativ werden "-"',
+        () {
+      // Same rule as product data and described meals: no macro outweighs
+      // the food (PlausibilityLimits.macroPer100GMax).
+      for (final (grams, carbs, expected) in <(int?, Object, String)>[
+        (200, 250, '-'),
+        (200, 200, '200 g'),
+        (200, -4, '-'),
+        (200, '-4 g', '-'),
+        // Without a measured weight the 150 g default judges nothing.
+        (null, 250, '250 g'),
+      ]) {
+        final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
+          'mealName': 'Teller',
+          'caloriesKcal': 600,
+          'estimatedGrams': grams,
+          'kcalPer100G': null,
+          'carbsG': carbs,
+        });
+        expect(r.carbs, expected, reason: '$carbs bei $grams g');
+      }
+    });
+
     test('items mit null-Feldern kippen die Summen nicht', () {
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Bowl',

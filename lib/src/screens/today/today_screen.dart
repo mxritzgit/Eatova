@@ -28,6 +28,7 @@ import 'today_macros.dart';
 import 'today_reminder_prompt.dart';
 import 'today_sections.dart';
 import 'today_streak_hint.dart';
+import 'today_target_reached.dart';
 import 'today_texts.dart';
 import 'today_trends.dart';
 import 'today_weekly_check.dart';
@@ -52,6 +53,7 @@ class TodayScreen extends StatelessWidget {
     required this.streak,
     this.steps,
     this.healthConnect = false,
+    this.healthConnectLinked = false,
     this.profileInitial,
     this.dayLoading = false,
     this.pick,
@@ -77,11 +79,15 @@ class TodayScreen extends StatelessWidget {
     this.onLogWeight,
     this.weighIns,
     this.healthPrompt,
+    this.weightImportPrompt,
     this.trendsPreview,
     this.onOpenTrends,
     this.isCompleteDay,
     this.onFillYesterday,
     this.energyCheckResult,
+    this.onAskCoachAboutCheck,
+    this.targetReached,
+    this.onAcknowledgeEnergyCheckResult,
   });
 
   final String userName;
@@ -95,7 +101,14 @@ class TodayScreen extends StatelessWidget {
   /// Step count for [selectedDate]; `null` means no step source, and the
   /// steps row is dropped rather than claiming zero. Goal comes from profile.
   final int? steps;
+
+  /// The step source is Health Connect (Android), not Apple Health.
   final bool healthConnect;
+
+  /// This account connected Health Connect (`HomeStore.healthConnectLinked`):
+  /// only then does a day without steps say so. Accounts that never
+  /// connected or declined see the intro card or nothing.
+  final bool healthConnectLinked;
 
   /// Only the meals of [selectedDate].
   final List<LoggedMeal> meals;
@@ -170,10 +183,16 @@ class TodayScreen extends StatelessWidget {
   /// The weigh-in sheet's date row and history link; null keeps "log now".
   final WeighInActions? weighIns;
 
-  /// Apple Health's intro card (`HomeStore.healthIntroVisible`); null hides
-  /// it. Today only.
+  /// The health intro card, Apple Health or Health Connect after
+  /// [healthConnect] (`HomeStore.healthIntroVisible`); null hides it. Today
+  /// only.
   final ({Future<void> Function() connect, Future<void> Function() dismiss})?
   healthPrompt;
+
+  /// The scale import's one-time question
+  /// (`HomeStore.healthWeightImportOfferVisible`); null hides it. Today only.
+  final ({Future<void> Function() accept, Future<void> Function() dismiss})?
+  weightImportPrompt;
 
   /// The last seven completed days for the trends card; null hides it
   /// (archive days). Today only, at the end of the page.
@@ -194,6 +213,23 @@ class TodayScreen extends StatelessWidget {
   /// (`HomeStore.energyCheckResult`, once a week); today only, and never
   /// beside the proposal card, which speaks for the check then.
   final EnergyCheckEstimate? energyCheckResult;
+
+  /// "Ask the coach" on the result card: a prepared question in the Coach's
+  /// composer, unsent (2026-10-22). Null hides it.
+  final VoidCallback? onAskCoachAboutCheck;
+
+  /// The result card's "Verstanden" (`HomeStore.acknowledgeEnergyCheckResult`).
+  final VoidCallback? onAcknowledgeEnergyCheckResult;
+
+  /// The reached target's question (`HomeStore.targetReachedPrompt`):
+  /// hold, or a new goal; null hides it. Today only.
+  final ({
+    int targetKg,
+    bool gain,
+    Future<void> Function() hold,
+    VoidCallback newGoal,
+  })?
+  targetReached;
 
   @override
   Widget build(BuildContext context) {
@@ -218,6 +254,7 @@ class TodayScreen extends StatelessWidget {
         onDismissEnergyCheck != null;
     final logWeight = istHeute ? onLogWeight : null;
     final health = istHeute && !dayLoading ? healthPrompt : null;
+    final weightImport = istHeute && !dayLoading ? weightImportPrompt : null;
     final result = istHeute && !dayLoading && !showCheckCard
         ? energyCheckResult
         : null;
@@ -235,8 +272,9 @@ class TodayScreen extends StatelessWidget {
             ),
     );
     final trends = istHeute && !dayLoading ? trendsPreview : null;
+    final reached = istHeute ? targetReached : null;
     final fillYesterday = istHeute && !dayLoading ? onFillYesterday : null;
-    final healthMissing = steps == null && healthConnect;
+    final healthMissing = steps == null && healthConnect && healthConnectLinked;
     final showActivity =
         !dayLoading &&
         TodayActivityCard.hasContent(
@@ -308,11 +346,22 @@ class TodayScreen extends StatelessWidget {
                   onExplain: explainCheck,
                 ),
               ],
+              if (reached != null) ...<Widget>[
+                const SizedBox(height: 16),
+                TodayTargetReachedCard(
+                  targetKg: reached.targetKg,
+                  gain: reached.gain,
+                  onHold: reached.hold,
+                  onNewGoal: reached.newGoal,
+                ),
+              ],
               if (result != null) ...<Widget>[
                 const SizedBox(height: 16),
                 TodayWeeklyResultCard(
                   estimate: result,
                   onExplain: explainCheck,
+                  onAskCoach: onAskCoachAboutCheck,
+                  onAcknowledge: onAcknowledgeEnergyCheckResult,
                 ),
               ],
               if (showCheckCard) ...<Widget>[
@@ -363,8 +412,17 @@ class TodayScreen extends StatelessWidget {
             if (health != null) ...<Widget>[
               const SizedBox(height: 16),
               TodayHealthPromptCard(
+                healthConnect: healthConnect,
                 onConnect: health.connect,
                 onDismiss: health.dismiss,
+              ),
+            ],
+            if (weightImport != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayWeightImportCard(
+                healthConnect: healthConnect,
+                onAccept: weightImport.accept,
+                onDismiss: weightImport.dismiss,
               ),
             ],
             if (showActivity) ...<Widget>[

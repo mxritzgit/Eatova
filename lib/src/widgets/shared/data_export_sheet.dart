@@ -314,6 +314,13 @@ class _DataExportSheetState extends State<DataExportSheet> {
                   l10n.exportOutputHint,
                   style: AppType.ui(12, color: t.ink2, height: 1.4),
                 ),
+                // Own recipe photos are device-only files, not account data.
+                const SizedBox(height: 6),
+                Text(
+                  l10n.exportRecipePhotosHint,
+                  key: const ValueKey('export-recipe-photos-hint'),
+                  style: AppType.ui(12, color: t.ink2, height: 1.4),
+                ),
                 const SizedBox(height: 22),
                 // The card above already says what is loading; the app's
                 // spinner holds the sections' place.

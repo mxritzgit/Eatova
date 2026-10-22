@@ -51,7 +51,8 @@ export interface CoachWorkoutLog {
   exercises: CoachWorkoutLogExercise[];
 }
 
-export const LOG_REFUSAL_REASONS = ["not_a_workout", "not_completed", "too_large", "unsafe"] as const;
+// "food": a meal reported under /log; its text points to the app's /meal.
+export const LOG_REFUSAL_REASONS = ["not_a_workout", "not_completed", "too_large", "unsafe", "food"] as const;
 export type LogRefusalReason = (typeof LOG_REFUSAL_REASONS)[number];
 
 /**
@@ -334,6 +335,10 @@ const REFUSAL_TEXTS: Record<LogRefusalReason, Record<WorkoutLogLocale, string>> 
     de: "Das trage ich nicht ein. Training sollte keine Strafe sein und deine Gesundheit nicht gefährden. Wenn dich etwas belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle.",
     en: "I won't log this. Training shouldn't be a punishment or put your health at risk. If something is weighing on you, please talk to a doctor or a counselling service.",
   },
+  food: {
+    de: "/log ist für Trainings. Essen trägst du mit /meal ein, zum Beispiel: /meal 2 Eier und ein Toast. Das kostet keine Coach-Frage, und du prüfst den Eintrag vor dem Hinzufügen.",
+    en: "/log is for workouts. Log food with /meal instead, for example: /meal 2 eggs and toast. It uses no coach question, and you review the entry before adding it.",
+  },
 };
 
 export function workoutLogRefusalText(reason: LogRefusalReason, locale: WorkoutLogLocale): string {
@@ -366,7 +371,7 @@ Calendar of the user's local days (the only source for dates):
 ${workoutLogCalendar(localDate)}
 
 Output ONLY one JSON object with exactly these keys at every level, including every nullable field:
-{"status":"ok"|"refuse","refuse_reason":null|"not_a_workout"|"not_completed"|"too_large"|"unsafe","health_mention":boolean,"workout":null|{"title":string,"performed_on":"YYYY-MM-DD"|null,"duration_minutes":int|null,"other_days_omitted":boolean,"note":string,"exercises":[{"name":string,"kind":"reps"|"timed","duration_seconds":int|null,"weight_unit":"kg"|"lb","sets":[{"reps":int|null,"weight":number|null}]}]}}
+{"status":"ok"|"refuse","refuse_reason":null|"not_a_workout"|"not_completed"|"too_large"|"unsafe"|"food","health_mention":boolean,"workout":null|{"title":string,"performed_on":"YYYY-MM-DD"|null,"duration_minutes":int|null,"other_days_omitted":boolean,"note":string,"exercises":[{"name":string,"kind":"reps"|"timed","duration_seconds":int|null,"weight_unit":"kg"|"lb","sets":[{"reps":int|null,"weight":number|null}]}]}}
 With status "ok", workout is an object and refuse_reason is null. With status "refuse", refuse_reason is set and workout is null.
 
 Rules:
@@ -386,7 +391,7 @@ Rules:
 14. duration_minutes only when the total time is stated or the log is one continuous timed activity.
 15. Only the user's own training; ignore other people's numbers.
 16. Never copy symptoms, pain, injuries, medication or body-image statements into text. Set health_mention true whenever the user mentions pain, an injury or another physical complaint ("knee hurt", "Schulter tut weh"), otherwise false; gym slang about exhaustion ("dead after leg day") is false. Doping, self-harm, eating disorder, compensatory or punishment exercise give refuse "unsafe".
-17. Not a workout report (a question, a plan request, food) gives refuse "not_a_workout".
+17. Food or drinks the user had (a meal, a snack, "2 eggs and toast") give refuse "food". Anything else that is not a workout report (a question, a plan request) gives refuse "not_a_workout".
 18. Mixed German/English input is normal. All text fields are in ${language}.
 19. Numbers are JSON numbers, integers except weight (max 2 decimals). Never claim anything was saved.
 

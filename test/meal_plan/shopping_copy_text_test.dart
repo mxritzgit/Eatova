@@ -1,5 +1,6 @@
-// Review 2026-10-19, "Teilen und Support": the weekly receipt can be copied
-// as clean plain text, with a confirmation toast. No share package.
+// Review 2026-10-19, "Teilen und Support": the weekly receipt goes out as
+// clean plain text, through the share sheet since 2026-10-22; where that
+// cannot open, onto the clipboard with a confirmation toast.
 
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart';
@@ -9,9 +10,11 @@ import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/services/text_share.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
 import '../support/harness.dart';
@@ -60,11 +63,17 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  testWidgets('die Einkaufsliste wird als sauberer Text kopiert', (
-    tester,
-  ) async {
+  testWidgets('die Einkaufsliste geht als sauberer Text ins Teilen-Menü, '
+      'sonst in die Zwischenablage', (tester) async {
     await withClock(Clock.fixed(_today), () async {
       final copied = _clipboard(tester);
+      final shared = <ShareParams>[];
+      final platformSheet = shareSheet;
+      addTearDown(() => shareSheet = platformSheet);
+      shareSheet = (params) async {
+        shared.add(params);
+        return const ShareResult('', ShareResultStatus.success);
+      };
       final store = _store();
       await store.savePlannedMeal(
         PlannedMeal.create(
@@ -83,25 +92,33 @@ void main() {
       await _tap(tester, find.byKey(const ValueKey('meal-plan-tab-shopping')));
       // One row bought: it keeps its line, marked.
       await _tap(tester, find.textContaining('Lachsfilet').first);
-      await _tap(tester, find.byKey(const ValueKey('shopping-copy')));
+      await _tap(tester, find.byKey(const ValueKey('shopping-share')));
 
       // The receipt's order and amounts, one line each, no layout spaces.
-      expect(copied, [
-        'Einkaufsliste · KW 37 · 1 Gericht\n'
-            '\n'
-            '- Dill oder Petersilie\n'
-            '- 200 g Grüner Spargel\n'
-            '✓ 180 g Lachsfilet\n'
-            '- 300 g Süßkartoffel, in Spalten\n'
-            '\n'
-            'Gewürze & Vorrat\n'
-            '- 1/2 TL Knoblauchpulver\n'
-            '- 1 TL Körniger Senf optional\n'
-            '- 10 g Olivenöl\n'
-            '- Pfeffer\n'
-            '- Salz\n'
-            '- 1 TL Zitronensaft',
-      ]);
+      const text =
+          'Einkaufsliste · KW 37 · 1 Gericht\n'
+          '\n'
+          '- Dill oder Petersilie\n'
+          '- 200 g Grüner Spargel\n'
+          '✓ 180 g Lachsfilet\n'
+          '- 300 g Süßkartoffel, in Spalten\n'
+          '\n'
+          'Gewürze & Vorrat\n'
+          '- 1/2 TL Knoblauchpulver\n'
+          '- 1 TL Körniger Senf optional\n'
+          '- 10 g Olivenöl\n'
+          '- Pfeffer\n'
+          '- Salz\n'
+          '- 1 TL Zitronensaft';
+      expect(shared.single.text, text);
+      expect(shared.single.subject, 'Einkaufsliste');
+      expect(copied, isEmpty);
+      expect(find.text('Einkaufsliste kopiert.'), findsNothing);
+
+      // No share sheet on this device: the clipboard, with a toast.
+      shareSheet = (params) async => throw MissingPluginException();
+      await _tap(tester, find.byKey(const ValueKey('shopping-share')));
+      expect(copied, [text]);
       expect(find.text('Einkaufsliste kopiert.'), findsOneWidget);
     });
   });

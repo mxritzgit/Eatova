@@ -1,7 +1,9 @@
 // E5 + FOOD-6 through the real shell: a barcode the product database does not
 // know is entered by hand and remembered under its GTIN-13; the next scan,
 // in either spelling and from either barcode button, finds it first without
-// asking the database. After a network error the entry stays a one-off.
+// asking the database. After a network error the entry stays a one-off, and
+// the error offers a retry; a product found without nutrition values starts
+// the form with its name.
 
 import 'dart:async';
 import 'dart:io';
@@ -71,16 +73,20 @@ class _FakeScanner extends MobileScannerPlatform
   Future<void> dispose() async {}
 }
 
-/// The product database: knows no barcode, or is unreachable.
+/// The product database: knows no barcode, or is unreachable. [answers]
+/// are thrown in turn before that.
 class _Products implements ProductLookupService {
-  _Products({this.offline = false});
+  _Products({this.offline = false, List<Object>? answers})
+    : _answers = answers ?? <Object>[];
 
   final bool offline;
+  final List<Object> _answers;
   final List<String> lookups = <String>[];
 
   @override
   Future<MealAnalysisResult> lookupBarcode(String barcode) async {
     lookups.add(barcode);
+    if (_answers.isNotEmpty) throw _answers.removeAt(0);
     if (offline) throw const SocketException('offline');
     throw ProductNotFoundException(barcode);
   }
@@ -196,6 +202,68 @@ void main() {
       expect(store.favorites.single.result.kcalPer100G, 70);
       expect(store.loggedMeals, hasLength(2));
       expect(products.lookups, hasLength(1));
+    });
+  });
+
+  // Offline the lookup used to end without "Try again", and a product found
+  // without nutrition values opened an empty form although its name was
+  // known. Both barcode buttons share the lookup; each must wire it.
+  testWidgets('offline: erneut versuchen; ohne Naehrwerte startet das '
+      'Formular mit dem Namen', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      for (final viaAddSheet in [false, true]) {
+        final products = _Products(
+          answers: <Object>[
+            const SocketException('offline'),
+            const ProductWithoutNutritionException(
+              barcode: _gtin13,
+              productName: 'Haferdrink · Oatly',
+              kcalPer100G: 0,
+            ),
+          ],
+        );
+        final scanner = await _pumpShell(tester, products);
+        if (viaAddSheet) {
+          await _tapVisible(tester, _key('food-slot-add-snack'));
+          await _tapVisible(tester, _key('analyse-barcode-button'));
+        } else {
+          await tester.tap(_key('food-action-barcode'));
+          await tester.pumpAndSettle();
+        }
+        scanner.emit(_androidUpcA, BarcodeFormat.upcA);
+        await tester.pumpAndSettle();
+        expect(
+          find.text(deL10n.foodAnalysisOfflineMessage),
+          findsOneWidget,
+          reason: 'viaAddSheet: $viaAddSheet',
+        );
+
+        await _tapVisible(tester, _key('analyse-retry'));
+        expect(
+          products.lookups,
+          hasLength(2),
+          reason: 'viaAddSheet: $viaAddSheet',
+        );
+        expect(
+          _key('analyse-retry'),
+          findsNothing,
+          reason: 'the database answered; a retry cannot change that',
+        );
+
+        await _tapVisible(tester, _key('analyse-manual-entry'));
+        expect(
+          tester.widget<TextField>(_key('manual-meal-name')).controller!.text,
+          'Haferdrink · Oatly',
+          reason: 'viaAddSheet: $viaAddSheet',
+        );
+        expect(
+          find.text(deL10n.foodOwnProductBarcodeNote(_gtin13)),
+          findsOneWidget,
+          reason: 'the retry\'s answer decides: remembered under its code',
+        );
+        // A fresh shell for the next button, not the open form.
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
     });
   });
 

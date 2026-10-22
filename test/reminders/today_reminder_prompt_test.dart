@@ -1,10 +1,12 @@
-// C4: Today offers the reminder once — after logs on two different days,
-// only while it is off, and never again after "yes" or "no thanks".
+// C4: Today offers the reminder once — from the evening of the first day
+// with an entry (review 2026-10-22), only while it is off, and never again
+// after "yes" or "no thanks".
 
 import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
@@ -249,16 +251,15 @@ void main() {
       return store;
     }
 
-    testWidgets('erst nach dem zweiten Tag, nach Nein danke nie wieder', (
-      tester,
-    ) async {
+    testWidgets('mittags am ersten Eintragstag noch nicht, mit einem '
+        'frueheren Tag schon, nach Nein danke nie wieder', (tester) async {
       await withClock(Clock.fixed(_now), () async {
         final cache = LocalCache(InMemoryKeyValueStore(), 'today-card');
         var store = await pumpShell(tester, cache, _Notifications());
 
         await store.addResultToDailyTotal(_meal);
         await tester.pumpAndSettle();
-        expect(find.byKey(_card), findsNothing, reason: 'one day only');
+        expect(find.byKey(_card), findsNothing, reason: 'day one, noon');
 
         await store.addResultToDailyTotal(
           _meal,
@@ -319,10 +320,18 @@ void main() {
       });
     });
 
-    testWidgets('Ja, aber verweigert: ehrlich gesagt, Karte weg', (
-      tester,
-    ) async {
+    testWidgets('Ja, aber verweigert: ehrlich gesagt, mit dem Weg in die '
+        'Systemeinstellungen, Karte weg', (tester) async {
       await withClock(Clock.fixed(_now), () async {
+        const channel = MethodChannel('com.spencerccf.app_settings/methods');
+        final opened = <Object?>[];
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          opened.add((call.arguments as Map)['type']);
+          return null;
+        });
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
         final notifications = _Notifications(grant: false);
         final store = await pumpShell(
           tester,
@@ -351,6 +360,10 @@ void main() {
           findsOneWidget,
         );
         expect(notifications.requests, 1);
+
+        await tester.tap(find.widgetWithText(SnackBarAction, 'Einstellungen'));
+        await tester.pump();
+        expect(opened, <Object?>['notification']);
         await tester.pumpWidget(const SizedBox.shrink());
       });
     });

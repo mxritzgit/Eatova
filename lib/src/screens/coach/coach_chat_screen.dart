@@ -45,6 +45,7 @@ import '../../services/speech_input.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
+import '../../theme/meal_slot_style.dart' show MealSlotStyle;
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/motion.dart';
@@ -104,6 +105,10 @@ class CoachChatScreen extends StatefulWidget {
     this.trainingHistoryAuthoritative = false,
     this.trainingHistory = const <TrainingHistoryEntry>[],
     this.logDraftRequest = 0,
+    this.onDescribeMeal,
+    this.onOpenRecipe,
+    this.questionDraftRequest = 0,
+    this.questionDraft = '',
   });
 
   /// How long the answer live region stays once it can speak (where the
@@ -156,6 +161,21 @@ class CoachChatScreen extends StatefulWidget {
 
   /// Increment to prepare `/log ` in the composer without sending anything.
   final int logDraftRequest;
+
+  /// `/meal` (2026-10-22): opens the describe sheet for today, prefilled
+  /// with the text ('' opens it empty), and returns true once a meal was
+  /// added there. No coach request; the sheet's Add is the confirmation.
+  /// null: the command does nothing (previews, signed out).
+  final Future<bool> Function(String text)? onDescribeMeal;
+
+  /// "Open" on the toast of a saved /recipe proposal; null shows none.
+  final ValueChanged<FitnessRecipe>? onOpenRecipe;
+
+  /// Increment to put [questionDraft] into the composer, unsent: a prepared
+  /// question from another tab (the weekly result card, Trends). Sending it
+  /// stays the user's tap, so it costs a question only then.
+  final int questionDraftRequest;
+  final String questionDraft;
 
   /// Today's numbers for the start state's "From today's log" card, built
   /// by the shell from `HomeStore.nutritionSummaryForFoodDate`. null hides
@@ -278,6 +298,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       requestInputs: () => CoachRequestInputs(
         userContext: widget.userContext,
         recipePreferences: widget.recipePreferences,
+        recipeTargetLine: switch (widget.dayBrief) {
+          final brief? when mounted => coachRecipeTargetLine(
+            brief,
+            context.l10n,
+          ),
+          _ => null,
+        },
       ),
       inBackground: () => switch (WidgetsBinding.instance.lifecycleState) {
         AppLifecycleState.paused ||
@@ -302,6 +329,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
     }
     if (widget.logDraftRequest > 0) _prepareLogDraft();
+    if (widget.questionDraftRequest > 0) _prepareQuestionDraft();
   }
 
   @override
@@ -323,6 +351,28 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (widget.logDraftRequest != oldWidget.logDraftRequest) {
       _prepareLogDraft();
     }
+    if (widget.questionDraftRequest != oldWidget.questionDraftRequest) {
+      _prepareQuestionDraft();
+    }
+  }
+
+  /// After the frame, like [_prepareLogDraft]: [CoachChatScreen.questionDraft]
+  /// goes into the composer, unsent. An own draft stays behind it; one that
+  /// would no longer fit the input cap is left alone.
+  void _prepareQuestionDraft() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final question = widget.questionDraft.trim();
+      if (!mounted || question.isEmpty || _listening) return;
+      final draft = _input.text.trim();
+      final text = RegExp(r'^(/\S*)?$').hasMatch(draft)
+          ? question
+          : draft.startsWith(question)
+          ? draft
+          : '$question $draft';
+      if (!_coachInputLimit.fits(text)) return;
+      _setDraft(text);
+      _inputFocus.requestFocus();
+    });
   }
 
   /// After the frame: the request arrives during a build. The user asked from
@@ -734,11 +784,19 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     await versand;
   }
 
-  /// Plan discovery opens a brief; recipe and log discovery prepare the
-  /// composer.
+  /// Plan discovery opens a brief and meal discovery the describe sheet;
+  /// recipe and log discovery prepare the composer.
   void _applyCommand(String command) {
     if (command == _CoachCommand.plan.token) {
       unawaited(_openTrainingBrief());
+      return;
+    }
+    if (command == _CoachCommand.meal.token) {
+      // A typed `/meal …` draft goes into the sheet, like `/plan …` into
+      // the brief; the bare token from the menu opens it empty.
+      unawaited(
+        _openMealDescribe(CoachChatController.mealTextFrom(_input.text) ?? ''),
+      );
       return;
     }
     HapticFeedback.selectionClick();
@@ -754,6 +812,36 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _input.selection = TextSelection.collapsed(offset: _input.text.length);
     }
     _inputFocus.requestFocus();
+  }
+
+  /// The describe sheet is open; a second /meal waits for it to close.
+  bool _describingMeal = false;
+
+  /// `/meal` (2026-10-22): the describe sheet, prefilled with [text], without
+  /// a coach request ([CoachChatScreen.onDescribeMeal]). Its Add logs the
+  /// meal; only then does the composer empty, so a closed sheet loses no
+  /// typing.
+  Future<void> _openMealDescribe(String text) async {
+    final open = widget.onDescribeMeal;
+    if (open == null || _describingMeal) return;
+    HapticFeedback.selectionClick();
+    _endDictationForSheet();
+    _inputFocus.unfocus();
+    final draft = _input.text;
+    _describingMeal = true;
+    try {
+      final added = await open(text);
+      // Only the /meal draft that went into the sheet goes; text typed
+      // since then stays.
+      if (added &&
+          mounted &&
+          _input.text == draft &&
+          CoachChatController.mealTextFrom(draft) != null) {
+        _input.clear();
+      }
+    } finally {
+      _describingMeal = false;
+    }
   }
 
   Future<void> _openTrainingBrief({
@@ -1064,6 +1152,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       );
       if (adopted == null || !mounted) return;
       HapticFeedback.lightImpact();
+      final openRecipe = widget.onOpenRecipe;
       showAppSnack(
         context,
         deliveryHint(
@@ -1074,6 +1163,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           context.l10n,
         ),
         icon: Icons.bookmark_added_rounded,
+        action: openRecipe == null
+            ? null
+            : SnackBarAction(
+                label: context.l10n.coachRecipeSavedOpen,
+                onPressed: () => openRecipe(adopted.recipe),
+              ),
       );
     } catch (_) {
       if (mounted) {
@@ -1629,7 +1724,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                               canRetry: _coach.canInteract,
                               onRetry: _wiederholen,
                             ),
-                          if (error != null) _ErrorBanner(text: error),
+                          if (error != null)
+                            _ErrorBanner(
+                              text: error,
+                              // An offline first visit or a failed history
+                              // load: nothing else would reload it.
+                              onRetry: _coach.canRetryLoad
+                                  ? () => unawaited(_coach.retryLoad())
+                                  : null,
+                            ),
                         ],
                       )
                     : null,
@@ -1759,10 +1862,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     focus: _inputFocus,
                     enabled: _coach.canType,
                     canSend: _coach.canInteract,
-                    // Display value, not a state: an unknown quota shows the
-                    // default limit so the composer claims neither exhausted nor
-                    // a count.
-                    remaining: _coach.remainingForDisplay,
+                    // Null while unknown: the composer then claims neither
+                    // exhausted nor a count.
+                    quota: _coach.quota,
+                    counterHidden: _commandMenuVisibleFor(draft),
                     draft: draft,
                     listening: _listening,
                     dictationLanguage: _listeningLanguage,
@@ -1892,6 +1995,10 @@ class _CoachScreenHooks extends CoachChatViewHooks {
 
   @override
   void draftReturned(String text) => _state._entwurfZurueck(text);
+
+  @override
+  void mealDescribeRequested(String text) =>
+      unawaited(_state._openMealDescribe(text));
 }
 
 /// "Not sent" under the history, with the retry button next to it.
@@ -2031,6 +2138,7 @@ class _CoachInfoSheetUnbekannt extends StatelessWidget {
               _InfoBullet(l10n.coachInfoBulletWeight),
               _InfoBullet(l10n.coachInfoBulletMacros),
               _InfoBullet(l10n.coachInfoBulletMeals),
+              _InfoBullet(l10n.coachInfoBulletPlan),
               _InfoBullet(l10n.foodPrefsCoachInfoBullet),
               const SizedBox(height: 12),
               Text(

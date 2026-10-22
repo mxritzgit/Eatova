@@ -158,7 +158,7 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
       final first = entries
           .map((e) => e.meal.loggedAt)
           .reduce((a, b) => b.isBefore(a) ? b : a);
-      meta = l10n.foodSlotMeta(formatMealTime(first), entries.length);
+      meta = l10n.foodSlotMeta(formatMealTime(context, first), entries.length);
     }
     final showMacros = _showMacros && !empty;
 
@@ -223,7 +223,7 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
                 10,
               ),
               child: Text(
-                _macroLine(l10n, total),
+                macroSummaryLine(l10n, total),
                 key: ValueKey('food-slot-macros-${slot.name}'),
                 style: foodText(12, weight: FontWeight.w600, color: t.ink2),
               ),
@@ -598,13 +598,28 @@ String foodPickEyebrow(RecipePick pick, AppLocalizations l10n) {
       : l10n.foodPickFitsDay(value);
 }
 
-String _macroLine(AppLocalizations l10n, MacroProgress m) =>
-    l10n.foodMacroSummary(m.proteinG.round(), m.carbsG.round(), m.fatG.round());
+/// The "P 48 g · C 90 g · F 20 g" line of [m]. Entries without a macro add
+/// 0 g to it, so that macro reads "≥48 g" when such entries are in the sum
+/// and "–" when nothing known is (2026-10-22).
+String macroSummaryLine(AppLocalizations l10n, MacroProgress m) {
+  String grams(double value, int missing) {
+    final rounded = value.round();
+    if (missing == 0) return '$rounded g';
+    return rounded == 0 ? '–' : '≥$rounded g';
+  }
 
-/// A diary row's amount: grams, marked "~" when they are an AI estimate.
+  return l10n.foodMacroSummary(
+    grams(m.proteinG, m.proteinMissing),
+    grams(m.carbsG, m.carbsMissing),
+    grams(m.fatG, m.fatMissing),
+  );
+}
+
+/// A diary row's amount: grams, marked "~" when they are an AI estimate;
+/// servings ("1,5 Portionen") for an entry without a weight.
 String diaryAmountLabel(MealAnalysisResult result, AppLocalizations l10n) {
   final grams = result.estimatedGrams;
-  if (grams <= 0) return l10n.foodPortionFallback;
+  if (grams <= 0) return result.servingsLabel(l10n);
   final estimate = switch (MealResultSource.resolve(result.sourceLabel)) {
     MealResultSource.photoAi || MealResultSource.aiEstimate => true,
     _ => false,
@@ -826,7 +841,7 @@ class _HistoryEntry extends StatelessWidget {
               kcalText,
               const SizedBox(height: 1),
               Text(
-                formatMealTime(meal.loggedAt),
+                formatMealTime(context, meal.loggedAt),
                 key: ValueKey('food-entry-time-${meal.id}'),
                 style: foodText(12, color: t.ink3),
               ),
@@ -872,7 +887,7 @@ class _HistoryEntry extends StatelessWidget {
                           ),
                           if (showMacros && hasMacros)
                             Text(
-                              _macroLine(l10n, macros),
+                              macroSummaryLine(l10n, macros),
                               style: foodText(12, color: t.ink3),
                             ),
                         ],
@@ -891,10 +906,11 @@ class _HistoryEntry extends StatelessWidget {
   }
 }
 
-/// Local wall-clock time `HH:mm` of a meal for the history row.
-String formatMealTime(DateTime dt) {
-  final local = dt.toLocal();
-  final h = local.hour.toString().padLeft(2, '0');
-  final m = local.minute.toString().padLeft(2, '0');
-  return '$h:$m';
-}
+/// Local time of day as the phone shows times: the locale's clock ("08:10",
+/// "8:10 AM"), or 24 hours when the system asks for it, as in Training.
+/// The diary rows and Food's limit messages.
+String formatMealTime(BuildContext context, DateTime dt) =>
+    MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay.fromDateTime(dt.toLocal()),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );

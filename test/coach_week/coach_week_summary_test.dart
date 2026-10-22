@@ -24,8 +24,17 @@ DateTime _daysAgo(int n, {int hour = 12}) =>
 const int _goal = 2100;
 const int _protein = 140;
 
-CoachWeekDay _day(int kcal, {double protein = 140, int bonus = 0}) =>
-    (kcal: kcal, proteinG: protein, budgetKcal: _goal + bonus);
+CoachWeekDay _day(
+  int kcal, {
+  double protein = 140,
+  int missing = 0,
+  int bonus = 0,
+}) => (
+  kcal: kcal,
+  proteinG: protein,
+  proteinMissing: missing,
+  budgetKcal: _goal + bonus,
+);
 
 /// Days ago -> totals; missing keys are unlogged days.
 String _summary(
@@ -125,6 +134,29 @@ void main() {
       expect(
         _summary({1: _day(2000, protein: 90)}),
         contains('Protein 90 g (Ziel 140 g, nicht erreicht).'),
+      );
+    });
+
+    // Entries without protein added 0 g (review 2026-10-22): the mean and
+    // the goal days are lower bounds, a day below the goal is not a miss.
+    test('Eintraege ohne Protein: Schnitt und Zieltage sind Untergrenzen', () {
+      expect(
+        _summary({
+          1: _day(2000, protein: 150, missing: 1),
+          2: _day(2000, protein: 100, missing: 2),
+          3: _day(2000, protein: 110),
+        }),
+        contains(
+          'Protein mindestens 120 g (Ziel 140 g, an mindestens 1 von 3 Tagen '
+          'erreicht; 2 Tage mit Einträgen ohne Proteinangabe).',
+        ),
+      );
+      expect(
+        _summary({1: _day(2000, protein: 90, missing: 1)}),
+        contains(
+          'Protein mindestens 90 g (Ziel 140 g, unklar; 1 Tag mit Einträgen '
+          'ohne Proteinangabe).',
+        ),
       );
     });
 

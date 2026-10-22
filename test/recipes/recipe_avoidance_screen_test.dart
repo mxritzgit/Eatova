@@ -120,7 +120,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipes-tab-all')));
     await tester.pumpAndSettle();
 
-    expect(_slugs(tester, 'recipe-tile-'), hasLength(30));
+    expect(_slugs(tester, 'recipe-tile-'), hasLength(recipeCatalogDe.length));
     expect(_hint(_lachs), findsOneWidget);
     expect(
       find.descendant(of: _hint(_lachs), matching: find.text('Enthält Fisch')),

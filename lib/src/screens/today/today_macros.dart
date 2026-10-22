@@ -12,6 +12,8 @@ import 'today_texts.dart';
 ///
 /// The visible names are the compact tile labels ("KH" in German, "Carbs"
 /// in English, as on the goals screens); screen readers hear the full name.
+/// A sum with entries of unknown macros reads "≥48", with a line naming how
+/// many entries lack them.
 class TodayMacros extends StatelessWidget {
   const TodayMacros({super.key, required this.summary});
 
@@ -27,6 +29,7 @@ class TodayMacros extends StatelessWidget {
         label: l10n.todayMacroProtein,
         shortLabel: l10n.todayMacroProtein,
         value: consumed.proteinG.round(),
+        atLeast: consumed.proteinMissing > 0,
         goal: summary.proteinGoalG,
         left: summary.proteinLeftG,
         color: t.protein,
@@ -35,6 +38,7 @@ class TodayMacros extends StatelessWidget {
         label: l10n.todayMacroCarbs,
         shortLabel: l10n.foodMacroTileCarbsLabel,
         value: consumed.carbsG.round(),
+        atLeast: consumed.carbsMissing > 0,
         goal: summary.carbsGoalG,
         left: summary.carbsLeftG,
         color: t.carbs,
@@ -43,12 +47,13 @@ class TodayMacros extends StatelessWidget {
         label: l10n.todayMacroFat,
         shortLabel: l10n.todayMacroFat,
         value: consumed.fatG.round(),
+        atLeast: consumed.fatMissing > 0,
         goal: summary.fatGoalG,
         left: summary.fatLeftG,
         color: t.fat,
       ),
     ];
-    return Semantics(
+    final card = Semantics(
       container: true,
       label: l10n.todayMacrosTitle,
       explicitChildNodes: true,
@@ -80,6 +85,7 @@ class TodayMacros extends StatelessWidget {
                     left: tiles[i].left,
                     color: tiles[i].color,
                     stackValue: stack,
+                    atLeast: tiles[i].atLeast,
                   ),
                 ),
               ],
@@ -87,6 +93,20 @@ class TodayMacros extends StatelessWidget {
           );
         },
       ),
+    );
+    final missing = consumed.entriesMissingMacros;
+    if (missing == 0) return card;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        card,
+        const SizedBox(height: 8),
+        Text(
+          l10n.foodMacrosMissingEntries(missing),
+          key: const ValueKey('today-macros-missing'),
+          style: AppType.ui(12, color: t.ink3, height: todayLineHeight),
+        ),
+      ],
     );
   }
 
@@ -110,7 +130,7 @@ class TodayMacros extends StatelessWidget {
     final painter = TextPainter(
       text: TextSpan(
         children: <TextSpan>[
-          TextSpan(text: '${spec.value}', style: value),
+          TextSpan(text: _number(spec.value, spec.atLeast), style: value),
           TextSpan(text: '/${spec.goal} g', style: goal),
         ],
       ),
@@ -123,6 +143,10 @@ class TodayMacros extends StatelessWidget {
     painter.dispose();
     return width;
   }
+
+  /// The eaten grams; "≥48" when entries of unknown macros are in the sum.
+  static String _number(int value, bool atLeast) =>
+      atLeast ? '≥$value' : '$value';
 }
 
 /// Values of one tile; `left` is the rounded, never negative grams open.
@@ -134,11 +158,13 @@ class _MacroSpec {
     required this.goal,
     required this.left,
     required this.color,
+    required this.atLeast,
   });
 
   final String label, shortLabel;
   final int value, goal, left;
   final Color color;
+  final bool atLeast;
 }
 
 class TodayMacroTile extends StatelessWidget {
@@ -151,6 +177,7 @@ class TodayMacroTile extends StatelessWidget {
     required this.left,
     required this.color,
     this.stackValue = false,
+    this.atLeast = false,
   });
 
   /// Full name for screen readers; [shortLabel] is what the tile shows.
@@ -163,6 +190,10 @@ class TodayMacroTile extends StatelessWidget {
   /// Puts "/162 g" under the number when both do not fit side by side.
   final bool stackValue;
 
+  /// [value] is a lower bound: some entries in it have no value for this
+  /// macro.
+  final bool atLeast;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -174,7 +205,7 @@ class TodayMacroTile extends StatelessWidget {
         : l10n.todayMacroOver(over);
     final number = CountingText(
       value: value.toDouble(),
-      format: (v) => '${v.round()}',
+      format: (v) => TodayMacros._number(v.round(), atLeast),
       maxLines: 1,
       softWrap: false,
       style: TodayMacros._valueStyle(t),
@@ -190,7 +221,8 @@ class TodayMacroTile extends StatelessWidget {
     return Semantics(
       container: true,
       label: label,
-      value: '${l10n.todayMacroProgressValue(value, goal)}, $rest',
+      value:
+          '${atLeast ? l10n.todayMacroProgressValueAtLeast(value, goal) : l10n.todayMacroProgressValue(value, goal)}, $rest',
       child: ExcludeSemantics(
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),

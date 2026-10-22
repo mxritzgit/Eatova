@@ -24,6 +24,7 @@ import '../common/lively.dart';
 import '../common/motion.dart';
 import '../common/persistence_action.dart';
 import '../design/design.dart';
+import 'diary_meal_card.dart' show formatMealTime;
 import 'meal_analysis_sheet.dart';
 import 'meal_slot_picker.dart';
 import 'saved_meal_presentation.dart';
@@ -64,13 +65,17 @@ String? mealDescribeInputNotice(
 
 /// [mealAnalysisErrorMessage] for a description: texts that speak of a photo
 /// get their own. The quota is the photo scan's, hence "meal analyses".
-String mealDescribeErrorMessage(Object error, AppLocalizations l10n) {
+String mealDescribeErrorMessage(
+  Object error,
+  AppLocalizations l10n, {
+  String Function(DateTime at) clockLabel = mealAnalysisClockLabel,
+}) {
   final fallback = l10n.foodAnalysisFailedMessage;
   return switch (error) {
     MealAnalysisReauthRequired() => l10n.foodDescribeReauthRequired,
     MealAnalysisRateLimited(:final resetAt) =>
       resetAt != null && resetAt.isAfter(clock.now())
-          ? l10n.foodDescribeRateLimitUntil(mealAnalysisClockLabel(resetAt))
+          ? l10n.foodDescribeRateLimitUntil(clockLabel(resetAt))
           : l10n.foodDescribeRateLimit,
     // A function without describe mode refuses `mealText` (invalid_body) or
     // asks for a photo, and a few hundred characters are never too large:
@@ -84,7 +89,12 @@ String mealDescribeErrorMessage(Object error, AppLocalizations l10n) {
     ) => l10n.foodAnalysisServiceUnavailableMessage,
     // A describe body carries no hint; the photo's text would mislead.
     MealAnalysisServerError(code: 'invalid_hint') => fallback,
-    _ => mealAnalysisErrorMessage(error, fallback, l10n),
+    _ => mealAnalysisErrorMessage(
+      error,
+      fallback,
+      l10n,
+      clockLabel: clockLabel,
+    ),
   };
 }
 
@@ -992,7 +1002,11 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
           _WorkingFooter(slow: _slow, onCancel: _cancelWork),
         ] else ...[
           _ErrorCard(
-            message: mealDescribeErrorMessage(error, l10n),
+            message: mealDescribeErrorMessage(
+              error,
+              l10n,
+              clockLabel: (at) => formatMealTime(context, at),
+            ),
             onRetry: _retryable(error) ? () => unawaited(_describe()) : null,
             onEditText: _backToText,
           ),

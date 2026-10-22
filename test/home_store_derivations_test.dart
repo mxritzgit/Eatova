@@ -135,21 +135,28 @@ void main() {
 
       final pick = store.nextMealPick(localeName: 'en')!;
       expect(pick.slot, MealSlot.dinner);
+      expect(pick.remainingKcalBefore, 902);
+      expect(pick.kcalLeftAfter, 902 - pick.kcal!);
+      // The same recipe, from the locale's catalog.
+      final de = store.nextMealPick(localeName: 'de')!;
+      expect(de.recipe.slug, pick.recipe.slug);
       expect(
-        pick.recipe.title,
-        'Turkey Steak with Quinoa & Roasted Vegetables',
-      );
-      expect(pick.kcalLeftAfter, 292);
-      expect(
-        store.nextMealPick(localeName: 'de')!.recipe.title,
-        'Putensteak mit Quinoa & Ofengemüse',
+        de.recipe.title,
+        recipeCatalogDe.firstWhere((r) => r.slug == pick.recipe.slug).title,
       );
 
       // The profile's diet is applied.
       store.profile = _profile.copyWith(diet: DietPreference.vegan);
       expect(
+        store
+            .nextMealPick(localeName: 'de')!
+            .recipe
+            .matchesDiet(DietPreference.vegan),
+        isTrue,
+      );
+      expect(
         store.nextMealPick(localeName: 'de')!.recipe.slug,
-        'tofu_mit_reis_and_edamame',
+        isNot(pick.recipe.slug),
       );
       store.profile = _profile;
 
@@ -174,10 +181,7 @@ void main() {
       await store.saveUserRecipe(own);
       expect(store.nextMealPick(localeName: 'de')!.recipe.slug, own.slug);
       store.setRecipeDeletePending(own.slug, pending: true);
-      expect(
-        store.nextMealPick(localeName: 'de')!.recipe.slug,
-        'putensteak_mit_quinoa_and_ofengemuse',
-      );
+      expect(store.nextMealPick(localeName: 'de')!.recipe.slug, de.recipe.slug);
 
       // A planned dinner wins, and the revision fingerprint moves.
       final before = store.mealPlansRevision;
@@ -225,7 +229,6 @@ void main() {
     await withClock(Clock.fixed(_now), () async {
       final empty = _store();
       expect(empty.nextTrainingWorkoutForToday(), isNull);
-      expect(empty.currentTrainingWeek().plannedSessions, isNull);
       expect(empty.currentTrainingWeek().doneSessions, 0);
       expect(empty.weeklyTrainingVolume().weeks, hasLength(6));
       expect(empty.recentWorkoutSummaries(), isEmpty);
@@ -270,7 +273,6 @@ void main() {
       );
       await store.saveTrainingPlan(plan);
       expect(store.nextTrainingWorkoutForToday()!.workoutIndex, 0);
-      expect(store.currentTrainingWeek().plannedSessions, 2);
 
       final start = DateTime(2026, 9, 28, 7);
       final saved = store.trainingPlans.single;

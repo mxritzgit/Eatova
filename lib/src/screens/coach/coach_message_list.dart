@@ -313,14 +313,21 @@ class _MessageView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bubble = _bubble(context);
+    final l10n = context.l10n;
     final report = onReport;
-    if (report == null) return bubble;
+    // One node per bubble that names its speaker first ("Du", "Coach"), so a
+    // screen reader can tell question and answer apart (2026-10-22).
     return Semantics(
-      customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
-        CustomSemanticsAction(label: context.l10n.coachReportAction): report,
-      },
-      child: bubble,
+      container: true,
+      label: message.role == ChatRole.user
+          ? l10n.coachSpeakerYou
+          : l10n.coachSpeakerCoach,
+      customSemanticsActions: report == null
+          ? null
+          : <CustomSemanticsAction, VoidCallback>{
+              CustomSemanticsAction(label: l10n.coachReportAction): report,
+            },
+      child: _bubble(context),
     );
   }
 
@@ -583,12 +590,16 @@ class _ThinkingRowState extends State<_ThinkingRow>
 
 // ---------------------------------------------------------------------------
 class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.text});
+  const _ErrorBanner({required this.text, this.onRetry});
   final String text;
+
+  /// "Try again" under the text (a failed load); null shows none.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final retry = onRetry;
     // Live region: a failed send, the quota or a speech error appears without
     // focus moving, so a screen reader would otherwise stay silent.
     return Semantics(
@@ -608,9 +619,25 @@ class _ErrorBanner extends StatelessWidget {
             Icon(Icons.error_outline_rounded, size: 16, color: t.warning),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                text,
-                style: AppType.ui(12.5, color: t.ink, height: 1.45),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    text,
+                    style: AppType.ui(12.5, color: t.ink, height: 1.45),
+                  ),
+                  if (retry != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: SoftPillButton(
+                        key: const ValueKey('coach-load-retry'),
+                        icon: Icons.refresh_rounded,
+                        label: context.l10n.coachLoadRetry,
+                        tone: SoftPillTone.neutral,
+                        onTap: retry,
+                      ),
+                    ),
+                ],
               ),
             ),
           ],

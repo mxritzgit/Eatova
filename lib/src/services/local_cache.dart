@@ -224,12 +224,23 @@ class LocalCache {
   String get _notificationsKey => 'eatova.v1.notifications_enabled.$_userId';
   String get _healthConnectKey => 'eatova.v1.health_connect_enabled.$_userId';
 
-  Future<void> writeHealthConnectEnabled(bool enabled) =>
-      _writeJson(_healthConnectKey, {'enabled': enabled});
+  /// [since] is when this account first connected: Health Connect answers
+  /// back to 30 days before the first grant (2026-10-22).
+  Future<void> writeHealthConnectEnabled(bool enabled, {DateTime? since}) =>
+      _writeJson(_healthConnectKey, {
+        'enabled': enabled,
+        if (since != null) 'since': since.toUtc().toIso8601String(),
+      });
 
   /// Only an intact boolean opt-in permits a silent Android reconnect.
   Future<bool> readHealthConnectEnabled() async =>
       (await _readJson(_healthConnectKey))?['enabled'] == true;
+
+  /// When this account first connected Health Connect; null for an opt-in
+  /// an older build stored.
+  Future<DateTime?> readHealthConnectSince() async => DateTime.tryParse(
+    '${(await _readJson(_healthConnectKey))?['since'] ?? ''}',
+  );
 
   /// Today's Apple Health intro card for this account (2026-10-19):
   /// `pending`, `connected` or `dismissed`; missing for accounts onboarded
@@ -243,6 +254,19 @@ class LocalCache {
     final state = (await _readJson(_healthPromptKey))?['state'];
     return state is String ? state : null;
   }
+
+  /// This account's scale import (2026-10-22): `mode` (`auto` or `off`,
+  /// missing until answered), `since` (the newest weigh-in a read returned)
+  /// and `seen` (keys of imported samples, so a deleted import does not come
+  /// back). Health data like the steps: cleared in [clear].
+  String get _healthWeightImportKey =>
+      'eatova.v1.health_weight_import.$_userId';
+
+  Future<void> writeHealthWeightImport(Map<String, dynamic> state) =>
+      _writeJson(_healthWeightImportKey, state);
+
+  Future<Map<String, dynamic>?> readHealthWeightImport() =>
+      _readJson(_healthWeightImportKey);
 
   // DATA-7 offline persistence: diary, favorites and weight log are mirrored
   // so an offline cold start does not begin with an empty diary. Plus the
@@ -315,6 +339,31 @@ class LocalCache {
   Future<bool> readReminderPromptAnswered() async =>
       (await _readJson(_reminderPromptKey))?['answered'] == true;
 
+  // The weekly check's result card on Today (2026-10-22): the day
+  // "Verstanden" hid it, so it stays away for the rest of the week. Per
+  // account, cleared in [clear].
+  String get _weeklyResultSeenKey => 'eatova.v1.weekly_result_seen.$_userId';
+
+  Future<void> writeWeeklyResultSeen(DateTime day) => _writeJson(
+    _weeklyResultSeenKey,
+    <String, dynamic>{'day': localDayKey(day)},
+  );
+
+  /// Missing or corrupt -> null: the card shows.
+  Future<DateTime?> readWeeklyResultSeen() async =>
+      parseLocalDayKey((await _readJson(_weeklyResultSeenKey))?['day']);
+
+  // The weigh-in reminder's opt-in (review 2026-10-22). Same lifecycle as the
+  // evening reminder's: per account, true only while the OS delivered.
+  String get _weighInReminderKey => 'eatova.v1.weigh_in_reminder.$_userId';
+
+  Future<void> writeWeighInReminderEnabled(bool enabled) =>
+      _writeJson(_weighInReminderKey, <String, dynamic>{'enabled': enabled});
+
+  /// Missing or corrupt -> false: the reminder is opt-in.
+  Future<bool> readWeighInReminderEnabled() async =>
+      (await _readJson(_weighInReminderKey))?['enabled'] == true;
+
   // ---- AI consent (2026-10-19) ---------------------------------------------
   // The account's latest AI consent decision, cached so the AI entry points
   // need no round trip. The server log (`ai_consents`) is the record; this
@@ -326,6 +375,18 @@ class LocalCache {
 
   /// Missing or corrupt -> null (no consent known).
   Future<Map<String, dynamic>?> readAiConsent() => _readJson(_aiConsentKey);
+
+  // ---- Coach quota (2026-10-22) -------------------------------------------
+  // The account's last known Coach quota (server-named daily limit, questions
+  // used, UTC day), so a cold start knows the limit and a used-up day before
+  // the server answers. No message content; cleared with the other slots.
+  String get _coachQuotaKey => 'eatova.v1.coach_quota.$_userId';
+
+  Future<void> writeCoachQuota(Map<String, dynamic> record) =>
+      _writeJson(_coachQuotaKey, record);
+
+  /// Missing or corrupt -> null (nothing remembered).
+  Future<Map<String, dynamic>?> readCoachQuota() => _readJson(_coachQuotaKey);
 
   // ---- Profile ------------------------------------------------------------
 
@@ -1019,9 +1080,13 @@ class LocalCache {
       await _store.remove(_notificationsKey);
       await _store.remove(_reminderTimeKey);
       await _store.remove(_reminderPromptKey);
+      await _store.remove(_weeklyResultSeenKey);
+      await _store.remove(_weighInReminderKey);
       await _store.remove(_aiConsentKey);
+      await _store.remove(_coachQuotaKey);
       await _store.remove(_healthConnectKey);
       await _store.remove(_healthPromptKey);
+      await _store.remove(_healthWeightImportKey);
       await _store.remove(_loggedMealsKey);
       await _store.remove(_favoritesKey);
       await _store.remove(_weightLogKey);

@@ -726,6 +726,8 @@ class FitnessRecipe {
       brand: 'Eatova',
       explicitZeroKcal: calories == 0 &&
           (hasStructuredIngredients || slug.startsWith('user_import_')),
+      // The diary row names it, and the edit sheet steps from it.
+      servings: servings,
     );
   }
 }
@@ -739,6 +741,7 @@ const recipeFilters = <String>[
   "Vegetarisch",
   "Vegan",
   "Low Carb",
+  "Snack",
 ];
 
 /// The catalog categories an own recipe may carry besides "Eigene": the
@@ -753,6 +756,7 @@ const ownRecipeCategoryChoices = <String>[
   "Vegetarisch",
   "Vegan",
   "Low Carb",
+  "Snack",
 ];
 
 /// Search normalisation: lower case plus a simple umlaut fold, so "Haehnchen"

@@ -5,6 +5,7 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/training_history.dart';
 import 'package:eatova/src/models/training_log.dart';
 import 'package:eatova/src/models/training_session.dart';
+import 'package:eatova/src/screens/training/training_exercise_history_screen.dart';
 import 'package:eatova/src/screens/training/training_history_screen.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
@@ -154,6 +155,14 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
       await _tap(tester, 'training-set-check-0-0');
+      // 5 × 17.5 kg beats last time's 6 × 15 kg: the sheet names the record.
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('training-finish-records')),
+          matching: find.text('Reach · 5 × 17.5 kg'),
+        ),
+        findsOneWidget,
+      );
       await _tap(tester, 'training-finish-save');
       expect(attempts.single.snapshot.actualSets.single.reps, 5);
       expect(attempts.single.snapshot.actualSets.single.weightKg, 17.5);
@@ -470,6 +479,10 @@ void main() {
       );
       expect(rect.right, lessThanOrEqualTo(320));
       expect(rect.height, greaterThanOrEqualTo(48));
+      expect(tester.takeException(), isNull);
+      // The squats' progress page (exercise 1; the hold is timed).
+      await _tap(tester, 'training-history-progress-1');
+      expect(find.byType(TrainingExerciseHistoryScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -817,8 +830,8 @@ void main() {
       });
     });
 
-    testWidgets('the history and its detail name the records and a year '
-        'outside the current one', (tester) async {
+    testWidgets('the history and its detail name the records, a year '
+        'outside the current one and the exercise progress', (tester) async {
       // The same plan workout twice: the heavier one sets one record.
       final plan = timerPlan();
       TrainingHistoryEntry played(String id, DateTime day, double kg) =>
@@ -871,6 +884,36 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('1 PR'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('training-history-detail-records')),
+            matching: find.text('Reach · 8 × 25 kg'),
+          ),
+          findsOneWidget,
+        );
+
+        // The exercise's best set per workout, newest first, the record
+        // marked.
+        await _tap(tester, 'training-history-progress-0');
+        expect(find.byType(TrainingExerciseHistoryScreen), findsOneWidget);
+        final rows = [record, first]
+            .map(
+              (e) => find.byKey(ValueKey('training-exercise-history-${e.id}')),
+            )
+            .toList();
+        expect(
+          tester.getTopLeft(rows[0]).dy,
+          lessThan(tester.getTopLeft(rows[1]).dy),
+        );
+        expect(
+          find.byKey(ValueKey('training-exercise-history-record-${record.id}')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(ValueKey('training-exercise-history-record-${first.id}')),
+          findsNothing,
+        );
+        expect(find.text('8 × 20 kg'), findsOneWidget);
       });
     });
 

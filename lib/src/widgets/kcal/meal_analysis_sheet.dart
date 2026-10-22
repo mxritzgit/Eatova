@@ -19,6 +19,7 @@ import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
+import 'diary_meal_card.dart' show formatMealTime;
 
 /// Maps an analysis/lookup error to the message shown in the sheet.
 ///
@@ -31,13 +32,17 @@ import '../meal/meal_widgets.dart';
 ///  * [ProductWithoutNutritionException] — the product was found but carries
 ///    no loggable energy value, so the "not found" message would be wrong.
 ///    The error already brings its own message.
+///
+/// [clockLabel] writes the time a limit lifts; a widget passes
+/// [formatMealTime] for the phone's 12/24-hour setting.
 String mealAnalysisErrorMessage(
   Object error,
   String fallback,
-  AppLocalizations l10n,
-) {
+  AppLocalizations l10n, {
+  String Function(DateTime at) clockLabel = mealAnalysisClockLabel,
+}) {
   if (error is MealAnalysisException) {
-    return _mealAnalysisExceptionMessage(error, fallback, l10n);
+    return _mealAnalysisExceptionMessage(error, fallback, l10n, clockLabel);
   }
   if (error is TimeoutException) {
     return l10n.foodAnalysisTimeoutMessage;
@@ -63,6 +68,7 @@ String _mealAnalysisExceptionMessage(
   MealAnalysisException error,
   String fallback,
   AppLocalizations l10n,
+  String Function(DateTime at) clockLabel,
 ) {
   return switch (error) {
     MealAnalysisReauthRequired() => l10n.foodReauthRequiredError,
@@ -70,9 +76,7 @@ String _mealAnalysisExceptionMessage(
     MealAnalysisCancelled() => fallback,
     MealAnalysisRateLimited(:final resetAt) =>
       resetAt != null && resetAt.isAfter(clock.now())
-          ? l10n.foodAnalysisRateLimitUntilMessage(
-              mealAnalysisClockLabel(resetAt),
-            )
+          ? l10n.foodAnalysisRateLimitUntilMessage(clockLabel(resetAt))
           : l10n.foodAnalysisRateLimitError,
     MealAnalysisServerError(:final code, :final statusCode) => switch (code) {
       'invalid_hint' => l10n.foodScanContextInvalid,
@@ -121,8 +125,9 @@ String _mealAnalysisExceptionMessage(
   };
 }
 
-/// `HH:mm` in local time, without intl: `DateFormat` needs locale data that a
-/// context-free caller cannot guarantee is loaded. Also the describe sheet's.
+/// `HH:mm` in local time, without intl or a context: the default of
+/// [mealAnalysisErrorMessage] for context-free callers. Widgets pass
+/// [formatMealTime].
 String mealAnalysisClockLabel(DateTime at) {
   final local = at.toLocal();
   final hh = local.hour.toString().padLeft(2, '0');
@@ -216,9 +221,10 @@ enum MealAnalysisSheetOutcome {
 /// image or barcode is captured. Shows the loading card, then the
 /// `MealResultCard` with adjust + add; there is no confirm step.
 ///
-/// [retry] re-creates the analysis future from the bytes the caller still
-/// holds; null hides "try again" (barcode lookups). [cancellation] is
-/// cancelled when the sheet goes away while a request is in flight.
+/// [retry] re-creates the analysis future from the bytes or the code the
+/// caller still holds; null hides "try again", as does a final barcode
+/// answer ([isFinalBarcodeAnswer]). [cancellation] is cancelled when the
+/// sheet goes away while a request is in flight.
 Future<MealAnalysisSheetOutcome?> showMealAnalysisSheet(
   BuildContext context, {
   required MealSlot slot,
@@ -573,8 +579,12 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
                       error,
                       widget.failureMessage,
                       context.l10n,
+                      clockLabel: (at) => formatMealTime(context, at),
                     ),
-                    onRetry: widget.retry == null ? null : _retry,
+                    // "Not found" is final; a retry is for the connection.
+                    onRetry: widget.retry == null || isFinalBarcodeAnswer(error)
+                        ? null
+                        : _retry,
                     onManualEntry: _manualEntry,
                   )
                 else if (_result != null) ...[

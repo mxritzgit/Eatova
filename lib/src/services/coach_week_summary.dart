@@ -6,9 +6,15 @@ import 'day_math.dart';
 import 'energy_check.dart';
 
 /// One completed local day as the Coach's week block reads it: logged kcal
-/// and protein, and the day's budget (base goal plus that day's activity
-/// credit, as Today and Trends count it).
-typedef CoachWeekDay = ({int kcal, double proteinG, int budgetKcal});
+/// and protein, the entries without a protein value (they added 0 g, so
+/// [proteinG] is then a lower bound), and the day's budget (base goal plus
+/// that day's activity credit, as Today and Trends count it).
+typedef CoachWeekDay = ({
+  int kcal,
+  double proteinG,
+  int proteinMissing,
+  int budgetKcal,
+});
 
 /// Days the week block covers, all before today.
 const int coachWeekDays = 7;
@@ -107,15 +113,35 @@ String _averages(
   final goal = days.every((day) => day.budgetKcal == goalKcal)
       ? 'Ziel $goalKcal kcal'
       : 'Ziel Ø ${mean((day) => day.budgetKcal)} kcal inkl. Aktivitätsbonus';
-  final protein = StringBuffer('Protein ${mean((day) => day.proteinG)} g');
+  // Days with entries without protein: their grams, and so the mean, are
+  // lower bounds, and such a day below the goal may have reached it.
+  final unknown = days.where((day) => day.proteinMissing > 0).length;
+  final atLeast = unknown > 0 ? 'mindestens ' : '';
+  final protein = StringBuffer(
+    'Protein $atLeast${mean((day) => day.proteinG)} g',
+  );
+  final notes = <String>[];
   if (proteinGoalG > 0) {
     final hit = days.where((day) => day.proteinG.round() >= proteinGoalG);
-    protein.write(
-      n == 1
-          ? ' (Ziel $proteinGoalG g, ${hit.isEmpty ? 'nicht ' : ''}erreicht)'
-          : ' (Ziel $proteinGoalG g, an ${hit.length} von $n Tagen erreicht)',
+    final open = days.any(
+      (day) => day.proteinG.round() < proteinGoalG && day.proteinMissing > 0,
+    );
+    final reached = n > 1
+        ? 'an ${open ? 'mindestens ' : ''}${hit.length} von $n Tagen erreicht'
+        : hit.isNotEmpty
+        ? 'erreicht'
+        : open
+        ? 'unklar'
+        : 'nicht erreicht';
+    notes.add('Ziel $proteinGoalG g, $reached');
+  }
+  if (unknown > 0) {
+    notes.add(
+      '${unknown == 1 ? '1 Tag' : '$unknown Tage'} mit Einträgen ohne '
+      'Proteinangabe',
     );
   }
+  if (notes.isNotEmpty) protein.write(' (${notes.join('; ')})');
   return '$label: ${mean((day) => day.kcal)} kcal ($goal), $protein.';
 }
 

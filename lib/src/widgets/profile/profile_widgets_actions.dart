@@ -10,6 +10,8 @@ class HealthConnectionCard extends StatelessWidget {
     this.healthConnect = false,
     this.syncing = false,
     this.onSettings,
+    this.weightImport,
+    this.onWeightImportChanged,
   });
 
   final HealthAuthState state;
@@ -19,6 +21,18 @@ class HealthConnectionCard extends StatelessWidget {
   final bool healthConnect;
   final bool syncing;
   final VoidCallback? onSettings;
+
+  /// The scale import's switch (review 2026-10-22); null hides it.
+  final bool? weightImport;
+  final ValueChanged<bool>? onWeightImportChanged;
+
+  /// The switch row, when it applies.
+  Widget? get _weightImportRow {
+    final value = weightImport;
+    final onChanged = onWeightImportChanged;
+    if (value == null || onChanged == null) return null;
+    return _WeightImportRow(value: value, onChanged: onChanged);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,8 +44,10 @@ class HealthConnectionCard extends StatelessWidget {
         onConnect: onConnect,
         onRefresh: onRefresh,
         onSettings: onSettings,
+        weightImportRow: _weightImportRow,
       );
     }
+    final weightImportRow = _weightImportRow;
     final t = context.t;
     final l10n = context.l10n;
     final isGranted = state == HealthAuthState.granted;
@@ -144,6 +160,13 @@ class HealthConnectionCard extends StatelessWidget {
             const SizedBox(height: 14),
             Padding(padding: const EdgeInsets.only(right: 8), child: action),
           ],
+          if (weightImportRow != null) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: weightImportRow,
+            ),
+          ],
         ],
       ),
     );
@@ -183,6 +206,7 @@ class _HealthConnectCard extends StatelessWidget {
     required this.onConnect,
     required this.onRefresh,
     required this.onSettings,
+    this.weightImportRow,
   });
 
   final HealthAuthState state;
@@ -191,6 +215,7 @@ class _HealthConnectCard extends StatelessWidget {
   final VoidCallback onConnect;
   final VoidCallback onRefresh;
   final VoidCallback? onSettings;
+  final Widget? weightImportRow;
 
   @override
   Widget build(BuildContext context) {
@@ -253,7 +278,7 @@ class _HealthConnectCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            l10n.healthConnectStepsOnly,
+            l10n.healthConnectStepsAndWeight,
             style: AppType.ui(12.5, color: t.ink2, height: 1.45),
           ),
           if (syncing) ...[
@@ -304,7 +329,52 @@ class _HealthConnectCard extends StatelessWidget {
               ],
             ),
           ],
+          if (weightImportRow != null) ...[
+            const SizedBox(height: 12),
+            weightImportRow!,
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// The scale import's switch in the health card (review 2026-10-22): the
+/// whole row toggles, and one merged node announces label and state.
+class _WeightImportRow extends StatelessWidget {
+  const _WeightImportRow({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return MergeSemantics(
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          key: const ValueKey('profile-health-weight-import'),
+          borderRadius: BorderRadius.circular(rTile),
+          onTap: () => onChanged(!value),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  context.l10n.healthWeightImportSwitch,
+                  style: AppType.ui(
+                    14,
+                    weight: FontWeight.w600,
+                    color: t.ink,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              AppToggle(value: value, onChanged: onChanged),
+            ],
+          ),
+        ),
       ),
     );
   }

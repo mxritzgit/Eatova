@@ -571,6 +571,18 @@ Deno.test("describe: numbers are clamped, macros to one decimal, unparseable is 
   }
 });
 
+Deno.test("a negative macro is missing, not a measured 0 g (photo and describe)", () => {
+  const photo = normalizeMealResult({ proteinG: -5, carbsG: "-0.4", fatG: 0 });
+  const item = normalizeDescribedMeal({
+    items: [{ ...DESCRIBED_ITEM, proteinG: -1, carbsG: "-0.4", fatG: 0 }],
+  }).items[0];
+  for (const [label, result] of [["photo", photo], ["describe item", item]] as const) {
+    assertMissing(result, "proteinG", `${label}: negative number`);
+    assertMissing(result, "carbsG", `${label}: negative numeric string`);
+    assertEquals(result.fatG, 0, `${label}: a stated 0 g stays`);
+  }
+});
+
 Deno.test("describe: gramsSource is stated only when the model says so", () => {
   for (const [value, expected] of [
     ["stated", "stated"], [" Stated ", "stated"], ["estimated", "estimated"],

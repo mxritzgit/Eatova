@@ -370,16 +370,22 @@ class OnboardingPaceStep extends StatelessWidget {
   }
 }
 
-/// The optional diet preference: recipe suggestions only, never the plan.
+/// The optional diet preference and the foods the user avoids, the same
+/// chips as the profile's diet editor: recipe suggestions only, never the
+/// plan.
 class OnboardingDietStep extends StatelessWidget {
   const OnboardingDietStep({
     super.key,
     required this.value,
     required this.onChanged,
+    required this.avoidances,
+    required this.onToggleAvoidance,
   });
 
   final DietPreference value;
   final ValueChanged<DietPreference> onChanged;
+  final Set<FoodAvoidance> avoidances;
+  final ValueChanged<FoodAvoidance> onToggleAvoidance;
 
   static IconData _icon(DietPreference diet) => switch (diet) {
     DietPreference.none => Icons.restaurant_rounded,
@@ -398,17 +404,45 @@ class OnboardingDietStep extends StatelessWidget {
       subtitle: l10n.onboardingDietOptionalSubtitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: _spaced(<Widget>[
-          for (final diet in DietPreference.values)
-            OptionCard(
-              actionKey: ValueKey('onboarding-diet-${diet.name}'),
-              selected: value == diet,
-              onTap: () => onChanged(diet),
-              title: diet.label(l10n),
-              subtitle: diet.description(l10n),
-              leading: OptionGlyphTile(icon: _icon(diet)),
+        children: <Widget>[
+          ..._spaced(<Widget>[
+            for (final diet in DietPreference.values)
+              OptionCard(
+                actionKey: ValueKey('onboarding-diet-${diet.name}'),
+                selected: value == diet,
+                onTap: () => onChanged(diet),
+                title: diet.label(l10n),
+                subtitle: diet.description(l10n),
+                leading: OptionGlyphTile(icon: _icon(diet)),
+              ),
+          ]),
+          const SizedBox(height: 26),
+          OnboardingSectionLabel(l10n.foodPrefsAvoidLabel),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final avoidance in FoodAvoidance.values)
+                FilterChipPill(
+                  key: ValueKey('onboarding-avoid-${avoidance.name}'),
+                  label: avoidance.label(l10n),
+                  selected: avoidances.contains(avoidance),
+                  onTap: () => onToggleAvoidance(avoidance),
+                ),
+            ],
+          ),
+          OnboardingHint(l10n.foodPrefsAvoidHint),
+          if (avoidances.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 14),
+            SignalNote(
+              l10n.foodPrefsCoachNotice,
+              key: const ValueKey('onboarding-avoid-notice'),
+              tone: context.t.warning,
+              icon: Icons.health_and_safety_outlined,
+              boxed: true,
             ),
-        ]),
+          ],
+        ],
       ),
     );
   }

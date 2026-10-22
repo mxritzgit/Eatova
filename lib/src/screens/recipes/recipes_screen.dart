@@ -29,6 +29,7 @@ import '../../services/recipe_image_store.dart';
 import '../../services/recipe_save_result.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../services/sync_error_messages.dart';
+import '../../services/text_share.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';

@@ -1,8 +1,9 @@
 part of 'home_store.dart';
 
-/// Tracking part of [HomeStore]: weight logging (manual + Apple Health
-/// import), the health snapshot (steps) and the server-side streak day
-/// (record_tracking_day). File split only, no behaviour change.
+/// Tracking part of [HomeStore]: weight logging (manual, and the scale
+/// import from Apple Health or Health Connect), the health connection per
+/// account, the health snapshot (steps) and the server-side streak day
+/// (record_tracking_day).
 mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   // healthAuthState lives in _HomeStoreBase next to dailySteps: the logout
   // path in _HomeStoreSyncPart must reset it on user switch (B3), and sync
@@ -11,6 +12,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   DateTime? healthLastFetch;
   bool healthSyncing = false;
   bool _healthConnectedByUser = false;
+
+  /// When this account first connected Health Connect, which answers back to
+  /// 30 days before the first grant ([_healthConnectReadableDays]).
+  DateTime? _healthConnectedSince;
 
   /// Daily activity: steps plus estimated burned kcal per local calendar day
   /// (key: [localDayKey]).
@@ -32,35 +37,45 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// not worth more than a year of history.
   static const Duration _dailyActivityRetention = Duration(days: 400);
 
-  /// In-memory dedup for the HealthKit weight offer: refreshHealthSteps()
-  /// runs on cold start AND every resume, so without this the offer snack
-  /// would reappear each time. Not persisted: an imported or older sample is
-  /// never newer than the latest weigh-in, so only an ignored offer returns
-  /// after a restart.
-  ({double kg, DateTime measuredAt})? _lastOfferedHealthWeight;
-  bool _healthWeightImportInFlight = false;
-
-  /// A Health weight read before the server answered the weight log: the
-  /// log may still be empty (fresh sign-in, cold start), so Eatova's own
-  /// write-back would pass as new. Offered once the log is loaded.
-  ({double kg, DateTime measuredAt})? _deferredHealthWeight;
-
   /// The server answered the weight-log load in this session; the boot flag
   /// lives in [HomeStore].
   bool get _serverAnsweredWeightLog;
 
-  /// A Health weight measured longer ago is not offered: "apply?" without a
-  /// date would pass an old reading off as a current one.
-  static const Duration _healthWeightOfferMaxAge = Duration(days: 7);
-
-  /// Instants (microseconds) of weigh-ins deleted in this session: a scale's
-  /// Health sample behind a deleted import is not offered again right away.
-  /// Not persisted; after a restart a recent one may be offered once more.
-  final Set<int> _deletedWeighIns = <int>{};
-
   /// Apple Health's first permission sheet waits for this account's answer
   /// to Today's intro card, see [healthIntroVisible].
   _HealthIntro _healthIntro = _HealthIntro.unknown;
+
+  /// This account's answer to the scale import (review 2026-10-22), kept in
+  /// the encrypted cache (`health_weight_import`).
+  _WeightImport _weightImport = _WeightImport.unknown;
+
+  /// The newest weigh-in a read returned: after a long pause the next read
+  /// reaches back to it ([_weightImportFrom]).
+  DateTime? _weightImportSince;
+
+  /// Readings already imported or deleted ([_weightSampleKey]): neither
+  /// comes in (again), also after a restart or an edit of the weigh-in.
+  Set<String> _weightImportSeen = <String>{};
+
+  /// New weigh-ins the last read found while the account has not answered;
+  /// Today's question offers them ([healthWeightImportOfferVisible]).
+  int _weightImportOffer = 0;
+  bool _weightImportRunning = false;
+
+  /// A read waited for the weight log's server answer: against a log still
+  /// loading (fresh sign-in, cold start) every weigh-in would look new.
+  bool _weightImportDeferred = false;
+
+  /// Every read covers at least this window, so a scale that syncs late
+  /// still lands, de-duplicated against the log.
+  static const Duration _weightImportLookback = Duration(days: 30);
+
+  /// After a longer pause the read reaches back to the last one, at most
+  /// this far.
+  static const Duration _weightImportMaxLookback = Duration(days: 90);
+
+  /// One read imports at most this many; the rest follow with the next.
+  static const int _weightImportMaxPerRead = 60;
 
   // --- Health ---------------------------------------------------------------
 
@@ -68,56 +83,106 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   Future<void> restoreHealthConnection() async {
     final service = health;
     if (_disposed || _healthSessionEnded) return;
+    // Read before the first await: the boot calls this right after the cache
+    // hydration, so a completed profile here was cached by an earlier session
+    // of this account on this device (signing out clears the cache).
+    final cachedAccount = _hydratedFromRealSource && profile.onboardingCompleted;
+    final generation = _healthGeneration;
     if (service is! HealthConnectAccess) {
-      await _loadHealthIntro();
+      // Before the intro: its answer lets the shell connect and read.
+      await _loadWeightImport();
+      if (_disposed || generation != _healthGeneration) return;
+      await _loadHealthIntro(connectedWhenUnset: cachedAccount);
       return;
     }
-    final generation = _healthGeneration;
     final cache = _cache ?? debugCache;
     if (cache != null) {
       if (_healthConnectedByUser) {
-        await cache.writeHealthConnectEnabled(true);
+        await _persistHealthConnectOptIn();
       } else {
         final enabled = await cache.readHealthConnectEnabled();
         if (_disposed || generation != _healthGeneration) return;
         if (enabled) {
           (service as HealthConnectAccess).restoreConnection();
           _healthConnectedByUser = true;
+          final since = await cache.readHealthConnectSince();
+          if (_disposed || generation != _healthGeneration) return;
+          // An opt-in an older build stored: the grant is at least as old as
+          // today, and from now on the date is known.
+          if (since == null) {
+            await _persistHealthConnectOptIn();
+          } else {
+            _healthConnectedSince = since;
+          }
         }
       }
     }
     if (_disposed || generation != _healthGeneration) return;
+    // Today's Health Connect card (2026-10-22); not in tests and previews.
+    if (sync != null) {
+      await _loadWeightImport();
+      if (_disposed || generation != _healthGeneration) return;
+      await _loadHealthIntro(connectedWhenUnset: _healthConnectedByUser);
+      if (_disposed || generation != _healthGeneration) return;
+    }
     await refreshHealthSteps();
   }
 
-  // --- Apple Health intro (review 2026-10-19) ---------------------------------
+  // --- Health intro per account (reviews 2026-10-19 and 2026-10-22) ----------
 
-  /// Whether the shell may ask HealthKit without a tap: Apple's permission
-  /// sheet otherwise appeared over the onboarding, before anything explained
-  /// it. Once this account's onboarding is known complete, and only while
-  /// Today's intro card is not waiting for an answer or was dismissed.
-  /// Accounts onboarded by an older build keep connecting on their own.
-  /// Without sync (tests, previews) there is no onboarding to wait for.
+  /// Whether the shell may ask HealthKit without a tap: only once this
+  /// account connected Apple Health itself. The grant belongs to the device,
+  /// so a second account would otherwise read the first person's steps and
+  /// weight, and write its weigh-ins into their Apple Health. Without sync
+  /// (tests, previews) there is no account to wait for.
   bool get healthAutoConnectAllowed {
     if (sync == null) return true;
     if (_needsOnboardingForHealth) return false;
-    return _healthIntro == _HealthIntro.none ||
-        _healthIntro == _HealthIntro.connected;
+    return _healthIntro == _HealthIntro.connected;
   }
 
-  /// Today's card that explains Apple Health before its sheet asks: after an
-  /// onboarding in this build, until connected or dismissed.
+  /// Whether this account connected its health source itself.
+  bool get _healthAccountOptedIn => health is HealthConnectAccess
+      ? _healthConnectedByUser
+      : sync == null || _healthIntro == _HealthIntro.connected;
+
+  /// Whether the store may read from or write to the health source. Health
+  /// Connect's service checks the per-account opt-in on every read and
+  /// writes nothing; HealthKit's grant belongs to the device, so its reads
+  /// and writes wait for this account's own connect.
+  bool get _healthAccessAllowed =>
+      health is HealthConnectAccess || _healthAccountOptedIn;
+
+  /// Today's card that explains the health source before its permission
+  /// prompt: until this account connects or says "Not now". On Health
+  /// Connect only while the device offers it and the account is not
+  /// connected yet.
   bool get healthIntroVisible =>
       _healthIntro == _HealthIntro.pending &&
       !_needsOnboardingForHealth &&
       !_healthSessionEnded &&
-      health is! HealthConnectAccess &&
-      health.authState != HealthAuthState.unsupported;
+      switch (health.authState) {
+        HealthAuthState.unsupported || HealthAuthState.unavailable => false,
+        _ => true,
+      } &&
+      !(health is HealthConnectAccess && _healthConnectedByUser);
+
+  /// Health Connect is this account's connected step source: a day without
+  /// steps then says so on Today instead of dropping the row. Accounts that
+  /// never connected or declined see the intro card or nothing.
+  bool get healthConnectLinked =>
+      health is HealthConnectAccess && _healthConnectedByUser;
 
   /// Provided by the profile part ([HomeStore.needsOnboarding]).
   bool get _needsOnboardingForHealth;
 
-  Future<void> _loadHealthIntro() async {
+  /// Reads this account's intro state. Unset means no build since
+  /// 2026-10-19 asked this account on this device: [connectedWhenUnset]
+  /// keeps an existing connection (HealthKit: the account was cached here
+  /// before, when HealthKit connected on its own; Health Connect: its own
+  /// opt-in), anything else gets the card. Written back either way, so the
+  /// next cold start no longer mistakes a new account for an old one.
+  Future<void> _loadHealthIntro({required bool connectedWhenUnset}) async {
     final cache = _cache ?? debugCache;
     final generation = _healthGeneration;
     final stored = await cache?.readHealthPrompt();
@@ -128,45 +193,47 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       'pending' => _HealthIntro.pending,
       'dismissed' => _HealthIntro.dismissed,
       'connected' => _HealthIntro.connected,
-      _ => _HealthIntro.none,
+      _ => connectedWhenUnset ? _HealthIntro.connected : _HealthIntro.pending,
     };
     _mutate(() => _healthIntro = next);
+    if (stored == null) {
+      await cache?.writeHealthPrompt(
+        next == _HealthIntro.connected ? 'connected' : 'pending',
+      );
+    }
   }
 
-  /// The onboarding is finishing: Apple Health waits for Today's card
+  /// The onboarding is finishing: the health source waits for Today's card
   /// instead of asking unprompted. Called inside the onboarding's publish,
   /// so the very notify that ends the onboarding already closes the shell's
-  /// unprompted path. Only while HealthKit was never asked in this session;
-  /// Health Connect keeps its own explicit connect.
+  /// unprompted path. Only while the source was never asked in this session.
   void _deferHealthToIntro() {
     if (_disposed ||
         _healthSessionEnded ||
-        health is HealthConnectAccess ||
         health.authState != HealthAuthState.unknown ||
-        _healthIntro == _HealthIntro.connected) {
+        _healthIntro == _HealthIntro.connected ||
+        (health is HealthConnectAccess && _healthConnectedByUser)) {
       return;
     }
     _healthIntro = _HealthIntro.pending;
     unawaited((_cache ?? debugCache)?.writeHealthPrompt('pending'));
   }
 
-  /// The card's connect action: asks HealthKit, which records the answer.
+  /// The card's connect action: asks the health source, which records the
+  /// answer.
   Future<void> acceptHealthIntro() => connectHealth();
 
-  /// A connect while the intro waits or was dismissed is the user's own
-  /// (the unprompted path is closed then): from here HealthKit may be asked
-  /// as before, also on the next cold start. Runs inside the mutation that
-  /// marks the connect in flight, so the shell cannot start a second one.
+  /// A connect is this account's own answer: from here HealthKit may be
+  /// asked as before, also on the next cold start, and Health Connect's card
+  /// is gone. Runs inside the mutation that marks the connect in flight, so
+  /// the shell cannot start a second one.
   void _recordHealthIntroAnswered() {
-    if (_healthIntro != _HealthIntro.pending &&
-        _healthIntro != _HealthIntro.dismissed) {
-      return;
-    }
+    if (_healthIntro == _HealthIntro.connected) return;
     _healthIntro = _HealthIntro.connected;
     unawaited((_cache ?? debugCache)?.writeHealthPrompt('connected'));
   }
 
-  /// "Not now": the card goes and HealthKit is not asked unprompted again;
+  /// "Not now": the card goes and the source is not asked unprompted again;
   /// the profile's Health card still connects.
   Future<void> dismissHealthIntro() async {
     if (_disposed || _healthSessionEnded) return;
@@ -179,7 +246,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     final generation = _healthGeneration;
     _mutate(() {
       healthSyncing = true;
-      if (health is! HealthConnectAccess) _recordHealthIntroAnswered();
+      _recordHealthIntroAnswered();
     });
     final state = await health.requestAuthorization();
     if (_disposed || generation != _healthGeneration) return;
@@ -187,7 +254,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (state == HealthAuthState.granted) {
       if (health is HealthConnectAccess) {
         _healthConnectedByUser = true;
-        await (_cache ?? debugCache)?.writeHealthConnectEnabled(true);
+        await _persistHealthConnectOptIn();
         if (_disposed || generation != _healthGeneration) return;
       }
       _dailyActivityBackfillAttempted.clear();
@@ -204,6 +271,16 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     }
   }
 
+  /// Keeps this account's Health Connect opt-in for the next cold start,
+  /// with the date of its first connect.
+  Future<void> _persistHealthConnectOptIn() async {
+    _healthConnectedSince ??= clock.now();
+    await (_cache ?? debugCache)?.writeHealthConnectEnabled(
+      true,
+      since: _healthConnectedSince,
+    );
+  }
+
   Future<void> refreshHealthSteps() async {
     await _refreshHealthSteps(allowDayCatchUp: true);
     _retryDeferredDailyActivity();
@@ -215,6 +292,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   Future<void> _refreshHealthSteps({required bool allowDayCatchUp}) async {
     if (_disposed || _healthSessionEnded || healthSyncing) return;
+    if (!_healthAccessAllowed) return;
     final generation = _healthGeneration;
     final requestedDay = DateUtils.dateOnly(clock.now().toLocal());
     _mutate(() => healthSyncing = true);
@@ -248,16 +326,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         healthAuthState == HealthAuthState.granted &&
         !_healthConnectedByUser) {
       _healthConnectedByUser = true;
-      await (_cache ?? debugCache)?.writeHealthConnectEnabled(true);
+      await _persistHealthConnectOptIn();
       if (_disposed || generation != _healthGeneration) return;
     }
-    // Offer the snapshot weight for import (deduped) instead of discarding it.
-    if (snapshot != null) {
-      _maybeOfferHealthWeight(
-        snapshot.latestWeightKg,
-        snapshot.latestWeightMeasuredAt,
-      );
-    }
+    // Scale weigh-ins since the last read (2026-10-22).
+    if (_healthReadable) await _syncHealthWeights();
+    if (_disposed || generation != _healthGeneration) return;
     // A midnight refresh may have hit the in-flight guard. Catch up once;
     // a failed or repeatedly delayed provider must not create a retry loop.
     final today = clock.now().toLocal();
@@ -380,7 +454,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Connect fails and HealthKit skips the read, so an empty answer proves
   /// nothing and the day stays open for a later foreground read.
   Future<bool> _maybeBackfillDailyActivity(DateTime day) async {
-    if (_disposed || _healthSessionEnded || _isSameFoodDate(day, clock.now())) {
+    if (_disposed ||
+        _healthSessionEnded ||
+        _isSameFoodDate(day, clock.now()) ||
+        !_healthAccessAllowed) {
       return true;
     }
     final generation = _healthGeneration;
@@ -404,20 +481,32 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// an empty answer.
   static const int _healthConnectReadableDays = 30;
 
+  /// How many days back Health Connect answers: to 30 days before this
+  /// account's first connect. The app's grant may be older (another
+  /// account), never younger, so this never asks too far. Without a known
+  /// date (tests) today stands in.
+  int _healthConnectReadableBack(DateTime today) {
+    final since = _healthConnectedSince;
+    final connected = since == null || since.isAfter(today)
+        ? today
+        : startOfDay(since.toLocal());
+    return daysBetween(today, connected) + _healthConnectReadableDays;
+  }
+
   /// Fills the step values of the trends page's range: every past day of the
   /// last [days] without a stored value is read from the health store, one
-  /// after another and once per day and session. On Android only the last
-  /// [_healthConnectReadableDays] days. The found days land in
-  /// [dailyActivity] together, in one notify and one encrypted cache write,
-  /// instead of one each. Skipped without a usable health connection, where
-  /// every read would come back empty.
+  /// after another and once per day and session. On Android only the days
+  /// Health Connect answers ([_healthConnectReadableBack]). The found days
+  /// land in [dailyActivity] together, in one notify and one encrypted cache
+  /// write, instead of one each. Skipped without a usable health connection,
+  /// where every read would come back empty.
   Future<void> backfillStepsForTrends(int days) async {
     if (!_healthReadable) return;
     final generation = _healthGeneration;
     final today = startOfDay(clock.now());
-    final span =
-        health is HealthConnectAccess && days > _healthConnectReadableDays + 1
-        ? _healthConnectReadableDays + 1
+    final readable = _healthConnectReadableBack(today) + 1;
+    final span = health is HealthConnectAccess && days > readable
+        ? readable
         : days;
     final found = <DateTime, int>{};
     for (var n = 1; n < span; n++) {
@@ -446,7 +535,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   bool get _healthReadable => switch (health.authState) {
     HealthAuthState.granted ||
     HealthAuthState.unverified ||
-    HealthAuthState.noData => true,
+    HealthAuthState.noData => _healthAccessAllowed,
     HealthAuthState.unknown ||
     HealthAuthState.denied ||
     HealthAuthState.unsupported ||
@@ -463,96 +552,191 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return state != null && state != AppLifecycleState.resumed;
   }
 
-  /// Offers an Apple Health weight for import via snack. Requires a value in
-  /// range with its measurement time, measured within
-  /// [_healthWeightOfferMaxAge] and after the latest weigh-in, a >= 0.1 kg
-  /// deviation from it, and that the same sample was not offered before
-  /// ([_lastOfferedHealthWeight]). An imported sample becomes the latest
-  /// weigh-in, which suppresses the next offer on its own; Eatova's own
-  /// write-back carries its weigh-in's time and is never newer either.
-  void _maybeOfferHealthWeight(double? kg, DateTime? measuredAt) {
-    // Outside 20..400 kg the sample is a unit or sensor error; offering it
-    // would only lead to a tap that [importHealthWeight] discards.
+  // --- Scale import (review 2026-10-22) -------------------------------------
+
+  /// Today's one-time question: the health source holds weigh-ins Eatova
+  /// does not have, and this account has not said whether they come in by
+  /// themselves. After the intro card, never before the account connected.
+  bool get healthWeightImportOfferVisible =>
+      _weightImport == _WeightImport.undecided &&
+      _weightImportOffer > 0 &&
+      _healthAccountOptedIn &&
+      !healthIntroVisible &&
+      !_needsOnboardingForHealth &&
+      !_healthSessionEnded;
+
+  /// The profile's switch: null while it does not apply (not connected, no
+  /// weight source), else whether scale weigh-ins come in by themselves.
+  bool? get healthWeightImportEnabled =>
+      health is HealthWeightSource &&
+          _healthAccountOptedIn &&
+          _weightImport != _WeightImport.unknown
+      ? _weightImport == _WeightImport.auto
+      : null;
+
+  /// The source's name in the import's texts; product names stay as they are.
+  String get _healthSourceName =>
+      health is HealthConnectAccess ? 'Health Connect' : 'Apple Health';
+
+  Future<void> _loadWeightImport() async {
+    final cache = _cache ?? debugCache;
+    final generation = _healthGeneration;
+    final stored = await cache?.readHealthWeightImport();
+    if (_disposed || generation != _healthGeneration) return;
+    // An answer given during the read wins.
+    if (_weightImport != _WeightImport.unknown) return;
+    final seen = stored?['seen'];
+    _mutate(() {
+      _weightImport = switch (stored?['mode']) {
+        'auto' => _WeightImport.auto,
+        'off' => _WeightImport.off,
+        _ => _WeightImport.undecided,
+      };
+      _weightImportSince = DateTime.tryParse('${stored?['since'] ?? ''}');
+      // A weigh-in deleted during the read stays remembered.
+      _weightImportSeen = <String>{
+        ..._weightImportSeen,
+        if (seen is List)
+          for (final key in seen)
+            if (key is String) key,
+      };
+    });
+  }
+
+  /// Writes the import state; not before it was read, which would drop a
+  /// stored answer.
+  Future<void> _persistWeightImport() async {
+    if (_weightImport == _WeightImport.unknown) return;
+    final mode = switch (_weightImport) {
+      _WeightImport.auto => 'auto',
+      _WeightImport.off => 'off',
+      _WeightImport.unknown || _WeightImport.undecided => null,
+    };
+    await (_cache ?? debugCache)?.writeHealthWeightImport(<String, dynamic>{
+      'mode': ?mode,
+      if (_weightImportSince != null)
+        'since': _weightImportSince!.toUtc().toIso8601String(),
+      'seen': _weightImportSeen.toList(),
+    });
+  }
+
+  /// Today's "Import automatically" and the profile's switch: from now on
+  /// weigh-ins from the health source come in by themselves, starting with
+  /// the ones found now. Health Connect asks for its weight grant first.
+  Future<void> enableHealthWeightImport() async {
+    final service = health;
     if (_disposed ||
         _healthSessionEnded ||
-        _healthWeightImportInFlight ||
-        kg == null ||
-        measuredAt == null ||
-        !isValidWeightLogKg(kg)) {
-      return;
-    }
-    if (sync != null && !_serverAnsweredWeightLog) {
-      _deferredHealthWeight = (kg: kg, measuredAt: measuredAt);
-      return;
-    }
-    if (!_healthWeightIsNew(kg, measuredAt)) return;
-    final sample = (kg: kg, measuredAt: measuredAt);
-    if (_lastOfferedHealthWeight == sample) return;
-    _lastOfferedHealthWeight = sample;
-    // Locale-aware via NumberFormat: comma under `de`, dot under `en`.
-    final label = NumberFormat('0.0', _l10n.localeName).format(kg);
-    _emitSnack(
-      _l10n.commonHealthWeightOfferMessage(label),
-      icon: Icons.monitor_weight_outlined,
-      tone: SnackTone.positive,
-      // Unsolicited offer on resume/cold start: longer than kSnackAction so
-      // the tap is realistically reachable.
-      duration: const Duration(milliseconds: 3500),
-      action: SnackBarAction(
-        label: _l10n.commonHealthWeightOfferAction,
-        onPressed: () => unawaited(_importOfferedHealthWeight(kg, measuredAt)),
-      ),
-    );
-  }
-
-  /// Offers the Health weight held back until the weight log was loaded.
-  void _offerDeferredHealthWeight() {
-    final deferred = _deferredHealthWeight;
-    _deferredHealthWeight = null;
-    if (deferred != null) {
-      _maybeOfferHealthWeight(deferred.kg, deferred.measuredAt);
-    }
-  }
-
-  /// Whether a Health sample adds to the weight log: recent, newer than the
-  /// latest weigh-in (an older one is stale or Eatova's own write-back) and
-  /// not the same value.
-  bool _healthWeightIsNew(double kg, DateTime measuredAt) {
-    if (clock.now().difference(measuredAt) > _healthWeightOfferMaxAge) {
-      return false;
-    }
-    if (_deletedWeighIns.contains(measuredAt.microsecondsSinceEpoch)) {
-      return false;
-    }
-    final latest = weightLog.latest;
-    return latest == null ||
-        (measuredAt.isAfter(latest.timestamp) &&
-            (kg - latest.weightKg).abs() >= 0.1);
-  }
-
-  /// Snack actions have no awaiting caller. Keep their failure handling and
-  /// duplicate-tap guard at the user-action boundary, not in the save API.
-  Future<void> _importOfferedHealthWeight(
-    double kg,
-    DateTime measuredAt,
-  ) async {
-    if (_disposed || _healthSessionEnded || _healthWeightImportInFlight) return;
-    // A weigh-in may have landed since the offer; a re-hydration may have
-    // dropped the loaded log.
-    if ((sync != null && !_serverAnsweredWeightLog) ||
-        !_healthWeightIsNew(kg, measuredAt)) {
+        service is! HealthWeightSource ||
+        !_healthAccountOptedIn) {
       return;
     }
     final generation = _healthGeneration;
-    _healthWeightImportInFlight = true;
+    final allowed = await (service as HealthWeightSource).ensureWeightAccess();
+    if (_disposed || generation != _healthGeneration) return;
+    if (!allowed) {
+      _emitSnack(
+        _l10n.healthWeightImportNoAccess(_healthSourceName),
+        icon: Icons.info_outline_rounded,
+      );
+      return;
+    }
+    _mutate(() {
+      _weightImport = _WeightImport.auto;
+      _weightImportOffer = 0;
+    });
+    await _persistWeightImport();
+    await _syncHealthWeights();
+  }
+
+  /// "Not now" and the switch off: weigh-ins stay in the health source;
+  /// nothing already imported goes.
+  Future<void> disableHealthWeightImport() async {
+    if (_disposed || _healthSessionEnded) return;
+    _mutate(() {
+      _weightImport = _WeightImport.off;
+      _weightImportOffer = 0;
+    });
+    await _persistWeightImport();
+  }
+
+  /// The weight log's server answer arrived: runs the read held back for it.
+  void _resumeDeferredHealthWeights() {
+    if (!_weightImportDeferred) return;
+    _weightImportDeferred = false;
+    unawaited(_syncHealthWeights());
+  }
+
+  /// Reads the weigh-ins since the last read: imports the new ones once the
+  /// account opted in, or counts them for Today's question while it has not
+  /// answered. A failed read or commit consumes nothing; the next refresh
+  /// tries again.
+  Future<void> _syncHealthWeights() async {
+    final service = health;
+    if (_disposed ||
+        _healthSessionEnded ||
+        _weightImportRunning ||
+        service is! HealthWeightSource ||
+        !_healthAccountOptedIn ||
+        (_weightImport != _WeightImport.auto &&
+            _weightImport != _WeightImport.undecided)) {
+      return;
+    }
+    // Judged against the server's log: against one still loading, Eatova's
+    // own write-backs and earlier imports would look new.
+    if (sync != null && !_serverAnsweredWeightLog) {
+      _weightImportDeferred = true;
+      return;
+    }
+    final generation = _healthGeneration;
+    _weightImportRunning = true;
     try {
-      await importHealthWeight(kg, measuredAt: measuredAt);
+      final now = clock.now();
+      final samples = await (service as HealthWeightSource).readWeightSamples(
+        _weightImportFrom(now),
+        now,
+      );
+      if (_disposed || generation != _healthGeneration || samples == null) {
+        return;
+      }
+      final fresh = _newHealthWeights(samples);
+      if (_weightImport == _WeightImport.undecided) {
+        if (fresh.length != _weightImportOffer) {
+          _mutate(() => _weightImportOffer = fresh.length);
+        }
+        return;
+      }
+      // Switched off during the read.
+      if (_weightImport != _WeightImport.auto) return;
+      final batch = fresh.length > _weightImportMaxPerRead
+          ? fresh.sublist(fresh.length - _weightImportMaxPerRead)
+          : fresh;
+      final announced = batch.isEmpty
+          ? false
+          : await _importHealthWeights(batch);
+      if (_disposed || generation != _healthGeneration) return;
+      final newest = samples.isEmpty ? null : samples.last.measuredAt;
+      final since = _weightImportSince;
+      if (newest != null && (since == null || newest.isAfter(since))) {
+        _weightImportSince = newest;
+      }
+      final keep = now
+          .subtract(_weightImportMaxLookback)
+          .millisecondsSinceEpoch;
+      _weightImportSeen = <String>{
+        for (final key in _weightImportSeen)
+          if ((int.tryParse(key.split(':').first) ?? 0) >= keep) key,
+        for (final sample in batch) _weightSampleKey(sample),
+      };
+      await _persistWeightImport();
+      if (batch.isNotEmpty && !announced && !_disposed) {
+        _emitSnack(
+          _l10n.healthWeightImported(batch.length, _healthSourceName),
+          icon: Icons.monitor_weight_outlined,
+        );
+      }
     } catch (error, stack) {
       if (_disposed || generation != _healthGeneration) return;
-      // A failed commit must not permanently consume the offer for this value.
-      if (_lastOfferedHealthWeight == (kg: kg, measuredAt: measuredAt)) {
-        _lastOfferedHealthWeight = null;
-      }
       _reportSyncError(
         'health-weight-import',
         error,
@@ -560,8 +744,122 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         message: _l10n.commonLocalSaveFailed,
       );
     } finally {
-      _healthWeightImportInFlight = false;
+      _weightImportRunning = false;
     }
+  }
+
+  /// Where a read starts: at least [_weightImportLookback] back, so late
+  /// syncs land; after a longer pause back to the last read, at most
+  /// [_weightImportMaxLookback].
+  DateTime _weightImportFrom(DateTime now) {
+    final window = now.subtract(_weightImportLookback);
+    final since = _weightImportSince;
+    if (since == null || !since.isBefore(window)) return window;
+    final cap = now.subtract(_weightImportMaxLookback);
+    return since.isBefore(cap) ? cap : since;
+  }
+
+  /// The weigh-ins of [samples] Eatova does not have: valid (20..400 kg; a
+  /// value outside is a unit or sensor error) and not the same reading (same
+  /// local day, under 0.1 kg apart) as a weigh-in in the log, an earlier
+  /// import or deleted weigh-in ([_weightImportSeen]) or one earlier in the
+  /// batch. That also drops Eatova's own write-back and a value the user
+  /// typed in from the scale.
+  List<WeightSample> _newHealthWeights(List<WeightSample> samples) {
+    bool sameReading(DateTime a, double kgA, DateTime b, double kgB) =>
+        DateUtils.isSameDay(a.toLocal(), b.toLocal()) &&
+        (kgA - kgB).abs() < 0.1 - 1e-9;
+    final known = <WeightSample>[
+      for (final e in weightLog.entries)
+        WeightSample(kg: e.weightKg, measuredAt: e.timestamp),
+      ..._seenReadings,
+    ];
+    final fresh = <WeightSample>[];
+    for (final s in samples) {
+      if (!isValidWeightLogKg(s.kg) ||
+          known.any((k) => sameReading(k.measuredAt, k.kg, s.measuredAt, s.kg))) {
+        continue;
+      }
+      fresh.add(s);
+      known.add(s);
+    }
+    return fresh;
+  }
+
+  static String _weightSampleKey(WeightSample s) =>
+      '${s.measuredAt.millisecondsSinceEpoch}:${(s.kg * 100).round()}';
+
+  /// The readings behind [_weightImportSeen]; a malformed key is skipped.
+  Iterable<WeightSample> get _seenReadings sync* {
+    for (final key in _weightImportSeen) {
+      final parts = key.split(':');
+      final ms = parts.length == 2 ? int.tryParse(parts[0]) : null;
+      final kg = parts.length == 2 ? int.tryParse(parts[1]) : null;
+      if (ms == null || kg == null) continue;
+      yield WeightSample(
+        kg: kg / 100,
+        measuredAt: DateTime.fromMillisecondsSinceEpoch(ms),
+      );
+    }
+  }
+
+  /// A deleted weigh-in stays deleted: the scale's sample behind it (or one
+  /// the user typed in from the scale) is not imported again. Its undo takes
+  /// the reading back out.
+  void _rememberDeletedReading(WeightLogEntry entry, {required bool deleted}) {
+    final key = _weightSampleKey(
+      WeightSample(kg: entry.weightKg, measuredAt: entry.timestamp),
+    );
+    _weightImportSeen = deleted
+        ? <String>{..._weightImportSeen, key}
+        : (<String>{..._weightImportSeen}..remove(key));
+    unawaited(_persistWeightImport());
+  }
+
+  /// Imports [samples] through the weight sync path, as one local commit
+  /// with the profile they re-anchor. Each keeps its measurement time (a
+  /// future one becomes now): a Monday reading belongs to Monday's trend
+  /// day. Nothing is written back, which would echo the sample. Returns
+  /// whether a notice about this commit already shows (the changed daily
+  /// goal, or the once-per-session "syncs later" hint it raised).
+  Future<bool> _importHealthWeights(List<WeightSample> samples) async {
+    await _settledLocalMutations();
+    final now = clock.now();
+    final ops = <SyncOp>[];
+    final entries = <WeightLogEntry>[];
+    for (final sample in samples) {
+      final kg = WeightLog.sanitizeKg(sample.kg);
+      if (kg == null) continue;
+      final ts = sample.measuredAt.isAfter(now) ? now : sample.measuredAt;
+      final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: ts);
+      ops.add(op);
+      entries.add(WeightLogEntry(timestamp: ts, weightKg: kg, id: op.entityId));
+    }
+    if (ops.isEmpty) return false;
+    WeightLog withImports(WeightLog log) =>
+        entries.fold(log, (next, entry) => next.addEntry(entry));
+    final before = profile;
+    final reanchored = _reanchoredProfile(before, withImports(weightLog));
+    final syncHintShown = _syncHintShown;
+    await _commitSyncIntents(
+      [...ops, if (reanchored != null) SyncOp.profileUpsert(reanchored)],
+      publish: () {
+        weightLog = withImports(weightLog);
+        for (var i = 0; i < entries.length; i++) {
+          lifetimeStats = lifetimeStats.incrementWeightLogs();
+        }
+        if (reanchored != null) profile = reanchored;
+      },
+    );
+    final raisedSyncHint = _syncHintShown && !syncHintShown;
+    if (reanchored == null ||
+        raisedSyncHint ||
+        reanchored.manualEnergy ||
+        reanchored.dailyKcalGoal == before.dailyKcalGoal) {
+      return raisedSyncHint;
+    }
+    _announceReanchor(before, reanchored);
+    return true;
   }
 
   // --- Body data (profile) --------------------------------------------------
@@ -570,34 +868,15 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// [at] dates it (the sheet's time row); null is now, and a moment in the
   /// future becomes now.
   Future<void> logWeight(double kg, {DateTime? at}) =>
-      _logWeightInternal(kg, writeToHealth: true, recordedAt: at);
+      _logWeightInternal(kg, recordedAt: at);
 
-  /// Import FROM Apple Health: like [logWeight] but WITHOUT
-  /// `health.writeWeight` — writing back would create an echo duplicate.
-  ///
-  /// Out-of-range samples (20..400 kg) are DISCARDED, not clamped (review G
-  /// M-4): a clamped 20 kg from a 7.55 lb/stone sample would be a fiction in
-  /// the log. The clamp stays the last barrier for manual input only.
-  ///
-  /// The entry keeps the sample's [measuredAt] (a future one becomes now): a
-  /// Monday scale reading accepted on Thursday belongs to Monday's trend day.
-  Future<void> importHealthWeight(double kg, {DateTime? measuredAt}) async {
-    if (!isValidWeightLogKg(kg)) return;
-    await _logWeightInternal(kg, writeToHealth: false, recordedAt: measuredAt);
-  }
-
-  /// Shared core of [logWeight] and [importHealthWeight]. The haptic fires in
-  /// BOTH paths: the import is user-triggered too (snack action).
-  ///
-  /// Last barrier before cache, HealthKit and server (F7-02): the sheet
-  /// rejects out-of-range input, but a HealthKit import or any other caller
+  /// Core of [logWeight]. Last barrier before cache, HealthKit and server
+  /// (F7-02): the sheet rejects out-of-range input, but any other caller
   /// still passes through here, and `weight_log_safe_range_check` would
-  /// reject the row with 23514 while the local log already showed it.
-  Future<void> _logWeightInternal(
-    double rawKg, {
-    required bool writeToHealth,
-    DateTime? recordedAt,
-  }) async {
+  /// reject the row with 23514 while the local log already showed it. The
+  /// scale import keeps its own path ([_importHealthWeights]): it discards
+  /// such values instead of clamping them.
+  Future<void> _logWeightInternal(double rawKg, {DateTime? recordedAt}) async {
     final kg = WeightLog.sanitizeKg(rawKg);
     if (kg == null) throw const FormatException('Invalid weight');
     // The re-anchored profile is derived from the PUBLISHED profile, so a
@@ -620,7 +899,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       },
     );
     HapticFeedback.lightImpact();
-    if (writeToHealth) unawaited(health.writeWeight(kg, ts));
+    // Today's weigh-in reminder has nothing left to ask.
+    if (startOfDay(ts) == startOfDay(now)) {
+      unawaited(_rescheduleGuarded('reminders after a weigh-in'));
+    }
+    // Only into this account's own health store, never another person's.
+    if (_healthAccessAllowed) unawaited(health.writeWeight(kg, ts));
     // The once-per-session "saved here, syncs later" hint this commit may just
     // have raised outranks the goal notice, which would replace it for good.
     final raisedSyncHint = _syncHintShown && !syncHintShown;
@@ -670,7 +954,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       SyncOp.weightDelete(id),
       (log) => log.removeEntry(id),
     );
-    _deletedWeighIns.add(removed.timestamp.microsecondsSinceEpoch);
+    _rememberDeletedReading(removed, deleted: true);
     HapticFeedback.lightImpact();
     // Awaited only by an undo; a failure means no sample to write back.
     final healthSample = _deleteOwnHealthWeight(
@@ -710,8 +994,11 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       id: op.entityId,
     );
     await _commitWeighInChange(op, (log) => log.putEntry(entry), announce: true);
-    _deletedWeighIns.remove(removed.timestamp.microsecondsSinceEpoch);
-    if (await healthSample && !_disposed && !_healthSessionEnded) {
+    _rememberDeletedReading(removed, deleted: false);
+    if (await healthSample &&
+        !_disposed &&
+        !_healthSessionEnded &&
+        _healthAccessAllowed) {
       unawaited(health.writeWeight(removed.weightKg, removed.timestamp));
     }
   }
@@ -756,7 +1043,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// the capability (Android, tests) or without such a sample.
   Future<bool> _deleteOwnHealthWeight(DateTime at) async {
     final service = health;
-    if (_disposed || _healthSessionEnded || service is! HealthWeightCorrection) {
+    if (_disposed ||
+        _healthSessionEnded ||
+        !_healthAccessAllowed ||
+        service is! HealthWeightCorrection) {
       return false;
     }
     return (service as HealthWeightCorrection).deleteOwnWeight(at);
@@ -800,18 +1090,62 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     }
     final kg = log.planWeightKg(clock.now())?.round();
     if (kg == null || kg == p.weightKg) return null;
-    return const KcalCalculator().applyLiveGoals(p.copyWith(weightKg: kg));
+    // The hold follows the same log, so the commit carries the plan the
+    // getter shows for it.
+    return const KcalCalculator().applyLiveGoals(
+      _targetHoldFrom(p.copyWith(weightKg: kg), log),
+    );
   }
 
-  /// Names a live kcal goal the re-anchor changed. Manual goals do not move,
-  /// and a macro-only shift is not worth a message.
+  /// Names a live kcal goal the re-anchor changed, and says so when it is
+  /// the reached target. Manual goals do not move, and a macro-only shift is
+  /// not worth a message.
   void _announceReanchor(UserProfile before, UserProfile after) {
     if (_disposed || after.manualEnergy) return;
     if (after.dailyKcalGoal == before.dailyKcalGoal) return;
     _emitSnack(
-      _l10n.commonDailyGoalReanchored(after.dailyKcalGoal),
+      after.reachedTargetWeight && !before.reachedTargetWeight
+          ? _l10n.targetReachedGoalSnack(after.dailyKcalGoal)
+          : _l10n.commonDailyGoalReanchored(after.dailyKcalGoal),
       icon: Icons.monitor_weight_outlined,
     );
+  }
+
+  // --- Reached target (2026-10-22) -----------------------------------------
+
+  /// The reached target Today asks about once the trend got there: hold, or
+  /// a new goal; null while there is none. Asked while the plan holds a
+  /// target the user did not choose to hold, so either answer ends it
+  /// (holding stores maintain, a new target is no longer reached).
+  TargetHold? get targetReachedPrompt {
+    final p = profile;
+    if (!p.onboardingCompleted || !p.reachedTargetWeight) return null;
+    return (gain: p.weightGoal.isGain, targetKg: p.targetWeightKg);
+  }
+
+  /// The card's "Hold": maintain becomes the chosen goal, so the plan no
+  /// longer depends on the band around the target. Derived from the
+  /// published profile like a goals save, one profile op through the outbox.
+  Future<void> holdReachedTarget() async {
+    if (sync != null && !_hydratedFromRealSource) {
+      throw StateError('Profile storage is not ready');
+    }
+    await _settledLocalMutations();
+    final before = profile;
+    if (!before.reachedTargetWeight) return;
+    final next = const KcalCalculator().applyLiveGoals(
+      before.copyWith(weightGoal: WeightGoal.maintain).withTargetHold(false),
+    );
+    await _commitSyncIntents(
+      [SyncOp.profileUpsert(next)],
+      publish: () => profile = next,
+    );
+    if (!_disposed) {
+      _emitSnack(
+        _l10n.targetReachedHoldSnack,
+        icon: Icons.monitor_weight_outlined,
+      );
+    }
   }
 
   /// Catches the profile up with weigh-ins it has not seen yet: the first
@@ -844,21 +1178,51 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 }
 
-/// Where this account stands with Today's Apple Health intro card, kept per
-/// account in the encrypted cache (`health_prompt`).
+/// [p] with the target hold [log] derives ([holdsReachedTarget]); the same
+/// instance when it already carries it.
+UserProfile _targetHoldFrom(UserProfile p, WeightLog log) => p.withTargetHold(
+  p.weightGoal != WeightGoal.maintain &&
+      holdsReachedTarget(p.weightGoal, p.targetWeightKg, log.dailyTrendKg),
+);
+
+/// [p] as the store shows it: holding a reached target as [log] says, with
+/// live goals recomputed when that changes, so the daily goal on screen
+/// never disagrees with the plan. A row or a cache blob carries no hold, so
+/// this is where a stored profile gets it back.
+UserProfile _withTargetHold(UserProfile p, WeightLog log) {
+  final held = _targetHoldFrom(p, log);
+  return identical(held, p) ? p : const KcalCalculator().applyLiveGoals(held);
+}
+
+/// Where this account stands with Today's health intro card, kept per
+/// account in the encrypted cache (`health_prompt`). For HealthKit it is the
+/// account's opt-in, since the OS grant belongs to the device.
 enum _HealthIntro {
   /// Not read from the cache yet.
   unknown,
 
-  /// Nothing waits: an account onboarded by an older build, or no cache.
-  none,
-
-  /// The card shows; HealthKit is not asked unprompted.
+  /// The card shows; the source is not asked unprompted.
   pending,
 
-  /// Connected from the card; HealthKit may be asked as before.
+  /// The account connected (or, for HealthKit, was connected before the
+  /// per-account rule); HealthKit may be asked and read as before.
   connected,
 
   /// "Not now": no card, and no unprompted ask either.
   dismissed,
+}
+
+/// This account's answer to the scale import (review 2026-10-22).
+enum _WeightImport {
+  /// Not read from the cache yet.
+  unknown,
+
+  /// Not answered: new weigh-ins are counted for Today's question only.
+  undecided,
+
+  /// Weigh-ins come in by themselves.
+  auto,
+
+  /// "Not now" or switched off: weigh-ins stay in the health source.
+  off,
 }

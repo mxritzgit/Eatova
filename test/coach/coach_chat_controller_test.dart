@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -191,6 +192,9 @@ class _Hooks extends CoachChatViewHooks {
 
   @override
   void draftReturned(String text) => calls.add('draft:$text');
+
+  @override
+  void mealDescribeRequested(String text) => calls.add('meal:$text');
 }
 
 /// The real [CoachChatService] transcript loop behind a connection that dies
@@ -676,6 +680,30 @@ void main() {
       expect(svc.sends, isEmpty);
       expect(svc.recipes, isEmpty);
       expect(coach.messages, isEmpty);
+    });
+
+    test('/meal hands its text to the describe sheet and costs nothing, '
+        'even with the day used up', () async {
+      final svc = _Coach()
+        ..quota = const ChatQuotaSnapshot(used: 5, remaining: 0, dailyLimit: 5);
+      final hooks = _Hooks();
+      final coach = await _ready(svc, hooks: hooks);
+      expect(coach.quotaExhausted, isTrue);
+
+      await coach.send('/meal 2 Eier und Toast');
+      await coach.send('/MEAL');
+      expect(hooks.calls.where((call) => call.startsWith('meal:')),
+          <String>['meal:2 Eier und Toast', 'meal:']);
+      expect(coach.error, isNull);
+
+      // A photo would make it a paid question with a /meal caption.
+      await coach.send('/meal Eier', imageBytes: Uint8List.fromList([1, 2]));
+      expect(coach.error, deL10n.coachMealPhotoUnsupported);
+      expect(hooks.calls.where((call) => call.startsWith('meal:')), hasLength(2));
+      expect(svc.sends, isEmpty);
+      expect(svc.recipes, isEmpty);
+      expect(coach.messages, isEmpty);
+      expect(coach.quota?.remaining, 0);
     });
 
     test('/recipe sends only the wish and fences the card like chat',

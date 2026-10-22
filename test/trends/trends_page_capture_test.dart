@@ -168,12 +168,22 @@ void main() {
               child: Column(
                 children: [
                   TodayTrendsCard(
-                    preview: (avgKcal: 2104, avgProteinG: 118, avgSteps: 8432),
+                    preview: (
+                      avgKcal: 2104,
+                      avgProteinG: 118,
+                      proteinAtLeast: false,
+                      avgSteps: 8432,
+                    ),
                     onOpen: () {},
                   ),
                   const SizedBox(height: 16),
                   TodayTrendsCard(
-                    preview: (avgKcal: null, avgProteinG: null, avgSteps: null),
+                    preview: (
+                      avgKcal: null,
+                      avgProteinG: null,
+                      proteinAtLeast: false,
+                      avgSteps: null,
+                    ),
                     onOpen: () {},
                   ),
                 ],

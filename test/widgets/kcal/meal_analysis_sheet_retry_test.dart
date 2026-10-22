@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -159,6 +160,29 @@ void main() {
     expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget);
     expect(find.byKey(const ValueKey('analyse-retry')), findsNothing);
     expect(find.byKey(const ValueKey('analyse-manual-entry')), findsOneWidget);
+  });
+
+  // The time the limit lifts ignored the phone's clock: "13:30" in an
+  // English 12-hour app.
+  testWidgets('die Limit-Uhrzeit folgt der 12/24-Stunden-Einstellung', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(DateTime(2026, 10, 10, 12)), () async {
+      final first = Completer<MealAnalysisResult>();
+      await pumpLocalized(
+        tester,
+        _host(first.future),
+        locale: const Locale('en'),
+        reducedMotion: false,
+        safeArea: false,
+      );
+      await _flush(tester);
+      first.completeError(
+        MealAnalysisRateLimited(resetAt: DateTime(2026, 10, 10, 13, 30)),
+      );
+      await _flush(tester);
+      expect(find.textContaining(RegExp(r'1:30\sPM')), findsOneWidget);
+    });
   });
 
   testWidgets('"Manuell eintragen" schliesst das Sheet mit Outcome.manualEntry',

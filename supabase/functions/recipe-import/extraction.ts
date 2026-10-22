@@ -54,8 +54,9 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// Bidi overrides and isolates would reorder the title in the recipe list.
 function label(value: unknown, max: number): string {
-  return typeof value === 'string' ? clipUtf16(value.trim().replace(/\p{Cc}/gu, ' '), max) : '';
+  return typeof value === 'string' ? clipUtf16(value.replace(/[\p{Cc}\u202a-\u202e\u2066-\u2069]/gu, ' ').trim(), max) : '';
 }
 
 function quote(value: unknown, source: string, max: number): string {
@@ -70,8 +71,14 @@ function quote(value: unknown, source: string, max: number): string {
 function quotes(value: unknown, source: string, max: number, allowEmpty = false): string | null {
   if (!Array.isArray(value) || value.length > 80) return null;
   if (!value.length) return allowEmpty ? '' : null;
-  const verified = value.map((item) => quote(item, source, max));
-  if (verified.some((item) => !item)) return null;
+  // The first quote not in the source rejects the list: verifying the rest
+  // only spends edge CPU on a model answer that is thrown away anyway.
+  const verified: string[] = [];
+  for (const item of value) {
+    const text = quote(item, source, max);
+    if (!text) return null;
+    verified.push(text);
+  }
   // Identical quantities can belong to different parts (dough and filling).
   // Preserve them only as often as they actually occur in the caption.
   const occurrences = new Map<string, number>();

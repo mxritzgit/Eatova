@@ -44,6 +44,8 @@ void main() {
               onConnect: () {},
               onRefresh: () {},
               onSettings: () {},
+              weightImport: true,
+              onWeightImportChanged: (_) {},
             ),
             locale: locale,
             textScale: 2,
@@ -53,7 +55,7 @@ void main() {
           expect(find.text(context.l10n.healthConnectTitle), findsOneWidget);
           expect(find.text('Apple Health'), findsNothing);
           expect(
-            find.text(context.l10n.healthConnectStepsOnly),
+            find.text(context.l10n.healthConnectStepsAndWeight),
             findsOneWidget,
           );
           expect(tester.takeException(), isNull);
@@ -75,6 +77,7 @@ void main() {
     var connects = 0;
     var refreshes = 0;
     var settings = 0;
+    final weightImport = <bool>[];
     Widget card(HealthAuthState state, {bool syncing = false}) =>
         HealthConnectionCard(
           state: state,
@@ -84,6 +87,8 @@ void main() {
           onConnect: () => connects++,
           onRefresh: () => refreshes++,
           onSettings: () => settings++,
+          weightImport: true,
+          onWeightImportChanged: weightImport.add,
         );
     await pumpLocalized(tester, card(HealthAuthState.updateRequired));
     await tester.tap(find.byKey(const ValueKey('profile-health-connect')));
@@ -91,8 +96,10 @@ void main() {
     await pumpLocalized(tester, card(HealthAuthState.noData));
     await tester.tap(find.byKey(const ValueKey('profile-health-refresh')));
     await tester.tap(find.byKey(const ValueKey('profile-health-settings')));
+    await tester.tap(find.byKey(const ValueKey('profile-health-weight-import')));
     expect(refreshes, 1);
     expect(settings, 1);
+    expect(weightImport, [false], reason: 'the scale import switch turns off');
     await pumpLocalized(tester, card(HealthAuthState.noData, syncing: true));
     expect(
       tester
@@ -117,7 +124,7 @@ void main() {
     tester,
   ) async {
     var opened = 0;
-    Widget today(int? steps) => TodayScreen(
+    Widget today(int? steps, {bool linked = true}) => TodayScreen(
       userName: 'Test',
       profile: const UserProfile(),
       summary: todaySummary(
@@ -131,8 +138,16 @@ void main() {
       streak: 0,
       steps: steps,
       healthConnect: true,
+      healthConnectLinked: linked,
       onOpenProfile: () => opened++,
     );
+    // Never connected or declined: no permanent "check the connection".
+    await pumpLocalized(tester, today(null, linked: false));
+    expect(
+      find.byKey(const ValueKey('today-health-connect-missing')),
+      findsNothing,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
     final context = await pumpLocalizedContext(tester, today(null));
     expect(find.byKey(const ValueKey('today-steps-card')), findsNothing);
     await tester.ensureVisible(find.text(context.l10n.healthConnectReview));

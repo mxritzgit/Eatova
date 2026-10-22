@@ -258,7 +258,9 @@ void main() {
           tester,
         );
         await _openTraining(tester);
-        expect(_weekSummary(tester), '0 of 3 done · Sep 28 – Oct 4');
+        // No "of 3": the plan's three workouts are a rotation, not a weekly
+        // target ("4 of 2" for a coach plan).
+        expect(_weekSummary(tester), '0 done · Sep 28 – Oct 4');
         expect(
           find.byKey(const ValueKey('training-week-done-1')),
           findsNothing,
@@ -268,7 +270,7 @@ void main() {
 
         final entry = await _finishPushToday(tester, store);
 
-        expect(_weekSummary(tester), '1 of 3 done · Sep 28 – Oct 4');
+        expect(_weekSummary(tester), '1 done · Sep 28 – Oct 4');
         expect(
           find.byKey(const ValueKey('training-week-done-1')),
           findsOneWidget,
@@ -1264,11 +1266,7 @@ void main() {
                 history: history,
                 now: kTrainingDesignNow,
               ),
-              week: trainingWeekOf(
-                now: kTrainingDesignNow,
-                history: history,
-                plan: plan,
-              ),
+              week: trainingWeekOf(now: kTrainingDesignNow, history: history),
               volume: trainingVolumeTrend(
                 history: history,
                 now: kTrainingDesignNow,

@@ -45,6 +45,11 @@ import 'barcode_scanner_sheet.dart';
 import '../widgets/recipes/recipe_pick_actions.dart';
 import 'trends_screen.dart';
 
+/// A capture the shell starts in the Food tab from outside it, e.g. an
+/// app-icon shortcut (review 2026-10-22). Each runs the dock's own path, AI
+/// consent included.
+enum FoodCapture { photo, barcode, describe }
+
 /// The day a capture flow logs into, bound when the flow starts, and whether
 /// it was today then (see `HomeStore.addResultToDailyTotal`).
 typedef BoundFoodDay = ({DateTime day, bool startedToday});
@@ -79,13 +84,14 @@ class MealAnalysisScreen extends StatelessWidget {
     this.trendBurnedKcalFor,
     this.onOpenTrends,
     this.addSlotRequest,
+    this.captureRequest,
     this.nutrition,
     this.recipePick,
     this.onOpenMealPlan,
     this.previousDayMeals = const <LoggedMeal>[],
     this.onRepeatSlot,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
-       productService = productService ?? _defaultProductService(),
+       productService = productService ?? defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
        cameraLauncher = cameraLauncher ?? const InAppMealCameraLauncher(),
        selectedDate = DateUtils.dateOnly(selectedDate ?? clock.now()),
@@ -101,8 +107,9 @@ class MealAnalysisScreen extends StatelessWidget {
   // Runs on EVERY rebuild, so it stays strictly synchronous and
   // allocation-free: no `await`, no SharedPreferences, no `Supabase.instance`.
   // Credentials are decided by the search request itself; only the hard local
-  // kill switch `--dart-define=OFF_MIRROR_URL=` lives here.
-  static ProductLookupService _defaultProductService() {
+  // kill switch `--dart-define=OFF_MIRROR_URL=` lives here. Public for the
+  // Coach's /meal path, which searches the same way.
+  static ProductLookupService defaultProductService() {
     const off = OpenFoodFactsProductService();
     if (SearchConfig.mirrorHardDisabled) return off;
     return const FallbackProductService(MeilisearchProductService(), off);
@@ -132,6 +139,10 @@ class MealAnalysisScreen extends StatelessWidget {
   /// tab. The receiver resets the value to null after handling it, otherwise
   /// the next visit would open a ghost sheet.
   final ValueNotifier<MealSlot?>? addSlotRequest;
+
+  /// External request to start a capture (see [FoodCapture]), handled like
+  /// [addSlotRequest] and reset by the receiver.
+  final ValueNotifier<FoodCapture?>? captureRequest;
 
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateSelected;
@@ -228,6 +239,7 @@ class MealAnalysisScreen extends StatelessWidget {
     BuildContext context,
     MealSlot slot, {
     bool searchMode = false,
+    bool describe = false,
   }) {
     // All entries of the shown day; the sheet filters by the selected slot
     // itself, so it stays in sync when the user switches slots. `slot` is only
@@ -238,6 +250,7 @@ class MealAnalysisScreen extends StatelessWidget {
       context,
       slot: slot,
       searchMode: searchMode,
+      describeFirst: describe,
       analyzer: analyzer,
       productService: productService,
       photoInput: photoInput,
@@ -254,6 +267,20 @@ class MealAnalysisScreen extends StatelessWidget {
       onRemoveFavorite: onRemoveFavorite,
       onRemoveMeal: onRemoveMeal,
     );
+  }
+
+  /// A [FoodCapture] from outside the tab: the dock's own paths, so each asks
+  /// for what it asks for there (the AI consent before the camera and before
+  /// "Describe").
+  void _startCapture(BuildContext context, FoodCapture capture) {
+    switch (capture) {
+      case FoodCapture.photo:
+        unawaited(_scanWithCamera(context));
+      case FoodCapture.barcode:
+        unawaited(_scanBarcode(context));
+      case FoodCapture.describe:
+        _openAddSheet(context, currentMealSlot(), describe: true);
+    }
   }
 
   // AI scan: in-app camera with slot picker -> photo -> analysis -> result
@@ -311,6 +338,7 @@ class MealAnalysisScreen extends StatelessWidget {
     MealSlot slot, {
     bool chooseSlot = false,
     FutureOr<String> Function(MealAnalysisResult, MealSlot)? add,
+    String? initialName,
     String? barcode,
     MealAnalysisResult? initial,
   }) async {
@@ -319,6 +347,7 @@ class MealAnalysisScreen extends StatelessWidget {
     var selectedSlot = slot;
     final result = await showManualMealSheet(
       context,
+      initialName: initialName,
       barcode: barcode,
       initial: initial,
       initialSlot: chooseSlot ? slot : null,
@@ -360,40 +389,38 @@ class MealAnalysisScreen extends StatelessWidget {
     );
     if (scan == null || !context.mounted) return;
     // The user's own product first (E5); the database only without one.
-    final own = ownProductFor(favorites, scan.code);
-    // As for the photo scan: offline the lookup fails before the sheet
-    // listens, which must not surface as an unhandled zone error.
-    final lookup =
-        (own != null
-              ? Future<MealAnalysisResult>.value(own)
-              : productService.lookupBarcode(scan.code))
-          ..ignore();
-    // No retry/cancel: a lookup is cheap and its "not found" is final.
+    final lookup = BarcodeLookup(
+      productService,
+      scan.code,
+      own: ownProductFor(favorites, scan.code),
+    );
+    // No cancel: a lookup is cheap. A failed connection can be retried; a
+    // "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: lookup,
+      resultFuture: lookup.latest,
+      retry: lookup.retry,
       previewImage: null,
       onAdd: add,
       onUpdateMeal: onUpdateMeal,
       isFavorite: isFavorite,
       onToggleFavorite: onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
-      offerEditValues: own != null,
+      offerEditValues: lookup.own != null,
     );
     if (outcome != MealAnalysisSheetOutcome.manualEntry || !context.mounted) {
       return;
     }
-    // Remembered under its code only when the database does not know the
-    // product; after a network error the entry stays a one-off.
-    final remember = own != null || await barcodeLookupMissedProduct(lookup);
+    final entry = await lookup.manualEntry();
     if (!context.mounted) return;
     await _manualEntryFor(
       context,
       scan.slot,
       add: add,
-      barcode: remember ? scan.code : null,
-      initial: own,
+      initialName: entry.name,
+      barcode: entry.barcode,
+      initial: lookup.own,
     );
   }
 
@@ -693,19 +720,23 @@ class MealAnalysisScreen extends StatelessWidget {
         return SizedBox(
           key: const ValueKey('kcal-page-fill'),
           height: constraints.hasBoundedHeight ? constraints.maxHeight : null,
-          child: _SlotRequestListener(
+          child: _RequestListener<MealSlot>(
             request: addSlotRequest,
-            onSlot: (listenerContext, slot) =>
+            onRequest: (listenerContext, slot) =>
                 _openAddSheet(listenerContext, slot),
-            child: KeyedSubtree(
-              key: const ValueKey('screen-kcal-tracker'),
-              // A new date starts at the first meal, not at the old scroll
-              // offset. The first-view entrance sits above that key: it
-              // plays once, not again for every day.
-              child: LivelyStaggerScope(
-              child: KeyedSubtree(key: ValueKey(selectedDate), child: body),
+            child: _RequestListener<FoodCapture>(
+              request: captureRequest,
+              onRequest: _startCapture,
+              child: KeyedSubtree(
+                key: const ValueKey('screen-kcal-tracker'),
+                // A new date starts at the first meal, not at the old scroll
+                // offset. The first-view entrance sits above that key: it
+                // plays once, not again for every day.
+                child: LivelyStaggerScope(
+                  child: KeyedSubtree(key: ValueKey(selectedDate), child: body),
+                ),
+              ),
             ),
-          ),
           ),
         );
       },
@@ -713,27 +744,28 @@ class MealAnalysisScreen extends StatelessWidget {
   }
 }
 
-/// Opens the add sheet when a slot is requested from outside.
+/// Runs a request from outside: the add sheet for a slot, or a capture.
 ///
-/// Lives inside the Food tab's tree because the sheet needs a context below
+/// Lives inside the Food tab's tree because the sheets need a context below
 /// the navigator. Both triggers are required: the tab is built lazily, so a
 /// request that already exists at mount time would miss a plain listener.
-class _SlotRequestListener extends StatefulWidget {
-  const _SlotRequestListener({
+class _RequestListener<T extends Object> extends StatefulWidget {
+  const _RequestListener({
     required this.request,
-    required this.onSlot,
+    required this.onRequest,
     required this.child,
   });
 
-  final ValueNotifier<MealSlot?>? request;
-  final void Function(BuildContext context, MealSlot slot) onSlot;
+  final ValueNotifier<T?>? request;
+  final void Function(BuildContext context, T request) onRequest;
   final Widget child;
 
   @override
-  State<_SlotRequestListener> createState() => _SlotRequestListenerState();
+  State<_RequestListener<T>> createState() => _RequestListenerState<T>();
 }
 
-class _SlotRequestListenerState extends State<_SlotRequestListener> {
+class _RequestListenerState<T extends Object>
+    extends State<_RequestListener<T>> {
   @override
   void initState() {
     super.initState();
@@ -742,7 +774,7 @@ class _SlotRequestListenerState extends State<_SlotRequestListener> {
   }
 
   @override
-  void didUpdateWidget(covariant _SlotRequestListener oldWidget) {
+  void didUpdateWidget(covariant _RequestListener<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.request != widget.request) {
       oldWidget.request?.removeListener(_pruefe);
@@ -758,12 +790,12 @@ class _SlotRequestListenerState extends State<_SlotRequestListener> {
 
   void _pruefe() {
     final anfrage = widget.request;
-    final slot = anfrage?.value;
-    if (slot == null || !mounted) return;
+    final value = anfrage?.value;
+    if (value == null || !mounted) return;
     // Reset first, then open: the sheet is async, and a second notify in
     // between would otherwise open it twice.
     anfrage!.value = null;
-    widget.onSlot(context, slot);
+    widget.onRequest(context, value);
   }
 
   @override

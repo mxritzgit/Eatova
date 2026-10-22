@@ -53,6 +53,7 @@ class SettingsScreen extends StatefulWidget {
     this.authRepository,
     this.onOpenGoals,
     this.onSignOut,
+    this.localRecipePhotoCount,
     this.onDeleteAccount,
     this.onExportData,
     this.pendingSyncCount = 0,
@@ -64,6 +65,9 @@ class SettingsScreen extends StatefulWidget {
     this.onReminderEnabledChanged,
     this.onReminderTimeChanged,
     this.shareExportFile,
+    this.weighInReminderState,
+    this.onWeighInReminderChanged,
+    this.onOpenNotificationSettings,
   });
 
   /// Session mail address. Null in previews/tests without auth — the row is
@@ -79,6 +83,10 @@ class SettingsScreen extends StatefulWidget {
   final VoidCallback? onOpenGoals;
 
   final Future<void> Function()? onSignOut;
+
+  /// Own recipes whose photo exists only on this device. Sign-out deletes
+  /// those files, so its confirmation names them; null counts none.
+  final int Function()? localRecipePhotoCount;
   final ScopedAccountDeleteAction? onDeleteAccount;
 
   /// Supplies the full data export as JSON (GDPR Art. 15). Null without sync,
@@ -100,6 +108,14 @@ class SettingsScreen extends StatefulWidget {
   /// Hands the export to the system share sheet as a file (F9); null uses
   /// [ExportFileSharer]. Tests pass their own.
   final ExportDateiTeiler? shareExportFile;
+
+  /// The weigh-in reminder's row (review 2026-10-22); it drops out without
+  /// both, like the reminder row.
+  final ReminderState? weighInReminderState;
+  final ValueChanged<bool>? onWeighInReminderChanged;
+
+  /// Opens the OS notification settings: the way out of a blocked reminder.
+  final VoidCallback? onOpenNotificationSettings;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -312,7 +328,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // "VERIFIED" badge cannot be substantiated.
       if (email != null)
         _AccountIdentityRow(key: const ValueKey('settings-email'), email: email),
-      if (repo != null)
+      // A Google-only account has no password to change (the change asks
+      // for the current one); unknown keeps the row.
+      if (repo != null && repo.currentUser?.hasPassword != false)
         SettingsStudioRow(
           key: const ValueKey('settings-change-password'),
           leading: const SettingsRowTile(icon: Icons.lock_outline_rounded),
@@ -395,6 +413,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           time: widget.reminderTime,
           onEnabledChanged: onReminderEnabled,
           onTimeChanged: onReminderTime,
+          onOpenSystemSettings: widget.onOpenNotificationSettings,
+        ),
+      if (widget.weighInReminderState case final weighInState?
+          when widget.onWeighInReminderChanged != null)
+        SettingsWeighInReminderRow(
+          key: const ValueKey('settings-weigh-in-reminder'),
+          state: weighInState,
+          onEnabledChanged: widget.onWeighInReminderChanged!,
+          // One button for both rows when both are blocked.
+          onOpenSystemSettings: reminderState == ReminderState.blocked
+              ? null
+              : widget.onOpenNotificationSettings,
         ),
       // NO `onTap` on these two rows, unlike the Manual row in the goals
       // screen — and that is the decision, not an oversight. That row is a
@@ -651,7 +681,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  /// Close the page first, then sign out.
+  /// Confirm, close the page, then sign out.
   ///
   /// The order matters: `AuthGate` tears down everything above the root route
   /// on an identity change and shows a session-expired message. A deliberate
@@ -659,9 +689,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _signOut() async {
     final abmelden = widget.onSignOut;
     if (abmelden == null) return;
+    final l10n = context.l10n;
+    final photos = widget.localRecipePhotoCount?.call() ?? 0;
+    final confirmed = await showEatovaDialog<bool>(
+      context: context,
+      builder: (dialogContext) => EatovaConfirmDialog(
+        title: l10n.settingsSignOutConfirmTitle,
+        body: _signOutBody(l10n, photos),
+        icon: Icons.logout_rounded,
+        // Photos are lost for good; pending changes are not.
+        destructive: photos > 0,
+        confirmKey: const ValueKey('settings-sign-out-confirm'),
+        cancelKey: const ValueKey('settings-sign-out-cancel'),
+        cancelLabel: l10n.commonCancel,
+        onCancel: () => Navigator.pop(dialogContext, false),
+        confirmLabel: l10n.settingsSignOutTitle,
+        onConfirm: () => Navigator.pop(dialogContext, true),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     final navigator = Navigator.of(context);
     await navigator.maybePop();
     await abmelden();
+  }
+
+  /// What sign-out leaves behind: unsent changes stay in the encrypted outbox
+  /// and replay on the next sign-in to this account; own recipe photos are
+  /// deleted (`HomeStore` clears `RecipeImageStore` by design).
+  String _signOutBody(AppLocalizations l10n, int photos) {
+    final pending = widget.pendingSyncCount;
+    return <String>[
+      if (!widget.syncStatusReadable)
+        l10n.settingsSignOutPendingUnknown
+      else if (pending > 0)
+        l10n.settingsSignOutPending(pending),
+      if (photos > 0) l10n.settingsSignOutPhotos(photos),
+      if (widget.syncStatusReadable && pending == 0 && photos == 0)
+        l10n.settingsSignOutSafe,
+    ].join('\n\n');
   }
 
   Future<void> _openDeleteSheet(AuthRepository repo, String email) async {

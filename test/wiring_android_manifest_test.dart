@@ -405,13 +405,17 @@ void main() {
     });
 
     test(
-      'Health Connect exposes its rationale, alias and read-only steps scope',
+      'Health Connect exposes its rationale, alias and read-only steps and '
+      'weight scopes',
       () {
         final healthPermissions = berechtigungen
             .where((p) => p.name.startsWith('android.permission.health.'))
             .where((p) => p['tools:node'] != 'remove')
             .map((p) => p.name);
-        expect(healthPermissions, ['android.permission.health.READ_STEPS']);
+        expect(healthPermissions, [
+          'android.permission.health.READ_STEPS',
+          'android.permission.health.READ_WEIGHT',
+        ]);
         final rationale = _mitNamen(
           _elemente(application.inhalt, 'activity'),
           '.HealthPrivacyActivity',

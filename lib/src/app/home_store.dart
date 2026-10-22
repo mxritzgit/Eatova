@@ -29,6 +29,8 @@ import '../models/training_history.dart';
 import '../models/training_insights.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import '../services/coach_chat_service.dart' show CoachQuotaMemory;
+import '../services/coach_plan_context.dart';
 import '../services/coach_week_summary.dart';
 import '../services/complete_day.dart';
 import '../services/crash_reporter.dart';
@@ -63,6 +65,7 @@ import '../services/training_history_sync.dart';
 import '../services/training_session_source.dart';
 import '../services/user_recipe_reads.dart';
 import '../services/uuid.dart';
+import '../services/weigh_in_reminder_planner.dart';
 import '../widgets/common/app_snack.dart';
 // P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
 // so it is the only place that can hand the sign-out intent back to the gate.
@@ -80,6 +83,7 @@ part 'home_store_training_history.dart';
 part 'home_store_derivations.dart';
 part 'home_store_energy_check.dart';
 part 'home_store_ai_consent.dart';
+part 'home_store_coach_quota.dart';
 
 /// Context-free snackbar request emitted by [HomeStore].
 ///
@@ -325,9 +329,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   int _weightLogVersion = 0;
   int _lifetimeStatsVersion = 0;
 
-  UserProfile get profile => _profileState;
+  /// The stored profile holding a reached target as the weight log says
+  /// ([_withTargetHold]); dropped by both setters.
+  UserProfile? _heldProfile;
+
+  UserProfile get profile =>
+      _heldProfile ??= _withTargetHold(_profileState, _weightLogState);
   set profile(UserProfile value) {
     _profileState = value;
+    _heldProfile = null;
     _profileVersion++;
   }
 
@@ -367,6 +377,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   WeightLog get weightLog => _weightLogState;
   set weightLog(WeightLog value) {
     _weightLogState = value;
+    _heldProfile = null;
     _weightLogVersion++;
   }
 
@@ -437,6 +448,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// The diet line of [coachContext]; lives in `_HomeStoreProfilePart`.
   String? _foodPreferencesContext();
 
+  /// The weekly-check line of [coachContext] ([coachEnergyCheckLine]); lives
+  /// in `_HomeStoreEnergyCheckPart`.
+  String? _energyCheckContext();
+
+  /// Re-plans the reminder nudges and reports a failure; lives in
+  /// `_HomeStoreProfilePart`. A weigh-in calls it to drop today's weigh-in
+  /// reminder.
+  Future<void> _rescheduleGuarded(String context);
+
   /// Compact day/profile snapshot for the AI coach, so it can advise on
   /// concrete numbers.
   ///
@@ -444,7 +464,9 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// `user_context` at [kCoachContextCapChars]: language hint, core values
   /// (weight, effective weight goal, balance, open macros), food preferences
   /// ([_foodPreferencesContext]), the last seven days ([_coachWeekSummary]),
-  /// per-slot macros ([_todaysSlotSummary]), then
+  /// the weekly check's state and today's and tomorrow's planned titles
+  /// (2026-10-22, [coachEnergyCheckLine], [coachMealPlanLine]), per-slot
+  /// macros ([_todaysSlotSummary]), then
   /// the food list ([_todaysFoodSummary]) — the only line the cap may hit.
   String get coachContext {
     final p = profile;
@@ -478,7 +500,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       'Basisziel: ${balance.goalKcal} kcal; '
           'Aktivitätsbonus: ${balance.burnedKcal} kcal.',
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
-          'Fett $remFat g.',
+          'Fett $remFat g${_unknownMacrosNote()}.',
     ];
     // Diet and avoided foods right after the core values: constraints, so the
     // cap must never reach them ([_foodPreferencesContext]).
@@ -487,6 +509,11 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     // The last seven days (C2) next, before the per-slot and food lines of
     // today.
     lines.add(_coachWeekSummary());
+    // The check's state and the planned titles: short, no figures.
+    final check = _energyCheckContext();
+    if (check != null) lines.add(check);
+    final plan = coachMealPlanLine(today: clock.now(), plans: plannedMeals);
+    if (plan != null) lines.add(plan);
     // Slot totals BEFORE the food list: short, capped at four slots, and the
     // only source for per-meal macros.
     final perSlot = _todaysSlotSummary();
@@ -496,6 +523,16 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     final foods = _todaysFoodSummary();
     if (foods != null) lines.add(foods);
     return lines.join(' ');
+  }
+
+  /// Qualifies the open macros when entries without macro values are in
+  /// today's sums: the eaten grams are then lower bounds and the open grams
+  /// upper bounds, which the model must not read as exact.
+  String _unknownMacrosNote() {
+    final n = macroProgress.entriesMissingMacros;
+    if (n == 0) return '';
+    final entries = n == 1 ? '1 Eintrag' : '$n Einträge';
+    return ' (höchstens: $entries ohne Makroangaben)';
   }
 
   /// The seven-day block of [coachContext] ([coachWeekSummary]) from local
@@ -519,6 +556,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
         return (
           kcal: m.kcal,
           proteinG: m.proteinG,
+          proteinMissing: m.proteinMissing,
           budgetKcal: DailyCalorieBalance(
             goalKcal: p.dailyKcalGoal,
             consumedKcal: m.kcal,
@@ -569,9 +607,13 @@ abstract class _HomeStoreBase extends ChangeNotifier {
         .take(maxFoods)
         .map((m) {
           final raw = m.result.mealName.trim();
+          // Cut by characters: a cut by UTF-16 units split an emoji, which
+          // reached the model as U+FFFD.
           final name = raw.isEmpty
               ? 'Mahlzeit'
-              : (raw.length > 40 ? '${raw.substring(0, 39)}…' : raw);
+              : (raw.characters.length > 40
+                    ? '${raw.characters.take(39)}…'
+                    : raw);
           return '${m.slot.germanLabel}: $name (${m.result.caloriesKcal} kcal)';
         })
         .join(', ');
@@ -656,7 +698,8 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreMealPlanPart,
         _HomeStoreTrainingHistoryPart,
         _HomeStoreDerivationsPart,
-        _HomeStoreAiConsentPart {
+        _HomeStoreAiConsentPart,
+        _HomeStoreCoachQuotaPart {
   HomeStore({
     required super.sync,
     required super.health,
@@ -667,6 +710,8 @@ class HomeStore extends _HomeStoreBase
     super.debugCacheFactory,
   }) {
     userName = initialUserName;
+    // The Coach remembers its quota in this account's cache.
+    sync?.coachChat.quotaMemory = this;
   }
 
   final Completer<void> _profileReadyCompleter = Completer<void>();
@@ -1335,11 +1380,12 @@ class HomeStore extends _HomeStoreBase
         // the window may also be a cache re-hydration, not a newer write.
         _serverProfileLoaded = true;
         _hydratedFromRealSource = true;
-        healSave =
-            s.profile.lastLoadHealed && _serverGoalsLookStale(loadedProfile);
+        // Measured on [profile], which holds a reached target the row
+        // cannot carry: a held plan is no stale row to write back.
+        healSave = s.profile.lastLoadHealed && _serverGoalsLookStale(profile);
         // The adopted row is the new reference, so a retryBoot does not
         // queue the same correction twice.
-        _cachedProfileAtBoot = loadedProfile;
+        _cachedProfileAtBoot = profile;
       }
 
       final loadedMeals = results[1] as List<LoggedMeal>?;
@@ -1481,8 +1527,8 @@ class HomeStore extends _HomeStoreBase
     }
     final conflict = await _writeCacheSnapshot(cacheVersionsBeforeLoad);
     _completeProfileReady();
-    // A Health weight read during the boot is judged against the loaded log.
-    if (_serverWeightLogLoaded) _offerDeferredHealthWeight();
+    // A scale read held back during the boot is judged against the loaded log.
+    if (_serverWeightLogLoaded) _resumeDeferredHealthWeights();
     // The profile follows the weight trend (docs/WEIGHT-TREND.md), once the
     // server answered both profile and weight log in this session: a full
     // row written from a cached profile could overwrite a newer one. After

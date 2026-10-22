@@ -272,6 +272,80 @@ void main() {
         isEmpty);
   });
 
+  test('a reached target holds until the trend runs 1.5 kg back', () => withClock(Clock.fixed(_now), () async {
+    // Target 70 kg: the trend crossed it (69.9) and sits at 70.8 now, which
+    // rounds to 71 and planned the deficit again without the band. The row
+    // and the cache carry what the last session wrote: maintenance kcal.
+    final row = const KcalCalculator()
+        .applyLiveGoals(
+          _live().copyWith(
+            weightKg: 71,
+            targetWeightKg: 70,
+            weightGoal: WeightGoal.maintain,
+          ),
+        )
+        .copyWith(weightGoal: WeightGoal.lose05kg);
+    final holdKcal = row.dailyKcalGoal;
+    final weighIns = [(100, 72.0), (60, 69.9), (20, 70.8)];
+    final kv = InMemoryKeyValueStore();
+    final cache = LocalCache(kv, 'user-outbox');
+    await cache.writeProfile(row);
+    await cache.writeWeightLog(
+      WeightLog.capped([
+        for (final (daysAgo, kg) in weighIns)
+          WeightLogEntry(
+            timestamp: _now.subtract(Duration(days: daysAgo)),
+            weightKg: kg,
+          ),
+      ]),
+    );
+    final a = setup(injizierterCache: cache);
+    a.server.profileRow = serverProfileRow(row);
+    for (final (daysAgo, kg) in weighIns) {
+      final at = _now.subtract(Duration(days: daysAgo));
+      a.server.weightRows['w$daysAgo'] = _weightRow(at, kg);
+    }
+
+    await boot(a.store);
+    await settle();
+
+    expect(a.store.profile.weightKg, 71, reason: 'precondition');
+    expect(a.store.profile.effectiveWeightGoal, WeightGoal.maintain);
+    expect(a.store.profile.dailyKcalGoal, holdKcal);
+    expect(a.store.targetReachedPrompt, (gain: false, targetKg: 70));
+    expect(a.server.operations('profileUpsert'), isEmpty,
+        reason: 'a held plan is no stale row to heal on every boot');
+
+    // 70.8 + (1 − 0.9^20) · (72.0 − 70.8) ≈ 71.85: rounded 72, 1.5 kg back.
+    await a.store.logWeight(72.0);
+    await settle();
+
+    expect(a.store.profile.weightKg, 72);
+    expect(a.store.profile.effectiveWeightGoal, WeightGoal.lose05kg);
+    expect(a.store.profile.dailyKcalGoal, lessThan(holdKcal));
+    expect(a.server.profileRow!['daily_kcal_goal'], a.store.profile.dailyKcalGoal);
+    expect(a.store.targetReachedPrompt, isNull);
+  }));
+
+  test("the reached target's Hold stores maintain and ends the question", () async {
+    final a = setup();
+    // Plainly reached: 70 kg on target 70.
+    final reached = _live().copyWith(weightKg: 70, targetWeightKg: 70);
+    a.server.profileRow = serverProfileRow(
+      const KcalCalculator().applyLiveGoals(reached),
+    );
+    await boot(a.store);
+    expect(a.store.targetReachedPrompt, isNotNull, reason: 'precondition');
+    final kcal = a.store.profile.dailyKcalGoal;
+
+    await a.store.holdReachedTarget();
+    await settle();
+
+    expect(a.server.profileRow!['weight_goal'], 'maintain');
+    expect(a.store.profile.dailyKcalGoal, kcal, reason: 'it held already');
+    expect(a.store.targetReachedPrompt, isNull);
+  });
+
   test('a goals save in flight is not overwritten by the re-anchor', () async {
     final a = setup();
     a.server.profileRow = serverProfileRow(_live());

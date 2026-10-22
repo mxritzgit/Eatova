@@ -169,6 +169,7 @@ String recipeCategoryLabel(String category, AppLocalizations l10n) {
     "Vegetarisch" => l10n.recipesFilterVegetarian,
     "Vegan" => l10n.recipesFilterVegan,
     "Low Carb" => l10n.recipesFilterLowCarb,
+    "Snack" => l10n.recipesFilterSnack,
     "Eigene" => l10n.recipesCategoryOwn,
     recipeNutritionPendingCategory => l10n.recipeImportNutritionPendingLabel,
     recipeNutritionBasisPendingCategory => l10n.recipeNutritionBasisCheck,

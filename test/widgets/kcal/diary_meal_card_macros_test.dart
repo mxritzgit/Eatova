@@ -192,8 +192,16 @@ void main() {
       );
     });
 
-    testWidgets('ein Eintrag ohne lesbare Makros: Kopf zeigt 0 g, die Zeile '
-        'blendet ihre Makros aus', (tester) async {
+    // Entries without a macro add 0 g. The header read "P 0 g" for them and
+    // a sum with them as exact (review 2026-10-22): such a sum is a lower
+    // bound, and a macro nothing is known of has no number.
+    testWidgets('unbekannte Makros: der Kopf zeigt Untergrenzen oder "–", '
+        'eine Zeile keine erfundene 0', (tester) async {
+      List<String> zeilen() => tester
+          .widgetList<Text>(find.textContaining(RegExp('^P ')))
+          .map((t) => t.data!)
+          .toList(growable: false);
+
       await _pump(
         tester,
         DiaryMealCard(
@@ -217,10 +225,33 @@ void main() {
           ],
         ),
       );
+      // Header only: the row hides macros it does not know.
+      expect(zeilen(), <String>[_macros('P – · K – · F –')]);
 
-      // Only the header sum (0 is 0, like the day rings); a row hides unknown
-      // macros so a zero never looks like a measurement.
-      expect(_makroZeilen(tester), <String>[_macros('P 0 g · K 0 g · F 0 g')]);
+      final shake = _ergebnis(
+        name: 'Proteinshake',
+        kcal: 150,
+        gramm: 300,
+        protein: '25 g',
+        carbs: '-',
+        fat: '-',
+      );
+      await _pump(
+        tester,
+        DiaryMealCard(
+          slot: MealSlot.lunch,
+          entries: <DiaryEntry>[
+            DiaryEntry(_mahlzeit('m1', _haferbrei, MealSlot.lunch), 0),
+            DiaryEntry(_mahlzeit('m2', shake, MealSlot.lunch), 1),
+          ],
+          onAddToSlot: (_) {},
+        ),
+      );
+      expect(zeilen(), <String>[
+        _macros('P 37 g · K ≥48 g · F ≥6 g'), // protein known in both
+        _macros('P 12 g · K 48 g · F 6 g'),
+        _macros('P 25 g · K – · F –'),
+      ]);
     });
 
     // 1.0 is the first test's layout; overflow there already fails it.

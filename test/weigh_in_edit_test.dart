@@ -53,11 +53,22 @@ String _sentOperationId(dynamic request) =>
     (jsonDecode(request.body as String) as Map)['p_operation_id'] as String;
 
 /// Records Health writes and deletes; Eatova's own samples are the ones it
-/// wrote.
-class _Health implements HealthService, HealthWeightCorrection {
+/// wrote. [samples] are a scale's weigh-ins for the import.
+class _Health
+    implements HealthService, HealthWeightCorrection, HealthWeightSource {
   final writes = <(double, DateTime)>[];
   final deletes = <DateTime>[];
   final own = <int>{};
+  List<WeightSample> samples = <WeightSample>[];
+
+  @override
+  Future<List<WeightSample>?> readWeightSamples(
+    DateTime from,
+    DateTime to,
+  ) async => samples;
+
+  @override
+  Future<bool> ensureWeightAccess() async => true;
 
   @override
   HealthAuthState get authState => HealthAuthState.unsupported;
@@ -305,7 +316,7 @@ void main() {
 
   test("Apple Health: Eatova's own sample follows an edit, a delete and its undo", () => withClock(Clock.fixed(_now), () async {
     final health = _Health();
-    final a = setup(health: health);
+    final a = setup(kv: healthConnectedKv(), health: health);
     a.server.profileRow = serverProfileRow(_live());
     await boot(a.store);
     await a.store.logWeight(84.0);
@@ -328,12 +339,13 @@ void main() {
   }));
 
   test('Apple Health: an imported weigh-in leaves the source sample alone', () => withClock(Clock.fixed(_now), () async {
-    final health = _Health();
-    final a = setup(health: health);
-    a.server.profileRow = serverProfileRow(_live());
-    await boot(a.store);
     final measured = _now.subtract(const Duration(hours: 3));
-    await a.store.importHealthWeight(84.3, measuredAt: measured);
+    final health = _Health()
+      ..samples = [WeightSample(kg: 84.3, measuredAt: measured)];
+    final a = setup(kv: healthConnectedKv(), health: health);
+    a.server.profileRow = serverProfileRow(_live());
+    await bootUntilIdle(a.store);
+    await a.store.enableHealthWeightImport();
     final id = a.store.weightLog.latest!.id!;
 
     await a.store.updateWeighIn(id, kg: 84.1, at: measured);
@@ -346,60 +358,4 @@ void main() {
         reason: 'only own samples are deletable; there was none');
     expect(health.writes, isEmpty, reason: 'no copy of the scale reading');
   }));
-
-  test('a deleted import is not offered again in the same session', () => withClock(Clock.fixed(_now), () async {
-    final measured = _now.subtract(const Duration(hours: 3));
-    final health = _ScaleHealth(84.3, measured);
-    final a = setup(health: health);
-    a.server.profileRow = serverProfileRow(_live());
-    await boot(a.store);
-    await a.store.importHealthWeight(84.3, measuredAt: measured);
-    final id = a.store.weightLog.latest!.id!;
-    await a.store.deleteWeighIn(id);
-    await settle();
-    expect(a.store.weightLog.entries, isEmpty, reason: 'precondition');
-    a.snacks.messages.clear();
-
-    await a.store.refreshHealthSteps();
-    await settle();
-
-    expect(a.snacks.messages.where((m) => m.startsWith('Apple Health')), isEmpty);
-
-    // A later reading of the scale is new and offered as before.
-    health.measuredAt = measured.add(const Duration(minutes: 30));
-    await a.store.refreshHealthSteps();
-    await settle();
-    expect(a.snacks.messages, contains('Apple Health: 84,3 kg übernehmen?'));
-  }));
-}
-
-/// A connected health store whose latest weight is a scale reading.
-class _ScaleHealth implements HealthService {
-  _ScaleHealth(this.kg, this.measuredAt);
-
-  final double kg;
-  DateTime measuredAt;
-
-  @override
-  HealthAuthState get authState => HealthAuthState.granted;
-
-  @override
-  void reset() {}
-
-  @override
-  Future<HealthAuthState> requestAuthorization() async => authState;
-
-  @override
-  Future<HealthSnapshot?> readSnapshot() async => HealthSnapshot(
-    stepsToday: 1200,
-    fetchedAt: clock.now(),
-    latestWeightKg: kg,
-    latestWeightMeasuredAt: measuredAt,
-  );
-
-  @override
-  Future<int?> readStepsOnDay(DateTime day) async => null;
-
-  @override
-  Future<bool> writeWeight(double kg, DateTime when) async => false;
 }

@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <!-- Scale import (2026-10-22): read only; weigh-ins reach the log only
+         after the account's opt-in. -->
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <!-- PROD-1 (flutter_local_notifications): POST_NOTIFICATIONS drives the
          Android 13+ runtime dialog. Only inexact alarms are scheduled
          (AndroidScheduleMode.inexactAllowWhileIdle), so no

@@ -8,5 +8,5 @@
 "NSMicrophoneUsageDescription" = "Eatova needs microphone access so you can dictate a question to your coach or describe a meal instead of typing. Audio is captured only while voice input in the coach chat or the meal description is active.";
 "NSSpeechRecognitionUsageDescription" = "Eatova turns your dictated coach question or meal description into text. If your iPhone has the speech model for your language on device, the audio stays on the device; otherwise Apple processes it on its servers.";
 "NSPhotoLibraryUsageDescription" = "Eatova needs access to your photo library so you can pick an existing photo of a meal or a coach picture from the gallery for analysis, or a photo for one of your own recipes.";
-"NSHealthShareUsageDescription" = "Eatova reads your step count from Apple Health and credits it to your daily budget. When your scale measures a new weight, Eatova offers to add it to your weight history.";
+"NSHealthShareUsageDescription" = "Eatova reads your step count from Apple Health and credits it to your daily budget. Once you allow the scale import, new weights from your scale are added to your weight history.";
 "NSHealthUpdateUsageDescription" = "Eatova optionally writes a weight you log back to Apple Health and corrects it there when you edit or delete that weigh-in.";

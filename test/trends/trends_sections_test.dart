@@ -34,7 +34,12 @@ TrendLocalData _local({
   bool steps = true,
   List<WeightLogEntry>? weighIns,
   int workouts = 4,
+  bool deviceDays = false,
 }) => TrendLocalData(
+  deviceDayTotals: {
+    if (deviceDays)
+      for (final day in _days()) localDayKey(day.day): day,
+  },
   stepsByDay: steps
       ? {
           localDayKey(_day(1)): 12000,
@@ -56,6 +61,10 @@ TrendLocalData _local({
           weightKg: 80.2,
         ),
         WeightLogEntry(
+          timestamp: _day(5).add(const Duration(hours: 7)),
+          weightKg: 79.8,
+        ),
+        WeightLogEntry(
           timestamp: _day(1).add(const Duration(hours: 7)),
           weightKg: 79.6,
         ),
@@ -73,6 +82,7 @@ Future<List<int>> _pump(
   TrendLocalData Function()? read,
   Listenable? changes,
   TrendTotalsLoader? loader,
+  VoidCallback? onAskCoach,
 }) async {
   final backfills = <int>[];
   await pumpLocalized(
@@ -85,6 +95,7 @@ Future<List<int>> _pump(
         read: read ?? _local,
       ),
       onBackfillSteps: (days) async => backfills.add(days),
+      onAskCoachAboutWeight: onAskCoach,
     ),
     locale: const Locale('de'),
     scaffold: false,
@@ -136,11 +147,11 @@ void main() {
       await _scrollTo(tester, 'trends-weight');
       final weight = _textIn('trends-weight');
       expect(weight, contains('−1,4 kg'));
-      expect(weight, contains('81,0 → 79,6 kg, 3 Wiegungen'));
+      expect(weight, contains('81,0 → 79,6 kg, 4 Wiegungen'));
       expect(
         weight,
-        contains('−0,52 kg pro Woche'),
-        reason: '−1.4 kg over 19 days',
+        contains('Gemessenes Tempo: −0,55 kg/Woche'),
+        reason: 'the regression of the four days, −0.527 kg/week',
       );
 
       await _scrollTo(tester, 'trends-training');
@@ -148,6 +159,38 @@ void main() {
       expect(training, contains('4 Trainings'));
       expect(training, contains('Ø 0,9 pro Woche'));
       expect(tester.takeException(), isNull);
+    }),
+  );
+
+  testWidgets(
+    'nur ein stagnierendes Gewicht bietet die Frage an den Coach an '
+    '(2026-10-22)',
+    (tester) => withClockAt(_now, () async {
+      WeightLogEntry at(int back, double kg) => WeightLogEntry(
+        timestamp: _day(back).add(const Duration(hours: 7)),
+        weightKg: kg,
+      );
+      for (final (name, weighIns, offered) in <(String, List<WeightLogEntry>?, bool)>[
+        ('falling 0.52 kg a week', null, false),
+        // The weekly check's line needs 4 weigh-in days 14 days apart.
+        ('flat', [at(20, 80), at(14, 80.2), at(7, 80.1), at(1, 80.1)], true),
+        ('flat, too few weigh-ins for a pace', [at(20, 80), at(1, 80.1)], false),
+      ]) {
+        var asked = 0;
+        await _pump(
+          tester,
+          read: () => _local(weighIns: weighIns),
+          onAskCoach: () => asked++,
+        );
+        await _scrollTo(tester, 'trends-weight');
+        final pill = find.byKey(const ValueKey('trends-ask-coach-weight'));
+        expect(pill, offered ? findsOneWidget : findsNothing, reason: name);
+        if (!offered) continue;
+        await tester.ensureVisible(pill);
+        await tester.tap(pill);
+        await tester.pumpAndSettle();
+        expect(asked, 1, reason: name);
+      }
     }),
   );
 
@@ -215,10 +258,30 @@ void main() {
   );
 
   testWidgets(
-    'scheitert das Server-Fenster, bleiben die lokalen Abschnitte',
+    'offline: bis 35 Tage die Tage des Geraets, darueber der Fehler',
     (tester) => withClockAt(_now, () async {
-      await _pump(tester, loader: () async => throw StateError('offline'));
+      var loads = 0;
+      await _pump(
+        tester,
+        loader: () async {
+          loads++;
+          throw StateError('offline');
+        },
+        read: () => _local(deviceDays: true),
+      );
+      expect(find.byKey(const ValueKey('trends-offline')), findsOneWidget);
+      expect(find.byKey(const ValueKey('trends-error')), findsNothing);
+      expect(_textIn('trends-avg-kcal'), contains('2.000 kcal'));
+      await tester.tap(find.byKey(const ValueKey('trends-offline-retry')));
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+
+      // Six months exceed what the device holds: the error, and the store's
+      // own sections still below it.
+      await tester.tap(find.byKey(const ValueKey('trends-range-182')));
+      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('trends-error')), findsOneWidget);
+      expect(find.byKey(const ValueKey('trends-offline')), findsNothing);
       await _scrollTo(tester, 'trends-training');
       expect(find.byKey(const ValueKey('trends-steps')), findsOneWidget);
       expect(find.byKey(const ValueKey('trends-weight')), findsOneWidget);
@@ -261,13 +324,19 @@ void main() {
       await pumpLocalized(
         tester,
         TodayTrendsCard(
-          preview: (avgKcal: 2104.4, avgProteinG: 117.6, avgSteps: 8432),
+          // A day of the week has entries without protein.
+          preview: (
+            avgKcal: 2104.4,
+            avgProteinG: 117.6,
+            proteinAtLeast: true,
+            avgSteps: 8432,
+          ),
           onOpen: () => opened++,
         ),
         locale: const Locale('de'),
       );
       expect(find.text('2.104 kcal'), findsOneWidget);
-      expect(find.text('118 g'), findsOneWidget);
+      expect(find.text('≥118 g'), findsOneWidget);
       expect(find.text('8.432'), findsOneWidget);
       expect(find.text('Ø der letzten 7 Tage'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('today-trends')));
@@ -286,11 +355,21 @@ void main() {
           Column(
             children: [
               TodayTrendsCard(
-                preview: (avgKcal: 1900, avgProteinG: null, avgSteps: null),
+                preview: (
+                  avgKcal: 1900,
+                  avgProteinG: null,
+                  proteinAtLeast: false,
+                  avgSteps: null,
+                ),
                 onOpen: () {},
               ),
               TodayTrendsCard(
-                preview: (avgKcal: null, avgProteinG: null, avgSteps: null),
+                preview: (
+                  avgKcal: null,
+                  avgProteinG: null,
+                  proteinAtLeast: false,
+                  avgSteps: null,
+                ),
                 onOpen: () {},
               ),
             ],

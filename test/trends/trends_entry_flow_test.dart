@@ -1,7 +1,8 @@
 // The way to the trends page through the real shell (2026-10-18): Today's
 // trends card and the Food tab's header button both open it over the
 // store's data, and a meal whose write is still in the outbox already counts
-// there (TRN-9), although the server window does not know it yet.
+// there (TRN-9), although the server window does not know it yet. Today's
+// card shows seven days and opens them; the Food tab opens 30 (2026-10-22).
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -78,6 +79,13 @@ Future<void> _openFromTodayCard(WidgetTester tester) async {
   await settleFrames(tester);
 }
 
+/// Whether the range segment for [days] is the selected one.
+bool _rangeSelected(WidgetTester tester, int days) => tester
+    .getSemantics(find.byKey(ValueKey('trends-range-$days')))
+    .flagsCollection
+    .isSelected
+    .toBoolOrNull()!;
+
 Future<void> _back(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('trends-close')));
   await settleFrames(tester);
@@ -117,6 +125,7 @@ void main() {
         await settleFrames(tester);
         await _openFromTodayCard(tester);
         expect(find.byType(TrendsScreen), findsOneWidget);
+        expect(_rangeSelected(tester, 7), isTrue);
         // 252 kcal is below half the goal: a logged but incomplete day. The
         // tile names it instead of "no completed day", so the page knows
         // the day although the server window is empty (TRN-9).
@@ -139,6 +148,7 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('food-trends')));
         await settleFrames(tester);
         expect(find.byType(TrendsScreen), findsOneWidget);
+        expect(_rangeSelected(tester, 30), isTrue);
         expect(find.byKey(const ValueKey('trends-weight')), findsOneWidget);
         expect(tester.takeException(), isNull);
       });

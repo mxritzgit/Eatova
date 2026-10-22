@@ -188,6 +188,74 @@ void main() {
         expect(find.text('ZU VIEL'), findsOneWidget);
       }
     });
+
+    testWidgets('a macro with unknown entries reads as a lower bound', (
+      tester,
+    ) async {
+      await pumpLocalized(
+        tester,
+        FoodDaySummaryCard(
+          summary: DayNutritionSummary(
+            profile: const UserProfile(dailyKcalGoal: 2123),
+            burnedKcal: 0,
+            consumed: const MacroProgress(
+              proteinG: 48,
+              carbsG: 144,
+              fatG: 20,
+              kcal: 1221,
+              proteinMissing: 1,
+              entriesMissingMacros: 1,
+            ),
+          ),
+          loading: false,
+          onTap: () {},
+        ),
+      );
+      expect(find.text('≥48 g'), findsOneWidget);
+      expect(find.text('144 g'), findsOneWidget);
+      expect(find.text(deL10n.foodMacrosMissingEntries(1)), findsOneWidget);
+    });
+  });
+
+  // The diary wrote "13:05" in an English 12-hour app; Training already
+  // followed the phone.
+  testWidgets('diary times follow the phone\'s 12/24-hour setting', (
+    tester,
+  ) async {
+    final meal = LoggedMeal(
+      id: 'm1',
+      result: _result(),
+      loggedAt: DateTime(2026, 8, 21, 13, 5),
+      forcedSlot: MealSlot.lunch,
+    );
+    for (final (locale, use24, time) in <(Locale, bool, Pattern)>[
+      (const Locale('de'), false, '13:05'),
+      (const Locale('en'), false, RegExp(r'^1:05\sPM ')),
+      (const Locale('en'), true, RegExp(r'^13:05 ')),
+    ]) {
+      await pumpLocalized(
+        tester,
+        Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(alwaysUse24HourFormat: use24),
+            child: DiaryMealCard(
+              slot: MealSlot.lunch,
+              entries: <DiaryEntry>[DiaryEntry(meal, 0)],
+              onAddToSlot: (_) {},
+              onRemoveMeal: (_) {},
+            ),
+          ),
+        ),
+        locale: locale,
+      );
+      expect(
+        find.textContaining(time),
+        findsOneWidget,
+        reason: '$locale, 24 h: $use24',
+      );
+    }
   });
 
   group('Food screen text scale', () {

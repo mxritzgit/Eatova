@@ -4119,3 +4119,165 @@ unnecessary or outdated ones, keep what really finds failures, and stop adding
   - Past days are measured against today's goal.
 - **Status:** a recommendation, not an approved roadmap; only documentation
   changed.
+
+## Review items built with ten agents, 2026-10-22
+
+Owner request: build everything in the
+[review of 2026-10-22](IMPROVEMENT-REVIEW-2026-10-22.md) "komplett mit 10
+Sub-Agents". Also check the AI flows (photo analysis, Describe, recipe import,
+Coach chat) and fix any defects found. Ten agents worked in their own
+worktrees from the review commit with fixed file ownership. They had no
+migrations, no new sync kinds, no deploys and no live calls. The orchestrator
+cherry-picked their 43 commits onto `feat/review-items-2026-10-22`, resolved
+the overlaps (ARB, the shell, Today, the cache slots, the weekly result card,
+the Coach prompt test) and fixed what the full suite showed after the merge:
+- the cache-slot inventory;
+- a decimal parse in the edit sheet;
+- the Trends stall test against the new pace rule.
+It then built the small follow-ups the agents left:
+- recipe-import quote early stop and bidi-free titles;
+- the Coach reset time on the phone's clock;
+- emoji-safe Coach context names;
+- a weigh-in that re-plans today's weigh-in reminder.
+A further agent marked unknown macros on the remaining surfaces:
+- Trends averages and Today's 7-day card;
+- the diary's P/C/F lines;
+- the Coach start card and its week summary.
+It also added the Goals hint in the hold band and let a three-action dialog at
+320 px and 2x text keep its message in view. The orchestrator added a shell
+test for `/meal`.
+
+**Built (client; needs an app build):** see the German summary in the
+[review](IMPROVEMENT-REVIEW-2026-10-22.md#umsetzung-2026-10-22-zehn-agenten)
+and [FEATURES.md](FEATURES.md). New pieces worth knowing:
+- **Favorite identity:** `FavoriteMeal.sameFood` matches the same barcode, or
+  the same name with energy within 20 %. A different food of an existing name
+  is stored as `name:x#2`. A pinned favorite only gets a fresh last-used time
+  when logged; own products still take corrections. The meal payload has a new
+  additive `servings` key.
+- **Reminders and entries:** reminders carry a payload (`AppEntry`: log-meal,
+  photo, barcode, describe, weigh-in).
+  - The weigh-in reminder has ids 728..735; `reminderNudgeIdCount` grew from
+    28 to 36.
+  - App-icon shortcuts come from `quick_actions` ^1.1.1, the only new
+    dependency, through the iOS Swift Package Manager.
+- **New encrypted per-account cache slots:**
+  - `weigh_in_reminder`;
+  - `health_weight_import`;
+  - `weekly_result_seen`;
+  - `coach_quota`.
+  All are registered in `durableCacheSlotNames` and cleared with the account.
+- **Health:** HealthKit access is gated by `_healthAccessAllowed` per account.
+  - A completed profile cached at boot with no intro state counts as an
+    existing connection.
+  - `health_connect_enabled` carries `since`, which sets the step backfill
+    window.
+  - Android has `READ_WEIGHT` in the manifest and allowlist, and
+    `HealthConnectBridge.kt` has `hasWeightPermission`.
+- **Target hold:** derived from the synced weight log as the transient
+  `UserProfile.targetHold`, never stored; it releases 1.5 kg past the target.
+  The Trends pace is `EnergyCheck.weightLine` over the range.
+- **Coach:** `/meal` is handled in the client before the quota check. The
+  `/recipe` target travels inside the wish text, because the live server
+  rejects unknown body fields. The plan and check context lines come from
+  `coach_plan_context.dart`, and the check line carries no digits.
+
+**Fixed in the AI review (packages 9 and 10 plus the orchestrator):**
+- **Client:**
+  - Photo-scan macros heavier than the measured portion or negative became
+    measurements; they are now unknown.
+- **`analyze-meal`:**
+  - A negative macro became a measured 0 g; it is now `null`.
+- **`recipe-import`:**
+  - A paid retry could start with seconds left in the 55 s request budget.
+  - An adversarial model answer cost about 3 s of CPU in quote checking.
+  - Titles kept bidi overrides.
+- **`coach-chat`:**
+  - English answers that explain the app data tripped the prompt-leak net and
+    still cost the slot; USING APP DATA is now exempt like YOUR SCOPE.
+  - Layer 1 refused "anabolic" and any HGH mention, and dropped the whole day
+    context for a meal named like that. It now refuses only "anabolics",
+    "Anabolika", steroids, and HGH with doping intent.
+  - The German refusal texts use real umlauts.
+
+**Function deploys needed (owner):** `analyze-meal` (`normalize.ts`),
+`recipe-import` (`handler.ts`, `extraction.ts`) and `coach-chat` (`handler.ts`,
+`prefilter.ts`, `recipe.ts`, `workout_log.ts`). All are backward compatible.
+The client changes work against the deployed functions.
+- After the coach-chat deploy, live-check:
+  - "Ich hatte 2 Eier und Toast" points to `/meal`;
+  - `/log 2 Eier` gets the food refusal;
+  - a `/recipe` with the target line.
+- Older builds get the `/meal` hint from `/log` but do not know the command.
+  That only matters until the new build is out.
+
+**Decisions taken without the owner (open for review):**
+- 20 % same-food tolerance.
+- The 1.5 kg hold band; "Halten" stores maintain.
+- Weigh-in reminder on Mon/Thu at 07:30, fixed.
+- The reminder offer from 17:00 on day one.
+- Shortcuts without icons.
+- `/meal` in both languages; food under `/log` stays charged.
+- Only plan titles and the check state go to Anthropic.
+- The "3/5 heute frei" counter.
+- A past plan day is the first choice.
+- A Snack category.
+- Share replaces copy.
+- Sign-out always asks.
+- "x of y" is dropped.
+- Health Connect asks for weight together with steps.
+- Existing iPhone users stay connected to Apple Health.
+- "≥" marks a lower bound wherever unknown macros are summed. "–" marks an
+  unknown value in the P/C/F lines. Today's tiles and the Food day card still
+  read "≥0 g" when nothing is known.
+
+**Not done:**
+- **Needs a migration or a new sync kind:**
+  - a goal per past day;
+  - sessions per week in a plan;
+  - undoing an eaten plan;
+  - editing a finished workout;
+  - refunding limiter slots after provider failures.
+- **Owner decisions:**
+  - Display name: auth metadata only, or a migration for
+    `profiles.display_name`.
+  - Answering after a disconnect during classification
+    ([BACKEND](BACKEND.md)).
+  - Whether the global analyze-meal day cap should answer as "unavailable".
+  - Own macro targets in live mode.
+- **Content:** photos for the 11 new recipes and shortcut icons.
+- **Larger features:** the review's section 4 (widget, scan correction, label
+  photo, health nutrition write-back), after measuring.
+
+**External steps (owner):**
+- Play Console: declare `READ_WEIGHT` (scale import) before shipping this
+  build, and update the Data safety form.
+- Publish the privacy text with the health and Coach changes.
+- App build and device checks:
+  - reminder and shortcut taps, cold and warm, including iOS UIScene;
+  - "Open system settings";
+  - a second account on a shared iPhone;
+  - Health Connect weight;
+  - the share sheet, including the iPad popover;
+  - the new sheets at 2x text;
+  - VoiceOver and TalkBack on Coach bubbles.
+- Still open from earlier: the Apple program, backups and the Supabase plan,
+  the `release` environment, and the duplicate SQL security checks.
+
+**Verification:**
+- The strict analyzer is clean.
+- Full local Flutter suite on the final head: 6,391 passed, 0 failed.
+  - Line coverage is 97.03 % without generated l10n.
+  - Added executable lines are 95.55 % covered.
+  - The remaining gaps are shell closures (the Coach recipe "Open" route, the
+    app-entry routing) and plugin error paths. The `/meal` shell wiring has a
+    test.
+- The run before the fixes showed four merge breakages; all are fixed.
+- Deno lint, check and test for every function pass (759 tests), and so does
+  the coach eval unit test.
+- The Python tooling and operations tests pass.
+- Every agent fix was shown once to fail its test on broken code.
+- Pull request #167 CI passed on the first push, including the iOS build with
+  `quick_actions` and the release AAB with `READ_WEIGHT`.
+- Not verified: device behavior and the live model replies, which need the
+  deploy.

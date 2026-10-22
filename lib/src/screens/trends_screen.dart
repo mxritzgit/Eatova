@@ -8,9 +8,12 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../l10n/l10n.dart';
+import '../models/user_profile.dart' show paceLabelForWeeklyRateKg;
 import '../models/weight_log.dart';
 import '../services/day_math.dart';
+import '../services/energy_check.dart' show WeightTrendLine;
 import '../services/kcal_format.dart';
+import '../services/meals_sync.dart' show MealsSync;
 import '../services/trend_report.dart';
 import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
@@ -30,6 +33,7 @@ bool _largeText(BuildContext context) =>
 class TrendLocalData {
   const TrendLocalData({
     this.dayTotals = const <String, TrendDayTotals?>{},
+    this.deviceDayTotals = const <String, TrendDayTotals?>{},
     this.stepsByDay = const <String, int>{},
     this.stepsToday,
     this.hasStepSource = false,
@@ -42,6 +46,14 @@ class TrendLocalData {
   /// Days the store knows completely, laid over the server's rows
   /// ([overlayTrendTotals]); they include writes still in the outbox.
   final Map<String, TrendDayTotals?> dayTotals;
+
+  /// Days this device holds of the store's own meal window
+  /// ([deviceWindowDays]), whether or not the server answered this session:
+  /// what the page shows offline instead of an error.
+  final Map<String, TrendDayTotals?> deviceDayTotals;
+
+  /// The store's meal window, which a range must fit to show offline.
+  static const int deviceWindowDays = MealsSync.loggedMealsWindowDays;
 
   /// Steps per local day key ([HomeStore.dailyActivity]) and today's live
   /// value.
@@ -79,7 +91,12 @@ class TrendsScreen extends StatefulWidget {
     this.burnedKcalFor = noTrendStepBonus,
     this.local,
     this.onBackfillSteps,
+    this.onAskCoachAboutWeight,
+    this.initialRangeDays = 30,
   });
+
+  /// The range the page opens on: Today's 7-day card opens 7 days.
+  final int initialRangeDays;
 
   /// Daily target in kcal, passed through from the profile.
   final int kcalGoal;
@@ -100,6 +117,14 @@ class TrendsScreen extends StatefulWidget {
   /// (`HomeStore.backfillStepsForTrends`); called once per range per open.
   final Future<void> Function(int days)? onBackfillSteps;
 
+  /// Puts "Why has my weight stalled?" into the Coach's composer, unsent
+  /// (2026-10-22); offered under the weight card while the range's weight
+  /// moves less than [_stallKgPerWeek]. Null hides it.
+  final VoidCallback? onAskCoachAboutWeight;
+
+  /// Below this weekly change the weight counts as stalled for the prompt.
+  static const double _stallKgPerWeek = 0.1;
+
   @override
   State<TrendsScreen> createState() => _TrendsScreenState();
 }
@@ -109,7 +134,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
     for (final range in TrendRange.values) range.days,
   ];
 
-  int _rangeDays = TrendRange.month.days;
+  late int _rangeDays = TrendRange.ofDays(widget.initialRangeDays).days;
   bool _loading = true;
   Object? _error;
   List<TrendDayTotals> _totals = const [];
@@ -223,7 +248,15 @@ class _TrendsScreenState extends State<TrendsScreen> {
     final data = local ?? const TrendLocalData();
     final range = TrendRange.ofDays(_rangeDays);
     final today = clock.now();
-    final totals = overlayTrendTotals(_totals, data.dayTotals);
+    // Offline (2026-10-22): a range the device holds shows calories and
+    // macros from its own days, with a note, instead of the error.
+    final offline =
+        _error != null &&
+        local != null &&
+        range.days <= TrendLocalData.deviceWindowDays;
+    final totals = offline
+        ? overlayTrendTotals(const <TrendDayTotals>[], data.deviceDayTotals)
+        : overlayTrendTotals(_totals, data.dayTotals);
     final report = TrendReport.build(
       range: range,
       today: today,
@@ -248,10 +281,29 @@ class _TrendsScreenState extends State<TrendsScreen> {
             _StepsCard(report: report, hasStepSource: data.hasStepSource),
             const SizedBox(height: 14),
             _WeightCard(report: report),
+            if (widget.onAskCoachAboutWeight case final ask?
+                when (report.weight?.kgPerWeek?.abs() ?? double.infinity) <
+                    TrendsScreen._stallKgPerWeek) ...<Widget>[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: SoftPillButton(
+                  key: const ValueKey('trends-ask-coach-weight'),
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: context.l10n.coachAskWeightStall,
+                  tone: SoftPillTone.neutral,
+                  onTap: () {
+                    // The Coach is a tab under this page.
+                    unawaited(Navigator.of(context).maybePop());
+                    ask();
+                  },
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             _TrainingCard(report: report),
           ];
-    if (_error != null) {
+    if (_error != null && (!offline || totals.isEmpty)) {
       return [_ErrorCard(onRetry: _load), ...localSections];
     }
     if (totals.isEmpty &&
@@ -274,6 +326,10 @@ class _TrendsScreenState extends State<TrendsScreen> {
         ? l10n.trendsNoCompleteDay
         : l10n.trendsNoCompletedDay;
     return [
+      if (offline) ...[
+        _OfflineNote(onRetry: _load),
+        const SizedBox(height: 14),
+      ],
       _ChartCard(
         // From 90 days on one bar is a week ([TrendRange.weekly]).
         values: [for (final bar in report.kcalBars) bar.value],
@@ -319,8 +375,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
       const SizedBox(height: 12),
       _MacroAveragesCard(
         macros: macros,
+        atLeast: report.macrosAtLeast,
         proteinGoalDays: data.proteinGoalG > 0 && hits.tracked > 0
-            ? (hit: report.proteinGoalDays, tracked: hits.tracked)
+            ? (
+                hit: report.proteinGoalDays,
+                tracked: hits.tracked,
+                unknown: report.proteinUnknownDays,
+              )
             : null,
       ),
       ...localSections,
@@ -678,17 +739,12 @@ class _ChartCardState extends State<_ChartCard> {
             Padding(
               // Same lateral anchors as the painter's canvas.
               padding: const EdgeInsets.only(left: 40, right: 8),
-              child: Row(
-                children: [
-                  // Locale-aware day.month (F7-09): `de` "1.8.", `en` "8/1".
-                  _Caption(
-                    trendDayMonthFormat(
-                      l10n.localeName,
-                    ).format(widget.firstDay),
-                  ),
-                  const Spacer(),
-                  _Caption(l10n.todayDateToday),
-                ],
+              child: _CaptionRow(
+                // Locale-aware day.month (F7-09): `de` "1.8.", `en` "8/1".
+                start: trendDayMonthFormat(
+                  l10n.localeName,
+                ).format(widget.firstDay),
+                end: l10n.todayDateToday,
               ),
             ),
           ],
@@ -735,21 +791,37 @@ class _GoalLegend extends StatelessWidget {
   }
 }
 
-class _Caption extends StatelessWidget {
-  const _Caption(this.text);
+/// The range's first day under a chart's left edge and "today" under its
+/// right. Each label shrinks rather than overflows: on a 320 px phone at
+/// 200 % text the two did not fit side by side.
+class _CaptionRow extends StatelessWidget {
+  const _CaptionRow({required this.start, required this.end});
 
-  final String text;
+  final String start;
+  final String end;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: AppType.ui(
-        11,
-        weight: FontWeight.w500,
-        color: context.t.ink2,
-        letterSpacing: 0.2,
+    final style = AppType.ui(
+      11,
+      weight: FontWeight.w500,
+      color: context.t.ink2,
+      letterSpacing: 0.2,
+    );
+    Widget label(String text, AlignmentDirectional alignment) => Flexible(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: alignment,
+        child: Text(text, maxLines: 1, style: style),
       ),
+    );
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        label(start, AlignmentDirectional.centerStart),
+        const SizedBox(width: 8),
+        label(end, AlignmentDirectional.centerEnd),
+      ],
     );
   }
 }
@@ -819,34 +891,43 @@ class _StatCard extends StatelessWidget {
 }
 
 class _MacroAveragesCard extends StatelessWidget {
-  const _MacroAveragesCard({required this.macros, this.proteinGoalDays});
+  const _MacroAveragesCard({
+    required this.macros,
+    required this.atLeast,
+    this.proteinGoalDays,
+  });
 
   final ({double proteinG, double carbsG, double fatG})? macros;
 
-  /// Logged completed days that reached the protein goal; null without a
-  /// goal or a logged day.
-  final ({int hit, int tracked})? proteinGoalDays;
+  /// Averages over days with entries without that macro, shown as "≥48 g".
+  final ({bool protein, bool carbs, bool fat}) atLeast;
+
+  /// Logged completed days that reached the protein goal, and those below it
+  /// with entries of unknown protein; null without a goal or a logged day.
+  final ({int hit, int tracked, int unknown})? proteinGoalDays;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final m = macros;
+    String grams(double? value, bool lowerBound) =>
+        value == null ? '–' : '${lowerBound ? '≥' : ''}${value.round()} g';
     final cells = <Widget>[
       _MacroAvg(
         color: t.protein,
         label: l10n.todayMacroProtein,
-        value: m == null ? '–' : '${m.proteinG.round()} g',
+        value: grams(m?.proteinG, atLeast.protein),
       ),
       _MacroAvg(
         color: t.carbs,
         label: l10n.todayMacroCarbs,
-        value: m == null ? '–' : '${m.carbsG.round()} g',
+        value: grams(m?.carbsG, atLeast.carbs),
       ),
       _MacroAvg(
         color: t.fat,
         label: l10n.todayMacroFat,
-        value: m == null ? '–' : '${m.fatG.round()} g',
+        value: grams(m?.fatG, atLeast.fat),
       ),
     ];
     return AppCard(
@@ -873,7 +954,13 @@ class _MacroAveragesCard extends StatelessWidget {
           if (proteinGoalDays case final days?) ...[
             const SizedBox(height: 10),
             Text(
-              l10n.trendsProteinGoalDays(days.hit, days.tracked),
+              days.unknown > 0
+                  ? l10n.trendsProteinGoalDaysUnknown(
+                      days.hit,
+                      days.tracked,
+                      days.unknown,
+                    )
+                  : l10n.trendsProteinGoalDays(days.hit, days.tracked),
               key: const ValueKey('trends-protein-goal-days'),
               style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
             ),
@@ -1124,14 +1211,11 @@ class _StepsChartState extends State<_StepsChart> {
           const SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.only(left: 40, right: 8),
-            child: Row(
-              children: [
-                _Caption(
-                  trendDayMonthFormat(l10n.localeName).format(report.firstDay),
-                ),
-                const Spacer(),
-                _Caption(l10n.todayDateToday),
-              ],
+            child: _CaptionRow(
+              start: trendDayMonthFormat(
+                l10n.localeName,
+              ).format(report.firstDay),
+              end: l10n.todayDateToday,
             ),
           ),
         ],
@@ -1141,9 +1225,10 @@ class _StepsChartState extends State<_StepsChart> {
 }
 
 /// Weight: the change from the first to the last weigh-in day of the range,
-/// both values, the number of weigh-ins and the weekly rate, with a line of
-/// the weigh-ins. Raw weigh-ins, not the smoothed trend: the section reports
-/// what was measured.
+/// both values and the number of weigh-ins, with a line of the weigh-ins.
+/// Raw weigh-ins, not the smoothed trend: the section reports what was
+/// measured. The weekly rate is the Monday card's measure over the range,
+/// drawn as a straight line through the weigh-ins (2026-10-22).
 class _WeightCard extends StatelessWidget {
   const _WeightCard({required this.report});
 
@@ -1188,10 +1273,12 @@ class _WeightCard extends StatelessWidget {
                       key: const ValueKey('trends-weight-line'),
                       painter: _WeightLinePainter(
                         points: weight.points,
+                        trend: weight.line,
                         firstDay: report.firstDay,
                         days: report.range.days,
                         lineColor: context.t.ink,
                         dotColor: context.t.ink,
+                        trendColor: context.t.accent,
                         gridColor: context.t.line,
                       ),
                       size: Size.infinite,
@@ -1200,7 +1287,7 @@ class _WeightCard extends StatelessWidget {
                 ),
                 if (rate != null)
                   _Fact(
-                    l10n.trendsWeightRate(_signedKg(rate, l10n, digits: 2)),
+                    l10n.trendsWeightRate(paceLabelForWeeklyRateKg(rate, l10n)),
                     key: const ValueKey('trends-weight-rate'),
                   ),
               ],
@@ -1212,15 +1299,10 @@ class _WeightCard extends StatelessWidget {
       NumberFormat('0.0', l10n.localeName).format((kg * 10).round() / 10);
 
   /// U+2212 as minus, as everywhere else in the app.
-  static String _signedKg(
-    double kg,
-    AppLocalizations l10n, {
-    int digits = 1,
-  }) {
-    final factor = math.pow(10, digits);
-    final rounded = (kg * factor).round() / factor;
+  static String _signedKg(double kg, AppLocalizations l10n) {
+    final rounded = (kg * 10).round() / 10;
     final text = NumberFormat(
-      digits == 1 ? '0.0' : '0.00',
+      '0.0',
       l10n.localeName,
     ).format(rounded.abs());
     if (rounded == 0) return text;
@@ -1229,21 +1311,25 @@ class _WeightCard extends StatelessWidget {
 }
 
 /// The weigh-ins of the range as a line with dots, placed on the range's
-/// calendar so gaps between weigh-ins stay visible as distance.
+/// calendar so gaps between weigh-ins stay visible as distance, and the
+/// weekly check's straight line through them ([trend]) when it has one.
 class _WeightLinePainter extends CustomPainter {
   _WeightLinePainter({
     required this.points,
+    this.trend,
     required this.firstDay,
     required this.days,
     required this.lineColor,
     required this.dotColor,
+    required this.trendColor,
     required this.gridColor,
   });
 
   final List<({DateTime day, double kg})> points;
+  final WeightTrendLine? trend;
   final DateTime firstDay;
   final int days;
-  final Color lineColor, dotColor, gridColor;
+  final Color lineColor, dotColor, trendColor, gridColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1255,9 +1341,16 @@ class _WeightLinePainter extends CustomPainter {
       size.width - pad,
       size.height - pad,
     );
+    final line = trend;
+    final ends = line == null
+        ? const <({DateTime day, double kg})>[]
+        : [
+            (day: line.firstDay, kg: line.kgOn(line.firstDay)),
+            (day: line.lastDay, kg: line.kgOn(line.lastDay)),
+          ];
     var lo = points.first.kg;
     var hi = points.first.kg;
-    for (final point in points) {
+    for (final point in [...points, ...ends]) {
       lo = math.min(lo, point.kg);
       hi = math.max(hi, point.kg);
     }
@@ -1290,11 +1383,22 @@ class _WeightLinePainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = lineColor.withValues(alpha: 0.75)
-        ..strokeWidth = 1.6
+        // A step back once the trend line carries the direction.
+        ..color = lineColor.withValues(alpha: line == null ? 0.75 : 0.3)
+        ..strokeWidth = line == null ? 1.6 : 1.2
         ..style = PaintingStyle.stroke
         ..strokeJoin = StrokeJoin.round,
     );
+    if (ends.length == 2) {
+      canvas.drawLine(
+        at(ends.first),
+        at(ends.last),
+        Paint()
+          ..color = trendColor
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round,
+      );
+    }
     final dot = Paint()..color = dotColor;
     for (final point in points) {
       canvas.drawCircle(at(point), 2.4, dot);
@@ -1304,10 +1408,12 @@ class _WeightLinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _WeightLinePainter old) =>
       !listEquals(old.points, points) ||
+      old.trend != trend ||
       old.firstDay != firstDay ||
       old.days != days ||
       old.lineColor != lineColor ||
       old.dotColor != dotColor ||
+      old.trendColor != trendColor ||
       old.gridColor != gridColor;
 }
 
@@ -1432,6 +1538,55 @@ class _EmptyCard extends StatelessWidget {
       icon: Icons.query_stats_rounded,
       title: l10n.trendsEmptyTitle,
       text: l10n.trendsEmptyBody,
+    );
+  }
+}
+
+/// Offline over a range the device holds: the numbers below come from this
+/// device's days, which may miss another device's entries.
+class _OfflineNote extends StatelessWidget {
+  const _OfflineNote({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return AppCard(
+      key: const ValueKey('trends-offline'),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.cloud_off_rounded, size: 20, color: t.ink2),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.trendsOfflineNote,
+                  style: AppType.ui(
+                    12.5,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SoftPillButton(
+            key: const ValueKey('trends-offline-retry'),
+            label: l10n.trendsRetryCta,
+            icon: Icons.refresh_rounded,
+            tone: SoftPillTone.neutral,
+            onTap: onRetry,
+          ),
+        ],
+      ),
     );
   }
 }

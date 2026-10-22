@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import io.flutter.embedding.engine.FlutterEngine
@@ -37,6 +38,18 @@ class HealthConnectBridge(private val activity: Activity, engine: FlutterEngine)
                         throw e
                     } catch (_: Exception) {
                         result.error("permission_check_failed", "Steps access could not be checked", null)
+                    }
+                }
+                "hasWeightPermission" -> scope.launch {
+                    try {
+                        val client = HealthConnectClient.getOrCreate(activity)
+                        val permission = HealthPermission.getReadPermission(WeightRecord::class)
+                        result.success(client.permissionController.getGrantedPermissions().contains(permission))
+                    } catch (e: CancellationException) {
+                        result.error("cancelled", "Check cancelled", null)
+                        throw e
+                    } catch (_: Exception) {
+                        result.error("permission_check_failed", "Weight access could not be checked", null)
                     }
                 }
                 "aggregateSteps" -> {

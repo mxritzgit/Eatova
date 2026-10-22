@@ -1,6 +1,7 @@
 import '../l10n/l10n.dart';
 import '../models/lifetime_stats.dart';
 import '../models/reminder_time.dart';
+import 'app_entry.dart';
 import 'complete_day.dart';
 import 'day_math.dart';
 import 'notification_service.dart';
@@ -39,7 +40,7 @@ const List<int> streakReminderDayOffsets = <int>[
 /// 700..727. Deterministic per day, and since the horizon spans no more days,
 /// two specs of one run cannot collide, so a re-schedule overwrites. Must
 /// stay inside the nudge range reminder paths cancel ([reminderNudgeIdCount]
-/// ids from [reminderNudgeIdFirst]).
+/// ids from [reminderNudgeIdFirst]); the weigh-in reminder follows at 728.
 const int _streakReminderIdBase = reminderNudgeIdFirst;
 
 /// Fixed reference point of the ID arithmetic: arbitrary but immutable.
@@ -63,6 +64,8 @@ final DateTime _idEpoch = DateTime(2000, 1, 1);
 /// complete meanwhile is replaced.
 ///
 /// Reminders speak the language at PLANNING time; [l10n] defaults to German.
+/// A tap opens Food's add sheet ([AppEntry.logMeal]): the text asks for an
+/// entry, so the tap leads to one.
 List<NotificationSpec> planStreakReminders(
   DateTime now,
   LifetimeStats stats, [
@@ -122,6 +125,7 @@ List<NotificationSpec> planStreakReminders(
       title: title,
       body: body,
       scheduledFor: when,
+      payload: AppEntry.logMeal.id,
     ));
   }
   return specs;

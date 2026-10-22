@@ -75,6 +75,26 @@ void main() {
     }
   });
 
+  test('only a stated product name starts the manual form', () {
+    for (final (name, known) in <(String, String?)>[
+      ('Haferdrink · Oatly', 'Haferdrink · Oatly'),
+      ('Produkt 4000000000001', null),
+      ('Produkt 4000000000001 · Oatly', null),
+    ]) {
+      expect(
+        ProductWithoutNutritionException(
+          barcode: '4000000000001',
+          productName: name,
+          kcalPer100G: 0,
+        ).knownProductName,
+        known,
+        reason: name,
+      );
+    }
+    expect(isFinalBarcodeAnswer(const SocketException('offline')), isFalse);
+    expect(isFinalBarcodeAnswer(const ProductNotFoundException('1')), isTrue);
+  });
+
   test('the documented v3 404 remains an unknown barcode', () async {
     final fixture = File('test/services/open_food_facts_v3_not_found.json');
     final error = await _lookupFailure(404, fixture.readAsStringSync());

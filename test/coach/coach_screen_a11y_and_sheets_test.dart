@@ -709,6 +709,40 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('jede Blase nennt ihren Sprecher zuerst: "Du" oder "Coach"', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final coach = _Coach.create()
+        ..history = {
+          's1': [
+            ChatMessage(
+              id: 'q',
+              role: ChatRole.user,
+              content: 'Wie viel Protein?',
+              createdAt: DateTime(2026, 10, 22),
+            ),
+            ChatMessage(
+              id: 'a',
+              role: ChatRole.assistant,
+              content: 'Etwa 30 g.',
+              createdAt: DateTime(2026, 10, 22),
+            ),
+          ],
+        };
+      await _mount(tester, coach);
+
+      for (final (text, speaker) in <(String, String)>[
+        ('Wie viel Protein?', deL10n.coachSpeakerYou),
+        ('Etwa 30 g.', deL10n.coachSpeakerCoach),
+      ]) {
+        final label = tester.getSemantics(find.text(text)).label;
+        expect(label, startsWith(speaker), reason: text);
+        expect(label, contains(text), reason: 'one node: speaker and text');
+      }
+      semantics.dispose();
+    });
+
     testWidgets('die Denk-Zeile hat einen Namen und meldet sich an', (
       tester,
     ) async {

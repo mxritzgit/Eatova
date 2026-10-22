@@ -9,9 +9,12 @@ import 'today_texts.dart';
 
 /// The averages Today's trends card shows: the last seven completed days.
 /// Null where no day has a value (no entries, no step source).
+/// [proteinAtLeast]: a day has entries without protein, so the average is a
+/// lower bound ("≥118 g").
 typedef TodayTrendsPreview = ({
   double? avgKcal,
   double? avgProteinG,
+  bool proteinAtLeast,
   double? avgSteps,
 });
 
@@ -41,7 +44,12 @@ class TodayTrendsCard extends StatelessWidget {
         l10n.todayTrendsKcalLabel,
         kcal == null ? '–' : '${kcalThousands(kcal.round(), l10n)} kcal',
       ),
-      (l10n.todayMacroProtein, protein == null ? '–' : '${protein.round()} g'),
+      (
+        l10n.todayMacroProtein,
+        protein == null
+            ? '–'
+            : '${preview.proteinAtLeast ? '≥' : ''}${protein.round()} g',
+      ),
       // No step source: the column drops instead of a permanent dash.
       if (steps != null)
         (

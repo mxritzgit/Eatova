@@ -115,12 +115,45 @@ void main() {
       expect(back.caloriesKcal, 1150);
       expect(back.adjustedToGrams(400).caloriesKcal, 1150);
     });
+
+    test('Portionen rechnen Gesamtwerte um und reisen im Payload mit', () {
+      final half = _pizza().withServings(1.5);
+      expect(half.caloriesKcal, 1725);
+      expect(half.protein, '67,5 g');
+      expect(half.fat, '-', reason: 'unbekannt bleibt unbekannt');
+      expect(half.isQuickEntry, isTrue);
+
+      final back = mealResultFromJson(mealResultToJson(half));
+      expect(back.servings, 1.5);
+      expect(back.withServings(1).caloriesKcal, 1150);
+      // Rows without the field read as one serving.
+      expect(mealResultFromJson(mealResultToJson(_pizza())).servings, isNull);
+    });
   });
 
   group('Darstellung', () {
-    test('das Tagebuch zeigt eine Portion statt 0 g', () {
-      expect(diaryAmountLabel(_pizza(), deL10n), '1 Portion');
-      expect(diaryAmountLabel(_pizza(), enL10n), '1 portion');
+    test('das Tagebuch zeigt die Portionen statt 0 g', () {
+      // A recipe logged before the field existed: its note names the count.
+      final legacyRecipe = MealAnalysisResult(
+        mealName: 'Bowl',
+        caloriesKcal: 700,
+        estimatedGrams: 0,
+        kcalPer100G: 0,
+        protein: '-',
+        carbs: '-',
+        fat: '-',
+        confidence: 'recipe',
+        portionNotes: '2 Portionen · Eine Bowl.',
+        sourceLabel: MealResultSource.recipe.code,
+      );
+      for (final (result, de, en) in [
+        (_pizza(), '1 Portion', '1 portion'),
+        (_pizza().withServings(1.5), '1,5 Portionen', '1.5 portions'),
+        (legacyRecipe, '2 Portionen', '2 portions'),
+      ]) {
+        expect(diaryAmountLabel(result, deL10n), de);
+        expect(diaryAmountLabel(result, enL10n), en);
+      }
     });
 
     test('der Export loest Name, Notiz, Herkunft und Makros auf', () {

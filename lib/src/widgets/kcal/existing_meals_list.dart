@@ -5,7 +5,7 @@ import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../theme/app_tokens.dart';
 import '../design/design.dart';
-import 'diary_meal_card.dart' show diaryAmountLabel;
+import 'diary_meal_card.dart' show diaryAmountLabel, macroSummaryLine;
 
 /// Left edge of the rows: card padding + slot tile + gap, as in the Food
 /// diary card, so names line up under the header text.
@@ -129,11 +129,7 @@ class _SlotTotalLine extends StatelessWidget {
           ],
         ),
         Text(
-          l10n.foodMacroSummary(
-            totals.proteinG.round(),
-            totals.carbsG.round(),
-            totals.fatG.round(),
-          ),
+          macroSummaryLine(l10n, totals),
           key: const ValueKey('analyse-existing-total-macros'),
           style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3),
         ),
@@ -159,8 +155,8 @@ class _ExistingMealRow extends StatelessWidget {
     final l10n = context.l10n;
     final macros = MacroProgress.empty.add(meal.result);
     // Unknown macros (parser yields '-', MacroProgress reads 0) get no line,
-    // which would fake a measurement. The slot total above is unaffected:
-    // there a 0 honestly means "nothing known added".
+    // which would fake a measurement. The slot total above marks them
+    // ([macroSummaryLine]).
     final hasMacros =
         macros.proteinG > 0 || macros.carbsG > 0 || macros.fatG > 0;
     final row = ConstrainedBox(
@@ -187,11 +183,7 @@ class _ExistingMealRow extends StatelessWidget {
                   ),
                   if (hasMacros)
                     Text(
-                      l10n.foodMacroSummary(
-                        macros.proteinG.round(),
-                        macros.carbsG.round(),
-                        macros.fatG.round(),
-                      ),
+                      macroSummaryLine(l10n, macros),
                       key: ValueKey('analyse-existing-macros-${meal.id}'),
                       style: AppType.ui(12, color: t.ink3),
                     ),

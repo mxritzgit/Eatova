@@ -79,6 +79,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late OnboardingDirection _direction;
   late DietPreference _diet;
 
+  /// Foods the user avoids, stored like the profile's diet editor does.
+  late final Set<FoodAvoidance> _avoid;
+
   /// Target weights the user chose (or the profile brought), per direction.
   ///
   /// A direction without an entry follows today's weight, see [_targetSafe].
@@ -135,6 +138,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _chosenTargets[_direction] = storedTarget;
     }
     _diet = p.diet;
+    _avoid = <FoodAvoidance>{...p.foodAvoidances};
   }
 
   WeightGoal get _weightGoal => switch (_direction) {
@@ -258,6 +262,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       weightGoal: _weightGoal,
       targetWeightKg: target,
       diet: _diet,
+      foodAvoidances: _avoid,
     );
   }
 
@@ -425,7 +430,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (_editOrigin != null && _nextStep == OnboardingStep.summary) {
       return l10n.onboardingReviewChanges;
     }
-    if (_step == OnboardingStep.diet && _diet == DietPreference.none) {
+    if (_step == OnboardingStep.diet &&
+        _diet == DietPreference.none &&
+        _avoid.isEmpty) {
       return l10n.onboardingWithoutPreference;
     }
     return l10n.onboardingNextCta;
@@ -542,6 +549,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       OnboardingStep.diet => OnboardingDietStep(
         value: _diet,
         onChanged: (diet) => setState(() => _diet = diet),
+        avoidances: _avoid,
+        onToggleAvoidance: (food) => setState(() {
+          if (!_avoid.remove(food)) _avoid.add(food);
+        }),
       ),
       OnboardingStep.summary => _buildPlanStep(context),
     };
@@ -615,7 +626,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         OnboardingReviewItem(
           OnboardingStep.diet,
           l10n.onboardingPhaseDiet,
-          profile.diet.label(l10n),
+          profile.foodAvoidances.isEmpty
+              ? profile.diet.label(l10n)
+              : l10n.onboardingReviewDietAvoiding(
+                  profile.diet.label(l10n),
+                  sortedFoodAvoidances(
+                    profile.foodAvoidances,
+                  ).map((a) => a.label(l10n)).join(', '),
+                ),
         ),
       ],
       onEdit: _edit,

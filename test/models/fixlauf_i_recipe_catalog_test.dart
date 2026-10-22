@@ -1,15 +1,15 @@
 // Fix-Lauf 2026-08-27, Paket I (F6-01/F6-04/F6-07): pure model tests.
 //
-//   * Makro-Probe: kcal ≈ 4P + 4C + 9F (±15 %) für alle 30 Rezepte in beiden
+//   * Makro-Probe: kcal ≈ 4P + 4C + 9F (±15 %) für alle Rezepte in beiden
 //     Katalogen.
-//   * estimatedGrams ist das GARGEWICHT nach EINER Methodik für alle 30
+//   * estimatedGrams ist das GARGEWICHT nach EINER Methodik für alle
 //     (Reis/Quinoa/Couscous/Linsen trocken ×2,5, Pasta ×2,2, Fleisch/Fisch
 //     ×0,75, Gemüse/Obst ×0,9, Flüssig/Eier/Milchprodukte/abgetropfte
 //     Konserven/Haferflocken 1:1; Ei = 55 g, ½ Banane 50 g, ½ Tomate 60 g,
 //     ¼ Gurke 75 g, 1 Paprika 150 g, ½ Paprika 75 g; Aromaten und
 //     Löffelmengen ungezählt; auf 5 g gerundet). Jede Zeile der Tabelle trägt
 //     ihre Rechnung.
-//   * Schranken: bei roher Stärkebeilage nie unter der Roh-Summe; alle 30 im
+//   * Schranken: bei roher Stärkebeilage nie unter der Roh-Summe; alle im
 //     Korridor 0,7…1,8 × Roh-Summe und 60–150 kcal/100 g (Shakshuka ist mit
 //     Tomatenbasis wirklich leicht, Rührei mit Brot/Avocado wirklich dicht).
 //   * Suchfaltung und Tagesrotation als reine Funktionen.
@@ -108,6 +108,34 @@ const Map<String, int> _gargewichte = <String, int>{
   // Halloumi 100 · Avocado 80×0,9=72 · Salat 120×0,9=108 · Tomaten 100×0,9=90
   // · Gurke 60×0,9=54 · Kichererbsen 30 = 454
   'halloumi_avocado_bowl': 455,
+  // 2026-10-22, breakfasts and snacks:
+  // Tofu (abgetropft) 200 · Brot 60 · Spinat 80×0,9=72 · Tomaten 100×0,9=90
+  // · Öl 5 = 427
+  'tofu_scramble_mit_spinat_and_vollkornbrot': 425,
+  // Haferflocken 60 · Sojajoghurt 150 · Sojadrink 100 · Chia 10 · Beeren
+  // 100×0,9=90 = 410
+  'overnight_oats_mit_sojajoghurt_and_beeren': 410,
+  // Chia 30 · Sojadrink 200 · Sojajoghurt 150 · Mango 120×0,9=108 · Kokos 10 = 498
+  'chia_pudding_mit_mango_and_kokos': 500,
+  // 3 Eier 165 · Eiklar 100 · Kartoffeln 150×0,9=135 · Paprika 75×0,9=67,5
+  // · Frühlingszwiebeln 40×0,9=36 · Spinat 60×0,9=54 · Öl 8 = 565,5
+  'gemuse_frittata_mit_kartoffeln': 565,
+  // Reiswaffeln 32 · 2 Eier 110 · Avocado 70×0,9=63 · Tomaten 100×0,9=90 = 295
+  'reiswaffeln_mit_avocado_and_ei': 295,
+  // Hirseflocken 50 · Reisdrink 200 · Birne 150×0,9=135 · Chiasamen 10
+  // · Kürbiskerne 15 = 410
+  'hirse_porridge_mit_birne_and_kurbiskernen': 410,
+  // 3 Eier 165 · Räucherlachs roh serviert 60 · Brot 60 · Gurke 100×0,9=90
+  // · Öl 5 = 380
+  'lachs_ruhrei_auf_vollkornbrot': 380,
+  // Hummus 60 · Karotten, Gurke, Paprika je 100×0,9=90 = 330
+  'hummus_mit_gemusesticks': 330,
+  // Edamame 150×0,9=135
+  'edamame_mit_limette_and_meersalz': 135,
+  // Hüttenkäse 200 · Gurke 100×0,9=90 · Radieschen 50×0,9=45 = 335
+  'huttenkase_mit_gurke_and_radieschen': 335,
+  // Apfel 180×0,9=162 · Mandeln 20 = 182
+  'apfel_mit_mandeln': 180,
 };
 
 FitnessRecipe _rezept(String slug, {bool userCreated = false}) =>
@@ -148,7 +176,7 @@ void main() {
         }
       });
 
-      test('alle 30 Gargewichte sind gepinnt (Rechnung in der Tabelle)', () {
+      test('alle Gargewichte sind gepinnt (Rechnung in der Tabelle)', () {
         expect(katalog.map((r) => r.slug).toSet(), _gargewichte.keys.toSet());
         for (final r in katalog) {
           expect(r.estimatedGrams, _gargewichte[r.slug], reason: r.slug);
@@ -176,7 +204,7 @@ void main() {
         }
       });
 
-      test('alle 30 liegen im Korridor 0,7…1,8 × Roh-Summe', () {
+      test('alle liegen im Korridor 0,7…1,8 × Roh-Summe', () {
         for (final r in katalog) {
           final roh = _rohSumme(r.ingredients);
           expect(roh, greaterThan(0), reason: r.slug);
@@ -188,7 +216,7 @@ void main() {
         }
       });
 
-      test('kcal/100 g aller 30 Teller bleibt im Band 60–150', () {
+      test('kcal/100 g aller Teller bleibt im Band 60–150', () {
         for (final r in katalog) {
           expect(r.kcalPer100G, inInclusiveRange(60, 150), reason: r.slug);
         }
@@ -246,15 +274,15 @@ void main() {
       expect(rotatedRecommendations(const [], DateTime(2026, 8, 27)), isEmpty);
     });
 
-    test('alle 30 Katalogrezepte kommen im Laufe eines Monats dran', () {
+    test('alle Katalogrezepte kommen reihum dran', () {
       final gesehen = <String>{};
-      for (var i = 0; i < 30; i++) {
+      for (var i = 0; i < recipeCatalogDe.length; i++) {
         gesehen.addAll(
           rotatedRecommendations(recipeCatalogDe, DateTime(2026, 8, 1 + i))
               .map((r) => r.slug),
         );
       }
-      expect(gesehen, hasLength(30));
+      expect(gesehen, hasLength(recipeCatalogDe.length));
     });
   });
 }

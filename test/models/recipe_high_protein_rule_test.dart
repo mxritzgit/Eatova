@@ -75,9 +75,9 @@ void main() {
   // One catalog: the English one carries the same numbers and categories
   // (l10n/recipe_catalog_parity_test.dart).
   group('Katalog: der Tag folgt der Regel', () {
-    test('alle 30 Rezepte tragen genau dann High Protein, wenn sie duerfen',
+    test('alle Rezepte tragen genau dann High Protein, wenn sie duerfen',
         () {
-      expect(recipeCatalogDe, hasLength(30));
+      expect(recipeCatalogDe, hasLength(41));
       for (final r in recipeCatalogDe) {
         expect(
           r.categories.contains(highProteinCategory),

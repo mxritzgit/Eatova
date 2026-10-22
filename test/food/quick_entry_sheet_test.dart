@@ -278,7 +278,7 @@ void main() {
         find.byKey(const ValueKey('edit-meal-adjust-button')),
         findsNothing,
       );
-      expect(find.text(deL10n.foodQuickNoWeightHint), findsOneWidget);
+      expect(find.text(deL10n.foodServingsNoWeightHint), findsOneWidget);
       expect(
         tester
             .widget<Text>(

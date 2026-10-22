@@ -1,5 +1,6 @@
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
@@ -59,14 +60,19 @@ void main() {
   group('Zeile in den Einstellungen', () {
     late List<bool> toggled;
     late List<ReminderTime> times;
+    late List<bool> weighInToggled;
+    late int systemSettingsOpened;
 
     setUp(() {
       toggled = <bool>[];
       times = <ReminderTime>[];
+      weighInToggled = <bool>[];
+      systemSettingsOpened = 0;
     });
 
     Widget settings({
       ReminderState state = ReminderState.off,
+      ReminderState weighIn = ReminderState.off,
       ReminderTime time = ReminderTime.standard,
       bool alwaysUse24h = false,
     }) => Builder(
@@ -79,8 +85,18 @@ void main() {
           reminderTime: time,
           onReminderEnabledChanged: toggled.add,
           onReminderTimeChanged: times.add,
+          weighInReminderState: weighIn,
+          onWeighInReminderChanged: weighInToggled.add,
+          onOpenNotificationSettings: () => systemSettingsOpened++,
         ),
       ),
+    );
+
+    const Key openSystemSettings = ValueKey(
+      'settings-reminder-open-system-settings',
+    );
+    const Key weighInOpenSystemSettings = ValueKey(
+      'settings-weigh-in-open-system-settings',
     );
 
     testWidgets('aus: eigene Zeile mit Schalter und Uhrzeit', (tester) async {
@@ -124,10 +140,12 @@ void main() {
       expect(toggled, <bool>[false], reason: 'the row is the switch target');
     });
 
-    testWidgets('blockiert: Schalter gesperrt, die Uhrzeit bleibt waehlbar', (
-      tester,
-    ) async {
+    testWidgets('blockiert: Schalter gesperrt, ein Knopf in die '
+        'Systemeinstellungen, die Uhrzeit bleibt waehlbar', (tester) async {
       pinPhoneViewport(tester);
+      await pumpLocalized(tester, settings());
+      expect(find.byKey(openSystemSettings), findsNothing);
+
       await pumpLocalized(tester, settings(state: ReminderState.blocked));
 
       expect(_toggle(tester).enabled, isFalse);
@@ -139,8 +157,38 @@ void main() {
       await _tap(tester, find.text('Erinnerung'));
       expect(toggled, isEmpty, reason: 'D11: no back door through the row');
 
+      await _tap(tester, find.byKey(openSystemSettings));
+      expect(systemSettingsOpened, 1);
+
       await _tap(tester, find.byKey(const ValueKey('settings-reminder-time')));
       expect(find.byType(TimePickerDialog), findsOneWidget);
+    });
+
+    testWidgets('Wiege-Erinnerung: eigener Schalter; blockiert mit Knopf, '
+        'aber nur einer, wenn beide blockiert sind', (tester) async {
+      pinPhoneViewport(tester);
+      await pumpLocalized(tester, settings(state: ReminderState.active));
+      final toggle = find.byKey(
+        const ValueKey('settings-weigh-in-reminder-toggle'),
+      );
+      await _tap(tester, toggle);
+      expect(weighInToggled, <bool>[true]);
+      expect(toggled, isEmpty, reason: 'its own switch');
+
+      await pumpLocalized(
+        tester,
+        settings(state: ReminderState.active, weighIn: ReminderState.blocked),
+      );
+      expect(tester.widget<AppToggle>(toggle).enabled, isFalse);
+      await _tap(tester, find.byKey(weighInOpenSystemSettings));
+      expect(systemSettingsOpened, 1);
+
+      await pumpLocalized(
+        tester,
+        settings(state: ReminderState.blocked, weighIn: ReminderState.blocked),
+      );
+      expect(find.byKey(openSystemSettings), findsOneWidget);
+      expect(find.byKey(weighInOpenSystemSettings), findsNothing);
     });
 
     testWidgets('Material-Timepicker: die gewaehlte Zeit geht an den Store', (
@@ -216,7 +264,7 @@ void main() {
       for (final state in ReminderState.values) {
         await pumpLocalized(
           tester,
-          settings(state: state),
+          settings(state: state, weighIn: state),
           textScale: 2.0,
           surfaceSize: const Size(320, 1400),
         );
@@ -293,6 +341,13 @@ void main() {
           expect(notifications.requests, 1);
           expect(_toggle(tester).value, isTrue);
 
+          await _tap(
+            tester,
+            find.byKey(const ValueKey('settings-weigh-in-reminder-toggle')),
+          );
+          expect(store.weighInReminderState, ReminderState.active);
+          expect(store.reminderState, ReminderState.active);
+
           await store.setReminderTime(const ReminderTime(21, 30));
           await tester.pumpAndSettle();
           expect(find.text('21:30'), findsOneWidget);
@@ -315,6 +370,65 @@ void main() {
             ),
             findsOneWidget,
           );
+          await tester.pumpWidget(const SizedBox.shrink());
+        });
+      },
+    );
+
+    testWidgets(
+      'blockiert: Einstellungen und Ziele fuehren in die '
+      'Mitteilungs-Einstellungen des Systems',
+      (tester) async {
+        await withClock(Clock.fixed(DateTime(2026, 9, 8, 12)), () async {
+          pinPhoneViewport(tester);
+          const channel = MethodChannel('com.spencerccf.app_settings/methods');
+          final opened = <Object?>[];
+          final messenger =
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+          messenger.setMockMethodCallHandler(channel, (call) async {
+            opened.add((call.arguments as Map)['type']);
+            return null;
+          });
+          addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+          final notifications = _Notifications()..grant = false;
+          await pumpLocalized(
+            tester,
+            EatovaHomePage(
+              notificationService: notifications,
+              debugCache: LocalCache(InMemoryKeyValueStore(), 'blocked'),
+            ),
+            scaffold: false,
+            safeArea: false,
+          );
+          final store =
+              (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
+                  .debugStore;
+          await store.initNotificationsFromCache();
+          await tester.pumpAndSettle();
+
+          await _tap(tester, find.byKey(const ValueKey('today-profile')));
+          await _tap(
+            tester,
+            find.byKey(const ValueKey('profile-open-settings')),
+          );
+          await _tap(
+            tester,
+            find.byKey(const ValueKey('settings-reminder-toggle')),
+          );
+          expect(store.reminderState, ReminderState.blocked);
+
+          await _tap(
+            tester,
+            find.byKey(
+              const ValueKey('settings-reminder-open-system-settings'),
+            ),
+          );
+          await _tap(tester, find.byKey(const ValueKey('settings-open-goals')));
+          await _tap(
+            tester,
+            find.byKey(const ValueKey('settings-open-system-settings')),
+          );
+          expect(opened, <Object?>['notification', 'notification']);
           await tester.pumpWidget(const SizedBox.shrink());
         });
       },

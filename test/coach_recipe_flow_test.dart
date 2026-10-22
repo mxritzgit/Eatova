@@ -140,6 +140,7 @@ Future<void> _pumpCoach(
   List<FitnessRecipe>? created,
   Set<String>? userRecipeSlugs,
   Future<SyncDelivery> Function(FitnessRecipe)? onCreateRecipe,
+  ValueChanged<FitnessRecipe>? onOpenRecipe,
   Locale locale = const Locale('de'),
 }) async {
   tester.view.devicePixelRatio = 3.0;
@@ -165,6 +166,7 @@ Future<void> _pumpCoach(
                   return SyncDelivery.delivered;
                 }),
       userRecipeSlugs: userRecipeSlugs ?? const <String>{},
+      onOpenRecipe: onOpenRecipe,
     ),
     locale: locale,
     // The coach tab owns its gutters (the shell passes no padding).
@@ -270,9 +272,12 @@ void main() {
     expect(find.byKey(const ValueKey('coach-command-menu')), findsOneWidget);
     expect(find.text('/recipe'), findsOneWidget);
     expect(
-      find.text('Erstellt ein neues Rezept mit passendem Bild'),
+      find.text(
+        'Erstellt ein neues Rezept mit passendem Bild · Kostet 1 Coach-Frage',
+      ),
       findsOneWidget,
-      reason: 'die Kurzbeschreibung folgt der App-Sprache (hier de)',
+      reason: 'die Kurzbeschreibung folgt der App-Sprache (hier de) und '
+          'nennt, was der Befehl kostet',
     );
 
     await tester.tap(find.byKey(const ValueKey('coach-command-recipe')));
@@ -343,11 +348,13 @@ void main() {
         );
       final created = <FitnessRecipe>[];
       final slugs = <String>{};
+      final opened = <FitnessRecipe>[];
       await _pumpCoach(
         tester,
         service: svc,
         created: created,
         userRecipeSlugs: slugs,
+        onOpenRecipe: opened.add,
       );
 
       await _type(tester, '/recipe Huehnchenauflauf');
@@ -379,6 +386,11 @@ void main() {
         reason: 'kein Bild -> kein local:-Ref',
       );
       expect(find.textContaining('gespeichert'), findsOneWidget);
+      // The toast leads to the saved recipe (2026-10-22).
+      await tester.tap(find.text(deL10n.coachRecipeSavedOpen));
+      await tester.pump();
+      expect(opened, <FitnessRecipe>[recipe]);
+      await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('coach-recipe-add')),
         findsNothing,

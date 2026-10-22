@@ -43,6 +43,8 @@ class ProfileScreen extends StatelessWidget {
     this.healthConnect = false,
     this.healthSyncing = false,
     this.onHealthSettings,
+    this.healthWeightImport,
+    this.onHealthWeightImportChanged,
     this.onSaveFoodPreferences,
     this.weighIns,
   });
@@ -74,6 +76,11 @@ class ProfileScreen extends StatelessWidget {
   final bool healthConnect;
   final bool healthSyncing;
   final VoidCallback? onHealthSettings;
+
+  /// The scale import's switch (`HomeStore.healthWeightImportEnabled`); null
+  /// hides it.
+  final bool? healthWeightImport;
+  final ValueChanged<bool>? onHealthWeightImportChanged;
 
   /// Saves the diet editor's result (`HomeStore.updateFoodPreferences`); null
   /// shows the card without its edit button.
@@ -216,6 +223,8 @@ class ProfileScreen extends StatelessWidget {
                       lastFetch: healthLastFetch,
                       onConnect: onConnectHealth,
                       onRefresh: onRefreshHealth,
+                      weightImport: healthWeightImport,
+                      onWeightImportChanged: onHealthWeightImportChanged,
                     ),
                     const SizedBox(height: 22),
                     const _FooterCredit(),

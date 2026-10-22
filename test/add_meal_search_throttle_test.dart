@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -282,7 +283,7 @@ void main() {
     );
   });
 
-  testWidgets('Netz-Fehler ohne Drosselung behaelt seine Retries', (
+  testWidgets('Netz-Fehler beim Tippen: drei Versuche, dann Offline-Auswege', (
     tester,
   ) async {
     final dienst = _ZaehlenderProduktdienst(
@@ -302,6 +303,15 @@ void main() {
       dienst.aufrufe,
       3,
       reason: 'ein Wackler darf weiterhin dreimal versucht werden',
+    );
+    // Typed, not the magnifier: once the retries are spent the zone names
+    // the missing connection and offers both ways on, instead of going
+    // blank.
+    expect(find.text(deL10n.foodAnalysisOfflineMessage), findsOneWidget);
+    expect(find.byKey(const ValueKey('product-search-retry')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('product-search-error-manual')),
+      findsOneWidget,
     );
   });
 

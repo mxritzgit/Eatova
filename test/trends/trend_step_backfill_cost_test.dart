@@ -1,7 +1,8 @@
 // The trends page's six-month step backfill (review 2026-10-19, section 5):
 // all days it finds land in ONE notify and ONE encrypted cache write instead
-// of one each, and on Android it reads only the 30 days Health Connect can
-// answer without the history permission Eatova never requests.
+// of one each, and on Android it reads only the days Health Connect can
+// answer without the history permission Eatova never requests: back to 30
+// days before the account connected.
 
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,8 +56,11 @@ class _HealthConnect extends _Health implements HealthConnectAccess {
   void restoreConnection() {}
 }
 
-/// Counts the encrypted cache writes of the daily-activity slot.
+/// Counts the encrypted cache writes of the daily-activity slot, for an
+/// account that connected Apple Health itself.
 class _CountingStore extends InMemoryKeyValueStore {
+  _CountingStore() : super(healthConnectedKv().snapshot);
+
   int activityWrites = 0;
 
   @override
@@ -119,32 +123,47 @@ void main() {
     expect(identical(a.store.dailyActivity, activity), isTrue);
   }));
 
-  test('Health Connect: only the 30 readable days are asked', () => withClock(Clock.fixed(_now), () async {
-    final health = _HealthConnect({
-      for (var back = 1; back <= 180; back++) localDayKey(_day(back)): 5000,
-    });
-    final a = setup(health: health);
-    a.server.profileRow = serverProfileRow(testProfile());
-    await boot(a.store);
-    await settle();
-    health.reads.clear();
+  test('Health Connect: only the days it can answer are asked', () => withClock(Clock.fixed(_now), () async {
+    // Readable: 30 days before the first grant, so a connection 60 days old
+    // reaches 90 days back. An opt-in an older build stored has no date and
+    // counts from today.
+    for (final (connected, readable) in [(null, 30), (_day(60), 90)]) {
+      final health = _HealthConnect({
+        for (var back = 1; back <= 180; back++) localDayKey(_day(back)): 5000,
+      });
+      final a = setup(
+        kv: InMemoryKeyValueStore({
+          if (connected != null)
+            'eatova.v1.health_connect_enabled.user-outbox':
+                '{"enabled":true,"since":"${connected.toUtc().toIso8601String()}"}',
+        }),
+        health: health,
+      );
+      a.server.profileRow = serverProfileRow(testProfile());
+      await boot(a.store);
+      await settle();
+      health.reads.clear();
 
-    await a.store.backfillStepsForTrends(181);
-    await settle();
+      await a.store.backfillStepsForTrends(181);
+      await settle();
 
-    expect(health.reads.map(localDayKey), isNot(contains(localDayKey(_day(31)))));
-    expect(a.store.stepsForFoodDate(_day(30)), 5000);
-    expect(a.store.stepsForFoodDate(_day(31)), isNull);
-    final asked = {
-      for (final day in health.reads) localDayKey(day),
-      for (final key in a.store.dailyActivity.keys) key,
-    };
-    expect(asked, {for (var back = 1; back <= 30; back++) localDayKey(_day(back))});
+      final asked = {
+        for (final day in health.reads) localDayKey(day),
+        for (final key in a.store.dailyActivity.keys) key,
+      };
+      expect(
+        asked,
+        {for (var back = 1; back <= readable; back++) localDayKey(_day(back))},
+        reason: 'connected $connected',
+      );
+      expect(a.store.stepsForFoodDate(_day(readable)), 5000);
+      expect(a.store.stepsForFoodDate(_day(readable + 1)), isNull);
+    }
   }));
 
   test('Apple Health reads the whole range', () => withClock(Clock.fixed(_now), () async {
     final health = _Health(const {});
-    final a = setup(health: health);
+    final a = setup(kv: healthConnectedKv(), health: health);
     a.server.profileRow = serverProfileRow(testProfile());
     await boot(a.store);
     await settle();

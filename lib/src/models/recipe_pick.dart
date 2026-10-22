@@ -17,6 +17,9 @@ import 'user_profile.dart';
 /// Double-quoted like [recipeFilters]: matching data, not UI text.
 const String breakfastCategory = "Frühstück";
 
+/// The language-neutral category of snacks in both catalogs.
+const String snackCategory = "Snack";
+
 /// Where a [RecipePick] came from.
 enum RecipePickSource {
   /// The user's own meal plan for that day and slot.
@@ -68,14 +71,17 @@ final class RecipePick {
 }
 
 /// Whether [recipe] is offered for [slot]: breakfast takes only dishes tagged
-/// [breakfastCategory]; lunch and dinner take everything else, including
-/// untagged own recipes. Snacks get no pick.
+/// [breakfastCategory], the snack slot only [snackCategory]; lunch and dinner
+/// take everything else, including untagged own recipes. The snack slot
+/// still gets no pick ([pickRecipeForSlot]); it is the meal plan's default
+/// slot for a snack.
 bool recipeSuitsSlot(FitnessRecipe recipe, MealSlot slot) {
   final breakfastDish = recipe.categories.contains(breakfastCategory);
+  final snack = recipe.categories.contains(snackCategory);
   return switch (slot) {
     MealSlot.breakfast => breakfastDish,
-    MealSlot.lunch || MealSlot.dinner => !breakfastDish,
-    MealSlot.snack => false,
+    MealSlot.lunch || MealSlot.dinner => !breakfastDish && !snack,
+    MealSlot.snack => snack,
   };
 }
 
@@ -119,8 +125,11 @@ RecipePick? pickRecipeForNextMeal({
 ///     ([recipeSuitsSlot]), are loggable with known kcal > 0, need no more
 ///     than [remainingKcal], and are not already eaten today (same meal name
 ///     as an entry in [alreadyEaten]).
-///  3. **Ranking:** most protein first, then fewer kcal, then slug ascending,
-///     so equal inputs always give the same pick.
+///  3. **Ranking:** most protein first, then fewer kcal, then slug ascending.
+///  4. **Rotation:** candidates within [pickProteinTolerance] of the best
+///     protein are near-equal; the pick rotates among them by calendar day
+///     ([day]), so the tip changes from day to day but stays the same all
+///     day, and equal inputs always give the same pick.
 ///
 /// kcal and protein are read from [FitnessRecipe.toMealResultForServings],
 /// i.e. exactly what "Add to dinner" would log.
@@ -156,7 +165,7 @@ RecipePick? pickRecipeForSlot({
   final eatenNames = <String>{
     for (final meal in alreadyEaten) _nameKey(meal.result.mealName),
   };
-  _Candidate? best;
+  final candidates = <_Candidate>[];
   for (final recipe in recipes) {
     if (!recipe.matchesDiet(diet) ||
         !recipe.fitsAvoidances(avoidances) ||
@@ -170,19 +179,37 @@ RecipePick? pickRecipeForSlot({
         eatenNames.contains(portion.nameKey)) {
       continue;
     }
-    final candidate = _Candidate(recipe, portion.kcal, portion.proteinG);
-    if (best == null || candidate.ranksBefore(best)) best = candidate;
+    candidates.add(_Candidate(recipe, portion.kcal, portion.proteinG));
   }
-  if (best == null) return null;
+  if (candidates.isEmpty) return null;
+  candidates.sort(_Candidate.compare);
+  final floor = candidates.first.proteinG * (1 - pickProteinTolerance);
+  final nearEqual = candidates.takeWhile((c) => c.proteinG >= floor).toList();
+  final chosen = nearEqual[_calendarDay(day) % nearEqual.length];
   return RecipePick(
-    recipe: best.recipe,
+    recipe: chosen.recipe,
     slot: slot,
     source: RecipePickSource.suggested,
     servings: 1,
-    kcal: best.kcal,
-    proteinG: best.proteinG.round(),
+    kcal: chosen.kcal,
+    proteinG: chosen.proteinG.round(),
     remainingKcalBefore: remainingKcal,
   );
+}
+
+/// How far below the best candidate's protein a suggestion still counts as
+/// near-equal and joins the daily rotation ([pickRecipeForSlot]).
+const double pickProteinTolerance = 0.10;
+
+/// Days since 2020-01-01 of [day]'s local calendar date. Counted in UTC on
+/// the date, so a DST switch never skips or repeats a day.
+int _calendarDay(DateTime day) {
+  final local = day.toLocal();
+  return DateTime.utc(
+    local.year,
+    local.month,
+    local.day,
+  ).difference(DateTime.utc(2020)).inDays;
 }
 
 final class _Candidate {
@@ -192,10 +219,11 @@ final class _Candidate {
   final int kcal;
   final double proteinG;
 
-  bool ranksBefore(_Candidate other) {
-    if (proteinG != other.proteinG) return proteinG > other.proteinG;
-    if (kcal != other.kcal) return kcal < other.kcal;
-    return recipe.slug.compareTo(other.recipe.slug) < 0;
+  /// Most protein first, then fewer kcal, then slug ascending.
+  static int compare(_Candidate a, _Candidate b) {
+    if (a.proteinG != b.proteinG) return b.proteinG.compareTo(a.proteinG);
+    if (a.kcal != b.kcal) return a.kcal.compareTo(b.kcal);
+    return a.recipe.slug.compareTo(b.recipe.slug);
   }
 }
 

@@ -127,7 +127,7 @@ void main() {
       final store = _store(
         _server(),
         health,
-        LocalCache(InMemoryKeyValueStore(), 'user-outbox'),
+        LocalCache(healthConnectedKv(), 'user-outbox'),
       );
 
       await boot(store);
@@ -158,7 +158,7 @@ void main() {
       () => withClock(Clock.fixed(DateTime(2026, 10, 4, 12)), () async {
     // The health store has no history for the window; today's value is in
     // the cache from earlier today, and the reading repeats it.
-    final kv = InMemoryKeyValueStore();
+    final kv = healthConnectedKv();
     final cache = LocalCache(kv, 'user-outbox');
     await cache.writeDailyActivity(<String, ({int steps, int kcal})>{
       '2026-10-04': (
@@ -204,7 +204,7 @@ void main() {
       final store = _store(
         _server(),
         health,
-        LocalCache(InMemoryKeyValueStore(), 'user-outbox'),
+        LocalCache(healthConnectedKv(), 'user-outbox'),
       );
 
       await boot(store);
@@ -241,7 +241,7 @@ void main() {
     final store = _store(
       _server(),
       health,
-      LocalCache(InMemoryKeyValueStore(), 'user-outbox'),
+      LocalCache(healthConnectedKv(), 'user-outbox'),
     );
     await boot(store);
     await store.refreshHealthSteps();

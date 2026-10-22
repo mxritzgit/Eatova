@@ -246,7 +246,10 @@ void main() {
         );
         await tester.tap(find.byKey(const ValueKey('food-date-next')));
         await tester.pumpAndSettle();
-        expect(find.text('08:00 · 10 items'), findsOneWidget);
+        expect(
+          find.textContaining(RegExp(r'^8:00\sAM · 10 items$')),
+          findsOneWidget,
+        );
         expect(
           find.byKey(const ValueKey('food-slot-macros-breakfast')),
           findsNothing,
@@ -260,8 +263,11 @@ void main() {
   ) async {
     await withClock(Clock.fixed(_day), () async {
       await _pump(tester, meals: List.generate(10, _meal));
-      // Header "08:00 · 10 items"; day and slot total 1,045.
-      expect(find.text('08:00 · 10 items'), findsOneWidget);
+      // Header "8:00 AM · 10 items"; day and slot total 1,045.
+      expect(
+        find.textContaining(RegExp(r'^8:00\sAM · 10 items$')),
+        findsOneWidget,
+      );
       expect(find.text('1,045'), findsNWidgets(2));
       final dock = find.byKey(const ValueKey('food-entry-dock'));
       final dockTop = tester.getTopLeft(dock).dy;

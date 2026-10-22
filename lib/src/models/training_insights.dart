@@ -82,8 +82,8 @@ final class TrainingExercisePreview {
 /// "Last time" for [exercise] of the plan [planId] (spec A2): the newest
 /// session of this plan that performed it ([lastTrainingPerformance]);
 /// without one, the newest same-named exercise of the same kind in another
-/// plan or a log ([lastTrainingPerformanceByName]). Records stay plan-scoped
-/// ([personalRecordCounts]).
+/// plan or a log ([lastTrainingPerformanceByName]). Records match by name
+/// everywhere ([personalRecords]).
 List<TrainingSetActual> lastTrainingPerformanceFor(
   List<TrainingHistoryEntry> history, {
   required String planId,
@@ -281,11 +281,7 @@ final class TrainingWeekDay {
 
 /// The current local week, Monday to Sunday, for the "This week" strip.
 final class TrainingWeek {
-  const TrainingWeek({
-    required this.start,
-    required this.days,
-    required this.plannedSessions,
-  });
+  const TrainingWeek({required this.start, required this.days});
 
   /// Local Monday midnight ([startOfLocalWeek]).
   final DateTime start;
@@ -293,12 +289,9 @@ final class TrainingWeek {
   /// Exactly seven days, Monday first.
   final List<TrainingWeekDay> days;
 
-  /// Workouts in the selected plan, read as sessions per week ("0 of 3
-  /// done"); null without a plan. An ASSUMPTION: plans store no frequency,
-  /// and the coach builds one workout per weekly session.
-  final int? plannedSessions;
-
-  /// Completed sessions this week, any plan; may exceed [plannedSessions].
+  /// Completed sessions this week, any plan ("4 done"). No planned count:
+  /// plans store no sessions per week, and their workouts rotate (the Coach
+  /// builds 2-3 workouts for 4-5 weekly sessions).
   int get doneSessions =>
       days.fold(0, (count, day) => count + day.sessions.length);
 
@@ -309,11 +302,10 @@ final class TrainingWeek {
 /// [now]'s week with the finished sessions of [history] per day.
 ///
 /// Planned session types per weekday are NOT derivable: a plan has no
-/// weekday assignment. [plan] only supplies [TrainingWeek.plannedSessions].
+/// weekday assignment.
 TrainingWeek trainingWeekOf({
   required DateTime now,
   required List<TrainingHistoryEntry> history,
-  TrainingPlan? plan,
 }) {
   final start = startOfLocalWeek(now);
   final today = _localDay(now);
@@ -338,11 +330,7 @@ TrainingWeek trainingWeekOf({
       ),
     );
   }
-  return TrainingWeek(
-    start: start,
-    days: List.unmodifiable(days),
-    plannedSessions: plan?.workouts.length,
-  );
+  return TrainingWeek(start: start, days: List.unmodifiable(days));
 }
 
 // ---------------------------------------------------------------------------
@@ -444,70 +432,242 @@ TrainingVolumeTrend trainingVolumeTrend({
 double estimatedOneRepMaxKg(double weightKg, int reps) =>
     reps <= 1 ? weightKg : weightKg * (1 + reps / 30);
 
-/// Personal records per workout, keyed by [TrainingHistoryEntry.id].
-///
-/// PR rule: an exercise scores ONE record in a workout when that workout's
-/// best set beats every EARLIER workout (by finish time) of the same exercise
-/// on either
-///  * estimated load — [estimatedOneRepMaxKg] of its best set, or
-///  * actual load — its heaviest weight.
-/// A tie is no record, and the first time an exercise is performed sets the
-/// baseline without a record. Only sets with weight > 0 and reps > 0 count
-/// (bodyweight, timed and failed sets are skipped). "Same exercise" is the
-/// plan-scoped identity (plan id + exercise id) of [lastTrainingPerformance],
-/// without the by-name fallback of "Last time"; a copied plan or a free log
-/// starts fresh records.
-Map<String, int> personalRecordCounts(List<TrainingHistoryEntry> history) {
-  final ordered = [...history]..sort((a, b) => _newestFirst(b, a));
-  final bestEstimate = <String, double>{};
-  final bestWeight = <String, double>{};
-  final counts = <String, int>{};
-  for (final entry in ordered) {
-    final estimate = <String, double>{};
-    final weight = <String, double>{};
-    final exercises = entry.snapshot.workout.exercises;
-    final planId = entry.snapshot.plan.id;
-    final keys = [
-      for (var i = 0; i < exercises.length; i++)
-        '$planId/${exercises[i].id ?? 'index-$i'}',
-    ];
-    for (final set in entry.snapshot.actualSets) {
+/// What a [TrainingRecord] beat.
+enum TrainingRecordKind {
+  /// A heavier set: estimated one-rep max or heaviest weight.
+  load,
+
+  /// More reps in one set without weight (bodyweight exercises).
+  reps,
+}
+
+/// One exercise's personal record in one workout ([personalRecords]).
+final class TrainingRecord {
+  const TrainingRecord({
+    required this.exerciseName,
+    required this.kind,
+    required this.set,
+  });
+
+  /// The exercise as this workout names it.
+  final String exerciseName;
+  final TrainingRecordKind kind;
+
+  /// The set that holds the record: the best estimate (the heaviest set when
+  /// only the weight beat), or the most reps without weight.
+  final TrainingSetActual set;
+}
+
+/// One exercise's best sets within one workout.
+final class _ExerciseBests {
+  _ExerciseBests(this.name, this.index);
+
+  final String name;
+
+  /// First position in the workout, for the display order.
+  final int index;
+  double estimate = 0;
+  double heaviest = 0;
+  int reps = 0;
+  TrainingSetActual? estimateSet;
+  TrainingSetActual? heaviestSet;
+  TrainingSetActual? repsSet;
+
+  void add(TrainingSetActual set, int count) {
+    final kg = set.weightKg;
+    if (kg != null && kg > 0) {
+      final e1rm = estimatedOneRepMaxKg(kg, count);
+      if (e1rm > estimate) {
+        estimate = e1rm;
+        estimateSet = set;
+      }
+      if (kg > heaviest) {
+        heaviest = kg;
+        heaviestSet = set;
+      }
+    } else if (count > reps) {
+      reps = count;
+      repsSet = set;
+    }
+  }
+}
+
+/// The best values per exercise over the workouts added so far, keyed by
+/// [normalizeExerciseName]. Workouts must be added oldest first.
+final class _RecordBook {
+  final _estimate = <String, double>{};
+  final _weight = <String, double>{};
+  final _reps = <String, int>{};
+
+  /// The records [sets] of [workout] set against every workout added
+  /// before, in workout order; then adds them to the bests.
+  List<TrainingRecord> add(
+    TrainingWorkout workout,
+    Iterable<TrainingSetActual> sets,
+  ) {
+    final exercises = workout.exercises;
+    final bests = <String, _ExerciseBests>{};
+    for (final set in sets) {
       final index = set.reference.exerciseIndex;
-      final kg = set.weightKg;
       final reps = set.reps;
       if (index >= exercises.length ||
           exercises[index].isTimed ||
-          kg == null ||
           reps == null ||
-          kg <= 0 ||
           reps <= 0) {
         continue;
       }
-      final key = keys[index];
-      final e1rm = estimatedOneRepMaxKg(kg, reps);
-      if (e1rm > (estimate[key] ?? 0)) estimate[key] = e1rm;
-      if (kg > (weight[key] ?? 0)) weight[key] = kg;
+      final name = exercises[index].name;
+      bests
+          .putIfAbsent(
+            normalizeExerciseName(name),
+            () => _ExerciseBests(name.trim(), index),
+          )
+          .add(set, reps);
     }
-    var records = 0;
-    for (final key in estimate.keys) {
-      final previousEstimate = bestEstimate[key];
-      final previousWeight = bestWeight[key];
-      if (previousEstimate != null &&
-          previousWeight != null &&
-          (estimate[key]! > previousEstimate ||
-              weight[key]! > previousWeight)) {
-        records++;
+    final records = <(int, TrainingRecord)>[];
+    for (final MapEntry(:key, value: best) in bests.entries) {
+      final previousEstimate = _estimate[key];
+      final previousWeight = _weight[key];
+      final previousReps = _reps[key];
+      TrainingRecord? record;
+      if (best.estimateSet case final estimateSet?) {
+        if (previousEstimate != null && previousWeight != null) {
+          final beatsEstimate = best.estimate > previousEstimate;
+          if (beatsEstimate || best.heaviest > previousWeight) {
+            record = TrainingRecord(
+              exerciseName: best.name,
+              kind: TrainingRecordKind.load,
+              set: beatsEstimate ? estimateSet : best.heaviestSet!,
+            );
+          }
+        }
+        if (previousEstimate == null || best.estimate > previousEstimate) {
+          _estimate[key] = best.estimate;
+        }
+        if (previousWeight == null || best.heaviest > previousWeight) {
+          _weight[key] = best.heaviest;
+        }
       }
-      if (previousEstimate == null || estimate[key]! > previousEstimate) {
-        bestEstimate[key] = estimate[key]!;
+      if (best.repsSet case final repsSet?) {
+        if (record == null &&
+            previousReps != null &&
+            best.reps > previousReps) {
+          record = TrainingRecord(
+            exerciseName: best.name,
+            kind: TrainingRecordKind.reps,
+            set: repsSet,
+          );
+        }
+        if (previousReps == null || best.reps > previousReps) {
+          _reps[key] = best.reps;
+        }
       }
-      if (previousWeight == null || weight[key]! > previousWeight) {
-        bestWeight[key] = weight[key]!;
-      }
+      if (record != null) records.add((best.index, record));
     }
-    counts[entry.id] = records;
+    records.sort((a, b) => a.$1.compareTo(b.$1));
+    return [for (final (_, record) in records) record];
   }
-  return counts;
+}
+
+/// Personal records per workout, keyed by [TrainingHistoryEntry.id]; every
+/// workout of [history] has an entry, empty without a record.
+///
+/// PR rule: an exercise scores ONE record in a workout when that workout's
+/// best set beats every EARLIER workout (by finish time) of the same exercise
+/// on
+///  * estimated load — [estimatedOneRepMaxKg] of its best weighted set, or
+///  * actual load — its heaviest weight, or
+///  * reps — its most reps in a set without weight (bodyweight).
+/// A tie is no record, and the first time an exercise is performed (with or
+/// without weight) sets that baseline without a record. Timed sets and sets
+/// without reps are skipped. "Same exercise" is the [normalizeExerciseName]
+/// of its name, across plans, copied plans and free logs.
+Map<String, List<TrainingRecord>> personalRecords(
+  List<TrainingHistoryEntry> history,
+) {
+  final book = _RecordBook();
+  return {
+    for (final entry in [...history]..sort((a, b) => _newestFirst(b, a)))
+      entry.id: List.unmodifiable(
+        book.add(entry.snapshot.workout, entry.snapshot.actualSets),
+      ),
+  };
+}
+
+/// [personalRecords] counted per workout ("2 PRs").
+Map<String, int> personalRecordCounts(List<TrainingHistoryEntry> history) => {
+  for (final MapEntry(:key, :value) in personalRecords(history).entries)
+    key: value.length,
+};
+
+/// The records a workout in progress sets with its done [sets] of [workout]
+/// against all of [history] (the finish sheet); the workout's own saved
+/// entry, [sessionId], is not its own baseline.
+List<TrainingRecord> sessionPersonalRecords({
+  required List<TrainingHistoryEntry> history,
+  required TrainingWorkout workout,
+  required Iterable<TrainingSetActual> sets,
+  required String sessionId,
+}) {
+  final book = _RecordBook();
+  final earlier = history.where((entry) => entry.id != sessionId).toList()
+    ..sort((a, b) => _newestFirst(b, a));
+  for (final entry in earlier) {
+    book.add(entry.snapshot.workout, entry.snapshot.actualSets);
+  }
+  return List.unmodifiable(book.add(workout, sets));
+}
+
+/// One workout's best set of an exercise ([trainingExerciseProgress]).
+final class TrainingExerciseBest {
+  const TrainingExerciseBest({
+    required this.entry,
+    required this.set,
+    required this.isRecord,
+  });
+
+  final TrainingHistoryEntry entry;
+
+  /// [topTrainingSet] of the workout's sets of this exercise.
+  final TrainingSetActual set;
+
+  /// The workout set a record for this exercise ([personalRecords]).
+  final bool isRecord;
+}
+
+/// The best set of [exerciseName] per workout, newest first: every workout
+/// of [history] with a set of a repetition exercise of that
+/// [normalizeExerciseName], across plans and free logs.
+List<TrainingExerciseBest> trainingExerciseProgress(
+  List<TrainingHistoryEntry> history,
+  String exerciseName,
+) {
+  final name = normalizeExerciseName(exerciseName);
+  final records = personalRecords(history);
+  final rows = <TrainingExerciseBest>[];
+  for (final entry in [...history]..sort(_newestFirst)) {
+    final exercises = entry.snapshot.workout.exercises;
+    final best = topTrainingSet(
+      entry.snapshot.actualSets.where((set) {
+        final index = set.reference.exerciseIndex;
+        return index < exercises.length &&
+            !exercises[index].isTimed &&
+            set.reps != null &&
+            normalizeExerciseName(exercises[index].name) == name;
+      }),
+    );
+    if (best == null) continue;
+    rows.add(
+      TrainingExerciseBest(
+        entry: entry,
+        set: best,
+        isRecord: records[entry.id]!.any(
+          (record) => normalizeExerciseName(record.exerciseName) == name,
+        ),
+      ),
+    );
+  }
+  return List.unmodifiable(rows);
 }
 
 /// One row of the "Recent" list.

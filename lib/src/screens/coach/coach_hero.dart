@@ -252,14 +252,16 @@ class _DayLogCard extends StatelessWidget {
         locale,
       ),
     );
-    final protein = l10n.coachLogProtein(
-      formatThousands(
-        brief.state == CoachDayState.nothingLogged
-            ? brief.proteinGoalG
-            : brief.proteinLeftG,
-        locale,
-      ),
+    final proteinValue = formatThousands(
+      brief.state == CoachDayState.nothingLogged
+          ? brief.proteinGoalG
+          : brief.proteinLeftG,
+      locale,
     );
+    // Entries without protein added 0 g: the open grams are an upper bound.
+    final protein = brief.proteinLeftAtMost
+        ? l10n.coachLogProteinAtMost(proteinValue)
+        : l10n.coachLogProtein(proteinValue);
     final sentences = <String>[
       switch (brief.state) {
         CoachDayState.nothingLogged => l10n.coachLogNothingLogged(
@@ -378,7 +380,8 @@ class _CardPill extends StatelessWidget {
 
 /// "Try asking": the coach's commands as chips, so they are discoverable
 /// without typing "/". `/recipe` and `/log` prepare the composer, `/plan`
-/// opens the training brief — exactly what the command menu does.
+/// opens the training brief and `/meal` the describe sheet — exactly what
+/// the command menu does.
 class _TryAsking extends StatelessWidget {
   const _TryAsking({required this.enabled, required this.onCommand});
 

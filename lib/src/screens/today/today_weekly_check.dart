@@ -112,16 +112,26 @@ class _WeeklyCheckExplainer extends StatelessWidget {
 /// change anything: shown once a week ([EnergyCheck.resultWeekday]) when the
 /// check estimates but proposes nothing. Only numbers the check computes:
 /// the observed expenditure, whether the goal fits or is held at a limit,
-/// and the measured weight change against the plan's pace.
+/// and the measured weight change against the plan's pace. "Verstanden"
+/// hides it until next week (2026-10-22).
 class TodayWeeklyResultCard extends StatelessWidget {
   const TodayWeeklyResultCard({
     super.key,
     required this.estimate,
     required this.onExplain,
+    this.onAskCoach,
+    this.onAcknowledge,
   });
 
   final EnergyCheckEstimate estimate;
   final VoidCallback onExplain;
+
+  /// Prepares a question about the result in the Coach (2026-10-22); null
+  /// hides the pill.
+  final VoidCallback? onAskCoach;
+
+  /// "Verstanden"; null shows no such button.
+  final VoidCallback? onAcknowledge;
 
   /// Rounded to 10: the estimate is not precise to the calorie.
   static int _tens(double kcal) => (kcal / 10).round() * 10;
@@ -196,12 +206,33 @@ class TodayWeeklyResultCard extends StatelessWidget {
             const SizedBox(height: 10),
             Align(
               alignment: AlignmentDirectional.centerStart,
-              child: SoftPillButton(
-                key: const ValueKey('today-weekly-result-more'),
-                icon: Icons.info_outline_rounded,
-                label: l10n.weeklyCheckResultMore,
-                tone: SoftPillTone.neutral,
-                onTap: onExplain,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  if (onAcknowledge case final acknowledge?)
+                    SoftPillButton(
+                      key: const ValueKey('today-weekly-result-seen'),
+                      icon: Icons.check_rounded,
+                      label: l10n.weeklyCheckResultSeen,
+                      onTap: acknowledge,
+                    ),
+                  SoftPillButton(
+                    key: const ValueKey('today-weekly-result-more'),
+                    icon: Icons.info_outline_rounded,
+                    label: l10n.weeklyCheckResultMore,
+                    tone: SoftPillTone.neutral,
+                    onTap: onExplain,
+                  ),
+                  if (onAskCoach case final ask?)
+                    SoftPillButton(
+                      key: const ValueKey('today-weekly-result-ask-coach'),
+                      icon: Icons.chat_bubble_outline_rounded,
+                      label: l10n.coachAskAction,
+                      tone: SoftPillTone.neutral,
+                      onTap: ask,
+                    ),
+                ],
               ),
             ),
           ],

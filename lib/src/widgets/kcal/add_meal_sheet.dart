@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show SocketException;
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -127,6 +128,7 @@ Future<void> showAddMealSheet(
   BuildContext context, {
   required MealSlot slot,
   bool searchMode = false,
+  bool describeFirst = false,
   required MealAnalyzer analyzer,
   required ProductLookupService productService,
   required MealPhotoInput photoInput,
@@ -154,6 +156,7 @@ Future<void> showAddMealSheet(
   // home page's MealEditScope. Without a scope the list stays non-editable.
   final resolvedUpdateDetails =
       onUpdateMealDetails ?? MealEditScope.maybeOf(context)?.onUpdateMeal;
+  final updateFavorite = MealEditScope.maybeOf(context)?.onUpdateFavorite;
   // Same reason, same moment: the live source of both lists (P8-01/-05).
   final live = FoodStoreScope.maybeOf(context);
   return showModalBottomSheet<void>(
@@ -169,6 +172,7 @@ Future<void> showAddMealSheet(
         return AddMealSheet(
           slot: slot,
           searchMode: searchMode,
+          describeFirst: describeFirst,
           analyzer: analyzer,
           productService: productService,
           photoInput: photoInput,
@@ -183,6 +187,7 @@ Future<void> showAddMealSheet(
           onToggleFavorite: onToggleFavorite,
           onRemoveMeal: onRemoveMeal,
           onUpdateMealDetails: resolvedUpdateDetails,
+          onUpdateFavorite: updateFavorite,
           favoriteUseCounts: live?.favoriteUseCounts,
           diaryMeals: live?.diaryMeals,
           ownRecipes: live?.ownRecipes,
@@ -274,6 +279,7 @@ class AddMealSheet extends StatefulWidget {
     super.key,
     required this.slot,
     this.searchMode = false,
+    this.describeFirst = false,
     required this.analyzer,
     required this.productService,
     required this.photoInput,
@@ -288,6 +294,7 @@ class AddMealSheet extends StatefulWidget {
     this.foodDate,
     this.onRemoveMeal,
     this.onUpdateMealDetails,
+    this.onUpdateFavorite,
     this.favoriteUseCounts,
     this.diaryMeals,
     this.ownRecipes,
@@ -300,6 +307,10 @@ class AddMealSheet extends StatefulWidget {
 
   final MealSlot slot;
   final bool searchMode;
+
+  /// Opens "Describe" over the sheet right away (the app-icon shortcut),
+  /// through the same path as its button, AI consent included.
+  final bool describeFirst;
   final MealAnalyzer analyzer;
   final ProductLookupService productService;
   /// The gallery path; the camera goes through [cameraLauncher].
@@ -336,6 +347,9 @@ class AddMealSheet extends StatefulWidget {
   /// Details update for the edit sheet (portion/slot/day). Null -> already
   /// added rows are not tappable.
   final UpdateMealDetails? onUpdateMealDetails;
+
+  /// "Bearbeiten" in the favorites sheet; null hides it.
+  final UpdateFavorite? onUpdateFavorite;
 
   /// Logs per favorite id for the favorites sheet's "Frequent" order; null
   /// (previews, standalone tests) orders "Frequent" by recency.
@@ -495,6 +509,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _selectedSlot = widget.slot;
     _existing = List<LoggedMeal>.of(widget.existingMeals);
     _favorites = List<FavoriteMeal>.of(widget.favorites);
+    if (widget.describeFirst) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_openDescribe());
+      });
+    }
   }
 
   /// Adopts the lists the opener re-feeds on every store notify (see
@@ -710,20 +729,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
     _productSearchDebounce = Timer(
       _productSearchDebounceDelay,
-      () => _searchProducts(
-        queryOverride: query,
-        showTransientError: false,
-        explicit: false,
-      ),
+      () => _searchProducts(queryOverride: query, explicit: false),
     );
   }
 
   /// [explicit] separates magnifier/enter from the debounce: only the explicit
   /// path unlocks the results zone for a fragment below
-  /// [_autoSearchMinChars].
+  /// [_autoSearchMinChars]. A failure reaches the zone on both paths: by then
+  /// the retries are spent and the query is still the one typed.
   Future<void> _searchProducts({
     String? queryOverride,
-    bool showTransientError = true,
     bool explicit = true,
   }) async {
     _productSearchDebounce?.cancel();
@@ -819,6 +834,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
       // BOTH paths, typed one included: after 18 s of spinner an empty result
       // zone is the one answer the user cannot act on.
       final abgelaufen = error is TimeoutException;
+      // No route at all: the phone is offline, not the database down.
+      final offline = error is SocketException;
       _searchSlowTimer?.cancel();
       if (gedrosselt) {
         _retryCooldownTimer?.cancel();
@@ -829,23 +846,22 @@ class _AddMealSheetState extends State<AddMealSheet> {
       setState(() {
         _isSearchingProducts = false;
         _searchIsSlow = false;
-        // Rate limiting is always named, even on the typed path
-        // (showTransientError == false): otherwise the zone stays silent and
-        // the next keystroke runs into the same limit.
+        // Named on the typed path too: a silent zone left the user offline
+        // with an empty area and no way to log the meal.
         _productSearchMessage = gedrosselt
             ? context.l10n.searchRateLimited
             : abgelaufen
             ? context.l10n.foodSearchTimeoutHint
-            : (showTransientError
-                  ? context.l10n.foodSearchUnreachableHint
-                  : null);
+            : offline
+            ? context.l10n.foodAnalysisOfflineMessage
+            : context.l10n.foodSearchUnreachableHint;
         // Not "does not exist": neither rate limiting nor a deadline says
         // anything about the product.
         _searchCameUpEmpty = false;
         _searchGaveUp = abgelaufen;
         _searchFailure = gedrosselt
             ? _SearchFailure.throttled
-            : !abgelaufen && showTransientError
+            : !abgelaufen
             ? _SearchFailure.unreachable
             : null;
       });
@@ -1061,35 +1077,33 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _selectSlot(scan.slot);
 
     // The user's own product first (E5), from the sheet's live list.
-    final own = ownProductFor(_favorites, scan.code);
-    // As for the photo scan: offline the lookup fails before the sheet
-    // listens, which must not surface as an unhandled zone error.
-    final lookup =
-        (own != null
-              ? Future<MealAnalysisResult>.value(own)
-              : widget.productService.lookupBarcode(scan.code))
-          ..ignore();
-    // No retry/cancel: a lookup is cheap and its "not found" is final.
+    final lookup = BarcodeLookup(
+      widget.productService,
+      scan.code,
+      own: ownProductFor(_favorites, scan.code),
+    );
+    // No cancel: a lookup is cheap. A failed connection can be retried; a
+    // "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: lookup,
+      resultFuture: lookup.latest,
+      retry: lookup.retry,
       previewImage: null,
       onAdd: _logAndMirror,
       onUpdateMeal: _updateAndMirror,
       isFavorite: widget.isFavorite,
       onToggleFavorite: widget.onToggleFavorite,
       failureMessage: context.l10n.foodBarcodeNotFoundMessage(scan.code),
-      offerEditValues: own != null,
+      offerEditValues: lookup.own != null,
     );
     if (outcome != MealAnalysisSheetOutcome.manualEntry || !mounted) return;
-    // Remembered under its code only when the database does not know the
-    // product; after a network error the entry stays a one-off.
-    final remember = own != null || await barcodeLookupMissedProduct(lookup);
+    final entry = await lookup.manualEntry();
     if (!mounted) return;
     await _openManualEntry(
-      barcode: remember ? scan.code : null,
-      initial: own,
+      initialName: entry.name,
+      barcode: entry.barcode,
+      initial: lookup.own,
     );
   }
 
@@ -1427,7 +1441,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// portion in one tap through the same [_handleAdd] as every row here.
   Widget _historyItem(FoodHistoryHit hit, int index) {
     final key = foodHistoryItemKey(hit);
-    final id = FavoriteMeal.idFor(hit.result);
+    final id = FavoriteMeal.keyFor(_favorites, hit.result);
     return MealSuggestionItem(
       key: ValueKey('food-history-hit-$index'),
       savedPresentation: true,
@@ -1688,7 +1702,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   }
 
   Future<void> _toggleAndMirror(MealAnalysisResult result) async {
-    final id = FavoriteMeal.idFor(result);
+    final id = FavoriteMeal.keyFor(_favorites, result);
     final before = _favorites.indexWhere((f) => f.id == id);
     final pinned = before == -1 || !_favorites[before].pinned;
     final fed = widget.favorites;
@@ -1724,7 +1738,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// so a row that is already unpinned locally (or unknown) is left alone
   /// instead of being toggled back on.
   Future<void> _unpinFavorite(MealAnalysisResult result) async {
-    final id = FavoriteMeal.idFor(result);
+    final id = FavoriteMeal.keyFor(_favorites, result);
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx == -1 || !_favorites[idx].pinned) return;
     await _toggleAndMirror(result);
@@ -1733,7 +1747,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// Undo of [_unpinFavorite]: pins the row again, also when the unpin
   /// dropped it from the store (recents cap). Already pinned stays as it is.
   Future<void> _repinFavorite(MealAnalysisResult result) async {
-    final id = FavoriteMeal.idFor(result);
+    final id = FavoriteMeal.keyFor(_favorites, result);
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx != -1 && _favorites[idx].pinned) return;
     await _toggleAndMirror(result);
@@ -1751,6 +1765,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       onAdd: _logAndMirror,
       onUnpin: _unpinFavorite,
       onRepin: widget.onToggleFavorite == null ? null : _repinFavorite,
+      onEdit: widget.onUpdateFavorite,
       useCounts: widget.favoriteUseCounts?.call() ?? const <String, int>{},
     );
     if (!mounted) return;
@@ -1763,25 +1778,25 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// copy, so the recents follow "most recently used first" within this
   /// sheet session too (review A, 2026-08-27).
   ///
-  /// Like the store: the entry is REBUILT from the logged result and moves to
-  /// the front. `copyWith(addedAt:)` only moved the timestamp and left the old
+  /// Like the store ([FavoriteMeal.logged]): a recent is REBUILT from the
+  /// logged result, a pinned favorite keeps its own, and both move to the
+  /// front. `copyWith(addedAt:)` only moved the timestamp and left the old
   /// result behind, so a re-logged meal kept showing the old density in its
   /// tile header (P8-07). What stays the store's alone is the recents cap —
   /// its outcome (including a dropped entry) arrives via [FoodStoreScope].
   /// Unknown results (fresh search hits) are left alone here for the same
   /// reason: the store creates that recent and hands it over.
   void _touchFavorite(MealAnalysisResult result) {
-    final id = FavoriteMeal.idFor(result);
-    final idx = _favorites.indexWhere((f) => f.id == id);
-    if (idx == -1) return;
-    final refreshed = FavoriteMeal(
-      id: id,
-      result: FavoriteMeal.keepImage(result, _favorites[idx].result),
-      addedAt: clock.now(),
-      pinned: _favorites[idx].pinned,
+    final old = FavoriteMeal.findFor(_favorites, result);
+    if (old == null) return;
+    final refreshed = FavoriteMeal.logged(
+      result,
+      old: old,
+      id: old.id,
+      at: clock.now(),
     );
     setState(() {
-      _favorites = [refreshed, ..._favorites.where((f) => f.id != id)];
+      _favorites = [refreshed, ..._favorites.where((f) => f.id != old.id)];
     });
   }
 }

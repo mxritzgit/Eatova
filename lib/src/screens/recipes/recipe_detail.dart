@@ -4,15 +4,25 @@ part of 'recipes_screen.dart';
 // Recipe detail view (own route push). [RecipeDetailScreen] is public.
 // ---------------------------------------------------------------------------
 
-/// [recipe] as plain text for the clipboard: title, kcal and protein,
-/// portion, then ingredients and preparation as the detail shows them. A
-/// section an own recipe leaves empty is omitted, not filled with the
-/// detail's placeholder.
-String recipeAsPlainText(FitnessRecipe recipe, AppLocalizations l10n) {
+/// [recipe] as plain text to share or copy: title, kcal and protein,
+/// portion, then ingredients and preparation as the detail shows them, for
+/// [servings] like a planned meal's detail. A section an own recipe leaves
+/// empty is omitted, not filled with the detail's placeholder.
+String recipeAsPlainText(
+  FitnessRecipe recipe,
+  AppLocalizations l10n, {
+  double servings = 1,
+}) {
   final nutrition = recipe.displayNutrition;
   final kcal = nutrition.caloriesKcal, protein = nutrition.proteinG;
   final freeIngredients = recipe.ingredients.trim();
-  final ingredients = recipe.hasStructuredIngredients
+  final planned = servings == 1 ||
+          (freeIngredients.isEmpty && !recipe.hasStructuredIngredients)
+      ? null
+      : _plannedIngredients(recipe, servings, l10n);
+  final ingredients = planned != null
+      ? '${planned.hint}\n${planned.text.trim()}'
+      : recipe.hasStructuredIngredients
       ? [
           for (final i in recipe.structuredIngredients)
             '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}',
@@ -42,6 +52,73 @@ String recipeAsPlainText(FitnessRecipe recipe, AppLocalizations l10n) {
     ],
   ].join('\n');
 }
+
+/// The catalogs' ingredient texts, which are written for one serving. A meal
+/// plan snapshot of a catalog recipe is a user row with the same slug and
+/// text; the shopping list reads it the same way.
+final Set<(String, String)> _catalogIngredientTexts = {
+  for (final recipe in [...recipeCatalogDe, ...recipeCatalogEn])
+    (recipe.slug, recipe.ingredients),
+};
+
+bool _isCatalogText(FitnessRecipe recipe) =>
+    _catalogIngredientTexts.contains((recipe.slug, recipe.ingredients));
+
+/// The ingredient lines and their hint for [servings] portions of [recipe],
+/// as a planned meal opens them. Amounts are converted where that is safe:
+/// structured ingredients, an import with a confirmed basis, or a catalog
+/// text whose every line converts. Otherwise they stay as written and the
+/// hint says so: per serving for a catalog text, an unconfirmed basis for an
+/// own or Coach one (as the shopping list reads them).
+({String text, String hint}) _plannedIngredients(
+  FitnessRecipe recipe,
+  double servings,
+  AppLocalizations l10n,
+) {
+  final count = formatDecimal(servings, l10n, maxFractionDigits: 3);
+  if (recipe.hasStructuredIngredients) {
+    final factor = servings / recipe.batchServings;
+    return (
+      text: [
+        for (final i in recipe.structuredIngredients)
+          '${_nutritionNumber(i.grams * factor, l10n)} g ${i.displayName(l10n)}',
+        if (recipe.ingredients.isNotEmpty) recipe.ingredients,
+      ].join('\n'),
+      hint: l10n.recipeIngredientsForServings(count),
+    );
+  }
+  if (recipe.hasImportedIngredientContext) {
+    return (
+      text: recipe.displayIngredients(l10n, servings: servings),
+      hint: recipe.ingredientQuantityHint(l10n, servings: servings),
+    );
+  }
+  final catalog = _isCatalogText(recipe);
+  if (catalog) {
+    final projection = projectRecipeIngredients(
+      recipe.ingredients,
+      basis: RecipeIngredientsBasis.perServing,
+      batchServings: null,
+      servings: servings,
+      decimalSeparator: l10n.localeName == 'de' ? ',' : '.',
+    );
+    if (projection.isScaled) {
+      return (
+        text: projection.text,
+        hint: l10n.recipeIngredientsForServings(count),
+      );
+    }
+  }
+  return (
+    text: recipe.displayIngredients(l10n),
+    hint: recipe.ingredients.trim().isEmpty
+        ? ''
+        : catalog
+        ? l10n.recipeIngredientsPlannedPerServing(count)
+        : l10n.recipeIngredientsOriginalUnknown,
+  );
+}
+
 class RecipeDetailScreen extends StatefulWidget {
   const RecipeDetailScreen({
     super.key,
@@ -56,7 +133,12 @@ class RecipeDetailScreen extends StatefulWidget {
     this.showAddAction = true,
     this.avoidances = const <FoodAvoidance>{},
     this.onPlan,
+    this.servings = 1,
   });
+
+  /// The portions the ingredients are shown for: a planned meal's servings
+  /// ([_plannedIngredients]). Nutrition stays per portion.
+  final double servings;
 
   /// "Zum Speiseplan": opens the plan editor with this recipe chosen
   /// (`MealPlanScreen.planRecipe`). Null hides the action.
@@ -190,14 +272,16 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
     return true;
   }
 
-  /// The recipe as plain text on the clipboard ([recipeAsPlainText]),
-  /// confirmed by a toast.
-  Future<void> _copy() async {
+  /// The recipe as plain text ([recipeAsPlainText]) through the share sheet;
+  /// where that cannot open, on the clipboard, confirmed by a toast.
+  Future<void> _share(Rect? origin) async {
     final l10n = context.l10n;
-    await Clipboard.setData(
-      ClipboardData(text: recipeAsPlainText(recipe, l10n)),
+    final outcome = await shareText(
+      recipeAsPlainText(recipe, l10n, servings: widget.servings),
+      subject: recipe.displayTitle(l10n),
+      origin: origin,
     );
-    if (!mounted) return;
+    if (!mounted || outcome != TextShareOutcome.copied) return;
     showAppSnack(context, l10n.recipesCopied, icon: Icons.check_circle_rounded);
   }
 
@@ -312,6 +396,9 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
     final pinAction =
         MediaQuery.sizeOf(context).height >= 700 &&
         MediaQuery.textScalerOf(context).scale(14) <= 19;
+    final planned = widget.servings == 1
+        ? null
+        : _plannedIngredients(recipe, widget.servings, l10n);
     return Scaffold(
       backgroundColor: t.bg,
       bottomNavigationBar: pinAction && widget.showAddAction
@@ -338,7 +425,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 PageHeader(
-                  title: recipe.userCreated
+                  // A planned catalog recipe is a snapshot row, not an own one.
+                  title: recipe.userCreated && !_isCatalogText(recipe)
                       ? l10n.recipesOwnTitle
                       : l10n.recipesBrandTitle,
                   backKey: const ValueKey('recipe-detail-back'),
@@ -489,12 +577,14 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                         icon: Icons.event_note_outlined,
                         label: l10n.mealPlanAddRecipe,
                       ),
-                    SoftPillButton(
-                      key: const ValueKey('recipe-detail-copy'),
-                      onTap: _copy,
-                      icon: Icons.copy_rounded,
-                      label: l10n.recipesCopyText,
-                      tone: SoftPillTone.neutral,
+                    Builder(
+                      builder: (button) => SoftPillButton(
+                        key: const ValueKey('recipe-detail-share'),
+                        onTap: () => _share(shareOriginOf(button)),
+                        icon: Icons.ios_share_rounded,
+                        label: l10n.shareTextAction,
+                        tone: SoftPillTone.neutral,
+                      ),
                     ),
                     if (widget.onOpenHistory != null)
                       SoftPillButton(
@@ -563,13 +653,16 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   title: l10n.recipesSectionIngredients,
                   child: RecipeIngredientLines(
                     hint:
-                        recipe.hasImportedIngredientContext &&
-                            !recipe.hasStructuredIngredients
-                        ? recipe.ingredientQuantityHint(l10n)
-                        : l10n.recipeDetailIngredientsHint,
-                    text: recipe.hasStructuredIngredients
-                        ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n${recipe.ingredients}'}'
-                        : recipe.displayIngredients(l10n),
+                        planned?.hint ??
+                        (recipe.hasImportedIngredientContext &&
+                                !recipe.hasStructuredIngredients
+                            ? recipe.ingredientQuantityHint(l10n)
+                            : l10n.recipeDetailIngredientsHint),
+                    text:
+                        planned?.text ??
+                        (recipe.hasStructuredIngredients
+                            ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n${recipe.ingredients}'}'
+                            : recipe.displayIngredients(l10n)),
                   ),
                 ),
                 const SizedBox(height: 12),

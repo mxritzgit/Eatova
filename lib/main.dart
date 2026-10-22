@@ -10,6 +10,7 @@ import 'src/app/eatova_app.dart';
 import 'src/app/locale_controller.dart';
 import 'src/config/supabase_config.dart';
 import 'src/l10n/l10n.dart';
+import 'src/services/app_shortcuts.dart';
 import 'src/services/platform_health_service.dart';
 import 'src/services/crash_reporter.dart';
 import 'src/services/background_sync_scheduler.dart';
@@ -107,6 +108,7 @@ EatovaApp buildEatovaApp({ThemeModeController? themeModeController}) =>
     EatovaApp(
       healthService: createPlatformHealthService(),
       notificationService: LocalNotificationService(),
+      appShortcuts: PlatformAppShortcuts(),
       syncConnectivity: PlatformSyncConnectivity(),
       backgroundSyncScheduler: PlatformBackgroundSyncScheduler.isSupported
           ? PlatformBackgroundSyncScheduler()

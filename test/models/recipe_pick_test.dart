@@ -7,10 +7,11 @@ import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/recipe_pick.dart';
 import 'package:eatova/src/models/user_profile.dart';
 
-// "Tonight's pick" (Task 7): next open main meal, the plan first, else the
-// fitting recipe with the most protein. The design scenario (18:30, dinner
-// open, 902 kcal left) must pick the turkey steak: 610 kcal, 58 g protein,
-// leaving 292 kcal.
+// "Tonight's pick" (Task 7): next open main meal, the plan first, else a
+// fitting recipe with the most protein. Near-equal ones (within
+// pickProteinTolerance of the best) rotate by calendar day (2026-10-22). The
+// design scenario (18:30, dinner open, 902 kcal left) picks one of the
+// high-protein dinners around the turkey steak's 58 g.
 
 FitnessRecipe _recipe(
   String slug, {
@@ -59,31 +60,32 @@ void main() {
   final lunchEaten = _eaten('Chicken rice', DateTime(2026, 9, 28, 12, 45));
 
   group('pickRecipeForNextMeal (catalog)', () {
-    test('design scenario: turkey steak for dinner, 292 kcal left after', () {
-      for (final catalog in [recipeCatalogEn, recipeCatalogDe]) {
-        final pick = pickRecipeForNextMeal(
-          now: evening,
-          todaysMeals: [breakfastEaten, lunchEaten],
-          remainingKcal: 902,
-          recipes: catalog,
-        )!;
+    test('design scenario: a high-protein dinner that fits, and what it '
+        'leaves', () {
+      final picks = [
+        for (final catalog in [recipeCatalogEn, recipeCatalogDe])
+          pickRecipeForNextMeal(
+            now: evening,
+            todaysMeals: [breakfastEaten, lunchEaten],
+            remainingKcal: 902,
+            recipes: catalog,
+          )!,
+      ];
+      for (final pick in picks) {
         expect(pick.slot, MealSlot.dinner);
         expect(pick.source, RecipePickSource.suggested);
-        expect(pick.recipe.slug, 'putensteak_mit_quinoa_and_ofengemuse');
-        expect(pick.kcal, 610);
-        expect(pick.proteinG, 58);
+        // The turkey steak's 58 g are the catalog's best at 902 kcal.
+        expect(
+          pick.proteinG,
+          greaterThanOrEqualTo(58 * (1 - pickProteinTolerance)),
+        );
         expect(pick.fits, isTrue);
-        expect(pick.kcalLeftAfter, 292);
+        expect(pick.kcalLeftAfter, 902 - pick.kcal!);
         expect(pick.servings, 1);
         expect(pick.plannedMeal, isNull);
       }
-      final en = pickRecipeForNextMeal(
-        now: evening,
-        todaysMeals: [breakfastEaten, lunchEaten],
-        remainingKcal: 902,
-        recipes: recipeCatalogEn,
-      )!;
-      expect(en.recipe.title, 'Turkey Steak with Quinoa & Roasted Vegetables');
+      // Both languages pick the same dish.
+      expect(picks.first.recipe.slug, picks.last.recipe.slug);
     });
 
     test('never exceeds the remaining kcal', () {
@@ -108,7 +110,6 @@ void main() {
       )!;
       expect(pick.slot, MealSlot.breakfast);
       expect(pick.recipe.categories, contains(breakfastCategory));
-      expect(pick.recipe.slug, 'skyr_bowl_mit_beeren_and_granola'); // 38 g
     });
 
     test('diet preference filters before ranking', () {
@@ -119,7 +120,7 @@ void main() {
         recipes: recipeCatalogDe,
         diet: DietPreference.vegan,
       )!;
-      expect(vegan.recipe.slug, 'tofu_mit_reis_and_edamame'); // 35 g vegan
+      expect(vegan.recipe.matchesDiet(DietPreference.vegan), isTrue);
       final pesc = pickRecipeForNextMeal(
         now: evening,
         todaysMeals: const [],
@@ -127,7 +128,8 @@ void main() {
         recipes: recipeCatalogDe,
         diet: DietPreference.pescetarian,
       )!;
-      expect(pesc.recipe.slug, 'thunfisch_mit_couscous_and_gemuse'); // 56 g
+      expect(pesc.recipe.matchesDiet(DietPreference.pescetarian), isTrue);
+      expect(pesc.recipe.categories, contains('Fisch'));
     });
 
     test(
@@ -185,30 +187,37 @@ void main() {
   });
 
   group('pickRecipeForSlot', () {
-    test('ties: more protein, then fewer kcal, then slug', () {
+    test('near-equal picks rotate by calendar day and stay all day; a '
+        'clearly leaner one never joins', () {
       final picks = [
         _recipe('b_heavy', kcal: 600, protein: 50),
-        _recipe('c_light', kcal: 450, protein: 50),
+        _recipe('c_close', kcal: 450, protein: 47),
         _recipe('a_light', kcal: 450, protein: 50),
         _recipe('z_lean', kcal: 300, protein: 30),
       ];
-      final pick = pickRecipeForSlot(
-        slot: MealSlot.dinner,
-        day: evening,
-        remainingKcal: 800,
-        recipes: picks,
-      )!;
-      expect(pick.recipe.slug, 'a_light');
-      // Order of the input does not matter.
-      expect(
-        pickRecipeForSlot(
-          slot: MealSlot.dinner,
-          day: evening,
-          remainingKcal: 800,
-          recipes: picks.reversed.toList(),
-        )!.recipe.slug,
-        'a_light',
-      );
+      String pickAt(DateTime at, List<FitnessRecipe> recipes) =>
+          pickRecipeForSlot(
+            slot: MealSlot.dinner,
+            day: at,
+            remainingKcal: 800,
+            recipes: recipes,
+          )!.recipe.slug;
+      final seen = <String>[];
+      // Across the October DST switch.
+      for (var i = 0; i < 9; i++) {
+        final day = DateTime(2026, 10, 21 + i);
+        final morning = pickAt(day.add(const Duration(hours: 7)), picks);
+        expect(
+          pickAt(day.add(const Duration(hours: 19)), picks),
+          morning,
+          reason: 'the same all day',
+        );
+        // Order of the input does not matter.
+        expect(pickAt(day, picks.reversed.toList()), morning);
+        if (seen.isNotEmpty) expect(morning, isNot(seen.last));
+        seen.add(morning);
+      }
+      expect(seen.toSet(), {'a_light', 'b_heavy', 'c_close'});
     });
 
     test('own recipes compete, untagged ones count as main dishes', () {
@@ -268,6 +277,27 @@ void main() {
         ),
         isNull,
       );
+    });
+
+    test('a snack is never the lunch or dinner pick', () {
+      // 250 kcal left: only the catalog's snacks fit, the cottage cheese
+      // with 26 g protein first; a main meal pick stays empty instead.
+      for (final slot in [MealSlot.lunch, MealSlot.dinner]) {
+        expect(
+          pickRecipeForSlot(
+            slot: slot,
+            day: evening,
+            remainingKcal: 250,
+            recipes: recipeCatalogDe,
+          ),
+          isNull,
+          reason: slot.name,
+        );
+      }
+      final snack = recipeCatalogDe.firstWhere(
+        (r) => r.categories.contains(snackCategory),
+      );
+      expect(recipeSuitsSlot(snack, MealSlot.snack), isTrue);
     });
   });
 
@@ -346,7 +376,15 @@ void main() {
           plannedMeals: plans,
         )!;
         expect(pick.source, RecipePickSource.suggested);
-        expect(pick.recipe.slug, 'putensteak_mit_quinoa_and_ofengemuse');
+        expect(
+          pick.recipe.slug,
+          pickRecipeForNextMeal(
+            now: evening,
+            todaysMeals: const [],
+            remainingKcal: 902,
+            recipes: recipeCatalogDe,
+          )!.recipe.slug,
+        );
       },
     );
   });

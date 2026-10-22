@@ -87,7 +87,10 @@ List<FavoriteMeal> sortFavorites(
     if (sort == FavoriteSort.alphabetical)
       for (final f in pinnedByRecency) f.id: _sortKey(nameOf(f)),
   };
-  int uses(FavoriteMeal f) => useCounts[FavoriteMeal.canonicalId(f.id)] ?? 0;
+  // By the entry's natural key: a second food of one name (`name:x#2`)
+  // counts the logs of that name.
+  int uses(FavoriteMeal f) =>
+      useCounts[FavoriteMeal.canonicalId(FavoriteMeal.idFor(f.result))] ?? 0;
   indexed.sort((a, b) {
     final order = sort == FavoriteSort.frequent
         ? uses(b.$2).compareTo(uses(a.$2))

@@ -46,6 +46,7 @@ final class CoachDayBrief {
     required this.proteinLeftG,
     required this.mealSlot,
     required this.mainMealAhead,
+    this.proteinLeftAtMost = false,
   });
 
   /// Most protein one meal is expected to close. Above it the card does not
@@ -69,6 +70,10 @@ final class CoachDayBrief {
 
   /// Protein still open in grams, never below 0.
   final int proteinLeftG;
+
+  /// Some of today's entries have no protein value and added 0 g, so
+  /// [proteinLeftG] is an upper bound.
+  final bool proteinLeftAtMost;
 
   /// The slot "Suggest a …" asks for: today's next open main meal, or snacks
   /// when no main meal is ahead.
@@ -133,5 +138,6 @@ CoachDayBrief coachDayBrief({
     proteinLeftG: summary.proteinLeftG,
     mealSlot: nextMainSlot ?? MealSlot.snack,
     mainMealAhead: nextMainSlot != null,
+    proteinLeftAtMost: summary.consumed.proteinMissing > 0,
   );
 }

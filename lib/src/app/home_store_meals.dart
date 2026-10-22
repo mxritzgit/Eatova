@@ -164,18 +164,17 @@ mixin _HomeStoreMealsPart
         localDay: localDayKey(targetDate),
       );
       // FOOD-6: an entry stored under the other UPC-A spelling is the same
-      // product and keeps its key; stored keys are not migrated.
+      // product and keeps its key; stored keys are not migrated. Another
+      // food that only shares the name gets a key of its own, and a pinned
+      // favorite is only marked used ([FavoriteMeal.logged]).
       final old = FavoriteMeal.findFor(favorites, result);
-      final recentId = old?.id ?? FavoriteMeal.idFor(result);
-      final recent = FavoriteMeal(
-        id: recentId,
-        result: FavoriteMeal.keepImage(result, old?.result),
-        addedAt: addedAt,
-        // E5: a product entered for an unknown barcode is remembered, so the
-        // next scan finds it; the recents cap would drop it. An unpin by the
-        // user stands.
-        pinned: old?.pinned ?? result.isOwnProduct,
+      final recent = FavoriteMeal.logged(
+        result,
+        old: old,
+        id: old?.id ?? FavoriteMeal.freshIdFor(favorites, result),
+        at: addedAt,
       );
+      final recentId = recent.id;
       final before = [recent, ...favorites.where((f) => f.id != recentId)];
       final after = _cappedFavorites(before);
       final intents = [
@@ -337,32 +336,106 @@ mixin _HomeStoreMealsPart
     }
     if (!identical(before.result, updated.result)) {
       await _serializeFavoriteMutation(
-        () => _takePortionIntoRecent(updated.result),
+        () => _takePortionIntoRecent(before.result, updated.result),
       );
     }
   }
 
   /// FOOD-7: a re-portioned meal's auto-recent takes the new portion, the
   /// last one used, as a fresh log would; an undo hands the old one back.
-  /// Identity and cap stay: the entry keeps its key, place and date, a
-  /// pinned favorite keeps its stored portion (as [toggleFavorite] does),
-  /// and a recent that already left the list is not brought back.
-  Future<void> _takePortionIntoRecent(MealAnalysisResult result) async {
-    final old = FavoriteMeal.findFor(favorites, result);
-    if (old == null || old.pinned || identical(old.result, result)) return;
-    final next = old.copyWith(
-      result: FavoriteMeal.keepImage(result, old.result),
+  /// Identity and cap stay: the entry keeps its place and date, a pinned
+  /// favorite keeps its stored portion (as [toggleFavorite] does), and a
+  /// recent that already left the list is not brought back. The recent is
+  /// the one that stood for the [previous] values, so a changed total still
+  /// finds it, and a rename moves its key ([_rewriteFavorite]). An own
+  /// product takes the correction even pinned, as a log does (E5).
+  Future<void> _takePortionIntoRecent(
+    MealAnalysisResult previous,
+    MealAnalysisResult result,
+  ) async {
+    final old = FavoriteMeal.findFor(favorites, previous);
+    if (old == null || identical(old.result, result)) return;
+    if (old.pinned && !result.isOwnProduct) return;
+    await _rewriteFavorite(
+      old,
+      FavoriteMeal.keepImage(result, old.result),
+      overwritePinned: false,
     );
+  }
+
+  /// Gives the favorite [old] the result [next] in one commit; pin and date
+  /// stay. Returns the entry as stored.
+  ///
+  /// A rename changes the natural key ([FavoriteMeal.idFor]), so the entry
+  /// moves and its old row is deleted: onto the entry that already stands
+  /// for [next], merged into it, else onto a fresh key. A pinned entry it
+  /// meets keeps what the user saved unless [overwritePinned] (an explicit
+  /// edit of a favorite); the moving recent then just goes.
+  Future<FavoriteMeal> _rewriteFavorite(
+    FavoriteMeal old,
+    MealAnalysisResult next, {
+    required bool overwritePinned,
+  }) async {
+    final others = [
+      for (final f in favorites)
+        if (f.id != old.id) f,
+    ];
+    final moves =
+        FavoriteMeal.canonicalId(FavoriteMeal.idFor(next)) !=
+        FavoriteMeal.canonicalId(FavoriteMeal.idFor(old.result));
+    final target = moves ? FavoriteMeal.findFor(others, next) : null;
+    final FavoriteMeal written;
+    if (target != null &&
+        target.pinned &&
+        !old.pinned &&
+        !overwritePinned &&
+        !next.isOwnProduct) {
+      written = target;
+    } else {
+      written = FavoriteMeal(
+        id: !moves
+            ? old.id
+            : target?.id ?? FavoriteMeal.freshIdFor(others, next),
+        result: next,
+        addedAt: target != null && target.addedAt.isAfter(old.addedAt)
+            ? target.addedAt
+            : old.addedAt,
+        pinned: old.pinned || (target?.pinned ?? false),
+      );
+    }
     await _commitSyncIntents(
-      [SyncOp.favoriteUpsert(next)],
+      [
+        if (!identical(written, target)) SyncOp.favoriteUpsert(written),
+        if (written.id != old.id) SyncOp.favoriteDelete(old.id),
+      ],
       publish: () {
         favorites = [
-          for (final favorite in favorites)
-            favorite.id == next.id ? next : favorite,
+          for (final f in favorites)
+            if (f.id == old.id)
+              written
+            else if (f.id != written.id)
+              f,
         ];
       },
     );
+    return written;
   }
+
+  /// "Bearbeiten" in the favorites: saves [result] into the favorite [id]
+  /// without logging anything. Pin and last use stay; a rename moves the
+  /// key. Returns the key the favorite is stored under now, for an undo.
+  Future<String> updateFavorite(String id, MealAnalysisResult result) =>
+      _serializeFavoriteMutation(() async {
+        final old = favorites.where((f) => f.id == id).firstOrNull;
+        if (old == null) throw StateError('Favorite no longer exists');
+        final written = await _rewriteFavorite(
+          old,
+          FavoriteMeal.keepImage(result, old.result),
+          overwritePinned: true,
+        );
+        HapticFeedback.selectionClick();
+        return written.id;
+      });
 
   /// Re-plans the evening reminders when one of [meals] lies on today: the
   /// half-logged-day question is planned from today's total (C4 planner).
@@ -484,6 +557,9 @@ mixin _HomeStoreMealsPart
         proteinG: sum.proteinG,
         carbsG: sum.carbsG,
         fatG: sum.fatG,
+        proteinMissing: sum.proteinMissing,
+        carbsMissing: sum.carbsMissing,
+        fatMissing: sum.fatMissing,
       );
     }
     return known;
@@ -738,7 +814,7 @@ mixin _HomeStoreMealsPart
   Future<void> toggleFavorite(MealAnalysisResult result) =>
       _serializeFavoriteMutation(() async {
         final old = FavoriteMeal.findFor(favorites, result);
-        final id = old?.id ?? FavoriteMeal.idFor(result);
+        final id = old?.id ?? FavoriteMeal.freshIdFor(favorites, result);
         // The stored portion stays; only a missing photo is taken over.
         final entry =
             old?.copyWith(

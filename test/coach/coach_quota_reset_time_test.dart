@@ -1,7 +1,8 @@
 // The Coach limit resets at 00:00 UTC (server rule, unchanged). The texts
 // used to say "midnight (UTC)" and "more tomorrow", which is wrong between
 // local midnight and the reset (00:00-01:59 in Germany in summer). They now
-// name the reset as a local clock time (review 2026-10-19).
+// name the reset as a local clock time (review 2026-10-19), on the phone's
+// 12- or 24-hour clock (review 2026-10-22).
 
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +22,7 @@ void main() {
     );
   });
 
-  test('das Label nennt den Reset in Ortszeit, 24 h deutsch, 12 h englisch', () {
+  test('das Label nennt den Reset in Ortszeit, 24 h deutsch, 12 h englisch, 24 h nach Einstellung', () {
     // 2026-10-19 00:30 CEST = 2026-10-18 22:30 UTC: today at 02:00, not
     // "tomorrow". Read from the clock, as the app does.
     expect(
@@ -51,6 +52,16 @@ void main() {
         reason: '$locale $offset',
       );
     }
+    // An English phone set to 24 hours (review 2026-10-22).
+    expect(
+      coachQuotaResetLabel(
+        'en',
+        now: now,
+        offsetOf: (_) => const Duration(hours: -4),
+        alwaysUse24HourFormat: true,
+      ),
+      '20:00',
+    );
   });
 
   test('kein Text nennt mehr Mitternacht (UTC) oder morgen', () {

@@ -23,6 +23,29 @@ class _HealthPermissionPlugin extends Health {
     access = permissions;
     return true;
   }
+
+  /// One weight record, as Health Connect hands it over.
+  @override
+  Future<List<HealthDataPoint>> getHealthDataFromTypes({
+    required List<HealthDataType> types,
+    Map<HealthDataType, HealthDataUnit>? preferredUnits,
+    required DateTime startTime,
+    required DateTime endTime,
+    List<RecordingMethod> recordingMethodsToFilter = const [],
+  }) async => [
+    HealthDataPoint(
+      uuid: 'weight-1',
+      value: NumericHealthValue(numericValue: 81.4),
+      type: HealthDataType.WEIGHT,
+      unit: HealthDataUnit.KILOGRAM,
+      dateFrom: startTime,
+      dateTo: startTime,
+      sourcePlatform: HealthPlatformType.googleHealthConnect,
+      sourceDeviceId: 'device',
+      sourceId: 'com.example.scale',
+      sourceName: 'Scale',
+    ),
+  ];
 }
 
 void main() {
@@ -131,7 +154,6 @@ void main() {
       final snapshot = await withClock(Clock.fixed(now), service.readSnapshot);
       expect(snapshot?.stepsToday, 8400);
       expect(snapshot?.fetchedAt, now);
-      expect(snapshot?.latestWeightKg, isNull);
       expect(adapter.intervals, [(start: DateTime(2026, 9, 10), end: now)]);
       expect(adapter.requests, 1);
     },
@@ -301,8 +323,36 @@ void main() {
     expect(adapter.intervals, isEmpty);
   });
 
+  test('weight is read only for a connected account with its own grant', () async {
+    final sample = WeightSample(kg: 81.2, measuredAt: DateTime(2026, 9, 9, 7));
+    adapter.weights = [sample];
+    final from = DateTime(2026, 8, 11);
+    expect(await service.readWeightSamples(from, now), isNull,
+        reason: 'not connected in this session');
+    expect(await service.ensureWeightAccess(), isFalse);
+    expect(adapter.weightIntervals, isEmpty);
+
+    await service.requestAuthorization();
+    adapter.weightPermission = false;
+    expect(await service.readWeightSamples(from, now), isEmpty,
+        reason: 'no weight grant: nothing to read, an answer');
+    expect(await service.ensureWeightAccess(), isFalse);
+    expect(adapter.weightRequests, 1, reason: 'asks for the grant once');
+
+    adapter.weightPermission = true;
+    expect(await service.ensureWeightAccess(), isTrue);
+    expect(adapter.weightRequests, 1, reason: 'granted: no second screen');
+    expect(await service.readWeightSamples(from, now), [sample]);
+    expect(adapter.weightIntervals.single, (start: from, end: now));
+
+    service.reset();
+    expect(await service.readWeightSamples(from, now), isNull,
+        reason: 'the next account connects itself');
+  });
+
   test(
-    'plugin adapter requests only READ_STEPS and preserves nullable native aggregates',
+    'plugin adapter requests steps and weight READ only and preserves '
+    'nullable native aggregates',
     () async {
       final plugin = _HealthPermissionPlugin();
       const channel = MethodChannel('eatova/health_connect_test');
@@ -311,18 +361,24 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             calls.add(call);
-            return call.method == 'hasStepsPermission' ? true : result;
+            return call.method.startsWith('has') ? true : result;
           });
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null),
       );
       final real = PluginHealthConnectAdapter(health: plugin, channel: channel);
-      await real.requestStepsPermission();
-      expect(plugin.requested, [HealthDataType.STEPS]);
+      await real.requestPermissions();
+      expect(plugin.requested, [HealthDataType.STEPS, HealthDataType.WEIGHT]);
+      expect(plugin.access, [HealthDataAccess.READ, HealthDataAccess.READ]);
+      await real.requestWeightPermission();
+      expect(plugin.requested, [HealthDataType.WEIGHT]);
       expect(plugin.access, [HealthDataAccess.READ]);
       expect(await real.hasStepsPermission(), isTrue);
+      expect(await real.hasWeightPermission(), isTrue);
       final start = DateTime(2026, 9, 10);
+      final weights = await real.readWeights(start, now);
+      expect(weights.map((w) => (w.kg, w.measuredAt)), [(81.4, start)]);
       expect(await real.aggregateSteps(start, now), isNull);
       result = 0;
       expect(await real.aggregateSteps(start, now), 0);
@@ -335,6 +391,7 @@ void main() {
       await real.openSettings();
       expect(calls.map((c) => c.method), [
         'hasStepsPermission',
+        'hasWeightPermission',
         'aggregateSteps',
         'aggregateSteps',
         'installOrUpdate',

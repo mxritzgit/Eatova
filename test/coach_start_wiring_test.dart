@@ -23,6 +23,7 @@ import 'package:eatova/src/models/coach_day_brief.dart';
 import 'package:eatova/src/models/coach_recipe_proposal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/screens/coach/coach_chat_controller.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
@@ -147,6 +148,8 @@ Future<AppLocalizations> _pump(
   double textScale = 1,
   Size size = _usableSize,
   List<FitnessRecipe>? created,
+  Future<bool> Function(String text)? onDescribeMeal,
+  String question = '',
 }) async {
   tester.view.devicePixelRatio = 3;
   tester.view.physicalSize = size * 3;
@@ -165,6 +168,9 @@ Future<AppLocalizations> _pump(
               created.add(recipe);
               return SyncDelivery.delivered;
             },
+      onDescribeMeal: onDescribeMeal,
+      questionDraftRequest: question.isEmpty ? 0 : 1,
+      questionDraft: question,
     ),
     locale: locale,
     textScale: textScale,
@@ -460,6 +466,24 @@ void main() {
             'Plan tomorrow',
             null,
           ),
+          (
+            // Entries without protein added 0 g (review 2026-10-22).
+            'protein unknown in some entries',
+            const CoachDayBrief(
+              state: CoachDayState.underBudget,
+              budgetKcal: 2123,
+              remainingKcal: 902,
+              proteinGoalG: 162,
+              proteinLeftG: 51,
+              mealSlot: MealSlot.dinner,
+              mainMealAhead: true,
+              proteinLeftAtMost: true,
+            ),
+            'You have 902 kcal and at most 51 g protein left. A lean dinner '
+                'closes the protein gap without going over.',
+            'Suggest a dinner',
+            'Plan tomorrow',
+          ),
         ]) {
       testWidgets('$name: honest sentence and matching pills', (tester) async {
         final svc = _Coach.create();
@@ -609,7 +633,11 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('coach-send')));
       await tester.pumpAndSettle();
 
-      expect(svc.recipeWishes, <String>['salmon bowl']);
+      // The request carries the day (2026-10-22): the start card's slot and
+      // open budget, inside the wish the deployed function already accepts.
+      final target = coachRecipeTargetLine(_designDay, l10n);
+      expect(target, allOf(contains('902'), contains('51')));
+      expect(svc.recipeWishes, <String>['salmon bowl\n$target']);
       expect(find.byKey(const ValueKey('coach-recipe-card')), findsOneWidget);
       expect(created, isEmpty, reason: 'a proposal alone writes nothing');
 
@@ -632,6 +660,91 @@ void main() {
       await tester.pumpAndSettle();
       expect(created, hasLength(1));
       expect(created.single.title, 'Salmon bowl');
+    });
+
+    test('the /recipe target names the slot; the budget only while there is '
+        'room, and only beside a wish that leaves room', () {
+      CoachDayBrief day(int kcal, int protein, {bool atMost = false}) =>
+          CoachDayBrief(
+            state: CoachDayState.underBudget,
+            budgetKcal: 2000,
+            remainingKcal: kcal,
+            proteinGoalG: 120,
+            proteinLeftG: protein,
+            mealSlot: MealSlot.dinner,
+            mainMealAhead: true,
+            proteinLeftAtMost: atMost,
+          );
+      for (final (name, brief, expected) in <(String, CoachDayBrief, String)>[
+        ('room for both', day(640, 35),
+            deL10n.coachRecipeTargetBudgetProtein('Abendessen', 640, 35)),
+        ('protein nearly met', day(640, 9),
+            deL10n.coachRecipeTargetBudget('Abendessen', 640)),
+        ('open protein only an upper bound', day(640, 35, atMost: true),
+            deL10n.coachRecipeTargetBudget('Abendessen', 640)),
+        ('budget nearly spent', day(150, 35),
+            deL10n.coachRecipeTargetSlot('Abendessen')),
+        ('over budget', day(-200, 35),
+            deL10n.coachRecipeTargetSlot('Abendessen')),
+      ]) {
+        expect(coachRecipeTargetLine(brief, deL10n), expected, reason: name);
+      }
+      final long = 'x' * 801;
+      expect(CoachChatController.recipeRequestText(long, '(Für: X)'), long,
+          reason: 'a long wish keeps the server input cap');
+      expect(CoachChatController.recipeRequestText('Bowl', null), 'Bowl');
+    });
+
+    testWidgets('meal from the chip and the command: the describe sheet '
+        'gets the text, the coach gets nothing', (tester) async {
+      final svc = _Coach.create();
+      final opened = <String>[];
+      var added = false;
+      await _pump(
+        tester,
+        service: svc,
+        onDescribeMeal: (text) async {
+          opened.add(text);
+          return added;
+        },
+      );
+      await _tap(tester, find.byKey(const ValueKey('coach-try-meal')));
+      expect(opened, <String>[''], reason: 'the chip opens the sheet empty');
+
+      await tester.enterText(
+        find.byKey(const ValueKey('coach-input')),
+        '/meal 2 eggs and toast',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('coach-send')));
+      await tester.pumpAndSettle();
+      expect(opened.last, '2 eggs and toast');
+      expect(_field(tester), '/meal 2 eggs and toast',
+          reason: 'a sheet closed without Add loses no typing');
+
+      added = true;
+      await tester.tap(find.byKey(const ValueKey('coach-send')));
+      await tester.pumpAndSettle();
+      expect(_field(tester), isEmpty, reason: 'Add took the meal');
+      expect(svc.sent, isEmpty);
+      expect(svc.recipeWishes, isEmpty);
+      expect(find.byKey(const ValueKey('coach-message-list')), findsNothing,
+          reason: 'no bubble: nothing went to the coach');
+    });
+
+    testWidgets('a question prepared on another tab waits in the composer', (
+      tester,
+    ) async {
+      final svc = _Coach.create();
+      final l10n = await _pump(
+        tester,
+        service: svc,
+        question: 'Why has my weight stalled?',
+      );
+      expect(_field(tester), 'Why has my weight stalled?');
+      expect(svc.sent, isEmpty, reason: "sending stays the user's tap");
+      expect(find.text(l10n.coachQuotaCounter(5, 5)), findsOneWidget,
+          reason: 'the counter shows what a send would cost from');
     });
   });
 

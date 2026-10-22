@@ -1,15 +1,20 @@
 import 'package:eatova/src/services/android_health_service.dart';
+import 'package:eatova/src/services/health_service.dart';
 import 'package:health/health.dart';
 
 class FakeHealthConnectAdapter implements HealthConnectAdapter {
   HealthConnectSdkStatus? status = HealthConnectSdkStatus.sdkAvailable;
   bool? permission = true;
+  bool? weightPermission = true;
   int? steps = 8400;
+  List<WeightSample> weights = <WeightSample>[];
   int requests = 0;
+  int weightRequests = 0;
   int installs = 0;
   int settings = 0;
   int permissionReads = 0;
   final intervals = <({DateTime start, DateTime end})>[];
+  final weightIntervals = <({DateTime start, DateTime end})>[];
   Future<void> Function()? onRequest;
   Future<int?> Function()? onAggregate;
   Future<bool?> Function()? onPermission;
@@ -25,15 +30,29 @@ class FakeHealthConnectAdapter implements HealthConnectAdapter {
   }
 
   @override
-  Future<void> requestStepsPermission() async {
+  Future<bool?> hasWeightPermission() async => weightPermission;
+
+  @override
+  Future<void> requestPermissions() async {
     requests++;
     await onRequest?.call();
+  }
+
+  @override
+  Future<void> requestWeightPermission() async {
+    weightRequests++;
   }
 
   @override
   Future<int?> aggregateSteps(DateTime start, DateTime end) async {
     intervals.add((start: start, end: end));
     return onAggregate == null ? steps : onAggregate!();
+  }
+
+  @override
+  Future<List<WeightSample>> readWeights(DateTime start, DateTime end) async {
+    weightIntervals.add((start: start, end: end));
+    return weights;
   }
 
   @override

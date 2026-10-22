@@ -16,6 +16,8 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
+import 'outbox/outbox_test_helpers.dart' show healthConnectedKv;
+
 // Burned kcal per day: it used to be derived live from TODAY's steps only, so
 // every archive day showed "—". Now each verified health refresh pins the day
 // value into [HomeStore.dailyActivity] and the cache slot, and setFoodDate
@@ -133,7 +135,7 @@ void main() {
 
   test('Health-Refresh schreibt den heutigen Tageswert in Map + Cache fest',
       () => withClock(Clock.fixed(_jetzt), () async {
-    final s = _setupSynced(InMemoryKeyValueStore());
+    final s = _setupSynced(healthConnectedKv('user-activity'));
     s.store.start();
     await s.store.profileReady;
 
@@ -235,7 +237,7 @@ void main() {
   }));
 
   test('Hydration: der Tageswert uebersteht den Kaltstart', () => withClock(Clock.fixed(_jetzt), () async {
-    final kv = InMemoryKeyValueStore();
+    final kv = healthConnectedKv('user-activity');
     final erste = _setupSynced(kv);
     erste.store.start();
     await erste.store.profileReady;

@@ -4,7 +4,10 @@ _Repository data-flow update: 2026-09-14; Coach `/log`, workout logging and
 rest alerts: 2026-10-03; text and photo AI moved to Anthropic Claude:
 2026-10-08; describing a meal by text or voice: 2026-10-10; food preferences
 and the Coach's seven-day context: 2026-10-18; in-app AI consent, Coach
-answer reports and export as a file: 2026-10-19_
+answer reports and export as a file: 2026-10-19; Coach meal-plan and
+weekly-check context, recipe target, `/meal` and the remembered daily
+counter, health connection per account, Health Connect weight and the scale
+import, reminders and app-icon shortcuts: 2026-10-22_
 
 > **Pending publication (2026-10-08):** the source now sends coach, meal-scan
 > and recipe-import requests to Anthropic instead of OpenRouter/Google. The
@@ -15,6 +18,10 @@ answer reports and export as a file: 2026-10-19_
 > separate health-data checkbox, its withdrawal under Settings → AI & data,
 > the consent and report logs, the food preferences and the Coach's seven-day
 > context described below are not yet in the published policy at eatova.de.
+> The same holds for the Coach changes of 2026-10-22 (planned meal titles
+> and the weekly check's state in the snapshot, the recipe target line) and
+> for the health changes of that day (Apple Health per account, Health
+> Connect weight and the scale import).
 > App builds released before this change do not ask for the consent; the
 > consent is requested and enforced by the app, not yet by our server.
 
@@ -112,10 +119,17 @@ You enter and the app stores the following, tied to your account:
   estimate derived from your steps, where a step source is connected) and
   remaining macros, your diet and the foods you avoid or dislike (see "Food
   preferences"), an overview of the last seven days (daily calories and protein
-  against your targets, your weight trend and the number of workouts), per-slot
+  against your targets, your weight trend and the number of workouts), the
+  state of your weekly check (for example still collecting data, fitting, or
+  proposing a change, without its figures), the titles of the meals you
+  planned for today and tomorrow, per-slot
   nutrition totals and a short list of the meals you logged today (meal slot,
   name and calories, truncated to fit a fixed length limit). Recent messages from the same chat can
-  accompany the request. Before sending any reply text to the app, the server
+  accompany the request. The `/meal` command sends nothing to the coach: it
+  opens the meal description (see below) with your text. So the app can show
+  today's coach counter after a restart, it keeps the daily limit, the number
+  of questions used and the date in its encrypted local cache, without any
+  message content; signing out deletes it. Before sending any reply text to the app, the server
   buffers and checks the generated reply. Approved text is then delivered in
   short chunks over the streaming connection, or a safe refusal is returned.
   Only approved assistant replies or refusal messages are stored in chat history.
@@ -131,7 +145,9 @@ You enter and the app stores the following, tied to your account:
 - **Recipe generator (the `/recipe` command in the coach):** the dish you ask for is sent to
   the AI provider as a normal coach message and is stored in your chat history
   like any other. It carries your diet and the foods you avoid or dislike, so
-  the recipe can respect them, but not the rest of the snapshot. The recipe that comes back (title, description, ingredients,
+  the recipe can respect them, and one line naming the meal it is for and the
+  calories and protein still open today, which is stored with your message,
+  but not the rest of the snapshot. The recipe that comes back (title, description, ingredients,
   preparation, nutrition values) is stored with that chat message so the card
   survives a restart; it becomes one of your own recipes only if you confirm it.
   A picture of the dish is generated for the card by a separate **AI image
@@ -162,15 +178,23 @@ You enter and the app stores the following, tied to your account:
   device and in the product search (see "Our own product-search index"),
   which receives only the search term. Nothing is logged until you confirm
   the draft with Add; the logged meal is then stored like any other.
-- **Apple Health (optional, iOS only):** if you grant permission, the app reads
-  your step count and body-weight history from Apple Health.
+- **Apple Health (optional, iOS only):** each Eatova account connects Apple
+  Health itself; on a shared iPhone, an account that has not connected neither
+  reads nor writes Apple Health data. Once connected and with your
+  permission, the app reads your step count and body-weight history from
+  Apple Health.
   With the same permission it also writes back to Apple Health: a body-weight
   entry when you record a weigh-in. It reads and writes only these categories
   and accesses no other Apple Health data. The step count is used on the device
   for the day's display, the calories-burned estimate and the weekly check
   (the last three weeks); it is not stored on our servers. If you use the AI
   coach, the calories-burned estimate derived from it (not the step count) is
-  part of the snapshot sent with your question.
+  part of the snapshot sent with your question. Weigh-ins from other sources,
+  such as a scale, are added to your weight history only after you allow the
+  scale import in the app; they are then stored and synced like a weigh-in you
+  enter yourself (see "Weight & progress"). Which weigh-ins were imported or
+  deleted is remembered in the encrypted app cache on the device, so none is
+  imported twice.
 - **Voice input (optional):** the coach's microphone button (iOS) and the
   meal description's microphone button (iOS and Android) turn speech into
   text. On iOS, audio is captured only while the microphone is active (tap to
@@ -190,14 +214,26 @@ You enter and the app stores the following, tied to your account:
   exercise names or weights. The app asks for permission during a workout,
   independently of the reminder setting; whether it already explained this
   and asked the system is remembered on this device.
-- **Health Connect (optional, Android only):** with permission, the app reads
-  aggregated steps during foreground refreshes for the selected day's display
-  and activity estimate, and for the weekly check (the last three weeks). It
-  does not request Android weight access or write health records. Step counts
-  and the daily totals are kept in the encrypted app cache and are not
-  persisted to our servers; as with Apple Health, the calories-burned estimate
-  derived from them is part of the coach snapshot when you use the AI coach.
-  Availability, permission and an empty source are handled as distinct states.
+- **Reminders and app-icon shortcuts (optional):** the evening reminder and
+  the weigh-in reminder (Monday and Thursday mornings) are local
+  notifications that the operating system delivers on the device; they are
+  planned on the device from your own entries and nothing about them is sent
+  to our servers. Whether each is switched on is remembered per account in
+  the encrypted app cache. The shortcuts on the app icon (photo, barcode,
+  describe, log weight) only open the app at that place; they carry no
+  personal data.
+- **Health Connect (optional, Android only):** each Eatova account connects
+  Health Connect itself. With permission, the app reads aggregated steps
+  during foreground refreshes for the selected day's display and activity
+  estimate, and for the weekly check (the last three weeks). With the
+  separate weight permission it reads your weight records; weigh-ins from
+  them are added to your weight history only after you allow the scale import
+  in the app, and are then stored and synced like a weigh-in you enter
+  yourself. It writes no health records. Step counts and the daily totals are
+  kept in the encrypted app cache and are not persisted to our servers; as
+  with Apple Health, the calories-burned estimate derived from them is part of
+  the coach snapshot when you use the AI coach. Availability, permission and
+  an empty source are handled as distinct states.
 
 In addition, and **not** tied to your account:
 
@@ -246,7 +282,8 @@ the device, before the photo is uploaded.
   - coach-chat messages — together with the profile/progress snapshot and any
     photo you attach, as described above — and the safety/topic classifier;
   - a recipe you ask the coach for, drafted from your wording plus your diet
-    and the foods you avoid or dislike (no other profile data, no photo);
+    and the foods you avoid or dislike, the meal it is for and today's open
+    calories and protein (no other profile data, no photo);
   - training requests, with the explicit brief and any selected-plan context;
   - a workout you describe with `/log`, read from your wording alone (no
     profile snapshot, no photo);
@@ -351,7 +388,7 @@ recognition app may process it on its provider's servers (see above).
 
 We process this data to provide the tracking features you ask for — i.e. to perform
 the service you signed up for (GDPR Art. 6(1)(b)), and, for optional Apple Health
-read/write, Health Connect steps, voice input and AI features, on the basis of the permission you
+read/write, Health Connect steps and weight, the scale import, voice input and AI features, on the basis of the permission you
 grant in-app (Art. 6(1)(a), Art. 9 for health data).
 
 **In-app AI consent.** Before the first AI use — the photo scan, describing a

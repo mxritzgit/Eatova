@@ -22,12 +22,23 @@ export 'auth_session_mutation.dart' show ScopedAccountDeleteAction;
 export 'password_recovery.dart' show PasswordRecovery;
 
 class EatovaUser {
-  const EatovaUser({required this.id, this.email, this.displayName, this.sessionId});
+  const EatovaUser({
+    required this.id,
+    this.email,
+    this.displayName,
+    this.sessionId,
+    this.hasPassword,
+  });
 
   final String id;
   final String? email;
   final String? displayName;
   final String? sessionId;
+
+  /// Whether the account has an e-mail identity, the only one with a
+  /// password: false for a Google-only account. Null when unknown, which
+  /// keeps password rows visible.
+  final bool? hasPassword;
 
   /// First name for greetings: display name, else the mailbox part of the
   /// address, else a neutral ARB fallback. Nothing here is persisted, so the
@@ -538,7 +549,21 @@ class SupabaseAuthRepository
       id: user.id,
       email: user.email,
       displayName: rawName is String ? rawName : null,
+      hasPassword: _hasEmailIdentity(user),
     );
+  }
+
+  /// GoTrue's linked providers name an e-mail identity, the one that holds
+  /// a password; null when the user carries no provider information.
+  static bool? _hasEmailIdentity(User user) {
+    final providers = user.appMetadata['providers'];
+    if (providers is List) return providers.contains('email');
+    final identities = user.identities;
+    if (identities != null && identities.isNotEmpty) {
+      return identities.any((identity) => identity.provider == 'email');
+    }
+    final provider = user.appMetadata['provider'];
+    return provider is String ? provider == 'email' : null;
   }
 }
 
@@ -801,6 +826,7 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
       id: _user?.id ?? 'otp-user',
       email: _pendingEmail,
       displayName: _user?.displayName,
+      hasPassword: _user?.hasPassword,
     );
     _pendingEmail = null;
     _controller.add(_user);
@@ -821,6 +847,7 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
       id: 'test-user',
       email: email,
       displayName: _registeredNames[email.trim()] ?? 'Test User',
+      hasPassword: true,
     );
     _controller.add(_user);
   }
@@ -845,6 +872,7 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
       id: 'oauth-test-user',
       email: '${provider.displayName.toLowerCase()}@example.com',
       displayName: '${provider.displayName} User',
+      hasPassword: false,
     );
     _controller.add(_user);
   }

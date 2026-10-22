@@ -83,6 +83,8 @@ Future<void> _tapLogout(WidgetTester tester) async {
   await tester.ensureVisible(logout);
   await tester.tap(logout);
   await settleFrames(tester);
+  await tester.tap(find.byKey(const ValueKey('settings-sign-out-confirm')));
+  await settleFrames(tester);
 }
 
 void main() {
