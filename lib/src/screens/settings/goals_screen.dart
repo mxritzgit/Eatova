@@ -314,14 +314,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   /// The congratulation that replaced the lock, or `null`. Says out loud what
   /// saving will do, so switching the plan to "hold" is announced, not silent.
+  ///
+  /// Inside the hold band (2026-10-22) the weight is back short of the target
+  /// and the plan still holds it ([UserProfileWeightPlan.reachedTargetWeight]
+  /// via [UserProfile.targetHold]); the hint then says how long.
   String? get _zielErreichtHinweis {
-    if (!_zielErreicht) return null;
     final l10n = context.l10n;
-    final gewicht = _gueltigesGewicht!;
-    final ziel = _gueltigesZielgewicht!;
+    if (_zielErreicht) {
+      final gewicht = _gueltigesGewicht!;
+      final ziel = _gueltigesZielgewicht!;
+      return _goal.isGain
+          ? l10n.goalsTargetWeightReachedGain(gewicht, ziel)
+          : l10n.goalsTargetWeightReachedLose(gewicht, ziel);
+    }
+    final ziel = _gueltigesZielgewicht;
+    if (_gueltigesGewicht == null || ziel == null) return null;
+    if (!_draftForCalc().reachedTargetWeight) return null;
+    final band = formatDecimal(targetHoldBandKg, l10n, maxFractionDigits: 1);
     return _goal.isGain
-        ? l10n.goalsTargetWeightReachedGain(gewicht, ziel)
-        : l10n.goalsTargetWeightReachedLose(gewicht, ziel);
+        ? l10n.goalsTargetHoldGain(ziel, band)
+        : l10n.goalsTargetHoldLose(ziel, band);
   }
 
   String? get _stepsError =>

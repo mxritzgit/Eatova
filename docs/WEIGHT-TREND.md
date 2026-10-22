@@ -307,6 +307,9 @@ Review [2026-10-22](IMPROVEMENT-REVIEW-2026-10-22.md), sections 1 and 3.
   plan holds a target the user did not choose to hold. "Halten" stores
   maintain as the goal; "Neues Ziel" opens the goals page. The weigh-in that
   reaches the target says so in its snack.
+- **Goals page in the band.** Back short of the target but still held, the
+  page names the hold and its end ("Dein Plan hält 70 kg, bis dein Trend
+  1,5 kg darüber liegt") instead of no hint; a new target weight ends it.
 - **One weight rate.** Trends used the first and last raw weigh-in of its
   range. It now fits the weekly check's line over the range (same typo
   filter, minimum of 4 weigh-in days 14 days apart, least squares), draws it

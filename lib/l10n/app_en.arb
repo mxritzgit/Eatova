@@ -3807,5 +3807,9 @@
   "shortcutDescribe": "Describe",
   "shortcutWeighIn": "Log weight",
   "coachLogProteinAtMost": "at most {value} g protein",
-  "@coachLogProteinAtMost": {"description": "coachLogProtein when entries without a protein value make the open grams an upper bound.", "placeholders": {"value": {"type": "String"}}}
+  "@coachLogProteinAtMost": {"description": "coachLogProtein when entries without a protein value make the open grams an upper bound.", "placeholders": {"value": {"type": "String"}}},
+  "goalsTargetHoldLose": "Goal reached! Your plan holds {target} kg until your trend is {band} kg above it. For a new goal, enter a lower target weight.",
+  "@goalsTargetHoldLose": {"description": "Goals page hint while the plan holds a reached target and the weight is back inside the hold band.", "placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},
+  "goalsTargetHoldGain": "Goal reached! Your plan holds {target} kg until your trend is {band} kg below it. For a new goal, enter a higher target weight.",
+  "@goalsTargetHoldGain": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}}
 }

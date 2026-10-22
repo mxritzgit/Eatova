@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
@@ -248,6 +249,31 @@ void main() {
             .effectiveWeightGoal,
         _zunehmen,
         reason: 'ein neues Ziel haelt nicht das alte',
+      );
+    });
+
+    // Im Puffer zeigte die Seite den Halte-Plan ohne Hinweis: "Mit 71 kg
+    // hast du dein Wunschgewicht von 70 kg geschafft" waere dort falsch.
+    testWidgets('die Ziele-Seite sagt im Puffer, bis wann der Plan haelt', (
+      tester,
+    ) async {
+      const profil = UserProfile(
+        weightKg: 71,
+        targetWeightKg: 70,
+        weightGoal: _abnehmen,
+      );
+      await _oeffneZiele(tester, profil.withTargetHold(true));
+      expect(find.text(deL10n.goalsTargetHoldLose(70, '1,5')), findsOneWidget);
+
+      // Ein neues Wunschgewicht haelt nicht das alte, der Hinweis geht mit.
+      await tester.enterText(
+        find.byKey(const ValueKey('settings-target-weight')),
+        '68',
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('settings-target-reached')),
+        findsNothing,
       );
     });
   });
