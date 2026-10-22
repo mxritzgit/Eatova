@@ -347,6 +347,17 @@ void main() {
           hint: enL10n.recipeIngredientsForServings('2'),
           header: enL10n.recipesBrandTitle,
         ),
+        // An own recipe's text has no confirmed basis: as written.
+        (
+          recipe: recipeCatalogEn.first.copyWith(
+            slug: 'user_rice_bowl',
+            title: 'My rice bowl',
+            ingredients: '- 100 g rice',
+          ),
+          lines: ['100 g rice'],
+          hint: enL10n.recipeIngredientsOriginalUnknown,
+          header: enL10n.recipesOwnTitle,
+        ),
       ];
       final plans = [
         for (final (i, c) in cases.indexed)

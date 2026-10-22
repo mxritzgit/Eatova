@@ -68,7 +68,8 @@ bool _isCatalogText(FitnessRecipe recipe) =>
 /// as a planned meal opens them. Amounts are converted where that is safe:
 /// structured ingredients, an import with a confirmed basis, or a catalog
 /// text whose every line converts. Otherwise they stay as written and the
-/// hint says so.
+/// hint says so: per serving for a catalog text, an unconfirmed basis for an
+/// own or Coach one (as the shopping list reads them).
 ({String text, String hint}) _plannedIngredients(
   FitnessRecipe recipe,
   double servings,
@@ -92,7 +93,8 @@ bool _isCatalogText(FitnessRecipe recipe) =>
       hint: recipe.ingredientQuantityHint(l10n, servings: servings),
     );
   }
-  if (_isCatalogText(recipe)) {
+  final catalog = _isCatalogText(recipe);
+  if (catalog) {
     final projection = projectRecipeIngredients(
       recipe.ingredients,
       basis: RecipeIngredientsBasis.perServing,
@@ -109,7 +111,11 @@ bool _isCatalogText(FitnessRecipe recipe) =>
   }
   return (
     text: recipe.displayIngredients(l10n),
-    hint: l10n.recipeIngredientsPlannedPerServing(count),
+    hint: recipe.ingredients.trim().isEmpty
+        ? ''
+        : catalog
+        ? l10n.recipeIngredientsPlannedPerServing(count)
+        : l10n.recipeIngredientsOriginalUnknown,
   );
 }
 
