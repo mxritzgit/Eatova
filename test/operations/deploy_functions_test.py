@@ -453,13 +453,28 @@ class ProbeTest(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertFalse(result['checks']['gateway_401_without_token'])
         open_url, _ = self.fake(booted=False)
-        result = deploy.probe(['recipe-import'], REF, ANON, open_url)['recipe-import']
+        result = deploy.probe(['recipe-import'], REF, ANON, open_url, lambda seconds: None)['recipe-import']
         self.assertFalse(result['checks']['handler_answers_anon_key'])
 
-    def test_transport_failure_is_a_failed_probe(self):
-        def open_url(request, timeout):
+    def test_one_lost_request_is_asked_again_and_a_lasting_failure_still_fails(self):
+        pauses = []
+
+        def down(request, timeout):
             raise OSError('connection reset')
-        self.assertFalse(deploy.probe(['coach-chat'], REF, ANON, open_url)['coach-chat']['passed'])
+        self.assertFalse(deploy.probe(['coach-chat'], REF, ANON, down, pauses.append)['coach-chat']['passed'])
+        self.assertEqual(pauses, [deploy.RETRY_PAUSE_SECONDS] * 3)
+        # Ops watch 2026-10-22: one request of analyze-meal never reached the gateway.
+        healthy, _ = self.fake()
+        lost = []
+
+        def blip(request, timeout):
+            if not lost and request.get_header('Authorization') is None and request.get_method() == 'POST':
+                lost.append(request)
+                raise OSError('connection reset')
+            return healthy(request, timeout)
+        result = deploy.probe(['analyze-meal'], REF, ANON, blip, pauses.append)['analyze-meal']
+        self.assertTrue(result['passed'], result)
+        self.assertEqual(len(lost), 1)
 
 
 class RecordTest(unittest.TestCase):

@@ -38,6 +38,7 @@ import re
 import ssl
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -48,6 +49,10 @@ SHA = re.compile(r'[0-9a-f]{40}')
 FUNCTIONS = Path('supabase') / 'functions'
 MAX_RESPONSE_BYTES = 256 * 1024
 TIMEOUT_SECONDS = 30
+# A probe request without an answer or with a 5xx is asked once more after
+# this pause: one lost request is a network blip, not an outage (ops watch
+# 2026-10-22). A lasting failure still fails.
+RETRY_PAUSE_SECONDS = 5
 # Same reason as the drift job in security.yml: a Cloudflare rule in front of
 # the Management API rejects default library user agents (error 1010).
 USER_AGENT = ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
@@ -465,10 +470,18 @@ def probe_request(open_url, url, method, headers):
     return {'status': status, 'error_code': code if isinstance(code, str) else None}
 
 
-def probe(slugs, project_ref, anon_key, open_url=None):
+def probe(slugs, project_ref, anon_key, open_url=None, sleep=time.sleep):
     """Preflight 204, gateway 401 without a token, the handler's own answer with the anon key."""
     valid_ref(project_ref)
     open_url = open_url or opener().open
+
+    def ask(url, method, headers):
+        answer = probe_request(open_url, url, method, headers)
+        if answer['status'] is None or answer['status'] >= 500:
+            sleep(RETRY_PAUSE_SECONDS)
+            answer = probe_request(open_url, url, method, headers)
+        return answer
+
     results = {}
     for slug in slugs:
         if slug not in PROBES:
@@ -476,10 +489,10 @@ def probe(slugs, project_ref, anon_key, open_url=None):
             continue
         method, handler_codes = PROBES[slug]
         url = 'https://' + project_ref + '.supabase.co/functions/v1/' + slug
-        preflight = probe_request(open_url, url, 'OPTIONS', {
+        preflight = ask(url, 'OPTIONS', {
             'Origin': 'https://deploy-probe.invalid', 'Access-Control-Request-Method': method})
-        no_token = probe_request(open_url, url, method, {})
-        anon = probe_request(open_url, url, method, {
+        no_token = ask(url, method, {})
+        anon = ask(url, method, {
             'Authorization': 'Bearer ' + anon_key, 'apikey': anon_key})
         checks = {
             'preflight_204': preflight['status'] == 204,
@@ -718,6 +731,8 @@ def main(argv=None):
         if args.command == 'probe':
             result = probe(slug_list(args.slugs), secret('SUPABASE_PROJECT_REF'), secret('SUPABASE_ANON_KEY'))
             write_json(args.output, result)
+            # Statuses only: the log then shows which check failed.
+            print(probe_markdown(result), end='')
             if args.summary:
                 with open(args.summary, 'a', encoding='utf-8') as handle:
                     handle.write(probe_markdown(result))
