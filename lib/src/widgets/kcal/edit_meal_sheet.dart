@@ -10,6 +10,7 @@ import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
+import '../../models/number_input.dart';
 import '../../services/day_math.dart';
 import '../../services/local_day.dart';
 import '../../theme/app_tokens.dart';
@@ -293,11 +294,9 @@ class _EditMealSheetState extends State<EditMealSheet> {
     return fits ? next : null;
   }
 
-  /// The grams in a stored macro text ("12,5 g"), or null for unknown.
-  static double? _grams(String macro) {
-    final number = RegExp(r'\d+(?:[.,]\d+)?').firstMatch(macro)?.group(0);
-    return number == null ? null : double.tryParse(number.replaceAll(',', '.'));
-  }
+  /// The grams in a stored macro text ("12,5 g"), or null for unknown ("-").
+  static double? _grams(String macro) =>
+      NumberInput.parse(macro.replaceAll(' g', '')).value;
 
   void _stepServings(int direction) {
     final next = _servingsNeighbour(direction);

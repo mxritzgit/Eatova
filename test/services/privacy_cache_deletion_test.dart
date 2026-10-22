@@ -18,6 +18,7 @@ const _personalSlots = [
   'coach_quota',
   'health_connect_enabled',
   'health_prompt',
+  'health_weight_import',
   'logged_meals',
   'favorites',
   'weight_log',
@@ -55,7 +56,7 @@ void main() {
       await LocalCache(storage, 'A').clear();
 
       expect(storage.snapshot, beforeB);
-      expect(beforeB, hasLength(23), reason: 'Every B domain has seeded data.');
+      expect(beforeB, hasLength(26), reason: 'Every B domain has seeded data.');
     },
   );
 
@@ -87,7 +88,7 @@ void main() {
       await LocalCache(storage, 'A').clear(preserveOutbox: true);
 
       expect(storage.snapshot, expected);
-      expect(expected, hasLength(26));
+      expect(expected, hasLength(29));
     },
   );
 }
