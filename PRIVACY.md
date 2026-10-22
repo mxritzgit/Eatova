@@ -6,7 +6,8 @@ rest alerts: 2026-10-03; text and photo AI moved to Anthropic Claude:
 and the Coach's seven-day context: 2026-10-18; in-app AI consent, Coach
 answer reports and export as a file: 2026-10-19; Coach meal-plan and
 weekly-check context, recipe target, `/meal` and the remembered daily
-counter: 2026-10-22_
+counter, health connection per account, Health Connect weight and the scale
+import, reminders and app-icon shortcuts: 2026-10-22_
 
 > **Pending publication (2026-10-08):** the source now sends coach, meal-scan
 > and recipe-import requests to Anthropic instead of OpenRouter/Google. The
@@ -18,7 +19,9 @@ counter: 2026-10-22_
 > the consent and report logs, the food preferences and the Coach's seven-day
 > context described below are not yet in the published policy at eatova.de.
 > The same holds for the Coach changes of 2026-10-22 (planned meal titles
-> and the weekly check's state in the snapshot, the recipe target line).
+> and the weekly check's state in the snapshot, the recipe target line) and
+> for the health changes of that day (Apple Health per account, Health
+> Connect weight and the scale import).
 > App builds released before this change do not ask for the consent; the
 > consent is requested and enforced by the app, not yet by our server.
 
@@ -211,6 +214,14 @@ You enter and the app stores the following, tied to your account:
   exercise names or weights. The app asks for permission during a workout,
   independently of the reminder setting; whether it already explained this
   and asked the system is remembered on this device.
+- **Reminders and app-icon shortcuts (optional):** the evening reminder and
+  the weigh-in reminder (Monday and Thursday mornings) are local
+  notifications that the operating system delivers on the device; they are
+  planned on the device from your own entries and nothing about them is sent
+  to our servers. Whether each is switched on is remembered per account in
+  the encrypted app cache. The shortcuts on the app icon (photo, barcode,
+  describe, log weight) only open the app at that place; they carry no
+  personal data.
 - **Health Connect (optional, Android only):** each Eatova account connects
   Health Connect itself. With permission, the app reads aggregated steps
   during foreground refreshes for the selected day's display and activity

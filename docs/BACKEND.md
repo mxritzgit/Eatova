@@ -154,8 +154,13 @@ like the buffered path, without sending further bytes and without a refund.
 A provider failure after the disconnect stores nothing and refunds nothing (a
 client abort never refunds). The handler and the stream pump are registered
 with `EdgeRuntime.waitUntil` so the worker outlives the request for that work.
-/recipe, /plan and /log are buffered and already finish and persist after a
-disconnect. After a lost connection the app checks the transcript; if the
+/recipe, /plan and /log are buffered and finish and persist after a
+disconnect once their draft call has started. A disconnect earlier, during
+the classifier call or the user-row store, stops at the next provider budget
+gate (it is reserved with the request's signal): the question stays stored
+without an answer and the slot stays spent. That is pinned as a cost rule in
+`handler_boundary_test.ts`; changing it is an open owner decision
+(review 2026-10-22). After a lost connection the app checks the transcript; if the
 question is stored without an answer, it keeps its thinking state and checks
 again every 3 s (none while backgrounded) until the request's own deadline
 from the send (chat 95 s, /recipe 165 s, /plan and /log 105 s), then shows the

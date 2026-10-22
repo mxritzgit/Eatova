@@ -9,7 +9,7 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 ## [Unreleased]
 
 Updated 2026-09-16; the dark redesign entry was added 2026-10-01 and the October
-entries on 2026-10-03, 2026-10-08, 2026-10-11, 2026-10-18 and 2026-10-20. Changes between
+entries on 2026-10-03, 2026-10-08, 2026-10-11, 2026-10-18, 2026-10-20 and 2026-10-22. Changes between
 those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
 repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
@@ -17,6 +17,34 @@ the complete current product.
 
 ### October 2026
 
+- **Items from the review of 2026-10-22** (2026-10-22):
+  - A logged food no longer overwrites a pinned favorite of the same name;
+    entries change servings, values and names after logging; favorites can
+    be edited without logging.
+  - Reminders open their target, offer the system settings while blocked
+    and follow a language change; an opt-in weigh-in reminder (Mon/Thu
+    07:30); app-icon shortcuts; the reminder offer from the first evening.
+  - Apple Health per account; a Health Connect card; the scale import on
+    both platforms after a one-time opt-in; the step backfill from the
+    first grant.
+  - A reached target holds within 1.5 kg; one weight pace everywhere;
+    "Verstanden" on the Monday card; Trends offline and on 7 days from
+    Today; unknown macros shown as lower bounds.
+  - Coach `/meal`, a remembered "3/5 left today", the `/recipe` target, plan
+    and check context lines, retry, speaker labels, "Open" on saved recipes
+    and prepared questions.
+  - Meal-plan rows open their recipe; a past day asks which day to log;
+    allergies in the onboarding; 11 new recipes with a Snack category; a
+    daily pick rotation; sharing; kcal in the picker.
+  - Training records by exercise name with a per-exercise history; "4 done"
+    instead of "x of y"; a sign-out confirmation; "Change password" hidden
+    for Google-only accounts.
+  - AI review fixes: implausible or negative scan macros are unknown
+    (client and `analyze-meal`); `recipe-import` pays no retry it cannot
+    finish and stops at the first unverified quote; `coach-chat` no longer
+    refuses answers that explain the app data or harmless "anabolic"/HGH
+    questions, and its German refusals use real umlauts. The three
+    functions need a deploy.
 - **Items from the review of 2026-10-19** (2026-10-20):
   - AI consent before the first AI use, per account and versioned, with an
     explicit health-data checkbox; Settings "KI & Daten" withdraws it.

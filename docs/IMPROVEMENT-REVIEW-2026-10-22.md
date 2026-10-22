@@ -6,6 +6,8 @@
 
 Stand: 2026-10-22, geprüfter Code `ecd189b5` (main nach #159 bis #165).
 
+Die Punkte sind am selben Tag gebaut worden, siehe [Umsetzung, 2026-10-22](#umsetzung-2026-10-22-zehn-agenten).
+
 **Vorgehen**
 - Zwei Subagents prüften nur lesend, mit zwei Blickwinkeln:
   - **Produkt und Nutzer:** die Wege durch die App vom Onboarding bis zum zweiten Monat, verglichen mit MacroFactor, Yazio, Lifesum und MyFitnessPal (Herstellerseiten, 2026).
@@ -359,3 +361,100 @@ Quellen der Wettbewerber-Angaben:
 [Yazio iOS](https://www.yazio.com/de/ios-app),
 [Lifesum Hilfe](https://help.lifesum.com/de/article/bt4auv/),
 [Nutrola Fix Result](https://nutrola.app/nl/help/fix-result-ai-correction).
+
+## Umsetzung, 2026-10-22 (zehn Agenten)
+
+Owner-Auftrag: alles aus dieser Review „komplett mit 10 Sub-Agents“ bauen und dabei die KI-Abläufe (Foto-Analyse, Beschreiben, Rezept-Import, Coach-Chat) auf Fehler prüfen und sie direkt beheben. Zehn Agenten arbeiteten in eigenen Worktrees mit festen Dateien, ohne Migrationen, neue Sync-Arten, Deploys oder Live-Abfragen. Die Hauptinstanz hat die 43 Commits zusammengeführt, die Überschneidungen gelöst, die Integrationsfehler behoben und kleine Restfunde selbst gebaut. Stand und Belege: [Handoff](PROJECT_HANDOFF.md#review-items-built-with-ten-agents-2026-10-22).
+
+**Gebaut (App, braucht einen App-Build):**
+- **Vertrauen:**
+  - Ein gleichnamiges anderes Essen überschreibt keinen Favoriten mehr. Gleich ist: derselbe Barcode, oder derselbe Name mit höchstens 20 % Energieabstand. Ein anderes Essen bekommt `name:x#2`.
+  - Erinnerungen bei blockierter Berechtigung zeigen „Systemeinstellungen öffnen“, auch auf der Zielseite.
+  - Ein Tipp auf die Abend-Erinnerung öffnet das Hinzufügen für die aktuelle Mahlzeit.
+  - Ein Sprachwechsel plant die Erinnerungen neu.
+  - Apple Health wird pro Konto verbunden und vorher weder gelesen noch beschrieben. Bestehende Nutzer bleiben verbunden.
+  - Training zeigt „4 erledigt“ statt „4 von 2“.
+  - Abmelden fragt vorher und nennt ungesendete Änderungen und die Rezeptfotos, die gelöscht werden.
+  - Suche und Barcode bieten offline „Erneut versuchen“.
+  - Es gibt eine einzige Gewichtsrate, die Linie des Wochen-Checks, auch in Trends.
+  - Ist das Zielgewicht erreicht, hält der Plan es in einem Band von 1,5 kg. Eine Karte fragt „halten oder neues Ziel?“.
+- **Wochenrhythmus:**
+  - Wiege-Erinnerung zum Einschalten, Montag und Donnerstag um 07:30. Der Montagstext nennt den Wochen-Check.
+  - App-Icon-Kurzbefehle: Foto, Barcode, Beschreiben, Gewicht eintragen.
+  - Eine Health-Connect-Karte mit „Nicht jetzt“.
+  - Waagen-Import nach einmaliger Zustimmung, auf iOS und Android (READ_WEIGHT).
+  - Das Erinnerungsangebot kommt ab dem Abend des ersten Tages.
+  - Unbekannte Makros zeigen „≥“ und einen Hinweis. Beschreiben ergänzt fehlende Makros aus der KI-Schätzung.
+  - Die Montagskarte hat „Verstanden“ für die Woche.
+  - Trends öffnet von Today auf 7 Tagen und zeigt offline die Geräte-Tage.
+- **Tiefe:**
+  - Coach `/meal` und ein Chip öffnen Beschreiben, ohne eine Frage zu kosten. `/log` mit Essen verweist auf `/meal`.
+  - Der Coach zeigt „3/5 heute frei“ und merkt sich das Limit pro Konto.
+  - `/recipe` kennt Mahlzeit und Restbudget.
+  - Zwei Kontextzeilen: Wochen-Check nur als Zustand, ohne Zahlen, und die geplanten Gerichte.
+  - Fehlerbanner mit „Erneut versuchen“, Sprecher für Screenreader, „Öffnen“ am gespeicherten Rezept.
+  - Vorbereitete Fragen aus der Montagskarte und aus Trends.
+  - Speiseplan-Zeilen öffnen das Rezept mit den geplanten Portionen. Ein vergangener Tag fragt „geplanter Tag oder heute?“.
+  - Portionen-Stepper, „Werte ändern“ für alle manuellen Einträge und „Name ändern“ für KI-Einträge. „Bearbeiten“ am Favoriten.
+  - Allergien im Onboarding.
+  - 11 neue Katalogrezepte und eine Kategorie Snack. Jede Ernährungsform und jede Unverträglichkeit behält ein Frühstück. Der Tipp rotiert täglich.
+  - Rekorde nach Übungsname, im Abschluss-Blatt genannt, und ein Verlauf pro Übung.
+- **Kleinere Punkte:**
+  - Teilen statt Kopieren.
+  - 12/24-Stunden-Zeiten in Food und beim Coach-Limit.
+  - Picker mit kcal und Protein.
+  - „Passwort ändern“ ist für reine Google-Konten ausgeblendet.
+  - Der Export nennt die Gerätefotos.
+
+**KI-Abläufe geprüft, Fehler behoben:**
+- **Foto-Scan (App):** Ein Makro, das schwerer ist als die gemessene Portion oder negativ, ist jetzt unbekannt („–“). Vorher floss z. B. 250 g Kohlenhydrate auf 200 g Teller in die Tagessumme.
+- **`analyze-meal`:** Ein negatives Makro vom Modell wird `null` statt eines gemessenen 0 g.
+- **`recipe-import`:**
+  - Kein bezahlter zweiter Versuch mehr, wenn das Request-Budget ihn nicht mehr trägt.
+  - Die Prüfung bricht beim ersten Zitat ab, das nicht in der Quelle steht. Vorher kostete das bis zu 3 s Edge-CPU.
+  - Bidi-Steuerzeichen werden aus Titeln entfernt.
+- **`coach-chat`:**
+  - Englische Antworten, die die App-Daten erklären, wurden zur Leck-Ablehnung und kosteten trotzdem eine Frage (P2).
+  - Die Vorfilter-Ebene lehnte „anabolic“ und jedes „HGH“ ab und warf bei einem so benannten Essen den ganzen Tageskontext weg (P2).
+  - Die deutschen Ablehnungstexte haben echte Umlaute.
+- **Coach-Kontext (App):** Lange Namen werden nicht mehr mitten im Emoji gekürzt.
+- **Geprüft ohne weiteren Befund:**
+  - Auth, Limits, Budgets, Einwilligung vor jedem Aufruf, Konto-Grenzen;
+  - Streaming, Rückerstattungen, `/recipe`, `/plan`, `/log`;
+  - Bildgrenzen, Zeitlimits, Fehlercodes;
+  - die Verträge zwischen App und Server.
+
+**Braucht ein Deploy (Owner):** `analyze-meal`, `recipe-import` und `coach-chat`. Alle Änderungen sind rückwärtskompatibel; die App-Änderungen funktionieren auch gegen die heute laufenden Functions.
+
+**Agenten-Entscheidungen (zur Durchsicht):**
+- 20 % Toleranz für „dasselbe Essen“.
+- Band von 1,5 kg; „Halten“ speichert Halten als Ziel.
+- Wiege-Erinnerung Mo/Do 07:30, nicht einstellbar.
+- Angebot ab 17:00 am ersten Tag.
+- Kurzbefehle ohne Icons.
+- `/meal` heißt in beiden Sprachen so; Essen unter `/log` bleibt berechnet.
+- An Anthropic gehen nur Plan-Titel und der Check-Zustand, keine Zahlen.
+- Der Zähler zeigt „3/5 heute frei“.
+- Der vergangene Plan-Tag ist die erste Wahl.
+- Snacks sind eine eigene Kategorie.
+- Teilen ersetzt Kopieren.
+- Abmelden fragt immer.
+- „x von y“ entfällt, bis der Plan Sitzungen pro Woche speichert.
+- Health Connect fragt Gewicht zusammen mit den Schritten an.
+- Bestehende iPhone-Nutzer bleiben mit Apple Health verbunden.
+
+**Nicht gebaut:**
+- **Braucht eine Migration oder neue Sync-Art:**
+  - Ziel pro vergangenem Tag;
+  - Sitzungen pro Woche im Trainingsplan;
+  - ein abgehaktes Plan-Gericht zurücknehmen;
+  - ein abgeschlossenes Training bearbeiten;
+  - Rückerstattung von Limits bei Providerfehlern.
+- **Owner-Entscheidung:**
+  - Anzeigename ändern: nur Auth-Metadaten, oder eine Migration für `profiles.display_name`.
+  - Antwort trotz Verbindungsabbruch während der Klassifizierung: mehr Providerkosten gegen eine verlorene Frage.
+  - Globales Tageslimit als „Dienst nicht verfügbar“ statt „zu viele Analysen“.
+  - Eigene Makroziele im Live-Modus.
+- **Inhalte:** Fotos für die 11 neuen Rezepte; Icons für die Kurzbefehle.
+- **Abschnitt 4:** Widget, Scan-Korrektur per Satz, Etikett-Foto, Nährwerte nach Health schreiben, größerer Katalog. Sie bleiben „nach dem Messen“.
+- **Montags-Nachricht als eigene Benachrichtigung:** Der Montagstext der Wiege-Erinnerung nennt den Check schon. Mehr als zwei Nachrichten pro Woche wollte die Review nicht.
