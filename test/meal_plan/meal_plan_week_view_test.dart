@@ -338,6 +338,15 @@ void main() {
           hint: enL10n.recipeIngredientsPlannedPerServing('2'),
           header: enL10n.recipesBrandTitle,
         ),
+        // One whose every line converts is written for one serving.
+        (
+          recipe: recipeCatalogEn.firstWhere(
+            (r) => r.slug == 'skyr_bowl_mit_beeren_and_granola',
+          ),
+          lines: ['500 g plain skyr', '2 tsp honey'],
+          hint: enL10n.recipeIngredientsForServings('2'),
+          header: enL10n.recipesBrandTitle,
+        ),
       ];
       final plans = [
         for (final (i, c) in cases.indexed)
