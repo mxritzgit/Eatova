@@ -297,6 +297,32 @@ void main() {
     });
   });
 
+  // `/meal` (2026-10-22): the shell opens the Food tab's describe sheet with
+  // the text, and the coach is asked nothing.
+  testWidgets('/meal opens the describe sheet prefilled, without a coach '
+      'request', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final coach = _ShellCoach.create();
+      await _pumpShell(tester, coach);
+      await tester.enterText(
+        find.byKey(const ValueKey('coach-input')),
+        '/meal 2 eggs and toast',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('coach-send')));
+      await settleFrames(tester);
+
+      final sheet = find.byKey(const ValueKey('meal-describe-sheet'));
+      expect(sheet, findsOneWidget);
+      expect(
+        find.descendant(of: sheet, matching: find.text('2 eggs and toast')),
+        findsOneWidget,
+      );
+      expect(coach.sent, isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
   testWidgets('in the real shell the chip row is live up to the screen '
       'edge', (tester) async {
     await withClock(Clock.fixed(_now), () async {
