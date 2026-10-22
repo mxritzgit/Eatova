@@ -252,14 +252,16 @@ class _DayLogCard extends StatelessWidget {
         locale,
       ),
     );
-    final protein = l10n.coachLogProtein(
-      formatThousands(
-        brief.state == CoachDayState.nothingLogged
-            ? brief.proteinGoalG
-            : brief.proteinLeftG,
-        locale,
-      ),
+    final proteinValue = formatThousands(
+      brief.state == CoachDayState.nothingLogged
+          ? brief.proteinGoalG
+          : brief.proteinLeftG,
+      locale,
     );
+    // Entries without protein added 0 g: the open grams are an upper bound.
+    final protein = brief.proteinLeftAtMost
+        ? l10n.coachLogProteinAtMost(proteinValue)
+        : l10n.coachLogProtein(proteinValue);
     final sentences = <String>[
       switch (brief.state) {
         CoachDayState.nothingLogged => l10n.coachLogNothingLogged(

@@ -3902,5 +3902,7 @@
   "shortcutPhoto": "Foto",
   "shortcutBarcode": "Barcode",
   "shortcutDescribe": "Beschreiben",
-  "shortcutWeighIn": "Gewicht eintragen"
+  "shortcutWeighIn": "Gewicht eintragen",
+  "coachLogProteinAtMost": "höchstens {value} g Protein",
+  "@coachLogProteinAtMost": {"description": "coachLogProtein when entries without a protein value make the open grams an upper bound.", "placeholders": {"value": {"type": "String"}}}
 }

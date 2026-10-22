@@ -195,12 +195,16 @@ void main() {
     });
   });
 
-  test('bindet Gewichtsverlauf und Aktivitaetsbonus der Vortage', () {
+  test('bindet Gewichtsverlauf, Aktivitaetsbonus und fehlendes Protein der '
+      'Vortage', () {
     withClock(Clock.fixed(_now), () {
       final store = _store();
       store.weightLog = _dailyWeighIns();
       store.dailyActivity = {'2026-10-17': (steps: 10000, kcal: 300)};
-      store.loggedMeals = [_logged('y', DateTime(2026, 10, 17, 13), 2400)];
+      store.loggedMeals = [
+        _logged('y', DateTime(2026, 10, 17, 13), 2000),
+        _logged('k', DateTime(2026, 10, 17, 16), 400, protein: '-'),
+      ];
       final ctx = store.coachContext;
       // Default profile: 2200 kcal goal, plus 300 kcal credited yesterday.
       expect(
@@ -210,6 +214,8 @@ void main() {
           '(Ziel Ø 2500 kcal inkl. Aktivitätsbonus)',
         ),
       );
+      // The 400 kcal entry has no protein: 30 g is a lower bound.
+      expect(ctx, contains('Protein mindestens 30 g'));
       expect(
         ctx,
         contains(

@@ -458,13 +458,14 @@ const int _minTargetProteinG = 10;
 /// The /recipe target line for today's [brief] (2026-10-22): the meal slot
 /// the recipe is for and, while the day still has room, the calories and
 /// protein still open. It travels inside the wish and shows in the chat
-/// history, so it is localized like any visible text.
+/// history, so it is localized like any visible text. Open protein that is
+/// only an upper bound ([CoachDayBrief.proteinLeftAtMost]) is no target.
 String coachRecipeTargetLine(CoachDayBrief brief, AppLocalizations l10n) {
   final slot = brief.mealSlot.label(l10n);
   final kcal = brief.remainingKcal;
   if (kcal < _minTargetKcal) return l10n.coachRecipeTargetSlot(slot);
   final protein = brief.proteinLeftG;
-  return protein >= _minTargetProteinG
+  return protein >= _minTargetProteinG && !brief.proteinLeftAtMost
       ? l10n.coachRecipeTargetBudgetProtein(slot, kcal, protein)
       : l10n.coachRecipeTargetBudget(slot, kcal);
 }

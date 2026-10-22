@@ -466,6 +466,24 @@ void main() {
             'Plan tomorrow',
             null,
           ),
+          (
+            // Entries without protein added 0 g (review 2026-10-22).
+            'protein unknown in some entries',
+            const CoachDayBrief(
+              state: CoachDayState.underBudget,
+              budgetKcal: 2123,
+              remainingKcal: 902,
+              proteinGoalG: 162,
+              proteinLeftG: 51,
+              mealSlot: MealSlot.dinner,
+              mainMealAhead: true,
+              proteinLeftAtMost: true,
+            ),
+            'You have 902 kcal and at most 51 g protein left. A lean dinner '
+                'closes the protein gap without going over.',
+            'Suggest a dinner',
+            'Plan tomorrow',
+          ),
         ]) {
       testWidgets('$name: honest sentence and matching pills', (tester) async {
         final svc = _Coach.create();
@@ -646,19 +664,23 @@ void main() {
 
     test('the /recipe target names the slot; the budget only while there is '
         'room, and only beside a wish that leaves room', () {
-      CoachDayBrief day(int kcal, int protein) => CoachDayBrief(
-        state: CoachDayState.underBudget,
-        budgetKcal: 2000,
-        remainingKcal: kcal,
-        proteinGoalG: 120,
-        proteinLeftG: protein,
-        mealSlot: MealSlot.dinner,
-        mainMealAhead: true,
-      );
+      CoachDayBrief day(int kcal, int protein, {bool atMost = false}) =>
+          CoachDayBrief(
+            state: CoachDayState.underBudget,
+            budgetKcal: 2000,
+            remainingKcal: kcal,
+            proteinGoalG: 120,
+            proteinLeftG: protein,
+            mealSlot: MealSlot.dinner,
+            mainMealAhead: true,
+            proteinLeftAtMost: atMost,
+          );
       for (final (name, brief, expected) in <(String, CoachDayBrief, String)>[
         ('room for both', day(640, 35),
             deL10n.coachRecipeTargetBudgetProtein('Abendessen', 640, 35)),
         ('protein nearly met', day(640, 9),
+            deL10n.coachRecipeTargetBudget('Abendessen', 640)),
+        ('open protein only an upper bound', day(640, 35, atMost: true),
             deL10n.coachRecipeTargetBudget('Abendessen', 640)),
         ('budget nearly spent', day(150, 35),
             deL10n.coachRecipeTargetSlot('Abendessen')),

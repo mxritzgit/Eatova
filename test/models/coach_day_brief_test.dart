@@ -12,25 +12,30 @@ import 'package:eatova/src/models/user_profile.dart';
 
 const _profile = UserProfile(dailyKcalGoal: 2050, proteinGoalG: 162);
 
-DayNutritionSummary _day({required int kcal, double proteinG = 0}) =>
-    DayNutritionSummary(
-      profile: _profile,
-      burnedKcal: 73,
-      consumed: MacroProgress(
-        proteinG: proteinG,
-        carbsG: 0,
-        fatG: 0,
-        kcal: kcal,
-      ),
-    );
+DayNutritionSummary _day({
+  required int kcal,
+  double proteinG = 0,
+  int proteinMissing = 0,
+}) => DayNutritionSummary(
+  profile: _profile,
+  burnedKcal: 73,
+  consumed: MacroProgress(
+    proteinG: proteinG,
+    carbsG: 0,
+    fatG: 0,
+    kcal: kcal,
+    proteinMissing: proteinMissing,
+  ),
+);
 
 CoachDayBrief _brief({
   required int kcal,
   double proteinG = 0,
+  int proteinMissing = 0,
   bool logged = true,
   MealSlot? next = MealSlot.dinner,
 }) => coachDayBrief(
-  summary: _day(kcal: kcal, proteinG: proteinG),
+  summary: _day(kcal: kcal, proteinG: proteinG, proteinMissing: proteinMissing),
   loggedToday: logged,
   nextMainSlot: next,
 );
@@ -47,6 +52,14 @@ void main() {
     expect(brief.proteinGapClosable, isTrue);
     expect(brief.primaryAction, CoachDayAction.suggestMeal);
     expect(brief.secondaryAction, CoachDayAction.planTomorrow);
+    expect(brief.proteinLeftAtMost, isFalse);
+  });
+
+  // An entry without protein added 0 g, so 51 g open is at most 51 g.
+  test('entries without protein make the open protein an upper bound', () {
+    final brief = _brief(kcal: 1221, proteinG: 111, proteinMissing: 1);
+    expect(brief.proteinLeftG, 51);
+    expect(brief.proteinLeftAtMost, isTrue);
   });
 
   group('state', () {

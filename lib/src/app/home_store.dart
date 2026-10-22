@@ -556,6 +556,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
         return (
           kcal: m.kcal,
           proteinG: m.proteinG,
+          proteinMissing: m.proteinMissing,
           budgetKcal: DailyCalorieBalance(
             goalKcal: p.dailyKcalGoal,
             consumedKcal: m.kcal,
