@@ -1,14 +1,16 @@
 // Review 2026-10-19, "Teilen und Support": a recipe (ingredients and steps)
-// can be copied as clean plain text, with a confirmation toast. No share
-// package.
+// goes out as clean plain text, through the share sheet since 2026-10-22;
+// where that cannot open, onto the clipboard with a confirmation toast.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/services/text_share.dart';
 
 import '../support/harness.dart';
 
@@ -67,32 +69,46 @@ void main() {
     expect(text, isNot(contains(deL10n.recipesNoPreparationYet)));
   });
 
-  test('gewogene Zutaten stehen mit Gramm da', () {
-    final text = recipeAsPlainText(
-      _own(
-        structured: [
-          RecipeIngredient(
-            name: 'Reis',
-            grams: 75,
-            per100g: const RecipeNutrition(
-              caloriesKcal: 350,
-              proteinG: 7,
-              carbsG: 77,
-              fatG: 1,
-            ),
+  test('gewogene Zutaten stehen mit Gramm da, für geplante Portionen '
+      'umgerechnet', () {
+    final recipe = _own(
+      structured: [
+        RecipeIngredient(
+          name: 'Reis',
+          grams: 75,
+          per100g: const RecipeNutrition(
+            caloriesKcal: 350,
+            proteinG: 7,
+            carbsG: 77,
+            fatG: 1,
           ),
-        ],
-        ingredients: 'Salz',
-        preparation: 'Kochen.',
-      ),
-      deL10n,
+        ),
+      ],
+      ingredients: 'Salz',
+      preparation: 'Kochen.',
     );
+    final text = recipeAsPlainText(recipe, deL10n);
     expect(text, contains('\nZutaten\n75 g Reis\nSalz\n'));
     expect(text, endsWith('\nZubereitung\nKochen.'));
+    // Shared from a meal planned for two: what the detail shows.
+    expect(
+      recipeAsPlainText(recipe, deL10n, servings: 2),
+      contains(
+        '\nZutaten\n${deL10n.recipeIngredientsForServings('2')}\n'
+        '150 g Reis\nSalz\n',
+      ),
+    );
   });
 
-  testWidgets('„Als Text kopieren" in den Rezeptdetails legt den Text in die '
-      'Zwischenablage und bestätigt', (tester) async {
+  testWidgets('„Teilen" in den Rezeptdetails öffnet das Teilen-Menü mit dem '
+      'Text, sonst geht er in die Zwischenablage', (tester) async {
+    final shared = <ShareParams>[];
+    final platformSheet = shareSheet;
+    addTearDown(() => shareSheet = platformSheet);
+    shareSheet = (params) async {
+      shared.add(params);
+      return const ShareResult('', ShareResultStatus.dismissed);
+    };
     final copied = <String>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
@@ -114,12 +130,26 @@ void main() {
       tester,
       RecipeDetailScreen(recipe: lachs, onAddMeal: (_, _) {}),
     );
-    final copy = find.byKey(const ValueKey('recipe-detail-copy'));
-    await tester.ensureVisible(copy);
+    final share = find.byKey(const ValueKey('recipe-detail-share'));
+    await tester.ensureVisible(share);
     await tester.pumpAndSettle();
-    await tester.tap(copy);
+    await tester.tap(share);
     await tester.pumpAndSettle();
-    expect(copied, [recipeAsPlainText(lachs, deL10n)]);
+    final text = recipeAsPlainText(lachs, deL10n);
+    expect(shared.single.text, text);
+    expect(shared.single.subject, lachs.title);
+    // The iPad popover points at the button.
+    expect(shared.single.sharePositionOrigin, tester.getRect(share));
+    // A dismissed sheet is no failure: nothing is copied behind it.
+    expect(copied, isEmpty);
+    expect(find.text('Rezept kopiert.'), findsNothing);
+
+    // No share sheet on this device: the clipboard, with a toast.
+    shareSheet = (params) async =>
+        throw PlatformException(code: 'unavailable');
+    await tester.tap(share);
+    await tester.pumpAndSettle();
+    expect(copied, [text]);
     expect(find.text('Rezept kopiert.'), findsOneWidget);
   });
 }

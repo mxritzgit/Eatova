@@ -553,7 +553,6 @@
   "recipesSectionIngredients": "Zutaten",
   "recipesSectionPreparation": "Zubereitung",
   "recipesSectionProHint": "Profi-Hinweis",
-  "recipesCopyText": "Als Text kopieren",
   "recipesCopied": "Rezept kopiert.",
   "recipesWhenToLogTitle": "Wann eintragen?",
   "recipesDiscardChangesBody": "Dein Rezept ist noch nicht gespeichert.",
@@ -3493,7 +3492,6 @@
   "mealPlanReceiptOpen": "Noch offen",
   "mealPlanReceiptThanks": "Guten Appetit!",
   "mealPlanReceiptStamp": "Erledigt",
-  "shoppingCopyText": "Als Text kopieren",
   "shoppingCopied": "Einkaufsliste kopiert.",
   "mealPlanPantryTitle": "Gewürze & Vorrat",
   "mealPlanPantryNote": "Meist schon im Schrank. Hake ab, was du noch hast.",
@@ -3862,5 +3860,6 @@
   "mealPlanEatOnToday": "Heute eintragen",
   "onboardingReviewDietAvoiding": "{diet} · ohne {foods}",
   "@onboardingReviewDietAvoiding": {"description": "Plan summary of the diet step; foods: the avoided foods, comma-separated.", "placeholders": {"diet": {"type": "String"}, "foods": {"type": "String"}}},
-  "recipesFilterSnack": "Snack"
+  "recipesFilterSnack": "Snack",
+  "shareTextAction": "Teilen"
 }

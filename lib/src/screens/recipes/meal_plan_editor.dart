@@ -249,6 +249,22 @@ class _PlanEditorState extends State<_PlanEditor> {
                                     height: 1.25,
                                   ),
                                 ),
+                                if (_perServing(recipe, l)
+                                    case final summary?) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    summary,
+                                    key: ValueKey(
+                                      'meal-plan-pick-nutrition-${recipe.slug}',
+                                    ),
+                                    style: AppType.ui(
+                                      13,
+                                      weight: FontWeight.w600,
+                                      color: t.ink2,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 6),
                                 Text(
                                   recipe.displayPortion(l),
@@ -367,6 +383,15 @@ class _PlanEditorState extends State<_PlanEditor> {
       ),
     );
   }
+}
+
+/// "610 kcal · 58 g protein" for one serving of [recipe] in the picker;
+/// null while either value is unknown.
+String? _perServing(FitnessRecipe recipe, AppLocalizations l) {
+  final nutrition = recipe.displayNutrition;
+  final kcal = nutrition.caloriesKcal, protein = nutrition.proteinG;
+  if (kcal == null || protein == null) return null;
+  return l.recipesKcalProteinSummary(kcal.round(), protein.round());
 }
 
 /// The eyebrow above an editor field, in [SheetField]'s own label style.

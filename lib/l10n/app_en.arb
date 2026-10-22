@@ -548,7 +548,6 @@
   "recipesSectionIngredients": "Ingredients",
   "recipesSectionPreparation": "Preparation",
   "recipesSectionProHint": "Pro tip",
-  "recipesCopyText": "Copy as text",
   "recipesCopied": "Recipe copied.",
   "recipesWhenToLogTitle": "When did you eat this?",
   "recipesDiscardChangesBody": "Your recipe hasn't been saved yet.",
@@ -3419,7 +3418,6 @@
   "mealPlanReceiptOpen": "Still to buy",
   "mealPlanReceiptThanks": "Enjoy your meals!",
   "mealPlanReceiptStamp": "Done",
-  "shoppingCopyText": "Copy as text",
   "shoppingCopied": "Shopping list copied.",
   "mealPlanPantryTitle": "Spices & pantry",
   "mealPlanPantryNote": "Usually in the cupboard already. Check off what you still have.",
@@ -3767,5 +3765,6 @@
   "mealPlanEatOnToday": "Log for today",
   "onboardingReviewDietAvoiding": "{diet} · avoiding {foods}",
   "@onboardingReviewDietAvoiding": {"description": "Plan summary of the diet step; foods: the avoided foods, comma-separated.", "placeholders": {"diet": {"type": "String"}, "foods": {"type": "String"}}},
-  "recipesFilterSnack": "Snack"
+  "recipesFilterSnack": "Snack",
+  "shareTextAction": "Share"
 }

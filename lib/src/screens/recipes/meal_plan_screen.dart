@@ -16,6 +16,7 @@ import '../../models/shopping_list.dart';
 import '../../models/shopping_receipt.dart';
 import '../../services/local_day.dart';
 import '../../services/sync_error_messages.dart';
+import '../../services/text_share.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -812,12 +813,15 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         const SizedBox(height: 14),
         Align(
           alignment: AlignmentDirectional.centerStart,
-          child: SoftPillButton(
-            key: const ValueKey('shopping-copy'),
-            label: l.shoppingCopyText,
-            icon: Icons.copy_rounded,
-            tone: SoftPillTone.neutral,
-            onTap: () => _copyShopping(receipt, checks),
+          child: Builder(
+            builder: (button) => SoftPillButton(
+              key: const ValueKey('shopping-share'),
+              label: l.shareTextAction,
+              icon: Icons.ios_share_rounded,
+              tone: SoftPillTone.neutral,
+              onTap: () =>
+                  _shareShopping(receipt, checks, shareOriginOf(button)),
+            ),
           ),
         ),
         const SizedBox(height: 14),
@@ -830,11 +834,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     ];
   }
 
-  /// The receipt as plain text on the clipboard ([shoppingReceiptText]),
-  /// confirmed by a toast.
-  Future<void> _copyShopping(
+  /// The receipt as plain text ([shoppingReceiptText]) through the share
+  /// sheet; where that cannot open, on the clipboard, confirmed by a toast.
+  Future<void> _shareShopping(
     ShoppingReceipt receipt,
     Map<String, bool> checks,
+    Rect? origin,
   ) async {
     final l = context.l10n;
     final text = shoppingReceiptText(
@@ -844,8 +849,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       meals: shoppingPlans(store.plannedMeals, _week).length,
       l: l,
     );
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!mounted) return;
+    final outcome = await shareText(
+      text,
+      subject: l.mealPlanShopping,
+      origin: origin,
+    );
+    if (!mounted || outcome != TextShareOutcome.copied) return;
     showAppSnack(context, l.shoppingCopied, icon: Icons.check_circle_rounded);
   }
 

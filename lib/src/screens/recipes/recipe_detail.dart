@@ -4,15 +4,25 @@ part of 'recipes_screen.dart';
 // Recipe detail view (own route push). [RecipeDetailScreen] is public.
 // ---------------------------------------------------------------------------
 
-/// [recipe] as plain text for the clipboard: title, kcal and protein,
-/// portion, then ingredients and preparation as the detail shows them. A
-/// section an own recipe leaves empty is omitted, not filled with the
-/// detail's placeholder.
-String recipeAsPlainText(FitnessRecipe recipe, AppLocalizations l10n) {
+/// [recipe] as plain text to share or copy: title, kcal and protein,
+/// portion, then ingredients and preparation as the detail shows them, for
+/// [servings] like a planned meal's detail. A section an own recipe leaves
+/// empty is omitted, not filled with the detail's placeholder.
+String recipeAsPlainText(
+  FitnessRecipe recipe,
+  AppLocalizations l10n, {
+  double servings = 1,
+}) {
   final nutrition = recipe.displayNutrition;
   final kcal = nutrition.caloriesKcal, protein = nutrition.proteinG;
   final freeIngredients = recipe.ingredients.trim();
-  final ingredients = recipe.hasStructuredIngredients
+  final planned = servings == 1 ||
+          (freeIngredients.isEmpty && !recipe.hasStructuredIngredients)
+      ? null
+      : _plannedIngredients(recipe, servings, l10n);
+  final ingredients = planned != null
+      ? '${planned.hint}\n${planned.text.trim()}'
+      : recipe.hasStructuredIngredients
       ? [
           for (final i in recipe.structuredIngredients)
             '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}',
@@ -256,14 +266,16 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
     return true;
   }
 
-  /// The recipe as plain text on the clipboard ([recipeAsPlainText]),
-  /// confirmed by a toast.
-  Future<void> _copy() async {
+  /// The recipe as plain text ([recipeAsPlainText]) through the share sheet;
+  /// where that cannot open, on the clipboard, confirmed by a toast.
+  Future<void> _share(Rect? origin) async {
     final l10n = context.l10n;
-    await Clipboard.setData(
-      ClipboardData(text: recipeAsPlainText(recipe, l10n)),
+    final outcome = await shareText(
+      recipeAsPlainText(recipe, l10n, servings: widget.servings),
+      subject: recipe.displayTitle(l10n),
+      origin: origin,
     );
-    if (!mounted) return;
+    if (!mounted || outcome != TextShareOutcome.copied) return;
     showAppSnack(context, l10n.recipesCopied, icon: Icons.check_circle_rounded);
   }
 
@@ -559,12 +571,14 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                         icon: Icons.event_note_outlined,
                         label: l10n.mealPlanAddRecipe,
                       ),
-                    SoftPillButton(
-                      key: const ValueKey('recipe-detail-copy'),
-                      onTap: _copy,
-                      icon: Icons.copy_rounded,
-                      label: l10n.recipesCopyText,
-                      tone: SoftPillTone.neutral,
+                    Builder(
+                      builder: (button) => SoftPillButton(
+                        key: const ValueKey('recipe-detail-share'),
+                        onTap: () => _share(shareOriginOf(button)),
+                        icon: Icons.ios_share_rounded,
+                        label: l10n.shareTextAction,
+                        tone: SoftPillTone.neutral,
+                      ),
                     ),
                     if (widget.onOpenHistory != null)
                       SoftPillButton(

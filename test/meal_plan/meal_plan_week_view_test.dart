@@ -151,6 +151,14 @@ void main() {
 
       await _tap(tester, add);
       expect(_editor, findsOneWidget);
+      // The picker names kcal and protein per serving.
+      final first = recipeCatalogEn.first;
+      expect(
+        tester
+            .widget<Text>(_key('meal-plan-pick-nutrition-${first.slug}'))
+            .data,
+        enL10n.recipesKcalProteinSummary(first.caloriesKcal, first.proteinG),
+      );
       await _tap(
         tester,
         find.descendant(
