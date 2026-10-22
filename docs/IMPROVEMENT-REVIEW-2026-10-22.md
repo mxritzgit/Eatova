@@ -384,7 +384,7 @@ Owner-Auftrag: alles aus dieser Review „komplett mit 10 Sub-Agents“ bauen un
   - Eine Health-Connect-Karte mit „Nicht jetzt“.
   - Waagen-Import nach einmaliger Zustimmung, auf iOS und Android (READ_WEIGHT).
   - Das Erinnerungsangebot kommt ab dem Abend des ersten Tages.
-  - Unbekannte Makros zeigen „≥“ und einen Hinweis. Beschreiben ergänzt fehlende Makros aus der KI-Schätzung.
+  - Unbekannte Makros zeigen „≥“ und einen Hinweis: auf Today, in der Food-Tageskarte und den P/K/F-Zeilen, in den Trends-Schnitten und auf der 7-Tage-Karte. Der Coach sagt „höchstens … Protein übrig“, und seine Wochenübersicht nennt Untergrenzen. Beschreiben ergänzt fehlende Makros aus der KI-Schätzung.
   - Die Montagskarte hat „Verstanden“ für die Woche.
   - Trends öffnet von Today auf 7 Tagen und zeigt offline die Geräte-Tage.
 - **Tiefe:**
@@ -405,6 +405,8 @@ Owner-Auftrag: alles aus dieser Review „komplett mit 10 Sub-Agents“ bauen un
   - Picker mit kcal und Protein.
   - „Passwort ändern“ ist für reine Google-Konten ausgeblendet.
   - Der Export nennt die Gerätefotos.
+  - Die Ziele-Seite sagt im Halteband, bis wann der Plan das Ziel hält.
+  - Dialoge mit drei Knöpfen zeigen auf 320 px bei 2× Text zuerst die Nachricht.
 
 **KI-Abläufe geprüft, Fehler behoben:**
 - **Foto-Scan (App):** Ein Makro, das schwerer ist als die gemessene Portion oder negativ, ist jetzt unbekannt („–“). Vorher floss z. B. 250 g Kohlenhydrate auf 200 g Teller in die Tagessumme.
