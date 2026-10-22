@@ -156,6 +156,15 @@ void main() {
         expect(b.store.healthWeightImportOfferVisible, isFalse);
         expect(b.store.healthWeightImportEnabled, isFalse);
 
+        if (android) {
+          // Health Connect's weight grant refused: the switch stays off.
+          health.weightAccess = false;
+          await b.store.enableHealthWeightImport();
+          expect(b.store.healthWeightImportEnabled, isFalse);
+          expect(b.store.weightLog.entries, hasLength(1));
+          health.weightAccess = true;
+        }
+
         // The profile's switch turns it on.
         await b.store.enableHealthWeightImport();
         await settle();
