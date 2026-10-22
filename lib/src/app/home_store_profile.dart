@@ -397,6 +397,7 @@ mixin _HomeStoreProfilePart
 
   /// A re-plan outside the opt-in flows: a plugin failure is reported, never
   /// thrown at the caller (same fence as [_syncWithOsGuarded]).
+  @override
   Future<void> _rescheduleGuarded(String context) async {
     try {
       await _rescheduleStreakReminder();

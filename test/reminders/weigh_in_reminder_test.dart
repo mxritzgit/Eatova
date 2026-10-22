@@ -202,6 +202,29 @@ void main() {
     );
 
     test(
+      'eine Wiegung vor 07:30 streicht die heutige Erinnerung sofort',
+      // Monday 06:50.
+      () => withClock(Clock.fixed(DateTime(2026, 7, 13, 6, 50)), () async {
+        final notifications = _Notifications();
+        final store = _store(
+          LocalCache(InMemoryKeyValueStore(), 'user-a'),
+          notifications,
+        );
+        await store.setWeighInReminderEnabled(true);
+        bool today(NotificationSpec spec) =>
+            _weighIn(spec) &&
+            startOfDay(spec.scheduledFor) == startOfDay(clock.now());
+        expect(notifications.scheduled.last.where(today), hasLength(1));
+
+        await store.logWeight(80);
+        await pumpEventQueue();
+
+        expect(notifications.scheduled.last.where(_weighIn), isNotEmpty);
+        expect(notifications.scheduled.last.where(today), isEmpty);
+      }),
+    );
+
+    test(
       'eine Freigabe gilt fuer beide: die blockierte Erinnerung wird wieder '
       'aktiv und geplant',
       () => withClock(Clock.fixed(_wednesday), () async {

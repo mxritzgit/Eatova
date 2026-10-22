@@ -899,6 +899,10 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       },
     );
     HapticFeedback.lightImpact();
+    // Today's weigh-in reminder has nothing left to ask.
+    if (startOfDay(ts) == startOfDay(now)) {
+      unawaited(_rescheduleGuarded('reminders after a weigh-in'));
+    }
     // Only into this account's own health store, never another person's.
     if (_healthAccessAllowed) unawaited(health.writeWeight(kg, ts));
     // The once-per-session "saved here, syncs later" hint this commit may just
