@@ -71,8 +71,8 @@ Future<bool> confirmDiscardChanges(
 /// language (surf, 1 px lineStrong edge) that rises a few pixels while the
 /// route fades in. A scrollable message keeps the decision in view; on short,
 /// keyboard-constrained windows the actions join the scroll instead of
-/// overflowing. Material retains route naming, focus traversal and safe-area
-/// placement.
+/// overflowing, and so do three actions on a narrow phone with large text.
+/// Material retains route naming, focus traversal and safe-area placement.
 class EatovaDialog extends StatelessWidget {
   const EatovaDialog({
     super.key,
@@ -100,9 +100,12 @@ class EatovaDialog extends StatelessWidget {
         media.viewInsets.bottom -
         media.padding.vertical -
         _kCardInset.vertical;
-    final pinActions = availableHeight >= 400;
     final compactText =
         media.size.width < 360 && media.textScaler.scale(14) > 21;
+    // Three pinned actions at 320 px and large text left the message a strip
+    // its title filled; they join the scroll then, after the message.
+    final pinActions =
+        availableHeight >= 400 && !(compactText && actions.length > 2);
     final actionColumn = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,

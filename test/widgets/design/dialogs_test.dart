@@ -310,6 +310,69 @@ void main() {
       },
     );
   }
+  // The meal plan's past-day card (2026-10-22): three pinned actions at
+  // 320 px and 2x left the message a strip its title filled, and the body
+  // started below it. The actions then follow the message in the scroll.
+  testWidgets('three actions at 320px 2x keep the message in view', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final l = deL10n;
+    final body = l.mealPlanEatDayBody(
+      'Hähnchen-Reis-Bowl',
+      'Montag, 20. Oktober',
+    );
+    final labels = [
+      l.mealPlanEatOnPlannedDay('Mo., 20. Okt.'),
+      l.mealPlanEatOnToday,
+      l.commonCancel,
+    ];
+    await tester.pumpWidget(
+      localizedApp(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showEatovaDialog<void>(
+              context: context,
+              builder: (_) => EatovaDialog(
+                title: l.mealPlanEatDayTitle,
+                icon: Icons.event_available_outlined,
+                content: Text(body),
+                actions: [
+                  for (final (i, label) in labels.indexed)
+                    EatovaDialogAction(
+                      label: label,
+                      secondary: i > 0,
+                      autofocus: i == 2,
+                      onPressed: () {},
+                    ),
+                ],
+              ),
+            ),
+            child: const Text('Open dialog'),
+          ),
+        ),
+        brightness: brightness,
+        textScale: 2,
+      ),
+    );
+    await tester.tap(find.text('Open dialog'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    final viewport = tester.getRect(find.byType(SingleChildScrollView));
+    expect(tester.getRect(find.text(body)).bottom, lessThan(viewport.bottom));
+    for (final label in labels) {
+      await tester.ensureVisible(find.text(label));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.text(label)).bottom,
+        lessThan(viewport.bottom),
+      );
+    }
+  });
+
   testWidgets(
     'focused actions show a keyboard outline without adding a touch outline',
     (tester) async {
