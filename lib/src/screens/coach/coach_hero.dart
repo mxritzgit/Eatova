@@ -378,7 +378,8 @@ class _CardPill extends StatelessWidget {
 
 /// "Try asking": the coach's commands as chips, so they are discoverable
 /// without typing "/". `/recipe` and `/log` prepare the composer, `/plan`
-/// opens the training brief — exactly what the command menu does.
+/// opens the training brief and `/meal` the describe sheet — exactly what
+/// the command menu does.
 class _TryAsking extends StatelessWidget {
   const _TryAsking({required this.enabled, required this.onCommand});
 

@@ -73,6 +73,7 @@ Future<List<int>> _pump(
   TrendLocalData Function()? read,
   Listenable? changes,
   TrendTotalsLoader? loader,
+  VoidCallback? onAskCoach,
 }) async {
   final backfills = <int>[];
   await pumpLocalized(
@@ -85,6 +86,7 @@ Future<List<int>> _pump(
         read: read ?? _local,
       ),
       onBackfillSteps: (days) async => backfills.add(days),
+      onAskCoachAboutWeight: onAskCoach,
     ),
     locale: const Locale('de'),
     scaffold: false,
@@ -148,6 +150,36 @@ void main() {
       expect(training, contains('4 Trainings'));
       expect(training, contains('Ø 0,9 pro Woche'));
       expect(tester.takeException(), isNull);
+    }),
+  );
+
+  testWidgets(
+    'nur ein stagnierendes Gewicht bietet die Frage an den Coach an '
+    '(2026-10-22)',
+    (tester) => withClockAt(_now, () async {
+      WeightLogEntry at(int back, double kg) => WeightLogEntry(
+        timestamp: _day(back).add(const Duration(hours: 7)),
+        weightKg: kg,
+      );
+      for (final (name, weighIns, offered) in <(String, List<WeightLogEntry>?, bool)>[
+        ('falling 0.52 kg a week', null, false),
+        ('flat', [at(20, 80), at(10, 80.2), at(1, 80.1)], true),
+      ]) {
+        var asked = 0;
+        await _pump(
+          tester,
+          read: () => _local(weighIns: weighIns),
+          onAskCoach: () => asked++,
+        );
+        await _scrollTo(tester, 'trends-weight');
+        final pill = find.byKey(const ValueKey('trends-ask-coach-weight'));
+        expect(pill, offered ? findsOneWidget : findsNothing, reason: name);
+        if (!offered) continue;
+        await tester.ensureVisible(pill);
+        await tester.tap(pill);
+        await tester.pumpAndSettle();
+        expect(asked, 1, reason: name);
+      }
     }),
   );
 

@@ -4,7 +4,9 @@ _Repository data-flow update: 2026-09-14; Coach `/log`, workout logging and
 rest alerts: 2026-10-03; text and photo AI moved to Anthropic Claude:
 2026-10-08; describing a meal by text or voice: 2026-10-10; food preferences
 and the Coach's seven-day context: 2026-10-18; in-app AI consent, Coach
-answer reports and export as a file: 2026-10-19_
+answer reports and export as a file: 2026-10-19; Coach meal-plan and
+weekly-check context, recipe target, `/meal` and the remembered daily
+counter: 2026-10-22_
 
 > **Pending publication (2026-10-08):** the source now sends coach, meal-scan
 > and recipe-import requests to Anthropic instead of OpenRouter/Google. The
@@ -15,6 +17,8 @@ answer reports and export as a file: 2026-10-19_
 > separate health-data checkbox, its withdrawal under Settings → AI & data,
 > the consent and report logs, the food preferences and the Coach's seven-day
 > context described below are not yet in the published policy at eatova.de.
+> The same holds for the Coach changes of 2026-10-22 (planned meal titles
+> and the weekly check's state in the snapshot, the recipe target line).
 > App builds released before this change do not ask for the consent; the
 > consent is requested and enforced by the app, not yet by our server.
 
@@ -112,10 +116,17 @@ You enter and the app stores the following, tied to your account:
   estimate derived from your steps, where a step source is connected) and
   remaining macros, your diet and the foods you avoid or dislike (see "Food
   preferences"), an overview of the last seven days (daily calories and protein
-  against your targets, your weight trend and the number of workouts), per-slot
+  against your targets, your weight trend and the number of workouts), the
+  state of your weekly check (for example still collecting data, fitting, or
+  proposing a change, without its figures), the titles of the meals you
+  planned for today and tomorrow, per-slot
   nutrition totals and a short list of the meals you logged today (meal slot,
   name and calories, truncated to fit a fixed length limit). Recent messages from the same chat can
-  accompany the request. Before sending any reply text to the app, the server
+  accompany the request. The `/meal` command sends nothing to the coach: it
+  opens the meal description (see below) with your text. So the app can show
+  today's coach counter after a restart, it keeps the daily limit, the number
+  of questions used and the date in its encrypted local cache, without any
+  message content; signing out deletes it. Before sending any reply text to the app, the server
   buffers and checks the generated reply. Approved text is then delivered in
   short chunks over the streaming connection, or a safe refusal is returned.
   Only approved assistant replies or refusal messages are stored in chat history.
@@ -131,7 +142,9 @@ You enter and the app stores the following, tied to your account:
 - **Recipe generator (the `/recipe` command in the coach):** the dish you ask for is sent to
   the AI provider as a normal coach message and is stored in your chat history
   like any other. It carries your diet and the foods you avoid or dislike, so
-  the recipe can respect them, but not the rest of the snapshot. The recipe that comes back (title, description, ingredients,
+  the recipe can respect them, and one line naming the meal it is for and the
+  calories and protein still open today, which is stored with your message,
+  but not the rest of the snapshot. The recipe that comes back (title, description, ingredients,
   preparation, nutrition values) is stored with that chat message so the card
   survives a restart; it becomes one of your own recipes only if you confirm it.
   A picture of the dish is generated for the card by a separate **AI image
@@ -246,7 +259,8 @@ the device, before the photo is uploaded.
   - coach-chat messages — together with the profile/progress snapshot and any
     photo you attach, as described above — and the safety/topic classifier;
   - a recipe you ask the coach for, drafted from your wording plus your diet
-    and the foods you avoid or dislike (no other profile data, no photo);
+    and the foods you avoid or dislike, the meal it is for and today's open
+    calories and protein (no other profile data, no photo);
   - training requests, with the explicit brief and any selected-plan context;
   - a workout you describe with `/log`, read from your wording alone (no
     profile snapshot, no photo);

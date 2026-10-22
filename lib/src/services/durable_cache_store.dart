@@ -27,6 +27,7 @@ const durableCacheSlotNames = {
   'reminder_prompt',
   'health_prompt',
   'ai_consent',
+  'coach_quota',
 };
 
 bool isDurableCacheSlotKey(String key) {

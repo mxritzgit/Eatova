@@ -118,10 +118,15 @@ class TodayWeeklyResultCard extends StatelessWidget {
     super.key,
     required this.estimate,
     required this.onExplain,
+    this.onAskCoach,
   });
 
   final EnergyCheckEstimate estimate;
   final VoidCallback onExplain;
+
+  /// Prepares a question about the result in the Coach (2026-10-22); null
+  /// hides the pill.
+  final VoidCallback? onAskCoach;
 
   /// Rounded to 10: the estimate is not precise to the calorie.
   static int _tens(double kcal) => (kcal / 10).round() * 10;
@@ -196,12 +201,26 @@ class TodayWeeklyResultCard extends StatelessWidget {
             const SizedBox(height: 10),
             Align(
               alignment: AlignmentDirectional.centerStart,
-              child: SoftPillButton(
-                key: const ValueKey('today-weekly-result-more'),
-                icon: Icons.info_outline_rounded,
-                label: l10n.weeklyCheckResultMore,
-                tone: SoftPillTone.neutral,
-                onTap: onExplain,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  SoftPillButton(
+                    key: const ValueKey('today-weekly-result-more'),
+                    icon: Icons.info_outline_rounded,
+                    label: l10n.weeklyCheckResultMore,
+                    tone: SoftPillTone.neutral,
+                    onTap: onExplain,
+                  ),
+                  if (onAskCoach case final ask?)
+                    SoftPillButton(
+                      key: const ValueKey('today-weekly-result-ask-coach'),
+                      icon: Icons.chat_bubble_outline_rounded,
+                      label: l10n.coachAskAction,
+                      tone: SoftPillTone.neutral,
+                      onTap: ask,
+                    ),
+                ],
               ),
             ),
           ],

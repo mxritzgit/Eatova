@@ -55,6 +55,11 @@ class CoachChatViewHooks {
 
   /// A request the server cannot take gives its text back to the composer.
   void draftReturned(String text) {}
+
+  /// `/meal`: the describe sheet opens prefilled with [text] ('' opens it
+  /// empty). No coach request and no daily question; the sheet's Add is the
+  /// confirmation.
+  void mealDescribeRequested(String text) {}
 }
 
 /// Inputs from the screen's widget for the next request, read when it
@@ -62,7 +67,11 @@ class CoachChatViewHooks {
 /// and into the matching service call in [CoachChatController].
 @immutable
 class CoachRequestInputs {
-  const CoachRequestInputs({this.userContext, this.recipePreferences});
+  const CoachRequestInputs({
+    this.userContext,
+    this.recipePreferences,
+    this.recipeTargetLine,
+  });
 
   /// Compact snapshot of profile + daily balance for chat mode only. /recipe
   /// deliberately gets none (P5-02): the function's recipe branch never reads
@@ -72,6 +81,11 @@ class CoachRequestInputs {
   /// Diet, avoided foods and dislikes for /recipe (C3): the only profile data
   /// a recipe request carries, as its own narrow field. Null sends none.
   final FoodPreferences? recipePreferences;
+
+  /// /recipe's day target (2026-10-22): one localized line with the meal
+  /// slot and what is still open today. It rides inside the wish, because the
+  /// deployed function rejects unknown body fields. Null sends the wish alone.
+  final String? recipeTargetLine;
 }
 
 /// A send attempt that never reached the server — marker and retry job.
@@ -216,12 +230,8 @@ class CoachChatController extends ChangeNotifier {
     return quota != null && !quota.limitAssumed && quota.remaining <= 0;
   }
 
-  /// Remaining count for display only. Widgets need a number, so an unknown
-  /// state falls back to the default limit and claims neither "limit reached"
-  /// nor a concrete count. Blocking decisions use [quotaExhausted].
-  int get remainingForDisplay =>
-      _quota?.remaining ?? ChatQuotaSnapshot.standardTageslimit;
-
+  /// The limit for texts that need a number; an unknown state falls back to
+  /// the default. Blocking decisions use [quotaExhausted].
   int get limitForDisplay =>
       _quota?.dailyLimit ?? ChatQuotaSnapshot.standardTageslimit;
 
@@ -314,6 +324,27 @@ class CoachChatController extends ChangeNotifier {
           : _l10n.coachErrorNoSession;
     }
     return null;
+  }
+
+  /// The banner offers "Try again": the first load (offline first visit) or
+  /// the open conversation's history failed, and nothing else is running.
+  bool get canRetryLoad =>
+      _service != null &&
+      !_loading &&
+      !sending &&
+      _error != null &&
+      (_activeSessionId == null || _historyUnavailable);
+
+  /// Runs the failed load again: the bootstrap without a session, otherwise
+  /// the open conversation's history.
+  Future<void> retryLoad() async {
+    if (_disposed || !canRetryLoad) return;
+    final active = _activeSessionId;
+    if (active == null) {
+      await bootstrap();
+    } else {
+      await switchToSession(active);
+    }
   }
 
   // --- Lifecycle ---------------------------------------------------------------
@@ -439,7 +470,9 @@ class CoachChatController extends ChangeNotifier {
       try {
         return await svc.loadQuotaToday();
       } on CoachDataUnavailable {
-        return knownQuota;
+        // A cold start without the RPC falls back to what this account's
+        // memory knows for today; a used-up day then stays locked.
+        return knownQuota ?? await svc.rememberedQuotaToday();
       }
     }();
 
@@ -745,10 +778,34 @@ class CoachChatController extends ChangeNotifier {
     return match == null ? null : (match.group(1) ?? '').trim();
   }
 
+  /// `/meal` and the food after it ('' if none); null for any other text.
+  /// English in both app languages, like the other commands.
+  static String? mealTextFrom(String text) {
+    final match = RegExp(
+      r'^/meal(?:\s+([\s\S]*))?$',
+      caseSensitive: false,
+    ).firstMatch(text.trim());
+    return match == null ? null : (match.group(1) ?? '').trim();
+  }
+
+  /// Longest wish that still takes the /recipe target line: the line stays
+  /// well under 200 characters, so both remain below the server's
+  /// 1000-character input cap (`kCoachMaxInputChars`).
+  static const int _recipeTargetMaxWishChars = 800;
+
+  /// What a /recipe request sends: the wish, plus the day's target line when
+  /// there is one and the wish leaves room for it.
+  static String recipeRequestText(String wish, String? targetLine) {
+    final line = targetLine?.trim() ?? '';
+    if (line.isEmpty || wish.length > _recipeTargetMaxWishChars) return wish;
+    return '$wish\n$line';
+  }
+
   // --- Sending -------------------------------------------------------------------
 
   /// Sends [typedText] (and an optional, already scrubbed photo) to the
-  /// active conversation: a chat question, or /recipe, /plan or /log.
+  /// active conversation: a chat question, or /recipe, /plan or /log. /meal
+  /// sends nothing; it hands its text to the describe sheet.
   ///
   /// The question becomes a bubble at once; the answer, an error and the
   /// quota land only where they belong — the answer and error in the
@@ -777,6 +834,16 @@ class CoachChatController extends ChangeNotifier {
     // The service deliberately holds no BuildContext; `l10n` is handed in
     // fresh here, only for the fallback error texts.
     svc.l10n = l10n;
+    // /meal sends nothing and costs no question, hence before the quota
+    // check. With a photo it would become a paid question with a /meal
+    // caption, so that combination stays local.
+    final mealText = mealTextFrom(text);
+    if (mealText != null) {
+      _error = hasImage ? l10n.coachMealPhotoUnsupported : null;
+      _notify();
+      if (!hasImage) _hooks.mealDescribeRequested(mealText);
+      return;
+    }
     // Only a known-empty quota blocks. If unknown, the attempt goes to the
     // server, which answers 429 if needed (-> CoachQuotaExceeded below).
     if (quotaExhausted) {
@@ -946,6 +1013,7 @@ class CoachChatController extends ChangeNotifier {
         remaining: 0,
         dailyLimit: e.dailyLimit,
       );
+      _quotaMerken();
       _notify();
       if (!_matchesConversation(svc, sessionId, conversationRevision)) {
         _fehlschlagNachRueckkehr(
@@ -1150,7 +1218,16 @@ class CoachChatController extends ChangeNotifier {
       // (P5-06); an older deployment that sends none leaves it assumed.
       limitAssumed: dailyLimit == null && (_quota?.limitAssumed ?? true),
     );
+    _quotaMerken();
     _notify();
+  }
+
+  /// Hands the current quota to the account's memory, so the next cold start
+  /// knows the limit and a used-up day before the server answers
+  /// (2026-10-22). The service keeps only server-named limits.
+  void _quotaMerken() {
+    final quota = _quota;
+    if (quota != null && !_disposed) _service?.rememberQuota(quota);
   }
 
   /// Counterpart to `_laufendeSendungen++`; belongs in a `finally` so every
@@ -1268,6 +1345,10 @@ class CoachChatController extends ChangeNotifier {
     final imageScope = imageStore.scopeToken;
     final conversationRevision = _conversationRevision;
     final knownMessageIds = _messages.map((message) => message.id).toSet();
+    final inputs = _requestInputs();
+    // What the server receives and stores as the question: the wish plus
+    // the day's slot and open budget, when known.
+    final request = recipeRequestText(wish, inputs.recipeTargetLine);
     final userMsg = ChatMessage(
       id: 'local-${DateTime.now().microsecondsSinceEpoch}',
       role: ChatRole.user,
@@ -1285,16 +1366,17 @@ class CoachChatController extends ChangeNotifier {
     try {
       // No `userContext` (P5-02): the function's recipe mode never reads it,
       // so sending profile and daily balance would be data without a purpose.
-      // Only the food preferences, which the recipe prompt does read.
-      final preferences = _requestInputs().recipePreferences;
+      // Only the food preferences, which the recipe prompt does read, and
+      // the narrow target line inside [request].
+      final preferences = inputs.recipePreferences;
       final res = preferences == null
           ? await svc.requestRecipe(
-              wish,
+              request,
               sessionId: sessionId,
               locale: l10n.localeName,
             )
           : await svc.requestRecipeWithPreferences(
-              wish,
+              request,
               sessionId: sessionId,
               locale: l10n.localeName,
               preferences: preferences,
@@ -1366,6 +1448,7 @@ class CoachChatController extends ChangeNotifier {
         remaining: 0,
         dailyLimit: e.dailyLimit,
       );
+      _quotaMerken();
       _notify();
       if (!_matchesConversation(svc, sessionId, conversationRevision)) {
         _fehlschlagNachRueckkehr(
@@ -1374,7 +1457,7 @@ class CoachChatController extends ChangeNotifier {
           message: e.message,
           auftrag: auftrag,
           frage: userMsg,
-          stored: wish,
+          stored: request,
         );
         return;
       }
@@ -1388,7 +1471,7 @@ class CoachChatController extends ChangeNotifier {
           message: e.message,
           auftrag: auftrag,
           frage: userMsg,
-          stored: wish,
+          stored: request,
         );
         return;
       }

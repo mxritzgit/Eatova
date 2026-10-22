@@ -2,8 +2,8 @@ part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Composer capsule ([FieldCapsule]: field / fieldFocus, no ring): attach,
-// text, mic, send tile. A tappable hint sits above it when the quota runs
-// low.
+// text, mic, send tile. A tappable counter of today's questions sits above
+// it once the server's limit is known.
 // ---------------------------------------------------------------------------
 
 /// Client mirror of the coach-chat input cap, in UTF-16 code units.
@@ -49,7 +49,8 @@ class _Composer extends StatefulWidget {
     required this.focus,
     required this.enabled,
     required this.canSend,
-    required this.remaining,
+    required this.quota,
+    this.counterHidden = false,
     required this.draft,
     required this.listening,
     required this.dictationLanguage,
@@ -68,7 +69,13 @@ class _Composer extends StatefulWidget {
 
   /// Actions allowed (additionally: no send in flight).
   final bool canSend;
-  final int remaining;
+
+  /// Today's questions as the server reported them; null while unknown.
+  final ChatQuotaSnapshot? quota;
+
+  /// The command menu is open: it names each command's cost and needs the
+  /// height on a small screen with the keyboard up.
+  final bool counterHidden;
   final String draft;
   final bool listening;
 
@@ -110,12 +117,21 @@ class _ComposerState extends State<_Composer> {
     final t = context.t;
     final l10n = context.l10n;
     final hasText = widget.draft.trim().isNotEmpty;
-    final showQuotaHint = widget.remaining > 0 && widget.remaining <= 2;
+    // 2026-10-22: always on once the server named its limit, so every
+    // question visibly costs one. An unknown quota and an assumed limit
+    // show no number: either would be a claim the app cannot back.
+    final quota = widget.quota;
+    final counter =
+        quota != null && !quota.limitAssumed && !widget.counterHidden
+        ? quota
+        : null;
     // P5-06b: a count of 0 stopped meaning "blocked". A merely ASSUMED daily
     // limit keeps the composer typable (fail-open, P5-06), and only [enabled]
     // carries that decision — so the placeholder names the limit exactly when
     // the limit is what locks the field, instead of contradicting it.
-    final limitReached = widget.remaining <= 0 && !widget.enabled;
+    final limitReached =
+        (quota?.remaining ?? ChatQuotaSnapshot.standardTageslimit) <= 0 &&
+        !widget.enabled;
     // P5-03: the draft is over the server's cap. Reachable only from code
     // (dictation writes the controller directly); typing stops at the cap.
     final overLimit = !_coachInputLimit.fits(widget.draft);
@@ -131,11 +147,12 @@ class _ComposerState extends State<_Composer> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          if (showQuotaHint)
+          if (counter != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
               child: _QuotaHint(
-                remaining: widget.remaining,
+                remaining: counter.remaining.clamp(0, counter.dailyLimit),
+                limit: counter.dailyLimit,
                 onTap: widget.onQuotaTap,
               ),
             ),
@@ -259,12 +276,18 @@ class _ComposerState extends State<_Composer> {
   }
 }
 
-/// Subtle status hint above the composer once only 1–2 coach questions are
-/// left. Tapping opens the quota sheet.
+/// Subtle counter of today's coach questions above the composer ("3/5 heute
+/// frei"); the dot appears once only 2 or fewer are left. Tapping opens the
+/// quota sheet.
 class _QuotaHint extends StatelessWidget {
-  const _QuotaHint({required this.remaining, required this.onTap});
+  const _QuotaHint({
+    required this.remaining,
+    required this.limit,
+    required this.onTap,
+  });
 
   final int remaining;
+  final int limit;
   final VoidCallback onTap;
 
   @override
@@ -287,16 +310,21 @@ class _QuotaHint extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration:
-                        BoxDecoration(shape: BoxShape.circle, color: t.lime),
-                  ),
-                  const SizedBox(width: 7),
+                  if (remaining <= 2) ...<Widget>[
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration:
+                          BoxDecoration(shape: BoxShape.circle, color: t.lime),
+                    ),
+                    const SizedBox(width: 7),
+                  ],
                   Flexible(
                     child: Text(
-                      l10n.coachQuotaHint(remaining),
+                      l10n.coachQuotaCounter(remaining, limit),
+                      // "3/5" reads as a fraction; the label says it.
+                      semanticsLabel:
+                          l10n.coachQuotaCounterLabel(remaining, limit),
                       style: AppType.ui(
                         11.5,
                         weight: FontWeight.w600,
@@ -735,6 +763,7 @@ class _CoachInfoSheet extends StatelessWidget {
               _InfoBullet(l10n.coachInfoBulletWeight),
               _InfoBullet(l10n.coachInfoBulletMacros),
               _InfoBullet(l10n.coachInfoBulletMeals),
+              _InfoBullet(l10n.coachInfoBulletPlan),
               _InfoBullet(l10n.foodPrefsCoachInfoBullet),
               const SizedBox(height: 12),
               Text(

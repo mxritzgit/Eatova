@@ -744,7 +744,7 @@ void main() {
         kontingent:
             const ChatQuotaSnapshot(used: 3, remaining: 2, dailyLimit: 5),
       );
-      expect(_quotaZeile(tester, 'Noch 2 Fragen heute'), findsOneWidget,
+      expect(_quotaZeile(tester, '2/5 heute frei'), findsOneWidget,
           reason: 'Ausgangslage: der Server hat 2 genannt');
 
       svc.auftrag!.complete(const CoachChatReply(
@@ -762,7 +762,7 @@ void main() {
       expect(_composerTippbar(tester), isTrue,
           reason: 'ein gesperrter Composer nimmt die naechste Frage nicht mehr '
               'an, obwohl der Server sie beantworten wuerde');
-      expect(_quotaZeile(tester, 'Noch 2 Fragen heute'), findsOneWidget,
+      expect(_quotaZeile(tester, '2/5 heute frei'), findsOneWidget,
           reason: '„behalte deinen Zaehler" heisst: dieselbe Zahl wie vorher');
     });
   });

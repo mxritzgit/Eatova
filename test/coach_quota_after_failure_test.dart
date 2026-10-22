@@ -115,7 +115,7 @@ Future<void> _ask(WidgetTester tester, _Coach coach, String text) async {
     surfaceSize: const Size(402, 781),
   );
   await tester.pump(const Duration(milliseconds: 500));
-  expect(find.text(deL10n.coachQuotaHint(2)), findsOneWidget);
+  expect(find.text(deL10n.coachQuotaCounter(2, 5)), findsOneWidget);
   await tester.enterText(find.byKey(const ValueKey('coach-input')), text);
   await tester.pump();
   await tester.tap(find.byKey(const ValueKey('coach-send')));
@@ -138,8 +138,8 @@ void main() {
 
       expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
       expect(coach.quotaCalls, 2, reason: 'asked once more after the failure');
-      expect(find.text(deL10n.coachQuotaHint(1)), findsOneWidget);
-      expect(find.text(deL10n.coachQuotaHint(2)), findsNothing);
+      expect(find.text(deL10n.coachQuotaCounter(1, 5)), findsOneWidget);
+      expect(find.text(deL10n.coachQuotaCounter(2, 5)), findsNothing);
     });
   }
 }

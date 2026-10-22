@@ -44,6 +44,7 @@ TodayScreen _today({
   EnergyCheckEstimate? result,
   VoidCallback? onOpenFoodLog,
   Future<void> Function(double kg)? onLogWeight,
+  VoidCallback? onAskCoach,
 }) => TodayScreen(
   userName: 'Moritz',
   profile: const UserProfile(weightKg: 84),
@@ -56,6 +57,7 @@ TodayScreen _today({
   latestWeightKg: 82.4,
   onLogWeight: onLogWeight ?? (_) async {},
   onOpenFoodLog: onOpenFoodLog,
+  onAskCoachAboutCheck: onAskCoach,
 );
 
 Future<void> _pump(
@@ -181,6 +183,18 @@ void main() {
 
     await _tap(tester, 'today-weekly-result-more');
     expect(find.byKey(const ValueKey('weekly-check-explainer')), findsOneWidget);
+  });
+
+  testWidgets('das Wochen-Ergebnis bereitet eine Coach-Frage vor, wenn es '
+      'einen Coach gibt (2026-10-22)', (tester) async {
+    const ask = ValueKey('today-weekly-result-ask-coach');
+    await _pump(tester, _today(result: _fits));
+    expect(find.byKey(ask), findsNothing, reason: 'signed out: no coach');
+
+    var asked = 0;
+    await _pump(tester, _today(result: _fits, onAskCoach: () => asked++));
+    await _tap(tester, 'today-weekly-result-ask-coach');
+    expect(asked, 1);
   });
 
   testWidgets('an einer Grenze sagt die Karte das, Englisch mit Punkt', (

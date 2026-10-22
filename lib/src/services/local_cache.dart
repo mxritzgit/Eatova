@@ -327,6 +327,18 @@ class LocalCache {
   /// Missing or corrupt -> null (no consent known).
   Future<Map<String, dynamic>?> readAiConsent() => _readJson(_aiConsentKey);
 
+  // ---- Coach quota (2026-10-22) -------------------------------------------
+  // The account's last known Coach quota (server-named daily limit, questions
+  // used, UTC day), so a cold start knows the limit and a used-up day before
+  // the server answers. No message content; cleared with the other slots.
+  String get _coachQuotaKey => 'eatova.v1.coach_quota.$_userId';
+
+  Future<void> writeCoachQuota(Map<String, dynamic> record) =>
+      _writeJson(_coachQuotaKey, record);
+
+  /// Missing or corrupt -> null (nothing remembered).
+  Future<Map<String, dynamic>?> readCoachQuota() => _readJson(_coachQuotaKey);
+
   // ---- Profile ------------------------------------------------------------
 
   // The wire format (userProfileToJson/-FromJson) lives in sync_outbox.dart:
@@ -1020,6 +1032,7 @@ class LocalCache {
       await _store.remove(_reminderTimeKey);
       await _store.remove(_reminderPromptKey);
       await _store.remove(_aiConsentKey);
+      await _store.remove(_coachQuotaKey);
       await _store.remove(_healthConnectKey);
       await _store.remove(_healthPromptKey);
       await _store.remove(_loggedMealsKey);

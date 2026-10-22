@@ -85,7 +85,7 @@ class MealAnalysisScreen extends StatelessWidget {
     this.previousDayMeals = const <LoggedMeal>[],
     this.onRepeatSlot,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
-       productService = productService ?? _defaultProductService(),
+       productService = productService ?? defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
        cameraLauncher = cameraLauncher ?? const InAppMealCameraLauncher(),
        selectedDate = DateUtils.dateOnly(selectedDate ?? clock.now()),
@@ -101,8 +101,9 @@ class MealAnalysisScreen extends StatelessWidget {
   // Runs on EVERY rebuild, so it stays strictly synchronous and
   // allocation-free: no `await`, no SharedPreferences, no `Supabase.instance`.
   // Credentials are decided by the search request itself; only the hard local
-  // kill switch `--dart-define=OFF_MIRROR_URL=` lives here.
-  static ProductLookupService _defaultProductService() {
+  // kill switch `--dart-define=OFF_MIRROR_URL=` lives here. Public for the
+  // Coach's /meal path, which searches the same way.
+  static ProductLookupService defaultProductService() {
     const off = OpenFoodFactsProductService();
     if (SearchConfig.mirrorHardDisabled) return off;
     return const FallbackProductService(MeilisearchProductService(), off);

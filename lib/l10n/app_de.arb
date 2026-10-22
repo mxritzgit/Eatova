@@ -690,12 +690,6 @@
       "max": { "type": "int" }
     }
   },
-  "coachQuotaHint": "{count, plural, one{Noch 1 Frage heute} other{Noch {count} Fragen heute}}",
-  "@coachQuotaHint": {
-    "placeholders": {
-      "count": { "type": "int" }
-    }
-  },
   "coachMicLabelListening": "Spracheingabe beenden",
   "coachMicLabelIdle": "Spracheingabe",
   "coachSendLabel": "Senden",
@@ -2172,7 +2166,7 @@
   "coachPlanCommandDescription": "Erstellt einen Trainingsplan zum Prüfen und Übernehmen",
   "coachPlanEmptyHint": "Beschreibe nach /plan dein Ziel, deine Trainingstage und dein Equipment.",
   "coachPlanPhotoUnsupported": "Trainingspläne entstehen aus Text. Sende deinen /plan-Wunsch ohne Foto.",
-  "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept, /plan für einen Trainingsplan oder /log für ein erledigtes Training.",
+  "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept, /plan für einen Trainingsplan, /log für ein erledigtes Training oder /meal für ein Essen.",
   "coachPlanCardEyebrow": "Trainingsplan · Entwurf",
   "coachPlanCardMoreExercises": "+{count} weitere",
   "@coachPlanCardMoreExercises": {
@@ -3816,5 +3810,29 @@
   "todayTrendsStepsLabel": "Schritte",
   "todayTrendsEmpty": "Sobald ein Tag vollständig eingetragen ist, siehst du hier deinen Schnitt.",
   "todayTrendsOpenHint": "Öffnet Kalorien, Makros, Schritte, Gewicht und Training über bis zu 6 Monate",
-  "foodTrendsButtonSemantics": "Trends öffnen"
+  "foodTrendsButtonSemantics": "Trends öffnen",
+  "coachMealTry": "Trag mein Essen ein",
+  "coachMealCommandDescription": "Öffnet „Beschreiben“ mit deinem Text – du prüfst und fügst hinzu",
+  "coachMealPhotoUnsupported": "/meal nimmt nur Text. Ein Foto von deinem Essen scannst du im Food-Tab.",
+  "coachCommandCostOne": "Kostet 1 Coach-Frage",
+  "coachCommandCostNone": "Kostet keine Coach-Frage",
+  "coachQuotaCounter": "{remaining}/{limit} heute frei",
+  "@coachQuotaCounter": {"placeholders": {"remaining": {"type": "int"}, "limit": {"type": "int"}}},
+  "coachQuotaCounterLabel": "{remaining} von {limit} Coach-Fragen heute frei",
+  "@coachQuotaCounterLabel": {"placeholders": {"remaining": {"type": "int"}, "limit": {"type": "int"}}},
+  "coachRecipeTargetSlot": "(Für: {slot})",
+  "@coachRecipeTargetSlot": {"description": "Appended to a /recipe wish and sent to the AI; shown in the chat history.", "placeholders": {"slot": {"type": "String"}}},
+  "coachRecipeTargetBudget": "(Für: {slot} · heute noch offen: {kcal} kcal)",
+  "@coachRecipeTargetBudget": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}}},
+  "coachRecipeTargetBudgetProtein": "(Für: {slot} · heute noch offen: {kcal} kcal, {protein} g Protein)",
+  "@coachRecipeTargetBudgetProtein": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}, "protein": {"type": "int"}}},
+  "coachLoadRetry": "Erneut versuchen",
+  "coachSpeakerYou": "Du",
+  "coachSpeakerCoach": "Coach",
+  "coachRecipeSavedOpen": "Öffnen",
+  "coachInfoBulletPlan": "Die Namen der Gerichte, die du für heute und morgen geplant hast, und wo dein Wochen-Check steht (ohne seine Zahlen)",
+  "@coachInfoBulletPlan": {"description": "Coach info sheet, list of what each question sends to the AI provider."},
+  "coachAskAction": "Coach fragen",
+  "coachAskWeeklyCheck": "Was heißt mein Wochen-Check für diese Woche?",
+  "coachAskWeightStall": "Warum stagniert mein Gewicht?"
 }

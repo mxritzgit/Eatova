@@ -73,6 +73,7 @@ List<String> _c8Block(AppLocalizations l10n) => <String>[
       l10n.coachInfoBulletWeight,
       l10n.coachInfoBulletMacros,
       l10n.coachInfoBulletMeals,
+      l10n.coachInfoBulletPlan,
       l10n.foodPrefsCoachInfoBullet,
       l10n.coachInfoProvider,
       l10n.coachReportHint,

@@ -100,6 +100,7 @@ void main() {
         await c.writeReminderTime(const ReminderTime(21, 30));
         await c.writeReminderPromptAnswered();
         await c.writeAiConsent(const <String, dynamic>{'granted': false});
+        await c.writeCoachQuota(const <String, dynamic>{'used': 1});
         await c.writeHealthConnectEnabled(true);
         await c.writeHealthPrompt('asked');
         await c.writeDailyActivity(const {});
@@ -142,6 +143,9 @@ void main() {
           // Renamed, every account is asked for AI consent again (and the
           // old slot would outlive the cleanup).
           'eatova.v1.ai_consent.user-42',
+          // Renamed, a cold start forgets a used-up Coach day until the
+          // server answers (and the old slot would outlive the cleanup).
+          'eatova.v1.coach_quota.user-42',
           'eatova.v1.health_connect_enabled.user-42',
           'eatova.v1.health_prompt.user-42',
           'eatova.v1.daily_activity.user-42',

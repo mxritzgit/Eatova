@@ -448,13 +448,37 @@ class _RecipeAddSheet extends StatelessWidget {
   }
 }
 
+/// Below this many open kcal a budget would only squeeze the recipe; the
+/// target line then names the slot alone.
+const int _minTargetKcal = 200;
+
+/// Open protein worth aiming a recipe at.
+const int _minTargetProteinG = 10;
+
+/// The /recipe target line for today's [brief] (2026-10-22): the meal slot
+/// the recipe is for and, while the day still has room, the calories and
+/// protein still open. It travels inside the wish and shows in the chat
+/// history, so it is localized like any visible text.
+String coachRecipeTargetLine(CoachDayBrief brief, AppLocalizations l10n) {
+  final slot = brief.mealSlot.label(l10n);
+  final kcal = brief.remainingKcal;
+  if (kcal < _minTargetKcal) return l10n.coachRecipeTargetSlot(slot);
+  final protein = brief.proteinLeftG;
+  return protein >= _minTargetProteinG
+      ? l10n.coachRecipeTargetBudgetProtein(slot, kcal, protein)
+      : l10n.coachRecipeTargetBudget(slot, kcal);
+}
+
 /// Every slash command, in menu and chip order: the one list the command
 /// menu, its visibility check and the hero chips read. The tokens are English
 /// in both app languages.
 enum _CoachCommand {
   recipe('/recipe', Icons.restaurant_rounded),
   plan('/plan', Icons.fitness_center_rounded),
-  log('/log', Icons.playlist_add_check_rounded);
+  log('/log', Icons.playlist_add_check_rounded),
+
+  /// Opens the describe sheet instead of asking the coach (2026-10-22).
+  meal('/meal', Icons.edit_note_rounded);
 
   const _CoachCommand(this.token, this.icon);
 
@@ -465,13 +489,20 @@ enum _CoachCommand {
     _CoachCommand.recipe => l10n.coachCommandRecipeDescription,
     _CoachCommand.plan => l10n.coachPlanCommandDescription,
     _CoachCommand.log => l10n.coachWorkoutLogCommandDescription,
+    _CoachCommand.meal => l10n.coachMealCommandDescription,
   };
+
+  /// What the command costs of today's questions, said in the menu.
+  String cost(AppLocalizations l10n) => this == _CoachCommand.meal
+      ? l10n.coachCommandCostNone
+      : l10n.coachCommandCostOne;
 
   /// The start state's "Try asking" chip.
   String tryLabel(AppLocalizations l10n) => switch (this) {
     _CoachCommand.recipe => l10n.coachTryRecipe,
     _CoachCommand.plan => l10n.coachTryPlan,
     _CoachCommand.log => l10n.coachWorkoutLogTry,
+    _CoachCommand.meal => l10n.coachMealTry,
   };
 
   /// Whether the menu offers this command for a started [draft] ("/l").
@@ -515,7 +546,9 @@ class _CommandSuggestions extends StatelessWidget {
                       _CommandSuggestion(
                         command: command.token,
                         compact: compact,
-                        description: command.description(l10n),
+                        description:
+                            '${command.description(l10n)} · '
+                            '${command.cost(l10n)}',
                         icon: command.icon,
                         onPick: onPick,
                       ),

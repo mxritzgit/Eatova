@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +9,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/services/coach_quota_reset.dart';
 
 import 'support/harness.dart';
 
@@ -39,6 +41,9 @@ class _Backend {
   int quotaCalls = 0;
   int sessionCalls = 0;
 
+  /// The `p_daily_limit` of every quota RPC, in order.
+  final List<Object?> quotaLimits = <Object?>[];
+
   /// From which `get_chat_quota_today` call on the RPC fails (1-based).
   int quotaScheitertAbCall = 1 << 30;
 
@@ -58,6 +63,7 @@ class _Backend {
     final path = req.url.path;
     if (path.endsWith('/rpc/get_chat_quota_today')) {
       quotaCalls++;
+      quotaLimits.add((jsonDecode(req.body) as Map)['p_daily_limit']);
       if (quotaCalls >= quotaScheitertAbCall) {
         return _json(req, {'message': 'rpc kaputt'}, 500);
       }
@@ -147,6 +153,23 @@ Future<void> _wechsleTab(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 500));
 }
 
+/// The account cache slot of [CoachQuotaMemory], in memory.
+class _Memory implements CoachQuotaMemory {
+  _Memory([this.record]);
+
+  Map<String, dynamic>? record;
+
+  @override
+  Future<Map<String, dynamic>?> readCoachQuota() async => record;
+
+  @override
+  Future<void> writeCoachQuota(Map<String, dynamic> value) async =>
+      record = value;
+}
+
+/// Noon UTC: the quota day is the same in every device zone of the run.
+final DateTime _jetzt = DateTime.utc(2026, 10, 22, 12);
+
 bool _composerTippbar(WidgetTester tester) =>
     tester
         .widget<TextField>(find.byKey(const ValueKey('coach-input')))
@@ -230,5 +253,74 @@ void main() {
       expect(_composerTippbar(tester), isTrue,
           reason: 'ohne Heilungspfad bliebe _activeSessionId fuer immer null');
     });
+
+    testWidgets(
+        'offline beim ersten Besuch: „Erneut versuchen" im Banner laedt die '
+        'Session, ohne Tab-Wechsel', (tester) async {
+      final backend = _Backend()
+        ..sessionKlapptAbCall = 2
+        ..quotaZeile = const {'used': 0, 'remaining': 5, 'daily_limit': 5};
+      await _pumpHost(tester, _service(backend));
+      expect(find.text('Konnte keine Coach-Session laden.'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('coach-load-retry')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(backend.sessionCalls, 2);
+      expect(find.byKey(const ValueKey('coach-load-retry')), findsNothing);
+      expect(_composerTippbar(tester), isTrue);
+    });
+  });
+
+  group('Kaltstart: das gemerkte Kontingent des Kontos (2026-10-22)', () {
+    final heute = coachQuotaDay(_jetzt);
+    final gestern = coachQuotaDay(_jetzt.subtract(const Duration(days: 1)));
+    for (final (name, offline, gemerkt, gesperrt, zaehler)
+        in <(String, bool, Map<String, dynamic>, bool, String?)>[
+      (
+        'ohne Netz, heute aufgebraucht: gesperrt wie vor dem Neustart',
+        true,
+        {'daily_limit': 5, 'used': 5, 'day': heute},
+        true,
+        '0/5 heute frei',
+      ),
+      (
+        'ohne Netz, gemerkt ist gestern: unbekannt, offen',
+        true,
+        {'daily_limit': 5, 'used': 5, 'day': gestern},
+        false,
+        null,
+      ),
+      (
+        'mit Netz: die RPC fragt mit dem gemerkten Server-Limit',
+        false,
+        {'daily_limit': 10, 'used': 2, 'day': gestern},
+        true,
+        '0/10 heute frei',
+      ),
+    ]) {
+      testWidgets(name, (tester) => withClock(Clock.fixed(_jetzt), () async {
+        final backend = _Backend()
+          ..quotaZeile = const {'used': 10, 'remaining': 0, 'daily_limit': 10};
+        if (offline) backend.quotaScheitertAbCall = 1;
+        final memory = _Memory(gemerkt);
+        final svc = _service(backend)..quotaMemory = memory;
+        await _pumpHost(tester, svc);
+
+        expect(_composerTippbar(tester), !gesperrt, reason: name);
+        expect(
+          zaehler == null ? find.byKey(const ValueKey('coach-quota-hint'))
+              : find.text(zaehler),
+          zaehler == null ? findsNothing : findsOneWidget,
+          reason: name,
+        );
+        if (!offline) {
+          expect(backend.quotaLimits, <Object?>[10]);
+          expect(memory.record, {'daily_limit': 10, 'used': 10, 'day': heute},
+              reason: 'the answer is kept for the next start');
+        }
+      }));
+    }
   });
 }

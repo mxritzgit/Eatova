@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../auth/auth_repository.dart';
 import '../models/coach_day_brief.dart';
 import '../models/logged_meal.dart';
+import '../models/fitness_recipe.dart';
 import '../models/macro_progress.dart';
 import '../models/recipe_pick.dart';
 import '../models/training_history.dart';
@@ -13,6 +14,8 @@ import '../models/training_insights.dart' show personalRecordCounts;
 import '../models/training_log.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
+import '../models/user_profile.dart'
+    show UserProfileWeightPlan, WeightGoal;
 import '../services/crash_reporter.dart';
 import '../services/data_export.dart';
 import '../services/day_math.dart';
@@ -37,6 +40,7 @@ import '../services/trend_report.dart';
 import '../services/trend_service.dart';
 import '../services/uuid.dart';
 import '../screens/coach/coach_chat_screen.dart';
+import '../screens/coach/coach_meal_describe.dart';
 import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
@@ -174,6 +178,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   );
   final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
   final ValueNotifier<int> _logDraftRequest = ValueNotifier<int>(0);
+
+  /// A prepared Coach question from Today or Trends ([_askCoach]).
+  final ValueNotifier<int> _questionDraftRequest = ValueNotifier<int>(0);
+  String _coachQuestion = '';
   StreamSubscription<String>? _notificationTaps;
 
   /// A tapped rest alert waits here until the tabs show (see
@@ -284,6 +292,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _addSlotRequest.dispose();
     _planDraftRequest.dispose();
     _logDraftRequest.dispose();
+    _questionDraftRequest.dispose();
     _localHours.dispose();
     _aiTrustBinding?.unbind(_aiTrust);
     _aiTrust.dispose();
@@ -969,6 +978,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onChangeReminderTime: (time) => unawaited(_store.setReminderTime(time)),
         energyCheckProgress: today ? _store.energyCheckProgress : null,
         energyCheckResult: today ? _store.energyCheckResult : null,
+        onAskCoachAboutCheck: widget.sync == null
+            ? null
+            : () => _askCoach(context.l10n.coachAskWeeklyCheck),
         // The weight chip: the profile's weigh-in path, for this session.
         latestWeightKg: _store.weightLog.latest?.weightKg,
         onLogWeight: today ? (kg) => _logWeightFromToday(ownerStore, kg) : null,
@@ -1023,6 +1035,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           onBackfillSteps: (days) => _isStoreSessionCurrent(ownerStore)
               ? ownerStore.backfillStepsForTrends(days)
               : Future<void>.value(),
+          // Holding the weight is that goal's aim, not a stall to ask about.
+          onAskCoachAboutWeight:
+              widget.sync == null ||
+                  ownerStore.profile.effectiveWeightGoal == WeightGoal.maintain
+              ? null
+              : () => _askCoach(context.l10n.coachAskWeightStall),
         ),
       ),
     );
@@ -1576,6 +1594,71 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _store.setTab(_tabCoach);
   }
 
+  /// A prepared Coach question from Today or Trends (2026-10-22): it lands in
+  /// the composer unsent, so asking stays the user's tap.
+  void _askCoach(String question) {
+    if (!_isStoreSessionCurrent(_store)) return;
+    _coachQuestion = question;
+    _questionDraftRequest.value++;
+    _store.setTab(_tabCoach);
+  }
+
+  /// `/meal` in the Coach (2026-10-22): the Food tab's describe sheet for
+  /// today on this account's add path. True once a meal was added.
+  Future<bool> _describeMealFromCoach(BuildContext context, String text) {
+    final ownerStore = _store;
+    final day = DateUtils.dateOnly(clock.now());
+    return describeMealFromCoach(
+      context,
+      text: text,
+      productService:
+          widget.productService ?? MealAnalysisScreen.defaultProductService(),
+      favorites: () => ownerStore.favorites,
+      onAdd: (result, slot) async {
+        if (!_isStoreSessionCurrent(ownerStore)) {
+          throw StateError('Meal owner changed');
+        }
+        return ownerStore.addResultToDailyTotal(
+          result,
+          slot: slot,
+          foodDate: day,
+          startedToday: true,
+        );
+      },
+      onUpdateMeal: ownerStore.updateLoggedMealResult,
+      isFavorite: ownerStore.isFavorite,
+      onToggleFavorite: ownerStore.toggleFavorite,
+    );
+  }
+
+  /// "Open" on a saved Coach recipe's toast: its detail, adding to today on
+  /// this account's path. Editing stays in the Recipes tab.
+  void _openCoachRecipe(BuildContext context, FitnessRecipe recipe) {
+    final ownerStore = _store;
+    if (!_isStoreSessionCurrent(ownerStore)) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecipeDetailScreen(
+          recipe: recipe,
+          onAddMeal: (result, slot) async {
+            if (!_isStoreSessionCurrent(ownerStore)) {
+              throw StateError('Meal owner changed');
+            }
+            await ownerStore.addResultToDailyTotal(
+              result,
+              slot: slot,
+              foodDate: DateUtils.dateOnly(clock.now()),
+            );
+          },
+          avoidances: ownerStore.profile.foodAvoidances,
+          photoInput: widget.photoInput,
+          productService: widget.productService,
+          isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
+        ),
+      ),
+    );
+  }
+
   /// A tapped rest alert (spec A5) opens Training and, with a saved
   /// workout, the player on its active set. Only for the signed-in account
   /// this store belongs to.
@@ -1887,6 +1970,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     listenable: Listenable.merge(<Listenable>[
       _planDraftRequest,
       _logDraftRequest,
+      _questionDraftRequest,
     ]),
     builder: (context, _) => StoreSelector(
       // Plus the hour: greeting and meal slot move on with the clock alone.
@@ -1908,6 +1992,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         _store.weightLog,
         _store.dailyActivity,
         DateUtils.dateOnly(clock.now()),
+        // The plan titles and the weekly check's state (2026-10-22).
+        _store.mealPlansRevision,
+        _store.energyCheckSourcesReady,
         // Deleting in the recipes tab must re-enable the card button —
         // already while the delete sits in its undo window (2026-09-02).
         _store.userRecipes,
@@ -1971,6 +2058,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           trainingHistoryAuthoritative: _store.trainingHistoryAuthoritative,
           trainingHistory: _store.trainingHistory,
           logDraftRequest: _logDraftRequest.value,
+          onDescribeMeal: widget.sync == null
+              ? null
+              : (text) => _describeMealFromCoach(context, text),
+          onOpenRecipe: widget.sync == null
+              ? null
+              : (recipe) => _openCoachRecipe(context, recipe),
+          questionDraftRequest: _questionDraftRequest.value,
+          questionDraft: _coachQuestion,
         );
       },
     ),

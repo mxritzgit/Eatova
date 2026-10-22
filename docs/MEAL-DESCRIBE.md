@@ -13,7 +13,10 @@ a product matches. Nothing is written to the diary before the user taps Add.
 
 ## Flow
 
-1. **Entry:** Food → add sheet → entry-method card → "Describe".
+1. **Entry:** Food → add sheet → entry-method card → "Describe". Since
+   2026-10-22 also the Coach's `/meal` command and chip: they open the same
+   sheet for today, prefilled with the text after the command, without a
+   Coach request or a daily Coach question (`describeMealFromCoach`).
 2. **Input sheet:** a text field (the keyboard's own dictation works on every
    platform) plus Eatova's mic button where `SpeechInput` is supported. The
    transcript streams into the field (iOS) or arrives at the end (Android
@@ -32,7 +35,8 @@ a product matches. Nothing is written to the diary before the user taps Add.
    result) and "Add". The slot hint from the sentence preselects the slot.
 6. **Add:** `MealDescriptionDraft.toResult()` builds a `MealAnalysisResult`
    with one `MealComponent` per line and is logged through the add sheet's
-   existing `_logAndMirror` path.
+   existing `_logAndMirror` path (from the Coach: the store's add path for
+   the day the sheet opened on).
 
 ## Wire contract: `analyze-meal` describe mode
 

@@ -82,6 +82,7 @@ class TodayScreen extends StatelessWidget {
     this.isCompleteDay,
     this.onFillYesterday,
     this.energyCheckResult,
+    this.onAskCoachAboutCheck,
   });
 
   final String userName;
@@ -194,6 +195,10 @@ class TodayScreen extends StatelessWidget {
   /// (`HomeStore.energyCheckResult`, once a week); today only, and never
   /// beside the proposal card, which speaks for the check then.
   final EnergyCheckEstimate? energyCheckResult;
+
+  /// "Ask the coach" on the result card: a prepared question in the Coach's
+  /// composer, unsent (2026-10-22). Null hides it.
+  final VoidCallback? onAskCoachAboutCheck;
 
   @override
   Widget build(BuildContext context) {
@@ -313,6 +318,7 @@ class TodayScreen extends StatelessWidget {
                 TodayWeeklyResultCard(
                   estimate: result,
                   onExplain: explainCheck,
+                  onAskCoach: onAskCoachAboutCheck,
                 ),
               ],
               if (showCheckCard) ...<Widget>[

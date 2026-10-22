@@ -79,6 +79,20 @@ mixin _HomeStoreEnergyCheckPart
     return energyCheckSourcesReady ? _energyCheckProgress : null;
   }
 
+  /// The check's state for the Coach context (2026-10-22), on the same
+  /// sources and gates as the cards; null where it does not apply.
+  @override
+  String? _energyCheckContext() {
+    if (!profile.onboardingCompleted) return null;
+    if (profile.manualEnergy) return coachEnergyCheckLine(manualGoal: true);
+    _refreshEnergyCheck();
+    if (!energyCheckSourcesReady) return null;
+    return coachEnergyCheckLine(
+      progress: _energyCheckProgress,
+      estimate: _energyCheckEstimate,
+    );
+  }
+
   /// Recomputes proposal and progress when an input changed.
   void _refreshEnergyCheck() {
     if (!energyCheckSourcesReady) return;

@@ -147,6 +147,77 @@ class CoachChatService {
     if (limit != null && limit > 0) _serverTageslimit = limit;
   }
 
+  /// This account's quota memory; null (previews, tests, no cache) keeps
+  /// nothing between app starts.
+  CoachQuotaMemory? quotaMemory;
+
+  /// The memory seeded [serverDailyLimit] already in this app run.
+  bool _gedaechtnisGelesen = false;
+
+  /// Upper bound for a memory read: the account cache may still be opening,
+  /// and the quota load must not wait on it for long.
+  static const Duration _gedaechtnisFrist = Duration(seconds: 2);
+
+  /// The remembered record, or null when there is none or it is unreadable.
+  Future<({int dailyLimit, int used, String day})?> _gemerktLesen() async {
+    final memory = quotaMemory;
+    if (memory == null) return null;
+    try {
+      final json = await memory.readCoachQuota().timeout(_gedaechtnisFrist);
+      final limit = json?['daily_limit'];
+      final used = json?['used'];
+      final day = json?['day'];
+      if (limit is! int || limit <= 0 || used is! int || day is! String) {
+        return null;
+      }
+      return (dailyLimit: limit, used: used.clamp(0, limit), day: day);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Seeds [serverDailyLimit] from the memory once, before the first quota
+  /// read: a cold start then asks with the limit the server named last time
+  /// instead of an assumption, and a used-up day locks again.
+  Future<void> _limitAusGedaechtnis() async {
+    if (_gedaechtnisGelesen || _serverTageslimit != null) return;
+    _gedaechtnisGelesen = true;
+    final gemerkt = await _gemerktLesen();
+    if (_serverTageslimit == null) _tageslimitMerken(gemerkt?.dailyLimit);
+  }
+
+  /// Keeps [quota] for the next cold start, tagged with the UTC quota day.
+  /// Only a server-named limit is kept; best effort, a failing memory
+  /// changes nothing here.
+  void rememberQuota(ChatQuotaSnapshot quota) {
+    final memory = quotaMemory;
+    if (memory == null || quota.limitAssumed || quota.dailyLimit <= 0) return;
+    unawaited(
+      memory
+          .writeCoachQuota(<String, dynamic>{
+            'daily_limit': quota.dailyLimit,
+            'used': quota.used,
+            'day': coachQuotaDay(clock.now()),
+          })
+          .catchError((Object _) {}),
+    );
+  }
+
+  /// Today's quota as this account last saw it, for a cold start without the
+  /// quota RPC; null when the memory holds nothing for the current UTC quota
+  /// day. Never throws.
+  Future<ChatQuotaSnapshot?> rememberedQuotaToday() async {
+    final gemerkt = await _gemerktLesen();
+    if (gemerkt == null) return null;
+    if (_serverTageslimit == null) _tageslimitMerken(gemerkt.dailyLimit);
+    if (gemerkt.day != coachQuotaDay(clock.now())) return null;
+    return ChatQuotaSnapshot(
+      used: gemerkt.used,
+      remaining: gemerkt.dailyLimit - gemerkt.used,
+      dailyLimit: gemerkt.dailyLimit,
+    );
+  }
+
   /// Runs [aufruf] under [frist].
   ///
   /// Two layers on purpose: `abortSignal` (functions_client 2.7.1) actually
@@ -592,6 +663,7 @@ class CoachChatService {
   /// Throws [CoachDataUnavailable] if the RPC fails or returns no usable
   /// numbers — inventing a full quota there would lift an existing lock.
   Future<ChatQuotaSnapshot> loadQuotaToday() async {
+    await _limitAusGedaechtnis();
     final bekannt = _serverTageslimit;
     final dynamic res;
     try {
@@ -635,14 +707,17 @@ class CoachChatService {
       _melde('coach.loadQuotaToday.form', fehler, StackTrace.current);
       throw fehler;
     }
-    return ChatQuotaSnapshot(
+    final snapshot = ChatQuotaSnapshot(
       used: used,
       remaining: remaining,
       dailyLimit: dailyLimit,
       // `daily_limit` is the echo of what we just sent, so it is only a server
-      // statement once the server itself named a limit.
+      // statement once the server itself named a limit (now or, through the
+      // account's memory, on an earlier run).
       limitAssumed: bekannt == null,
     );
+    rememberQuota(snapshot);
+    return snapshot;
   }
 
   /// Sends the user message to the edge function.
@@ -1866,6 +1941,15 @@ abstract interface class CoachAnswerWaiter {
   /// Waits about [interval] before the next transcript check of a request in
   /// [sessionId]; false stops waiting and lets the error stand.
   Future<bool> pause(String sessionId, Duration interval);
+}
+
+/// Where one account keeps its last known Coach quota between app starts
+/// (2026-10-22): the encrypted account cache, cleared with it on sign-out and
+/// account deletion. Installed by the account's store as
+/// [CoachChatService.quotaMemory]; records are plain JSON maps.
+abstract interface class CoachQuotaMemory {
+  Future<Map<String, dynamic>?> readCoachQuota();
+  Future<void> writeCoachQuota(Map<String, dynamic> record);
 }
 
 /// One transcript check of [CoachChatService._nachzuegler].

@@ -79,6 +79,7 @@ class TrendsScreen extends StatefulWidget {
     this.burnedKcalFor = noTrendStepBonus,
     this.local,
     this.onBackfillSteps,
+    this.onAskCoachAboutWeight,
   });
 
   /// Daily target in kcal, passed through from the profile.
@@ -99,6 +100,14 @@ class TrendsScreen extends StatefulWidget {
   /// Reads missing step days of the last N days from the health store
   /// (`HomeStore.backfillStepsForTrends`); called once per range per open.
   final Future<void> Function(int days)? onBackfillSteps;
+
+  /// Puts "Why has my weight stalled?" into the Coach's composer, unsent
+  /// (2026-10-22); offered under the weight card while the range's weight
+  /// moves less than [_stallKgPerWeek]. Null hides it.
+  final VoidCallback? onAskCoachAboutWeight;
+
+  /// Below this weekly change the weight counts as stalled for the prompt.
+  static const double _stallKgPerWeek = 0.1;
 
   @override
   State<TrendsScreen> createState() => _TrendsScreenState();
@@ -248,6 +257,25 @@ class _TrendsScreenState extends State<TrendsScreen> {
             _StepsCard(report: report, hasStepSource: data.hasStepSource),
             const SizedBox(height: 14),
             _WeightCard(report: report),
+            if (widget.onAskCoachAboutWeight case final ask?
+                when (report.weight?.kgPerWeek?.abs() ?? double.infinity) <
+                    TrendsScreen._stallKgPerWeek) ...<Widget>[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: SoftPillButton(
+                  key: const ValueKey('trends-ask-coach-weight'),
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: context.l10n.coachAskWeightStall,
+                  tone: SoftPillTone.neutral,
+                  onTap: () {
+                    // The Coach is a tab under this page.
+                    unawaited(Navigator.of(context).maybePop());
+                    ask();
+                  },
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             _TrainingCard(report: report),
           ];

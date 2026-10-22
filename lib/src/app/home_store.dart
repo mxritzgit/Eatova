@@ -29,6 +29,8 @@ import '../models/training_history.dart';
 import '../models/training_insights.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
+import '../services/coach_chat_service.dart' show CoachQuotaMemory;
+import '../services/coach_plan_context.dart';
 import '../services/coach_week_summary.dart';
 import '../services/complete_day.dart';
 import '../services/crash_reporter.dart';
@@ -80,6 +82,7 @@ part 'home_store_training_history.dart';
 part 'home_store_derivations.dart';
 part 'home_store_energy_check.dart';
 part 'home_store_ai_consent.dart';
+part 'home_store_coach_quota.dart';
 
 /// Context-free snackbar request emitted by [HomeStore].
 ///
@@ -437,6 +440,10 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// The diet line of [coachContext]; lives in `_HomeStoreProfilePart`.
   String? _foodPreferencesContext();
 
+  /// The weekly-check line of [coachContext] ([coachEnergyCheckLine]); lives
+  /// in `_HomeStoreEnergyCheckPart`.
+  String? _energyCheckContext();
+
   /// Compact day/profile snapshot for the AI coach, so it can advise on
   /// concrete numbers.
   ///
@@ -444,7 +451,9 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// `user_context` at [kCoachContextCapChars]: language hint, core values
   /// (weight, effective weight goal, balance, open macros), food preferences
   /// ([_foodPreferencesContext]), the last seven days ([_coachWeekSummary]),
-  /// per-slot macros ([_todaysSlotSummary]), then
+  /// the weekly check's state and today's and tomorrow's planned titles
+  /// (2026-10-22, [coachEnergyCheckLine], [coachMealPlanLine]), per-slot
+  /// macros ([_todaysSlotSummary]), then
   /// the food list ([_todaysFoodSummary]) — the only line the cap may hit.
   String get coachContext {
     final p = profile;
@@ -487,6 +496,11 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     // The last seven days (C2) next, before the per-slot and food lines of
     // today.
     lines.add(_coachWeekSummary());
+    // The check's state and the planned titles: short, no figures.
+    final check = _energyCheckContext();
+    if (check != null) lines.add(check);
+    final plan = coachMealPlanLine(today: clock.now(), plans: plannedMeals);
+    if (plan != null) lines.add(plan);
     // Slot totals BEFORE the food list: short, capped at four slots, and the
     // only source for per-meal macros.
     final perSlot = _todaysSlotSummary();
@@ -656,7 +670,8 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreMealPlanPart,
         _HomeStoreTrainingHistoryPart,
         _HomeStoreDerivationsPart,
-        _HomeStoreAiConsentPart {
+        _HomeStoreAiConsentPart,
+        _HomeStoreCoachQuotaPart {
   HomeStore({
     required super.sync,
     required super.health,
@@ -667,6 +682,8 @@ class HomeStore extends _HomeStoreBase
     super.debugCacheFactory,
   }) {
     userName = initialUserName;
+    // The Coach remembers its quota in this account's cache.
+    sync?.coachChat.quotaMemory = this;
   }
 
   final Completer<void> _profileReadyCompleter = Completer<void>();

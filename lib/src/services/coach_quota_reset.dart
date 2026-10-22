@@ -9,6 +9,14 @@ DateTime nextCoachQuotaReset(DateTime now) {
   return DateTime.utc(utc.year, utc.month, utc.day + 1);
 }
 
+/// The UTC day the server books coach questions against, as `YYYY-MM-DD`:
+/// the key of the quota the app remembers between starts.
+String coachQuotaDay(DateTime now) {
+  final utc = now.toUtc();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${utc.year}-${two(utc.month)}-${two(utc.day)}';
+}
+
 Duration _deviceOffset(DateTime utc) => utc.toLocal().timeZoneOffset;
 
 /// The next reset as a local clock time: "02:00" in German, "2:00 AM" in

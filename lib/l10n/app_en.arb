@@ -659,12 +659,6 @@
   "coachComposerHintDefault": "Ask the AI coach…",
   "coachComposerLengthHint": "{used}/{max} characters",
   "coachComposerLengthReached": "Maximum length reached ({max} characters)",
-  "coachQuotaHint": "{count, plural, one{1 question left today} other{{count} questions left today}}",
-  "@coachQuotaHint": {
-    "placeholders": {
-      "count": { "type": "int" }
-    }
-  },
   "coachMicLabelListening": "Stop voice input",
   "coachMicLabelIdle": "Voice input",
   "coachSendLabel": "Send",
@@ -2114,7 +2108,7 @@
   "coachPlanCommandDescription": "Creates a training plan to review and save",
   "coachPlanEmptyHint": "After /plan, describe your goal, training days and equipment.",
   "coachPlanPhotoUnsupported": "Training plans use text. Send your /plan request without a photo.",
-  "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe, /plan for a training plan or /log for a workout you did.",
+  "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe, /plan for a training plan, /log for a workout you did or /meal for a meal.",
   "coachPlanCardEyebrow": "Training plan · Draft",
   "coachPlanCardMoreExercises": "+{count} more",
   "@coachPlanCardMoreExercises": {
@@ -3721,5 +3715,29 @@
   "todayTrendsStepsLabel": "Steps",
   "todayTrendsEmpty": "Once a day is fully logged, your average shows here.",
   "todayTrendsOpenHint": "Opens calories, macros, steps, weight and training over up to 6 months",
-  "foodTrendsButtonSemantics": "Open trends"
+  "foodTrendsButtonSemantics": "Open trends",
+  "coachMealTry": "Log my meal",
+  "coachMealCommandDescription": "Opens Describe with your text – you review it and add it",
+  "coachMealPhotoUnsupported": "/meal takes text only. Scan a photo of your meal in the Food tab.",
+  "coachCommandCostOne": "Uses 1 coach question",
+  "coachCommandCostNone": "Uses no coach question",
+  "coachQuotaCounter": "{remaining}/{limit} left today",
+  "@coachQuotaCounter": {"placeholders": {"remaining": {"type": "int"}, "limit": {"type": "int"}}},
+  "coachQuotaCounterLabel": "{remaining} of {limit} coach questions left today",
+  "@coachQuotaCounterLabel": {"placeholders": {"remaining": {"type": "int"}, "limit": {"type": "int"}}},
+  "coachRecipeTargetSlot": "(For: {slot})",
+  "@coachRecipeTargetSlot": {"description": "Appended to a /recipe wish and sent to the AI; shown in the chat history.", "placeholders": {"slot": {"type": "String"}}},
+  "coachRecipeTargetBudget": "(For: {slot} · still open today: {kcal} kcal)",
+  "@coachRecipeTargetBudget": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}}},
+  "coachRecipeTargetBudgetProtein": "(For: {slot} · still open today: {kcal} kcal, {protein} g protein)",
+  "@coachRecipeTargetBudgetProtein": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}, "protein": {"type": "int"}}},
+  "coachLoadRetry": "Try again",
+  "coachSpeakerYou": "You",
+  "coachSpeakerCoach": "Coach",
+  "coachRecipeSavedOpen": "Open",
+  "coachInfoBulletPlan": "The names of the meals you planned for today and tomorrow, and where your weekly check stands (without its figures)",
+  "@coachInfoBulletPlan": {"description": "Coach info sheet, list of what each question sends to the AI provider."},
+  "coachAskAction": "Ask the coach",
+  "coachAskWeeklyCheck": "What does my weekly check mean for this week?",
+  "coachAskWeightStall": "Why has my weight stalled?"
 }
