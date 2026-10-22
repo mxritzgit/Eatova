@@ -4200,9 +4200,10 @@ and [FEATURES.md](FEATURES.md). New pieces worth knowing:
     "Anabolika", steroids, and HGH with doping intent.
   - The German refusal texts use real umlauts.
 
-**Function deploys needed (owner):** `analyze-meal` (`normalize.ts`),
-`recipe-import` (`handler.ts`, `extraction.ts`) and `coach-chat` (`handler.ts`,
-`prefilter.ts`, `recipe.ts`, `workout_log.ts`). All are backward compatible.
+**Function deploys (done 2026-10-22, see the rollout below):**
+`analyze-meal` (`normalize.ts`), `recipe-import` (`handler.ts`,
+`extraction.ts`) and `coach-chat` (`handler.ts`, `prefilter.ts`, `recipe.ts`,
+`workout_log.ts`). All are backward compatible.
 The client changes work against the deployed functions.
 - After the coach-chat deploy, live-check:
   - "Ich hatte 2 Eier und Toast" points to `/meal`;
@@ -4281,3 +4282,32 @@ The client changes work against the deployed functions.
   `quick_actions` and the release AAB with `READ_WEIGHT`.
 - Not verified: device behavior and the live model replies, which need the
   deploy.
+
+### Rollout of PR #167, 2026-10-22
+
+The owner asked to deploy the functions and any migration.
+- **Migrations:** none in #167. All 58 migrations of `main` were already
+  registered live (the deploy tool's `migrations` check), so nothing was
+  applied.
+- **Functions:**
+  - The `supabase-deploy` environment does not exist yet. So the deploy ran
+    from an LF export of `0daa1de7` with Supabase CLI 2.120.0 (`--use-api`),
+    using the steps of [deploy_functions.py](../scripts/operations/deploy_functions.py)
+    in the workflow's order. `coach-chat` went first.
+  - Versions: `coach-chat` v59 -> **v60**, `analyze-meal` v41 -> **v42**,
+    `recipe-import` v16 -> **v17**, deployed 07:20 UTC.
+  - All three are ACTIVE with `verify_jwt=true`. `search-key` was not changed
+    and not redeployed (still v17).
+- **Live source check:**
+  - Before the deploy, all three live sources equaled `a3a7263b`. They
+    differed from `0daa1de7` only in the files #167 changed.
+  - After the deploy, the downloaded live source of each equals `0daa1de7`
+    byte for byte.
+- **Boot probe:** preflight 204, the gateway's 401 without a token, and each
+  handler's own 401 with the public anon key. The local deploy record reads
+  SUCCESS.
+- **Still open:**
+  - The live model checks above (`/meal` hint, `/log` food refusal,
+    `/recipe` target line) need a signed-in account. No authenticated request
+    was made against production.
+  - The app build, device checks and external steps listed above.
