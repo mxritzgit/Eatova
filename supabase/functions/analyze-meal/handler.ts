@@ -26,7 +26,7 @@ import {
 import type { ClaudeEffort, ClaudeImageBlock, ClaudeTextBlock } from '../_shared/claude.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
 import { AiCallLog, aiAnswerOutcome, aiOutcomeOf } from '../_shared/ai_telemetry.ts';
-import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
+import { providerBudgetErrorBody, providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
 import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
 import type { AuthFailGateResult } from '../_shared/auth_fail_gate.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
@@ -41,7 +41,7 @@ import {
 import { loggableFinishReason } from '../_shared/provider_log.ts';
 import { limitFor, planLimitWire, resolvePlan } from '../_shared/plan.ts';
 import type { PlanLimitWire } from '../_shared/plan.ts';
-import { consumeRateLimits as consumeEdgeRateLimits, retryAfterSeconds } from '../_shared/rate_limit.ts';
+import { consumeRateLimits as consumeEdgeRateLimits, releaseRateLimit, retryAfterSeconds } from '../_shared/rate_limit.ts';
 import type { RateLimitGate, RateLimitVerdict } from '../_shared/rate_limit.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import { imageContainerFromBytes } from './image_type.ts';
@@ -490,9 +490,8 @@ export async function handleRequest(request: Request): Promise<Response> {
     // used for an analysis).
     //
     // Known remainder, accepted deliberately: a provider failure (502/504)
-    // still spends the global slot. consume_edge_rate_limits increments on
-    // call and there is no counterpart RPC, so a refund would need a schema
-    // change.
+    // still spends both day slots. Only a provider budget stop, which comes
+    // before anything is paid, gives them back (release_edge_rate_limit).
     //
     // A4 (performance audit 2026-09-01): the four gates cost four PostgREST
     // roundtrips; they are now TWO batched ones. Two, not one — the split
@@ -554,9 +553,9 @@ export async function handleRequest(request: Request): Promise<Response> {
       const planLimit = userDayDenied ? planLimitWire(plan, 'meal_analysis', dayGates.denied.resetAt) : undefined;
       return rateLimitedResponse(request, dayGates.denied, requestId, planLimit);
     }
-    // The global bucket's fill level stays server-side (see the 200 below), so
-    // only the user's own day gate is named here.
-    const [userDayLimit] = dayGates.allowed;
+    // The global bucket's fill level stays server-side (see the 200 below);
+    // its verdict is kept only to release the slot.
+    const [userDayLimit, globalDayLimit] = dayGates.allowed;
 
     // No await: cleanup must not delay the request. Error handling lives
     // inside the function, since an unhandled rejection here would kill the
@@ -565,7 +564,20 @@ export async function handleRequest(request: Request): Promise<Response> {
 
     const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId: user.id,
       signal: request.signal, timeoutMs: Math.min(SUPABASE_TIMEOUT_MS, deadline.remainingMs()) });
-    await budget('analyze_meal');
+    try {
+      await budget('analyze_meal');
+    } catch (error) {
+      // Nothing was paid: a budget stop gives both day slots back, so a full
+      // pool costs an honest user no analysis of the day.
+      if (error instanceof ProviderBudgetError) {
+        const release = { supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey };
+        await Promise.all([
+          releaseRateLimit({ ...release, gate: userDayGate, verdict: userDayLimit }),
+          releaseRateLimit({ ...release, gate: globalGate, verdict: globalDayLimit }),
+        ]);
+      }
+      throw error;
+    }
     const providerResult = await callProvider(secrets, providerRequest(body), requestId, deadline, request.signal);
     const result = body.mode === 'describe'
       ? describedMeal(providerResult, requestId)
@@ -651,7 +663,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     });
 
     if (error instanceof ProviderBudgetError) {
-      return jsonResponse(request, { error: error.code, requestId }, error.status);
+      return jsonResponse(request, { ...providerBudgetErrorBody(error), requestId }, error.status);
     }
     if (error instanceof HttpError) {
       return jsonResponse(request, { error: error.code, message: error.publicMessage, requestId }, error.status);

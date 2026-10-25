@@ -1,8 +1,12 @@
 // Every paid outbound call requires a fresh, non-refundable database claim.
 import type { AiCallLog } from './ai_telemetry.ts';
+import { nextUtcMidnightIso } from './plan.ts';
 
 export type ProviderOperation = 'coach_classifier' | 'coach_answer' | 'coach_recipe' |
   'coach_plan' | 'coach_image' | 'analyze_meal';
+/** Which ceiling of reserve_ai_provider_call denied (20261026100000). */
+export type ProviderBudgetScope = 'all' | 'images' | 'plan' | 'free' | 'account';
+const BUDGET_SCOPES: ReadonlySet<unknown> = new Set<ProviderBudgetScope>(['all', 'images', 'plan', 'free', 'account']);
 /**
  * Reserves one paid call. Every paid call passes through the request's budget
  * first, so it also carries the request's AI call log (ai_telemetry.ts).
@@ -13,11 +17,24 @@ export type ProviderCallBudget = ((operation: ProviderOperation) => Promise<void
 
 export class ProviderBudgetError extends Error {
   readonly status: number;
-  constructor(readonly code: 'ai_budget_exhausted' | 'ai_disabled' | 'ai_budget_unavailable') {
+  constructor(
+    readonly code: 'ai_budget_exhausted' | 'ai_disabled' | 'ai_budget_unavailable',
+    /** Only for `ai_budget_exhausted`; undefined when the RPC named none it knows. */
+    readonly scope?: ProviderBudgetScope,
+  ) {
     super(code);
     this.name = 'ProviderBudgetError';
     this.status = code === 'ai_budget_exhausted' ? 429 : 503;
   }
+}
+
+/**
+ * The public body of a budget stop. A capacity denial also says which ceiling
+ * (when known) and when every ceiling resets: the next 00:00 UTC.
+ */
+export function providerBudgetErrorBody(error: ProviderBudgetError, nowMs = Date.now()): Record<string, string> {
+  if (error.code !== 'ai_budget_exhausted') return { error: error.code };
+  return { error: error.code, ...(error.scope ? { scope: error.scope } : {}), resetAt: nextUtcMidnightIso(nowMs) };
 }
 
 interface BudgetContext {
@@ -68,7 +85,9 @@ export function providerCallBudget(context: BudgetContext): ProviderCallBudget {
       const result = JSON.parse(raw);
       if (result?.allowed === true && result.reason === 'allowed') return;
       if (result?.allowed === false && result.reason === 'budget_exhausted') {
-        throw new ProviderBudgetError('ai_budget_exhausted');
+        // An unknown scope is no reason to fail: the denial itself stands.
+        throw new ProviderBudgetError('ai_budget_exhausted',
+          BUDGET_SCOPES.has(result.scope) ? result.scope as ProviderBudgetScope : undefined);
       }
       if (result?.allowed === false && result.reason === 'disabled') throw new ProviderBudgetError('ai_disabled');
       throw new ProviderBudgetError('ai_budget_unavailable');

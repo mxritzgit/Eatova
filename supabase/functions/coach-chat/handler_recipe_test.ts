@@ -1020,7 +1020,7 @@ Deno.test("Ohne OPENROUTER_API_KEY: Rezept ohne Bild, kein coach_image-Budget, k
 // plan may include one: nothing is locked and no limit is named.
 Deno.test("Tarif: das KI-Bild folgt recipe_picture, das Rezept bleibt vollstaendig", async () => {
   for (const { plan, picture, locked, limit } of [
-    { plan: "free", picture: false, locked: true, limit: 3 },
+    { plan: "free", picture: false, locked: true, limit: 2 },
     { plan: "premium", picture: true, locked: false, limit: 20 },
     { plan: "legacy", picture: true, locked: false, limit: 5 },
     { plan: "unavailable", picture: false, locked: false, limit: undefined },

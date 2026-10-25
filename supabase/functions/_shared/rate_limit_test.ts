@@ -4,7 +4,7 @@
 // never as an invented 429 — and a short answer counts only at a denial.
 // Pure fetch stubs, no network, no environment.
 
-import { consumeRateLimits, RATE_LIMIT_MAX_RESPONSE_BYTES, retryAfterSeconds } from "./rate_limit.ts";
+import { consumeRateLimits, RATE_LIMIT_MAX_RESPONSE_BYTES, releaseRateLimit, retryAfterSeconds } from "./rate_limit.ts";
 import type { RateLimitGate, RateLimitOutcome } from "./rate_limit.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -210,6 +210,41 @@ Deno.test("rate_limit: diagnostics carry scopes and statuses, never response val
       assert(text.includes("consume_edge_rate_limits"), "Operation bleibt erkennbar");
       assert(!text.includes(marker), `Antwortwert im Log: ${text}`);
       assert(!text.includes(SUBJECT), `Subject im Log: ${text}`);
+    });
+  }
+});
+
+Deno.test("releaseRateLimit: one slot back in the window it counted in, never a throw", async () => {
+  // Counted in 11:00-12:00, released at 12:00: the key is the counted window, not the current one.
+  const counted = { allowed: true, limit: 60, remaining: 59, resetAt: "2026-10-18T12:00:00.000Z", windowSeconds: 3600 };
+  const release = (resetAt = counted.resetAt) => releaseRateLimit({
+    supabaseUrl: "https://db.test.invalid", serviceKey: "service-key", gate: GATES[1], verdict: { ...counted, resetAt },
+  });
+  await withFetch(() => Response.json(true), async (calls, logs) => {
+    assertEquals(await release(), true, "freigegeben");
+    assertEquals(calls[0].url, "https://db.test.invalid/rest/v1/rpc/release_edge_rate_limit", "RPC-URL");
+    assertEquals(calls[0].body, {
+      p_scope: "test:user", p_subject: SUBJECT, p_window_start: "2026-10-18T11:00:00.000Z", p_window_seconds: 3600,
+    }, "Schluessel des gezaehlten Fensters");
+    assertEquals(new Headers(calls[0].init.headers).get("authorization"), "Bearer service-key", "Service-Bearer");
+    assertEquals(calls[0].init.redirect, "error", "Service-Key folgt keinem Redirect");
+    assertEquals(logs, [], "kein Log");
+  });
+  // Nothing left to give back is an answer, not an outage.
+  await withFetch(() => Response.json(false), async (_calls, logs) => {
+    assertEquals([await release(), logs], [false, []], "nichts freizugeben");
+  });
+  const marker = "PRIVATE_LIMITER_RESPONSE_SENTINEL";
+  const failures: [string, Reply, string?][] = [
+    ["HTTP 500", () => new Response(marker, { status: 500 })],
+    ["kein Boolean", () => new Response(marker)],
+    ["Transport", () => { throw new TypeError(marker); }],
+    ["unlesbarer resetAt", () => Response.json(true), "kein Datum"],
+  ];
+  for (const [label, reply, resetAt] of failures) {
+    await withFetch(reply, async (_calls, logs) => {
+      assertEquals(await release(resetAt), false, label);
+      assertEquals(logs, ["release_edge_rate_limit unavailable"], `${label}: eine feste Zeile`);
     });
   }
 });

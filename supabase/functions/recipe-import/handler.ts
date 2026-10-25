@@ -14,8 +14,8 @@ import { clientIpSubject } from '../_shared/client_ip.ts';
 import { allowedOriginsFromEnv, jsonResponse, responseHeaders } from '../_shared/http.ts';
 import { limitFor, planLimitWire, resolvePlan } from '../_shared/plan.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
-import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
-import { consumeRateLimits, retryAfterSeconds } from '../_shared/rate_limit.ts';
+import { providerBudgetErrorBody, providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
+import { consumeRateLimits, releaseRateLimit, retryAfterSeconds } from '../_shared/rate_limit.ts';
 import type { RateLimitGate, RateLimitVerdict } from '../_shared/rate_limit.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { extractionPrompt, parseExtraction } from './extraction.ts';
@@ -115,13 +115,13 @@ async function authenticate(request: Request, secrets: Secrets, total: AbortSign
 
 // Shared fail-closed client (../_shared/rate_limit.ts). This endpoint answers
 // an outage with 503 and caps Retry-After at one day. `denialDetails` adds
-// fields to the 429 body of a denial.
+// fields to the 429 body of a denial. Resolves the verdicts by gate index.
 async function consumeGates(
   secrets: Secrets,
   gates: RateLimitGate[],
   total: AbortSignal,
   denialDetails?: (denied: RateLimitVerdict) => Record<string, unknown>,
-): Promise<void> {
+): Promise<RateLimitVerdict[]> {
   const outcome = await consumeRateLimits({
     supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, gates, signal: stepSignal(total, 5000),
   });
@@ -131,6 +131,7 @@ async function consumeGates(
       retryAfterSeconds(outcome.denied.resetAt, gates[outcome.deniedIndex].windowSeconds, 86_400),
       denialDetails?.(outcome.denied));
   }
+  return outcome.verdicts;
 }
 
 async function parseBody(request: Request, total: AbortSignal): Promise<{ text: string; locale: 'de' | 'en'; version: number }> {
@@ -182,9 +183,10 @@ export async function handleRequest(request: Request): Promise<Response> {
     // No recipe/user-data writes occur here. Rate gates and the shared, durable
     // paid-call reservation protect this endpoint just like existing AI flows.
     const plan = await planLookup;
-    await consumeGates(secrets, [
-      { scope: 'recipe-import:user-day', subject: userId, limit: limitFor(plan, 'recipe_import'), windowSeconds: 86_400 },
-    ], total, (denied) => ({
+    const dayGate: RateLimitGate = {
+      scope: 'recipe-import:user-day', subject: userId, limit: limitFor(plan, 'recipe_import'), windowSeconds: 86_400,
+    };
+    const [dayVerdict] = await consumeGates(secrets, [dayGate], total, (denied) => ({
       resetAt: denied.resetAt,
       planLimit: planLimitWire(plan, 'recipe_import', denied.resetAt),
     })).catch((error) => {
@@ -211,7 +213,16 @@ export async function handleRequest(request: Request): Promise<Response> {
     // One ai_call line per attempt (../_shared/ai_telemetry.ts); no refund here.
     const calls = new AiCallLog('recipe-import');
     for (let attempt = 0; attempt < 2; attempt++) {
-      await budget('coach_recipe');
+      try {
+        await budget('coach_recipe');
+      } catch (error) {
+        // Before the first paid attempt a budget stop gives the day slot back;
+        // after one, the slot stays spent.
+        if (attempt === 0 && error instanceof ProviderBudgetError) {
+          await releaseRateLimit({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, gate: dayGate, verdict: dayVerdict });
+        }
+        throw error;
+      }
       const signal = providerDeadline;
       const call = calls.start({
         route: 'import', provider: 'anthropic', model: CLAUDE_MODEL, effort: RECIPE_IMPORT_EFFORT, attempt: attempt + 1,
@@ -267,7 +278,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     }
     throw lastError;
   } catch (error) {
-    if (error instanceof ProviderBudgetError) return json(request, { error: error.code }, error.status);
+    if (error instanceof ProviderBudgetError) return json(request, providerBudgetErrorBody(error), error.status);
     if (error instanceof ImportError) {
       return json(request, { error: error.code, ...error.details }, error.status, error.retryAfter);
     }

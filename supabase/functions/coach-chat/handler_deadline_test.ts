@@ -332,7 +332,7 @@ Deno.test("E1: ein haengender Plan-Lookup faellt nach der Frist auf Free zurueck
       assert(!("daily_limit" in body) && !("remaining" in body), "kein Limit und kein Rest in der Antwort");
       const claims = stub.callsTo("claim_chat_quota");
       assertEquals(claims.length, 1, "ein Anspruch");
-      assertEquals((JSON.parse(claims[0].body) as JsonRecord).p_daily_limit, 3, "Free-Limit im Anspruch");
+      assertEquals((JSON.parse(claims[0].body) as JsonRecord).p_daily_limit, 2, "Free-Limit im Anspruch");
       assert(errors.includes("resolve_plan unavailable"), "der Ausfall wird gemeldet");
     } finally {
       console.error = originalError;
