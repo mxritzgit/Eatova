@@ -68,6 +68,14 @@
     "external_google_enabled": {
       "expected": true,
       "evidence": "UNCONFIRMED as a read value; implied by the working Google login (OAUTH_SETUP.md). Needs one read-only live confirmation before merge."
+    },
+    "hook_before_user_created_enabled": {
+      "expected": true,
+      "evidence": "Enabled live 2026-10-25 after migration 20261027100000 (grants read back, SQL dry call, signup probe 422 without a row); one account per mailbox (docs/OPERATIONS.md, Before User Created hook)."
+    },
+    "hook_before_user_created_uri": {
+      "expected": "pg-functions://postgres/public/auth_before_user_created",
+      "evidence": "Read back 2026-10-25 together with the enabled flag; GoTrue resolves it as supabase_auth_admin, which needs USAGE on public and EXECUTE on the function."
     }
   },
   "uri_allow_list": {

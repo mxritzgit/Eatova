@@ -4621,14 +4621,21 @@ light-mode focus on tinted and fill-less controls darkens rather than
 brightens, and the stroke-less dark Google button has had no branding
 review.
 
-**Delivery state:** [PR #174](https://github.com/mxritzgit/Eatova/pull/174)
-open, not merged; migration not live; hook not enabled.
+**Delivery state (2026-10-25, owner approval "merge alles und deploye
+alles"):** [PR #174](https://github.com/mxritzgit/Eatova/pull/174) merged
+after #173. Migration `20261027100000` live (61 = 61, source identical,
+both triggers enabled, grants `usage`/`execute` true); SQL dry call true /
+true; Before User Created hook enabled and read back; live signup probe
+with an alias of the owner's account: 422 `unknown` "User already
+registered", account count unchanged (8); `auth_config_drift.py` live: 19
+settings match after the pin. No edge function changed, so no function
+deploy. The app changes arrive with the next device build.
 
 **Owner steps:**
-1. Explicit approval for the merge, the live migration and enabling the
-   hook (order and probes in [operations](OPERATIONS.md#before-user-created-hook)).
-2. Device build after the merge, as usual: the sign-out card, the paywall
+1. Device build after the merge, as usual: the sign-out card, the paywall
    and the Abo card in both themes, and keyboard focus on a device with a
    keyboard.
-3. Optional: say so if "Email bereits vergeben" should replace the neutral
+2. Optional: say so if "Email bereits vergeben" should replace the neutral
    hint.
+3. Optional: delete one account of the test pair that shares a key for a
+   clean state.

@@ -45,8 +45,9 @@ the complete current product.
     another spelling is told to sign in the way the account was registered.
   - Docs: [backend](docs/BACKEND.md#one-account-per-mailbox), the
     [hook runbook](docs/OPERATIONS.md#before-user-created-hook), the email
-    OTP and Google notes, and Premium 7.7. Not live yet: the migration,
-    enabling the hook and an app build.
+    OTP and Google notes, and Premium 7.7. Live on 2026-10-25: the
+    migration and the hook (pinned in `auth_config.expected.json`); the app
+    changes arrive with the next build.
 
 - **Free AI pool and abuse protection** (2026-10-25,
   [contract](docs/PREMIUM.md#7-abuse-protection)):

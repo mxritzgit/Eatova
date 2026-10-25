@@ -920,7 +920,12 @@ hook is off. An email change request itself passes, so GoTrue's per-user
 mail throttle keeps working. Existing rows are not
 changed; the owner's pair of test accounts keeps working.
 
-Not live yet. Order: migration, SQL dry call, enable the hook, HTTP probe,
+**Live since 2026-10-25:** migration applied (61 registered = 61 files,
+source identical), grants read back (`usage` and `execute` true), SQL dry
+call `rejects` and `allows` true, hook enabled and read back, signup probe
+422 `unknown` "User already registered" with the account count unchanged
+(8), contract pinned; the alias groups stayed at one (the owner's pair).
+Order for a re-run: migration, SQL dry call, enable the hook, HTTP probe,
 pin, merge. Just before the migration, count the alias groups again,
 read-only: still one group (the owner's pair) and no unconfirmed account.
 Apply the migration like the earlier ones (a dry run inside

@@ -54,7 +54,7 @@ GoTrue vergleicht Adressen exakt. Migration
 `20261027100000_email_alias_guard.sql` erlaubt serverseitig ein Konto pro
 Postfach: Gmail-Schreibweisen mit oder ohne Punkte, `googlemail.com` und ein
 `+Zusatz` (bei jeder Domain) gelten als dieselbe Adresse (Regel und Grenzen:
-[Backend](../docs/BACKEND.md#one-account-per-mailbox)). Noch nicht live;
+[Backend](../docs/BACKEND.md#one-account-per-mailbox)). Live seit 2026-10-25;
 Einschalten, Proben und Rückbau: [Betrieb](../docs/OPERATIONS.md#before-user-created-hook).
 
 - **Registrierung:** Hält ein bestätigtes Konto oder ein unbestätigtes aus
@@ -93,9 +93,9 @@ Einschalten, Proben und Rückbau: [Betrieb](../docs/OPERATIONS.md#before-user-cr
   Enumerations-Orakel für angemeldete Nutzer; bestätigen kann nur, wer das
   Postfach hat. Die erste Bestätigung eines zweiten Alias prüft der Trigger
   ebenso (`500`).
-- **Konfigurationsvertrag:** Nach dem Einschalten kommen
-  `hook_before_user_created_enabled` und `hook_before_user_created_uri` in
-  `auth_config.expected.json`.
+- **Konfigurationsvertrag:** `hook_before_user_created_enabled` und
+  `hook_before_user_created_uri` stehen seit dem Einschalten (2026-10-25) in
+  `auth_config.expected.json`; der Drift-Job auf `main` bewacht sie.
 
 ## Passwortänderung: Plan und Sicherheitsvertrag, 2026-09-20
 

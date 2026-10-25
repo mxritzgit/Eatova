@@ -22,8 +22,8 @@ addresses are the same; manual linking is off
 (`security_manual_linking_enabled` false). Without the
 [alias guard](../docs/BACKEND.md#one-account-per-mailbox), a Google address
 that is another spelling of an existing account's address (Gmail dots,
-`googlemail.com`, a `+` tag) gets a second, empty account. With it (not
-live yet), the Before User Created hook rejects that first sign-in with 422
+`googlemail.com`, a `+` tag) gets a second, empty account. With it (live
+since 2026-10-25), the Before User Created hook rejects that first sign-in with 422
 and creates nothing. New builds then say that an account exists for this
 address in another spelling and to sign in the way the user registered
 (`authErrorOAuthAccountExists`, on the OAuth path only); older builds show

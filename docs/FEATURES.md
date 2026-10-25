@@ -18,10 +18,10 @@ import and Coach `/meal` followed **2026-10-22**
 daily limits, the paywall after a fresh onboarding, the Profile's "Abo"
 section and the upgrade hints followed **2026-10-25** ([contract](PREMIUM.md);
 the store products are still open), and the same day the shared Free AI pool
-with lower Free limits ([abuse protection](PREMIUM.md#7-abuse-protection), not
-live yet), then redesigned decision cards, buttons, paywall and Abo card,
-and one account per mailbox ([backend](BACKEND.md#one-account-per-mailbox),
-not live yet).
+with lower Free limits ([abuse protection](PREMIUM.md#7-abuse-protection)),
+then redesigned decision cards, buttons, paywall and Abo card, and one
+account per mailbox ([backend](BACKEND.md#one-account-per-mailbox), server
+rule live since 2026-10-25).
 This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
@@ -29,7 +29,7 @@ Dated reviews describe what was present at their own checkpoint.
 
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
-| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan; the onboarding header offers sign-out; a fresh onboarding ends once on the Premium screen, where "Weiter mit Free" is as large as the purchase button; one account per mailbox (server rule not live yet): Gmail spellings with or without dots, `googlemail.com` and a `+` tag count as one address, a second spelling gets the neutral sign-in hint (plus a sentence on spellings for Gmail or `+` input), and a Google sign-in in another spelling is told to sign in the way the account was registered | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md), [Premium](PREMIUM.md) |
+| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan; the onboarding header offers sign-out; a fresh onboarding ends once on the Premium screen, where "Weiter mit Free" is as large as the purchase button; one account per mailbox (server rule live since 2026-10-25): Gmail spellings with or without dots, `googlemail.com` and a `+` tag count as one address, a second spelling gets the neutral sign-in hint (plus a sentence on spellings for Gmail or `+` input), and a Google sign-in in another spelling is told to sign in the way the account was registered | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md), [Premium](PREMIUM.md) |
 | Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); a weight chip with the latest weigh-in and the weekly check's progress ("in 5 days at the earliest · 2 more weigh-ins"); a one-time reminder offer from the evening of the first logged day; a trends card with the averages of the last seven days (calories, protein, steps) that opens the trends page; a dot on complete days in the strip; before the first entry, a hint when yesterday is empty and filling it keeps the streak; the weekly-check line opens an explainer, and on Mondays a result card shows the burn estimate, whether the goal fits and the weight rate against the plan ("Verstanden" hides it until next week, "Ask the coach" prepares a question); a macro tile reads "≥48" with a hint line while entries lack macros; once the weight trend reaches the target, a card asks "hold or new goal?"; the trends card opens the page on 7 days; an Apple Health or Health Connect card asks per account before the health source is read, and once asks whether new scale weigh-ins should be imported automatically; avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, a trends button in the header (the day card opens the page too); "Repeat yesterday" in an empty slot and "Copy to…" in the edit sheet (offline, with undo, recents unchanged); after logging, an entry without a weight changes its servings in half steps, a manual entry its values and name ("Change values"), an AI entry its name; times follow the phone's 12/24-hour setting; P/C/F lines read "≥48 g" for a sum with unknown entries and "–" when nothing is known | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode (GTIN-13; older 12-digit favorites still match); search shows "Your foods" first (favorites, up to 30 recents, the diary's 35-day window, own recipes; offline, umlaut-tolerant), then products; manual per-100-g values and a chosen portion, or a quick entry with total kcal and optional macros (no AI, offline); an unknown barcode saved manually becomes an own product that the next scan finds first; a search without results offers Describe with the search text; a failed or offline search and a failed barcode lookup offer a retry, and a product without nutrition opens the manual form with its name; a logged food never overwrites a pinned favorite of the same name (same barcode, or same name with energy within 20 %); "Edit" on a favorite changes it without logging; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
@@ -209,7 +209,7 @@ and [Backend](BACKEND.md) for persistence details.
   a limit notice or an upgrade offer.
   Deleting the account does not cancel a store subscription.
 - Sign-in and password recovery match the exact spelling of the address.
-  Once the alias guard is live, confirming an email change to another
+  Confirming an email change to another
   spelling of an existing account's address fails with the generic
   server-error text.
 - Dietary preference can be chosen during onboarding and changed later in the

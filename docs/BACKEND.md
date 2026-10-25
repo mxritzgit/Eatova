@@ -4,7 +4,7 @@ Updated for the **2026-09-15 security work**; the Premium tier (plans, store
 subscriptions and two new functions) was added **2026-10-25**
 ([contract](PREMIUM.md), [section below](#premium-plans-and-store-subscriptions)),
 and the same day the shared Free AI pool ([abuse protection](PREMIUM.md#7-abuse-protection))
-and one account per mailbox ([below](#one-account-per-mailbox), not live yet).
+and one account per mailbox ([below](#one-account-per-mailbox), live since 2026-10-25).
 This guide describes source contracts; environment values can override
 defaults. Runtime inspection and deployment are separate from editing this
 documentation.
