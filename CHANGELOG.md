@@ -28,6 +28,9 @@ the complete current product.
   - Decision cards sit at the bottom with stacked full-width actions; the
     sign-out confirmation shows the signed-in address and one line per
     consequence.
+  - Sign-in screen: the login/register switch and the Google button have no
+    outlines; the chosen route is a filled accent pill, and keyboard focus
+    brightens the switch and the Google button.
   - Paywall: "Mehr KI. Jeden Tag." without a hero card, a comparison with a
     raised Premium column, both plans on one surface with the trial
     timeline inside the yearly plan, "Weiter mit Free" still as tall as the

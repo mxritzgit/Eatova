@@ -89,7 +89,9 @@ class PaywallTopBar extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(20, 6, 12, 0),
+      // End 18 as in SheetHeader: the 44 px disc in its 48 px target ends on
+      // the 20 px content edge, flush with the ledger and the foot buttons.
+      padding: const EdgeInsetsDirectional.fromSTEB(20, 6, 18, 0),
       child: Row(
         children: <Widget>[
           const LitDot(),
@@ -1464,7 +1466,6 @@ class PaywallStoreUnavailable extends StatelessWidget {
         icon: Icons.storefront_outlined,
         title: l10n.premiumStoreUnavailableTitle,
         text: l10n.premiumStoreUnavailableBody,
-        radius: rHero,
         action: SoftPillButton(
           key: const ValueKey('paywall-retry'),
           label: l10n.premiumRetry,
@@ -1515,7 +1516,9 @@ class PaywallPendingNote extends StatelessWidget {
 
 /// A calm state in or under the plan picker's place: a lit surface with the
 /// glyph in a small disc (neutral, or [tone] at 14 % for a wait or a
-/// conflict), the title, the sentence and an optional action under it.
+/// conflict), the title, the sentence and an optional action under it. It
+/// keeps the picker's [rHero] corners, so a note stacked under the picker
+/// reads as its sibling.
 class _QuietState extends StatelessWidget {
   const _QuietState({
     required this.icon,
@@ -1523,7 +1526,6 @@ class _QuietState extends StatelessWidget {
     this.title,
     this.tone,
     this.action,
-    this.radius = rCard,
   });
 
   final IconData icon;
@@ -1531,7 +1533,6 @@ class _QuietState extends StatelessWidget {
   final String text;
   final Color? tone;
   final Widget? action;
-  final double radius;
 
   @override
   Widget build(BuildContext context) {
@@ -1539,7 +1540,6 @@ class _QuietState extends StatelessWidget {
     final glyph = tone ?? t.ink2;
     final heading = title;
     return LitSurface(
-      radius: radius,
       padding: const EdgeInsets.all(20),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
