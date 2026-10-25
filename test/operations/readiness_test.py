@@ -23,8 +23,8 @@ BACKUPS = {'backups': [{'status': 'COMPLETED', 'inserted_at': '2026-09-15T10:00:
            'pitr_enabled': False, 'physical_backup_data': None}
 BUDGETS = [{'enabled': True, 'coach_enabled': True, 'analysis_enabled': True,
             'images_enabled': True, 'daily_call_limit': 1000, 'daily_image_limit': 50,
-            'daily_user_limit': 150, 'calls': 12, 'image_calls': 2,
-            'usage_date': '2026-09-15'}]
+            'daily_user_limit': 150, 'daily_free_call_limit': 150, 'calls': 12,
+            'image_calls': 2, 'free_calls': 5, 'usage_date': '2026-09-15'}]
 
 
 class FakeAPI:
@@ -165,9 +165,23 @@ class ReadinessTest(unittest.TestCase):
         self.assertIn('calls_warning', self.run_check()[0]['checks']['budgets']['reasons'])
         row['calls'] = 1000
         self.assertIn('calls_exhausted', self.run_check()[0]['checks']['budgets']['reasons'])
-        row.update(calls=0, image_calls=0, daily_call_limit=0, daily_image_limit=0)
+        row.update(calls=0, image_calls=0, free_calls=0, daily_call_limit=0, daily_image_limit=0)
         reasons = self.run_check()[0]['checks']['budgets']['reasons']
-        self.assertEqual(reasons, ['calls_exhausted', 'images_exhausted'])
+        self.assertEqual(reasons, ['free_limit_not_below_total', 'calls_exhausted',
+                                   'images_exhausted'])
+
+    def test_free_pool_warning_exhaustion_and_room_for_premium(self):
+        row = self.api.responses['budgets'][0]
+        for calls, free_calls, free_limit, reasons in [
+                (119, 119, 150, []),
+                (120, 120, 150, ['free_calls_warning']),
+                (150, 150, 150, ['free_calls_exhausted']),
+                (12, 5, 1000, ['free_limit_not_below_total'])]:
+            with self.subTest(free_calls=free_calls, free_limit=free_limit):
+                row.update(calls=calls, free_calls=free_calls, daily_free_call_limit=free_limit)
+                report, code = self.run_check()
+                self.assertEqual(report['checks']['budgets']['reasons'], reasons)
+                self.assertEqual(code, 1 if reasons else 0)
 
     def test_image_budget_and_each_stop_are_observed(self):
         row = self.api.responses['budgets'][0]
@@ -184,7 +198,8 @@ class ReadinessTest(unittest.TestCase):
     def test_missing_duplicate_malformed_config_and_counters_are_unknown(self):
         variants = [[], BUDGETS * 2, {}, [None]]
         for key, value in [('enabled', 1), ('calls', True), ('calls', -1),
-                           ('daily_call_limit', 100001), ('image_calls', 99)]:
+                           ('daily_call_limit', 100001), ('image_calls', 99),
+                           ('free_calls', 13), ('daily_free_call_limit', None)]:
             variant = copy.deepcopy(BUDGETS)
             variant[0][key] = value
             variants.append(variant)
@@ -215,7 +230,7 @@ class ReadinessTest(unittest.TestCase):
         self.assertEqual(code, 1)
         summary = readiness.markdown(report)
         self.assertIn('### Readiness: ATTENTION', summary)
-        self.assertIn('calls 800/1000, images 2/50; calls_warning', summary)
+        self.assertIn('calls 800/1000, free 5/150, images 2/50; calls_warning', summary)
         self.assertNotIn(REF, summary)
 
     def test_denied_backup_access_does_not_claim_no_backups(self):
