@@ -17,6 +17,28 @@ the complete current product.
 
 ### October 2026
 
+- **Free AI pool and abuse protection** (2026-10-25,
+  [contract](docs/PREMIUM.md#7-abuse-protection)):
+  - Free per UTC day: 2 Coach questions, 3 AI meal analyses and 1 recipe
+    import (was 3, 4 and 2), provider-call cap 11 (was 30). Premium is
+    unchanged.
+  - Migration `20261026100000_free_ai_pool.sql`: all Free accounts share a
+    daily pool of 150 provider calls (`daily_free_call_limit`, counted in
+    `free_calls`); the ceilings drop to 400 calls and 20 pictures a day
+    before the launch; a budget denial names its `scope`; the new
+    `release_edge_rate_limit` gives back one limiter slot.
+  - `analyze-meal` and `recipe-import` give back the day slot when the first
+    reservation is denied, before anything is paid; all three AI functions
+    add `scope` and `resetAt` to `ai_budget_exhausted`.
+  - App: a calm notice when the Free pool is used up, with the reset time
+    and no upgrade offer; the Coach composer stays open.
+  - Ops: the readiness check and the ops watch read the Free pool.
+  - Docs: why the pool bounds abuse, the bounds in USD, both Free stop
+    switches, pool sizing, the provider spend limits and the list before
+    the public launch. The legacy window ended live on 2026-10-25 with the
+    owner's consent (only test accounts existed). Not live yet: the
+    migration, three function deploys and an app build.
+
 - **Premium tier** (2026-10-25, [contract](docs/PREMIUM.md)):
   - Free and Premium with server-side daily limits per UTC day: Coach
     questions 3 or 20, AI meal analyses 4 or 30, recipe imports 2 or 10, the

@@ -16,7 +16,7 @@ but their old feature gaps, branch snapshots and test counts are not live state.
 | [Offline sync](OFFLINE_SYNC.md) | Transactional local storage, conflict policy, background delivery, limits and rollout |
 | [Weight trend](WEIGHT-TREND.md) | How weigh-ins re-anchor the profile weight, live goals and forecast; the planned adaptive check |
 | [Meal description](MEAL-DESCRIBE.md) | Describing a meal by text or voice: wire contract of analyze-meal's describe mode, matching rules and speech on iOS/Android |
-| [Premium](PREMIUM.md) | Free and Premium limits, prices, paywall and hints, the plan tables and store functions, delivery and owner steps (contract of 2026-10-25) |
+| [Premium](PREMIUM.md) | Free and Premium limits, prices, paywall and hints, the plan tables and store functions, delivery and owner steps, the Free AI pool and abuse protection (contract of 2026-10-25) |
 | [Premium legal draft](PREMIUM-LEGAL-DRAFT.md) | German draft for legal review: AGB changes, privacy-policy additions and the in-app notice for existing accounts |
 | [Contributing](../CONTRIBUTING.md) | Local validation, CI gates and protected PR workflow |
 | [Changelog](../CHANGELOG.md) | Merged changes and dated release history |
@@ -24,7 +24,7 @@ but their old feature gaps, branch snapshots and test counts are not live state.
 | [Security policy](../SECURITY.md) | Reporting vulnerabilities and trust boundaries |
 | [Security checkbook](../SECURITY_AUDIT.md) | All 91 audit points, confirmed findings, corrections and evidence limits |
 | [Verified security rollout](SECURITY-ROLLOUT-2026-09-15.json) | Tested commit, green CI, deployed functions, catalog comparison and published privacy evidence |
-| [Operations and recovery](OPERATIONS.md) | Backups, synthetic restore, incident response, stop switches, Premium store setup and remaining operator decisions |
+| [Operations and recovery](OPERATIONS.md) | Backups, synthetic restore, incident response, stop switches, Premium store setup, the Free AI pool, spend limits and remaining operator decisions |
 | [Build-tool security](../android/BUILD_TOOL_SECURITY.md) | Resolved toolchain advisories, actual usage and update candidates, separate from app runtime |
 | [Coach evaluation](../supabase/eval/README.md) | Bounded synthetic model evaluation and offline harness tests |
 | [Evaluation results, 2026-09-15](../supabase/eval/results/2026-09-15.md) | Real-model cases, budget ledger and semantic/clinical limits |

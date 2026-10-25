@@ -8,7 +8,9 @@
 > Jede Formulierung ist ein Vorschlag. Offene Rechtsfragen sind als
 > **[Prüfpunkt n]** markiert und in [Abschnitt 4](#4-prüfpunkte-für-die-rechtliche-prüfung)
 > gesammelt. Zahlen sind die beschlossenen Startwerte; maßgeblich ist, was
-> die App und der Store bei Veröffentlichung anzeigen.
+> die App und der Store bei Veröffentlichung anzeigen. Die Free-Zahlen
+> wurden am 2026-10-25 nach einer Missbrauchsprüfung gesenkt
+> ([Premium-Vertrag, Abschnitt 7](PREMIUM.md#7-abuse-protection)).
 
 ## 0. Was sich ändert
 
@@ -18,12 +20,19 @@
   testen).
 - Premium erhöht nur die Tageslimits der KI-Funktionen und schaltet das
   KI-Bild zu Coach-Rezepten frei. Alles ohne KI bleibt für alle kostenlos.
-- Neue Free-Limits pro Tag: 3 Coach-Fragen, 4 KI-Analysen, 2 Rezept-Importe,
+- Neue Free-Limits pro Tag: 2 Coach-Fragen, 3 KI-Analysen, 1 Rezept-Import,
   kein KI-Bild. Premium: 20, 30, 10, mit KI-Bild.
+- Alle Free-Konten teilen sich zusätzlich eine tägliche KI-Kapazität. Ist sie
+  erschöpft, pausieren die KI-Funktionen für Free bis 00:00 Uhr UTC, auch
+  wenn das eigene Kontingent noch nicht ausgeschöpft ist. Premium zählt
+  nicht in diese Kapazität.
 - Bestandskonten behalten die bisherigen Limits (5, 100, 20, mit KI-Bild),
   bis die geänderten AGB nach § 11 mindestens vier Wochen vorher angekündigt
   und wirksam geworden sind. Neue Konten erhalten die neuen Free-Limits
-  sofort.
+  sofort. Stand 2026-10-25: Die Übergangsfrist wurde live beendet, weil alle
+  7 Konten Testkonten des Betreibers waren und die App nicht öffentlich ist.
+  Entstehen vor der Veröffentlichung keine Konten Dritter, entfallen § 2a
+  Absatz 10 und Abschnitt 3. **[Prüfpunkt 7]**
 - Die geltenden AGB beschreiben die App als kostenlos („es bestehen keine
   Kaufversion, kein Abo …“, § 2) und begründen die Kontingente damit, dass
   die App unentgeltlich bleiben soll; § 8 und § 9 beziehen sich auf den
@@ -76,17 +85,23 @@ und im Profil. Bei Veröffentlichung dieser Fassung betragen sie:
 
 | Pro Tag | Free | Premium |
 | --- | --- | --- |
-| Coach-Anfragen | 3 | 20 |
-| KI-Analysen von Mahlzeiten | 4 | 30 |
-| Rezept-Importe | 2 | 10 |
+| Coach-Anfragen | 2 | 20 |
+| KI-Analysen von Mahlzeiten | 3 | 30 |
+| Rezept-Importe | 1 | 10 |
 | KI-Bild zu Coach-Rezepten | nein | ja |
 
 Die Kontingente werden täglich um 00:00 Uhr UTC zurückgesetzt; die App zeigt
 die Uhrzeit in der Ortszeit des Geräts. Zusätzlich gelten Schutzgrenzen gegen
 Missbrauch (Anfragen pro Stunde und pro Verbindung) und für alle Nutzer
-gemeinsame Tagesobergrenzen. Sind diese erreicht oder ist ein KI-Anbieter
-gestört, kann eine Anfrage auch dann abgelehnt werden, wenn das eigene
-Kontingent noch nicht ausgeschöpft ist. **[Prüfpunkt 6, 7]**
+gemeinsame Tagesobergrenzen. In der Stufe Free teilen sich alle Nutzer
+außerdem eine tägliche KI-Kapazität, die vor dem eigenen Kontingent
+aufgebraucht sein kann; dann stehen die KI-Funktionen in der Stufe Free bis
+zum nächsten Zurücksetzen nicht zur Verfügung. Sind diese Grenzen erreicht
+oder ist ein KI-Anbieter gestört, kann eine Anfrage auch dann abgelehnt
+werden, wenn das eigene Kontingent noch nicht ausgeschöpft ist. Eine
+Anfrage, die wegen erreichter Grenzen abgelehnt wird, bevor sie an einen
+KI-Anbieter gestellt wurde, wird nicht auf das eigene Kontingent
+angerechnet. **[Prüfpunkt 6, 7]**
 
 (5) Der Anbieter kann die Kontingente jederzeit erhöhen. Eine Senkung der
 Free-Kontingente kündigt er nach § 11 an. Eine Senkung der
@@ -157,9 +172,10 @@ genutzte Laufzeit wird anteilig erstattet. **[Prüfpunkt 5]**
 
 (8) **Verfügbarkeit.** Auch mit Premium können einzelne KI-Anfragen abgelehnt
 werden, wenn ein KI-Anbieter gestört ist oder die für alle Nutzer gemeinsamen
-Tagesobergrenzen erreicht sind; die Kontingente bezeichnen die Höchstzahl
-der Anfragen, keine zugesicherte Anzahl erfolgreicher Antworten. Kann die
-Stufe eines Kontos vorübergehend nicht festgestellt werden, gelten für diese
+Tagesobergrenzen erreicht sind; die gemeinsame KI-Kapazität der Stufe Free
+(§ 2 Absatz 4) gilt für Premium nicht. Die Kontingente bezeichnen die
+Höchstzahl der Anfragen, keine zugesicherte Anzahl erfolgreicher Antworten.
+Kann die Stufe eines Kontos vorübergehend nicht festgestellt werden, gelten für diese
 Zeit die Free-Kontingente. **[Prüfpunkt 6]**
 
 (9) **Konto, Geräte und Ende des Abonnements.** Premium gehört zu dem
@@ -396,13 +412,17 @@ E-Mail“ zu). **[Prüfpunkt 7]**
 6. **Mängelrechte und Verfügbarkeit (§§ 327e ff. BGB).** Sind § 2 Absatz 3
    und 4, § 2a Absatz 8 (Ablehnung bei Anbieterstörung oder gemeinsamen
    Obergrenzen, Free-Kontingente bei vorübergehend unbekannter Stufe) und
-   § 8 für ein bezahltes digitales Produkt wirksam?
+   § 8 für ein bezahltes digitales Produkt wirksam? Reicht für Free die
+   Beschreibung der gemeinsamen KI-Kapazität in § 2 Absatz 4, die vor dem
+   eigenen Kontingent erschöpft sein kann?
 7. **Änderung der Free-Kontingente für Bestandskonten.** Trägt die
    Zustimmungsfiktion des § 11 (Rechtsprechung zur Zustimmungsfiktion in
    AGB, etwa BGH XI ZR 26/20), oder deckt schon der bisherige § 2 („Der
    Anbieter kann diese Grenzen anpassen, soweit das für den sicheren und
    unentgeltlichen Betrieb erforderlich ist“) die Senkung? Reicht der
    Hinweis in der App, oder muss eine E-Mail an alle Bestandskonten gehen?
+   Stand 2026-10-25 gibt es keine Bestandskonten Dritter (§ 0); der Punkt
+   zählt erst, wenn vor der Veröffentlichung fremde Konten entstehen.
 8. **Folge eines Widerspruchs.** Technisch gilt das Ende der Übergangsfrist
    (`legacy_until`) für alle Bestandskonten gleichzeitig; eine Ausnahme für
    einzelne Konten gibt es nicht. Was folgt aus einem Widerspruch: Kündigung

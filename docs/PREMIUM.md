@@ -9,6 +9,10 @@ limit. The owner delegated every decision. All decisions below are open for
 review; limits change without an app release (section 2), prices in the
 store consoles.
 
+Revised the same day after an abuse review: lower Free limits, a shared
+daily AI pool for all Free accounts and lower ceilings before the launch
+(migration `20261026100000_free_ai_pool.sql`, [section 7](#7-abuse-protection)).
+
 ## 1. Decisions
 
 ### 1.1 Tiers, limits, price
@@ -17,31 +21,43 @@ Three decision agents (unit economics, market and conversion, the Free
 experience) proposed independently; then each saw all three proposals and
 cast a final vote. The result is the median per number and the majority per
 choice; the final votes were unanimous except the Premium Coach limit (15, 20,
-20), the Free analyses (4, 3, 5) and the Free imports (2, 2, 3). Reasoning in
-section 6.
+20). The first Free numbers were 3 Coach questions, 4 analyses, 2 imports and
+a cap of 30. After the abuse review three new decision agents (cost safety,
+experience, pragmatic) voted Free Coach (2, 3, 2), analyses (3, 3, 3),
+imports (1, 1, 1) and the cap (11, 13, 10); the medians are below. Reasoning
+in sections 6 and 7.
 
 | | Free | Premium |
 | --- | --- | --- |
-| Coach questions per day (chat, photo, `/recipe`, `/plan`, `/log`; `/meal` stays free) | 3 | 20 |
-| AI meal analyses per day (photo scan and Describe share one bucket) | 4 | 30 |
-| Recipe imports per day | 2 | 10 |
+| Coach questions per day (chat, photo, `/recipe`, `/plan`, `/log`; `/meal` stays free) | 2 | 20 |
+| AI meal analyses per day (photo scan and Describe share one bucket) | 3 | 30 |
+| Recipe imports per day | 1 | 10 |
 | AI picture with a Coach `/recipe` | no (the full recipe stays) | yes |
-| Provider-call safety cap per account per day | 30 | 150 |
+| Provider-call safety cap per account per day | 11 | 150 |
+| Shared AI pool per day | 150 provider calls for all Free accounts together | not counted in it |
 | Price (store price incl. VAT) | free | 7,99 EUR per month, or 49,99 EUR per year (4,17 EUR per month, 48 % less) with a 7-day free trial on the yearly plan only |
 
 - Everything that costs no AI stays free for everyone: diary, barcode,
   search, favorites, own products, recipes, meal plan, shopping list,
   training, trends (all ranges), weekly check, reminders, health import,
   export. No other Premium perks.
-- Global ceilings rise with the launch: recipe pictures 50 to 200 per day,
-  provider calls 1000 to 3000 per day (alert at 60 %: the ops watch runs
-  `--budget-warning-percent 60`).
-- **Existing accounts keep today's limits** (Coach 5, analyses 100, imports
-  20, picture included) until the operator sets `plan_settings.legacy_until`
-  after announcing the new AGB at least four weeks ahead (AGB section 11).
-  Accounts created after the migration get the new Free limits at once. A
-  legacy account with Premium gets the higher value of both per feature and
-  a provider-call cap that covers that maximum: 20 x 3 + 100 + 20 x 2 = 200.
+- Free stays on the same model as Premium (`claude-sonnet-5-5`); Premium buys
+  more uses and the picture, not better answers.
+- Global ceilings until the launch: 400 provider calls and 20 recipe
+  pictures per UTC day, of which Free may use at most 150 calls. The first
+  Premium migration had raised them to 3000 and 200; `20261026100000` lowers
+  them again until the pools are sized from real use (section 7). Alert at
+  60 %: the ops watch runs `--budget-warning-percent 60`.
+- **Existing accounts kept the earlier limits** (Coach 5, analyses 100,
+  imports 20, picture included) until the operator set
+  `plan_settings.legacy_until`, normally after announcing the new AGB at
+  least four weeks ahead (AGB section 11). Accounts created after the
+  migration get the new Free limits at once. A legacy account with Premium
+  gets the higher value of both per feature and a provider-call cap that
+  covers that maximum: 20 x 3 + 100 + 20 x 2 = 200. The window ended live on
+  2026-10-25 at 08:30:35 UTC with the owner's consent and without the notice:
+  all 7 accounts were the owner's test accounts and the app is not public.
+  The mechanism stays in the code.
 - A downgrade or expiry locks and deletes nothing; saved recipes and their
   on-device pictures stay. Free limits apply from the next request.
 - All limits are per UTC day (reset 00:00 UTC, shown on the phone's clock).
@@ -150,7 +166,7 @@ create table public.plan_tiers (
   updated_at timestamptz not null default now()
 );
 -- Seed (insert ... on conflict (tier) do nothing):
---   free    (3,  4,  2,  30, false)
+--   free    (3,  4,  2,  30, false)   -- 20261026100000 sets (2, 3, 1, 11, false)
 --   premium (20, 30, 10, 150, true)
 --   legacy  (5, 100, 20, 150, true)   -- today's limits for existing accounts
 
@@ -248,15 +264,17 @@ server.
 operator ceilings, never lowers them:
 `update public.ai_provider_limits set daily_user_limit = greatest(daily_user_limit, 200), daily_image_limit = greatest(daily_image_limit, 200), daily_call_limit = greatest(daily_call_limit, 3000)`
 (200 per account so a legacy account with Premium reaches its ceiling of
-200, 2.1).
+200, 2.1). `20261026100000` lowers the call and picture ceilings again to
+`least(current, 400)` and `least(current, 20)` and adds the Free pool
+(section 7).
 
 ### 2.3 `resolve_plan` result (contract with `_shared/plan.ts`)
 
 ```json
 {
   "tier": "free", "legacy": false,
-  "coach_daily": 3, "meal_analysis_daily": 4, "recipe_import_daily": 2,
-  "provider_calls_daily": 30, "recipe_picture": false,
+  "coach_daily": 2, "meal_analysis_daily": 3, "recipe_import_daily": 1,
+  "provider_calls_daily": 11, "recipe_picture": false,
   "premium": { "coach_daily": 20, "meal_analysis_daily": 30, "recipe_import_daily": 10, "recipe_picture": true }
 }
 ```
@@ -276,7 +294,7 @@ effective Premium for this account.
   },
   "limits": {
     "current": { "coach_daily": 20, "meal_analysis_daily": 30, "recipe_import_daily": 10, "recipe_picture": true },
-    "free":    { "coach_daily": 3,  "meal_analysis_daily": 4,  "recipe_import_daily": 2,  "recipe_picture": false },
+    "free":    { "coach_daily": 2,  "meal_analysis_daily": 3,  "recipe_import_daily": 1,  "recipe_picture": false },
     "premium": { "coach_daily": 20, "meal_analysis_daily": 30, "recipe_import_daily": 10, "recipe_picture": true }
   },
   "legacy": null,
@@ -363,7 +381,7 @@ export interface TierLimits { coachDaily: number; mealAnalysisDaily: number; rec
 export interface ResolvedPlan extends TierLimits {
   tier: PlanTier; legacy: boolean; providerCallsDaily: number; premium: TierLimits; fallback: boolean;
 }
-export const FREE_FALLBACK: ResolvedPlan;  // free (3, 4, 2, 30, false), premium (20, 30, 10, true), fallback: true
+export const FREE_FALLBACK: ResolvedPlan;  // free (2, 3, 1, 11, false), premium (20, 30, 10, true), fallback: true
 export function resolvePlan(o: { supabaseUrl: string; serviceKey: string; userId: string; signal: AbortSignal }): Promise<ResolvedPlan>;  // never throws
 export function limitFor(plan: ResolvedPlan, feature: PlanFeature): number;
 export function premiumLimitFor(plan: ResolvedPlan, feature: PlanFeature): number;
@@ -380,7 +398,7 @@ strictly and returns `FREE_FALLBACK` on any failure with one
 denial in all three AI functions:
 
 ```json
-"planLimit": { "feature": "coach", "tier": "free", "limit": 3, "resetAt": "2026-10-26T00:00:00.000Z", "premiumLimit": 20 }
+"planLimit": { "feature": "coach", "tier": "free", "limit": 2, "resetAt": "2026-10-26T00:00:00.000Z", "premiumLimit": 20 }
 ```
 
 `premiumLimit` only when `tier == "free"`, the plan is not the fallback and
@@ -399,7 +417,7 @@ A request the fallback allows is answered as usual, but a successful
 `/log`), streamed or buffered, and for a refusal after the claim, the body
 carries neither `daily_limit` nor `remaining`. The app then keeps its
 counter and asks the server for the count again (a forced plan read, else
-the quota RPC), so the fallback's 3 never locks a Premium or legacy
+the quota RPC), so the fallback's 2 never locks a Premium or legacy
 account's composer. A `/recipe` answer under the fallback gets no picture
 and no `image_locked` (3.2).
 
@@ -643,8 +661,8 @@ Back and a finished purchase write `answered`. The four deferred-entry guards
   `SubscriptionCard`: tier pill (Free or Premium), status line (renews on,
   ends on, payment problem with access until, unlocked until for manual,
   expired on), "über Google Play / über den App Store", a test-purchase badge
-  for sandbox and test, today's usage (Coach 1/3, KI-Analysen 2/4,
-  Importe 0/2), and the actions: "Mehr mit Premium" on Free without a live
+  for sandbox and test, today's usage (Coach 1/2, KI-Analysen 2/3,
+  Importe 0/1), and the actions: "Mehr mit Premium" on Free without a live
   store subscription; "Abo verwalten" for a live store subscription (Premium,
   or on Free one on hold, paused or pending, with the spans of 4.3; when
   bought on the other platform: the note that it is managed there); always
@@ -687,6 +705,7 @@ A shared `lib/src/widgets/shared/plan_limit_notice.dart` with
 | Recipe import (`recipe_import_sheet.dart`) | The notice; the analyze button offers no retry for a tier quota until the same kind of upgrade lifts it (then the notice goes, without a success line); the service keeps `planLimit` and `resetAt` |
 | Coach banner, composer, info sheets, brief lock | The banner gets the action slot; at 0 remaining the composer shows an upgrade pill instead of the counter; both info sheets show the Premium line and button; built from state, not a frozen string |
 | Coach recipe card | `image_locked` (the live answer, or the stored recipe JSON after a reload) shows "KI-Bild mit Premium", which opens the paywall; a recipe made under the plan fallback carries none and shows the plain placeholder (3.2) |
+| Free pool used up (`429 ai_budget_exhausted` with `scope: "free"`, section 7) | Coach, meal analysis and recipe import show a calm notice with the reset time in local time and no upgrade offer; the Coach composer is never locked; the meal analysis adds that barcode, search and favorites keep working. Every other scope, or none, keeps the earlier mapping |
 
 The Coach counter and lock use `PlanStatus` (`usage.coach`, the `current`
 limit) instead of the echoing `get_chat_quota_today`; a tier change resets
@@ -817,6 +836,11 @@ tables, the provider-budget change only lifts ceilings, and every existing
 account is legacy) → merge → deploy `coach-chat`, `analyze-meal`,
 `recipe-import`, `subscription-verify`, `store-notifications` → app build.
 
+The Free pool (section 7) follows the same order: migration
+`20261026100000` live (backward compatible: deployed handlers read only
+`allowed` and `reason`) → merge → deploy `coach-chat`, `analyze-meal`,
+`recipe-import` → app build.
+
 Owner steps outside the repository (details in
 [operations](OPERATIONS.md)):
 1. Play Console: publish a build with Billing to the internal track, create
@@ -832,9 +856,10 @@ Owner steps outside the repository (details in
    subscription group with both products and the introductory offer, the
    App Store Server Notifications V2 URL, sandbox testers.
 5. Legal: publish new AGB (paid tier, store billing, cancellation, the new
-   Free limits) and the privacy text (purchase data), announce the AGB change
-   to existing accounts at least four weeks ahead, then set
-   `plan_settings.legacy_until`. A draft is in
+   Free limits, the shared Free capacity) and the privacy text (purchase
+   data). The four-week announcement and `plan_settings.legacy_until` were
+   meant for other people's accounts; with only the owner's test accounts
+   the window ended on 2026-10-25 (1.1). A draft is in
    [PREMIUM-LEGAL-DRAFT.md](PREMIUM-LEGAL-DRAFT.md).
 
 ## 6. Why these numbers (decision agents, summarized)
@@ -850,19 +875,162 @@ Owner steps outside the repository (details in
   round yearly price where both stay positive; 59,99 would sit above AI-first
   rivals (Cal AI 34,99-44,99, Foodvisor 47,99), 39,99 loses money on daily
   users. 7,99 EUR monthly stays below every AI rival's 9,99.
-- **Free:** a typical active Free user costs about 0,50 EUR a month. Coach 3
-  keeps a real daily question and follow-up and is Premium's clearest step;
-  4 analyses cover three meals plus a snack or one retry (analysis slots are
-  never refunded); 2 imports keep one retry. Raising Free later is easy,
-  cutting needs four weeks' notice, so the start is tight.
-- **Caps:** the Free feature maximum is 14 provider calls a day (cap 30), the
-  Premium maximum 110 (cap 150). A legacy account with Premium gets
+- **Free (first round):** a typical active Free user was estimated at about
+  0,50 EUR a month with Coach 3, analyses 4 and imports 2.
+- **Free (after the abuse review, section 7):** the per-account number does
+  not bound a bot, so it is a product decision. Coach 2 keeps one real
+  question and a follow-up; 3 analyses cover three meals logged by AI, and a
+  fourth goes in through barcode, search or a favorite; 1 import is up to
+  two paid attempts. Cutting Free was possible without notice because the
+  app is not public; after the launch raising Free stays easy and cutting
+  needs four weeks' notice.
+- **Caps:** the Free feature maximum is 2 x 2 + 3 + 1 x 2 = 9 provider calls
+  a day (a Coach question is a classifier and an answer call, an import an
+  attempt and one retry); the cap of 11 adds one refunded Coach retry. The
+  Premium maximum is 110 (cap 150). A legacy account with Premium gets
   20 x 3 + 100 + 20 x 2 = 200 (cap 200, with `daily_user_limit` at least
-  200). The global picture and call ceilings rise so a handful of heavy
-  accounts cannot exhaust them for everyone.
+  200). The first round raised the global ceilings so a handful of heavy
+  accounts could not exhaust them; the Free pool now does that job, and the
+  ceilings stay low until the launch (section 7).
 - **Triggers** (from the `ai_call` token logs 2-4 weeks after launch): above
   about 2,20 EUR AI cost per subscriber and month, move the picture to a
   cheaper image size or model first; if typical Free cost exceeds 0,75 EUR,
   lower Free analyses by one.
-- **Follow-up:** refund an analysis slot after a provider outage (needs a
-  decrement RPC); with a single-digit Free bucket that is fairer.
+- **Follow-up:** refund an analysis slot after a provider outage; with a
+  single-digit Free bucket that is fairer. `release_edge_rate_limit`
+  (section 7) now gives the slot back after a capacity denial before any
+  paid call; a release after an outage can reuse it.
+
+## 7. Abuse protection
+
+Contract of 2026-10-25, decided by three decision agents (median per number,
+majority per measure) after five analyses (cost, a red team, sign-up,
+attestation, quotas). Migration `20261026100000_free_ai_pool.sql`.
+
+### 7.1 Why a pool and not the per-account number
+
+Accounts are free, never expire, and every quota resets at 00:00 UTC. A bot
+creates a stock of accounts once and uses each one every day, so a lower
+per-account Free number only changes how many accounts it needs. Before this
+change the only hard bound was one global ceiling shared by Free and
+Premium, 3000 calls and 200 pictures per UTC day: about 215 Free accounts
+(3000 / 14 calls) could spend about 150 to 330 USD a day and then lock
+Premium out until midnight with `ai_budget_exhausted`.
+
+A Free pool bounds the money whatever the number of accounts: all Free
+accounts together get at most `daily_free_call_limit` provider calls a day.
+It is counted in `reserve_ai_provider_call` under the existing singleton
+lock, so parallel requests cannot pass it, and the tier is resolved in the
+database, not by the client. The per-account numbers (2/3/1, cap 11) are
+then a product choice.
+
+### 7.2 Bounds in USD
+
+The most expensive single call is a Coach answer with an image, 24,000
+characters of history and the 4,096-token output cap: about 0.105 USD at
+Sonnet 5.5 prices (2 USD input, 10 USD output per million tokens; the
+characters-per-token ratio is an estimate). Before the launch:
+
+| | Calls per UTC day | Worst case per day |
+| --- | --- | --- |
+| A bot without paying (the Free pool) | 150 | about 16 USD |
+| Everything, Free and Premium | 400 | about 42 USD |
+| Recipe pictures (Premium only) | 20 | about 1.5 USD |
+
+Pictures count among the 400 calls, so about 43.5 USD a day is a safe upper
+bound. Premium keeps at least 250 calls a day (400 - 150) whatever Free
+does. These are request counts, not money limits; the provider spend limits
+(7.6) are the only bound in dollars.
+
+### 7.3 Reservation order and the `scope` field
+
+`reserve_ai_provider_call` resolves the plan once after the singleton lock.
+An account counts as Free when its tier is not `premium` (a legacy account
+without Premium included). It denies with reason `budget_exhausted` and a
+`scope`, checked in this order:
+
+| Order | Condition | `scope` |
+| --- | --- | --- |
+| 1 | the day's calls reach `daily_call_limit` | `all` |
+| 2 | picture call and the day's pictures reach `daily_image_limit` | `images` |
+| 3 | picture call and the plan has no `recipe_picture` | `plan` |
+| 4 | Free account and the day's `free_calls` reach `daily_free_call_limit` | `free` |
+| 5 | the account's calls reach `least(daily_user_limit, provider_calls_daily)` | `account` |
+
+An allowed Free call also adds 1 to `ai_provider_daily_usage.free_calls`, a
+global counter without a user id. The answer stays `{allowed, reason}`, so
+deployed handlers keep working; only a `budget_exhausted` denial adds
+`scope`.
+
+### 7.4 What the user sees
+
+- The three AI functions answer a budget denial with
+  `429 {"error":"ai_budget_exhausted","scope":…,"resetAt":…}` (`scope` when
+  the RPC named a known one, `resetAt` the next 00:00 UTC; `coach-chat` keeps
+  `session_id`).
+- A capacity denial no longer costs an honest user a day slot. When the
+  first reservation of `analyze-meal` is denied, nothing was paid, and the
+  function gives back the `analyze-meal:user-day` and `analyze-meal:global`
+  slots it took; `recipe-import` does the same for `recipe-import:user-day`
+  on its first attempt. Neither releases after a paid call or for any other
+  error. `coach-chat` already refunds the question on a budget denial
+  (not after a client abort).
+- `release_edge_rate_limit(p_scope, p_subject, p_window_start,
+  p_window_seconds)` takes one count off a limiter bucket, never below 0,
+  and only for an aligned window that has started; `service_role` only.
+- The app shows `scope: "free"` as "Die kostenlose KI ist für heute
+  ausgelastet. Ab {time} Uhr geht es weiter." ("Free AI is at capacity for
+  today. It is back at {time}."), the meal analysis adds "Barcode, Suche und
+  Favoriten funktionieren weiter.", with no upgrade offer and no locked
+  composer. Older builds show their generic "not reachable" message.
+
+### 7.5 Switches and sizing
+
+- Stop all Free AI, keep Premium:
+  `update public.ai_provider_limits set daily_free_call_limit = 0 where singleton;`
+  (scope `free`, the calm notice).
+- Or through the per-account cap of the `free` row:
+  `update public.plan_tiers set provider_calls_daily = 0, updated_at = now() where tier = 'free';`
+  (scope `account`, the generic message; the column allows 0, only the
+  feature limits need at least 1; a legacy account reads the `legacy` row
+  instead).
+- Before the launch: pool 150, total 400, pictures 20. Sizing and the
+  checks are in [operations](OPERATIONS.md#free-ai-pool).
+
+### 7.6 Owner steps now
+
+- Anthropic Console: a monthly spend limit of about 50 USD before the launch,
+  with an alert at about 20 USD, on the workspace of the production key.
+- OpenRouter: a credit limit of about 10 USD on the picture key.
+- Console labels are not verified; details in
+  [operations](OPERATIONS.md#provider-spend-limits).
+
+### 7.7 Before the public launch
+
+Documented, not built in this change:
+
+1. **Size the pools** from ops-watch data: `daily_free_call_limit` about
+   Free daily active users x 5 calls x 1.5; `daily_call_limit` = the Free
+   pool + a Premium reserve (at least 150 x the heavy Premium accounts);
+   `daily_image_limit` about 50 to 100. Raise the Anthropic spend limit to
+   match.
+2. **Before User Created Postgres hook:** a blocklist table of disposable
+   email domains and a per-IP throttle for new accounts (5 per hour, 20 per
+   day, IPv6 by /64). Probe it on a disposable GoTrue first, because the hook
+   fails closed.
+3. **Cloudflare Turnstile through Supabase CAPTCHA:** an app release first
+   (`captchaToken` on `signUp`, `signInWithPassword`, resend and
+   `resetPasswordForEmail`), then switch it on. It protects the project-wide
+   60 mails per hour.
+4. **Play Integrity standard requests** on the three AI functions, with the
+   `requestHash` bound to user, function and request id. Monitor mode for 2
+   to 4 weeks, then enforce for Free only; unattested requests fall into a
+   small pool. iOS after the paid Apple program. Update the privacy text and
+   the Data safety form.
+5. **Store trials:** count trial accounts against the Free pool, or cap their
+   pictures, once trial phases are visible in verified store data.
+6. **Real token cost:** measure it from the `ai_call` logs; then consider a
+   smaller Free history budget or a Haiku evaluation (recipe import first).
+7. Optional: a **canonical identity key** (an HMAC of the normalized email or
+   the Google `sub`), so deleting and re-creating an account keeps the day's
+   usage.

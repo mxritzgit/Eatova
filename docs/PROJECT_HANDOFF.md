@@ -4422,3 +4422,54 @@ the release AAB with `com.android.vending.BILLING`.
 6. Device build and checks: paywall after a fresh onboarding, the Profile
    "Abo" card, the hints at each limit, a manual Premium grant (SQL in
    operations) to see the Premium side before the stores exist.
+
+## Free AI pool and abuse protection, 2026-10-25
+
+Question after the Premium rollout: can Free AI be farmed with free
+throwaway accounts at the owner's cost? Five analysis agents (cost, red
+team, sign-up, attestation, quotas) and three decision agents (cost safety,
+experience, pragmatic; median per number, majority per measure) produced
+the contract, now in [PREMIUM.md section 7](PREMIUM.md#7-abuse-protection).
+
+**Legacy window ended live, 2026-10-25 08:30:35 UTC,** with the owner's
+consent: all 7 accounts were the owner's test accounts and the app is not
+public, so no notice period applied. One statement set
+`plan_settings.legacy_until = now()` while it was null. Since then no
+account is legacy, and the accounts got the `free` row (then 3 / 4 / 2).
+
+**Decisions** (open for review; numbers change in `plan_tiers` and
+`ai_provider_limits` without a release):
+
+| | Before | After |
+| --- | --- | --- |
+| Free Coach / analyses / imports per day | 3 / 4 / 2 | 2 / 3 / 1 |
+| Free provider-call cap per account and day | 30 | 11 (feature maximum 9 plus one refunded Coach retry) |
+| Free pool, all Free accounts per day | none | 150 calls |
+| Ceilings per day | 3000 calls, 200 pictures | 400 calls, 20 pictures |
+| Premium and legacy rows | 20/30/10/150, 5/100/20/150 | unchanged |
+
+- Worst case before the launch: about 16 USD a day from Free and at most
+  about 43.5 USD from all calls, pictures included; Premium keeps at least
+  250 calls. Before: about 150 to 330 USD a day, and a farm could lock Premium
+  out until midnight.
+- A capacity denial no longer burns a day slot (`release_edge_rate_limit`);
+  the 429 carries `scope` and `resetAt`; the app shows `scope: "free"` as a
+  calm notice without an upgrade offer. Free keeps `claude-sonnet-5-5`.
+- Before the launch, documented and not built: pool sizing, a Before User
+  Created hook, Turnstile, Play Integrity, store trials, measured token cost
+  and an optional identity key
+  ([list](PREMIUM.md#77-before-the-public-launch)).
+
+**Delivery state:** code committed on branch `premium/free-ai-pool`; the PR
+is not merged yet, migration `20261026100000_free_ai_pool.sql` is not live,
+and `coach-chat`, `analyze-meal` and `recipe-import` are not deployed. The
+orchestrator updates this entry with the PR, the checks and the rollout.
+
+**Owner steps** (details in [operations](OPERATIONS.md#provider-spend-limits)):
+1. Anthropic Console: a monthly spend limit of about 50 USD with an alert at
+   about 20 USD on the workspace of the production key.
+2. OpenRouter: a credit limit of about 10 USD on the picture key.
+3. Explicit approval for the merge, the live migration and the three
+   function deploys; then the app build as usual.
+4. To test Premium on one of the test accounts, a manual grant
+   ([operations](OPERATIONS.md#manual-grants)).
