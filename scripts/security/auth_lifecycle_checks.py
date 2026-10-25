@@ -7,6 +7,7 @@ Only check names/statuses leave this module, never credentials or responses.
 import base64
 import json
 import math
+import re
 import secrets
 import time
 import uuid
@@ -75,6 +76,15 @@ class LifecycleProbe:
         return self.call(label, '/verify', {
             'type': kind, 'email': email, 'token': code,
         }, **expected)
+
+    def mailbox_accounts(self, email):
+        """Counts rows sharing the canonical key of a synthetic address."""
+        if not re.fullmatch(r'synthetic-[a-z0-9-]+(\+[a-z]+)?@example\.test', email):
+            raise LifecycleFailure('mailbox_accounts received an unexpected address')
+        raw = self.sql('SELECT count(*) FROM auth.users WHERE '
+                       'public.email_canonical_key(email) = '
+                       f"public.email_canonical_key('{email}');")
+        return int(raw) if raw.isdigit() else None
 
     def wait_refresh_grace(self, label, actor_id, *, timeout=45):
         """Observe expiry on the server clock, without changing token rows.
@@ -210,6 +220,28 @@ class LifecycleProbe:
         self.require('duplicate_signup_has_no_session_and_empty_identities',
                      'access_token' not in duplicate and
                      duplicate.get('identities') == [])
+        # One account per mailbox: the Before User Created hook answers an
+        # alias signup with GoTrue's own duplicate sentence, and no row exists.
+        rejected = self.call('alias_signup_rejected_by_hook', '/signup', {
+            'email': email.replace('@', '+alias@'), 'password': password,
+        }, status=422, error_code='unknown')
+        self.require('alias_signup_has_duplicate_sentence_and_no_row',
+                     rejected.get('msg') == 'User already registered' and
+                     self.mailbox_accounts(email) == 1)
+        # A change request to that alias fails in the update trigger before the
+        # change codes are stored. This legacy body shows only the fixed raise
+        # text; 2024-01-01 clients get 500 with GoTrue's generic message.
+        actor = self.actor('alias_change')
+        blocked = self.call('alias_email_change_blocked', '/user', {
+            'email': email.replace('@', '+change@'),
+        }, actor['session']['access_token'], 'PUT', status=500)
+        actor_id = str(uuid.UUID(actor['id']))
+        self.require('alias_email_change_raised_by_trigger_and_kept_row',
+                     blocked == {'code': 'P0001',
+                                 'message': 'email alias of an existing account'} and
+                     self.sql("SELECT email || '|' || coalesce(email_change, '') "
+                              f"FROM auth.users WHERE id = '{actor_id}'::uuid;")
+                     == actor['email'] + '|')
 
         recovery = self.actor('recovery')
         self.call('existing_recovery_request_neutral', '/recover',
