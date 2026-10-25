@@ -4621,8 +4621,8 @@ light-mode focus on tinted and fill-less controls darkens rather than
 brightens, and the stroke-less dark Google button has had no branding
 review.
 
-**Delivery state:** PR open, not merged; migration not live; hook not
-enabled.
+**Delivery state:** [PR #174](https://github.com/mxritzgit/Eatova/pull/174)
+open, not merged; migration not live; hook not enabled.
 
 **Owner steps:**
 1. Explicit approval for the merge, the live migration and enabling the
