@@ -48,6 +48,48 @@ SUPABASE_PROJECT_REF=ftoozzvmduptrvrrrshb python scripts/security/auth_config_dr
 unset SUPABASE_ACCESS_TOKEN
 ```
 
+## Ein Konto pro Postfach (2026-10-25)
+
+GoTrue vergleicht Adressen exakt. Migration
+`20261027100000_email_alias_guard.sql` erlaubt serverseitig ein Konto pro
+Postfach: Gmail-Schreibweisen mit oder ohne Punkte, `googlemail.com` und ein
+`+Zusatz` (bei jeder Domain) gelten als dieselbe Adresse (Regel und Grenzen:
+[Backend](../docs/BACKEND.md#one-account-per-mailbox)). Noch nicht live;
+Einschalten, Proben und Rückbau: [Betrieb](../docs/OPERATIONS.md#before-user-created-hook).
+
+- **Registrierung:** Hält ein bestätigtes Konto oder ein unbestätigtes aus
+  der letzten Stunde den Schlüssel, lehnt der Before User Created Hook mit
+  `422` und GoTrues eigenem Satz „User already registered“ ab (Code
+  `unknown` in API-Version 2024-01-01). Jeder ausgelieferte Build erkennt
+  den Satz und zeigt denselben neutralen Hinweis wie beim exakten Duplikat
+  (`authSignupExistingAccountHint`, Wechsel zur Anmeldung, keine Codeseite).
+  Neue Builds ergänzen bei einer Gmail-/googlemail-Adresse oder einem `+` in
+  der Eingabe einen Satz zu Schreibweisen
+  (`authSignupExistingAccountAliasHint`). Er richtet sich nach der Form der
+  Eingabe, nicht nach der Serverantwort, und bestätigt deshalb nichts.
+- **Keine Enumeration:** „E-Mail bereits vergeben“, wie vom Owner gewünscht,
+  ist bewusst nicht umgesetzt; die Hausregel halten
+  `test/auth_enumeration_test.dart` und
+  `test/auth_screen_existing_account_test.dart` fest. 422 statt 200 verrät
+  nicht mehr als das `identities: []`, das GoTrue beim exakten bestätigten
+  Duplikat schon liefert.
+- **Anmeldung und Recovery bleiben exakt:** Wer nach dem Hinweis die andere
+  Schreibweise eingibt, erhält `invalid_credentials`, und „Passwort
+  vergessen“ mit ihr verschickt nichts. Deshalb verweist der Zusatzsatz auf
+  die Schreibweise der Registrierung.
+- **E-Mail-Änderung auf einen Alias:** Der Trigger bricht sie bei der
+  Anforderung ab. GoTrue hat die Änderungsmails da schon verschickt (die an
+  die neue Adresse landet im Postfach des bestehenden Kontos), die Tokens
+  werden aber zurückgerollt, ihre Codes verifizieren nie. Der Client erhält
+  `500` („Error sending email change email“) und zeigt
+  `authErrorServerFault`. Das ist akzeptiert: Eine Vorabprüfung wäre ein
+  Enumerations-Orakel für angemeldete Nutzer. Die Bestätigung einer Änderung
+  und die erste Bestätigung eines zweiten Alias prüft der Trigger erneut
+  (ebenfalls `500`).
+- **Konfigurationsvertrag:** Nach dem Einschalten kommen
+  `hook_before_user_created_enabled` und `hook_before_user_created_uri` in
+  `auth_config.expected.json`.
+
 ## Passwortänderung: Plan und Sicherheitsvertrag, 2026-09-20
 
 Der Zielvertrag nutzt die unterstützte native Supabase-Härtung: Bei normalen

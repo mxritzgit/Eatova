@@ -1055,10 +1055,17 @@ Documented, not built in this change:
    pool + a Premium reserve (at least 150 x the heavy Premium accounts);
    `daily_image_limit` about 50 to 100. Raise the Anthropic spend limit to
    match.
-2. **Before User Created Postgres hook:** a blocklist table of disposable
+2. **Before User Created Postgres hook:** the hook exists since
+   `20261027100000_email_alias_guard.sql` as
+   `public.auth_before_user_created`, so far with one check, one account per
+   mailbox ([backend](BACKEND.md#one-account-per-mailbox)). Still to build
+   there, as further ordered checks (the first reject wins; only one Before
+   User Created URI can be configured): a blocklist table of disposable
    email domains and a per-IP throttle for new accounts (5 per hour, 20 per
-   day, IPv6 by /64). Probe it on a disposable GoTrue first, because the hook
-   fails closed.
+   day, `metadata.ip_address`, IPv6 by /64). GoTrue fails closed on a hook
+   error, so each check fails open on its own errors like the alias check,
+   and is probed on a disposable GoTrue first
+   ([operations](OPERATIONS.md#before-user-created-hook)).
 3. **Cloudflare Turnstile through Supabase CAPTCHA:** an app release first
    (`captchaToken` on `signUp`, `signInWithPassword`, resend and
    `resetPasswordForEmail`), then switch it on. It protects the project-wide
@@ -1074,4 +1081,6 @@ Documented, not built in this change:
    smaller Free history budget or a Haiku evaluation (recipe import first).
 7. Optional: a **canonical identity key** (an HMAC of the normalized email or
    the Google `sub`), so deleting and re-creating an account keeps the day's
-   usage.
+   usage. The normalization exists (`public.email_canonical_key`, from the
+   alias guard); the identity key itself is still open, and deleting then
+   signing up again stays allowed.

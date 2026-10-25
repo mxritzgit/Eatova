@@ -3,7 +3,8 @@
 Updated for the **2026-09-15 security work**; the Premium tier (plans, store
 subscriptions and two new functions) was added **2026-10-25**
 ([contract](PREMIUM.md), [section below](#premium-plans-and-store-subscriptions)),
-and the same day the shared Free AI pool ([abuse protection](PREMIUM.md#7-abuse-protection)).
+and the same day the shared Free AI pool ([abuse protection](PREMIUM.md#7-abuse-protection))
+and one account per mailbox ([below](#one-account-per-mailbox), not live yet).
 This guide describes source contracts; environment values can override
 defaults. Runtime inspection and deployment are separate from editing this
 documentation.
@@ -12,7 +13,7 @@ documentation.
 
 | Service | Responsibility |
 | --- | --- |
-| Supabase Auth | Email/password, Google token exchange, OTP/account flows |
+| Supabase Auth | Email/password, Google token exchange, OTP/account flows; one account per mailbox through the Before User Created hook and two BEFORE triggers on `auth.users` ([below](#one-account-per-mailbox)) |
 | Postgres + RLS | Profiles, diary, favorites, weight, recipes, plans, shopping checks, workout history, chat and quota |
 | `analyze-meal` | Authenticated photo/context input, or a typed or dictated meal description, to a structured nutrition estimate |
 | `coach-chat` | Authenticated chat/stream, recipe, training-plan and workout-log proposals; quotas, validation and guardrails |
@@ -40,6 +41,47 @@ Sources: [store and sync](../lib/src/app/home_store_sync.dart),
 [meal plans](../lib/src/app/home_store_meal_plan.dart),
 [training history](../lib/src/app/home_store_training_history.dart),
 [core feature contracts](CORE-FEATURES-IMPLEMENTATION-2026-09-10.md).
+
+### One account per mailbox
+
+GoTrue matches addresses exactly, so `jane.doe@gmail.com` and
+`janedoe@gmail.com`, one Gmail mailbox, could each hold an account and its
+Free allowance. Migration `20261027100000_email_alias_guard.sql` allows one
+account per canonical key, `public.email_canonical_key(text)`:
+
+- trim and lowercase, split at the last `@`, drop one trailing dot from the
+  domain, and read `googlemail.com` as `gmail.com`;
+- for `gmail.com` only, remove every dot from the local part (dots matter
+  for Workspace, Outlook and iCloud);
+- for every domain, cut the local part at the first `+`;
+- if that leaves the local part empty, keep it unstripped (`+x@gmail.com`
+  stays itself); blank input gives null, an address without `@` or with an
+  empty side stays lowercased.
+
+Yahoo-style `-` addresses, IDN spellings and `name.fastmail.com` subdomains
+are not folded. Another account holds a key when it is confirmed, or, for
+an email signup or an email change request, when it is unconfirmed and was
+created less than an hour ago (`email_alias_holder_exists`): a stranger's
+unconfirmed alias never gets its code and blocks the real owner for an hour
+at most. The user's own account never counts.
+
+| Path | Guard | Answer |
+| --- | --- | --- |
+| Signup by email or OTP, first Google, OAuth or ID-token sign-in | Before User Created hook `auth_before_user_created` | 422 `User already registered`, GoTrue's own duplicate answer (code `unknown`) |
+| Any insert into `auth.users`: concurrent signups (per-key advisory lock), admin-created users, the hook switched off | BEFORE INSERT trigger | 500, raised as `P0001` without an address |
+| Email change request, the confirmed change, the first confirmation of an address | BEFORE UPDATE trigger | 500 |
+
+There is no key table and no unique index: each check scans `auth.users`;
+revisit with a server-only key table at about 20,000 accounts. Existing
+rows are not changed (one pair of the owner's test accounts shares a key
+and keeps working), and deleting an account frees its key at once. The hook
+and the trigger function are SECURITY DEFINER with an empty `search_path`;
+only `supabase_auth_admin` (which gets USAGE on `public`) and
+`service_role` may execute the hook, the other three functions only
+`service_role`. Enabling, fail-open behavior and rollback:
+[operations](OPERATIONS.md#before-user-created-hook); what the app shows:
+[email OTP contract](../supabase/AUTH_EMAIL_OTP.md#ein-konto-pro-postfach-2026-10-25)
+and [Google](../supabase/OAUTH_SETUP.md#one-account-per-mailbox).
 
 ### AI consent and answer reports
 
