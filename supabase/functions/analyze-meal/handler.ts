@@ -172,8 +172,8 @@ const IP_WINDOW_SECONDS = positiveIntFromEnv(
 //  - analyze-meal:global, subject 'all': one bucket for everyone, the cost
 //    legacy ceiling. The shared provider budget is enforced separately.
 //  - analyze-meal:user-day: the account's plan limit, shared by photo and
-//    describe (docs/PREMIUM.md 3.3; resolve_plan: Free 4, Premium 30,
-//    accounts from before Premium 100). No env override any more.
+//    describe (docs/PREMIUM.md 3.3; resolve_plan: Free 3, Premium 30; the
+//    legacy 100 ended on 2026-10-25). No env override any more.
 // The window is a fixed constant on purpose: positiveIntFromEnv caps at
 // 10000 s by default, so a day window read from env WITHOUT an explicit
 // `max` of EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS silently falls back.

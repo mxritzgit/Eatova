@@ -98,10 +98,10 @@ außerdem eine tägliche KI-Kapazität, die vor dem eigenen Kontingent
 aufgebraucht sein kann; dann stehen die KI-Funktionen in der Stufe Free bis
 zum nächsten Zurücksetzen nicht zur Verfügung. Sind diese Grenzen erreicht
 oder ist ein KI-Anbieter gestört, kann eine Anfrage auch dann abgelehnt
-werden, wenn das eigene Kontingent noch nicht ausgeschöpft ist. Eine
-Anfrage, die wegen erreichter Grenzen abgelehnt wird, bevor sie an einen
-KI-Anbieter gestellt wurde, wird nicht auf das eigene Kontingent
-angerechnet. **[Prüfpunkt 6, 7]**
+werden, wenn das eigene Kontingent noch nicht ausgeschöpft ist. Wird eine
+Anfrage wegen erreichter gemeinsamer Grenzen abgelehnt, bevor sie an einen
+KI-Anbieter gestellt wurde, schreibt der Anbieter sie dem eigenen
+Kontingent wieder gut, soweit das technisch möglich ist. **[Prüfpunkt 6, 7]**
 
 (5) Der Anbieter kann die Kontingente jederzeit erhöhen. Eine Senkung der
 Free-Kontingente kündigt er nach § 11 an. Eine Senkung der
@@ -414,7 +414,9 @@ E-Mail“ zu). **[Prüfpunkt 7]**
    Obergrenzen, Free-Kontingente bei vorübergehend unbekannter Stufe) und
    § 8 für ein bezahltes digitales Produkt wirksam? Reicht für Free die
    Beschreibung der gemeinsamen KI-Kapazität in § 2 Absatz 4, die vor dem
-   eigenen Kontingent erschöpft sein kann?
+   eigenen Kontingent erschöpft sein kann? Genügt die Gutschrift abgelehnter
+   Anfragen „soweit technisch möglich“ (sie kann bei einer Störung der
+   Datenbank ausbleiben)?
 7. **Änderung der Free-Kontingente für Bestandskonten.** Trägt die
    Zustimmungsfiktion des § 11 (Rechtsprechung zur Zustimmungsfiktion in
    AGB, etwa BGH XI ZR 26/20), oder deckt schon der bisherige § 2 („Der

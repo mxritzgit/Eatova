@@ -60,7 +60,9 @@ gehören zusammen:
    Management-API (`POST /v1/projects/{ref}/database/query`). Alle Migrationen
    dieses Repos sind idempotent geschrieben (`if not exists`,
    `drop … if exists`, `pg_constraint`-Proben), ein zweiter Lauf ist also
-   folgenlos.
+   folgenlos. Ausnahme Datenschritte: `20261025100000` hebt die Ceilings
+   per `greatest()` wieder an; vor einem erneuten Lauf im Katalog prüfen,
+   ob ihre Objekte schon existieren, und dann nur die Historie nachziehen.
 2. **Historie nachziehen** — den Versionsstempel in
    `supabase_migrations.schema_migrations` eintragen, sonst failt der Job
    weiter, obwohl die Änderung live ist.

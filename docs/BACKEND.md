@@ -278,11 +278,13 @@ adds 1 to the global `ai_provider_daily_usage.free_calls`, and a Free call is
 denied once that reaches `daily_free_call_limit`. The answer stays
 `{allowed, reason}`, plus `scope` on a `budget_exhausted` denial (`all`,
 `images`, `plan`, `free`, `account`, checked in that order), so older
-handlers keep working. When the first reservation of a request is denied,
-nothing was paid: `analyze-meal` gives back the `analyze-meal:user-day` and
-`analyze-meal:global` slots it took, and `recipe-import` its
-`recipe-import:user-day` slot, through `release_edge_rate_limit`; neither
-releases after a paid call. `coach-chat` refunds the question as before. The
+handlers keep working. When the first reservation of a request ends in any
+provider budget error (a denial, `disabled`, or a failed, timed-out or
+aborted reservation RPC), nothing was paid: `analyze-meal` gives back the
+`analyze-meal:user-day` and `analyze-meal:global` slots it took, and
+`recipe-import` its `recipe-import:user-day` slot, through
+`release_edge_rate_limit`, best effort; neither releases after a paid call,
+and the reservation itself is never refunded. `coach-chat` refunds the question as before. The
 app shows `scope: "free"` as a calm "at capacity" notice with the reset time
 ([contract](PREMIUM.md#74-what-the-user-sees)).
 

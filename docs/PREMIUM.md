@@ -20,8 +20,9 @@ daily AI pool for all Free accounts and lower ceilings before the launch
 Three decision agents (unit economics, market and conversion, the Free
 experience) proposed independently; then each saw all three proposals and
 cast a final vote. The result is the median per number and the majority per
-choice; the final votes were unanimous except the Premium Coach limit (15, 20,
-20). The first Free numbers were 3 Coach questions, 4 analyses, 2 imports and
+choice; the first round's final votes were unanimous except the Premium
+Coach limit (15, 20, 20), the Free analyses (4, 3, 5) and the Free imports
+(2, 2, 3). The first Free numbers were 3 Coach questions, 4 analyses, 2 imports and
 a cap of 30. After the abuse review three new decision agents (cost safety,
 experience, pragmatic) voted Free Coach (2, 3, 2), analyses (3, 3, 3),
 imports (1, 1, 1) and the cap (11, 13, 10); the medians are below. Reasoning
@@ -938,9 +939,16 @@ characters-per-token ratio is an estimate). Before the launch:
 | Recipe pictures (Premium only) | 20 | about 1.5 USD |
 
 Pictures count among the 400 calls, so about 43.5 USD a day is a safe upper
-bound. Premium keeps at least 250 calls a day (400 - 150) whatever Free
-does. These are request counts, not money limits; the provider spend limits
-(7.6) are the only bound in dollars.
+bound. The reservation layer keeps Premium at least 250 calls a day
+(400 - 150) whatever Free does, but only while the monthly provider spend
+limit (7.6) is not reached: a farm that uses the whole Free pool every day
+spends about 7 to 16 USD a day, so a 50 USD monthly limit runs out after
+about 3 to 7 days, and then the provider refuses every tier, Premium
+included, until the month resets or the limit is raised. Before the launch
+that is the accepted overall damage limit; the 20 USD alert or several days
+of `free_calls_warning` mean: lower the pool or set it to 0. These are
+request counts, not money limits; the spend limits are the only bound in
+dollars.
 
 ### 7.3 Reservation order and the `scope` field
 
@@ -968,12 +976,17 @@ deployed handlers keep working; only a `budget_exhausted` denial adds
   `429 {"error":"ai_budget_exhausted","scope":…,"resetAt":…}` (`scope` when
   the RPC named a known one, `resetAt` the next 00:00 UTC; `coach-chat` keeps
   `session_id`).
-- A capacity denial no longer costs an honest user a day slot. When the
-  first reservation of `analyze-meal` is denied, nothing was paid, and the
-  function gives back the `analyze-meal:user-day` and `analyze-meal:global`
-  slots it took; `recipe-import` does the same for `recipe-import:user-day`
-  on its first attempt. Neither releases after a paid call or for any other
-  error. `coach-chat` already refunds the question on a budget denial
+- A capacity denial, an AI switch-off or a reservation outage no longer
+  costs an honest user a day slot. When the first reservation of a request
+  ends in any provider budget error (a denial, `disabled`, or a reservation
+  RPC that fails, times out or is aborted), no provider call was made, and
+  `analyze-meal` gives back the `analyze-meal:user-day` and
+  `analyze-meal:global` slots it took; `recipe-import` does the same for
+  `recipe-import:user-day` on its first attempt. The reservation itself is
+  never refunded, even when the RPC committed it before a timeout. Neither
+  releases after a paid call or for any other error. The release is best
+  effort: when it fails (3 s bound), the answer is the same and the slot
+  stays spent. `coach-chat` already refunds the question on a budget error
   (not after a client abort).
 - `release_edge_rate_limit(p_scope, p_subject, p_window_start,
   p_window_seconds)` takes one count off a limiter bucket, never below 0,
@@ -988,7 +1001,9 @@ deployed handlers keep working; only a `budget_exhausted` denial adds
 
 - Stop all Free AI, keep Premium:
   `update public.ai_provider_limits set daily_free_call_limit = 0 where singleton;`
-  (scope `free`, the calm notice).
+  (scope `free`, the calm notice). Current apps then say Free AI is back at
+  the next 00:00 UTC, so use it only for a stop that ends by then; for a
+  longer or open-ended stop use the second switch or a general stop switch.
 - Or through the per-account cap of the `free` row:
   `update public.plan_tiers set provider_calls_daily = 0, updated_at = now() where tier = 'free';`
   (scope `account`, the generic message; the column allows 0, only the

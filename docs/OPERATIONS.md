@@ -830,8 +830,9 @@ order of checks and the bounds: [Premium, section 7](PREMIUM.md#7-abuse-protecti
 | `daily_image_limit` | 20 | Recipe pictures per UTC day (Premium only) |
 | `daily_user_limit` | 200 (unchanged) | Operator ceiling per account; the plan's `provider_calls_daily` (11 for Free) is lower |
 
-`20261026100000` sets the pool to 150 and lowers the two ceilings with
-`least(...)`, so a lower live value stays. Worst case before the launch:
+`20261026100000` sets the pool to 150 and replaces only the ceilings
+`20261025100000` left (3000 calls, 200 pictures) with 400 and 20; any other
+live value, and an operator's later change, stays on a second run. Worst case before the launch:
 about 16 USD a day from Free and at most about 43.5 USD from all calls,
 pictures included. Keep `daily_free_call_limit` below `daily_call_limit`;
 the readiness check reports `free_limit_not_below_total` otherwise.
@@ -842,7 +843,11 @@ Sizing at the launch, from a few weeks of ops-watch numbers:
 - `daily_call_limit`: the Free pool plus a Premium reserve of at least 150 ×
   the heavy Premium accounts.
 - `daily_image_limit`: about 50 to 100.
-- Raise the Anthropic spend limit to match ([below](#provider-spend-limits)).
+- Raise the Anthropic spend limit to match ([below](#provider-spend-limits)):
+  at least 30 × `daily_free_call_limit` × about 0.105 USD plus the expected
+  Premium spend, so a Free pool used up every day for a month cannot reach
+  it. Otherwise lower `daily_free_call_limit` to about (limit − Premium
+  spend) / (30 × 0.105 USD).
 
 ```sql
 update public.ai_provider_limits
@@ -856,11 +861,13 @@ Two switches stop Free AI and keep Premium working:
 
 1. `update public.ai_provider_limits set daily_free_call_limit = 0 where singleton;`
    denies every Free call with `scope: "free"`; a current app shows the calm
-   "at capacity" notice.
+   "at capacity" notice with the next 00:00 UTC as the return time. Use it
+   only for a stop that ends by then.
 2. `update public.plan_tiers set provider_calls_daily = 0, updated_at = now() where tier = 'free';`
    denies through the per-account cap (`scope: "account"`, the generic
-   message). It does not reach a legacy account, which reads the `legacy`
-   row.
+   message without a time). Use it, or a general stop switch, for a stop of
+   unknown length. It does not reach a legacy account, which reads the
+   `legacy` row.
 
 With either, a meal analysis or recipe import denied at its first
 reservation gets its day slot back. Undo a switch by setting the earlier
@@ -881,7 +888,11 @@ not verified):
    (`OPENROUTER_API_KEY`).
 
 Once the Anthropic limit is reached, the provider refuses further calls for
-every tier until the limit resets or is raised. Record the date and the
+every tier until the limit resets or is raised. A Free farm that uses the
+whole pool every day (about 7 to 16 USD a day) reaches a 50 USD limit in
+about 3 to 7 days and then stops Premium too; the 20 USD alert, or
+`free_calls_warning` on several days in a row, is the signal to lower
+`daily_free_call_limit` or set it to 0 first. Record the date and the
 values in the handoff, never a key. The readiness check cannot see these
 settings and keeps reporting `monetary_limit_verified: false`.
 

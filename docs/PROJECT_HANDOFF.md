@@ -4450,7 +4450,9 @@ account is legacy, and the accounts got the `free` row (then 3 / 4 / 2).
 
 - Worst case before the launch: about 16 USD a day from Free and at most
   about 43.5 USD from all calls, pictures included; Premium keeps at least
-  250 calls. Before: about 150 to 330 USD a day, and a farm could lock Premium
+  250 calls while the monthly Anthropic spend limit is not reached (a farm
+  using the whole Free pool reaches 50 USD in about 3 to 7 days, then every
+  tier stops). Before: about 150 to 330 USD a day, and a farm could lock Premium
   out until midnight.
 - A capacity denial no longer burns a day slot (`release_edge_rate_limit`);
   the 429 carries `scope` and `resetAt`; the app shows `scope: "free"` as a

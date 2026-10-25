@@ -17,9 +17,9 @@
 --                                account).
 --   release_edge_rate_limit      takes one request back from one limiter
 --                                bucket; the AI functions call it when the
---                                first provider reservation is denied, so a
---                                capacity denial costs an honest user no
---                                daily slot.
+--                                first provider reservation of a request
+--                                fails (nothing was paid), so a capacity
+--                                denial costs an honest user no daily slot.
 --
 -- Why: the per-account Free numbers do not bound a farm of free accounts,
 -- and the one shared ceiling let Free use up Premium's calls. Free and the
@@ -29,7 +29,9 @@
 -- handlers read only allowed and reason, `scope` is an extra key on a
 -- budget_exhausted denial, the new columns have defaults, and nothing calls
 -- the new RPC yet. The lower Free tier limits apply at once, since every
--- handler reads plan_tiers per request. Idempotent.
+-- handler reads plan_tiers per request. The DDL is idempotent; each data
+-- step replaces only the values 20261025100000 left, so a second run keeps
+-- what an operator changed since (a kill switch, the launch sizing).
 
 alter table public.ai_provider_limits
   add column if not exists daily_free_call_limit integer not null default 150
@@ -200,19 +202,22 @@ grant execute on function public.release_edge_rate_limit(text, text, timestamptz
 
 -- Fewer Free features per account. Without pictures a Coach question costs
 -- up to 2 calls and an import 2: 2 x 2 + 3 + 1 x 2 = 9, plus one refunded
--- Coach retry.
+-- Coach retry. Only the seed of 20261025100000 is replaced.
 update public.plan_tiers set
   coach_daily = 2,
   meal_analysis_daily = 3,
   recipe_import_daily = 1,
   provider_calls_daily = 11,
   updated_at = now()
-where tier = 'free';
+where tier = 'free'
+  and coach_daily = 3 and meal_analysis_daily = 4
+  and recipe_import_daily = 2 and provider_calls_daily = 30;
 
--- Pre-launch ceilings, only ever lowered here: 400 calls and 20 pictures per
--- UTC day for everyone, Premium keeps at least 250 calls above the Free
--- pool. Sized again from ops data before launch (docs/PREMIUM.md 7).
+-- Pre-launch ceilings: 400 calls and 20 pictures per UTC day for everyone,
+-- Premium keeps at least 250 calls above the Free pool. Only the values
+-- 20261025100000 set (3000, 200) are replaced; sized again from ops data
+-- before launch (docs/PREMIUM.md 7).
 update public.ai_provider_limits set
-  daily_call_limit = least(daily_call_limit, 400),
-  daily_image_limit = least(daily_image_limit, 20)
+  daily_call_limit = case when daily_call_limit = 3000 then 400 else daily_call_limit end,
+  daily_image_limit = case when daily_image_limit = 200 then 20 else daily_image_limit end
 where singleton;

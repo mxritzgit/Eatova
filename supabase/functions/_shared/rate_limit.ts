@@ -16,8 +16,9 @@
 // public status of an outage (500 or 503), the Retry-After ceiling and the
 // texts of a 429. Pruning stays in rate_limit_prune.ts.
 //
-// releaseRateLimit is the one way back: a slot spent on a request that ended
-// before its paid call (a provider capacity denial) is given back, best effort.
+// releaseRateLimit is the one way back: a slot spent on a request whose first
+// provider reservation failed (denied, disabled or unavailable, so nothing
+// was paid) is given back, best effort.
 
 import { readProviderBody } from './provider_body.ts';
 
