@@ -226,16 +226,23 @@ class TodayLegacyNoticeCard extends StatelessWidget {
               const SizedBox(height: 4),
               Align(
                 alignment: AlignmentDirectional.centerStart,
-                child: TextButton.icon(
-                  key: const ValueKey('today-legacy-notice-terms'),
-                  onPressed: openTerms,
-                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                  label: Text(l10n.legacyNoticeTerms),
-                  style: TextButton.styleFrom(
-                    foregroundColor: t.accentText,
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(0, 44),
-                    textStyle: AppType.ui(14, weight: FontWeight.w700),
+                // The glyph lines up with the body text; the link's 12 px
+                // inset (its press capsule) reaches into the card padding.
+                child: Transform.translate(
+                  // Towards the start edge (x -1 in LTR, +1 in RTL).
+                  offset: Offset(
+                    12 *
+                        AlignmentDirectional.centerStart
+                            .resolve(Directionality.of(context))
+                            .x,
+                    0,
+                  ),
+                  child: EatovaTextAction(
+                    buttonKey: const ValueKey('today-legacy-notice-terms'),
+                    onTap: openTerms,
+                    icon: Icons.open_in_new_rounded,
+                    iconSize: 16,
+                    label: l10n.legacyNoticeTerms,
                   ),
                 ),
               ),
@@ -254,7 +261,7 @@ class TodayLegacyNoticeCard extends StatelessWidget {
               SoftPillButton(
                 key: const ValueKey('today-legacy-notice-upgrade'),
                 label: l10n.planLimitUpgrade,
-                icon: Icons.auto_awesome_rounded,
+                icon: Icons.arrow_forward_rounded,
                 expand: true,
                 onTap: upgrade,
               ),

@@ -163,15 +163,24 @@ void main() {
             ? false
             : null,
       ]);
-      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(Dialog), findsNothing);
     });
   }
 
-  testWidgets('keyboard focus starts on the safe choice and Enter cancels', (
-    tester,
-  ) async {
+  testWidgets('keyboard focus starts on the quiet safe choice and Enter '
+      'cancels', (tester) async {
     final results = <bool?>[];
     await _host(tester, onResult: results.add, destructive: true);
+    // The confirmation's way out is the quiet action, not a second slab.
+    final cancel = tester.widget<EatovaDialogAction>(
+      find.ancestor(
+        of: find.byKey(_cancel),
+        matching: find.byType(EatovaDialogAction),
+      ),
+    );
+    expect(cancel.quiet, isTrue);
+    expect(cancel.autofocus, isTrue);
+    expect(tester.getSize(find.byKey(_cancel)).height, kButtonMinHeight);
     final cancelFocus = Focus.of(tester.element(find.text('Stay here')));
     expect(cancelFocus.hasFocus, isTrue);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -200,7 +209,7 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pump();
       expect(results, isEmpty);
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byType(Dialog), findsOneWidget);
       expect(
         tester.getSemantics(find.byKey(_confirm)).label,
         contains('Saving your place'),
@@ -232,8 +241,9 @@ void main() {
                   )
                   .first,
             );
-            expect(rect.left, greaterThanOrEqualTo(20));
-            expect(rect.right, lessThanOrEqualTo(large ? 300 : 373));
+            // The card floats 12 px off the screen edges.
+            expect(rect.left, greaterThanOrEqualTo(12));
+            expect(rect.right, lessThanOrEqualTo(large ? 308 : 381));
             await _capture(
               tester,
               '$locale-${brightness.name}-${large ? '320-2x' : '393'}-${destructive ? 'discard' : 'pause'}',
@@ -277,7 +287,7 @@ void main() {
             );
             await tester.tap(find.byKey(_cancel));
             await tester.pumpAndSettle();
-            expect(find.byType(AlertDialog), findsNothing);
+            expect(find.byType(Dialog), findsNothing);
             expect(tester.takeException(), isNull);
           },
         );
@@ -310,6 +320,63 @@ void main() {
       },
     );
   }
+  // The card replaced AlertDialog: screen readers must still hear its title
+  // as the route's name, inside a scoped route.
+  testWidgets('the card names and scopes its route', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _host(tester);
+    expect(
+      tester.getSemantics(
+        find.byWidgetPredicate(
+          (w) => w is Semantics && w.properties.namesRoute == true,
+        ),
+      ),
+      isSemantics(
+        label: enL10n.trainingTimerLeaveTitle,
+        scopesRoute: true,
+        namesRoute: true,
+      ),
+    );
+    semantics.dispose();
+  });
+
+  // The account a sign-out leaves is what the decision is about, not
+  // decoration: it stays when large text drops the medallion.
+  testWidgets('the account lead stays at 320px 2x', (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final l = deL10n;
+    await tester.pumpWidget(
+      localizedApp(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showEatovaDialog<void>(
+              context: context,
+              builder: (_) => EatovaDialog(
+                title: l.settingsSignOutTitle,
+                lead: DecisionAccountCapsule(
+                  label: l.settingsSignOutAccountLabel,
+                  account: 'jonas@example.com',
+                ),
+                content: Text(l.settingsSignOutSafe),
+                actions: [
+                  EatovaDialogAction(label: l.commonCancel, onPressed: () {}),
+                ],
+              ),
+            ),
+            child: const Text('Open dialog'),
+          ),
+        ),
+        textScale: 2,
+      ),
+    );
+    await tester.tap(find.text('Open dialog'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('jonas@example.com'), findsOneWidget);
+  });
+
   // The meal plan's past-day card (2026-10-22): three pinned actions at
   // 320 px and 2x left the message a strip its title filled, and the body
   // started below it. The actions then follow the message in the scroll.
@@ -344,6 +411,7 @@ void main() {
                     EatovaDialogAction(
                       label: label,
                       secondary: i > 0,
+                      quiet: i == 2,
                       autofocus: i == 2,
                       onPressed: () {},
                     ),
@@ -373,30 +441,46 @@ void main() {
     }
   });
 
-  testWidgets(
-    'focused actions show a keyboard outline without adding a touch outline',
-    (tester) async {
-      final original = FocusManager.instance.highlightStrategy;
-      addTearDown(() => FocusManager.instance.highlightStrategy = original);
-      FocusManager.instance.highlightStrategy =
-          FocusHighlightStrategy.alwaysTouch;
-      await _host(tester);
-      var cancel = tester.widget<FilledButton>(find.byKey(_cancel));
+  // Keyboard focus is a fill change, never a ring, and only in the
+  // traditional highlight mode: the lit confirm brightens in both palettes,
+  // the quiet cancel takes the `field` capsule and an `ink` label.
+  testWidgets('keyboard focus brightens the fill without a ring, touch none', (
+    tester,
+  ) async {
+    const t = AppTokens.light;
+    const focused = <WidgetState>{WidgetState.focused};
+    final original = FocusManager.instance.highlightStrategy;
+    addTearDown(() => FocusManager.instance.highlightStrategy = original);
+    FocusManager.instance.highlightStrategy = FocusHighlightStrategy.alwaysTouch;
+    await _host(tester);
+    ButtonStyle style(Key key) =>
+        tester.widget<FilledButton>(find.byKey(key)).style!;
+    expect(
+      style(_confirm).overlayColor!.resolve(focused),
+      Colors.transparent,
+    );
+    expect(
+      style(_cancel).backgroundColor!.resolve(focused)!.a,
+      0,
+      reason: 'the quiet cancel stays fill-less under touch',
+    );
+    FocusManager.instance.highlightStrategy =
+        FocusHighlightStrategy.alwaysTraditional;
+    await tester.pump();
+    final lifted = style(_confirm).overlayColor!.resolve(focused)!;
+    for (final palette in [AppTokens.light, AppTokens.dark]) {
       expect(
-        cancel.style!.side!.resolve({WidgetState.focused})!.color,
-        Colors.transparent,
+        Color.alphaBlend(lifted, palette.accentFill).computeLuminance(),
+        greaterThan(palette.accentFill.computeLuminance()),
+        reason: 'focus brightens the lit fill in both palettes',
       );
-      FocusManager.instance.highlightStrategy =
-          FocusHighlightStrategy.alwaysTraditional;
-      await tester.pump();
-      cancel = tester.widget<FilledButton>(find.byKey(_cancel));
-      expect(
-        cancel.style!.side!.resolve({WidgetState.focused})!.color,
-        AppTokens.light.ink,
-      );
-      expect(cancel.style!.side!.resolve({WidgetState.focused})!.width, 2);
-    },
-  );
+    }
+    expect(style(_cancel).backgroundColor!.resolve(focused), t.field);
+    expect(style(_cancel).foregroundColor!.resolve(focused), t.ink);
+    for (final key in [_confirm, _cancel]) {
+      expect(style(key).side, isNull, reason: 'no ring');
+    }
+  });
 
   for (final locale in ['de', 'en']) {
     testWidgets(
@@ -515,8 +599,8 @@ void main() {
     );
   }
 
-  // X-01: the decision card speaks the sheets' language instead of a
-  // centred stock box.
+  // X-01: the decision card floats at the foot instead of a centred stock
+  // box; depth and light (2026-10-25): lit, on its shadow, no edge line.
   group('decision card', () {
     Rect cardRect(WidgetTester tester) => tester.getRect(
       find
@@ -524,27 +608,45 @@ void main() {
           .first,
     );
 
-    testWidgets('sits at the foot in the page gutter with the sheet edge', (
+    testWidgets('floats at the foot, lit on its shadow, without an edge', (
       tester,
     ) async {
       const t = AppTokens.light;
       await _host(tester, destructive: true, brightness: brightness);
       final rect = cardRect(tester);
-      // 852 view, 24 px safe area, 12 px lift.
+      // 852 view, 24 px safe area, 12 px lift; 12 px off the screen sides.
       expect(rect.bottom, 852 - 24 - 12);
-      expect(rect.left, 20);
-      expect(rect.right, 393 - 20);
+      expect(rect.left, 12);
+      expect(rect.right, 393 - 12);
       expect(rect.top, greaterThan(852 / 2 - 100));
-      final dialog = tester.widget<AlertDialog>(find.byType(AlertDialog));
-      expect(dialog.backgroundColor, t.surf);
-      final shape = dialog.shape! as RoundedRectangleBorder;
-      expect(shape.borderRadius, BorderRadius.circular(rSheet));
-      expect(shape.side.color, t.lineStrong);
-      // Header: a 48 px danger tile with a 22 px glyph, the title in ink.
-      final tile = tester.widget<IconTile>(find.byType(IconTile));
-      expect(tile.size, 48);
-      expect(tile.glyphSize, 22);
-      expect(tile.color, t.danger);
+      expect(find.byType(AlertDialog), findsNothing);
+      final dialog = tester.widget<Dialog>(find.byType(Dialog));
+      expect((dialog.shape! as RoundedRectangleBorder).side, BorderSide.none);
+      final card =
+          tester
+                  .widget<DecoratedBox>(
+                    find.descendant(
+                      of: find.byType(Dialog),
+                      matching: find.byWidgetPredicate(
+                        (w) =>
+                            w is DecoratedBox &&
+                            w.decoration is BoxDecoration &&
+                            (w.decoration as BoxDecoration).gradient != null,
+                      ),
+                    ),
+                  )
+                  .decoration
+              as BoxDecoration;
+      // Lit and on a shadow instead of a hairline.
+      expect(card.boxShadow, isNotEmpty);
+      expect(card.border, isNull);
+      // Mark: the medallion with a danger glyph; title in ink.
+      expect(find.byType(IconTile), findsNothing);
+      expect(find.byType(DecisionMedallion), findsOneWidget);
+      final glyph = tester.widget<Icon>(
+        find.byIcon(Icons.delete_outline_rounded),
+      );
+      expect(glyph.color, t.danger);
       final title = tester.widget<Text>(
         find.text('Discard this workout?'),
       );
@@ -586,23 +688,28 @@ void main() {
     }
 
     const disabled = <WidgetState>{WidgetState.disabled};
+    const pressed = <WidgetState>{WidgetState.pressed};
     const t = AppTokens.light;
 
-    testWidgets('primary is the accent pill and dims its own hue when locked',
+    testWidgets('lit is the accent pill; locked it is "not yet" in its hue',
         (tester) async {
-      final style = await styleOf(
+      var style = await styleOf(
         tester,
-        const EatovaDialogAction(label: 'Add', onPressed: null),
+        EatovaDialogAction(label: 'Add', onPressed: () {}),
       );
       expect(style.backgroundColor!.resolve({}), t.accentFill);
       expect(style.foregroundColor!.resolve({}), t.onAccentFill);
+      style = await styleOf(
+        tester,
+        const EatovaDialogAction(label: 'Add', onPressed: null),
+      );
       expect(
         style.backgroundColor!.resolve(disabled),
-        t.accentFill.withValues(alpha: kDisabledFillAlpha),
+        t.accentFill.withValues(alpha: kLockedFillAlpha),
       );
       expect(
         style.foregroundColor!.resolve(disabled),
-        t.onAccentFill.withValues(alpha: 0.8),
+        t.accentText.withValues(alpha: kLockedLabelAlpha),
       );
       expect(
         tester.getSize(find.byType(FilledButton)).height,
@@ -610,13 +717,46 @@ void main() {
       );
     });
 
-    testWidgets('destructive primary is danger on bg', (tester) async {
+    testWidgets('lit destructive fills with dangerFill', (tester) async {
       final style = await styleOf(
         tester,
         EatovaDialogAction(label: 'Delete', onPressed: () {}, destructive: true),
       );
-      expect(style.backgroundColor!.resolve({}), t.danger);
-      expect(style.foregroundColor!.resolve({}), t.bg);
+      expect(style.backgroundColor!.resolve({}), t.dangerFill);
+      expect(style.foregroundColor!.resolve({}), t.onDangerFill);
+    });
+
+    testWidgets('secondary sits flush on field, as tall as the lit action', (
+      tester,
+    ) async {
+      final style = await styleOf(
+        tester,
+        EatovaDialogAction(label: 'Today', onPressed: () {}, secondary: true),
+      );
+      expect(style.backgroundColor!.resolve({}), t.field);
+      expect(style.foregroundColor!.resolve({}), t.ink);
+      expect(
+        tester.getSize(find.byType(FilledButton)).height,
+        greaterThanOrEqualTo(kPrimaryButtonHeight),
+      );
+    });
+
+    testWidgets('quiet has no fill until a finger is on it, 48 px', (
+      tester,
+    ) async {
+      final style = await styleOf(
+        tester,
+        EatovaDialogAction(
+          label: 'Cancel',
+          onPressed: () {},
+          secondary: true,
+          quiet: true,
+        ),
+      );
+      expect(style.backgroundColor!.resolve({})!.a, 0);
+      expect(style.backgroundColor!.resolve(pressed), t.softFill);
+      expect(style.foregroundColor!.resolve({}), t.inkSoft);
+      expect(tester.getSize(find.byType(FilledButton)).height, kButtonMinHeight);
     });
 
     testWidgets('secondary and destructive is the soft danger pair, not a '

@@ -6,6 +6,7 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
@@ -14,6 +15,8 @@ import 'package:eatova/src/app/subscription.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/screens/premium/paywall_screen.dart';
+import 'package:eatova/src/screens/premium/paywall_sections.dart'
+    show PaywallPlanCard;
 import 'package:eatova/src/services/billing/purchase_flow.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
@@ -53,6 +56,18 @@ final PlanStatus _freeOwnNumbers = PlanStatus(
     recipeImportDaily: 11,
     recipePicture: true,
   ),
+  usage: PlanUsage.none(kPlanDay),
+  resetAt: nextUtcMidnight(kPlanDay),
+);
+
+/// That account once the purchase is verified: Premium with the plan's own
+/// numbers.
+final PlanStatus _premiumOwnNumbers = PlanStatus(
+  tier: PlanTier.premium,
+  subscription: planOf(PlanTier.premium).subscription,
+  current: _freeOwnNumbers.premium,
+  free: _freeOwnNumbers.free,
+  premium: _freeOwnNumbers.premium,
   usage: PlanUsage.none(kPlanDay),
   resetAt: nextUtcMidnight(kPlanDay),
 );
@@ -121,6 +136,7 @@ Future<(SubscriptionController, BuildContext)> _pump(
   Future<void> Function()? onAnswered,
   Size surfaceSize = const Size(390, 844),
   double textScale = 1.0,
+  bool reducedMotion = true,
 }) async {
   final controller = await subscriptionController(
     log: FakeSubscriptionLog(plan: plan ?? planOf(PlanTier.free)),
@@ -138,6 +154,7 @@ Future<(SubscriptionController, BuildContext)> _pump(
     ),
     surfaceSize: surfaceSize,
     textScale: textScale,
+    reducedMotion: reducedMotion,
     scaffold: false,
     safeArea: false,
   );
@@ -153,8 +170,8 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
 }
 
 bool _selected(WidgetTester tester, String key) => tester
-    .widget<OptionCard>(
-      find.ancestor(of: _key(key), matching: find.byType(OptionCard)),
+    .widget<PaywallPlanCard>(
+      find.ancestor(of: _key(key), matching: find.byType(PaywallPlanCard)),
     )
     .selected;
 
@@ -451,6 +468,11 @@ void main() {
         tester.getSize(_key('paywall-buy')).height,
         tester.getSize(_key('paywall-continue-free')).height,
       );
+      // A full soft capsule (1.2), never the fill-less quiet tone.
+      expect(
+        tester.widget<SoftPillButton>(_key('paywall-continue-free')).tone,
+        SoftPillTone.neutral,
+      );
       // The pinned foot takes the screen from the content past this scale.
       for (final key in <String>[
         'paywall-foot-charge',
@@ -497,6 +519,76 @@ void main() {
 
       await _tapKey(tester, 'paywall-buy');
       expect(flow.buys.single.offer.period, PremiumPeriod.monthly);
+    });
+  });
+
+  testWidgets('nur ein echter Planwechsel tickt, der Kauf tippt leicht an', (
+    tester,
+  ) async {
+    final haptics = <Object?>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await withClock(Clock.fixed(kPlanDay), () async {
+      await _pump(tester);
+
+      await _tapKey(tester, 'paywall-plan-yearly');
+      expect(haptics, isEmpty, reason: 'schon gewaehlt: kein Tick');
+      await _tapKey(tester, 'paywall-plan-monthly');
+      await _tapKey(tester, 'paywall-buy');
+      expect(haptics, <String>[
+        'HapticFeedbackType.selectionClick',
+        'HapticFeedbackType.lightImpact',
+      ]);
+    });
+  });
+
+  testWidgets('mit Bewegung kommt alles zur Ruhe, auf den Zahlen des Plans', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(kPlanDay), () async {
+      final (_, context) = await _pump(
+        tester,
+        plan: _freeOwnNumbers,
+        flow: FakePurchaseFlow()
+          ..onBuy = [
+            PurchaseVerified(active: true, plan: _premiumOwnNumbers),
+          ],
+        reducedMotion: false,
+      );
+      // Counting, rising and the trial track all end; nothing loops.
+      await tester.pumpAndSettle();
+      for (final number in ['6', '41', '7', '37', '11']) {
+        expect(find.text(number), findsOneWidget, reason: number);
+      }
+      expect(_key('paywall-trial-timeline'), findsOneWidget);
+
+      await tester.tap(_key('paywall-buy'));
+      await tester.pumpAndSettle();
+      // The recap counts up to the verified plan's Premium limits.
+      for (final number in ['41', '37', '11']) {
+        expect(
+          find.descendant(
+            of: _key('paywall-success'),
+            matching: find.text(number),
+          ),
+          findsOneWidget,
+          reason: number,
+        );
+      }
+      expect(find.text(context.l10n.premiumSuccessTitle), findsOneWidget);
     });
   });
 

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 /// True when the platform asks for reduced motion.
@@ -66,3 +68,49 @@ const Duration kMotionStagger = Duration(milliseconds: 20);
 /// Press feedback: sinking in, and easing back out.
 const Duration kMotionPressIn = Duration(milliseconds: 90);
 const Duration kMotionPressOut = Duration(milliseconds: 160);
+
+// ---------------------------------------------------------------------------
+// Objects that arrive and respond (polish 2026-10-25): a decision surface
+// settles on a soft spring, a glyph or a check pops, a pressed control
+// rebounds a hair past rest. Every spring settles at t = 1, so nothing loops
+// and `pumpAndSettle` terminates.
+// ---------------------------------------------------------------------------
+
+/// An under-damped spring's step response, normalised so it settles at
+/// t = 1: it overshoots 1 once (by `exp(-ζπ/√(1-ζ²))`) and comes back. Use
+/// it on a linear driver (a route's animation, a one-shot controller).
+class SpringCurve extends Curve {
+  const SpringCurve({this.dampingRatio = 0.72});
+
+  /// ζ: 0.72 overshoots about 4 %, 0.55 about 12 %, 0.45 about 20 %.
+  final double dampingRatio;
+
+  @override
+  double transformInternal(double t) {
+    final zeta = dampingRatio.clamp(0.05, 0.999);
+    // The envelope is down to 0.2 % at t = 1.
+    final omega = math.log(500) / zeta;
+    final damped = omega * math.sqrt(1 - zeta * zeta);
+    final envelope = math.exp(-zeta * omega * t);
+    return 1 -
+        envelope *
+            (math.cos(damped * t) +
+                (zeta * omega / damped) * math.sin(damped * t));
+  }
+}
+
+/// A surface or content landing: about 4 % past rest, then back.
+const Curve kSpringSettle = SpringCurve(dampingRatio: 0.72);
+
+/// A glyph or a check that lands: about 12 % past rest.
+const Curve kSpringPop = SpringCurve(dampingRatio: 0.55);
+
+/// A decision card arriving (the route, its rise and its content).
+const Duration kMotionDecisionIn = Duration(milliseconds: 460);
+
+/// A decision card leaving: quick, no bounce.
+const Duration kMotionDecisionOut = Duration(milliseconds: 180);
+
+/// A locked primary action lighting up as it arms; a label taking on a new
+/// job.
+const Duration kMotionLightUp = Duration(milliseconds: 240);

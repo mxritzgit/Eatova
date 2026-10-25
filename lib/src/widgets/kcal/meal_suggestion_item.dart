@@ -516,9 +516,10 @@ class _PortionPanel extends StatelessWidget {
   }
 }
 
-/// The one primary action: a round accent "+" with a soft glow and press
-/// dip. A FilledButton underneath, so the app's button theme, semantics and
-/// disabled state apply; only shape and size are local.
+/// The one primary action: a round accent "+" that casts its light onto
+/// the tile and sinks into it while pressed. A FilledButton underneath, so
+/// the app's button theme, semantics and disabled state apply; only shape
+/// and size are local. The light fades in as the portion becomes valid.
 class _AddButton extends StatelessWidget {
   const _AddButton({required this.buttonKey, required this.onAdd});
 
@@ -531,40 +532,44 @@ class _AddButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final enabled = onAdd != null;
-    return PressScale(
-      enabled: enabled,
-      child: AnimatedContainer(
-        duration: motionDuration(context, kMotionPressOut),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: enabled
-                  ? t.accentGlow
-                  : t.accentGlow.withValues(alpha: 0),
-              blurRadius: 18,
-              offset: const Offset(0, 6),
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: enabled ? 1 : 0),
+      duration: motionDuration(context, kMotionLightUp),
+      curve: kMotionCurve,
+      builder: (context, strength, child) => PressScale(
+        enabled: enabled,
+        rebound: true,
+        builder: (context, press, child) => DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: castLight(
+              t,
+              t.accentGlow,
+              strength: strength,
+              press: press,
             ),
-          ],
+          ),
+          child: child,
         ),
-        child: FilledButton(
-          key: buttonKey,
-          onPressed: enabled
-              ? () {
-                  HapticFeedback.selectionClick();
-                  onAdd!();
-                }
-              : null,
-          style: FilledButton.styleFrom(
-            shape: const CircleBorder(),
-            fixedSize: const Size.square(_size),
-            minimumSize: const Size.square(_size),
-            padding: EdgeInsets.zero,
-          ),
-          child: Semantics(
-            label: context.l10n.commonAdd,
-            child: const FoodGlyphIcon(FoodGlyph.plus, size: 24),
-          ),
+        child: child!,
+      ),
+      child: FilledButton(
+        key: buttonKey,
+        onPressed: enabled
+            ? () {
+                HapticFeedback.selectionClick();
+                onAdd!();
+              }
+            : null,
+        style: FilledButton.styleFrom(
+          shape: const CircleBorder(),
+          fixedSize: const Size.square(_size),
+          minimumSize: const Size.square(_size),
+          padding: EdgeInsets.zero,
+        ),
+        child: Semantics(
+          label: context.l10n.commonAdd,
+          child: const FoodGlyphIcon(FoodGlyph.plus, size: 24),
         ),
       ),
     );

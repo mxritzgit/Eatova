@@ -204,32 +204,22 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   Widget _content(BuildContext context) {
-    final l10n = context.l10n;
     final controller = widget.controller;
     final state = controller.purchaseState;
     final success = state == PurchaseState.success;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-          child: Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: SheetCloseButton(
-              buttonKey: const ValueKey('paywall-close'),
-              tooltip: l10n.premiumClose,
-              onTap: () => unawaited(_leave()),
-            ),
-          ),
-        ),
+        PaywallTopBar(onClose: () => unawaited(_leave())),
         Expanded(
           child: AnimatedSwitcher(
             duration: motionDuration(context, kMotionValue),
             switchInCurve: kMotionCurve,
             switchOutCurve: kMotionCurve,
             child: success
-                ? const PaywallSuccessView(
-                    key: ValueKey('paywall-success-view'),
+                ? PaywallSuccessView(
+                    key: const ValueKey('paywall-success-view'),
+                    limits: controller.plan.premium,
                   )
                 : KeyedSubtree(
                     key: const ValueKey('paywall-offer-view'),
@@ -257,26 +247,21 @@ class _PaywallScreenState extends State<PaywallScreen> {
       child: LivelyStaggerScope(
         child: SingleChildScrollView(
           key: const ValueKey('paywall-scroll'),
-          padding: const EdgeInsets.fromLTRB(
-            20,
-            _kEdgeFade,
-            20,
-            _kEdgeFade + 8,
-          ),
+          padding: const EdgeInsets.fromLTRB(20, _kTopFade, 20, _kBottomFade),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: livelyStagger(<Widget>[
               const PaywallHero(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 30),
               PaywallCompareCard(free: plan.free, premium: plan.premium),
               // With Premium the current limits are not "the previous ones".
               if (plan.isLegacy && !premium) ...<Widget>[
                 const SizedBox(height: 12),
                 PaywallLegacyNote(plan: plan),
               ],
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               const PaywallBenefits(),
-              const SizedBox(height: 26),
+              const SizedBox(height: 30),
               if (managed)
                 PaywallStatusCard(
                   plan: plan,
@@ -289,7 +274,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                 PaywallStoreUnavailable(onRetry: _retry)
               else
                 _plans(context, offer),
-              const SizedBox(height: 16),
+              const SizedBox(height: 28),
               PaywallFinePrint(
                 selected: offer,
                 onRestore: controller.storeReady || premium ? _restore : null,
@@ -302,11 +287,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
     );
   }
 
-  /// Yearly first and preselected, then monthly; the state notes and the
-  /// trial timeline above the button.
+  /// Yearly first and preselected, then monthly, on one picker that holds
+  /// the trial timeline; the state notes under it.
   Widget _plans(BuildContext context, PremiumOffer? selected) {
-    final t = context.t;
-    final l10n = context.l10n;
     final controller = widget.controller;
     final state = controller.purchaseState;
     final yearly = controller.offerFor(PremiumPeriod.yearly);
@@ -322,40 +305,19 @@ class _PaywallScreenState extends State<PaywallScreen> {
       key: const ValueKey('paywall-plans'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        for (final offer in <PremiumOffer?>[yearly, monthly])
-          if (offer != null) ...<Widget>[
-            PaywallPlanCard(
-              offer: offer,
-              selected: identical(offer, selected),
-              savingsPercent: offer.period == PremiumPeriod.yearly
-                  ? savings
-                  : null,
-              onTap: () => choose(offer.period),
-            ),
-            const SizedBox(height: 10),
-          ],
+        PaywallPlanPicker(
+          offers: <PremiumOffer>[?yearly, ?monthly],
+          selected: selected,
+          savingsPercent: savings,
+          onChoose: choose,
+        ),
         if (state == PurchaseState.ownedByOther) ...<Widget>[
-          const SizedBox(height: 4),
-          SignalNote(
-            l10n.premiumOwnedByOther,
-            key: const ValueKey('paywall-owned-by-other'),
-            tone: t.warning,
-            icon: Icons.manage_accounts_outlined,
-            boxed: true,
-            liveRegion: true,
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+          const PaywallOwnedByOtherNote(),
         ],
         if (state == PurchaseState.pending) ...<Widget>[
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
           const PaywallPendingNote(),
-          const SizedBox(height: 10),
-        ],
-        if (selected != null &&
-            selected.period == PremiumPeriod.yearly &&
-            selected.hasTrial) ...<Widget>[
-          const SizedBox(height: 6),
-          PaywallTrialTimeline(offer: selected),
         ],
       ],
     );
@@ -384,13 +346,25 @@ class _PaywallScreenState extends State<PaywallScreen> {
       );
     } else if (sells && offer != null) {
       final trial = offer.period == PremiumPeriod.yearly && offer.hasTrial;
-      charge = PaywallChargeLine(offer: offer);
+      // Cross-fades with the plan: the line and the button's label change
+      // together.
+      charge = AnimatedSwitcher(
+        duration: motionDuration(context, kMotionLightUp),
+        switchInCurve: kMotionCurve,
+        switchOutCurve: kMotionCurve,
+        child: KeyedSubtree(
+          key: ValueKey<PremiumPeriod>(offer.period),
+          child: PaywallChargeLine(offer: offer),
+        ),
+      );
       primary = PrimaryActionButton(
         key: const ValueKey('paywall-buy'),
         label: trial
             ? l10n.premiumCtaTrial(offer.trialDays!)
             : l10n.premiumCtaSubscribe,
         busy: state == PurchaseState.purchasing,
+        animateLabel: true,
+        haptic: true,
         onTap: state == PurchaseState.restoring ? null : () => _buy(offer),
       );
     } else if (sells && !storeKnown) {
@@ -403,6 +377,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
     final free = _onboarding && !premium && !success
         ? ConstrainedBox(
             constraints: const BoxConstraints(minHeight: kPrimaryButtonHeight),
+            // A neutral soft capsule, never the fill-less quiet tone: Free
+            // stays a full, equal choice (1.2), only without the light.
             child: SoftPillButton(
               key: const ValueKey('paywall-continue-free'),
               label: l10n.premiumContinueFree,
@@ -421,7 +397,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             Expanded(child: primary),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Expanded(child: free),
           ],
         ),
@@ -436,12 +412,15 @@ class _PaywallScreenState extends State<PaywallScreen> {
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: _kFootMaxTextScale,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            if (charge != null) ...<Widget>[charge, const SizedBox(height: 8)],
+            if (charge != null) ...<Widget>[
+              charge,
+              const SizedBox(height: 12),
+            ],
             actions,
           ],
         ),
@@ -454,12 +433,15 @@ class _PaywallScreenState extends State<PaywallScreen> {
 /// at 2.0x left a small phone a strip of content.
 const double _kFootMaxTextScale = 1.3;
 
-/// Height of the fades at the scroll view's top and bottom edge.
-const double _kEdgeFade = 16;
+/// Height of the fades under the top bar and toward the pinned foot: deep
+/// enough that a pillar or a line of text scrolling under either dissolves
+/// instead of being cut.
+const double _kTopFade = 24;
+const double _kBottomFade = 24;
 
-/// Content scrolling under the close button or toward the foot fades out
-/// instead of being cut mid-glyph (the onboarding's edge, 2026-10-04); the
-/// scroll padding keeps the resting content clear of both fades.
+/// Content scrolling under the top bar or toward the foot fades out instead
+/// of being cut mid-glyph (the onboarding's edge, 2026-10-04); the scroll
+/// padding keeps the resting content clear of both fades.
 class _EdgeFade extends StatelessWidget {
   const _EdgeFade({required this.child});
 
@@ -468,23 +450,31 @@ class _EdgeFade extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    // Only the alpha matters for dstIn; any opaque token works. Eased: a
+    // quarter of the way in at half the depth, so a line half under the
+    // edge is mostly gone instead of showing its cut-off half.
+    final clear = t.bg.withValues(alpha: 0);
+    final faint = t.bg.withValues(alpha: 0.25);
     return ShaderMask(
       blendMode: BlendMode.dstIn,
       shaderCallback: (bounds) {
-        final edge = bounds.height <= 0
+        double share(double fade) => bounds.height <= 0
             ? 0.0
-            : (_kEdgeFade / bounds.height).clamp(0.0, 0.5);
+            : (fade / bounds.height).clamp(0.0, 0.5);
+        final top = share(_kTopFade);
+        final bottom = share(_kBottomFade);
         return LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          // Only the alpha matters for dstIn; any opaque token works.
-          colors: <Color>[
-            t.bg.withValues(alpha: 0),
-            t.bg,
-            t.bg,
-            t.bg.withValues(alpha: 0),
+          colors: <Color>[clear, faint, t.bg, t.bg, faint, clear],
+          stops: <double>[
+            0,
+            top / 2,
+            top,
+            1 - bottom,
+            1 - bottom / 2,
+            1,
           ],
-          stops: <double>[0, edge, 1 - edge, 1],
         ).createShader(bounds);
       },
       child: child,

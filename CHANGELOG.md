@@ -17,6 +17,38 @@ the complete current product.
 
 ### October 2026
 
+- **Decision cards, buttons, paywall and one account per mailbox**
+  (2026-10-25, [handoff](docs/PROJECT_HANDOFF.md#decision-cards-buttons-paywall-and-one-account-per-mailbox-2026-10-25)):
+  - Design "depth and light": floating surfaces have a lit top and a soft
+    shadow instead of hairlines; each has one lit action, the safe way out
+    is quiet, destructive actions get a red fill, and a locked button
+    lights up when it arms. No ripples, a slight press rebound, spring
+    arrivals (at rest at once under reduced motion), haptics only for
+    confirmations and the purchase.
+  - Decision cards sit at the bottom with stacked full-width actions; the
+    sign-out confirmation shows the signed-in address and one line per
+    consequence.
+  - Sign-in screen: the login/register switch and the Google button have no
+    outlines; the chosen route is a filled accent pill, and keyboard focus
+    brightens the switch and the Google button.
+  - Paywall: "Mehr KI. Jeden Tag." without a hero card, a comparison with a
+    raised Premium column, both plans on one surface with the trial
+    timeline inside the yearly plan, "Weiter mit Free" still as tall as the
+    purchase button, and a success view with the new daily limits. The Abo
+    card shows the tier word, usage meters and "Mehr mit Premium" as its
+    main action.
+  - One account per mailbox: migration `20261027100000_email_alias_guard.sql`
+    adds a Before User Created hook and two triggers on `auth.users`; Gmail
+    dots, `googlemail.com` and a `+` tag (every domain) count as one
+    address. A second spelling gets the existing neutral sign-in hint, plus
+    a sentence on spellings for Gmail or `+` input; a Google sign-in in
+    another spelling is told to sign in the way the account was registered.
+  - Docs: [backend](docs/BACKEND.md#one-account-per-mailbox), the
+    [hook runbook](docs/OPERATIONS.md#before-user-created-hook), the email
+    OTP and Google notes, and Premium 7.7. Live on 2026-10-25: the
+    migration and the hook (pinned in `auth_config.expected.json`); the app
+    changes arrive with the next build.
+
 - **Free AI pool and abuse protection** (2026-10-25,
   [contract](docs/PREMIUM.md#7-abuse-protection)):
   - Free per UTC day: 2 Coach questions, 3 AI meal analyses and 1 recipe

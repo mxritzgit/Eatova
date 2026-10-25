@@ -90,6 +90,12 @@ void main() {
       );
       expect(_kontrast(bgColor, t.surf), greaterThanOrEqualTo(3.0));
       expect(_kontrast(fg, bgColor), greaterThanOrEqualTo(4.5));
+      final fokus = style.overlayColor!.resolve(<WidgetState>{
+        WidgetState.focused,
+      })!;
+      expect(Color.alphaBlend(fokus, bgColor).computeLuminance(),
+          greaterThan(bgColor.computeLuminance()),
+          reason: 'Fokus = Aufhellung, in BEIDEN Modi');
       final shape = style.shape!.resolve(<WidgetState>{})!;
       expect(shape, isA<RoundedRectangleBorder>());
       expect((shape as RoundedRectangleBorder).borderRadius,

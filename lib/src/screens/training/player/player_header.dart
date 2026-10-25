@@ -46,25 +46,28 @@ class PlayerHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
-    // The soft accent pill ([SoftPillTone.accent]). Disabled while the
-    // workout saves, it dims in its own tint like that pill: the theme's
-    // disabled FilledButton is an accent wash that reads as selected. No
-    // vertical padding, so at large text the compact header stays as short.
+    // The soft accent pill ([SoftPillTone.accent]): its stronger tint, no
+    // ripple, the press rebound. Disabled while the workout saves, it dims
+    // in its own tint like that pill: the theme's disabled FilledButton is
+    // an accent wash that reads as selected. No vertical padding, so at
+    // large text the compact header stays as short.
     final finish = PressScale(
       enabled: enabled,
+      rebound: true,
       child: FilledButton(
         key: const ValueKey('training-timer-finish'),
         onPressed: enabled ? onFinish : null,
         style: FilledButton.styleFrom(
-          backgroundColor: t.accentTint,
+          backgroundColor: t.accentTintStrong,
           foregroundColor: t.accentText,
-          disabledBackgroundColor: t.accentTint.withValues(
-            alpha: t.accentTint.a * 0.6,
+          disabledBackgroundColor: t.accentTintStrong.withValues(
+            alpha: t.accentTintStrong.a * 0.6,
           ),
           disabledForegroundColor: t.accentText.withValues(alpha: 0.45),
           minimumSize: const Size(64, 48),
           padding: const EdgeInsets.symmetric(horizontal: 18),
           shape: const StadiumBorder(),
+          splashFactory: NoSplash.splashFactory,
         ),
         child: Text(
           l.trainingTimerFinishShort,

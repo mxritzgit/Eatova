@@ -4497,3 +4497,145 @@ merge, the live migration and the three deploys on 2026-10-25.
    the general budget message.
 4. To test Premium on one of the test accounts, a manual grant
    ([operations](OPERATIONS.md#manual-grants)).
+
+## Decision cards, buttons, paywall and one account per mailbox, 2026-10-25
+
+Owner request: a design pass over the decision cards (confirmations such
+as sign-out), the buttons, the paywall and the Abo card; the main complaint
+was "Paywall generisch / Slop". Separately, a second
+account under another spelling of the same Gmail address must "auf jeden
+Fall nicht möglich sein", if possible with "Email bereits vergeben".
+
+**Three design directions,** each built as a prototype from `main` and
+captured in dark and light, then scored by a judge (weights: not generic 3,
+fits Eatova 2, life without noise 2, the owner's input preferences 1,
+accessibility 1, low implementation risk 1):
+
+| Direction | Idea | Score /10 |
+| --- | --- | --- |
+| A, tactile and alive | springs, acting glyphs, haptics | 6.6 |
+| B, editorial brand | display type, rulers, a strong red | 5.9 |
+| C, depth and light | lit surfaces that cast light, a ledger with a raised Premium column | **7.1** |
+
+Verdict: C. It answers the paywall complaint best (no hero card or glow,
+one ledger with a raised Premium column, both plans on one lit surface with
+the trial inside the yearly plan, no sparkles, purple wash or stickers),
+reuses the light the app already casts under the selected date chip and the
+camera button, and carries the lowest risk. It lacked life, so A's motion
+was grafted on (spring arrival, an acting logout glyph, press rebound,
+count-ups, the success recap, a narrow haptic policy), and from B the real
+red fill for destructive actions and the sign-out consequence lines.
+Rejected: B's reticle around the initial (reads as a crosshair), its 3D
+purple orb (the AI cliché), tick rulers and display-face button labels that
+wrap; A's centred drawer, identical progress bars, the "48 % günstiger"
+sticker, glossy sheens and pull-to-dismiss (it fights the form dialog's
+fields). "Weiter mit Free" stays a neutral full-width capsule as tall as the
+buy button ([PREMIUM.md](PREMIUM.md) 1.2, 4.3), not the fill-less link of B
+and C.
+
+**What changed in the design:**
+- Shared: tokens `surfLit`, `dangerFill` and `onDangerFill`; lit surfaces
+  with a contact and an ambient shadow and no hairline; `castLight` under
+  the one lit action; spring curves; `PressScale` with rebound; no ink
+  ripples. `PrimaryActionButton` is lit, red when destructive, or a locked
+  "not yet" tint that lights up when it arms. `SoftPillButton` gains a
+  quiet tone, `EatovaDialogAction` a quiet variant, and `EatovaTextAction`
+  replaces bespoke text links. Keyboard focus is a fill change plus lift,
+  no ring.
+- Decision card: a bottom-anchored dialog with stacked full-width actions
+  (lit, secondary, quiet), a medallion that pops, the logout glyph acting
+  once and a quiet, autofocused cancel; under reduced motion everything is
+  at rest on the first frame. Haptics only on confirmations and the
+  purchase.
+- Sign-out: the signed-in address in a capsule and one line per consequence
+  (unsent changes, photos to be deleted, or nothing pending); red confirm
+  when photos would be lost.
+- Paywall: eyebrow with a lit dot and the close button in one bar with a
+  fade under it, the title "Mehr KI. Jeden Tag.", the ledger with
+  count-ups, two footnotes, the plan picker with the trial timeline, the
+  pinned foot with the charge line, and a success view that draws its check
+  and recaps the new limits. Keys and the store and legal rules of
+  PREMIUM.md 1.2 and 4.3 are unchanged.
+- Abo card: lit surface, the tier word with a lit dot, usage meters, "Mehr
+  mit Premium" as the primary button, restore as a quiet pill.
+
+**One account per mailbox:** GoTrue matches addresses exactly, so two
+spellings of one Gmail mailbox could each hold an account and its Free
+allowance. Migration `20261027100000_email_alias_guard.sql`: the Before
+User Created hook `auth_before_user_created` rejects an alias with GoTrue's
+own 422 "User already registered"; BEFORE triggers on `auth.users` cover
+concurrent signups, admin-created users, confirmed email changes and
+confirming a second alias, and keep blocking with the hook off. The contract was checked
+against the GoTrue v2.197.0 source and smoke-tested on a throwaway Postgres
+17.6. Rule and paths: [backend](BACKEND.md#one-account-per-mailbox);
+runbook: [operations](OPERATIONS.md#before-user-created-hook). Live facts,
+read-only on 2026-10-25 (counts and booleans only): 8 accounts, all
+confirmed Gmail addresses, one key held by two of them, no Auth hook
+enabled.
+
+Decisions:
+- **Neutral wording, not "Email bereits vergeben":** the second account is
+  impossible, but the wording stays neutral (house rule against
+  enumeration; the audit of 2026-08-14 removed exactly such a statement).
+  Every build shows the existing neutral hint; new builds add one sentence
+  on dot and `+` spellings for Gmail or `+` input. A Google sign-in in
+  another spelling is told plainly, because Google has proven the mailbox.
+  The owner can override; copy and tests then change together.
+- **`+tag` folding for all domains:** subaddressing is the default on Gmail,
+  Outlook, iCloud, Proton and Fastmail and the cheapest way to farm
+  accounts. Dots are folded for Gmail only.
+- **1-hour window:** an unconfirmed account blocks an email signup with the
+  same key for one hour after its creation, and only while no older
+  unconfirmed row of the key exists, so a stranger's squat cannot lock the
+  real owner out for more than an hour, even when renewed with a new
+  spelling; confirmed accounts always block, and confirming a second alias
+  is refused.
+- **Existing pair untouched:** the owner's two test accounts that share a
+  key are neither changed nor deleted and keep signing in (no unique
+  index); neither can confirm or change to another alias. For a clean state
+  the owner deletes one in the app.
+- **Email change:** the request to an alias passes and only its
+  confirmation is refused (500, server-fault text in the app). Refusing the
+  request rolled back `email_change_sent_at` after GoTrue had sent the
+  mails, which disabled GoTrue's per-user mail throttle.
+- Accepted limits: sign-in and recovery stay exact; the web OAuth fallback
+  shows no message on a rejection ([Google](../supabase/OAUTH_SETUP.md#one-account-per-mailbox)); deleting and signing up again stays
+  allowed ([PREMIUM.md](PREMIUM.md#77-before-the-public-launch) point 7).
+
+**Review (3 agents, 2026-10-25):** a design pass removed the last rings
+on the auth entry (mode switch and Google button, selection thumb 7.8:1 /
+5.0:1 against its track) and aligned the paywall close button. The
+correctness review led to: keyboard focus brightens lit fills in both
+palettes (the dark palette's near-black label ink darkened them), the
+sign-out card keeps the account line at large text, the decision card is
+announced as an alert dialog with its title, the paywall's buy label is
+read once during its cross-fade, and tests that pinned tuned constants
+check outcomes instead. The security review led to: a builtin prefix test
+in front of the key lookup (about 115 ms instead of about 2 s at 100,000
+accounts; GoTrue's hook has no working time limit of its own), the capped
+1-hour window and the email change rule above, and the trigger's advisory
+lock outside its fail-open handler. Each SQL and Dart fix has a test that
+fails without it; the real GoTrue probe passes (193 lifecycle checks).
+Known and left: app-wide card rims (settings, Health Connect, onboarding),
+light-mode focus on tinted and fill-less controls darkens rather than
+brightens, and the stroke-less dark Google button has had no branding
+review.
+
+**Delivery state (2026-10-25, owner approval "merge alles und deploye
+alles"):** [PR #174](https://github.com/mxritzgit/Eatova/pull/174) merged
+after #173. Migration `20261027100000` live (61 = 61, source identical,
+both triggers enabled, grants `usage`/`execute` true); SQL dry call true /
+true; Before User Created hook enabled and read back; live signup probe
+with an alias of the owner's account: 422 `unknown` "User already
+registered", account count unchanged (8); `auth_config_drift.py` live: 19
+settings match after the pin. No edge function changed, so no function
+deploy. The app changes arrive with the next device build.
+
+**Owner steps:**
+1. Device build after the merge, as usual: the sign-out card, the paywall
+   and the Abo card in both themes, and keyboard focus on a device with a
+   keyboard.
+2. Optional: say so if "Email bereits vergeben" should replace the neutral
+   hint.
+3. Optional: delete one account of the test pair that shares a key for a
+   clean state.

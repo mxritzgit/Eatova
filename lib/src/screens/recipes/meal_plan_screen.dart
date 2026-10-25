@@ -226,6 +226,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               buttonKey: const ValueKey('meal-plan-eat-cancel'),
               label: l.commonCancel,
               secondary: true,
+              quiet: true,
               autofocus: true,
               onPressed: () => Navigator.of(dialogContext).pop(),
             ),

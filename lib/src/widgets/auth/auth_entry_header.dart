@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
+import '../design/controls.dart';
 import '../shared/eatova_wordmark.dart';
 import 'auth_controls.dart';
 
@@ -148,16 +149,23 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
   }
 }
 
-/// The two account routes as one segmented pill: a card-fill track with a
-/// `lineStrong` edge (like the redesign's neutral chips) and a thumb that
-/// slides to the chosen route. Labels that do not fit side by side stack into
-/// two full-width rows; the chosen one keeps the thumb's look.
+/// The two account routes as one segmented pill in the app's selection
+/// language ([SelectionTone]): a flush `softFill` track with no edge and a
+/// `selectedFill` thumb with an `onSelected` label that slides to the chosen
+/// route. Labels that do not fit side by side stack into two full-width rows;
+/// the chosen one keeps the thumb's fill.
 ///
-/// The thumb is deliberately QUIET — a faint accent tint with a thin accent
-/// edge and an `accentText` label — so the solid accent stays reserved for
-/// the primary action below, which often carries the same words ("Log in").
-/// The tint alone is ~1.3:1 against the track; the edge (8.7:1) carries the
-/// selection boundary.
+/// The thumb's own fill draws the selection boundary, no ring (WCAG 1.4.11):
+/// 7.8:1 (dark) / 5.0:1 (light) against the track; its label 8.6:1 / 6.6:1,
+/// the other label (`ink2`) 7.6:1 / 5.2:1 on the track. The quiet tint with
+/// an accent edge it replaces measured 1.3:1 without that edge. The thumb
+/// stays flush (no cast light): the lit submit below, which often carries
+/// the same words, remains the one lit action.
+///
+/// Keyboard focus brightens, never a ring: [kLitFocusOverlay] over the thumb
+/// (still 9.0:1 / 3.4:1 against the track, label 10.0:1 / 4.5:1) or over the
+/// track, where the other label turns `ink` (8.4:1 / 14.3:1; `ink2` would
+/// drop to 4.3:1 on the brightened dark track).
 class AuthModeSelector extends StatelessWidget {
   const AuthModeSelector({
     super.key,
@@ -194,64 +202,30 @@ class AuthModeSelector extends StatelessWidget {
         }
         measure.dispose();
 
-        final thumb = ShapeDecoration(
-          shape: StadiumBorder(
-            side: BorderSide(color: t.accent, width: 1.5),
+        // Stacked rows sit in a card-radius track; their corners stay
+        // concentric with it.
+        final ShapeBorder trackShape = stacked
+            ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(rCard))
+            : const StadiumBorder();
+        final ShapeBorder segmentShape = stacked
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(rCard - _inset),
+              )
+            : const StadiumBorder();
+
+        Widget option(bool register) => _ModeSegment(
+          inkKey: ValueKey(
+            register ? 'auth-toggle-register' : 'auth-toggle-login',
           ),
-          color: t.accentTintStrong,
+          label: labels[register ? 1 : 0],
+          style: style,
+          selected: register == isRegister,
+          filled: stacked,
+          shape: segmentShape,
+          motion: motion,
+          onTap: enabled ? () => onChanged(register) : null,
         );
 
-        Widget option(bool register) {
-          final selected = register == isRegister;
-          return Semantics(
-            selected: selected,
-            button: true,
-            enabled: enabled,
-            child: InkWell(
-              key: ValueKey(
-                register ? 'auth-toggle-register' : 'auth-toggle-login',
-              ),
-              onTap: enabled ? () => onChanged(register) : null,
-              customBorder: const StadiumBorder(),
-              child: AnimatedContainer(
-                duration: motion,
-                curve: Curves.easeOutCubic,
-                constraints: const BoxConstraints(minHeight: 48),
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                // Stacked rows carry their own fill; side by side the
-                // sliding thumb below draws it.
-                decoration: stacked && selected
-                    ? thumb
-                    : ShapeDecoration(
-                        shape: StadiumBorder(
-                          side: BorderSide(
-                            color: t.accent.withValues(alpha: 0),
-                            width: 1.5,
-                          ),
-                        ),
-                        color: t.accentTintStrong.withValues(alpha: 0),
-                      ),
-                child: AnimatedDefaultTextStyle(
-                  duration: motion,
-                  curve: Curves.easeOutCubic,
-                  style: style.copyWith(
-                    color: selected ? t.accentText : t.ink2,
-                  ),
-                  child: Text(
-                    labels[register ? 1 : 0],
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
-
-        final edge = BorderSide(color: t.lineStrong);
         // Locked while a sign-in runs: dimmed like the rest of the form.
         Widget lockable(Widget child) => AnimatedOpacity(
           duration: motionDuration(
@@ -261,15 +235,10 @@ class AuthModeSelector extends StatelessWidget {
           opacity: enabled ? 1 : 0.55,
           child: child,
         );
+        final track = ShapeDecoration(color: t.softFill, shape: trackShape);
         if (stacked) {
           return lockable(DecoratedBox(
-            decoration: ShapeDecoration(
-              color: t.surf,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(rCard),
-                side: edge,
-              ),
-            ),
+            decoration: track,
             child: Padding(
               padding: const EdgeInsets.all(_inset),
               child: Column(
@@ -280,10 +249,7 @@ class AuthModeSelector extends StatelessWidget {
           ));
         }
         return lockable(DecoratedBox(
-          decoration: ShapeDecoration(
-            color: t.surf,
-            shape: StadiumBorder(side: edge),
-          ),
+          decoration: track,
           child: Padding(
             padding: const EdgeInsets.all(_inset),
             child: Stack(
@@ -298,7 +264,12 @@ class AuthModeSelector extends StatelessWidget {
                     child: FractionallySizedBox(
                       widthFactor: 0.5,
                       heightFactor: 1,
-                      child: DecoratedBox(decoration: thumb),
+                      child: DecoratedBox(
+                        decoration: ShapeDecoration(
+                          color: t.selectedFill,
+                          shape: segmentShape,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -313,6 +284,113 @@ class AuthModeSelector extends StatelessWidget {
           ),
         ));
       },
+    );
+  }
+}
+
+/// One route of [AuthModeSelector]. It paints its own state layer above the
+/// thumb and the track (an ink highlight would sit under their fills): a
+/// press deepens it a step, keyboard focus brightens it with
+/// [kLitFocusOverlay] and turns an unselected label `ink`.
+class _ModeSegment extends StatefulWidget {
+  const _ModeSegment({
+    required this.inkKey,
+    required this.label,
+    required this.style,
+    required this.selected,
+    required this.filled,
+    required this.shape,
+    required this.motion,
+    required this.onTap,
+  });
+
+  /// Goes on the [InkWell] (tests read its `onTap`).
+  final Key inkKey;
+  final String label;
+  final TextStyle style;
+  final bool selected;
+
+  /// Draws the selected fill itself (stacked rows); side by side the sliding
+  /// thumb draws it.
+  final bool filled;
+  final ShapeBorder shape;
+  final Duration motion;
+  final VoidCallback? onTap;
+
+  @override
+  State<_ModeSegment> createState() => _ModeSegmentState();
+}
+
+class _ModeSegmentState extends State<_ModeSegment> {
+  bool _focused = false;
+  bool _pressed = false;
+  bool _hovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addHighlightModeListener(_modeChanged);
+  }
+
+  void _modeChanged(FocusHighlightMode mode) {
+    if (_focused) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance.removeHighlightModeListener(_modeChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final selected = widget.selected;
+    final keyboard =
+        _focused &&
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+    final ink = selected ? t.onSelected : (keyboard ? t.ink : t.ink2);
+    final layer = _pressed
+        ? ink.withValues(alpha: 0.10)
+        : keyboard
+        ? kLitFocusOverlay
+        : ink.withValues(alpha: _hovered ? 0.05 : 0);
+    final fill = t.selectedFill.withValues(
+      alpha: widget.filled && selected ? 1 : 0,
+    );
+    return Semantics(
+      selected: selected,
+      button: true,
+      enabled: widget.onTap != null,
+      child: InkWell(
+        key: widget.inkKey,
+        onTap: widget.onTap,
+        onFocusChange: (focused) => setState(() => _focused = focused),
+        onHighlightChanged: (pressed) => setState(() => _pressed = pressed),
+        onHover: (hovered) => setState(() => _hovered = hovered),
+        customBorder: widget.shape,
+        splashFactory: NoSplash.splashFactory,
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        child: AnimatedContainer(
+          duration: widget.motion,
+          curve: Curves.easeOutCubic,
+          decoration: ShapeDecoration(shape: widget.shape, color: fill),
+          child: AnimatedContainer(
+            duration: motionDuration(context, kMotionPressIn),
+            curve: Curves.easeOut,
+            constraints: const BoxConstraints(minHeight: 48),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: ShapeDecoration(shape: widget.shape, color: layer),
+            child: AnimatedDefaultTextStyle(
+              duration: widget.motion,
+              curve: Curves.easeOutCubic,
+              style: widget.style.copyWith(color: ink),
+              child: Text(widget.label, textAlign: TextAlign.center),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

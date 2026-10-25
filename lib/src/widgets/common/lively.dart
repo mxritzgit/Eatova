@@ -430,6 +430,15 @@ const double kPressScale = 0.97;
 /// side like a 44 px button does ~0.7 px, instead of visibly collapsing.
 const double kPressScaleCard = 0.985;
 
+/// The dip of a [PressScale] with `rebound`: a hair deeper, since the
+/// release springs about 1 % past rest.
+const double kPressScaleRebound = 0.965;
+
+/// The release of a [PressScale] with `rebound`: the value dips below 0
+/// once, so the control pops a little past rest before it settles.
+const Curve _kReboundRelease = FlippedCurve(SpringCurve(dampingRatio: 0.45));
+const Duration _kReboundOut = Duration(milliseconds: 280);
+
 /// Press feedback: [child] sinks to [scale] while a finger rests on it and
 /// eases back on release. A quick tap still shows the full dip.
 ///
@@ -439,19 +448,36 @@ const double kPressScaleCard = 0.985;
 /// waits [kPressTimeout] and a move past [kTouchSlop] cancels it). The
 /// transform does not touch hit-testing or layout. At rest the scale is 1,
 /// which paints no extra layer.
+///
+/// [rebound] (keys of the depth-and-light language, 2026-10-25): the press
+/// sinks to [kPressScaleRebound] and the release springs back a hair past
+/// rest. [builder] paints around [child] with the press value (0 at rest,
+/// 1 fully pressed, briefly below 0 during a rebound), so a lit control can
+/// pull its cast light in as it sinks.
 class PressScale extends StatefulWidget {
   const PressScale({
     super.key,
     required this.child,
     this.enabled = true,
-    this.scale = kPressScale,
+    this.scale,
+    this.rebound = false,
+    this.builder,
   });
 
   final Widget child;
 
   /// Off for a disabled control: no dip without an action.
   final bool enabled;
-  final double scale;
+
+  /// The pressed scale; null is [kPressScale], or [kPressScaleRebound] with
+  /// [rebound].
+  final double? scale;
+
+  final bool rebound;
+
+  /// Optional paint around [child] that follows the press. Receives 0 under
+  /// reduced motion, like the dip.
+  final ValueWidgetBuilder<double>? builder;
 
   @override
   State<PressScale> createState() => _PressScaleState();
@@ -519,9 +545,15 @@ class _PressScaleState extends State<PressScale>
 
   TickerFuture _pressIn() {
     if (!mounted) return TickerFuture.complete();
+    _curve.reverseCurve = widget.rebound
+        ? _kReboundRelease
+        : kMotionCurve.flipped;
     _controller
       ..duration = motionDuration(context, kMotionPressIn)
-      ..reverseDuration = motionDuration(context, kMotionPressOut);
+      ..reverseDuration = motionDuration(
+        context,
+        widget.rebound ? _kReboundOut : kMotionPressOut,
+      );
     return _controller.forward();
   }
 
@@ -546,6 +578,8 @@ class _PressScaleState extends State<PressScale>
   @override
   Widget build(BuildContext context) {
     _reduced = reducedMotion(context);
+    final pressed =
+        widget.scale ?? (widget.rebound ? kPressScaleRebound : kPressScale);
     return Listener(
       onPointerDown: _down,
       onPointerMove: _move,
@@ -553,11 +587,14 @@ class _PressScaleState extends State<PressScale>
       onPointerCancel: _cancel,
       child: AnimatedBuilder(
         animation: _curve,
-        builder: (context, child) => Transform.scale(
-          scale: 1 - (1 - widget.scale) * _curve.value,
-          transformHitTests: false,
-          child: child,
-        ),
+        builder: (context, child) {
+          final press = _reduced ? 0.0 : _curve.value;
+          return Transform.scale(
+            scale: 1 - (1 - pressed) * press,
+            transformHitTests: false,
+            child: widget.builder?.call(context, press, child) ?? child,
+          );
+        },
         child: widget.child,
       ),
     );

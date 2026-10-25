@@ -89,7 +89,8 @@ class CreationFieldGrid extends StatelessWidget {
   }
 }
 
-/// A full-width insertion point, secondary to the sheet's Save action.
+/// A full-width insertion point, secondary to the sheet's Save action: an
+/// accent-tinted capsule, flush in its ground (2026-10-25).
 class CreationAddButton extends StatelessWidget {
   const CreationAddButton({super.key, required this.label, this.onPressed});
 
@@ -102,13 +103,12 @@ class CreationAddButton extends StatelessWidget {
     child: TextButton.icon(
       onPressed: onPressed,
       style: TextButton.styleFrom(
-        foregroundColor: context.t.accent,
-        backgroundColor: context.t.tile,
+        foregroundColor: context.t.accentText,
+        backgroundColor: context.t.accentTint,
         minimumSize: const Size(0, kButtonMinHeight),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rControl),
-        ),
+        shape: const StadiumBorder(),
+        splashFactory: NoSplash.splashFactory,
       ),
       icon: const Icon(Icons.add_rounded, size: 20),
       label: Text(label, style: AppType.ui(14, weight: FontWeight.w600)),

@@ -72,7 +72,10 @@ device-only recipe images or a managed physical/PITR backup.
 A production recovery exercise needs a separate approved destination, encrypted
 transfer and controlled data access. Plan database and object-storage recovery
 together, including deletions that must remain deleted, schema/function version
-compatibility, Auth settings, secrets and external-provider configuration. Never
+compatibility, Auth settings, secrets and external-provider configuration
+(enable the Before User Created hook last, after the database, its
+migrations and their grants are back, and disable it before dropping or
+renaming `public.auth_before_user_created`). Never
 restore over production as a test. Validate ownership boundaries, representative
 authorized reads/writes and post-restore integrity before opening traffic. Record
 the achieved recovery point and duration, then dispose of the recovery copy
@@ -895,6 +898,150 @@ about 3 to 7 days and then stops Premium too; the 20 USD alert, or
 `daily_free_call_limit` or set it to 0 first. Record the date and the
 values in the handoff, never a key. The readiness check cannot see these
 settings and keeps reporting `monetary_limit_verified: false`.
+
+### Before User Created hook
+
+One account per mailbox ([backend](BACKEND.md#one-account-per-mailbox)).
+Migration `20261027100000_email_alias_guard.sql` adds the Postgres hook
+`public.auth_before_user_created(jsonb)` and two BEFORE triggers on
+`auth.users`, `on_auth_user_email_alias_insert` and
+`on_auth_user_email_alias_update`. The hook runs before GoTrue creates a
+user (email or OTP signup, a first Google, OAuth or ID-token sign-in; not
+an admin-created user or an email change) and rejects an address whose canonical key another account holds
+(confirmed, or for an email signup unconfirmed and created within the last
+hour while no older unconfirmed row of the key exists) with GoTrue's own
+duplicate answer,
+`{"error":{"http_code":422,"message":"User already registered"}}`, which
+every app build shows as the neutral sign-in hint. A signup without an
+email passes. The triggers apply the same rule to concurrent signups,
+admin-created users, the confirmation of an email change and the
+confirmation of a second alias, and keep blocking, with a 500, when the
+hook is off. An email change request itself passes, so GoTrue's per-user
+mail throttle keeps working. Existing rows are not
+changed; the owner's pair of test accounts keeps working.
+
+**Live since 2026-10-25:** migration applied (61 registered = 61 files,
+source identical), grants read back (`usage` and `execute` true), SQL dry
+call `rejects` and `allows` true, hook enabled and read back, signup probe
+422 `unknown` "User already registered" with the account count unchanged
+(8), contract pinned; the alias groups stayed at one (the owner's pair).
+Order for a re-run: migration, SQL dry call, enable the hook, HTTP probe,
+pin, merge. Just before the migration, count the alias groups again,
+read-only: still one group (the owner's pair) and no unconfirmed account.
+Apply the migration like the earlier ones (a dry run inside
+`begin; ... rollback;` through `/database/query`, then the file and its
+`schema_migrations` row in one transaction) and read back the four
+functions with their ACLs, `prosecdef` and `proconfig`, and both triggers
+in `pg_trigger`. Then print two booleans that must both be true, because
+the dry call below runs as the owner and proves neither grant:
+`has_schema_privilege('supabase_auth_admin', 'public', 'usage')` and
+`has_function_privilege('supabase_auth_admin',
+'public.auth_before_user_created(jsonb)', 'execute')`; without them every
+signup gets 500 once the hook is on. From then on an alias signup already fails, with a 500
+from the trigger and without a row or a mail; the hook turns that into the
+neutral 422.
+
+1. **SQL dry call.** No mail, no row. Run it through `/database/query`: the
+   read-only endpoint runs as `supabase_read_only_user`, which has no
+   EXECUTE on the hook. Build the alias inside SQL from the confirmed row of
+   the owner's pair (`overlay()` puts a dot after the second character of
+   the local part, then append `+probe`), so no address is printed, and
+   print only the two booleans; both must be true:
+
+   ```sql
+   select public.auth_before_user_created(jsonb_build_object('user', jsonb_build_object(
+       'email', <alias built in SQL>, 'app_metadata', '{"provider":"email"}'::jsonb)))
+     = '{"error":{"http_code":422,"message":"User already registered"}}'::jsonb as rejects,
+     public.auth_before_user_created('{"user":{"email":"probe-unused@example.invalid","app_metadata":{"provider":"email"}}}')
+     = '{}'::jsonb as allows;
+   ```
+
+2. **Enable the hook** with the management token from the secret manager
+   and a browser user agent (a Cloudflare rule in front of the Management
+   API rejects default library agents, error 1010):
+
+   ```http
+   PATCH https://api.supabase.com/v1/projects/{ref}/config/auth
+   Authorization: Bearer <management token>
+   Content-Type: application/json
+   User-Agent: Mozilla/5.0 (eatova-ops)
+
+   {"hook_before_user_created_enabled": true,
+    "hook_before_user_created_uri": "pg-functions://postgres/public/auth_before_user_created"}
+   ```
+
+   Read back `GET .../config/auth` and print only these two keys: enabled
+   `true` and exactly this URI (lowercase: GoTrue quotes schema and
+   function). Whether the API checks on PATCH that the function exists is
+   not verified, so the migration comes first.
+3. **HTTP probe without mail.** `POST https://{ref}.supabase.co/auth/v1/signup`
+   with `apikey` (the anon key from the secret manager, never printed),
+   `Content-Type: application/json` and `x-supabase-api-version: 2024-01-01`,
+   the alias from step 1 (computed in the script, never printed) and a
+   random 24-character password. Expect status 422, `code` `unknown` and
+   `message` `User already registered`; print only these three, then check that
+   the account count is unchanged. With the hook inactive the trigger
+   answers 500, still without a row or a mail, because the insert fails
+   before the confirmation mail. Only if both failed would one code mail
+   reach the owner's own mailbox and leave one unconfirmed row: roll back
+   and delete that row with the owner.
+4. **Pin** `hook_before_user_created_enabled: true` and the URI in
+   [`auth_config.expected.json`](../supabase/auth_config.expected.json) with
+   the read-back date as evidence, in the same PR, which merges only after
+   step 2: the drift job on `main` compares the live config with that file.
+
+**Fail open, fail closed.** GoTrue (v2.197.0) does not retry the hook,
+and an SQL error becomes a 500 "Error running hook URI" for that request,
+so at the GoTrue level the hook fails closed. It also gives the hook no
+time limit of its own: its `set local statement_timeout` runs outside a
+transaction and has no effect (each call logs `SET LOCAL can only be used
+in transaction blocks`), so a slow hook holds the request until
+`API_MAX_REQUEST_DURATION` (10 s by default) and then answers 504
+`request_timeout`. The lookup is therefore kept cheap (about 115 ms at
+100,000 accounts, [backend](BACKEND.md#one-account-per-mailbox)) rather
+than relying on a timeout. Both functions fail open on internal errors:
+the warning `alias check skipped (<SQLSTATE>)`, never the address, and the
+request goes through; only a positive match blocks. The trigger takes its
+per-key advisory lock outside that handler, so a lock timeout or deadlock
+fails the request instead of skipping the check. Without the migration's
+EXECUTE grant for `supabase_auth_admin` and its USAGE on `public`, every
+signup would get 500, and so would dropping or renaming the function while
+the hook is enabled.
+
+**Rollback:**
+
+- Hook: `PATCH` `{"hook_before_user_created_enabled": false}` the same way,
+  read back, and revert the pin in a follow-up PR. The triggers keep
+  blocking aliases, with a 500.
+- Triggers: a forward migration with
+  `drop trigger if exists on_auth_user_email_alias_insert on auth.users;`
+  and the same for `on_auth_user_email_alias_update` (`postgres` may drop
+  triggers there, as `20260818120000` does). In an emergency without a PR,
+  replace `public.guard_auth_user_email_alias()` through the Management API
+  with a body that only returns `new`, then register the same text as a
+  migration.
+- App: the change is additive; older builds keep their behavior.
+
+**Monitoring:**
+
+- Auth logs: GoTrue logs every rejection as `Hook errored out` (warn,
+  `action=run_hook`, `success=false`) with the hook URI. More than a
+  handful a day means an abuse wave; a sudden 100 % of signups means a bug:
+  roll back.
+- Postgres logs: `alias check skipped` warnings from either function stay
+  at zero; a hit means the guard is failing open, so investigate the
+  SQLSTATE.
+- Alias groups (keys held by more than one account) are not a readiness
+  metric: the read-only role has no EXECUTE on `email_canonical_key`.
+  Recount through `/database/query` when needed; the baseline is 1 (the
+  owner's pair), and the guard keeps new groups from forming.
+- **Sentry triage:** after the rollout, a 5xx on `/signup` or `/verify`
+  can be the trigger. A 500 on `/verify` of an email change can mean that
+  the new address is an alias of another account: the change mails went
+  out, the confirmation is refused, and the app shows its server-fault text
+  (accepted). Check the Postgres log for `email alias of an existing
+  account`. A 504 `request_timeout` on `/signup` means the hook is slow:
+  check the lookup time before anything else.
 
 ### Ending the legacy window
 

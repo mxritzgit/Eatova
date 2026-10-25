@@ -21,6 +21,7 @@ from local_auth_transport import LocalAuthClient, direct_subprocess_environment
 ROOT = Path(__file__).resolve().parents[2]
 AUTH_IMAGE = 'supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b'
 POSTGRES_IMAGE = 'postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929'
+ALIAS_GUARD = ROOT / 'supabase' / 'migrations' / '20261027100000_email_alias_guard.sql'
 secret = secrets.token_urlsafe(40)
 password = secrets.token_urlsafe(24)
 parser = argparse.ArgumentParser(description=__doc__)
@@ -77,7 +78,12 @@ try:
         time.sleep(0.4)
     else:
         raise RuntimeError('local Postgres did not become TCP-ready')
-    cmd('docker', 'exec', '-i', db, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', input='CREATE SCHEMA auth; ALTER ROLE postgres SET search_path TO auth, public;')
+    bootstrap = 'CREATE SCHEMA auth; ALTER ROLE postgres SET search_path TO auth, public;'
+    if options.auth_lifecycle:
+        # The roles the email-alias migration grants to and revokes from.
+        bootstrap += ''.join(f' CREATE ROLE {role} NOLOGIN;' for role in
+                             ('anon', 'authenticated', 'service_role', 'supabase_auth_admin'))
+    cmd('docker', 'exec', '-i', db, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', input=bootstrap)
     env = {
         'GOTRUE_API_HOST': '0.0.0.0', 'GOTRUE_API_PORT': '9999',
         'API_EXTERNAL_URL': BASE + '/auth/v1', 'GOTRUE_SITE_URL': BASE,
@@ -104,6 +110,9 @@ try:
             'GOTRUE_RATE_LIMIT_HEADER': 'X-Forwarded-For',
             'GOTRUE_RATE_LIMIT_EMAIL_SENT': '60',
             'GOTRUE_SMTP_MAX_FREQUENCY': '60s',
+            # The hook with the URI planned for live; its function is applied after /health.
+            'GOTRUE_HOOK_BEFORE_USER_CREATED_ENABLED': 'true',
+            'GOTRUE_HOOK_BEFORE_USER_CREATED_URI': 'pg-functions://postgres/public/auth_before_user_created',
         })
     args = ['docker', 'run', '--detach', '--name', auth, '--network', network, '--publish', f'127.0.0.1:{PORT}:9999']
     for key, value in env.items():
@@ -120,6 +129,11 @@ try:
         time.sleep(0.3)
     else:
         raise RuntimeError('local GoTrue did not become healthy')
+    if options.auth_lifecycle:
+        # GoTrue created auth.users on boot; the unchanged migration adds the
+        # hook function and the alias triggers before any synthetic user exists.
+        cmd('docker', 'exec', '-i', db, 'psql', '-U', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1',
+            input=ALIAS_GUARD.read_text(encoding='utf-8'), timeout=30)
     users = []
     admin_token = jwt({'role': 'service_role', 'exp': int(time.time()) + 3600})
     for label in ['a', 'b']:
@@ -158,6 +172,7 @@ try:
         probe = LifecycleProbe(request, admin_token, local_sql,
                                require_current_password=not options.legacy_password_policy)
         evidence['password_policy'] = 'legacy-session' if options.legacy_password_policy else 'current-password'
+        evidence['alias_guard_migration'] = ALIAS_GUARD.name
         try:
             evidence['auth_lifecycle_checks'] = probe.run()
             evidence['auth_lifecycle_passed'] = True

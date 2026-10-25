@@ -18,8 +18,10 @@ import and Coach `/meal` followed **2026-10-22**
 daily limits, the paywall after a fresh onboarding, the Profile's "Abo"
 section and the upgrade hints followed **2026-10-25** ([contract](PREMIUM.md);
 the store products are still open), and the same day the shared Free AI pool
-with lower Free limits ([abuse protection](PREMIUM.md#7-abuse-protection), not
-live yet).
+with lower Free limits ([abuse protection](PREMIUM.md#7-abuse-protection)),
+then redesigned decision cards, buttons, paywall and Abo card, and one
+account per mailbox ([backend](BACKEND.md#one-account-per-mailbox), server
+rule live since 2026-10-25).
 This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
@@ -27,7 +29,7 @@ Dated reviews describe what was present at their own checkpoint.
 
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
-| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan; the onboarding header offers sign-out; a fresh onboarding ends once on the Premium screen, where "Weiter mit Free" is as large as the purchase button | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md), [Premium](PREMIUM.md) |
+| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan; the onboarding header offers sign-out; a fresh onboarding ends once on the Premium screen, where "Weiter mit Free" is as large as the purchase button; one account per mailbox (server rule live since 2026-10-25): Gmail spellings with or without dots, `googlemail.com` and a `+` tag count as one address, a second spelling gets the neutral sign-in hint (plus a sentence on spellings for Gmail or `+` input), and a Google sign-in in another spelling is told to sign in the way the account was registered | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md), [Premium](PREMIUM.md) |
 | Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); a weight chip with the latest weigh-in and the weekly check's progress ("in 5 days at the earliest · 2 more weigh-ins"); a one-time reminder offer from the evening of the first logged day; a trends card with the averages of the last seven days (calories, protein, steps) that opens the trends page; a dot on complete days in the strip; before the first entry, a hint when yesterday is empty and filling it keeps the streak; the weekly-check line opens an explainer, and on Mondays a result card shows the burn estimate, whether the goal fits and the weight rate against the plan ("Verstanden" hides it until next week, "Ask the coach" prepares a question); a macro tile reads "≥48" with a hint line while entries lack macros; once the weight trend reaches the target, a card asks "hold or new goal?"; the trends card opens the page on 7 days; an Apple Health or Health Connect card asks per account before the health source is read, and once asks whether new scale weigh-ins should be imported automatically; avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, a trends button in the header (the day card opens the page too); "Repeat yesterday" in an empty slot and "Copy to…" in the edit sheet (offline, with undo, recents unchanged); after logging, an entry without a weight changes its servings in half steps, a manual entry its values and name ("Change values"), an AI entry its name; times follow the phone's 12/24-hour setting; P/C/F lines read "≥48 g" for a sum with unknown entries and "–" when nothing is known | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode (GTIN-13; older 12-digit favorites still match); search shows "Your foods" first (favorites, up to 30 recents, the diary's 35-day window, own recipes; offline, umlaut-tolerant), then products; manual per-100-g values and a chosen portion, or a quick entry with total kcal and optional macros (no AI, offline); an unknown barcode saved manually becomes an own product that the next scan finds first; a search without results offers Describe with the search text; a failed or offline search and a failed barcode lookup offer a retry, and a product without nutrition opens the manual form with its name; a logged food never overwrites a pinned favorite of the same name (same barcode, or same name with energy within 20 %); "Edit" on a favorite changes it without logging; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
@@ -45,7 +47,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
 | Coach workout log | `/log` (typed, dictated or from Training's "Tell the Coach instead") turns a described finished workout into a draft card; one of the daily Coach requests. "Add to history" opens the log editor prefilled, and its Add is the confirmation; the card then reads Added or Removed from history | [Log card](../lib/src/screens/coach/coach_workout_log.dart) |
 | Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals; a weekly check on Today proposes a calibrated calorie goal from logged intake and the weight trend, applied only after confirmation ([weight trend](WEIGHT-TREND.md)); a Nutrition section edits the diet form, 13 avoided foods (common allergens, pork, alcohol) and short dislikes; a weigh-in history edits, deletes (with undo) and dates weigh-ins, and the onboarding weight is the first weigh-in; a reached target holds within 1.5 kg of the weight trend, and the goals page names the hold and its end; a switch imports scale weigh-ins from Apple Health or Health Connect; an "Abo" section before "Verbindungen" shows Free or Premium, the status (renews on, ends on, payment problem, expired), the store, a test-purchase badge, today's usage against the limits and the actions "Mehr mit Premium", "Abo verwalten" and "Käufe wiederherstellen" | [Profile](../lib/src/screens/profile_screen.dart), [Premium](#free-and-premium) |
-| Settings | Appearance (System, Light, Dark) and language, reminder (switch and time) and weigh-in reminder, "Open system settings" while notifications are blocked, AI & data (consent status, withdraw, consent again), Feedback & Support (mail with version and build), account changes ("Change password" hidden for Google-only accounts), an "Abo" row (Premium, Free, or the status of a subscription on hold, paused or pending) that opens the Premium screen or the store's subscription management, JSON export (copy or share as a file; device-only recipe photos are named as not included), sign-out with a confirmation that names unsent changes and recipe photos that will be deleted, verified account deletion (with an auto-renewing store subscription it warns that billing continues until cancelled in the store, with "Abo verwalten"; deletion is never blocked) | [Settings](../lib/src/screens/settings/settings_screen.dart) |
+| Settings | Appearance (System, Light, Dark) and language, reminder (switch and time) and weigh-in reminder, "Open system settings" while notifications are blocked, AI & data (consent status, withdraw, consent again), Feedback & Support (mail with version and build), account changes ("Change password" hidden for Google-only accounts), an "Abo" row (Premium, Free, or the status of a subscription on hold, paused or pending) that opens the Premium screen or the store's subscription management, JSON export (copy or share as a file; device-only recipe photos are named as not included), sign-out with a confirmation that shows the signed-in address and names unsent changes and recipe photos that will be deleted (with photos to lose, the confirm button is red), verified account deletion (with an auto-renewing store subscription it warns that billing continues until cancelled in the store, with "Abo verwalten"; deletion is never blocked) | [Settings](../lib/src/screens/settings/settings_screen.dart) |
 | Reminders | Local streak-at-risk notification at a chosen time (default 20:00, per account on the device), scheduled ahead; on a half-logged day it asks about the missing meals; its tap opens the add sheet for the current meal; an opt-in weigh-in reminder Monday and Thursday at 07:30 opens the weigh-in sheet (skipped once weighed that day); a language change re-plans both; app-icon shortcuts Photo, Barcode, Describe and Log weight; no server push channel | [Notifications](../lib/src/services/notification_service.dart) |
 | AI consent | Before the first photo scan, description, Coach request or recipe import: one versioned consent per account that names the data, the providers (Anthropic; Google's image model through OpenRouter) and processing in the USA, with an unticked health-data checkbox (Art. 9); logged append-only on the server; a withdrawal in Settings stops every AI request until consent is given again | [Consent sheet](../lib/src/widgets/shared/ai_consent_sheet.dart), [backend](BACKEND.md#ai-consent-and-answer-reports) |
 
@@ -90,7 +92,8 @@ app release. The values below are the seeded defaults
   the purchase button stands what it charges (a trial's first charge date
   and price, otherwise the billed price). Close, system Back and "Weiter mit
   Free" choose Free.
-  Restore, Terms and Privacy are on the screen.
+  Restore, Terms and Privacy are on the screen. After a purchase, the
+  success view lists the new daily limits.
 - **Purchase screen:** the same screen opened from Profile, Settings, the
   Coach, the meal analysis, the recipe import or a locked recipe picture; an
   account that already has Premium, or whose store subscription is on hold,
@@ -205,6 +208,10 @@ and [Backend](BACKEND.md) for persistence details.
   a request only those limits would refuse gets a retryable error instead of
   a limit notice or an upgrade offer.
   Deleting the account does not cancel a store subscription.
+- Sign-in and password recovery match the exact spelling of the address.
+  Confirming an email change to another
+  spelling of an existing account's address fails with the generic
+  server-error text.
 - Dietary preference can be chosen during onboarding and changed later in the
   Profile's Nutrition section, together with avoided foods and dislikes.
 - JSON export is available through **Today → avatar (Profile) → gear
@@ -232,6 +239,11 @@ recipe details, meal plan, shopping list, Training library/editor/player,
 entry sheets, calendar, account pages and auth keep their earlier structure
 on the shared tokens. Since 2026-10-04 a light palette mirrors every dark
 token role and the app follows the display mode (System, Light, Dark).
+Since 2026-10-25 a confirmation is a decision card anchored at the bottom,
+with one lit action, a quiet cancel and a red fill for destructive actions;
+floating surfaces separate by light and shadow instead of hairlines, and
+buttons press without ripples
+([handoff](PROJECT_HANDOFF.md#decision-cards-buttons-paywall-and-one-account-per-mailbox-2026-10-25)).
 
 The [design guide index](README.md#design-contracts-and-previews) links to the
 current contracts and actual Flutter previews.

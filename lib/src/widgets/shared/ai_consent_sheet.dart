@@ -164,16 +164,21 @@ class _AiConsentSheetState extends State<AiConsentSheet> {
                   ),
                   Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      key: const ValueKey('ai-consent-privacy'),
-                      onPressed: () => openLegalLink(context, kPrivacyUrl),
-                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                      label: Text(l10n.aiConsentPrivacyLink),
-                      style: TextButton.styleFrom(
-                        foregroundColor: t.accentText,
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(0, 44),
-                        textStyle: AppType.ui(14, weight: FontWeight.w700),
+                    // Back by the link's 12 px padding, so its glyph lines
+                    // up with the text column; the target keeps its size.
+                    child: Transform.translate(
+                      offset: Offset(
+                        Directionality.of(context) == TextDirection.rtl
+                            ? 12
+                            : -12,
+                        0,
+                      ),
+                      child: EatovaTextAction(
+                        buttonKey: const ValueKey('ai-consent-privacy'),
+                        label: l10n.aiConsentPrivacyLink,
+                        icon: Icons.open_in_new_rounded,
+                        iconSize: 16,
+                        onTap: () => openLegalLink(context, kPrivacyUrl),
                       ),
                     ),
                   ),
@@ -219,6 +224,7 @@ class _AiConsentSheetState extends State<AiConsentSheet> {
                   buttonKey: const ValueKey('ai-consent-not-now'),
                   label: l10n.aiConsentNotNow,
                   secondary: true,
+                  quiet: true,
                   onPressed: _saving ? null : _notNow,
                 ),
               ],

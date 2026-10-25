@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
@@ -43,7 +44,8 @@ extension SelectionTone on AppTokens {
   Color get onSelected => onAccentFill;
 }
 
-/// Square 34 px bordered button — back, close, menu.
+/// Square 34 px soft-filled button — back, close, menu. No outline: the
+/// `softFill` tone carries the edge on page and card (2026-10-25).
 class SquareIconButton extends StatelessWidget {
   const SquareIconButton({
     super.key,
@@ -80,9 +82,8 @@ class SquareIconButton extends StatelessWidget {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: t.surf,
+                  color: t.softFill,
                   borderRadius: BorderRadius.circular(rChip),
-                  border: Border.all(color: t.line),
                 ),
                 child: Icon(icon, size: 17, color: t.ink2),
               ),
@@ -97,7 +98,7 @@ class SquareIconButton extends StatelessWidget {
 
 /// Emphasis of a [HeaderIconButton].
 enum HeaderIconTone {
-  /// Card fill with a faint outline: calendar, history, info.
+  /// A soft neutral disc: calendar, history, info.
   neutral,
 
   /// Accent fill: the one primary action of a header (e.g. "add").
@@ -106,9 +107,9 @@ enum HeaderIconTone {
 
 /// Round 44 px icon button for tab headers (dark redesign, 2026-09-28).
 ///
-/// Neutral = card fill, 1 px [AppTokens.lineStrong] outline, icon in
-/// [AppTokens.inkMuted]; primary = accent fill with an on-accent icon and no
-/// outline. The whole circle is the tap target.
+/// Neutral = a [AppTokens.softFill] disc with no outline (2026-10-25), icon
+/// in [AppTokens.inkMuted]; primary = accent fill with an on-accent icon.
+/// The whole circle is the tap target.
 class HeaderIconButton extends StatelessWidget {
   const HeaderIconButton({
     super.key,
@@ -152,10 +153,8 @@ class HeaderIconButton extends StatelessWidget {
       child: PressScale(
         enabled: onTap != null,
       child: Material(
-        color: primary ? t.accentFill : t.surf,
-        shape: CircleBorder(
-          side: primary ? BorderSide.none : BorderSide(color: t.lineStrong),
-        ),
+        color: primary ? t.accentFill : t.softFill,
+        shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -474,16 +473,45 @@ class FilterChipPill extends StatelessWidget {
   }
 }
 
-/// Fill opacity of a disabled [PrimaryActionButton].
+/// Fill opacity of a disabled control that dims its own fill (the older
+/// recipe, kept for screens that still draw their own pill).
 const double kDisabledFillAlpha = 0.38;
+
+/// Fill opacity of a locked lit action, "not yet": a soft tint of its own
+/// accent that lights up when it arms. ≥ 1.5:1 against `surf` and `bg` in
+/// both palettes, ≥ 3.8:1 apart from the lit fill.
+const double kLockedFillAlpha = 0.30;
+
+/// Label opacity of a locked lit action (`accentText`).
+const double kLockedLabelAlpha = 0.72;
+
+/// [a] towards [b] by [v], exact at both ends: a resting control paints the
+/// token itself, never a float-rounded neighbour of it.
+Color mixTone(Color a, Color b, double v) =>
+    v <= 0 ? a : (v >= 1 ? b : Color.lerp(a, b, v)!);
+
+/// The arming pop of a [PrimaryActionButton]: it grows to 1 + this as it
+/// lights up and settles back.
+const double _kArmPop = 0.03;
+const Duration _kArmPopDuration = Duration(milliseconds: 320);
+
+/// [kSpringPop]'s single overshoot (ζ 0.55), so its peak maps to [_kArmPop].
+final double _kSpringPopPeak = math.exp(
+  -0.55 * math.pi / math.sqrt(1 - 0.55 * 0.55),
+);
 
 /// The wide primary action at the foot of a screen.
 ///
-/// Dark redesign (2026-09-28): an accent pill ([AppTokens.accentFill]) with an
-/// [AppTokens.onAccentFill] label in weight 800. The destructive variant keeps
-/// `danger` with a `bg` label. `onTap == null` renders the visible disabled
-/// state (dimmed fill and label); [busy] the working state.
-class PrimaryActionButton extends StatelessWidget {
+/// Depth and light (polish 2026-10-25): an armed action is LIT, a filled
+/// [AppTokens.accentFill] pill ([AppTokens.dangerFill] when [destructive])
+/// that casts its own colour onto the ground ([castLight]). A locked one is
+/// "not yet": a soft tint of its own hue ([kLockedFillAlpha]) with a dimmed
+/// `accentText` label and no light; a locked destructive one keeps the soft
+/// danger pair. Arming lights it up over [kMotionLightUp] with a small pop;
+/// a press sinks it into its light and it rebounds a hair past rest. Busy
+/// keeps it lit: working, not locked. No ripple: a press darkens the fill a
+/// step; keyboard focus brightens it and lifts the light, never a ring.
+class PrimaryActionButton extends StatefulWidget {
   const PrimaryActionButton({
     super.key,
     required this.label,
@@ -492,6 +520,8 @@ class PrimaryActionButton extends StatelessWidget {
     this.destructive = false,
     this.height = kPrimaryButtonHeight,
     this.busy = false,
+    this.animateLabel = false,
+    this.haptic = false,
   });
 
   final String label;
@@ -507,23 +537,99 @@ class PrimaryActionButton extends StatelessWidget {
   /// button is the only progress signal; no extra bar above it.
   final bool busy;
 
+  /// A changed [label] cross-fades with a short rise, so the control reads
+  /// as taking on a new job (the paywall's buy button). At rest it is
+  /// exactly one [Text].
+  final bool animateLabel;
+
+  /// A light haptic on tap (the paywall's buy). A destructive action always
+  /// gives a medium one; every other primary action stays silent.
+  final bool haptic;
+
+  @override
+  State<PrimaryActionButton> createState() => _PrimaryActionButtonState();
+}
+
+class _PrimaryActionButtonState extends State<PrimaryActionButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _arm = AnimationController(
+    vsync: this,
+    duration: _kArmPopDuration,
+  );
+  bool _focused = false;
+
+  static bool _isLit(PrimaryActionButton button) =>
+      button.onTap != null || button.busy;
+
+  @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addHighlightModeListener(_focusModeChanged);
+  }
+
+  void _focusModeChanged(FocusHighlightMode mode) {
+    if (_focused) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(PrimaryActionButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_isLit(oldWidget) && _isLit(widget) && !reducedMotion(context)) {
+      _arm
+        ..duration = motionDuration(context, _kArmPopDuration)
+        ..forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance.removeHighlightModeListener(_focusModeChanged);
+    _arm.dispose();
+    super.dispose();
+  }
+
+  void _tap() {
+    if (widget.destructive) {
+      unawaited(HapticFeedback.mediumImpact());
+    } else if (widget.haptic) {
+      unawaited(HapticFeedback.lightImpact());
+    }
+    widget.onTap?.call();
+  }
+
+  /// 1 at rest, about 1.03 at the peak of the arming pop.
+  double _armScale() {
+    final overshoot = kSpringPop.transform(_arm.value) - 1;
+    return overshoot <= 0 ? 1 : 1 + _kArmPop * overshoot / _kSpringPopPeak;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final enabled = onTap != null && !busy;
-    // Disabled: the fill drops to 38 % and the label dims — a locked CTA must
-    // not look pressable. InkWell without onTap draws no ripple. A locked
-    // destructive CTA takes the soft danger pair ([SoftPillTone.danger])
-    // instead: danger at 38 % over the dark ground mixed a muddy brown with an
-    // unreadable label. The tint arms into the filled pill once valid. Busy
-    // keeps the full fill: working, not locked.
-    final lit = enabled || busy;
-    final fill = destructive
-        ? (lit ? t.danger : t.danger.withValues(alpha: 0.12))
-        : t.accentFill.withValues(alpha: lit ? 1 : kDisabledFillAlpha);
-    final onFill = destructive
-        ? (lit ? t.bg : t.danger.withValues(alpha: 0.55))
-        : t.onAccentFill.withValues(alpha: lit ? 1 : 0.8);
+    final enabled = widget.onTap != null && !widget.busy;
+    final lit = enabled || widget.busy;
+    final (litFill, litInk, light, lockedFill, lockedInk) = widget.destructive
+        ? (
+            t.dangerFill,
+            t.onDangerFill,
+            t.dangerFill.withValues(alpha: 0.38),
+            // A locked destructive action keeps the soft danger pair: a
+            // translucent red over the dark ground mixed a muddy brown.
+            t.danger.withValues(alpha: 0.12),
+            t.danger.withValues(alpha: 0.55),
+          )
+        : (
+            t.accentFill,
+            t.onAccentFill,
+            t.accentGlow,
+            t.accentFill.withValues(alpha: kLockedFillAlpha),
+            t.accentText.withValues(alpha: kLockedLabelAlpha),
+          );
+    final keyboard =
+        _focused &&
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+    final radius = BorderRadius.circular(rButton);
+    final morph = widget.animateLabel && !reducedMotion(context);
     // A bare InkWell carries neither `isButton` nor an enabled state, so a
     // screen reader would announce the primary action as plain text and a
     // disabled one as a button that does nothing. `onTap == null` is the
@@ -531,61 +637,140 @@ class PrimaryActionButton extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: enabled,
-      child: PressScale(
-        enabled: enabled,
-      child: Material(
-        color: fill,
-        borderRadius: BorderRadius.circular(rButton),
-        elevation: 0,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(rButton),
-          child: ConstrainedBox(
-            // Min height, not a fixed one: at textScaler 2.0 the label would
-            // be taller than the button.
-            constraints: BoxConstraints(minHeight: height),
-            child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(end: lit ? 1 : 0),
+        duration: motionDuration(context, kMotionLightUp),
+        curve: kMotionCurve,
+        builder: (context, glow, _) {
+          final fill = mixTone(lockedFill, litFill, glow);
+          final onFill = mixTone(lockedInk, litInk, glow);
+          final style = AppType.ui(
+            15,
+            weight: FontWeight.w800,
+            color: onFill,
+            letterSpacing: -0.1,
+          );
+          return AnimatedBuilder(
+            animation: _arm,
+            builder: (context, child) =>
+                Transform.scale(scale: _armScale(), child: child),
+            child: PressScale(
+              enabled: enabled,
+              rebound: true,
+              builder: (context, press, child) => DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  boxShadow: castLight(
+                    t,
+                    light,
+                    strength: glow * (keyboard ? 1.4 : 1),
+                    press: press,
+                  ),
                 ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  if (busy) ...<Widget>[
-                    ExcludeSemantics(
-                      child: AppSpinner(
-                        size: 18,
-                        strokeWidth: 2,
-                        color: onFill,
-                        trackColor: onFill.withValues(alpha: 0.2),
+                child: child,
+              ),
+              child: Material(
+                color: fill,
+                borderRadius: radius,
+                elevation: 0,
+                child: InkWell(
+                  onTap: enabled ? _tap : null,
+                  onFocusChange: (focused) =>
+                      setState(() => _focused = focused),
+                  borderRadius: radius,
+                  splashFactory: NoSplash.splashFactory,
+                  highlightColor: onFill.withValues(alpha: 0.10),
+                  focusColor: kLitFocusOverlay,
+                  hoverColor: onFill.withValues(alpha: 0.05),
+                  child: ConstrainedBox(
+                    // Min height, not a fixed one: at textScaler 2.0 the
+                    // label would be taller than the button.
+                    constraints: BoxConstraints(minHeight: widget.height),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 8,
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                  ] else if (icon != null) ...<Widget>[
-                    Icon(icon, size: 18, color: onFill),
-                    const SizedBox(width: 8),
-                  ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w800,
-                        color: onFill,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          if (widget.busy) ...<Widget>[
+                            ExcludeSemantics(
+                              child: AppSpinner(
+                                size: 18,
+                                strokeWidth: 2,
+                                color: onFill,
+                                trackColor: onFill.withValues(alpha: 0.2),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ] else if (widget.icon != null) ...<Widget>[
+                            Icon(widget.icon, size: 18, color: onFill),
+                            const SizedBox(width: 8),
+                          ],
+                          Flexible(
+                            child: morph
+                                ? _LabelMorph(label: widget.label, style: style)
+                                : Text(
+                                    widget.label,
+                                    textAlign: TextAlign.center,
+                                    style: style,
+                                  ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
-      ),
+          );
+        },
       ),
     );
   }
+}
+
+/// A button label that cross-fades with a 35 % rise when it changes
+/// ("7 Tage gratis testen" → "Premium abonnieren"). At rest it is exactly
+/// one [Text]; the caller drops it under reduced motion.
+class _LabelMorph extends StatelessWidget {
+  const _LabelMorph({required this.label, required this.style});
+
+  final String label;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) => AnimatedSwitcher(
+    duration: motionDuration(context, kMotionLightUp),
+    switchInCurve: kMotionCurve,
+    switchOutCurve: kMotionCurve.flipped,
+    // The outgoing label fades but must not be read: a screen reader would
+    // hear both buy labels during the cross-fade.
+    layoutBuilder: (current, previous) => Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        for (final child in previous) ExcludeSemantics(child: child),
+        if (current != null) current,
+      ],
+    ),
+    transitionBuilder: (child, animation) => FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.35),
+          end: Offset.zero,
+        ).animate(animation),
+        child: child,
+      ),
+    ),
+    child: Text(
+      label,
+      key: ValueKey<String>(label),
+      textAlign: TextAlign.center,
+      style: style,
+    ),
+  );
 }
 
 /// One entry of the [AppNavBar].

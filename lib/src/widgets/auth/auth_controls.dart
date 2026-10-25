@@ -517,9 +517,13 @@ class AuthPrimaryButton extends StatelessWidget {
   }
 }
 
-/// Quiet secondary pill (Google sign-in): card fill, 1 px `lineStrong` edge
-/// like the redesign's neutral chips and header buttons, ink label.
-class AuthSecondaryButton extends StatelessWidget {
+/// Secondary pill (Google sign-in) in the depth-and-light language: a flush
+/// neutral `softFill` capsule without a stroke (Google's neutral button
+/// variant), the unmodified G and an `ink` label (15.0:1 dark / 13.6:1
+/// light). Tone only, no light of its own: the lit submit stays the one lit
+/// action. A press deepens the fill a step and rebounds; keyboard focus
+/// brightens it with [kLitFocusOverlay] and lifts it, never a ring.
+class AuthSecondaryButton extends StatefulWidget {
   const AuthSecondaryButton({
     super.key,
     required this.buttonKey,
@@ -537,9 +541,36 @@ class AuthSecondaryButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<AuthSecondaryButton> createState() => _AuthSecondaryButtonState();
+}
+
+class _AuthSecondaryButtonState extends State<AuthSecondaryButton> {
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addHighlightModeListener(_modeChanged);
+  }
+
+  void _modeChanged(FocusHighlightMode mode) {
+    if (_focused) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance.removeHighlightModeListener(_modeChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final shape = StadiumBorder(side: BorderSide(color: t.lineStrong));
+    final enabled = widget.enabled;
+    const shape = StadiumBorder();
+    final keyboard =
+        _focused &&
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
     return Semantics(
       button: true,
       enabled: enabled,
@@ -548,14 +579,29 @@ class AuthSecondaryButton extends StatelessWidget {
         opacity: enabled ? 1 : 0.55,
         child: PressScale(
           enabled: enabled,
+          rebound: true,
+          builder: (context, press, child) => AnimatedContainer(
+            duration: motionDuration(context, kMotionPressOut),
+            curve: Curves.easeOut,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(rPill),
+              boxShadow: keyboard ? raisedShadow(t) : const <BoxShadow>[],
+            ),
+            child: child,
+          ),
           child: Material(
-            color: t.surf,
+            color: t.softFill,
             shape: shape,
             clipBehavior: Clip.antiAlias,
             child: InkWell(
-              key: buttonKey,
-              onTap: enabled ? onTap : null,
+              key: widget.buttonKey,
+              onTap: enabled ? widget.onTap : null,
+              onFocusChange: (focused) => setState(() => _focused = focused),
               customBorder: shape,
+              splashFactory: NoSplash.splashFactory,
+              highlightColor: t.ink.withValues(alpha: 0.10),
+              focusColor: kLitFocusOverlay,
+              hoverColor: t.ink.withValues(alpha: 0.05),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(
                   minHeight: kPrimaryButtonHeight,
@@ -568,14 +614,17 @@ class AuthSecondaryButton extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SizedBox.square(dimension: 20, child: leading),
+                      SizedBox.square(dimension: 20, child: widget.leading),
                       const SizedBox(width: 12),
                       // Flexible: at 200 % system font the label would
-                      // otherwise burst the button width.
+                      // otherwise burst the button width. A wrapped label
+                      // keeps its longest line's width, so the G stays next
+                      // to it instead of drifting to the edge.
                       Flexible(
                         child: Text(
-                          label,
+                          widget.label,
                           textAlign: TextAlign.center,
+                          textWidthBasis: TextWidthBasis.longestLine,
                           style: AppType.ui(
                             15,
                             weight: FontWeight.w700,

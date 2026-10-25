@@ -15,6 +15,28 @@ Sources: [AuthRepository](../lib/src/auth/auth_repository.dart),
 [Google token provider](../lib/src/auth/google_id_token_provider.dart),
 [client configuration](../lib/src/config/supabase_config.dart).
 
+## One account per mailbox
+
+Supabase links a Google sign-in to an existing account only when the
+addresses are the same; manual linking is off
+(`security_manual_linking_enabled` false). Without the
+[alias guard](../docs/BACKEND.md#one-account-per-mailbox), a Google address
+that is another spelling of an existing account's address (Gmail dots,
+`googlemail.com`, a `+` tag) gets a second, empty account. With it (live
+since 2026-10-25), the Before User Created hook rejects that first sign-in with 422
+and creates nothing. New builds then say that an account exists for this
+address in another spelling and to sign in the way the user registered
+(`authErrorOAuthAccountExists`, on the OAuth path only); older builds show
+the generic error. This reveals nothing to a stranger, because Google has
+proven the mailbox, and a stranger's unconfirmed alias signup never blocks
+the Google sign-in. Linking Google to the existing account is a follow-up.
+The web fallback (no native sign-in, and Apple) shows nothing: GoTrue
+redirects to `eatova://login-callback/?error=server_error&error_description=...`,
+which [`isOAuthCallbackDeeplink`](../lib/src/config/supabase_config.dart)
+drops because it carries no `code`, so the user closes the browser sheet and
+is back on the sign-in screen without a message. Rendering that error is a
+follow-up that has to keep the predicate as strict as it is.
+
 ## Configure your own project
 
 1. Set up the Google consent screen and OAuth clients for your actual app.
@@ -50,6 +72,8 @@ and the project's [email OTP contract](AUTH_EMAIL_OTP.md).
 ## Validate the installed build
 
 Verify successful native login, cancellation, web fallback and a cold-start
-callback on the intended platforms/signing identities. A dummy-signed CI build
-proves compilation, not working Google console configuration. Changing a Dart
-client ID does not update an already installed binary or its native URL scheme.
+callback on the intended platforms/signing identities; once the alias guard
+is live, also a Google sign-in in another spelling of an email account. A
+dummy-signed CI build proves compilation, not working Google console
+configuration. Changing a Dart client ID does not update an already
+installed binary or its native URL scheme.

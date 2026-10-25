@@ -36,9 +36,13 @@ define the entry behavior:
 - The wordmark's focus reticle makes one finite movement on entry and when the
   account mode changes. It settles after 720 ms on entry or 440 ms on a mode
   change; it does not run an idle loop. Reduced motion snaps to the resting mark.
-- Both account modes remain visible above Google and email sign-in. A violet
-  underline follows the selected mode. At narrow widths or large text sizes,
-  the options stack with a selected surface fill instead of squeezing labels.
+- Both account modes remain visible above Google and email sign-in. The
+  selected mode is a filled accent pill (the app's selection pair) that slides
+  in a borderless `softFill` track; at narrow widths or large text sizes the
+  options stack and the chosen row keeps the fill. There is no outline: the
+  fill itself carries the selection boundary, 7.8:1 (dark) and 5.0:1 (light)
+  against the track (2026-10-25). The Google button is a stroke-less
+  `softFill` pill with the unmodified G. Keyboard focus brightens both.
 - Registration expands the name field in place. Email and password keep their
   controllers, values and selection while switching modes, including when a
   transition is interrupted. Password autofill changes with the chosen mode.

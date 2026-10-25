@@ -1137,20 +1137,15 @@ class TrainingRecentSection extends StatelessWidget {
               ),
             ),
             if (onOpenAll != null)
-              TextButton(
-                key: const ValueKey('training-recent-all'),
-                onPressed: onOpenAll,
-                style: TextButton.styleFrom(
-                  foregroundColor: t.accentText,
-                  minimumSize: const Size(44, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  textStyle: AppType.ui(
-                    14,
-                    weight: FontWeight.w700,
-                    height: kTrainingLine,
-                  ),
+              EatovaTextAction(
+                buttonKey: const ValueKey('training-recent-all'),
+                onTap: onOpenAll,
+                label: l10n.trainingRecentAll,
+                textStyle: AppType.ui(
+                  14,
+                  weight: FontWeight.w700,
+                  height: kTrainingLine,
                 ),
-                child: Text(l10n.trainingRecentAll),
               ),
           ],
         ),

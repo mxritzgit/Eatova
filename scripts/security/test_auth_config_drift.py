@@ -113,10 +113,13 @@ class ContractTests(Base):
             'refresh_token_rotation_enabled': 'SECURITY_REFRESH_TOKEN_ROTATION_ENABLED',
             'rate_limit_verify': 'RATE_LIMIT_VERIFY', 'rate_limit_email_sent': 'RATE_LIMIT_EMAIL_SENT',
             'jwt_exp': 'JWT_EXP', 'external_anonymous_users_enabled': 'EXTERNAL_ANONYMOUS_USERS_ENABLED',
+            'hook_before_user_created_enabled': 'HOOK_BEFORE_USER_CREATED_ENABLED',
         }
         for key, env in mapped.items():
             with self.subTest(key=key):
                 self.assertEqual(probe[env], json.dumps(settings[key]))
+        self.assertEqual(probe['HOOK_BEFORE_USER_CREATED_URI'],
+                         settings['hook_before_user_created_uri'])
         self.assertEqual(settings['security_refresh_token_reuse_interval'], REFRESH_REUSE_SECONDS)
 
     def test_broken_contract_fails_before_any_request(self):

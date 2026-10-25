@@ -12,6 +12,7 @@ import 'package:eatova/src/app/subscription.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/services/billing/purchase_flow.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/profile/subscription_card.dart';
 
 import '../support/harness.dart';
@@ -323,9 +324,28 @@ void main() {
       });
       final why = row.name;
 
+      // The tier row: its word, and the dot lit only for Premium.
+      final tier = _part(row.premium ? 'premium' : 'free');
+      expect(tier, findsOneWidget, reason: why);
       expect(
-        _part(row.premium ? 'premium' : 'free'),
+        find.descendant(
+          of: tier,
+          matching: find.text(
+            row.premium
+                ? l10n.subscriptionTierPremium
+                : l10n.subscriptionTierFree,
+          ),
+        ),
         findsOneWidget,
+        reason: why,
+      );
+      expect(
+        tester
+            .widget<LitDot>(
+              find.descendant(of: tier, matching: find.byType(LitDot)),
+            )
+            .lit,
+        row.premium,
         reason: why,
       );
       final details = row.details.isEmpty
@@ -384,7 +404,9 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('die Aktionen erreichen ihre Callbacks', (tester) async {
+  testWidgets('die Aktionen erreichen ihre Callbacks, eine fuehrt', (
+    tester,
+  ) async {
     var upgrades = 0;
     var manages = 0;
     await withClock(Clock.fixed(_now), () async {
@@ -396,6 +418,20 @@ void main() {
           tester,
           _card(plan, onUpgrade: () => upgrades++, onManage: () => manages++),
           scrollable: true,
+        );
+        // Free leads with the lit primary action, a store subscription with
+        // the tonal pill; restore always stays the quiet way under it.
+        expect(
+          tester.widget(_part(action)),
+          action == 'upgrade'
+              ? isA<PrimaryActionButton>()
+              : isA<SoftPillButton>(),
+          reason: action,
+        );
+        expect(
+          tester.widget<SoftPillButton>(_part('restore')).tone,
+          SoftPillTone.quiet,
+          reason: action,
         );
         await tester.ensureVisible(_part(action));
         await tester.tap(_part(action));

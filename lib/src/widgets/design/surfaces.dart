@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
+import '../common/motion.dart';
 
 // ---------------------------------------------------------------------------
 // SURFACES — card, section heading.
@@ -83,6 +84,80 @@ class AppCard extends StatelessWidget {
       ),
       padding: clip ? EdgeInsets.zero : padding,
       child: child,
+    );
+  }
+}
+
+/// A floating surface in the depth-and-light language (2026-10-25): the lit
+/// top of [litSurface] and a shadow instead of a hairline. [decision] gives
+/// the deeper contact-plus-ambient [decisionShadow] of a surface the eye
+/// should land on (the paywall's plan picker); otherwise [raisedShadow].
+class LitSurface extends StatelessWidget {
+  const LitSurface({
+    super.key,
+    required this.child,
+    this.radius = rHero,
+    this.padding = EdgeInsets.zero,
+    this.decision = false,
+  });
+
+  final Widget child;
+  final double radius;
+  final EdgeInsetsGeometry padding;
+  final bool decision;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: litSurface(t),
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: decision ? decisionShadow(t) : raisedShadow(t),
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
+/// The "lit" mark: a small accent dot casting its light. It means "on now"
+/// (Premium is active, the trial starts today, the paywall eyebrow); unlit
+/// it is a faint neutral dot for "later", Free or off. Decorative: no
+/// semantics of its own; the state is always said in words next to it.
+class LitDot extends StatelessWidget {
+  const LitDot({super.key, this.lit = true, this.size = 8, this.color});
+
+  final bool lit;
+  final double size;
+
+  /// A lit dot in another state tone (`warning` for a held subscription);
+  /// null is the accent.
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final tone = color ?? t.accentFill;
+    return ExcludeSemantics(
+      child: AnimatedContainer(
+        duration: motionDuration(context, kMotionEnter),
+        curve: kMotionCurve,
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: lit ? tone : t.inkFaint,
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: lit
+                  ? (color == null ? t.accentGlow : tone.withValues(alpha: 0.4))
+                  : Colors.transparent,
+              blurRadius: size * 1.2,
+              spreadRadius: size * 0.1,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

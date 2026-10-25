@@ -778,15 +778,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
               selectedConflict == null &&
               !widget.hasActiveSession) ...[
             const SizedBox(height: 6),
-            TextButton.icon(
-              key: const ValueKey('training-log-done'),
-              onPressed: () => logPlanned(plan, shown.workoutIndex),
-              style: TextButton.styleFrom(
-                foregroundColor: t.accentText,
-                minimumSize: const Size.fromHeight(44),
-              ),
-              icon: const Icon(Icons.task_alt_rounded, size: 20),
-              label: Text(l10n.trainingLogAsDone),
+            EatovaTextAction(
+              buttonKey: const ValueKey('training-log-done'),
+              onTap: () => logPlanned(plan, shown.workoutIndex),
+              icon: Icons.task_alt_rounded,
+              label: l10n.trainingLogAsDone,
             ),
           ],
         ],
@@ -873,15 +869,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
           const SizedBox(height: 4),
           Align(
             alignment: AlignmentDirectional.centerStart,
-            child: TextButton.icon(
-              key: const ValueKey('training-log-coach'),
-              onPressed: coachLog,
-              style: TextButton.styleFrom(
-                foregroundColor: t.accentText,
-                minimumSize: const Size(44, 44),
-              ),
-              icon: const Icon(Icons.mic_none_rounded, size: 20),
-              label: Text(l10n.trainingLogTellCoach),
+            child: EatovaTextAction(
+              buttonKey: const ValueKey('training-log-coach'),
+              onTap: coachLog,
+              icon: Icons.mic_none_rounded,
+              label: l10n.trainingLogTellCoach,
             ),
           ),
         ],
@@ -1030,39 +1022,34 @@ class _TrainingScreenState extends State<TrainingScreen> {
             onPressed: widget.onOpenCoach,
           ),
           const SizedBox(height: 10),
-          OutlinedButton(
-            key: const ValueKey('training-empty-create'),
-            onPressed: () => _edit(context),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(kPrimaryButtonHeight),
+          // The second path sits flush under the lit Coach action, as tall.
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: kPrimaryButtonHeight),
+            child: SoftPillButton(
+              key: const ValueKey('training-empty-create'),
+              label: l10n.trainingPageCreate,
+              tone: SoftPillTone.neutral,
+              expand: true,
+              onTap: () => _edit(context),
             ),
-            child: Text(l10n.trainingPageCreate),
           ),
           // A finished workout needs no plan.
           if (widget.onLogWorkout case final log?) ...[
             const SizedBox(height: 6),
-            TextButton.icon(
-              key: const ValueKey('training-empty-log'),
-              onPressed: log,
-              style: TextButton.styleFrom(
-                foregroundColor: t.accentText,
-                minimumSize: const Size.fromHeight(44),
-              ),
-              icon: const Icon(Icons.edit_note_rounded, size: 20),
-              label: Text(l10n.trainingLogTitle),
+            EatovaTextAction(
+              buttonKey: const ValueKey('training-empty-log'),
+              onTap: log,
+              icon: Icons.edit_note_rounded,
+              label: l10n.trainingLogTitle,
             ),
           ],
           if (widget.onOpenCoachLog case final coachLog?) ...[
             if (widget.onLogWorkout == null) const SizedBox(height: 6),
-            TextButton.icon(
-              key: const ValueKey('training-empty-log-coach'),
-              onPressed: coachLog,
-              style: TextButton.styleFrom(
-                foregroundColor: t.accentText,
-                minimumSize: const Size.fromHeight(44),
-              ),
-              icon: const Icon(Icons.mic_none_rounded, size: 20),
-              label: Text(l10n.trainingLogTellCoach),
+            EatovaTextAction(
+              buttonKey: const ValueKey('training-empty-log-coach'),
+              onTap: coachLog,
+              icon: Icons.mic_none_rounded,
+              label: l10n.trainingLogTellCoach,
             ),
           ],
         ],

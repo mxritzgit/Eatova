@@ -7,6 +7,7 @@ import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
 import '../common/motion.dart';
 import 'controls.dart';
+import 'dialogs.dart' show DecisionMedallion;
 import 'surfaces.dart';
 
 // ---------------------------------------------------------------------------
@@ -15,11 +16,12 @@ import 'surfaces.dart';
 // Geometry 1:1 from the design mock; colors from [AppTokens].
 // ---------------------------------------------------------------------------
 
-/// The ONE close control of a sheet header: a 44 px [AppTokens.surf] disc
-/// with a 1 px [AppTokens.lineStrong] ring and an [AppTokens.inkMuted] glyph,
-/// drawn inside Material's 48 px touch target — the Food tab's round header
-/// button. The ring keeps it visible on the sheet ground in light mode,
-/// where the old `surf2` disc measured 1.05:1.
+/// The ONE close control of a sheet header: a 44 px [AppTokens.softFill]
+/// disc with an [AppTokens.inkMuted] glyph and no ring, drawn inside
+/// Material's 48 px touch target — the Food tab's round header button.
+/// `softFill` holds on the sheet ground in both palettes (1.21:1), where the
+/// old `surf2` disc measured 1.05:1 in light mode. No ripple: a press or
+/// keyboard focus deepens the fill (2026-10-25).
 ///
 /// A null [onTap] renders the disabled state (e.g. while saving).
 class SheetCloseButton extends StatelessWidget {
@@ -55,14 +57,17 @@ class SheetCloseButton extends StatelessWidget {
         tooltip:
             tooltip ?? MaterialLocalizations.of(context).closeButtonTooltip,
         style: IconButton.styleFrom(
-          backgroundColor: t.surf,
+          backgroundColor: t.softFill,
           foregroundColor: t.inkMuted,
-          disabledBackgroundColor: t.surf,
+          disabledBackgroundColor: t.softFill,
           disabledForegroundColor: t.inkDisabled,
           fixedSize: const Size.square(size),
           minimumSize: const Size.square(size),
           padding: EdgeInsets.zero,
-          shape: CircleBorder(side: BorderSide(color: t.lineStrong)),
+          shape: const CircleBorder(),
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: t.inkMuted.withValues(alpha: 0.12),
+          focusColor: t.inkMuted.withValues(alpha: 0.16),
         ),
         icon: Icon(icon, size: 20),
       ),
@@ -290,8 +295,9 @@ class SheetScaffold extends StatelessWidget {
   /// the header glyph and the action, not to a whole line of text.
   final bool destructive;
 
-  /// Optional 48 px header tile above the title (danger tint when
-  /// [destructive], accent otherwise) — the decision card's header.
+  /// Optional [DecisionMedallion] above the title (a danger glyph when
+  /// [destructive], accent otherwise) — the decision card's mark. It pops in
+  /// with the sheet; the glyph does not act.
   final IconData? icon;
 
   /// Defaults to closing: a sheet without its own action only confirms.
@@ -308,35 +314,38 @@ class SheetScaffold extends StatelessWidget {
     final showIcon =
         icon != null && MediaQuery.textScalerOf(context).scale(14) <= 21;
     // Scrollable, not just shrink-wrapping: a plain Column overflowed by
-    // ~101 px at textScaler 2.0.
+    // ~101 px at textScaler 2.0. The action keeps clear of the home
+    // indicator: the sheet runs to the screen edge.
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        4,
+        20,
+        16 + MediaQuery.paddingOf(context).bottom,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (showIcon) ...<Widget>[
-            ExcludeSemantics(
-              child: IconTile(
-                icon: icon!,
-                color: destructive ? t.danger : t.accent,
-                size: 48,
-                glyphSize: 22,
-                radius: rControl,
-              ),
+            DecisionMedallion(
+              icon: icon!,
+              destructive: destructive,
+              ground: t.bg,
+              act: false,
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
           ],
           HeadingSemantics(
             level: 1,
             child: Text(
               title,
-              style: AppType.display(24, color: t.ink, height: 1.15),
+              style: AppType.display(25, color: t.ink, height: 1.12),
             ),
           ),
-          const SizedBox(height: 6),
-          Text(subtitle, style: AppType.ui(12.5, color: t.ink2, height: 1.45)),
-          const SizedBox(height: 18),
+          const SizedBox(height: 8),
+          Text(subtitle, style: AppType.ui(14, color: t.ink2, height: 1.5)),
+          const SizedBox(height: 20),
           ...children,
           const SizedBox(height: 20),
           // The SAME primary action as every screen foot (accent, rButton):

@@ -6,7 +6,8 @@ import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/widgets/auth/auth_controls.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show AuthApiException, AuthException;
 
 import 'support/harness.dart';
 
@@ -17,10 +18,12 @@ class _RecordingRepository extends InMemoryAuthRepository {
   Completer<void>? pending;
   String? conflictCode;
   Object? signInError;
+  Object? oauthError;
 
   @override
   Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {
     oauthCalls.add(provider);
+    if (oauthError != null) throw oauthError!;
   }
 
   @override
@@ -423,6 +426,24 @@ void main() {
       expect(find.byKey(const ValueKey('auth-name-field')), findsNothing);
     });
   }
+
+  testWidgets('Google rejected by the alias hook names the other spelling', (
+    tester,
+  ) async {
+    final repository = await _pump(tester);
+    // The Before User Created hook's reject as gotrue-dart 2.27.2 throws it.
+    repository.oauthError = const AuthApiException(
+      'User already registered',
+      statusCode: '422',
+      code: 'unknown',
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('auth-google-oauth')));
+    await tester.tap(find.byKey(const ValueKey('auth-google-oauth')));
+    await tester.pumpAndSettle();
+    expect(repository.oauthCalls, [EatovaOAuthProvider.google]);
+    expect(find.text(deL10n.authErrorOAuthAccountExists), findsOneWidget);
+    expect(find.text(deL10n.authErrorGeneric), findsNothing);
+  });
 
   testWidgets('same-frame mode and recovery actions cannot race a login', (
     tester,

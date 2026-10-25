@@ -287,7 +287,7 @@ void main() {
               .first,
         );
 
-    testWidgets('neutral: 44-px-Kreis, Karte mit Umriss, inkMuted-Glyphe',
+    testWidgets('neutral: 44-px-Kreis, softFill ohne Umriss, inkMuted-Glyphe',
         (tester) async {
       final handle = tester.ensureSemantics();
       var taps = 0;
@@ -307,8 +307,8 @@ void main() {
 
       expect(tester.getSize(find.byType(HeaderIconButton)), const Size(44, 44));
       final material = materialOf(tester);
-      expect(material.color, t.surf);
-      expect(material.shape, CircleBorder(side: BorderSide(color: t.lineStrong)));
+      expect(material.color, t.softFill);
+      expect(material.shape, const CircleBorder());
       expect(
         tester.widget<Icon>(find.byIcon(Icons.calendar_today_rounded)).color ??
             IconTheme.of(
@@ -372,6 +372,26 @@ void main() {
       expect(taps, 1);
     });
 
+    // The paywall's buy label cross-fades; a screen reader must not hear
+    // the outgoing label next to the new one.
+    testWidgets('ein wechselndes Label wird nur einmal vorgelesen',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      Widget knopf(String label) => designHarness(
+            PrimaryActionButton(label: label, animateLabel: true, onTap: () {}),
+          );
+      await tester.pumpWidget(knopf('7 Tage gratis testen'));
+      await tester.pumpWidget(knopf('Premium abonnieren'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('7 Tage gratis testen'), findsOneWidget,
+          reason: 'mitten im Uebergang');
+      expect(
+        tester.getSemantics(find.byType(PrimaryActionButton)),
+        isSemantics(label: 'Premium abonnieren', isButton: true),
+      );
+      semantics.dispose();
+    });
+
     testWidgets('destructive faerbt die Flaeche auf danger', (tester) async {
       Material materialOf() => tester.widget<Material>(
             find
@@ -403,7 +423,55 @@ void main() {
           ),
         ),
       );
-      expect(materialOf().color, AppTokens.light.danger);
+      // A real red fill; `danger` stays the text tone.
+      expect(materialOf().color, AppTokens.light.dangerFill);
+      expect(
+        tester.widget<Text>(find.text('Loeschen')).style!.color,
+        AppTokens.light.onDangerFill,
+      );
+    });
+
+    // Depth and light: locked is "not yet", a soft tint of its own accent
+    // without light; arming lights it up and casts the accent glow.
+    testWidgets('gesperrt: Akzent-Hauch ohne Licht, scharf leuchtet er',
+        (tester) async {
+      const t = AppTokens.dark;
+      Widget button({VoidCallback? onTap}) => designHarness(
+            PrimaryActionButton(label: 'Weiter', onTap: onTap),
+            brightness: Brightness.dark,
+          );
+      final pill = find
+          .descendant(
+            of: find.byType(PrimaryActionButton),
+            matching: find.byType(Material),
+          )
+          .first;
+      Material material() => tester.widget<Material>(pill);
+      // The cast light sits right around the pill.
+      List<BoxShadow> light() => (tester
+              .widget<DecoratedBox>(
+                find
+                    .ancestor(of: pill, matching: find.byType(DecoratedBox))
+                    .first,
+              )
+              .decoration as BoxDecoration)
+          .boxShadow!;
+
+      await tester.pumpWidget(button());
+      expect(
+        material().color,
+        t.accentFill.withValues(alpha: kLockedFillAlpha),
+      );
+      expect(
+        tester.widget<Text>(find.text('Weiter')).style!.color,
+        t.accentText.withValues(alpha: kLockedLabelAlpha),
+      );
+      expect(light(), isEmpty);
+
+      await tester.pumpWidget(button(onTap: () {}));
+      await tester.pumpAndSettle();
+      expect(material().color, t.accentFill);
+      expect(light().first.color, t.accentGlow);
     });
 
     // X-11: danger at 38 % over the dark ground mixed a muddy brown pill

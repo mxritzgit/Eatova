@@ -11,6 +11,8 @@ import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/services/local_cache.dart'
     show InMemoryKeyValueStore;
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/auth/auth_controls.dart';
+import 'package:eatova/src/widgets/auth/auth_entry_header.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
 
 import '../support/harness.dart';
@@ -127,6 +129,66 @@ BoxDecoration _capsuleOf(WidgetTester tester, Key fieldKey) {
       as BoxDecoration;
 }
 
+Finder _textIn(Finder scope, String text) =>
+    find.descendant(of: scope, matching: find.text(text));
+
+/// Every visible edge line inside [scope]: decoration borders, the sides of
+/// decoration, Material and ink shapes.
+List<BorderSide> _visibleSides(WidgetTester tester, Finder scope) {
+  Iterable<BorderSide> sides(Object? shape) => switch (shape) {
+        OutlinedBorder(:final side) => [side],
+        Border(:final top, :final right, :final bottom, :final left) => [
+            top,
+            right,
+            bottom,
+            left,
+          ],
+        BorderDirectional(:final top, :final start, :final bottom, :final end) =>
+          [top, start, bottom, end],
+        _ => const <BorderSide>[],
+      };
+  final found = <BorderSide>[];
+  for (final element in find
+      .descendant(of: scope, matching: find.byWidgetPredicate((_) => true))
+      .evaluate()) {
+    final widget = element.widget;
+    if (widget is DecoratedBox) {
+      found.addAll(sides(switch (widget.decoration) {
+        ShapeDecoration(:final shape) => shape,
+        BoxDecoration(:final border) => border,
+        _ => null,
+      }));
+    } else if (widget is Material) {
+      found.addAll(sides(widget.shape));
+    } else if (widget is InkWell) {
+      found.addAll(sides(widget.customBorder));
+    }
+  }
+  return [
+    for (final side in found)
+      if (side.style != BorderStyle.none && side.width > 0 && side.color.a > 0)
+        side,
+  ];
+}
+
+/// The fill painted under [point] inside [scope]: every decoration whose box
+/// covers it, composited in paint order over [ground].
+Color _fillAt(WidgetTester tester, Finder scope, Offset point, Color ground) {
+  var fill = ground;
+  for (final element in find
+      .descendant(of: scope, matching: find.byType(DecoratedBox))
+      .evaluate()) {
+    final box = element.renderObject! as RenderBox;
+    if (!(box.localToGlobal(Offset.zero) & box.size).contains(point)) continue;
+    final color = switch ((element.widget as DecoratedBox).decoration) {
+      ShapeDecoration(:final color) || BoxDecoration(:final color) => color,
+      _ => null,
+    };
+    if (color != null) fill = Color.alphaBlend(color, fill);
+  }
+  return fill;
+}
+
 void main() {
   group('F2-01/F8-01 Theme-folgend, hell UND dunkel, ohne Overflow', () {
     for (final brightness in Brightness.values) {
@@ -213,6 +275,61 @@ void main() {
       final deco = _capsuleOf(tester, const ValueKey('code-email-field'));
       expect(deco.border, isNull);
       expect(deco.boxShadow, isNotEmpty);
+    });
+  });
+
+  // Polish 2026-10-25: the mode switch and the Google pill lost their
+  // hairlines. Without the accent edge the thumb's own fill has to carry the
+  // selection boundary (WCAG 1.4.11, 3:1 against the track), and keyboard
+  // focus has to brighten what it lands on.
+  group('Modus-Umschalter und Google-Knopf ohne Ring', () {
+    final selector = find.byType(AuthModeSelector);
+    final google = find.byType(AuthSecondaryButton);
+
+    for (final brightness in Brightness.values) {
+      testWidgets('kein Rand, Auswahl >= 3:1 gegen die Spur ($brightness)',
+          (tester) async {
+        _pinPhone(tester);
+        final t = _tokensFor(brightness);
+        await _pumpAuth(tester, brightness);
+
+        for (final scope in [selector, google]) {
+          expect(_visibleSides(tester, scope), isEmpty,
+              reason: '$brightness: keine Hairline, kein Ring');
+        }
+        Color fillUnder(String text) => _fillAt(tester, selector,
+            tester.getCenter(_textIn(selector, text)), t.bg);
+        final track = fillUnder(deL10n.authToggleActionRegister);
+        final chosen = fillUnder(deL10n.authToggleActionLogin);
+        expect(contrastRatio(chosen, track), greaterThanOrEqualTo(3.0),
+            reason: '$brightness: der Daumen selbst traegt die Auswahl');
+      });
+    }
+
+    testWidgets('Tastaturfokus hellt auf, in beiden Modi', (tester) async {
+      _pinPhone(tester);
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.alwaysTraditional;
+      addTearDown(() => FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.automatic);
+      for (final brightness in Brightness.values) {
+        final t = _tokensFor(brightness);
+        // A fresh tree: the previous pass left the segment focused.
+        await tester.pumpWidget(const SizedBox.shrink());
+        await _pumpAuth(tester, brightness);
+        final label = _textIn(selector, deL10n.authToggleActionRegister);
+        Color fill() =>
+            _fillAt(tester, selector, tester.getCenter(label), t.bg);
+        final rest = fill();
+        Focus.of(tester.element(label)).requestFocus();
+        await tester.pumpAndSettle();
+        expect(fill().computeLuminance(),
+            greaterThan(rest.computeLuminance()),
+            reason: '$brightness: Fokus hellt die Spur auf, kein Ring');
+        expect(tester.widget<Text>(label).style?.color ??
+                DefaultTextStyle.of(tester.element(label)).style.color,
+            t.ink, reason: '$brightness: das Label wird zu ink');
+      }
     });
   });
 

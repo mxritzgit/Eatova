@@ -117,7 +117,7 @@ void main() {
           ),
         ),
       );
-      expect(actionMaterial().color, AppTokens.light.danger);
+      expect(actionMaterial().color, AppTokens.light.dangerFill);
     });
 
     testWidgets('ohne onAction poppt die Aktion das Sheet', (tester) async {
@@ -369,9 +369,10 @@ void main() {
 
   // Design review 2026-10-11: one close control and one title for every
   // sheet header. The old `surf2` disc measured 1.05:1 on the light sheet
-  // ground and read as a bare glyph.
+  // ground and read as a bare glyph. Since 2026-10-25 the disc is
+  // `softFill` without a ring.
   group('SheetCloseButton', () {
-    testWidgets('surf disc with lineStrong ring, 44 in 48', (tester) async {
+    testWidgets('softFill disc without a ring, 44 in 48', (tester) async {
       // Wiring in one palette (no brightness branch in widgets); the
       // light-ground case that read as a bare glyph is the token check below.
       const t = AppTokens.light;
@@ -390,14 +391,13 @@ void main() {
       expect(tester.widget(button), isA<IconButton>());
       expect(tester.getSize(button), const Size(48, 48));
       final style = tester.widget<IconButton>(button).style!;
-      expect(style.backgroundColor!.resolve(<WidgetState>{}), t.surf);
+      expect(style.backgroundColor!.resolve(<WidgetState>{}), t.softFill);
       expect(style.foregroundColor!.resolve(<WidgetState>{}), t.inkMuted);
       expect(style.fixedSize!.resolve(<WidgetState>{}), const Size(44, 44));
-      final shape = style.shape!.resolve(<WidgetState>{})! as CircleBorder;
-      expect(shape.side.color, t.lineStrong);
+      expect(style.shape!.resolve(<WidgetState>{}), const CircleBorder());
       // The disc itself must differ from the sheet ground (bg).
       for (final palette in [AppTokens.light, AppTokens.dark]) {
-        expect(palette.surf, isNot(palette.bg));
+        expect(palette.softFill, isNot(palette.bg));
       }
     });
 

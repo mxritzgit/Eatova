@@ -11,6 +11,24 @@ const InputBorder _noLine = OutlineInputBorder(
   borderSide: BorderSide.none,
 );
 
+/// Press, keyboard focus and hover of a themed button: its own label tone
+/// laid over the fill, never a ripple. Focus is the strongest step, so a
+/// keyboard user sees where they are without a ring (focus highlights only
+/// show in the traditional highlight mode).
+WidgetStateProperty<Color?> _buttonOverlay(Color foreground, {Color? focus}) =>
+    WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.pressed)) {
+        return foreground.withValues(alpha: 0.10);
+      }
+      if (states.contains(WidgetState.focused)) {
+        return focus ?? foreground.withValues(alpha: 0.16);
+      }
+      if (states.contains(WidgetState.hovered)) {
+        return foreground.withValues(alpha: 0.05);
+      }
+      return null;
+    });
+
 /// The Eatova theme — Material 3 as the base, [AppTokens] as the visible layer.
 ///
 /// Material owns behaviour, semantics and platform correctness (ripple, focus,
@@ -80,9 +98,11 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     extensions: <ThemeExtension<dynamic>>[t],
     textTheme: textTheme,
     primaryTextTheme: textTheme,
-    splashFactory: InkSparkle.splashFactory,
-    splashColor: t.ink.withValues(alpha: 0.05),
-    highlightColor: t.ink.withValues(alpha: 0.03),
+    // No ink sparkle (the most "stock Material" signal): a press darkens
+    // the surface a step, like every Eatova control.
+    splashFactory: NoSplash.splashFactory,
+    splashColor: Colors.transparent,
+    highlightColor: t.ink.withValues(alpha: 0.06),
     dividerColor: t.line,
     dividerTheme: DividerThemeData(color: t.line, thickness: 1, space: 1),
     iconTheme: IconThemeData(color: t.ink2, size: 20),
@@ -127,29 +147,29 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
     ),
-    // The decision card's surface (EatovaDialog sets the same values itself):
-    // the sheets' `lineStrong` edge, no tint.
+    // Fallback for a stock dialog; EatovaDialog draws its own lit card.
+    // No edge line, no tint.
     dialogTheme: DialogThemeData(
       backgroundColor: t.surf,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rSheet),
-        side: BorderSide(color: t.lineStrong),
       ),
       titleTextStyle: AppType.display(20, weight: FontWeight.w700, color: t.ink),
       contentTextStyle: AppType.ui(13.5, color: t.ink2, height: 1.45),
     ),
     // Overflow menus: rows come from `MenuRow`; the label style is the net
     // for a plain item, so none falls back to Material's labelLarge. Menus
-    // open under their anchor and the trigger glyph is a quiet `ink2`. The
-    // edge is the decision card's `lineStrong`; `line` lost the dark menu
-    // against `bg`.
+    // open under their anchor and the trigger glyph is a quiet `ink2`. A
+    // floating surface like the decision card: the lit tone and a wide
+    // shadow lift it off `bg`, no edge line.
     popupMenuTheme: PopupMenuThemeData(
-      color: t.surf,
+      color: t.surfLit,
       surfaceTintColor: Colors.transparent,
+      elevation: 10,
+      shadowColor: t.shadowFloat,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rCard),
-        side: BorderSide(color: t.lineStrong),
       ),
       textStyle: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
       labelTextStyle: WidgetStatePropertyAll(
@@ -211,15 +231,17 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     // filled = the primary action (accent pill, like [PrimaryActionButton]),
     // outlined = the SECONDARY action, a tonal `softFill` pill with an `ink`
     // label (`surf2` vanished on the light page ground, 1.05:1).
+    // All three: no ripple, the label tone as press/focus overlay.
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: t.ink,
         disabledForegroundColor: t.ink2.withValues(alpha: 0.5),
         textStyle: AppType.ui(13, weight: FontWeight.w700),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rControl),
-        ),
-      ),
+        minimumSize: const Size(48, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        shape: const StadiumBorder(),
+        splashFactory: NoSplash.splashFactory,
+      ).copyWith(overlayColor: _buttonOverlay(t.ink)),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -235,6 +257,10 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rButton),
         ),
+        splashFactory: NoSplash.splashFactory,
+      ).copyWith(
+        // The dark palette's label ink is near-black: focus would darken.
+        overlayColor: _buttonOverlay(t.onAccentFill, focus: kLitFocusOverlay),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -250,7 +276,8 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rButton),
         ),
-      ),
+        splashFactory: NoSplash.splashFactory,
+      ).copyWith(overlayColor: _buttonOverlay(t.ink)),
     ),
     // Input fields: borderless soft capsule (user rule) — no hairline, no
     // focus ring, no red ring. State lives in the FILL: rest `field`, focus

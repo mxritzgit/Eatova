@@ -202,7 +202,7 @@ class PlanLimitNotice extends StatelessWidget {
           PrimaryActionButton(
             key: const ValueKey('plan-limit-upgrade'),
             label: l10n.planLimitUpgrade,
-            icon: Icons.auto_awesome_rounded,
+            icon: Icons.arrow_forward_rounded,
             onTap: onUpgrade,
             height: 48,
           ),
