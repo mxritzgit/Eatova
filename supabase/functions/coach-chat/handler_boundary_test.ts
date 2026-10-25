@@ -9,6 +9,7 @@ import {
   systemText,
 } from "../_shared/claude_test_fixtures.ts";
 import { handleRequest } from "./handler.ts";
+import { type PlanFixture, resolvePlanResponse } from "./plan_test_fixtures.ts";
 
 type Row = Record<string, unknown>;
 type Call = { url: URL; method: string; body: Row };
@@ -61,6 +62,8 @@ interface Options {
   failureAt?: Stage;
   privateError?: string;
   invalidDraft?: boolean;
+  /** resolve_plan per user id (default "legacy"). */
+  plans?: Record<string, PlanFixture>;
 }
 
 async function withBackend(
@@ -112,6 +115,7 @@ async function withBackend(
         case "/rest/v1/rpc/touch_chat_session":
         case "/rest/v1/rpc/refund_chat_quota_for_day": return new Response(null, { status: 204 });
         case "/rest/v1/rpc/reserve_ai_provider_call": return json({ allowed: true, reason: "allowed" });
+        case "/rest/v1/rpc/resolve_plan": return resolvePlanResponse(options.plans?.[String(body.p_user_id)] ?? "legacy");
         case "/rest/v1/rpc/claim_chat_quota":
           stage("claim");
           return json([{ used: 1, remaining: 4, quota_day: "2026-09-15" }]);
@@ -384,13 +388,17 @@ Deno.test("history: multi-turn injection stays below system authority and refuse
   });
 });
 
-Deno.test("account isolation: overlapping A/B requests keep context, budget identity and writes scoped", async () => {
-  await withBackend({}, async (backend) => {
+Deno.test("account isolation: overlapping A/B requests keep context, plan, budget identity and writes scoped", async () => {
+  await withBackend({ plans: { [USER_A]: "free", [USER_B]: "premium" } }, async (backend) => {
     const results = await Promise.all([
       backend.invoke({ message: "USER_A_CURRENT: Name two balanced snacks." }, USER_A),
       backend.invoke({ message: "USER_B_CURRENT: Name two balanced snacks." }, USER_B),
     ]);
     equal(results.map((result) => result.status), [200, 200], "Both independent requests complete");
+    equal(results.map((result) => result.body.daily_limit), [3, 20], "Each answer carries its own account's limit");
+    const claims = backend.calls.filter((call) => call.url.pathname.endsWith("/claim_chat_quota"));
+    equal(claims.map((call) => [call.body.p_user_id, call.body.p_daily_limit]).sort(), [[USER_A, 3], [USER_B, 20]],
+      "Each claim uses the plan of its own account");
     const answers = backend.providers().filter((call) => !isClassifierRequest(call.body));
     equal(answers.length, 2, "Two answer payloads");
     for (const call of answers) {

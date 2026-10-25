@@ -78,8 +78,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/deploy"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # Validates the slugs, refuses a config.toml that turns verify_jwt off and
-      # records each function's import graph.
+      # Validates the slugs, refuses a config.toml that turns verify_jwt off for
+      # anything but a public webhook (PUBLIC_WEBHOOKS) and records each
+      # function's import graph.
       - name: Plan
         id: plan
         env:
@@ -155,8 +156,9 @@ jobs:
             fi
           done
 
-      # verify_jwt stays on: the CLI default, never --no-verify-jwt, and the
-      # plan refused any config that disables it. Read back after the deploy.
+      # verify_jwt comes from supabase/config.toml alone, never --no-verify-jwt.
+      # Only the public webhooks declare it off (the plan required that); for
+      # the others the CLI keeps the live value, on. The record reads it back.
       - name: Deploy
         id: deploy
         env:
@@ -195,8 +197,9 @@ jobs:
             fi
           done
 
-      # Preflight 204, the gateway's 401 without a token, the handler's own
-      # answer with the public anon key. No user token, no paid call.
+      # Preflight 204, the gateway's 401 without a token (the public webhook's
+      # own 401), the handler's own answer with the public anon key. No user
+      # token, no paid call.
       - name: Boot probe
         if: ${{ always() && steps.plan.outcome == 'success' }}
         env:

@@ -16,6 +16,10 @@ const _personalSlots = [
   'weigh_in_reminder',
   'ai_consent',
   'coach_quota',
+  'plan_status',
+  'paywall_prompt',
+  'legacy_notice',
+  'upsell_shown',
   'health_connect_enabled',
   'health_prompt',
   'health_weight_import',
@@ -34,11 +38,39 @@ const _personalSlots = [
   'daily_activity',
 ];
 
+/// A store without the atomic batch, so [LocalCache.clear] takes its
+/// per-key path.
+class _PlainStore implements KeyValueStore {
+  _PlainStore(this._inner);
+
+  final KeyValueStore _inner;
+
+  @override
+  Future<String?> getString(String key) => _inner.getString(key);
+
+  @override
+  Future<void> setString(String key, String value) =>
+      _inner.setString(key, value);
+
+  @override
+  Future<void> remove(String key) => _inner.remove(key);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // Both purge paths: the atomic batch of the production stores and the
+  // per-key list of a plain store.
+  _purgeTests(atomic: true);
+  _purgeTests(atomic: false);
+}
+
+void _purgeTests({required bool atomic}) {
+  final path = atomic ? 'atomic' : 'per-key';
+
   test(
-    'account deletion clears every A slot and preserves B byte for byte',
+    'account deletion clears every A slot and preserves B byte for byte '
+    '($path)',
     () async {
       final storage = InMemoryKeyValueStore();
       for (final user in ['A', 'B']) {
@@ -53,15 +85,16 @@ void main() {
         storage.snapshot.entries.where((entry) => entry.key.endsWith('.B')),
       );
 
-      await LocalCache(storage, 'A').clear();
+      await LocalCache(atomic ? storage : _PlainStore(storage), 'A').clear();
 
       expect(storage.snapshot, beforeB);
-      expect(beforeB, hasLength(26), reason: 'Every B domain has seeded data.');
+      expect(beforeB, hasLength(30), reason: 'Every B domain has seeded data.');
     },
   );
 
   test(
-    'logout preserves only durable recovery slots for A and all B data',
+    'logout preserves only durable recovery slots for A and all B data '
+    '($path)',
     () async {
       final storage = InMemoryKeyValueStore();
       for (final user in ['A', 'B']) {
@@ -85,10 +118,13 @@ void main() {
         ),
       );
 
-      await LocalCache(storage, 'A').clear(preserveOutbox: true);
+      await LocalCache(
+        atomic ? storage : _PlainStore(storage),
+        'A',
+      ).clear(preserveOutbox: true);
 
       expect(storage.snapshot, expected);
-      expect(expected, hasLength(29));
+      expect(expected, hasLength(33));
     },
   );
 }

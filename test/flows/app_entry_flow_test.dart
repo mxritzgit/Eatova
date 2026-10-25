@@ -180,6 +180,13 @@ void main() {
       expect(weightSheet, findsNothing, reason: 'nothing opens over it');
 
       await store.completeOnboarding(completedProfile);
+      await settleFrames(tester);
+      // The Premium screen still belongs to the onboarding: the pick and the
+      // shortcuts wait for its answer too.
+      expect(find.byKey(const ValueKey('screen-paywall')), findsOneWidget);
+      expect(shortcuts.shown, isEmpty, reason: 'not before the paywall');
+      expect(weightSheet, findsNothing, reason: 'nothing opens over it');
+      await tester.tap(find.byKey(const ValueKey('paywall-continue-free')));
       await pumpUntil(
         tester,
         () => weightSheet.evaluate().isNotEmpty,

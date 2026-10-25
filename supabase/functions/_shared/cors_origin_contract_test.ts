@@ -33,11 +33,13 @@ Deno.test('CORS: exact origins on preflight and auth denials; no cookie credenti
   try {
     const coach = await import('../coach-chat/handler.ts?cors_origin_contract');
     const analyze = await import('../analyze-meal/handler.ts?cors_origin_contract');
+    const verify = await import('../subscription-verify/handler.ts?cors_origin_contract');
     await import('../search-key/index.ts?cors_origin_contract');
     check(intercepted.length === 1, 'Search handler registration');
     const handlers: Array<[string, Handler, string]> = [
       ['coach', coach.handleRequest, 'POST'],
       ['analyze', analyze.handleRequest, 'POST'],
+      ['verify', verify.handleRequest, 'POST'],
       ['search', intercepted[0], 'GET'],
     ];
     for (const [name, handler, method] of handlers) {

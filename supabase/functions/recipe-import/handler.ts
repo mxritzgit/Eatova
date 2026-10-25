@@ -12,10 +12,11 @@ import {
 } from '../_shared/claude.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { allowedOriginsFromEnv, jsonResponse, responseHeaders } from '../_shared/http.ts';
+import { limitFor, planLimitWire, resolvePlan } from '../_shared/plan.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
 import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
 import { consumeRateLimits, retryAfterSeconds } from '../_shared/rate_limit.ts';
-import type { RateLimitGate } from '../_shared/rate_limit.ts';
+import type { RateLimitGate, RateLimitVerdict } from '../_shared/rate_limit.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { extractionPrompt, parseExtraction } from './extraction.ts';
 import { loadSource } from './source.ts';
@@ -39,7 +40,13 @@ const MAX_TEXT_CHARS = 20_000;
 type Secrets = { supabaseUrl: string; anonKey: string; serviceKey: string; providerKey: string };
 
 class ImportError extends Error {
-  constructor(readonly status: number, readonly code: string, readonly retryAfter?: number) {
+  // `details`: extra body fields, only the day gate's resetAt and planLimit.
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    readonly retryAfter?: number,
+    readonly details?: Record<string, unknown>,
+  ) {
     super(code);
   }
 }
@@ -107,15 +114,22 @@ async function authenticate(request: Request, secrets: Secrets, total: AbortSign
 }
 
 // Shared fail-closed client (../_shared/rate_limit.ts). This endpoint answers
-// an outage with 503 and caps Retry-After at one day.
-async function consumeGates(secrets: Secrets, gates: RateLimitGate[], total: AbortSignal): Promise<void> {
+// an outage with 503 and caps Retry-After at one day. `denialDetails` adds
+// fields to the 429 body of a denial.
+async function consumeGates(
+  secrets: Secrets,
+  gates: RateLimitGate[],
+  total: AbortSignal,
+  denialDetails?: (denied: RateLimitVerdict) => Record<string, unknown>,
+): Promise<void> {
   const outcome = await consumeRateLimits({
     supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, gates, signal: stepSignal(total, 5000),
   });
   if (outcome.kind === 'unavailable') throw new ImportError(503, 'rate_limit_unavailable');
   if (outcome.kind === 'denied') {
     throw new ImportError(429, 'rate_limited',
-      retryAfterSeconds(outcome.denied.resetAt, gates[outcome.deniedIndex].windowSeconds, 86_400));
+      retryAfterSeconds(outcome.denied.resetAt, gates[outcome.deniedIndex].windowSeconds, 86_400),
+      denialDetails?.(outcome.denied));
   }
 }
 
@@ -155,6 +169,11 @@ export async function handleRequest(request: Request): Promise<Response> {
       { scope: 'recipe-import:user', subject: userId, limit: 20, windowSeconds: 3600 },
     ], total);
     const input = await parseBody(request, total);
+    // The account's plan sets its day limit (docs/PREMIUM.md 3.3). Looked up
+    // while the source loads; a failed lookup applies Free (../_shared/plan.ts).
+    const planLookup = resolvePlan({
+      supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId, signal: stepSignal(total, 5000),
+    });
     const source = await loadSource(input.text, stepSignal(total, 10_000));
     total.throwIfAborted();
     if (!source.text) return json(request, {
@@ -162,9 +181,20 @@ export async function handleRequest(request: Request): Promise<Response> {
     });
     // No recipe/user-data writes occur here. Rate gates and the shared, durable
     // paid-call reservation protect this endpoint just like existing AI flows.
+    const plan = await planLookup;
     await consumeGates(secrets, [
-      { scope: 'recipe-import:user-day', subject: userId, limit: 20, windowSeconds: 86_400 },
-    ], total);
+      { scope: 'recipe-import:user-day', subject: userId, limit: limitFor(plan, 'recipe_import'), windowSeconds: 86_400 },
+    ], total, (denied) => ({
+      resetAt: denied.resetAt,
+      planLimit: planLimitWire(plan, 'recipe_import', denied.resetAt),
+    })).catch((error) => {
+      // Under the Free fallback the account may have more (Premium): a
+      // retryable outage, not a tier quota. The denied gate counted nothing.
+      if (plan.fallback && error instanceof ImportError && error.status === 429) {
+        throw new ImportError(503, 'plan_unavailable');
+      }
+      throw error;
+    });
     const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId, signal: total });
     // One attempt gets the whole provider window: output grows with the
     // source, and a three-recipe caption took ~10 s at "medium" and ~20-32 s at
@@ -238,7 +268,9 @@ export async function handleRequest(request: Request): Promise<Response> {
     throw lastError;
   } catch (error) {
     if (error instanceof ProviderBudgetError) return json(request, { error: error.code }, error.status);
-    if (error instanceof ImportError) return json(request, { error: error.code }, error.status, error.retryAfter);
+    if (error instanceof ImportError) {
+      return json(request, { error: error.code, ...error.details }, error.status, error.retryAfter);
+    }
     if (total.aborted || error instanceof DOMException && ['TimeoutError', 'AbortError'].includes(error.name)) return json(request, { error: 'request_timeout' }, 504);
     // Exceptions may contain URLs, captions or credentials; never log them.
     console.error('recipe-import request failed');

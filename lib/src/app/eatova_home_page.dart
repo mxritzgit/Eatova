@@ -8,6 +8,7 @@ import '../models/coach_day_brief.dart';
 import '../models/logged_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/macro_progress.dart';
+import '../models/plan_status.dart' show PlanFeature, PlanStatus;
 import '../models/recipe_pick.dart';
 import '../models/training_history.dart';
 import '../models/training_log.dart';
@@ -21,6 +22,7 @@ import '../services/crash_reporter.dart';
 import '../services/data_export.dart';
 import '../services/day_math.dart';
 import '../services/background_sync_scheduler.dart';
+import '../services/billing/purchase_flow.dart';
 import '../services/eatova_sync.dart';
 import '../services/favorites_view.dart' show favoriteUseCounts;
 import '../services/health_service.dart';
@@ -45,12 +47,14 @@ import '../screens/coach/coach_chat_screen.dart';
 import '../screens/coach/coach_meal_describe.dart';
 import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
+import '../screens/premium/paywall_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/recipes/meal_plan_screen.dart';
 import '../screens/recipes/recipes_screen.dart';
 import '../screens/recipes/recipe_import_sheet.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
+import '../screens/today/today_legacy_notice.dart';
 import '../screens/today/today_screen.dart';
 import '../screens/today/today_trends.dart' show TodayTrendsPreview;
 import '../screens/trends_screen.dart';
@@ -71,6 +75,7 @@ import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
 import '../widgets/profile/profile_widgets.dart'
     show WeighInActions, showWeightEntrySheet;
+import '../widgets/profile/subscription_card.dart' show restorePurchasesFor;
 import '../widgets/recipes/recipe_pick_actions.dart';
 import '../widgets/shared/reminder_time_picker.dart';
 import '../widgets/shared/settings_sheet.dart';
@@ -78,6 +83,7 @@ import 'ai_trust.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
 import 'home_tab_switcher.dart';
+import 'subscription.dart';
 
 class EatovaHomePage extends StatefulWidget {
   EatovaHomePage({
@@ -101,6 +107,7 @@ class EatovaHomePage extends StatefulWidget {
     this.recipeImportInbox,
     this.recipeImportService,
     this.trendTotalsLoader,
+    this.purchaseFlow,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -140,6 +147,9 @@ class EatovaHomePage extends StatefulWidget {
   /// The trends page's server window; null reads the signed-in user's.
   final TrendTotalsLoader? trendTotalsLoader;
 
+  /// The app's purchase pipeline; null means no purchases.
+  final PurchaseFlow? purchaseFlow;
+
   /// True only on a fresh login/register; false on session restore.
   final bool showWelcome;
 
@@ -170,6 +180,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// tests) nothing can be logged, so nothing is asked.
   late final AiTrustController _aiTrust;
   AiTrustBinding? _aiTrustBinding;
+
+  /// The account's plan and purchases (2026-10-25), bound into the app-level
+  /// [SubscriptionScope] and the purchase pipeline while this shell lives.
+  /// Without sync (preview, tests) there is no server, so nothing is sold.
+  late final SubscriptionController _subscription;
+  SubscriptionBinding? _subscriptionBinding;
+
+  /// A tier change resets the Coach's remembered limit and quota slot, also
+  /// while the Coach tab was never built (docs/PREMIUM.md 4.5).
+  StreamSubscription<PlanStatus>? _coachTierChanges;
+  late final PurchaseFlow _purchaseFlow;
   ReconnectSyncCoordinator? _reconnectSync;
   bool _backgroundSyncRequested = false;
 
@@ -223,6 +244,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   bool _profileRouteOpen = false;
   bool _goalsRouteOpen = false;
   bool _settingsRouteOpen = false;
+  bool _premiumRouteOpen = false;
   late bool _welcomeFinished;
   bool _recipeImportOpen = false;
   bool _recipeImportScheduled = false;
@@ -248,6 +270,21 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             consentLog: sync.aiTrust,
             reportLog: sync.aiTrust,
           );
+    _purchaseFlow = widget.purchaseFlow ?? const NoPurchaseFlow();
+    _subscription = sync == null
+        ? SubscriptionController.preview()
+        : SubscriptionController(
+            userId: sync.userId,
+            cache: _store,
+            log: sync.subscription,
+            flow: _purchaseFlow,
+          );
+    _coachTierChanges = _subscription.tierChanges.listen(
+      (plan) => _store.sync?.coachChat.adoptPlanLimit(
+        plan.limitFor(PlanFeature.coach),
+        used: plan.usedToday(PlanFeature.coach),
+      ),
+    );
     widget.recipeImportInbox?.addListener(_scheduleRecipeImport);
     // No sync (preview/test) means no boot/welcome phase.
     _welcomeFinished = widget.sync == null;
@@ -265,6 +302,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       });
     }
     _store.start();
+    // After the start: a purchase verified at once is cached in the opening
+    // account cache.
+    if (sync != null) _purchaseFlow.bindAccount(_subscription);
     if (widget.notificationService case final NotificationTapSource source) {
       _notificationTaps = source.taps.listen(_onNotificationTap);
       // The alert that launched the app; read once the first frame is up.
@@ -307,6 +347,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         unawaited(_aiTrust.load());
       }
     }
+    final subscriptions = SubscriptionScope.maybeOf(context);
+    if (!identical(subscriptions, _subscriptionBinding)) {
+      _subscriptionBinding?.unbind(_subscription);
+      _subscriptionBinding?.unregisterOpener(_openPremium);
+      _subscriptionBinding = subscriptions;
+      if (subscriptions != null) {
+        subscriptions.bind(_subscription);
+        subscriptions.registerOpener(_openPremium);
+        unawaited(_subscription.load());
+      }
+    }
     _scheduleRecipeImport();
     _shortcutsL10n = context.l10n;
     _syncAppShortcuts();
@@ -329,6 +380,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _localHours.dispose();
     _aiTrustBinding?.unbind(_aiTrust);
     _aiTrust.dispose();
+    _subscriptionBinding?.unbind(_subscription);
+    _subscriptionBinding?.unregisterOpener(_openPremium);
+    if (widget.sync != null) _purchaseFlow.unbindAccount(_subscription);
+    unawaited(_coachTierChanges?.cancel());
+    _subscription.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -449,6 +505,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _store.flushPendingWrites();
     _reconnectSync?.resume();
 
+    // A renewal, an expiry or a purchase on another device (throttled).
+    if (_subscriptionBinding != null) unawaited(_subscription.refresh());
+
     // D11: re-read the OS permission silently; lifts `ReminderState.blocked`.
     unawaited(_store.refreshNotificationPermission());
 
@@ -542,11 +601,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
   Future<void> _pushSettings() async {
     final ownerStore = _store;
+    final subscription = _subscription;
+    // Plus the plan: the "Abo" row and the deletion warning follow it.
+    final changes = Listenable.merge(<Listenable>[ownerStore, subscription]);
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => StoreSelector(
-          store: ownerStore,
-          selector: () => (ownerStore.pendingOutbox.length, ownerStore.syncBlockedReason, ownerStore.syncStatusReadable, ownerStore.reminderState, ownerStore.reminderTime, ownerStore.weighInReminderState),
+        builder: (routeContext) => StoreSelector(
+          store: changes,
+          selector: () => (ownerStore.pendingOutbox.length, ownerStore.syncBlockedReason, ownerStore.syncStatusReadable, ownerStore.reminderState, ownerStore.reminderTime, ownerStore.weighInReminderState, subscription.plan),
           builder: (_) => SettingsScreen(
           pendingSyncCount: ownerStore.pendingOutbox.length,
           syncStatusReadable: ownerStore.syncStatusReadable,
@@ -576,6 +638,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             }
           },
           onOpenNotificationSettings: openNotificationSettings,
+          subscriptionPlan: subscription.plan,
+          onOpenPremium: () => unawaited(
+            openPremium(routeContext, source: PremiumSource.settings),
+          ),
+          onManageSubscription: () =>
+              unawaited(subscription.openManageSubscriptions()),
           // No "linked account" row: the app does not know which provider
           // carried the sign-in, and a guessed row is worse than none.
           email: widget.userEmail,
@@ -676,11 +744,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // mid-route state changes reach the ProfileScreen.
     _profileRouteOpen = true;
     final ownerStore = _store;
+    final subscription = _subscription;
+    // The plan notifies on its own, outside the store bridge.
+    final refresh = Listenable.merge(<Listenable>[
+      _profileRefresh,
+      subscription,
+    ]);
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => AnimatedBuilder(
-            animation: _profileRefresh,
+          builder: (routeContext) => AnimatedBuilder(
+            animation: refresh,
             builder: (_, __) => ProfileScreen(
               name: _store.userName,
               profile: _store.profile,
@@ -711,6 +785,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 }
                 return ownerStore.updateFoodPreferences(preferences);
               },
+              subscriptionPlan: subscription.plan,
+              onOpenPremium: () => unawaited(
+                openPremium(routeContext, source: PremiumSource.profile),
+              ),
+              onManageSubscription: () =>
+                  unawaited(subscription.openManageSubscriptions()),
+              onRestorePurchases: () => restorePurchasesFor(subscription),
               // Sign-out, deletion, export and "about" hang off
               // [_openSettings]; the profile block duplicated them.
             ),
@@ -750,6 +831,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         _store.bootLoadInFlight,
         _store.legacyStorageConflict,
         _store.needsOnboarding,
+        _store.paywallPending,
       ),
       builder: (context) {
         // F1-06: the gate fell (budget or fast failure) without a cached
@@ -775,6 +857,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             onComplete: _store.completeOnboarding,
             // AUTH-3: the same coordinated sign-out as in the settings.
             onSignOut: widget.onSignOut != null ? _signOut : null,
+          );
+        }
+
+        // The Premium screen as the onboarding's last step, once
+        // (docs/PREMIUM.md 4.3). Above the shell's PopScope for the D7
+        // reason: its own turns system Back into "Weiter mit Free".
+        if (_store.paywallPending) {
+          return PaywallScreen(
+            mode: PaywallMode.onboarding,
+            controller: _subscription,
+            onAnswered: _store.answerPaywall,
           );
         }
 
@@ -1076,6 +1169,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           ),
           null => null,
         },
+        // Legacy accounts' one-time notice; it listens to the plan itself.
+        legacyNotice: TodayLegacyNotice(
+          controller: _subscription,
+          readDismissed: ownerStore.readLegacyNotice,
+          writeDismissed: (until) => _isStoreSessionCurrent(ownerStore)
+              ? ownerStore.writeLegacyNotice(until)
+              : Future<void>.value(),
+          onUpgrade: () =>
+              unawaited(openPremium(context, source: PremiumSource.profile)),
+        ),
       );
     },
   );
@@ -1502,6 +1605,27 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _store.setTab(_tabCoach);
   }
 
+  /// The [PremiumOpener] of this shell (docs/PREMIUM.md 4.3): the Premium
+  /// screen as a route on the root Navigator, pushed from the shell's own
+  /// context so it lands above any sheet that asked for it; once at a time.
+  Future<void> _openPremium(BuildContext _, PremiumSource source) async {
+    if (_premiumRouteOpen || !mounted) return;
+    _premiumRouteOpen = true;
+    try {
+      await Navigator.of(context, rootNavigator: true).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => PaywallScreen(
+            mode: PaywallMode.upsell,
+            source: source,
+            controller: _subscription,
+          ),
+        ),
+      );
+    } finally {
+      _premiumRouteOpen = false;
+    }
+  }
+
   void _scheduleRecipeImport() {
     if (!mounted || _recipeImportScheduled || _recipeImportOpen ||
         !(widget.recipeImportInbox?.hasPending ?? false)) {
@@ -1512,7 +1636,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _recipeImportScheduled = false;
       if (!mounted || _recipeImportOpen || !_welcomeFinished ||
           _store.bootUnanswered || _store.legacyStorageConflict ||
-          _store.needsOnboarding) {
+          _store.needsOnboarding || _store.paywallPending) {
         return;
       }
       final source = widget.recipeImportInbox?.take();
@@ -1783,7 +1907,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         !_welcomeFinished ||
         _store.bootUnanswered ||
         _store.legacyStorageConflict ||
-        _store.needsOnboarding) {
+        _store.needsOnboarding ||
+        _store.paywallPending) {
       return;
     }
     _pendingEntry = null;
@@ -1837,7 +1962,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         l10n == null ||
         _store.bootUnanswered ||
         _store.legacyStorageConflict ||
-        _store.needsOnboarding) {
+        _store.needsOnboarding ||
+        _store.paywallPending) {
       return;
     }
     if (_shortcutsLocale == l10n.localeName) return;
@@ -1853,7 +1979,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         !_welcomeFinished ||
         _store.bootUnanswered ||
         _store.legacyStorageConflict ||
-        _store.needsOnboarding) {
+        _store.needsOnboarding ||
+        _store.paywallPending) {
       return;
     }
     _restAlertTapPending = false;
@@ -2238,6 +2365,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               : (recipe) => _openCoachRecipe(context, recipe),
           questionDraftRequest: _questionDraftRequest.value,
           questionDraft: _coachQuestion,
+          subscription: _subscription,
         );
       },
     ),

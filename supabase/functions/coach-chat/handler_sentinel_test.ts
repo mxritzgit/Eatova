@@ -7,6 +7,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 // dependencies, `deno test --allow-env`.
 
 import { handleRequest } from "./handler.ts";
+import { isResolvePlanCall, resolvePlanResponse } from "./plan_test_fixtures.ts";
 import {
   claudeResponse,
   isClassifierRequest,
@@ -100,6 +101,7 @@ function installFetch(options: StubOptions = {}) {
     if (url.includes("/rest/v1/rpc/touch_chat_session")) {
       return new Response(null, { status: 204 });
     }
+    if (isResolvePlanCall(url)) return resolvePlanResponse("legacy");
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) {
       return jsonRes(options.quotaBody ?? [{ used: 1, remaining: 4, quota_day: "2026-09-08" }]);
     }

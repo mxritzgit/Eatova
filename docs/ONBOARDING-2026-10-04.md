@@ -76,6 +76,18 @@ in `user_profile.dart`, the calorie rules of the
 [weight trend](WEIGHT-TREND.md), the effective-pace display (B2), and system
 Back (one step back; the first step releases the root route).
 
+**Update 2026-10-25 (Premium):** the completion lifecycle gained one step.
+`completeOnboarding`'s publish also sets the account's `paywall_prompt` slot
+(encrypted cache) to `pending`, like the deferred health intro, so the same
+notify that ends the onboarding shows the Premium screen as the root route
+between the onboarding and the tabs. "Weiter mit Free", close, system Back
+and a finished purchase write `answered`; until then the deferred entries
+(recipe import, a pending entry, app shortcuts, a rest alert) wait as they do
+for the onboarding. Only a fresh onboarding sets the slot; signing out
+clears it, so the screen does not come back after a new sign-in. The
+questions, the profile fields and their persistence are unchanged; see the
+[Premium contract](PREMIUM.md), section 4.3.
+
 ## Design
 
 - **Files:** `lib/src/screens/onboarding_screen.dart` keeps the public

@@ -12,6 +12,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 import { handleRequest } from './handler.ts';
 import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { PNG_BASE64 } from './image_fixtures.ts';
+import { PLAN_ANSWERS, RESOLVE_PLAN_RPC } from './plan_fixtures.ts';
 import { MEAL_OUTPUT_SCHEMA } from './normalize.ts';
 import { CLAUDE_URL, claudeErrorBody, claudeResponse, isClaudeCall, systemText } from '../_shared/claude_test_fixtures.ts';
 
@@ -70,6 +71,8 @@ interface RecordedCall {
 }
 
 interface StubOptions {
+  /** Answer of resolve_plan (default: Free); 'unavailable' answers 500. */
+  plan?: JsonRecord | 'unavailable';
   providerBudgetDenied?: boolean;
   /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
@@ -195,6 +198,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
   }
 
   function route(url: string, body: string): Response {
+    if (url.endsWith(RESOLVE_PLAN_RPC)) {
+      return options.plan === 'unavailable' ? jsonRes({ message: 'down' }, 500) : jsonRes(options.plan ?? PLAN_ANSWERS.free);
+    }
     if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: !options.providerBudgetDenied,
       reason: options.providerBudgetDenied ? "budget_exhausted" : "allowed" });
     if (url.includes('/auth/v1/user')) {
@@ -543,6 +549,7 @@ Deno.test('IP-Limit erschoepft -> 429 mit retry-after, ohne bezahlten Provider-C
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'rate_limited', 'Fehlercode');
     assertEquals((body.rateLimit as JsonRecord).allowed, false, 'rateLimit.allowed');
+    assertEquals('planLimit' in body, false, 'kein Tarif-Limit an einer Flutbremse');
 
     const retryAfter = Number(res.headers.get('retry-after'));
     assert(
@@ -566,6 +573,7 @@ Deno.test('User-Limit erschoepft -> 429 vor dem globalen Gate', async () => {
     assertEquals(res.status, 429, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'rate_limited', 'Fehlercode');
+    assertEquals('planLimit' in body, false, 'kein Tarif-Limit am Stundenlimit');
     // A user over their hourly budget must not consume the shared bill cap —
     // nor one of their own day slots (P6-02).
     assertEquals(
@@ -590,6 +598,8 @@ Deno.test('F9-01: globales Tageslimit erschoepft -> 429 als letztes Gate, kein P
     assertEquals(limit.allowed, false, 'rateLimit.allowed');
     assertEquals(typeof limit.resetAt, 'string', 'rateLimit.resetAt');
     assert(Number(res.headers.get('retry-after')) >= 1, 'retry-after');
+    // The bill cap is no plan limit: Premium would not lift it.
+    assertEquals('planLimit' in body, false, 'kein Tarif-Limit an der globalen Grenze');
     // The bill cap is the last gate: it only counts requests that passed
     // every per-user budget, i.e. those that would have paid for a call.
     assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
@@ -604,27 +614,72 @@ Deno.test('F9-01: globales Tageslimit erschoepft -> 429 als letztes Gate, kein P
   }
 });
 
-Deno.test('F9-01: User-Tageslimit erschoepft -> 429 vor dem globalen Gate', async () => {
-  const stub = installFetch({ userDayAllowed: false });
+// docs/PREMIUM.md 3.3: the day gate takes the account's plan, and only its
+// denial names it (planLimit; the upgrade offer only where Premium gives
+// more). A failed lookup is Free, never more (the test after this one).
+const PLAN_CASES: [string, JsonRecord, { tier: string; limit: number; premiumLimit?: number }][] = [
+  ['Free', PLAN_ANSWERS.free, { tier: 'free', limit: 4, premiumLimit: 30 }],
+  ['Premium', PLAN_ANSWERS.premium, { tier: 'premium', limit: 30 }],
+  ['Bestandskonto', PLAN_ANSWERS.legacy, { tier: 'free', limit: 100 }],
+];
+
+Deno.test('F9-01: User-Tageslimit nach Tarif erschoepft -> 429 mit planLimit, vor dem globalen Gate', async () => {
+  for (const [label, plan, expected] of PLAN_CASES) {
+    const stub = installFetch({ userDayAllowed: false, plan });
+    const logs = captureConsole();
+    try {
+      const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+      assertEquals(res.status, 429, `${label}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, 'rate_limited', `${label}: Fehlercode`);
+      assert(Number(res.headers.get('retry-after')) >= 1, `${label}: retry-after`);
+      assertEquals(
+        stub.rateLimitScopes().join(','),
+        'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day',
+        `${label}: Gate-Reihenfolge`,
+      );
+      // The shared paid-call budget is reserved only after both day gates.
+      assertEquals(stub.callsTo('reserve_ai_provider_call').length, 0, `${label}: keine Provider-Reservierung`);
+      assertEquals(stub.callsTo(CLAUDE_URL).length, 0, `${label}: Provider-Calls`);
+      assertEquals(JSON.parse(stub.callsTo(RESOLVE_PLAN_RPC)[0].body).p_user_id, USER_ID, `${label}: Plan des Kontos`);
+
+      const params = stub.rateLimitParams('analyze-meal:user-day')!;
+      assertEquals(params.p_subject, USER_ID, `${label}: Subject ist der Nutzer`);
+      assertEquals(params.p_limit, expected.limit, `${label}: Tageslimit aus dem Plan`);
+      assertEquals(params.p_window_seconds, 86400, `${label}: Tagesfenster`);
+      // Added to the old body; the reset is the denied gate's own.
+      assertEquals(Object.keys(body).join(','), 'error,message,requestId,rateLimit,planLimit', `${label}: Felder`);
+      assertEquals(JSON.stringify(body.planLimit), JSON.stringify({
+        feature: 'meal_analysis',
+        tier: expected.tier,
+        limit: expected.limit,
+        resetAt: (body.rateLimit as JsonRecord).resetAt,
+        ...(expected.premiumLimit ? { premiumLimit: expected.premiumLimit } : {}),
+      }), `${label}: planLimit`);
+      assertEquals(logs.text().includes('resolve_plan unavailable'), false, `${label}: Ausfall-Logzeile`);
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  }
+});
+
+// The Free fallback may be stricter than the account's plan (Premium 30): its
+// denial is a retryable outage, never a tier quota with an upgrade offer.
+Deno.test('F9-01: User-Tageslimit unter dem Free-Fallback -> 503 plan_unavailable ohne planLimit', async () => {
+  const stub = installFetch({ userDayAllowed: false, plan: 'unavailable' });
+  const logs = captureConsole();
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
-    assertEquals(res.status, 429, 'Status');
     const body = await res.json() as JsonRecord;
-    assertEquals(body.error, 'rate_limited', 'Fehlercode');
-    assertEquals(
-      stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day',
-      'Gate-Reihenfolge',
-    );
-    // The shared paid-call budget is reserved only after both day gates.
-    assertEquals(stub.callsTo('reserve_ai_provider_call').length, 0, 'keine Provider-Reservierung');
-    assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'Provider-Calls');
-
-    const params = stub.rateLimitParams('analyze-meal:user-day')!;
-    assertEquals(params.p_subject, USER_ID, 'Subject ist der Nutzer');
-    assertEquals(params.p_limit, 100, 'Default 100/Tag');
-    assertEquals(params.p_window_seconds, 86400, 'Tagesfenster');
+    assertEquals(res.status, 503, 'Status');
+    assertEquals(Object.keys(body).join(','), 'error,message,requestId', 'Felder');
+    assertEquals(body.error, 'plan_unavailable', 'Fehlercode');
+    assertEquals(stub.rateLimitParams('analyze-meal:user-day')!.p_limit, 4, 'Free-Limit am Tor');
+    assertEquals(stub.callsTo('reserve_ai_provider_call').length + stub.callsTo(CLAUDE_URL).length, 0, 'keine bezahlte Arbeit');
+    assert(logs.text().includes('resolve_plan unavailable'), 'Ausfall-Logzeile');
   } finally {
+    logs.restore();
     stub.restore();
   }
 });

@@ -41,6 +41,7 @@ import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import '../widgets/kcal/meal_scan_preview_sheet.dart';
 import '../widgets/shared/ai_consent_sheet.dart';
+import '../widgets/shared/plan_limit_notice.dart';
 import 'barcode_scanner_sheet.dart';
 import '../widgets/recipes/recipe_pick_actions.dart';
 import 'trends_screen.dart';
@@ -631,14 +632,27 @@ class MealAnalysisScreen extends StatelessWidget {
               ],
             ),
           );
-    final dock = FoodEntryDock(
-      enabled: !dayLoading,
-      onSearch: () =>
-          _openAddSheet(context, currentMealSlot(), searchMode: true),
-      onCamera: () => _scanWithCamera(context),
-      onBarcode: () => _scanBarcode(context),
-      onManual: () =>
-          _manualEntryFor(context, currentMealSlot(), chooseSlot: true),
+    // "Heute noch n KI-Analysen" sits above the camera button, in the
+    // clearance the diary keeps anyway.
+    final dock = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const PlanRemainingAnalysesHint(
+          alignment: MainAxisAlignment.end,
+          padding: EdgeInsets.only(bottom: 8),
+          capsule: true,
+        ),
+        FoodEntryDock(
+          enabled: !dayLoading,
+          onSearch: () =>
+              _openAddSheet(context, currentMealSlot(), searchMode: true),
+          onCamera: () => _scanWithCamera(context),
+          onBarcode: () => _scanBarcode(context),
+          onManual: () =>
+              _manualEntryFor(context, currentMealSlot(), chooseSlot: true),
+        ),
+      ],
     );
     return LayoutBuilder(
       builder: (context, constraints) {

@@ -1,8 +1,11 @@
 # Backend configuration and operations
 
-Updated for the **2026-09-15 security work**. This guide describes
-source contracts; environment values can override defaults. Runtime inspection
-and deployment are separate from editing this documentation.
+Updated for the **2026-09-15 security work**; the Premium tier (plans, store
+subscriptions and two new functions) was added **2026-10-25**
+([contract](PREMIUM.md), [section below](#premium-plans-and-store-subscriptions)).
+This guide describes source contracts; environment values can override
+defaults. Runtime inspection and deployment are separate from editing this
+documentation.
 
 ## Services and persistence
 
@@ -12,7 +15,10 @@ and deployment are separate from editing this documentation.
 | Postgres + RLS | Profiles, diary, favorites, weight, recipes, plans, shopping checks, workout history, chat and quota |
 | `analyze-meal` | Authenticated photo/context input, or a typed or dictated meal description, to a structured nutrition estimate |
 | `coach-chat` | Authenticated chat/stream, recipe, training-plan and workout-log proposals; quotas, validation and guardrails |
+| `recipe-import` | Authenticated TikTok link or pasted text to recipe drafts |
 | `search-key` | Authenticated product-index URL and limited search credentials |
+| `subscription-verify` | Authenticated: verifies a Google Play or App Store purchase, binds it to the account, re-checks stored Google purchases, returns the plan |
+| `store-notifications` | Public webhook with its own signature checks: App Store Server Notifications V2 and Google Play real-time notifications (Pub/Sub push) |
 | Meilisearch / Open Food Facts | Public product data lookup; OFF fallback |
 
 Apply the source migrations in version order to a new project. The generated
@@ -74,7 +80,7 @@ only recipe pictures are generated through OpenRouter.
 | `ANALYZE_MEAL_DESCRIBE_EFFORT` | `low` | Thinking depth of meal description analysis (voice flow, kept fast) |
 | `RECIPE_IMPORT_EFFORT` | `medium` | Thinking depth of recipe import |
 | `COACH_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | Recipe picture generation (OpenRouter) |
-| `COACH_DAILY_LIMIT` | `5` | Daily per-user Coach quota |
+| `COACH_DAILY_LIMIT` | no longer read | Was the daily per-user Coach quota (5); since Premium the limit comes from `plan_tiers` per request ([plans](#premium-plans-and-store-subscriptions)) |
 
 The source of truth is [_shared/claude.ts](../supabase/functions/_shared/claude.ts),
 [analyze-meal/handler.ts](../supabase/functions/analyze-meal/handler.ts),
@@ -219,6 +225,9 @@ session_id}` plus the quota fields of its stage:
 | Classifier (layer 2) | `self_harm`, `eating_disorder`, `injection`, `classifier_unusable` | `remaining?`, `daily_limit` |
 | Extraction | `model_refusal` (provider safety filter), `log_not_a_workout`, `log_not_completed`, `log_too_large`, `log_unsafe` | `remaining?`, `daily_limit` |
 
+Under the plan fallback both quota fields are left out at every stage and in
+the successful answer as well ([fail-to-Free rule](#plan-per-request-and-the-fail-to-free-rule)).
+
 The stored assistant row prefixes classifier categories with `classifier_`;
 `classifier_unusable` keeps its name. A message over 1,000 characters is
 `413 message_too_long` with `refusal_reason: "too_long"`, before any session
@@ -228,7 +237,8 @@ to the claim day. The function never writes training history: the app saves
 the workout only after the user confirms the card. Chat answers follow the app
 language when a message mixes languages and point reported workouts to `/log`.
 
-Quota is claimed atomically on the server. Failure/refund behavior depends on
+Quota is claimed atomically on the server, with the account's Coach limit
+from its plan. Failure/refund behavior depends on
 the outcome; it is not a promise that every unsuccessful request is free. A
 failed recipe image can leave a usable recipe with a placeholder. See the
 [recipe completion fix](SENTRY-RECIPE-2026-09-13.md) for the latest recorded
@@ -242,11 +252,13 @@ fails closed. Existing feature quotas and their selective refunds remain separat
 
 | `ai_provider_limits` setting | Default | Meaning |
 | --- | --- | --- |
-| `daily_call_limit` | 1000 | All provider calls per UTC day |
-| `daily_user_limit` | 150 | Provider calls per account per UTC day |
-| `daily_image_limit` | 50 | Recipe image calls per UTC day, also counted globally |
+| `daily_call_limit` | 1000; raised to at least 3000 by `20261025100000` | All provider calls per UTC day |
+| `daily_user_limit` | 150; raised to at least 200 by `20261025100000` | Operator ceiling per account and UTC day; the effective ceiling is the lower of this and the account plan's `provider_calls_daily` (30 Free, 150 Premium or legacy, 200 for a legacy account with Premium) |
+| `daily_image_limit` | 50; raised to at least 200 by `20261025100000` | Recipe image calls per UTC day, also counted globally |
 | `enabled`, `coach_enabled`, `analysis_enabled`, `images_enabled` | true | Administrative stop switches |
 
+The Premium migration only raises these values (`greatest(...)`), never
+lowers them; the live values are not recorded here.
 Zero is a valid limit. Administrative configuration is not client-writable.
 An exhausted budget returns `429/ai_budget_exhausted`; disabled or unavailable
 budget verification returns a controlled `503`. Optional image exhaustion keeps
@@ -290,6 +302,298 @@ drop-in replacement. Review server overrides when deploying, without printing
 API keys or private configuration. A model ID in source does not independently
 prove current provider availability or a successful live generation.
 
+## Premium plans and store subscriptions
+
+Migration `20261025100000_premium_subscriptions.sql`, `_shared/plan.ts`, the
+store modules in `_shared/` and the two functions `subscription-verify` and
+`store-notifications` implement the [Premium contract](PREMIUM.md) of
+2026-10-25. Only the server grants Premium, after verifying the store's proof;
+the client never decides its tier, and request bodies still cannot carry a
+premium claim ([request_fields_test.ts](../supabase/functions/_shared/request_fields_test.ts)).
+Delivery order: migration, merge, deploy of `coach-chat`, `analyze-meal`,
+`recipe-import`, `subscription-verify` and `store-notifications`, then an app
+build ([owner steps](PREMIUM.md#5-delivery-and-owner-steps),
+[store setup](OPERATIONS.md#premium-store-setup)).
+
+### Tables
+
+| Table | Content | Access |
+| --- | --- | --- |
+| `plan_tiers` | Three rows `free`, `premium`, `legacy` with `coach_daily`, `meal_analysis_daily`, `recipe_import_daily`, `provider_calls_daily` and `recipe_picture` | `service_role` reads; operators change values by SQL |
+| `plan_settings` | One row: `legacy_created_before` (set to the migration's time) and `legacy_until` (null) | `service_role` reads |
+| `store_account_tokens` | One random UUID per account, sent to the stores as `applicationUserName` (Google `obfuscatedAccountId`, Apple `appAccountToken`); not the user id | `service_role` reads; created by `get_store_account_token` |
+| `store_subscriptions` | One row per verified store purchase or manual grant: platform, `store_key` (Google `purchaseToken`, Apple `originalTransactionId`, `manual:<label>`), product, base plan, status, `expires_at`, `auto_renewing`, environment, ownership, acknowledgement, `superseded_by`, last order/transaction id, event time and (Apple) `last_purchase_at`, the purchase date of the binding transaction; unique per `(platform, store_key)` | `service_role` reads; written only by `record_store_subscription` or an operator |
+| `store_notification_receipts` | Notification ids already received (Apple `notificationUUID`, Pub/Sub `messageId`), no user id, pruned after 90 days | no role; only `record_store_notification` |
+
+All five have RLS on and no policies; `anon` and `authenticated` hold no
+privilege on any of them, so store keys never leave the server. They are not
+part of the in-app export (the Profile shows the plan through `get_my_plan`).
+`store_account_tokens` and `store_subscriptions` cascade with account
+deletion; deleting the account does not cancel the store subscription.
+
+Seeded limits per UTC day (reset 00:00 UTC):
+
+| Tier | Coach questions | AI meal analyses | Recipe imports | Provider calls | Coach recipe picture |
+| --- | --- | --- | --- | --- | --- |
+| `free` | 3 | 4 | 2 | 30 | no |
+| `premium` | 20 | 30 | 10 | 150 | yes |
+| `legacy` | 5 | 100 | 20 | 150 | yes |
+
+Rules, all in `resolve_plan`:
+
+- **Entitled** is a row with status `active`, `grace` or `canceled`
+  (auto-renew off, paid until `expires_at`), `expires_at > now()` and
+  `superseded_by is null`. The tier is `premium` with such a row, else
+  `free`. Expiry is computed on every read; nothing is scheduled.
+- **Legacy account**: created before `plan_settings.legacy_created_before`,
+  while `legacy_until` is null or in the future. Without a settings row no
+  account is legacy.
+- **Current limits**: Free uses `free`, a legacy Free account `legacy`,
+  Premium `premium`; a legacy Premium account gets the higher value of
+  `premium` and `legacy` per feature (and the picture if either has it) and
+  a provider-call ceiling that covers that maximum (Coach x 3 + analyses +
+  imports x 2: 20 x 3 + 100 + 20 x 2 = 200 with the seeded rows).
+- A downgrade or expiry deletes nothing; Free limits apply from the next
+  request. Denied attempts are not counted, so a mid-day upgrade gets the
+  full new allowance at once; because the daily counters keep their count, a
+  downgrade can deny until the next reset.
+
+### Functions
+
+| Function | Execute | Purpose |
+| --- | --- | --- |
+| `plan_tier_for(uuid)` | `service_role` | `'premium'` or `'free'` |
+| `resolve_plan(uuid)` | `service_role` | Tier, legacy flag, current limits and the effective Premium limits; one call per AI request. A missing tier row raises `55000` |
+| `plan_snapshot(uuid)` | `service_role` | The account view: tier, subscription (never `store_key`, tokens or transaction ids), current/free/premium limits, legacy window, today's usage, `reset_at` |
+| `get_my_plan()` | `authenticated`, `service_role` | `plan_snapshot(auth.uid())`; `42501` without a user |
+| `get_store_account_token()` | `authenticated`, `service_role` | The caller's token, created on the first call (volatile: call it with POST) |
+| `store_account_owner(uuid)` | `service_role` | Token to account, for notifications |
+| `store_subscription_owner(text, text)` | `service_role` | Owner of a stored purchase, or null |
+| `record_store_subscription(...)` | `service_role` | Upsert of one verified Google or Apple purchase: `{outcome: stored \| stale \| owned_by_other, tier}`; trailing `p_rebind` and `p_purchase_at` for Apple re-binding |
+| `mark_store_subscription_acknowledged(text, text)` | `service_role` | Sets `acknowledged = true` on one row after the server's Google acknowledgement succeeded |
+| `record_store_notification(text, text)` | `service_role` | True the first time an id is seen; prunes receipts older than 90 days |
+| `consume_edge_rate_limits(jsonb)` | `service_role` | The shared limiter, same signature: increments a bucket only while it is below its limit, so a denied attempt counts in no bucket |
+| `reserve_ai_provider_call(uuid, text)` | `service_role` | Unchanged except that the per-account ceiling is `least(daily_user_limit, provider_calls_daily of the plan)` |
+
+`record_store_subscription` validates every enum and length (`22023`, also
+for an unknown account). The first verified binding of a `(platform,
+store_key)` wins: another account gets `owned_by_other` and nothing changes.
+The one exception is Apple, which keeps one `originalTransactionId` per
+Apple ID across the subscription group (renewals, crossgrades,
+resubscribes): with `p_rebind` and a `p_purchase_at` later than the row's
+`last_purchase_at`, the row moves to the caller. `subscription-verify`
+passes `p_rebind` only for a transaction whose `appAccountToken` is the
+caller's own token, `store-notifications` only when the owner came from that
+token; without a token, with a foreign one, or for Google, the binding
+stays. Every write keeps the latest `last_purchase_at`.
+An event older than the stored `last_event_at` is `stale` (notifications
+arrive out of order). A null optional field (`base_plan_id`,
+`auto_renewing`, `ownership`, `acknowledged`, `last_transaction_id`) keeps
+the stored value, so an Apple re-verification without renewal info does not
+erase what a notification stored. A Google `linkedPurchaseToken` marks the
+replaced row of the same account as superseded. Manual rows
+(`platform = 'manual'`) are SQL-only.
+
+`plan_snapshot` reads usage from the same buckets the functions count:
+`chat_quota_usage.used_count` for the Coach, and `edge_rate_limits` scopes
+`analyze-meal:user-day` and `recipe-import:user-day` (subject hash
+`sha256(<user id>)` in hex, today's 86,400 s window). Denied attempts do not
+count in those buckets; each value is still capped at the current limit,
+which matters only after a downgrade. The subscription shown is the entitled
+row that runs longest, otherwise the most recently updated row (for "payment
+failed" or "expired on"), otherwise null. For a legacy account, `legacy`
+carries `until` and `premium`, the base Premium tier limits without the
+legacy maximum.
+
+### Plan per request and the fail-to-Free rule
+
+`coach-chat`, `analyze-meal` and `recipe-import` call `resolvePlan`
+([plan.ts](../supabase/functions/_shared/plan.ts)) once per request after
+authentication: `/rest/v1/rpc/resolve_plan` with the service key,
+`redirect: 'error'`, a 4 KiB answer cap, at most 5 s, and a strict check of
+the answer's shape. Any failure (transport, timeout, non-2xx, another shape)
+returns `FREE_FALLBACK`, never more: Free 3/4/2 with 30 provider calls and no
+picture, Premium 20/30/10 for the upgrade hint, `fallback: true`. The request
+keeps working with those limits and writes one log line,
+`resolve_plan unavailable`, without a body or a user id. During such an
+outage Premium accounts get the Free limits. A request those limits would
+deny is not answered as the account's daily quota, because its real limit is
+unknown: `coach-chat`, `analyze-meal` and `recipe-import` answer
+`503 {"error":"plan_unavailable"}` without `planLimit`, so the app shows a
+retryable error with no lock and no upgrade offer, and the next request after
+the outage gets the real plan. A `coach-chat` request the fallback allows is
+answered as usual, but its 200 names no limit: in every mode (chat,
+`/recipe`, `/plan`, `/log`), streamed or buffered, and for a refusal after
+the claim, the body carries neither `daily_limit` nor `remaining`. The app
+then keeps its counter and asks for the count again, so the fallback's 3
+never locks a Premium or legacy account's composer. A `/recipe` under the
+fallback gets no picture and no `image_locked`, neither in the response nor
+in the stored row, because the account's plan may include the picture.
+`FREE_FALLBACK` is code: changing the `free` row does not change it.
+
+`reserve_ai_provider_call` reads `resolve_plan` inside SQL. A missing tier
+row therefore fails the reservation closed (`503 ai_budget_unavailable`),
+like any other unavailable budget configuration.
+
+| Gate | Before Premium | With Premium |
+| --- | --- | --- |
+| Coach daily questions (`claim_chat_quota`) | `COACH_DAILY_LIMIT`, default 5 | `coach_daily` of the plan, passed as `p_daily_limit`; every `daily_limit` field and the quota text use the request's value (a 200 under the fallback sends no `daily_limit` and no `remaining`). `COACH_DAILY_LIMIT` is no longer read |
+| Meal analyses per day (`analyze-meal:user-day`, photo and Describe together) | `ANALYZE_MEAL_USER_DAY_LIMIT`, default 100 | `meal_analysis_daily` of the plan. `ANALYZE_MEAL_USER_DAY_LIMIT` is no longer read for this gate |
+| Recipe imports per day (`recipe-import:user-day`) | 20 (constant) | `recipe_import_daily` of the plan |
+| Coach `/recipe` picture | every recipe | only with `recipe_picture`; otherwise no image call and no `coach_image` reservation. When a real plan excludes the picture, the recipe response and the stored recipe JSON in `chat_messages` carry `image_locked: true` (so the app shows the lock again after a reload); under the fallback neither does |
+| Provider calls per account | `daily_user_limit` (150) | `least(daily_user_limit, provider_calls_daily)` |
+| Burst, IP, auth-fail and global gates | constants and overrides | unchanged: Coach 60/h and IP 120/600 s; `analyze-meal` hourly, IP and global gates with their `ANALYZE_MEAL_*` overrides; `recipe-import` 20/h and IP 60/600 s; the global provider and image ceilings |
+
+The contract records `COACH_DAILY_LIMIT` and `ANALYZE_MEAL_USER_DAY_LIMIT`
+as not set live; a value set later has no effect on these gates.
+
+### The `planLimit` object
+
+A denial of exactly the per-account daily quota adds this object to the
+existing 429 body of all three AI functions:
+
+```json
+"planLimit": { "feature": "coach", "tier": "free", "limit": 3, "resetAt": "2026-10-26T00:00:00.000Z", "premiumLimit": 20 }
+```
+
+`feature` is `coach`, `meal_analysis` or `recipe_import`; `resetAt` is the
+next 00:00 UTC. `premiumLimit` is present only for a Free account whose
+effective Premium limit is higher, and never for the fallback plan, so the
+app offers an upgrade only then. Under the fallback the denial answers
+`503 plan_unavailable` instead (see above).
+A burst, IP, auth-fail or global gate never carries `planLimit`. Everything
+else stays for older app builds: `coach-chat` keeps `error:"quota_exceeded"`,
+`reply`, `remaining: 0` and `daily_limit` (at least 1) and adds `reset_at`,
+and its `reply` names the Premium allowance for Free accounts; `analyze-meal`
+and `recipe-import` keep `error:"rate_limited"`, `rateLimit` and
+`Retry-After`, and `recipe-import` also adds `resetAt`.
+
+### `subscription-verify`
+
+`verify_jwt` on. POST JSON, body at most 64 KiB, gates IP 60 per 600 s and
+user 30 per 3,600 s, authentication and 401 codes as in `analyze-meal`
+(`missing_bearer_token`, `user_token_required`, `invalid_user_token`).
+
+| Body | Meaning |
+| --- | --- |
+| `{"action":"verify","platform":"google","productId":"eatova_premium","purchaseToken":"…"}` | Verify a Play purchase |
+| `{"action":"verify","platform":"apple","signedTransaction":"<JWS>"}` | Verify a StoreKit 2 transaction |
+| `{"action":"refresh"}` | Re-check up to three stored Google rows of the caller that expired or expire within 48 h and were not verified in the last 10 minutes, then return the plan |
+
+Answers: 200 `{"outcome":"active"|"inactive","plan":<plan_snapshot>}`; 202
+`purchase_pending` with the plan (Google PENDING); 400 `invalid_request`; 401
+as above; 409 `purchase_owned_by_other_account`; 422 `purchase_invalid` with
+`reason` `signature`, `bundle`, `product`, `environment`, `ownership` or
+`account`; 429 `rate_limited` with `Retry-After`; 503 `store_not_configured`,
+`store_unavailable` or `rate_limit_unavailable`.
+
+Every in-app purchase carries the buyer's account token, so another Eatova
+account presenting it gets 422 `account`, before anything is stored. The app
+shows that as "Dieses Abo gehört zu einem anderen Eatova-Konto" and never
+completes the purchase, so this session neither acknowledges nor finishes a
+transaction that may not be stored for anyone. 409 applies to a token-less
+purchase (bought outside the app) already bound to another account, or an
+Apple transaction older than the binding one; the app shows the same text
+and completes it.
+
+- **Google**: a service-account access token (RS256 JWT bearer through
+  WebCrypto, cached per isolate until 60 s before expiry,
+  [google_auth.ts](../supabase/functions/_shared/google_auth.ts)), then
+  `purchases.subscriptionsv2.get`
+  ([play_subscriptions.ts](../supabase/functions/_shared/play_subscriptions.ts)).
+  The product must be allowlisted; `obfuscatedExternalAccountId`, when
+  present, must equal the caller's account token (otherwise the first
+  presenter binds). States map ACTIVE to `active`, IN_GRACE_PERIOD to
+  `grace`, CANCELED to `canceled`, ON_HOLD to `on_hold`, PAUSED to `paused`,
+  EXPIRED and PENDING_PURCHASE_CANCELED to `expired`; PENDING answers 202 and
+  grants nothing. `expires_at` is the latest `expiryTime` of the allowlisted
+  line items, `testPurchase` becomes environment `test`, and a
+  `linkedPurchaseToken` is superseded. An active or grace purchase that is
+  still unacknowledged is acknowledged after it is stored (in `verify` and
+  in `refresh`); when that succeeds, `mark_store_subscription_acknowledged`
+  sets `acknowledged = true` on the row, a failure is logged as
+  `subscription-verify acknowledge failed` with the HTTP status only. Without
+  `EATOVA_PLAY_SERVICE_ACCOUNT_JSON` Google purchases answer 503
+  `store_not_configured`.
+- **Apple**: the StoreKit 2 JWS is verified offline
+  ([jws_apple.ts](../supabase/functions/_shared/jws_apple.ts)): `alg` ES256
+  only, exactly three `x5c` certificates, the root pinned to Apple Root CA - G3
+  by SHA-256, Apple's leaf and intermediate marker OIDs, the chain signatures
+  and validity at `signedDate`; the payload is read only after the signature
+  verified. Then `bundleId`, the product allowlist, an auto-renewable type,
+  environment Production or Sandbox (Sandbox is stored as `sandbox`: App
+  Review buys in the sandbox against the production backend),
+  `inAppOwnershipType` `PURCHASED`, `appAccountToken` equal to the caller's
+  token when present, `revocationDate` to `revoked`. The store key is
+  `originalTransactionId`, the event time `signedDate`; `purchaseDate` is
+  passed as `p_purchase_at` and `p_rebind` is set when `appAccountToken` is
+  present, so a newer purchase on the same Apple ID moves the binding to the
+  account that made it. `auto_renewing` stays
+  null until a notification brings the renewal info. The server sends
+  nothing to Apple.
+
+Sandbox and test purchases grant Premium on the production backend by
+design (App Review, Google license testers); the snapshot names their
+environment and the Profile marks them as test purchases.
+
+### `store-notifications`
+
+`verify_jwt` off, set only for this slug in the tracked
+`supabase/config.toml`; it authenticates every request itself. `OPTIONS` 204;
+POST only; body at most 256 KiB; an IP gate before any verification.
+
+- **Apple** (`{"signedPayload":"<JWS>"}`): the payload and its nested
+  `signedTransactionInfo` and `signedRenewalInfo` pass the same verifier and
+  the `bundleId` check. The `notificationType` decides the row: SUBSCRIBED,
+  DID_RENEW, DID_CHANGE_RENEWAL_STATUS, DID_FAIL_TO_RENEW (with GRACE_PERIOD
+  `grace`, otherwise `on_hold`), GRACE_PERIOD_EXPIRED, EXPIRED, REFUND and
+  REVOKE (`revoked`), REFUND_REVERSED; TEST answers 200. The owner is the
+  account of `appAccountToken` when the token is present and resolves
+  (recorded with `p_rebind` and the transaction's `purchaseDate`, so a newer
+  purchase re-binds as in `subscription-verify`), else the stored row of
+  `originalTransactionId`.
+- **Google** (Pub/Sub push): `Authorization: Bearer <Google OIDC JWT>`,
+  verified against Google's JWKS (RS256, cached): issuer
+  `accounts.google.com`, `aud` equal to `EATOVA_PUBSUB_PUSH_AUDIENCE`,
+  `email` equal to `EATOVA_PUBSUB_PUSH_SA_EMAIL` and verified, not expired.
+  Then `message.data` is decoded and `packageName` checked. A
+  `subscriptionNotification` re-fetches `subscriptionsv2` and records the
+  result, a `voidedPurchaseNotification` revokes, a `testNotification`
+  answers 200.
+- **Repeats**: every delivery is verified and applied.
+  `record_store_subscription` orders events by `last_event_at`, so a repeated
+  Apple delivery writes the same signed state again and an older event is
+  `stale`; a Google delivery always re-reads the current state from Play.
+  Either way a repeat adds no change of its own; it only refreshes
+  `last_verified_at` and `updated_at`. Afterwards
+  `record_store_notification` (Apple `notificationUUID`, Pub/Sub
+  `message.messageId`) labels a repeat as `duplicate`. Applying first and
+  writing the receipt afterwards keeps a delivery that failed with 503 from
+  being dropped as a duplicate on the store's retry.
+- Answers: 200 processed, duplicate or unknown owner (dropped, for example a
+  deleted account); 400 `invalid_notification`; 401
+  `invalid_notification_auth`; 503 `not_configured` or `store_unavailable`,
+  so the store retries.
+
+Without notifications, renewals still reach the account: the app restores
+silently on start and re-verifies, and `refresh` re-checks stored Google
+purchases. Refunds and cancellations are then learned only at the next
+restore or refresh, which is the gap the notifications close.
+
+### App side
+
+The app reads `get_my_plan` and `get_store_account_token` through its user
+session and calls `subscription-verify` with a bearer pinned to the account
+([subscription_sync.dart](../lib/src/services/subscription_sync.dart)). The
+last plan is cached per account in the encrypted cache (slot `plan_status`,
+next to `paywall_prompt`, `legacy_notice` and `upsell_shown`, the UTC day of
+the last "Mehr mit Premium" offer per feature, so the offer stays once per
+day across restarts); until the first answer the app shows the decided
+defaults (`PlanStatus.assumed()`), and every number on screen afterwards
+comes from the server. A purchase is completed in the store only after the
+server answered `active`, `inactive` or `owned_by_other` (409), never after
+a 422.
+
 ## Function environment
 
 | Variable | Purpose |
@@ -304,6 +608,11 @@ prove current provider availability or a successful live generation.
 | `EATOVA_MIRROR_KEY_UID` | Optional UID enabling scoped, expiring tenant tokens |
 | `EATOVA_MIRROR_SEARCH_INDEX` | Tenant-token index scope, default `products` |
 | `EATOVA_SEARCH_KEY_TTL_SECONDS` | Credential refresh TTL, default 43,200 seconds; clamped to 3,600–604,800 |
+| `EATOVA_PLAY_SERVICE_ACCOUNT_JSON` | Secret: the whole key JSON of the Google service account for the Play Developer API (`subscription-verify`, `store-notifications`); without it Google purchases answer `503 store_not_configured` |
+| `EATOVA_PLAY_PACKAGE_NAME` | Play package, default `com.eatova.app` |
+| `EATOVA_PREMIUM_PRODUCT_IDS` | Product allowlist, default `eatova_premium,eatova_premium_monthly,eatova_premium_yearly` |
+| `EATOVA_APPLE_BUNDLE_ID` | Expected App Store `bundleId`, default `com.eatova.app` |
+| `EATOVA_PUBSUB_PUSH_AUDIENCE`, `EATOVA_PUBSUB_PUSH_SA_EMAIL` | OIDC audience and service-account email of the Pub/Sub push subscription (`store-notifications`); without them Google notifications answer `503 not_configured` |
 
 These are the principal operator settings, not a dump of private runtime
 configuration. Rate-limit tuning and validation remain in the function sources.
@@ -375,7 +684,7 @@ independent live catalog comparison confirms all 46 migrations and the tested
 RLS, grants and function definitions. Source commit `78f8d55` passed the full
 protected CI before deployment: 4620 Flutter tests, 95.0% coverage and all builds.
 See the [versioned rollout evidence](SECURITY-ROLLOUT-2026-09-15.json) and
-[current audit](../SECURITY_AUDIT.md#runde-3--aktueller-stand).
+[current audit](../SECURITY_AUDIT.md#runde-3--abschlussstand-vor-runde-4).
 
 The configuration readback also confirmed the actual injected key types:
 `SUPABASE_ANON_KEY` contains a project publishable key here, and

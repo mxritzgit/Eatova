@@ -24,8 +24,9 @@ target whose repository migrations are not all registered live: a function
 without its migration answers its RPCs with 5xx. `compare` checks the
 downloaded live source against the import graph of the checked-out function,
 file by file. `record` decides the result: every function deployed, ACTIVE,
-verify_jwt on, a new version, live source equal to the checkout and the boot
-probe answered as expected.
+verify_jwt as its mode expects (on; off only for PUBLIC_WEBHOOKS), a new
+version, live source equal to the checkout and the boot probe answered as
+expected.
 """
 
 import argparse
@@ -39,6 +40,7 @@ import ssl
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 
@@ -63,15 +65,26 @@ STATUSES = ('ACTIVE', 'REMOVED', 'THROTTLED')
 # user token. With the anon key the handler must answer with one of them: it
 # booted and passed its configuration check (a missing secret is a 5xx before
 # authentication). Without any token the gateway's verify_jwt must answer
-# first, so none of them may appear. The anon key is rejected locally when it
-# equals the function's SUPABASE_ANON_KEY, otherwise after the Auth lookup;
-# both codes count. A new function needs an entry before the workflow deploys it.
+# first, so none of them may appear; a public webhook answers that request
+# itself, with one of them. The anon key is rejected locally when it equals
+# the function's SUPABASE_ANON_KEY, otherwise after the Auth lookup; both codes
+# count. A new function needs an entry before the workflow deploys it.
 PROBES = {
     'analyze-meal': ('POST', frozenset({'missing_bearer_token', 'user_token_required', 'invalid_user_token'})),
     'coach-chat': ('POST', frozenset({'Unauthorized'})),
     'recipe-import': ('POST', frozenset({'unauthorized'})),
     'search-key': ('GET', frozenset({'missing_bearer_token', 'user_token_required', 'invalid_user_token'})),
+    'store-notifications': ('POST', frozenset({'invalid_notification_auth'})),
+    'subscription-verify': ('POST', frozenset({'missing_bearer_token', 'user_token_required', 'invalid_user_token'})),
 }
+
+# Functions served without the gateway's JWT check: store webhooks that
+# authenticate every request themselves (Apple JWS, Google OIDC), because
+# neither store can send a Supabase JWT. Only these may set verify_jwt = false
+# in supabase/config.toml; the probe then expects the handler's own 401 without
+# a token and the record expects verify_jwt off. Every other function keeps
+# the gateway check.
+PUBLIC_WEBHOOKS = frozenset({'store-notifications'})
 
 # The oldest commit each function may be deployed from: a rollback target must
 # contain it. A new function needs an entry before the workflow deploys it.
@@ -83,6 +96,10 @@ ROLLBACK_FLOORS = {
     'analyze-meal': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
     'recipe-import': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
     'search-key': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
+    # New with Premium (docs/PREMIUM.md 3.4, 3.5): the base main of their PR.
+    # A target without the function fails unknown_function anyway.
+    'store-notifications': ('fdd8d63f467aa4c12c13caf8c0b41cb10f5ef89f', 'first_release'),
+    'subscription-verify':('fdd8d63f467aa4c12c13caf8c0b41cb10f5ef89f', 'first_release'),
 }
 
 # The query of the drift job in security.yml: registered versions, one string.
@@ -137,13 +154,47 @@ def parse_slugs(raw, available):
     return slugs
 
 
-def assert_verify_jwt_kept(root):
-    """No config may switch the gateway's JWT check off (CLI default: on)."""
+def expects_verify_jwt(slug):
+    return slug not in PUBLIC_WEBHOOKS
+
+
+def verify_jwt_settings(value, path=()):
+    """(path, value) of every verify_jwt key anywhere in a parsed TOML document."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == 'verify_jwt':
+                yield path + (key,), item
+            yield from verify_jwt_settings(item, path + (key,))
+    elif isinstance(value, list):
+        for item in value:
+            yield from verify_jwt_settings(item, path)
+
+
+def assert_verify_jwt_kept(root, slugs=()):
+    """Only a public webhook may switch the gateway's JWT check off.
+
+    `functions deploy --workdir <root>` applies `[functions.<slug>] verify_jwt`
+    of <root>/supabase/config.toml and merges a matching `[remotes.<ref>]` block
+    over it, so a verify_jwt anywhere else counts too. A planned public webhook
+    must declare verify_jwt = false itself: without it the CLI keeps the live
+    value, or the server default for a new function.
+    """
     config = Path(root) / 'supabase' / 'config.toml'
+    document = {}
     if config.is_file():
-        text = config.read_text(encoding='utf-8')
-        if re.search(r'(?m)^\s*verify_jwt\s*=\s*false\b', text):
+        try:
+            document = tomllib.loads(config.read_text(encoding='utf-8'))
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+            raise DeployError('config_toml_unreadable') from None
+    for path, value in verify_jwt_settings(document):
+        public = len(path) == 3 and path[0] == 'functions' and path[1] in PUBLIC_WEBHOOKS
+        if value is not True and not (public and value is False):
             raise DeployError('verify_jwt_disabled_in_config')
+    functions = document.get('functions')
+    for slug in slugs:
+        declared = functions.get(slug) if isinstance(functions, dict) else None
+        if not expects_verify_jwt(slug) and not (isinstance(declared, dict) and declared.get('verify_jwt') is False):
+            raise DeployError('public_webhook_not_configured:' + slug)
 
 
 def module_specifiers(text):
@@ -198,8 +249,8 @@ def import_graph(functions_root, slug):
 
 
 def plan(functions, root):
-    assert_verify_jwt_kept(root)
     slugs = parse_slugs(functions, available_functions(root))
+    assert_verify_jwt_kept(root, slugs)
     base = Path(root) / FUNCTIONS
     return {
         'schema': 1,
@@ -405,11 +456,12 @@ class Management:
         if not isinstance(data, dict):
             raise DeployError('management_invalid_json')
         version, status = data.get('version'), data.get('status')
-        updated = data.get('updated_at')
+        updated, verify_jwt = data.get('updated_at'), data.get('verify_jwt')
         return {
             'version': version if type(version) is int and version >= 0 else None,
             'status': status if status in STATUSES else 'other',
-            'verify_jwt': data.get('verify_jwt') is True,
+            # Kept as false for a public webhook; anything but a boolean is unknown.
+            'verify_jwt': verify_jwt if type(verify_jwt) is bool else None,
             'updated_at': updated if type(updated) is int else None,
         }
 
@@ -471,7 +523,11 @@ def probe_request(open_url, url, method, headers):
 
 
 def probe(slugs, project_ref, anon_key, open_url=None, sleep=time.sleep):
-    """Preflight 204, gateway 401 without a token, the handler's own answer with the anon key."""
+    """Preflight 204, gateway 401 without a token, the handler's own answer with the anon key.
+
+    A public webhook has no gateway check: without a token its handler must
+    answer the 401, and the gateway's 401 would mean verify_jwt is still on.
+    """
     valid_ref(project_ref)
     open_url = open_url or opener().open
 
@@ -494,12 +550,14 @@ def probe(slugs, project_ref, anon_key, open_url=None, sleep=time.sleep):
         no_token = ask(url, method, {})
         anon = ask(url, method, {
             'Authorization': 'Bearer ' + anon_key, 'apikey': anon_key})
-        checks = {
-            'preflight_204': preflight['status'] == 204,
+        handler_refused = no_token['status'] == 401 and no_token['error_code'] in handler_codes
+        checks = {'preflight_204': preflight['status'] == 204}
+        if expects_verify_jwt(slug):
             # The gateway's verify_jwt answers; a handler code would mean it is off.
-            'gateway_401_without_token': no_token['status'] == 401 and no_token['error_code'] not in handler_codes,
-            'handler_answers_anon_key': anon['status'] == 401 and anon['error_code'] in handler_codes,
-        }
+            checks['gateway_401_without_token'] = no_token['status'] == 401 and not handler_refused
+        else:
+            checks['handler_401_without_token'] = handler_refused
+        checks['handler_answers_anon_key'] = anon['status'] == 401 and anon['error_code'] in handler_codes
         results[slug] = {
             'passed': all(checks.values()),
             'checks': checks,
@@ -558,11 +616,13 @@ def build_record(directory, deploy_outcome, source_sha, main_sha, environ, now):
         probed = probes.get(slug) or {}
         old_version = old.get('version') if type(old.get('version')) is int else None
         new_version = new.get('version') if type(new.get('version')) is int else None
+        verify_jwt = expects_verify_jwt(slug)
         checks = {
             # The deploy loop writes this marker only after the CLI succeeded.
             'deployed': (directory / ('deployed-' + slug)).is_file(),
             'active': new.get('status') == 'ACTIVE',
-            'verify_jwt': new.get('verify_jwt') is True,
+            # Read back after the deploy: on, or off for a public webhook.
+            'verify_jwt': new.get('verify_jwt') is verify_jwt,
             'new_version': new_version is not None and new_version > (old_version or 0),
             'source_verified': isinstance(verified, dict) and verified.get('identical') is True,
             'boot_probe': probed.get('passed') is True,
@@ -572,6 +632,7 @@ def build_record(directory, deploy_outcome, source_sha, main_sha, environ, now):
             'version_before': old_version,
             'version_after': new_version,
             'status': new.get('status'),
+            'verify_jwt_expected': verify_jwt,
             'checks': checks,
             'live_source': summary(verified),
             'live_source_before': summary(live_before),
@@ -619,9 +680,10 @@ def markdown(record):
              '| --- | --- | --- | --- | --- | --- | --- |']
     for item in record['functions']:
         checks = item['checks']
+        verify_jwt = mark(checks['verify_jwt']) + ('' if item['verify_jwt_expected'] else ' (off, public webhook)')
         lines.append('| `{}` | {} -> {} | {} | {} | {} | {} | {} |'.format(
             item['slug'], item['version_before'], item['version_after'], mark(checks['deployed']),
-            mark(checks['active']), mark(checks['verify_jwt']), mark(checks['source_verified']),
+            mark(checks['active']), verify_jwt, mark(checks['source_verified']),
             mark(checks['boot_probe'])))
     return '\n'.join(lines) + '\n'
 

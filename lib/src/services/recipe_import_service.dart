@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../models/plan_limit_hit.dart';
 import '../models/recipe_import_result.dart';
 import 'meal_scan_identity.dart';
 
@@ -24,8 +26,16 @@ enum RecipeImportFailure {
 }
 
 class RecipeImportException implements Exception {
-  const RecipeImportException(this.failure);
+  const RecipeImportException(this.failure, {this.planLimit, this.resetAt});
   final RecipeImportFailure failure;
+
+  /// A [RecipeImportFailure.rateLimited] by the account's daily tier quota
+  /// (`planLimit`, docs/PREMIUM.md 3.3). The hourly and IP gates leave it
+  /// null, so they never lead to an upgrade hint.
+  final PlanLimitHit? planLimit;
+
+  /// When a rate limit lifts: the body's `resetAt`, else `Retry-After`.
+  final DateTime? resetAt;
 
   @override
   String toString() => 'RecipeImportException(${failure.name})';
@@ -121,7 +131,11 @@ class EdgeFunctionRecipeImportService implements RecipeImportService {
       if (!identity.isCurrent) {
         throw const RecipeImportException(RecipeImportFailure.reauthRequired);
       }
-      return parseRecipeImportResponse(response.$1, response.$2);
+      return parseRecipeImportResponse(
+        response.$1,
+        response.$2,
+        retryAfter: response.$3,
+      );
     } on RecipeImportException {
       rethrow;
     } on TimeoutException {
@@ -137,7 +151,11 @@ class EdgeFunctionRecipeImportService implements RecipeImportService {
     }
   }
 
-  Future<(int, String)> _read(http.Client client, http.Request request) async {
+  /// Status, body and the `Retry-After` header.
+  Future<(int, String, String?)> _read(
+    http.Client client,
+    http.Request request,
+  ) async {
     final response = await client.send(request);
     if ((response.contentLength ?? 0) > maxResponseBytes) {
       throw const RecipeImportException(RecipeImportFailure.invalidResponse);
@@ -149,21 +167,35 @@ class EdgeFunctionRecipeImportService implements RecipeImportService {
       }
       bytes.addAll(chunk);
     }
-    return (response.statusCode, utf8.decode(bytes));
+    return (
+      response.statusCode,
+      utf8.decode(bytes),
+      response.headers['retry-after'],
+    );
   }
 }
 
-RecipeImportResult parseRecipeImportResponse(int status, String body) {
+/// [retryAfter] is the raw `Retry-After` header: the reset time of a 429
+/// whose body names none.
+RecipeImportResult parseRecipeImportResponse(
+  int status,
+  String body, {
+  String? retryAfter,
+}) {
   if (status == 401 || status == 403) {
     throw const RecipeImportException(RecipeImportFailure.reauthRequired);
   }
-  final code = status == 200 ? null : _errorCode(body);
+  final error = status == 200 ? null : _errorBody(body);
+  final code = error?['error'];
   if (status == 429) {
     // Shared provider capacity is not the user's import quota.
+    if (code == 'ai_budget_exhausted') {
+      throw const RecipeImportException(RecipeImportFailure.unavailable);
+    }
     throw RecipeImportException(
-      code == 'ai_budget_exhausted'
-          ? RecipeImportFailure.unavailable
-          : RecipeImportFailure.rateLimited,
+      RecipeImportFailure.rateLimited,
+      planLimit: PlanLimitHit.fromBody(error),
+      resetAt: _resetAt(error?['resetAt'], retryAfter),
     );
   }
   if (status == 400 || status == 413 || status == 415) {
@@ -190,14 +222,22 @@ RecipeImportResult parseRecipeImportResponse(int status, String body) {
   }
 }
 
-/// The `error` code of a JSON error body; null for a gateway's HTML or text,
-/// where the status alone has to speak.
-String? _errorCode(String body) {
+/// A JSON error body; null for a gateway's HTML or text, where the status
+/// alone has to speak.
+Map<Object?, Object?>? _errorBody(String body) {
   try {
     final decoded = jsonDecode(body);
-    final code = decoded is Map ? decoded['error'] : null;
-    return code is String ? code : null;
+    return decoded is Map ? decoded : null;
   } on FormatException {
     return null;
   }
+}
+
+/// The body's `resetAt`, else now plus the `Retry-After` seconds.
+DateTime? _resetAt(Object? resetAt, String? retryAfter) {
+  final named = resetAt is String ? DateTime.tryParse(resetAt)?.toUtc() : null;
+  if (named != null) return named;
+  final seconds = int.tryParse(retryAfter?.trim() ?? '');
+  if (seconds == null || seconds < 0) return null;
+  return clock.now().toUtc().add(Duration(seconds: seconds));
 }

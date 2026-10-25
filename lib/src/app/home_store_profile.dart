@@ -94,6 +94,11 @@ mixin _HomeStoreProfilePart
   bool get needsOnboarding =>
       sync != null && !_onboardingDone && !profile.onboardingCompleted;
 
+  /// Marks the onboarding paywall as waiting, in memory and in the account
+  /// cache (`HomeStore`; docs/PREMIUM.md 4.3). Called only from
+  /// [completeOnboarding]'s publish.
+  void _promptPaywall();
+
   // --- Reminders (PROD-1) ---------------------------------------------------
   // Only content: the evening streak saver (streak_reminder_planner.dart).
   // The opt-in toggle + permission flow stay the hook for anything further.
@@ -647,7 +652,9 @@ mixin _HomeStoreProfilePart
   ///
   /// The entered weight also becomes the first weigh-in when the account has
   /// none (2026-10-19), in the same commit, and Apple Health waits for
-  /// Today's intro card instead of asking unprompted.
+  /// Today's intro card instead of asking unprompted. The Premium screen
+  /// follows as the onboarding's last step (2026-10-25), only here: an
+  /// account onboarded before never passes this way.
   Future<void> completeOnboarding(UserProfile finished) {
     final pending = _onboardingCompletion;
     if (pending != null) return pending;
@@ -668,6 +675,9 @@ mixin _HomeStoreProfilePart
                 lifetimeStats = lifetimeStats.incrementWeightLogs();
               }
               _deferHealthToIntro();
+              // The same notify that ends the onboarding opens the paywall,
+              // with no frame of the tabs in between.
+              _promptPaywall();
             },
           );
         }).whenComplete(() {

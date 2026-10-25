@@ -6,8 +6,11 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_request.dart';
+import 'package:eatova/src/models/plan_limit_hit.dart';
+import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/services/eatova_http.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
+import 'package:eatova/src/services/meal_describer.dart';
 
 import '../support/expired_session.dart';
 
@@ -140,6 +143,7 @@ void main() {
       'requestId': 'r1',
       'rateLimit': <String, Object?>{
         'user': <String, Object?>{'remaining': 3, 'resetAt': '2026-08-27T15:00:00Z'},
+        'userDay': <String, Object?>{'limit': 4, 'remaining': 1},
       },
     });
 
@@ -147,6 +151,8 @@ void main() {
 
     expect(result.mealName, 'Spaghetti Bolognese');
     expect(result.caloriesKcal, 650);
+    // Today's bucket for "Heute noch n KI-Analysen" (PREMIUM.md 4.5).
+    expect(mealAnalysisUsageOf(result)?.used, 3);
     expect(loopback.seen, hasLength(1));
     final request = loopback.seen.single;
     expect(request.method, 'POST');
@@ -383,6 +389,92 @@ void main() {
     });
     // A body that is no JSON at all (http_<status>) and a valid result run
     // through the wire cases above ('502 HTML', '200 -> Ergebnis').
+
+    // docs/PREMIUM.md 3.3: only the per-account daily gate adds planLimit;
+    // the hourly, IP and global gates answer the same 429 without it.
+    test('429 traegt planLimit nur vom Tageskontingent', () {
+      const reset = '2026-10-26T00:00:00.000Z';
+      const gate = <String, Object?>{
+        'allowed': false,
+        'limit': 4,
+        'remaining': 0,
+        'resetAt': reset,
+        'windowSeconds': 86400,
+      };
+      final cases = <(String, String, PlanLimitHit?)>[
+        (
+          'Free',
+          jsonEncode(<String, Object?>{
+            'error': 'rate_limited',
+            'rateLimit': gate,
+            'planLimit': <String, Object?>{
+              'feature': 'meal_analysis',
+              'tier': 'free',
+              'limit': 4,
+              'resetAt': reset,
+              'premiumLimit': 30,
+            },
+          }),
+          PlanLimitHit(
+            feature: PlanFeature.mealAnalysis,
+            tier: PlanTier.free,
+            limit: 4,
+            resetAt: DateTime.utc(2026, 10, 26),
+            premiumLimit: 30,
+          ),
+        ),
+        (
+          'Premium',
+          jsonEncode(<String, Object?>{
+            'error': 'rate_limited',
+            'rateLimit': gate,
+            'planLimit': <String, Object?>{
+              'feature': 'meal_analysis',
+              'tier': 'premium',
+              'limit': 30,
+              'resetAt': reset,
+            },
+          }),
+          PlanLimitHit(
+            feature: PlanFeature.mealAnalysis,
+            tier: PlanTier.premium,
+            limit: 30,
+            resetAt: DateTime.utc(2026, 10, 26),
+          ),
+        ),
+        (
+          'Stunden-Gate',
+          jsonEncode(<String, Object?>{
+            'error': 'rate_limited',
+            'rateLimit': <String, Object?>{
+              ...gate,
+              'limit': 20,
+              'windowSeconds': 3600,
+            },
+          }),
+          null,
+        ),
+        ('Gateway-HTML', '<html>429</html>', null),
+      ];
+      for (final (name, body, hit) in cases) {
+        for (final parse in <Object Function(int, String)>[
+          parseAnalyzeMealResponse,
+          parseDescribeMealResponse,
+        ]) {
+          expect(
+            () => parse(429, body),
+            throwsA(
+              isA<MealAnalysisRateLimited>().having(
+                (e) => e.planLimit,
+                'planLimit',
+                hit,
+              ),
+            ),
+            reason: name,
+          );
+        }
+      }
+    });
   });
 
   group('MealAnalysisCancellation', () {

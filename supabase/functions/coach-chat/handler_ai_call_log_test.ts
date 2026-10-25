@@ -16,6 +16,7 @@ import {
 } from "../_shared/claude_test_fixtures.ts";
 import { JPEG_BASE64 } from "../analyze-meal/image_fixtures.ts";
 import { handleRequest } from "./handler.ts";
+import { isResolvePlanCall, resolvePlanResponse } from "./plan_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -108,6 +109,7 @@ function install(options: Options = {}): Stub {
     if (url.includes("/rpc/claim_chat_quota")) {
       return Promise.resolve(jsonRes([{ used: 1, remaining: 4, quota_day: "2026-10-18" }]));
     }
+    if (isResolvePlanCall(url)) return Promise.resolve(resolvePlanResponse("legacy"));
     if (url.includes("/rpc/")) return Promise.resolve(new Response(null, { status: 204 }));
     if (url.includes("/rest/v1/chat_messages")) {
       return Promise.resolve(method === "POST" ? jsonRes([{ id: "33333333-3333-4333-8333-333333333333" }], 201) : jsonRes([]));

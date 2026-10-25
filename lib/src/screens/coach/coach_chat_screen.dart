@@ -20,6 +20,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
+import '../../app/subscription.dart';
 import '../../l10n/l10n.dart';
 import '../../models/ai_consent.dart' show AiReportTarget;
 import '../../models/chat_message.dart';
@@ -109,6 +110,7 @@ class CoachChatScreen extends StatefulWidget {
     this.onOpenRecipe,
     this.questionDraftRequest = 0,
     this.questionDraft = '',
+    this.subscription,
   });
 
   /// How long the answer live region stays once it can speak (where the
@@ -176,6 +178,11 @@ class CoachChatScreen extends StatefulWidget {
   /// stays the user's tap, so it costs a question only then.
   final int questionDraftRequest;
   final String questionDraft;
+
+  /// The account's plan (docs/PREMIUM.md 4.5): the counter, the lock, the
+  /// limit notice and the Premium hints follow it. null (previews, tests)
+  /// keeps the quota RPC and offers no Premium.
+  final SubscriptionController? subscription;
 
   /// Today's numbers for the start state's "From today's log" card, built
   /// by the shell from `HomeStore.nutritionSummaryForFoodDate`. null hides
@@ -312,6 +319,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         AppLifecycleState.detached => true,
         _ => false,
       },
+      subscription: widget.subscription,
     );
     WidgetsBinding.instance.addObserver(this);
     // ValueNotifier dedupes identical assignments, so no equality check here.
@@ -342,6 +350,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _queuedBrief = null;
       _dropAnswerCue();
       _cancelSpeechInput(discard: true);
+    }
+    if (!identical(widget.subscription, oldWidget.subscription)) {
+      _coach.updateSubscription(widget.subscription);
     }
     if (widget.planDraftRequest != oldWidget.planDraftRequest) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -867,10 +878,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       return;
     }
     // Nothing could be sent from the brief: say why up front instead of
-    // after the whole form is filled in.
-    final locked = _coach.lockReason;
-    if (locked != null) {
-      _coach.showError(locked);
+    // after the whole form is filled in; a used-up day as the limit notice.
+    if (_coach.lockReason != null) {
+      _coach.showLock();
       return;
     }
     // The consent comes before the form, so a decline loses no typing.
@@ -1614,17 +1624,35 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     HapticFeedback.selectionClick();
     _endDictationForSheet();
     final quota = _coach.quota;
+    // On Free with a known plan: what Premium gives, and the way there.
+    final premiumLimit = _coach.premiumLimit;
+    final upgrade = _coach.canOfferPremium
+        ? () => _openPremium(PremiumSource.coach)
+        : null;
     showEatovaSheet<void>(
       context,
       // Only a real snapshot may show numbers: the display fallback would put
       // the default limit here after a failed quota RPC.
       quota == null
-          ? const _CoachInfoSheetUnbekannt()
+          ? _CoachInfoSheetUnbekannt(
+              premiumLimit: premiumLimit,
+              onUpgrade: upgrade,
+            )
           : _CoachInfoSheet(
               remaining: quota.remaining.clamp(0, quota.dailyLimit),
               dailyLimit: quota.dailyLimit,
+              premiumLimit: premiumLimit,
+              onUpgrade: upgrade,
             ),
     );
+  }
+
+  /// The Premium screen from [source]; a no-op without a bound shell.
+  void _openPremium(PremiumSource source) {
+    HapticFeedback.selectionClick();
+    _endDictationForSheet();
+    _inputFocus.unfocus();
+    unawaited(openPremium(context, source: source));
   }
 
   /// Marks the messages appended since the last build for a one-time
@@ -1732,6 +1760,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                               onRetry: _coach.canRetryLoad
                                   ? () => unawaited(_coach.retryLoad())
                                   : null,
+                              // Once per day at the limit (4.5).
+                              action: _coach.limitUpsell
+                                  ? SoftPillButton(
+                                      key: const ValueKey(
+                                        'coach-limit-upgrade',
+                                      ),
+                                      icon: Icons.auto_awesome_rounded,
+                                      label: context.l10n.planLimitUpgrade,
+                                      onTap: () =>
+                                          _openPremium(PremiumSource.coach),
+                                    )
+                                  : null,
                             ),
                         ],
                       )
@@ -1787,6 +1827,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                                   widget.onCreateRecipe != null &&
                                   !_coach.addingRecipe,
                               onAddRecipe: _addProposalToRecipes,
+                              // The plan had no picture; Premium has (4.5).
+                              recipePictureLockedFor: (message) =>
+                                  message.recipeImageLocked &&
+                                  !_coach.isPremium,
+                              onUnlockRecipePicture: () =>
+                                  _openPremium(PremiumSource.recipePicture),
                               planAddedFor: _isTrainingPlanAdded,
                               planReviewEnabled:
                                   widget.onCreateTrainingPlan != null &&
@@ -1874,6 +1920,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     onDictationLanguage: _switchDictationLanguage,
                     onAttach: _openAttachSheet,
                     onQuotaTap: _openCoachInfoSheet,
+                    // At 0 left on Free: the way to more instead of "0/3".
+                    onUpgrade:
+                        _coach.quotaExhausted && _coach.canOfferPremium
+                        ? () => _openPremium(PremiumSource.coach)
+                        : null,
                   ),
                 ],
               ),
@@ -2107,7 +2158,11 @@ class _UnsentNotice extends StatelessWidget {
 /// still open. Until then `test/coach_ai_disclosure_test.dart` checks BOTH
 /// versions against the same key list, so an unmirrored edit turns red.
 class _CoachInfoSheetUnbekannt extends StatelessWidget {
-  const _CoachInfoSheetUnbekannt();
+  const _CoachInfoSheetUnbekannt({this.premiumLimit, this.onUpgrade});
+
+  /// See [_CoachInfoSheet.premiumLimit].
+  final int? premiumLimit;
+  final VoidCallback? onUpgrade;
 
   @override
   Widget build(BuildContext context) {
@@ -2162,6 +2217,8 @@ class _CoachInfoSheetUnbekannt extends StatelessWidget {
                 key: const ValueKey('coach-info-limit-unbekannt'),
                 style: AppType.ui(13, color: t.ink2, height: 1.45),
               ),
+              if (premiumLimit case final limit?)
+                _InfoPremium(limit: limit, onUpgrade: onUpgrade),
             ],
           ),
         ),

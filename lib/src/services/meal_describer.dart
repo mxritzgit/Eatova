@@ -69,12 +69,16 @@ Map<String, dynamic> buildDescribeMealBody(
   };
 }
 
-/// [readAnalyzeMealResult] plus [DescribedMeal.fromJson]. A 2xx without a
+/// [readAnalyzeMealAnswer] plus [DescribedMeal.fromJson]. A 2xx without a
 /// usable item is an `invalid_result`, like a photo answer without a result.
+/// The bucket's usage rides along for [mealAnalysisUsageOf].
 DescribedMeal parseDescribeMealResponse(int statusCode, String body) {
-  final result = readAnalyzeMealResult(statusCode, body);
+  final answer = readAnalyzeMealAnswer(statusCode, body);
   try {
-    return DescribedMeal.fromJson(result);
+    return withMealAnalysisUsage(
+      DescribedMeal.fromJson(answer.result),
+      answer.usage,
+    );
   } on FormatException catch (error) {
     throw MealAnalysisServerError(
       statusCode: statusCode,

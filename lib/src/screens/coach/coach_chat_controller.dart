@@ -12,13 +12,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../app/subscription.dart' show SubscriptionController;
 import '../../l10n/l10n.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../models/coach_training_context.dart';
 import '../../models/fitness_recipe.dart';
+import '../../models/plan_limit_hit.dart';
+import '../../models/plan_status.dart';
 import '../../models/user_profile.dart' show FoodPreferences;
 import '../../services/coach_chat_service.dart';
 import '../../services/coach_quota_reset.dart';
@@ -142,11 +146,13 @@ class CoachChatController extends ChangeNotifier {
     CoachChatViewHooks hooks = const CoachChatViewHooks(),
     CoachRequestInputs Function()? requestInputs,
     bool Function()? inBackground,
+    SubscriptionController? subscription,
   }) : _service = service,
        _hooks = hooks,
        _requestInputs = requestInputs ?? _noInputs {
     _antwortWarten = _AntwortWarten(this, inBackground ?? _never);
     _antwortWarten.binden(service);
+    updateSubscription(subscription);
   }
 
   static CoachRequestInputs _noInputs() => const CoachRequestInputs();
@@ -221,9 +227,9 @@ class CoachChatController extends ChangeNotifier {
   /// network) deliberately does not: the server decides and answers 429.
   ///
   /// An ASSUMED limit counts as unknown too (P5-06): `get_chat_quota_today`
-  /// derives `remaining` from the limit the client hands it, so with
-  /// `COACH_DAILY_LIMIT=10` it reports 0 free after five slots and would lock
-  /// a composer the server still accepts. The limit only becomes real once a
+  /// derives `remaining` from the limit the client hands it, so with a plan
+  /// limit of 10 it reports 0 free after five slots and would lock a
+  /// composer the server still accepts. The limit only becomes real once a
   /// function answer or a quota 429 names it.
   bool get quotaExhausted {
     final quota = _quota;
@@ -231,9 +237,209 @@ class CoachChatController extends ChangeNotifier {
   }
 
   /// The limit for texts that need a number; an unknown state falls back to
-  /// the default. Blocking decisions use [quotaExhausted].
+  /// the plan's, then to the default. Blocking decisions use
+  /// [quotaExhausted].
   int get limitForDisplay =>
-      _quota?.dailyLimit ?? ChatQuotaSnapshot.standardTageslimit;
+      _quota?.dailyLimit ??
+      _knownPlan?.limitFor(PlanFeature.coach) ??
+      ChatQuotaSnapshot.standardTageslimit;
+
+  // --- Plan (docs/PREMIUM.md 4.5) ---------------------------------------------
+
+  SubscriptionController? _subscription;
+
+  /// [SubscriptionController.tierRevision] as last seen; a change is an
+  /// upgrade, a downgrade or new limits.
+  int _seenTierRevision = 0;
+
+  /// The limit the last function answer or quota 429 of this account named.
+  /// A plan with another one is older than that answer and stays out of the
+  /// counter until the tier changes or an answer agrees with it.
+  int? _answerLimit;
+
+  /// The tier quota of the last 429; null from an older deployment.
+  PlanLimitHit? _limitHit;
+
+  /// The banner shows the limit notice, built from state whenever read.
+  bool _limitBanner = false;
+
+  /// Whether that notice offers "Mehr mit Premium", decided once when it
+  /// went up ([SubscriptionController.takeUpsell]), not per build.
+  bool _limitUpsell = false;
+
+  /// The account's plan; null without one (previews, widget tests). Once the
+  /// cache or the server named it, its count and limit replace the quota
+  /// RPC, and a tier change moves the lock at once.
+  void updateSubscription(SubscriptionController? subscription) {
+    if (identical(subscription, _subscription)) return;
+    _subscription?.removeListener(_onPlanChanged);
+    _subscription = subscription;
+    _seenTierRevision = subscription?.tierRevision ?? 0;
+    _answerLimit = null;
+    _limitHit = null;
+    subscription?.addListener(_onPlanChanged);
+  }
+
+  /// The plan once the cache or the server named it; null while assumed.
+  PlanStatus? get _knownPlan {
+    final plan = _subscription?.plan;
+    return plan == null || plan.assumed ? null : plan;
+  }
+
+  /// The last tier quota hit while it lasts (until its reset).
+  PlanLimitHit? get _currentHit {
+    final hit = _limitHit;
+    return hit != null && hit.resetAt.isAfter(clock.now()) ? hit : null;
+  }
+
+  /// Today's questions as the known plan counts them.
+  ChatQuotaSnapshot? _planQuota() {
+    final plan = _knownPlan;
+    if (plan == null) return null;
+    final limit = plan.limitFor(PlanFeature.coach);
+    final used = plan.usedToday(PlanFeature.coach);
+    return ChatQuotaSnapshot(
+      used: used,
+      remaining: limit - used,
+      dailyLimit: limit,
+    );
+  }
+
+  /// [_planQuota], unless a server answer of this run named another limit.
+  ChatQuotaSnapshot? _agreedPlanQuota() {
+    final fromPlan = _planQuota();
+    final named = _answerLimit;
+    return fromPlan != null && (named == null || named == fromPlan.dailyLimit)
+        ? fromPlan
+        : null;
+  }
+
+  static bool _sameQuota(ChatQuotaSnapshot a, ChatQuotaSnapshot? b) =>
+      b != null &&
+      a.used == b.used &&
+      a.remaining == b.remaining &&
+      a.dailyLimit == b.dailyLimit &&
+      a.limitAssumed == b.limitAssumed;
+
+  /// What the screen shows of the plan besides the counter.
+  Object _planView() => (isPremium, premiumLimit, _subscription?.canPurchase);
+
+  void _onPlanChanged() {
+    final subscription = _subscription;
+    if (_disposed || subscription == null) return;
+    final before = _planView();
+    if (subscription.tierRevision != _seenTierRevision) {
+      _seenTierRevision = subscription.tierRevision;
+      // New tier or limits: what earlier answers named no longer applies.
+      _answerLimit = null;
+      _limitHit = null;
+    }
+    var changed = before != _planView();
+    final fromPlan = _agreedPlanQuota();
+    if (fromPlan != null && !_sameQuota(fromPlan, _quota)) {
+      // Supersedes a quota read in flight.
+      _quotaRevision++;
+      _quota = fromPlan;
+      _quotaMerken();
+      changed = true;
+    }
+    if (changed) _notify();
+  }
+
+  /// Reports a count the server named to the plan, so every other counter
+  /// follows; a plan with another limit is older than the answer and is
+  /// read again.
+  void _planNachziehen(int used, int dailyLimit) {
+    final subscription = _subscription;
+    if (subscription == null) return;
+    subscription.noteUsage(PlanFeature.coach, used);
+    final plan = _knownPlan;
+    if (plan != null && plan.limitFor(PlanFeature.coach) != dailyLimit) {
+      unawaited(subscription.refresh(force: true));
+    }
+  }
+
+  /// The account has Premium now.
+  bool get isPremium => _subscription?.isPremium ?? false;
+
+  /// The Coach limit Premium would give, for "mit Premium {n} pro Tag": only
+  /// on Free with a known plan or hit, and only when Premium gives more.
+  int? get premiumLimit {
+    final hit = _currentHit;
+    if (hit != null) return hit.premiumLimit;
+    return _knownPlan?.premiumLimitFor(PlanFeature.coach);
+  }
+
+  /// Premium can be offered: a bound account that can buy, and more to get.
+  bool get canOfferPremium =>
+      (_subscription?.canPurchase ?? false) && premiumLimit != null;
+
+  /// The limit notice in the banner carries the "Mehr mit Premium" action.
+  bool get limitUpsell => _limitBanner && _limitUpsell && quotaExhausted;
+
+  /// The limit notice, from the current state: the reset as a local clock
+  /// time, the Premium sentence with the upgrade action. Without a plan or a
+  /// hit nothing names the tier, and the text stays the one before Premium.
+  String _limitText({required bool upgrade}) {
+    final l10n = _l10n;
+    final limit = limitForDisplay;
+    final hit = _currentHit;
+    final time = hit == null
+        ? coachQuotaResetLabel(l10n.localeName)
+        : coachQuotaClockLabel(l10n.localeName, hit.resetAt);
+    if (hit == null && _knownPlan == null) {
+      return l10n.coachErrorDailyLimitReached(limit, time);
+    }
+    final more = premiumLimit;
+    return upgrade && more != null
+        ? l10n.planLimitCoachPremium(limit, time, more)
+        : l10n.planLimitCoach(limit, time);
+  }
+
+  /// Puts the limit notice up; whether it offers Premium is decided here,
+  /// once per notice (at most once per UTC day, by the plan).
+  void _raiseLimitNotice() {
+    if (_limitBanner) return;
+    final upsell =
+        canOfferPremium && _subscription!.takeUpsell(PlanFeature.coach);
+    _error = null;
+    _limitBanner = true;
+    _limitUpsell = upsell;
+  }
+
+  /// A quota 429 from a Premium-aware server or with a known plan: the
+  /// notice comes from state. Without either, the server's text as before.
+  bool _limitAusPlan(CoachQuotaExceeded e) =>
+      e.planLimit != null || _knownPlan != null;
+
+  /// A quota 429: the day is used up for this account, whatever
+  /// conversation is open, and the plan learns it.
+  void _limitErreicht(CoachQuotaExceeded e) {
+    _quotaRevision++;
+    _quota = ChatQuotaSnapshot(
+      used: e.dailyLimit,
+      remaining: 0,
+      dailyLimit: e.dailyLimit,
+    );
+    if (e.limitNamed) _answerLimit = e.dailyLimit;
+    _limitHit = e.planLimit;
+    _quotaMerken();
+    _notify();
+    final subscription = _subscription;
+    final hit = e.planLimit;
+    if (subscription == null) return;
+    if (hit != null) {
+      subscription.noteLimitHit(hit);
+    } else if (e.limitNamed) {
+      _planNachziehen(e.dailyLimit, e.dailyLimit);
+    } else if (_knownPlan case final plan?) {
+      // No number at all: the plan's own limit is what ran out.
+      subscription.noteUsage(
+        PlanFeature.coach,
+        plan.limitFor(PlanFeature.coach),
+      );
+    }
+  }
 
   String? _activeSessionId;
   String? get activeSessionId => _activeSessionId;
@@ -249,9 +455,22 @@ class CoachChatController extends ChangeNotifier {
   /// Bootstrap or a conversation load is running.
   bool get loading => _loading;
 
-  /// The banner text; null shows none.
-  String? _error;
-  String? get error => _error;
+  /// The banner text; null shows none. The limit notice is built when read
+  /// ([_limitText]), so its reset time and its Premium sentence follow the
+  /// state; it goes once the quota is free again.
+  String? get error {
+    if (!_limitBanner) return _errorText;
+    return quotaExhausted ? _limitText(upgrade: _limitUpsell) : null;
+  }
+
+  String? _errorText;
+  String? get _error => _errorText;
+
+  /// Every other banner text replaces the limit notice.
+  set _error(String? value) {
+    _errorText = value;
+    _limitBanner = false;
+  }
 
   /// The active session's history failed to load — the hero empty state must
   /// then not present it as "empty".
@@ -310,12 +529,7 @@ class CoachChatController extends ChangeNotifier {
   /// are waits, not locks.
   String? get lockReason {
     if (_service == null) return _l10n.coachErrorNotLoggedIn;
-    if (quotaExhausted) {
-      return _l10n.coachErrorDailyLimitReached(
-        limitForDisplay,
-        coachQuotaResetLabel(_l10n.localeName),
-      );
-    }
+    if (quotaExhausted) return _limitText(upgrade: false);
     if (_activeSessionId == null) {
       // A failed history load leaves no active session either; its banner
       // names the real cause.
@@ -363,6 +577,7 @@ class CoachChatController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _antwortWarten.loesen(_service);
+    _subscription?.removeListener(_onPlanChanged);
     _preview.dispose();
     super.dispose();
   }
@@ -377,9 +592,21 @@ class CoachChatController extends ChangeNotifier {
   /// Feedback the screen produces itself (dictation, photo, a locked brief)
   /// in the same banner; null clears it.
   void showError(String? message) {
-    if (_disposed || _error == message) return;
+    if (_disposed || (!_limitBanner && _error == message)) return;
     _error = message;
     _notify();
+  }
+
+  /// Why nothing can be sent, in the banner ([lockReason]): a used-up day
+  /// as the limit notice, with its own Premium decision.
+  void showLock() {
+    if (_disposed) return;
+    if (_service != null && quotaExhausted) {
+      _raiseLimitNotice();
+      _notify();
+      return;
+    }
+    showError(lockReason);
   }
 
   /// The app went to the background: the answer wait keeps no timer.
@@ -405,7 +632,9 @@ class CoachChatController extends ChangeNotifier {
     // The error banner is feedback on an action, not a permanent state. A
     // failed history load is the exception: nothing here reloads it, and
     // without its banner the conversation is just blank.
-    if (identical(_service, svc) && _error != null && !_historyUnavailable) {
+    if (identical(_service, svc) &&
+        (_error != null || _limitBanner) &&
+        !_historyUnavailable) {
       _error = null;
       _notify();
     }
@@ -467,6 +696,9 @@ class CoachChatController extends ChangeNotifier {
     // to the first coach render.
     final knownQuota = _quota;
     final quotaFuture = () async {
+      // The plan counts once it is known (docs/PREMIUM.md 4.5); the RPC
+      // only echoes the limit it is handed.
+      if (_agreedPlanQuota() case final fromPlan?) return fromPlan;
       try {
         return await svc.loadQuotaToday();
       } on CoachDataUnavailable {
@@ -516,7 +748,8 @@ class CoachChatController extends ChangeNotifier {
     _sessions = refreshedSessions;
     _activeSessionId = activeId;
     _messages = history;
-    _quota = quota;
+    // A plan that arrived meanwhile is newer than the read.
+    _quota = _agreedPlanQuota() ?? quota;
     _loading = false;
     // Fresh history from the server: a retry job pointing at a local bubble
     // that no longer exists would target nothing.
@@ -530,6 +763,17 @@ class CoachChatController extends ChangeNotifier {
   /// Rule: a network outage must neither consume nor refill the quota —
   /// [CoachChatService.loadQuotaToday] throws instead of inventing a snapshot.
   Future<void> _refreshQuota(CoachChatService svc) async {
+    if (_agreedPlanQuota() case final fromPlan?) {
+      // The plan counts; a newer server count arrives via [_onPlanChanged].
+      _quotaRevision++;
+      if (!_sameQuota(fromPlan, _quota)) {
+        _quota = fromPlan;
+        _quotaMerken();
+        _notify();
+      }
+      unawaited(_subscription!.refresh());
+      return;
+    }
     final revision = ++_quotaRevision;
     final ChatQuotaSnapshot frisch;
     try {
@@ -847,10 +1091,7 @@ class CoachChatController extends ChangeNotifier {
     // Only a known-empty quota blocks. If unknown, the attempt goes to the
     // server, which answers 429 if needed (-> CoachQuotaExceeded below).
     if (quotaExhausted) {
-      _error = l10n.coachErrorDailyLimitReached(
-        limitForDisplay,
-        coachQuotaResetLabel(l10n.localeName),
-      );
+      _raiseLimitNotice();
       _notify();
       return;
     }
@@ -1007,19 +1248,14 @@ class CoachChatController extends ChangeNotifier {
       if (_disposed || !identical(_service, svc)) return;
       // The server named the limit explicitly, so this replaces any prior
       // state regardless of the open session: the limit is per user.
-      _quotaRevision++;
-      _quota = ChatQuotaSnapshot(
-        used: e.dailyLimit,
-        remaining: 0,
-        dailyLimit: e.dailyLimit,
-      );
-      _quotaMerken();
-      _notify();
+      _limitErreicht(e);
+      final ausPlan = _limitAusPlan(e);
       if (!_matchesConversation(svc, sessionId, conversationRevision)) {
         _fehlschlagNachRueckkehr(
           svc: svc,
           sessionId: sessionId,
           message: e.message,
+          limitNotice: ausPlan,
           auftrag: auftrag,
           frage: userMsg,
           stored: displayText,
@@ -1029,7 +1265,7 @@ class CoachChatController extends ChangeNotifier {
       // Marked here too: the slot was gone, the question did not go out. The
       // retry button hangs on [canInteract] and stays off, but the marker
       // remains — otherwise the bubble would look sent.
-      _fehlschlagZeigen(e.message, auftrag);
+      _fehlschlagZeigen(e.message, auftrag, limitNotice: ausPlan);
     } on CoachChatException catch (e) {
       _quotaNachfragen(svc);
       if (!_matchesConversation(svc, sessionId, conversationRevision)) {
@@ -1091,8 +1327,17 @@ class CoachChatController extends ChangeNotifier {
   }
 
   /// A request of the conversation on screen failed: banner and marker.
-  void _fehlschlagZeigen(String message, CoachFailedSend auftrag) {
-    _error = message;
+  /// [limitNotice] shows the limit notice instead of [message].
+  void _fehlschlagZeigen(
+    String message,
+    CoachFailedSend auftrag, {
+    bool limitNotice = false,
+  }) {
+    if (limitNotice) {
+      _raiseLimitNotice();
+    } else {
+      _error = message;
+    }
     _failedSend = auftrag;
     _notify();
   }
@@ -1115,6 +1360,7 @@ class CoachChatController extends ChangeNotifier {
     required CoachChatService svc,
     required String sessionId,
     required String message,
+    bool limitNotice = false,
     required CoachFailedSend auftrag,
     required ChatMessage frage,
     required String stored,
@@ -1128,7 +1374,11 @@ class CoachChatController extends ChangeNotifier {
     final gespeichert = letzte != null &&
         letzte.role == ChatRole.user &&
         letzte.content.trim() == stored.trim();
-    _error = message;
+    if (limitNotice) {
+      _raiseLimitNotice();
+    } else {
+      _error = message;
+    }
     if (gespeichert) {
       // The reload shows the stored question: the marker belongs to it.
       _failedSend = CoachFailedSend(
@@ -1195,9 +1445,15 @@ class CoachChatController extends ChangeNotifier {
   /// spent its slot (deadline, lost connection, input the provider billed).
   /// Keeping the old number would promise a question the server refuses.
   void _quotaNachfragen(CoachChatService svc) {
-    if (!_disposed && identical(_service, svc)) {
-      unawaited(_refreshQuota(svc));
+    if (_disposed || !identical(_service, svc)) return;
+    final subscription = _subscription;
+    if (subscription != null && _agreedPlanQuota() != null) {
+      // The plan's count predates the request: the server's comes back via
+      // [_onPlanChanged].
+      unawaited(subscription.refresh(force: true));
+      return;
     }
+    unawaited(_refreshQuota(svc));
   }
 
   /// Takes over a quota state the server just named.
@@ -1218,8 +1474,10 @@ class CoachChatController extends ChangeNotifier {
       // (P5-06); an older deployment that sends none leaves it assumed.
       limitAssumed: dailyLimit == null && (_quota?.limitAssumed ?? true),
     );
+    if (dailyLimit != null) _answerLimit = dailyLimit;
     _quotaMerken();
     _notify();
+    if (dailyLimit != null) _planNachziehen(limit - frei, dailyLimit);
   }
 
   /// Hands the current quota to the account's memory, so the next cold start
@@ -1408,6 +1666,7 @@ class CoachChatController extends ChangeNotifier {
         createdAt: DateTime.now(),
         refusal: res.refusal,
         recipeProposal: res.proposal,
+        recipeImageLocked: res.imageLocked,
       );
       // Images exist only in this response: keep them in the original user's
       // local store even when another conversation is now visible.
@@ -1442,26 +1701,21 @@ class CoachChatController extends ChangeNotifier {
     } on CoachQuotaExceeded catch (e) {
       if (_disposed || !identical(_service, svc)) return;
       // As in [send]: the limit is per user, not per session.
-      _quotaRevision++;
-      _quota = ChatQuotaSnapshot(
-        used: e.dailyLimit,
-        remaining: 0,
-        dailyLimit: e.dailyLimit,
-      );
-      _quotaMerken();
-      _notify();
+      _limitErreicht(e);
+      final ausPlan = _limitAusPlan(e);
       if (!_matchesConversation(svc, sessionId, conversationRevision)) {
         _fehlschlagNachRueckkehr(
           svc: svc,
           sessionId: sessionId,
           message: e.message,
+          limitNotice: ausPlan,
           auftrag: auftrag,
           frage: userMsg,
           stored: request,
         );
         return;
       }
-      _fehlschlagZeigen(e.message, auftrag);
+      _fehlschlagZeigen(e.message, auftrag, limitNotice: ausPlan);
     } on CoachChatException catch (e) {
       _quotaNachfragen(svc);
       if (!_matchesConversation(svc, sessionId, conversationRevision)) {
@@ -1638,19 +1892,21 @@ class CoachChatController extends ChangeNotifier {
       _antwortZeigen(answer);
     } on CoachQuotaExceeded catch (error) {
       if (!isCurrentAccount()) return;
-      _quotaUebernehmen(remaining: 0, dailyLimit: error.dailyLimit);
+      _limitErreicht(error);
+      final ausPlan = _limitAusPlan(error);
       if (!isCurrentConversation()) {
         _fehlschlagNachRueckkehr(
           svc: svc,
           sessionId: sessionId,
           message: error.message,
+          limitNotice: ausPlan,
           auftrag: retry,
           frage: userMsg,
           stored: stored,
         );
         return;
       }
-      _fehlschlagZeigen(error.message, retry);
+      _fehlschlagZeigen(error.message, retry, limitNotice: ausPlan);
     } on CoachRequestUnsupported catch (error) {
       if (!isCurrentConversation()) return;
       // Certain and free (an older server): no Retry to loop on. The text

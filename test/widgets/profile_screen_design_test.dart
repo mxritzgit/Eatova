@@ -6,14 +6,17 @@
 //   * the header's gear and back buttons and the two edit buttons,
 //   * the steps format '<actual>/<goal>', which profile_route_refresh_test
 //     relies on,
-//   * the identity card invents no data (no PREMIUM, no "MEMBER SINCE" — the
-//     design mock shows both, we have neither),
+//   * the identity card invents no data: no "MEMBER SINCE" (the design mock
+//     shows one, the account has none) and no tier badge, not even for a
+//     Premium account; the tier lives in the "Abo" section,
+//   * that section sits before "Verbindungen" and only with a known plan,
 //   * the profile sheets and the dense variant at double font size.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/screens/profile_screen.dart';
@@ -21,6 +24,7 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 
 import '../support/harness.dart';
+import '../support/subscription_fakes.dart' show planOf;
 
 Widget _profile({
   UserProfile profile = const UserProfile(),
@@ -30,6 +34,7 @@ Widget _profile({
   VoidCallback? onEditProfile,
   VoidCallback? onOpenSettings,
   HealthAuthState healthAuthState = HealthAuthState.unknown,
+  PlanStatus? subscriptionPlan,
 }) {
   return ProfileScreen(
     name: 'Moritz Schneider',
@@ -45,6 +50,7 @@ Widget _profile({
     onOpenSettings: onOpenSettings ?? () {},
     onConnectHealth: () {},
     onRefreshHealth: () {},
+    subscriptionPlan: subscriptionPlan,
   );
 }
 
@@ -144,9 +150,24 @@ void main() {
 
   testWidgets('die Identitaetskarte erfindet keine Daten', (tester) async {
     pinPhoneViewport(tester);
-    await _pumpAsRoute(tester, _profile());
+    // A Premium account: its tier shows in the "Abo" card, never on the
+    // identity card.
+    await _pumpAsRoute(
+      tester,
+      _profile(subscriptionPlan: planOf(PlanTier.premium)),
+    );
 
-    expect(find.text('PREMIUM'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('profile-subscription-premium')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(IdentityCard),
+        matching: find.textContaining(RegExp('premium', caseSensitive: false)),
+      ),
+      findsNothing,
+    );
     expect(find.textContaining('MEMBER SINCE'), findsNothing);
     expect(find.textContaining('Seit 20'), findsNothing);
     // Instead the two fields that really exist. The goal label also appears on
@@ -165,6 +186,33 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('die Abo-Sektion steht vor den Verbindungen, nur mit bekanntem '
+      'Plan', (tester) async {
+    pinPhoneViewport(tester);
+    for (final (plan, shown) in <(PlanStatus?, bool)>[
+      (null, false),
+      // The defaults before the server answered are no record.
+      (PlanStatus.assumed(), false),
+      (planOf(PlanTier.free), true),
+    ]) {
+      await pumpLocalized(
+        tester,
+        _profile(subscriptionPlan: plan),
+        safeArea: false,
+      );
+      expect(
+        find.text('Abo'),
+        shown ? findsOneWidget : findsNothing,
+        reason: '$plan',
+      );
+      if (!shown) continue;
+      expect(
+        tester.getTopLeft(find.text('Abo')).dy,
+        lessThan(tester.getTopLeft(find.text('Verbindungen')).dy),
+      );
+    }
   });
 
   // The profile sheets are where a fixed sheet height meets large system text

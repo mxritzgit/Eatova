@@ -22,6 +22,8 @@ import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/services/app_shortcuts.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
 import 'package:eatova/src/services/android_health_service.dart';
+import 'package:eatova/src/services/billing/purchase_coordinator.dart';
+import 'package:eatova/src/services/billing/store_billing_client.dart';
 import 'package:flutter/foundation.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -97,6 +99,13 @@ void main() {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
       expect(buildEatovaApp().healthService, isA<AndroidHealthService>());
+    });
+
+    test('purchaseFlow is the PurchaseCoordinator over the device store', () {
+      // Null means NoPurchaseFlow: no prices, no purchase, no restore, and a
+      // purchase the store redelivers at launch is never verified.
+      expect(buildEatovaApp().purchaseFlow, isA<PurchaseCoordinator>().having(
+          (flow) => flow.billing, 'billing', isA<StoreBillingClient>()));
     });
   });
 }

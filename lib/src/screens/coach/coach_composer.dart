@@ -59,6 +59,7 @@ class _Composer extends StatefulWidget {
     required this.onDictationLanguage,
     required this.onAttach,
     required this.onQuotaTap,
+    this.onUpgrade,
   });
 
   final TextEditingController controller;
@@ -86,6 +87,10 @@ class _Composer extends StatefulWidget {
   final VoidCallback onDictationLanguage;
   final VoidCallback onAttach;
   final VoidCallback onQuotaTap;
+
+  /// Opens Premium; set at 0 questions left on Free, where it takes the
+  /// counter's place (docs/PREMIUM.md 4.5).
+  final VoidCallback? onUpgrade;
 
   @override
   State<_Composer> createState() => _ComposerState();
@@ -125,6 +130,9 @@ class _ComposerState extends State<_Composer> {
         quota != null && !quota.limitAssumed && !widget.counterHidden
         ? quota
         : null;
+    final upgrade = counter != null && counter.remaining <= 0
+        ? widget.onUpgrade
+        : null;
     // P5-06b: a count of 0 stopped meaning "blocked". A merely ASSUMED daily
     // limit keeps the composer typable (fail-open, P5-06), and only [enabled]
     // carries that decision — so the placeholder names the limit exactly when
@@ -147,7 +155,24 @@ class _ComposerState extends State<_Composer> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          if (counter != null)
+          if (upgrade != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                _kShellInset,
+                0,
+                _kShellInset,
+                8,
+              ),
+              child: Center(
+                child: SoftPillButton(
+                  key: const ValueKey('coach-composer-upgrade'),
+                  icon: Icons.auto_awesome_rounded,
+                  label: l10n.coachComposerUpgrade,
+                  onTap: upgrade,
+                ),
+              ),
+            )
+          else if (counter != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
               child: _QuotaHint(
@@ -728,10 +753,22 @@ class _AttachTile extends StatelessWidget {
 /// ships a day snapshot (weight, goal, calories, open macros, today's meal
 /// names) to a US third party, which was only stated in the privacy policy.
 class _CoachInfoSheet extends StatelessWidget {
-  const _CoachInfoSheet({required this.remaining, required this.dailyLimit});
+  const _CoachInfoSheet({
+    required this.remaining,
+    required this.dailyLimit,
+    this.premiumLimit,
+    this.onUpgrade,
+  });
 
   final int remaining;
   final int dailyLimit;
+
+  /// On Free with a known plan: the Coach limit Premium gives; null hides
+  /// the Premium line.
+  final int? premiumLimit;
+
+  /// Opens Premium (after closing the sheet); null shows no button.
+  final VoidCallback? onUpgrade;
 
   @override
   Widget build(BuildContext context) {
@@ -790,9 +827,52 @@ class _CoachInfoSheet extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               _QuotaBar(remaining: remaining, total: dailyLimit),
+              if (premiumLimit case final limit?)
+                _InfoPremium(limit: limit, onUpgrade: onUpgrade),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The info sheets' Premium part on Free: what Premium gives and the way
+/// there. Both twins show it alike, after the disclosure and the quota.
+class _InfoPremium extends StatelessWidget {
+  const _InfoPremium({required this.limit, this.onUpgrade});
+
+  final int limit;
+  final VoidCallback? onUpgrade;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final upgrade = onUpgrade;
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            l10n.coachInfoPremiumLine(limit),
+            key: const ValueKey('coach-info-premium'),
+            style: AppType.ui(13, color: t.ink2, height: 1.45),
+          ),
+          if (upgrade != null) ...<Widget>[
+            const SizedBox(height: 10),
+            SoftPillButton(
+              key: const ValueKey('coach-info-upgrade'),
+              icon: Icons.auto_awesome_rounded,
+              label: l10n.planLimitUpgrade,
+              onTap: () {
+                Navigator.of(context).pop();
+                upgrade();
+              },
+            ),
+          ],
+        ],
       ),
     );
   }

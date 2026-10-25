@@ -119,11 +119,13 @@ requires creator authorization and cannot read arbitrary shared creators' videos
 
 Authentication uses the project's verified user endpoint plus JWT user-context
 binding. Import gates allow 60 requests per IP / 10 minutes, 20 per account /
-hour and 20 extraction attempts per account / UTC day. Each model call also
+hour and the account plan's extraction attempts per UTC day (`resolve_plan`:
+Free 2, Premium 10, accounts from before Premium 20; [Premium](../../../docs/PREMIUM.md)).
+A failed plan lookup applies the Free limit. Each model call also
 requires the existing non-refundable `coach_recipe` provider reservation,
 sharing the global/account provider-call budget and kill switch with other AI
-features. It does not consume a coach chat message slot. No new database schema
-is required. Existing provider-budget and rate-limit migrations must be deployed.
+features. It does not consume a coach chat message slot. The provider-budget,
+rate-limit and Premium (`20261025100000`) migrations must be deployed first.
 
 Existing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
 `ANTHROPIC_API_KEY` configuration is used. The model is `CLAUDE_MODEL` (default
@@ -150,7 +152,9 @@ fewer recipes at once instead of a retry), `rate_limited` or
 `ai_budget_exhausted` (429), `provider_unavailable` /
 `provider_invalid_response` (502), `auth_unavailable`, `rate_limit_unavailable`,
 `ai_budget_unavailable`, `ai_disabled`, `not_configured` (503), and
-`request_timeout` (504). Response bodies and logs never include upstream bodies,
+`request_timeout` (504). A `rate_limited` from the day limit alone also carries
+`resetAt` and `planLimit` (`{feature, tier, limit, resetAt, premiumLimit?}`).
+Response bodies and logs never include upstream bodies,
 captions, bearer tokens or exception details.
 
 Tests stub every outbound request and run with `deno test --allow-env` without

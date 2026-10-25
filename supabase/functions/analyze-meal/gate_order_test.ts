@@ -21,6 +21,7 @@ import { handleRequest } from './handler.ts';
 import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import { PNG_BASE64 } from './image_fixtures.ts';
+import { PLAN_ANSWERS, RESOLVE_PLAN_RPC } from './plan_fixtures.ts';
 import { CLAUDE_URL, claudeResponse, isClaudeCall } from '../_shared/claude_test_fixtures.ts';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -167,6 +168,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
 
   function route(call: RecordedCall): Promise<Response> {
     const { url, body, signal } = call;
+    // Premium, so the day limit below is the plan's and not the Free fallback.
+    if (url.endsWith(RESOLVE_PLAN_RPC)) return Promise.resolve(jsonRes(PLAN_ANSWERS.premium));
     if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(jsonRes({ allowed: true, reason: "allowed" }));
     if (url.includes('/auth/v1/user')) {
       if (hangOn.has('auth')) return hang(signal);
@@ -845,7 +848,7 @@ Deno.test('A4: die vier Gates kosten zwei RPC-Calls, nicht vier', async () => {
       'Batch 2: Gates',
     );
     assertEquals(second[0].subject, USER_ID, 'Batch 2: Tages-Subject');
-    assertEquals(second[0].limit, 100, 'Batch 2: Tages-Limit');
+    assertEquals(second[0].limit, 30, 'Batch 2: Tages-Limit des Plans (Tarife in handler_test.ts)');
     assertEquals(second[1].subject, 'all', 'Batch 2: ein Bucket fuer alle');
     assertEquals(second[1].limit, 5000, 'Batch 2: globales Limit');
     assertEquals(second[1].window_seconds, 86400, 'Batch 2: Tagesfenster');

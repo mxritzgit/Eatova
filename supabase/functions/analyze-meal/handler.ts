@@ -39,6 +39,8 @@ import {
   responseHeaders as sharedResponseHeaders,
 } from '../_shared/http.ts';
 import { loggableFinishReason } from '../_shared/provider_log.ts';
+import { limitFor, planLimitWire, resolvePlan } from '../_shared/plan.ts';
+import type { PlanLimitWire } from '../_shared/plan.ts';
 import { consumeRateLimits as consumeEdgeRateLimits, retryAfterSeconds } from '../_shared/rate_limit.ts';
 import type { RateLimitGate, RateLimitVerdict } from '../_shared/rate_limit.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
@@ -169,13 +171,14 @@ const IP_WINDOW_SECONDS = positiveIntFromEnv(
 // and day, with free OTP signups and no ceiling on the bill at all.
 //  - analyze-meal:global, subject 'all': one bucket for everyone, the cost
 //    legacy ceiling. The shared provider budget is enforced separately.
-//  - analyze-meal:user-day: 100/day, far above honest use (~5-10 scans).
+//  - analyze-meal:user-day: the account's plan limit, shared by photo and
+//    describe (docs/PREMIUM.md 3.3; resolve_plan: Free 4, Premium 30,
+//    accounts from before Premium 100). No env override any more.
 // The window is a fixed constant on purpose: positiveIntFromEnv caps at
 // 10000 s by default, so a day window read from env WITHOUT an explicit
 // `max` of EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS silently falls back.
 const DAY_WINDOW_SECONDS = 86_400;
 const GLOBAL_DAY_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_GLOBAL_LIMIT', 5000);
-const USER_DAY_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_USER_DAY_LIMIT', 100);
 const GLOBAL_SUBJECT = 'all';
 
 const BASE_PROMPT = `Eatova Foto-Kalorienanalyse. Du bist ein präziser Ernährungsschätzer.
@@ -405,6 +408,9 @@ function bodyReadBudget(deadline: Deadline, requestId: string): BodyReadBudget {
   const remaining = deadline.remainingMs();
   // Behind the read: one batched day-gate call, one independent provider-budget
   // reservation and the provider. Both RPCs share the existing upload reserve.
+  // The plan lookup in front of the day gates has no share of its own: it
+  // falls back to Free when slow, and the provider timeout is clamped to what
+  // is left, so it can shorten the provider's share but never the total.
   const reserve = 2 * SUPABASE_TIMEOUT_MS + MIN_PROVIDER_MS;
   const spare = remaining - reserve;
   const totalMs = Math.max(1, Math.min(Math.max(MIN_BODY_READ_MS, spare), remaining));
@@ -468,7 +474,8 @@ export async function handleRequest(request: Request): Promise<Response> {
     // is client-controlled. Reasoning: ../_shared/client_ip.ts.
     const ipSubject = clientIpSubject(request, user.id);
 
-    // Gate order: IP -> user (hour) -> body validation -> user-day -> global.
+    // Gate order: IP -> user (hour) -> body validation -> (plan lookup) ->
+    // user-day -> global.
     //
     // The first two are the flood dampers. They run before any work and count
     // ATTEMPTS on purpose: a request must cost its originator something even
@@ -510,22 +517,42 @@ export async function handleRequest(request: Request): Promise<Response> {
     // either.
     const body = await parseBody(request, deadline, requestId);
 
+    // The account's plan sets its day limit (docs/PREMIUM.md 3.3). Asked only
+    // now, so a request the attempt gates or the validation turned away costs
+    // no lookup either; a failed lookup applies Free (../_shared/plan.ts).
+    const plan = await resolvePlan({
+      supabaseUrl: secrets.supabaseUrl,
+      serviceKey: secrets.serviceKey,
+      userId: user.id,
+      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+    });
+    const userDayGate: GateSpec = {
+      scope: 'analyze-meal:user-day',
+      subject: user.id,
+      limit: limitFor(plan, 'meal_analysis'),
+      windowSeconds: DAY_WINDOW_SECONDS,
+    };
     const globalGate: GateSpec = {
       scope: 'analyze-meal:global',
       subject: GLOBAL_SUBJECT,
       limit: GLOBAL_DAY_LIMIT,
       windowSeconds: DAY_WINDOW_SECONDS,
     };
-    const dayGates = await consumeRateLimits(secrets, [
-      { scope: 'analyze-meal:user-day', subject: user.id, limit: USER_DAY_LIMIT, windowSeconds: DAY_WINDOW_SECONDS },
-      globalGate,
-    ], deadline);
+    const dayGates = await consumeRateLimits(secrets, [userDayGate, globalGate], deadline);
     if ('denied' in dayGates) {
       if (dayGates.deniedScope === globalGate.scope) {
         // Operator signal: this is the bill cap, not one abusive user.
         console.warn('analyze-meal global day cap reached', { requestId });
       }
-      return rateLimitedResponse(request, dayGates.denied, requestId);
+      // Only the account's own day limit is a plan limit the app can explain.
+      const userDayDenied = dayGates.deniedScope === userDayGate.scope;
+      // Under the Free fallback the account may have more (Premium): a
+      // retryable outage, not a tier quota. The denied gate counted nothing.
+      if (userDayDenied && plan.fallback) {
+        throw new HttpError(503, 'plan_unavailable', 'Analyse gerade nicht verfügbar. Bitte erneut versuchen.');
+      }
+      const planLimit = userDayDenied ? planLimitWire(plan, 'meal_analysis', dayGates.denied.resetAt) : undefined;
+      return rateLimitedResponse(request, dayGates.denied, requestId, planLimit);
     }
     // The global bucket's fill level stays server-side (see the 200 below), so
     // only the user's own day gate is named here.
@@ -1259,7 +1286,13 @@ function extractJson(raw: string): string {
   return trimmed;
 }
 
-function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId: string): Response {
+/** `planLimit` is added for a denial of the per-account day limit only. */
+function rateLimitedResponse(
+  request: Request,
+  limit: RateLimitResult,
+  requestId: string,
+  planLimit?: PlanLimitWire,
+): Response {
   const retryAfter = retryAfterSeconds(limit.resetAt, limit.windowSeconds);
   return jsonResponse(
     request,
@@ -1268,6 +1301,7 @@ function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId
       message: 'Zu viele Analysen. Bitte später erneut versuchen.',
       requestId,
       rateLimit: limit,
+      ...(planLimit ? { planLimit } : {}),
     },
     429,
     { 'retry-after': String(retryAfter) },

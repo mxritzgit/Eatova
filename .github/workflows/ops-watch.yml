@@ -2,7 +2,7 @@ name: Ops watch
 
 # Hourly production watch without paid calls and without user data: the
 # read-only readiness check (project health, AI stop switches and the shared
-# daily AI budget, warning at 80 %) and the boot probe of every Edge Function.
+# daily AI budget, warning at 60 %) and the boot probe of every Edge Function.
 # A problem fails the run; GitHub mails a failed scheduled run to the person
 # who last changed this schedule. Setup and limits: docs/OPERATIONS.md, "Ops
 # watch".
@@ -34,10 +34,11 @@ jobs:
           persist-credentials: false
 
       # Exit 1 is attention (project not healthy, a stop switch, calls or
-      # images at 80 % or exhausted), exit 2 unknown (access, transport or an
-      # invalid response); both fail. Backups join once the repository or
-      # environment variable OPS_WATCH_BACKUP_MAX_AGE_HOURS holds the agreed
-      # RPO; until then the report names them as not checked.
+      # images at 60 % or exhausted; the Premium decision, PREMIUM.md 1.1),
+      # exit 2 unknown (access, transport or an invalid response); both fail.
+      # Backups join once the repository or environment variable
+      # OPS_WATCH_BACKUP_MAX_AGE_HOURS holds the agreed RPO; until then the
+      # report names them as not checked.
       - name: Readiness (project and AI budget)
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -54,11 +55,12 @@ jobs:
             backups=(--backup-max-age-hours "$BACKUP_MAX_AGE_HOURS")
           fi
           python3 scripts/operations/readiness.py --expected-project-ref "$SUPABASE_PROJECT_REF" \
-            --budget-warning-percent 80 "${backups[@]}" --summary "$GITHUB_STEP_SUMMARY"
+            --budget-warning-percent 60 "${backups[@]}" --summary "$GITHUB_STEP_SUMMARY"
 
-      # Preflight 204, the gateway's 401 without a token and each handler's
-      # own 401 with the public anon key: every function is deployed, keeps
-      # verify_jwt and boots. No user token, no paid call.
+      # Preflight 204, the gateway's 401 without a token (the public webhook
+      # store-notifications instead answers its own 401) and each handler's own
+      # 401 with the public anon key: every function is deployed, keeps its
+      # registered verify_jwt mode and boots. No user token, no paid call.
       - name: Boot probe (all functions)
         if: ${{ !cancelled() }}
         env:

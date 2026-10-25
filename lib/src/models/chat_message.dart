@@ -18,6 +18,7 @@ class ChatMessage {
     this.trainingPlanProposal,
     this.workoutLogProposal,
     this.workoutLogLocalId,
+    this.recipeImageLocked = false,
   });
 
   final String id;
@@ -49,6 +50,11 @@ class ChatMessage {
   /// answers: their history id is derived from [id].
   final String? workoutLogLocalId;
 
+  /// The /recipe answer came without its AI picture because the plan has
+  /// none (`image_locked`, docs/PREMIUM.md 3.2). The live answer carries the
+  /// flag at the top level, a stored row inside its `recipe` JSON.
+  final bool recipeImageLocked;
+
   /// This message with [proposal] in place of [recipeProposal]; every other
   /// field, the other proposals included, carries over.
   ChatMessage withRecipeProposal(CoachRecipeProposal? proposal) => ChatMessage(
@@ -62,6 +68,7 @@ class ChatMessage {
     trainingPlanProposal: trainingPlanProposal,
     workoutLogProposal: workoutLogProposal,
     workoutLogLocalId: workoutLogLocalId,
+    recipeImageLocked: recipeImageLocked,
   );
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
@@ -90,6 +97,10 @@ class ChatMessage {
       workoutLogProposal: proposalAllowed && rawLog is Map
           ? CoachWorkoutLog.fromJson(rawLog)
           : null,
+      recipeImageLocked:
+          proposalAllowed &&
+          rawRecipe is Map &&
+          rawRecipe['image_locked'] == true,
     );
   }
 }
@@ -119,9 +130,9 @@ class ChatQuotaSnapshot {
   ///
   /// `get_chat_quota_today` derives `remaining` from the limit the CALLER
   /// passes in and echoes it back, so its answer is display arithmetic, not a
-  /// statement about `COACH_DAILY_LIMIT`. With a server limit of 10 it reports
-  /// `remaining = 0` after five slots and would lock a composer the server
-  /// still accepts. An assumed limit therefore never blocks — the server
+  /// statement about the server's plan limit. With a server limit of 10 it
+  /// reports `remaining = 0` after five slots and would lock a composer the
+  /// server still accepts. An assumed limit therefore never blocks — the server
   /// answers 429 if the quota really is gone, and that path locks properly.
   final bool limitAssumed;
 

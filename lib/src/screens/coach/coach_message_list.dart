@@ -14,6 +14,8 @@ class _Conversation extends StatelessWidget {
     required this.recipeAddedFor,
     required this.recipeAddEnabled,
     required this.onAddRecipe,
+    this.recipePictureLockedFor,
+    this.onUnlockRecipePicture,
     required this.planAddedFor,
     required this.planReviewEnabled,
     required this.onReviewPlan,
@@ -58,6 +60,11 @@ class _Conversation extends StatelessWidget {
   final bool Function(ChatMessage message) recipeAddedFor;
   final bool recipeAddEnabled;
   final ValueChanged<ChatMessage> onAddRecipe;
+
+  /// Whether a /recipe card says "KI-Bild mit Premium" where its picture
+  /// would be; null never.
+  final bool Function(ChatMessage message)? recipePictureLockedFor;
+  final VoidCallback? onUnlockRecipePicture;
   final bool Function(ChatMessage message) planAddedFor;
   final bool planReviewEnabled;
   final ValueChanged<ChatMessage> onReviewPlan;
@@ -147,6 +154,9 @@ class _Conversation extends StatelessWidget {
                   recipeAdded: recipeAddedFor(message),
                   recipeAddEnabled: recipeAddEnabled,
                   onAddRecipe: () => onAddRecipe(message),
+                  recipePictureLocked:
+                      recipePictureLockedFor?.call(message) ?? false,
+                  onUnlockRecipePicture: onUnlockRecipePicture,
                   planAdded: planAddedFor(message),
                   planReviewEnabled: planReviewEnabled,
                   onReviewPlan: () => onReviewPlan(message),
@@ -248,6 +258,8 @@ class _MessageView extends StatelessWidget {
     this.recipeAdded = false,
     this.recipeAddEnabled = false,
     this.onAddRecipe,
+    this.recipePictureLocked = false,
+    this.onUnlockRecipePicture,
     this.planAdded = false,
     this.planReviewEnabled = false,
     this.onReviewPlan,
@@ -263,6 +275,8 @@ class _MessageView extends StatelessWidget {
   final bool recipeAdded;
   final bool recipeAddEnabled;
   final VoidCallback? onAddRecipe;
+  final bool recipePictureLocked;
+  final VoidCallback? onUnlockRecipePicture;
   final bool planAdded;
   final bool planReviewEnabled;
   final VoidCallback? onReviewPlan;
@@ -454,6 +468,8 @@ class _MessageView extends StatelessWidget {
                           enabled: recipeAddEnabled,
                           onAdd: onAddRecipe,
                           onReportImage: onReportImage,
+                          pictureLocked: recipePictureLocked,
+                          onUnlockPicture: onUnlockRecipePicture,
                         ),
                       )
                     else if (fromUser)
@@ -590,16 +606,20 @@ class _ThinkingRowState extends State<_ThinkingRow>
 
 // ---------------------------------------------------------------------------
 class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.text, this.onRetry});
+  const _ErrorBanner({required this.text, this.onRetry, this.action});
   final String text;
 
   /// "Try again" under the text (a failed load); null shows none.
   final VoidCallback? onRetry;
 
+  /// One more action under the text ("Mehr mit Premium" at the limit).
+  final Widget? action;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final retry = onRetry;
+    final extra = action;
     // Live region: a failed send, the quota or a speech error appears without
     // focus moving, so a screen reader would otherwise stay silent.
     return Semantics(
@@ -636,6 +656,11 @@ class _ErrorBanner extends StatelessWidget {
                         tone: SoftPillTone.neutral,
                         onTap: retry,
                       ),
+                    ),
+                  if (extra != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: extra,
                     ),
                 ],
               ),

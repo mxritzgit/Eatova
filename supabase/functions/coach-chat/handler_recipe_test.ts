@@ -30,6 +30,7 @@ import {
   simulatedThinkingTokens,
 } from "./claude_mode_test_helpers.ts";
 import { handleRequest } from "./handler.ts";
+import { isResolvePlanCall, type PlanFixture, resolvePlanResponse } from "./plan_test_fixtures.ts";
 import { RECIPE_OUTPUT_SCHEMA } from "./recipe.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -45,8 +46,9 @@ const IMAGE_PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 // Base64 that decodes to plain text: no image container at all.
 const IMAGE_GARBAGE_B64 = "aGFsbG8taWNoLWJpbi1laW4tYmlsZA==";
-// COACH_DAILY_LIMIT default, mirrored by the quota ledger below.
-const DAILY_LIMIT = 5;
+// The stub's default plan is Premium (20 with picture), mirrored by the quota
+// ledger below: a constant 5 in the recipe fields fails.
+const DAILY_LIMIT = 20;
 
 const RECIPE_JSON = JSON.stringify({
   title: "Huehnchenauflauf",
@@ -78,6 +80,8 @@ interface RecordedCall {
 }
 
 interface StubOptions {
+  /** resolve_plan answer (default "premium"); "unavailable" answers 503. */
+  plan?: PlanFixture | "unavailable";
   imageBudgetDenied?: boolean;
   /** "ok" (default), "exhausted" or "forbidden" (claim must never happen). */
   quota?: "ok" | "exhausted" | "forbidden";
@@ -208,6 +212,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("/rest/v1/rpc/touch_chat_session")) {
       return new Response(null, { status: 204 });
+    }
+    if (isResolvePlanCall(url)) {
+      if (options.plan === "unavailable") return jsonRes({ message: "plan lookup down" }, 503);
+      return resolvePlanResponse(options.plan ?? "premium");
     }
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) {
       const mode = options.quota ?? "ok";
@@ -475,8 +483,8 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
       String(body.reply).includes("Huehnchenauflauf"),
       `Summary nennt den Titel, war: ${String(body.reply)}`,
     );
-    assertEquals(body.remaining, 4, "remaining aus dem Claim");
-    assertEquals(body.daily_limit, 5, "daily_limit");
+    assertEquals(body.remaining, DAILY_LIMIT - 1, "remaining aus dem Claim");
+    assertEquals(body.daily_limit, DAILY_LIMIT, "daily_limit");
     assertEquals(body.session_id, SESSION_ID, "session_id");
 
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "genau ein Claim");
@@ -709,7 +717,7 @@ Deno.test("Layer 2 im Rezept-Modus: jede Sicherheitskategorie und eine unbrauchb
       assertEquals(stub.callsTo("api/v1/images").length, 0, `${was}: kein Bild-Call`);
       // A paid, completed classification keeps the slot (CWE-770).
       assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${was}: kein Refund`);
-      assertEquals(body.remaining, 4, `${was}: remaining aus dem Claim`);
+      assertEquals(body.remaining, DAILY_LIMIT - 1, `${was}: remaining aus dem Claim`);
     } finally {
       stub.restore();
     }
@@ -1000,6 +1008,54 @@ Deno.test("Ohne OPENROUTER_API_KEY: Rezept ohne Bild, kein coach_image-Budget, k
       stub.restore();
       if (original === undefined) Deno.env.delete("OPENROUTER_API_KEY");
       else Deno.env.set("OPENROUTER_API_KEY", original);
+    }
+  }
+});
+
+// Premium (docs/PREMIUM.md 3.2): the AI picture is a plan feature. Without it
+// the recipe arrives complete, with no image call and no coach_image
+// reservation, and image_locked tells the card where Premium adds it. The
+// stored recipe carries the flag too, so the card keeps it after a reload.
+// During a plan outage the Free fallback draws no picture, but the account's
+// plan may include one: nothing is locked and no limit is named.
+Deno.test("Tarif: das KI-Bild folgt recipe_picture, das Rezept bleibt vollstaendig", async () => {
+  for (const { plan, picture, locked, limit } of [
+    { plan: "free", picture: false, locked: true, limit: 3 },
+    { plan: "premium", picture: true, locked: false, limit: 20 },
+    { plan: "legacy", picture: true, locked: false, limit: 5 },
+    { plan: "unavailable", picture: false, locked: false, limit: undefined },
+  ] as const) {
+    const stub = installFetch({ plan });
+    const originalError = console.error;
+    if (plan === "unavailable") console.error = () => {};
+    try {
+      const res = await handleRequest(makeRecipeRequest());
+      assertEquals(res.status, 200, `${plan}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(JSON.stringify(body.recipe), RECIPE_JSON, `${plan}: das ganze Rezept`);
+      assertEquals(body.assistant_message_id, ASSISTANT_MSG_ID, `${plan}: Rezept gespeichert`);
+      assertEquals(body.image_base64, picture ? IMAGE_B64 : undefined, `${plan}: Bild`);
+      assertEquals(body.image_locked, locked ? true : undefined, `${plan}: image_locked`);
+      const stored = stub.calls.filter((c) => c.url.includes("/rest/v1/chat_messages") && c.method === "POST")
+        .map((c) => bodyOf(c)).find((row) => row.role === "assistant");
+      assertEquals(
+        JSON.stringify(stored?.recipe),
+        locked ? JSON.stringify({ ...JSON.parse(RECIPE_JSON), image_locked: true }) : RECIPE_JSON,
+        `${plan}: gespeichertes Rezept`,
+      );
+      assertEquals(body.daily_limit, limit, `${plan}: daily_limit`);
+      assertEquals("remaining" in body, limit !== undefined, `${plan}: remaining`);
+      assertEquals(stub.callsTo("openrouter.ai").length, picture ? 1 : 0, `${plan}: OpenRouter-Calls`);
+      assertEquals(
+        JSON.stringify(stub.callsTo("reserve_ai_provider_call").map((call) => bodyOf(call).p_operation)),
+        JSON.stringify(["coach_classifier", "coach_recipe", ...(picture ? ["coach_image"] : [])]),
+        `${plan}: Reservierungen`,
+      );
+      assertEquals(stub.quotaUsed(), 1, `${plan}: ein Slot`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${plan}: kein Refund`);
+    } finally {
+      console.error = originalError;
+      stub.restore();
     }
   }
 });

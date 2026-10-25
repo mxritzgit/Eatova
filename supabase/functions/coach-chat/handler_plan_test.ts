@@ -18,6 +18,7 @@ import {
   CREDIT_BALANCE_MESSAGE,
 } from "./claude_mode_test_helpers.ts";
 import { handleRequest, PROVIDER_TIMEOUTS_MS, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
+import { isResolvePlanCall, resolvePlanResponse } from "./plan_test_fixtures.ts";
 import { TRAINING_PLAN_OUTPUT_SCHEMA } from "./training_plan.ts";
 
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -122,6 +123,8 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
     if (url.includes("/rpc/prune_edge_rate_limits")) return Promise.resolve(new Response(null, { status: 204 }));
     if (url.includes("/rpc/ensure_default_chat_session")) return Promise.resolve(response(SESSION));
     if (url.includes("/rpc/touch_chat_session")) return Promise.resolve(new Response(null, { status: 204 }));
+    // Premium (20): a constant 5 in the plan fields fails below.
+    if (isResolvePlanCall(url)) return Promise.resolve(resolvePlanResponse("premium"));
     if (url.includes("/rpc/claim_chat_quota")) {
       if (options.quota === "exhausted") return Promise.resolve(response({ message: "EX_QUOTA_EXCEEDED" }, 400));
       ledger.set(CLAIM_DAY, (ledger.get(CLAIM_DAY) ?? 0) + 1);
@@ -234,7 +237,7 @@ Deno.test("plan handler: one slot, complete validated proposal, assistant histor
     equal(body.assistant_message_id, ASSISTANT, "history id");
     equal(body.session_id, SESSION, "session");
     equal(body.remaining, 4, "quota remaining");
-    equal(body.daily_limit, 5, "daily limit");
+    equal(body.daily_limit, 20, "daily limit of the Premium plan");
     equal(stub.ledger.get(CLAIM_DAY), 1, "one spent slot");
     equal(stub.draftCalls().length, 1, "one draft request");
     equal(stub.providerCalls().length, 2, "classifier plus draft only");

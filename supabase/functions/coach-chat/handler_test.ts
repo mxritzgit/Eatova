@@ -26,6 +26,7 @@ import {
   outputSchema,
   systemText,
 } from "../_shared/claude_test_fixtures.ts";
+import { isResolvePlanCall, type PlanFixture, resolvePlanResponse } from "./plan_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -124,6 +125,8 @@ interface StubOptions {
    * all (for layer-1 paths that must never touch the quota).
    */
   quota?: "ok" | "exhausted" | "forbidden";
+  /** resolve_plan answer (default "legacy"); "unavailable" answers 503. */
+  plan?: PlanFixture | "unavailable";
   /** Content of the expensive answer call. */
   answerContent?: string;
   /** HTTP status of the classifier call (infra failure simulation). */
@@ -314,6 +317,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("/rest/v1/rpc/touch_chat_session")) {
       return new Response(null, { status: 204 });
+    }
+    if (isResolvePlanCall(url)) {
+      if (options.plan === "unavailable") return jsonRes({ message: "plan lookup down" }, 503);
+      return resolvePlanResponse(options.plan ?? "legacy");
     }
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) {
       const mode = options.quota ?? "ok";
@@ -1844,27 +1851,93 @@ Deno.test("P5-07b: der Bildblock traegt den GEMESSENEN Typ, nicht die Behauptung
 // Finding 2: quota and rate-limit messages were hardcoded German, and the
 // client shows those server texts verbatim (`serverReply ?? _l10n…`), so
 // English users read German every day.
+//
+// Premium (docs/PREMIUM.md 3.2): the account's plan sets the claimed limit,
+// daily_limit and the quota text, and a Free account's 429 names the Premium
+// allowance. A failed plan lookup means Free, never more, and a denial under
+// it is a retryable 503 plan_unavailable: no day lock, no upgrade offer. An
+// answer under it names no limit and no remaining, since the Free fallback's
+// numbers are not the account's; that holds for a Layer-2 refusal too.
 // ---------------------------------------------------------------------------
 
-Deno.test("Fund 2: erschoepfte Quota antwortet in der locale des Requests", async () => {
-  // The DE text is the incumbent and stays byte-identical.
-  for (const { locale, reply } of [
-    { locale: "en", reply: "Daily limit reached (5 coach questions per day). Back tomorrow." },
-    { locale: undefined, reply: "Tageslimit erreicht (5 Coach-Fragen pro Tag). Morgen geht's weiter." },
-  ]) {
-    const stub = installFetch({ quota: "exhausted" });
-    try {
-      const res = await handleRequest(makeRequest({
-        message: "Wie oft soll ich pro Woche trainieren?",
-        ...(locale ? { locale } : {}),
-      }));
-      assertEquals(res.status, 429, `${locale ?? "de"}: Status`);
-      const body = await res.json() as JsonRecord;
-      assertEquals(body.error, "quota_exceeded", `${locale ?? "de"}: error`);
-      assertEquals(body.reply, reply, `${locale ?? "de"}: Tageslimit-Text`);
-    } finally {
-      stub.restore();
+Deno.test("Fund 2 + Tarif: Claim, daily_limit und die 429 folgen dem Plan, in der locale des Requests", async () => {
+  // Without Premium sentence the DE text is the incumbent, byte-identical.
+  const freeDe = "Tageslimit erreicht (3 Coach-Fragen pro Tag). Morgen geht's weiter. Mit Premium sind es 20 pro Tag.";
+  const freeEn = "Daily limit reached (3 coach questions per day). Back tomorrow. With Premium it's 20 per day.";
+  const rows: Array<{
+    plan: PlanFixture | "unavailable"; locale?: "en"; limit: number; tier?: string; premiumLimit?: number; reply?: string;
+    category?: string;
+  }> = [
+    { plan: "free", limit: 3, tier: "free", premiumLimit: 20, reply: freeDe },
+    { plan: "free", locale: "en", limit: 3, tier: "free", premiumLimit: 20, reply: freeEn },
+    { plan: "premium", limit: 20, tier: "premium", reply: "Tageslimit erreicht (20 Coach-Fragen pro Tag). Morgen geht's weiter." },
+    { plan: "premium", locale: "en", limit: 20, tier: "premium", reply: "Daily limit reached (20 coach questions per day). Back tomorrow." },
+    {
+      plan: "legacy", limit: 5, tier: "free", premiumLimit: 20,
+      reply: "Tageslimit erreicht (5 Coach-Fragen pro Tag). Morgen geht's weiter. Mit Premium sind es 20 pro Tag.",
+    },
+    { plan: "unavailable", locale: "en", limit: 3 },
+    { plan: "unavailable", limit: 3, category: "off_topic" },
+  ];
+  const realNow = Date.now;
+  // Every limit resets at the next 00:00 UTC.
+  Date.now = () => Date.parse("2026-10-25T21:30:00.000Z");
+  const resetAt = "2026-10-26T00:00:00.000Z";
+  try {
+    for (const row of rows) {
+      for (const quota of ["ok", "exhausted"] as const) {
+        const label = `${row.plan}/${row.locale ?? "de"}${row.category ? `/${row.category}` : ""}/${quota}`;
+        const captured = quietConsole(row.plan === "unavailable");
+        const stub = installFetch({ plan: row.plan, quota, classifierCategory: row.category });
+        try {
+          const res = await handleRequest(makeRequest({
+            message: "Wie oft soll ich pro Woche trainieren?",
+            ...(row.locale ? { locale: row.locale } : {}),
+          }));
+          const body = await res.json() as JsonRecord;
+          const claims = stub.callsTo("claim_chat_quota");
+          assertEquals(claims.length, 1, `${label}: ein Claim`);
+          assertEquals((JSON.parse(claims[0].body) as JsonRecord).p_daily_limit, row.limit, `${label}: Claim-Limit`);
+          if (quota === "ok") {
+            assertEquals(res.status, 200, `${label}: Status`);
+            assertEquals(body.refusal_reason, row.category ?? null, `${label}: Antwort oder Layer-2-Ablehnung`);
+            if (row.plan === "unavailable") {
+              // The client keeps its counter and asks the plan again.
+              assert(!("daily_limit" in body) && !("remaining" in body), `${label}: kein Limit, kein Rest`);
+            } else {
+              assertEquals(body.daily_limit, row.limit, `${label}: daily_limit`);
+            }
+          } else if (row.plan === "unavailable") {
+            assertEquals(res.status, 503, `${label}: Status`);
+            assertEquals(JSON.stringify(body), '{"error":"plan_unavailable"}', `${label}: 503-Body`);
+            assertEquals(stub.providerCalls().length, 0, `${label}: kein Provider-Call`);
+          } else {
+            assertEquals(res.status, 429, `${label}: Status`);
+            assertEquals(JSON.stringify(body), JSON.stringify({
+              error: "quota_exceeded",
+              reply: row.reply,
+              remaining: 0,
+              daily_limit: row.limit,
+              planLimit: {
+                feature: "coach", tier: row.tier, limit: row.limit, resetAt,
+                ...(row.premiumLimit === undefined ? {} : { premiumLimit: row.premiumLimit }),
+              },
+              reset_at: resetAt,
+            }), `${label}: 429-Body`);
+            assertEquals(stub.providerCalls().length, 0, `${label}: kein Provider-Call`);
+          }
+          if (row.plan === "unavailable") {
+            assert(captured.lines.includes("resolve_plan unavailable"), `${label}: der Ausfall wird gemeldet`);
+            assert(!captured.lines.some((line) => line.includes("plan lookup down")), `${label}: kein Body im Log`);
+          }
+        } finally {
+          captured.restore();
+          stub.restore();
+        }
+      }
     }
+  } finally {
+    Date.now = realNow;
   }
 });
 

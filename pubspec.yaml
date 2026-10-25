@@ -121,6 +121,13 @@ dependencies:
   # 2026-10-19; export_file_share.dart). No permission: Android shares through
   # the plugin's own FileProvider, iOS through UIActivityViewController.
   share_plus: ^12.0.2
+  # Premium subscriptions (docs/PREMIUM.md 1.3): the official store plugins,
+  # verified on the server. The platform packages are direct because
+  # store_billing_client.dart uses their types (GooglePlayPurchaseParam,
+  # Sk2PurchaseParam, SK2Product). storekit 0.4.14+ for showManageSubscriptions.
+  in_app_purchase: ^3.3.1
+  in_app_purchase_android: ^0.5.5
+  in_app_purchase_storekit: ^0.4.15
 
 dev_dependencies:
   flutter_test:

@@ -978,3 +978,4 @@ select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;
 \ir profile_food_preferences.sql
 \ir ai_consents_reports_rls.sql
 \ir weight_log_edit.sql
+\ir premium_subscriptions_rls.sql

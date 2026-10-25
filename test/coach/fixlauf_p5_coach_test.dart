@@ -33,9 +33,10 @@ import '../support/harness.dart';
 //   P5-04  Weder `send` noch `requestRecipe` hatten eine Frist. Eine haengende
 //          Antwort liess `_laufendeSendungen > 0` stehen: Senden, Mikrofon,
 //          Anhang und Wiederholen waren tot, ohne Abbruchmoeglichkeit.
-//   P5-06  Das Tageslimit stand zweimal: `claim_chat_quota` erzwingt
-//          COACH_DAILY_LIMIT, `get_chat_quota_today` rechnet `remaining` gegen
-//          den Wert, den der CLIENT uebergibt (harte 5).
+//   P5-06  Das Tageslimit stand zweimal: `claim_chat_quota` erzwingt das
+//          Limit des Servers (heute das `coach_daily` des Plans),
+//          `get_chat_quota_today` rechnet `remaining` gegen den Wert, den der
+//          CLIENT uebergibt (harte 5).
 //   P5-06b Der Fix zu P5-06 machte den Composer bei ANGENOMMENEM Limit wieder
 //          tippbar, die Anzeige zog nicht nach: der Platzhalter sagte weiter
 //          „Limit fuer heute erreicht" ueber einem Feld, das Text annimmt.
@@ -513,7 +514,7 @@ void main() {
 
       expect(backend.quotaLimits.last, 10,
           reason: 'die harte 5 aus ChatQuotaSnapshot.standardTageslimit war '
-              'die zweite Wahrheit neben COACH_DAILY_LIMIT');
+              'die zweite Wahrheit neben dem Limit des Servers');
     });
   });
 }

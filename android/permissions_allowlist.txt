@@ -14,4 +14,5 @@ android.permission.VIBRATE  # app manifest, flutter_local_notifications
 android.permission.WAKE_LOCK  # androidx.work
 android.permission.health.READ_STEPS  # app manifest, Health Connect steps
 android.permission.health.READ_WEIGHT  # app manifest, Health Connect scale import
+com.android.vending.BILLING  # com.android.billingclient:billing 9.1.0 via in_app_purchase_android (Premium)
 com.eatova.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION  # androidx.core, app-private signature permission

@@ -9,13 +9,64 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 ## [Unreleased]
 
 Updated 2026-09-16; the dark redesign entry was added 2026-10-01 and the October
-entries on 2026-10-03, 2026-10-08, 2026-10-11, 2026-10-18, 2026-10-20 and 2026-10-22. Changes between
+entries on 2026-10-03, 2026-10-08, 2026-10-11, 2026-10-18, 2026-10-20, 2026-10-22 and 2026-10-25. Changes between
 those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
 repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
 the complete current product.
 
 ### October 2026
+
+- **Premium tier** (2026-10-25, [contract](docs/PREMIUM.md)):
+  - Free and Premium with server-side daily limits per UTC day: Coach
+    questions 3 or 20, AI meal analyses 4 or 30, recipe imports 2 or 10, the
+    Coach recipe picture only with Premium. Limits live in `plan_tiers` and
+    change without a release; existing accounts keep their earlier limits
+    until the operator ends the transition after announcing the new terms.
+  - Migration `20261025100000_premium_subscriptions.sql`: plan tiers, the
+    legacy window, store account tokens, store subscriptions and
+    notification receipts, all server-only; `resolve_plan`, `get_my_plan`
+    and `record_store_subscription`; a per-account provider ceiling that
+    follows the plan, and global ceilings raised to 3,000 calls and 200
+    pictures a day.
+  - `coach-chat`, `analyze-meal` and `recipe-import` resolve the plan per
+    request, fall back to Free when the lookup fails and add `planLimit` to
+    a tier-quota 429; `COACH_DAILY_LIMIT` and `ANALYZE_MEAL_USER_DAY_LIMIT`
+    are no longer read. New functions `subscription-verify` (Google Play and
+    StoreKit 2 purchases verified on the server) and `store-notifications`
+    (App Store Server Notifications V2 and Play real-time notifications, its
+    own signature checks).
+  - App: purchases through the official `in_app_purchase` plugin, a paywall
+    once after a fresh onboarding with an equal "Weiter mit Free", the
+    purchase screen, an "Abo" section in Profile and a row in Settings, a
+    deletion warning while a store subscription renews, upgrade hints at a
+    limit, and a one-time notice for existing accounts.
+  - Docs: backend, features, privacy data flows, the
+    [store setup](docs/OPERATIONS.md#premium-store-setup) and a German
+    [legal draft](docs/PREMIUM-LEGAL-DRAFT.md) for the terms and the privacy
+    policy. Nothing is live yet: the migration, five function deploys, the
+    store products, the legal texts and an app build are still open.
+  - Fixes from the pre-merge review (2026-10-25): a failed plan lookup no
+    longer poses as a Free limit (503 `plan_unavailable`); a purchase that
+    belongs to another Eatova account says so and stays uncompleted; a
+    newer App Store purchase on the same Apple ID moves to the account that
+    made it; denied attempts no longer use up the day's allowance; the
+    Coach's "KI-Bild mit Premium" line and the once-a-day upgrade offer
+    survive a restart; the paywall shows the charge above the purchase
+    button; legacy accounts with Premium get a provider ceiling of 200;
+    the ops watch warns at 60 %; repeated store notifications, the store
+    stop and the acknowledgement check are documented as they work.
+  - Fixes from the second review (2026-10-25): during a failed plan lookup
+    a successful Coach answer names no limit, so a Premium or legacy
+    account's composer no longer locks at the fallback's 3, and a recipe
+    made then gets no lasting "KI-Bild mit Premium" line; a Google
+    subscription on hold or paused stops blocking the purchase screen after
+    60 or 92 days; a legacy account with Premium keeps the date and its
+    regular Premium limits as a note on its Profile; the scan and Describe
+    cards show "Willkommen bei Premium" only after a real upgrade. The
+    contract, backend, features and operations docs now describe the legacy
+    notice variants, held subscriptions, the copy keys and the
+    `legacy.premium` shape as they work.
 
 - **Items from the review of 2026-10-22** (2026-10-22):
   - A logged food no longer overwrites a pinned favorite of the same name;

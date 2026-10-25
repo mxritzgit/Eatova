@@ -12,6 +12,7 @@ import '../l10n/l10n.dart';
 import '../services/app_shortcuts.dart';
 import '../services/crash_reporter.dart';
 import '../services/background_sync_scheduler.dart';
+import '../services/billing/purchase_flow.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
@@ -31,6 +32,7 @@ import 'ai_trust.dart';
 import 'auth_gate.dart';
 import 'eatova_home_page.dart';
 import 'locale_controller.dart';
+import 'subscription.dart';
 
 class EatovaApp extends StatefulWidget {
   const EatovaApp({
@@ -51,6 +53,7 @@ class EatovaApp extends StatefulWidget {
     this.recipeImportService,
     this.recipeShareReceiver,
     this.appShortcuts,
+    this.purchaseFlow,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -75,6 +78,10 @@ class EatovaApp extends StatefulWidget {
   /// App-icon shortcuts. Real [PlatformAppShortcuts] in production; null in
   /// tests/preview, where nothing is put on the icon.
   final AppShortcuts? appShortcuts;
+
+  /// The app-level purchase pipeline every signed-in shell binds its account
+  /// into. Null (tests, preview) means no purchases ([NoPurchaseFlow]).
+  final PurchaseFlow? purchaseFlow;
 
   /// Display mode (light/dark/system). `main` injects one that has already
   /// loaded the stored mode, so the first frame is painted in it; a test
@@ -108,6 +115,9 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
 
   /// The signed-in shell binds its account's AI consent here (2026-10-19).
   final AiTrustBinding _aiTrust = AiTrustBinding();
+
+  /// The signed-in shell binds its account's plan here (2026-10-25).
+  final SubscriptionBinding _subscription = SubscriptionBinding();
 
   @override
   void initState() {
@@ -167,10 +177,15 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
     // the root Navigator, which must reach the account's consent too.
     return AiTrustScope(
       binding: _aiTrust,
-      child: LocaleScope(
-        controller: _locale,
-        // Without a ThemeModeScope the settings page drops its appearance row.
-        child: ThemeModeScope(controller: _themeMode, child: app),
+      // Same reason: the upgrade hints and the Premium screen act from sheets.
+      child: SubscriptionScope(
+        binding: _subscription,
+        child: LocaleScope(
+          controller: _locale,
+          // Without a ThemeModeScope the settings page drops its appearance
+          // row.
+          child: ThemeModeScope(controller: _themeMode, child: app),
+        ),
       ),
     );
   }
@@ -253,6 +268,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           sync: _syncFor(user.id),
           syncConnectivity: widget.syncConnectivity,
           backgroundSyncScheduler: widget.backgroundSyncScheduler,
+          purchaseFlow: widget.purchaseFlow,
           showWelcome: freshLogin,
         ),
       ),

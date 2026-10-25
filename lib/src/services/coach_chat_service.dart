@@ -17,6 +17,8 @@ import '../models/coach_recipe_proposal.dart';
 import '../models/coach_training_proposal.dart';
 import '../models/coach_training_context.dart';
 import '../models/coach_workout_log.dart';
+import '../models/plan_limit_hit.dart';
+import '../models/plan_status.dart' show PlanFeature;
 import '../models/user_profile.dart';
 import 'coach_quota_reset.dart';
 import 'crash_reporter.dart';
@@ -38,7 +40,7 @@ Map<String, Object> recipePreferencesPayload(FoodPreferences preferences) => {
 
 /// Coach-chat backend bridge.
 ///
-/// Rate limit (5/day), safety filter and the model call all live in the
+/// Rate limit (per plan tier), safety filter and the model call all live in the
 /// `coach-chat` edge function. This class only loads history from
 /// public.chat_messages (RLS scopes it to the user), invokes the function,
 /// reads the counter via get_chat_quota_today, and manages sessions by RPC.
@@ -145,6 +147,26 @@ class CoachChatService {
 
   void _tageslimitMerken(int? limit) {
     if (limit != null && limit > 0) _serverTageslimit = limit;
+  }
+
+  /// The account's plan changed tier or limits (`SubscriptionController
+  /// .tierChanges`, docs/PREMIUM.md 4.5): the remembered limit and the
+  /// account's quota slot follow the plan at once, so a cold start neither
+  /// relocks an upgrade with the old limit nor counts a downgrade against the
+  /// old one.
+  void adoptPlanLimit(int dailyLimit, {required int used}) {
+    if (dailyLimit <= 0) return;
+    _serverTageslimit = dailyLimit;
+    // The plan supersedes whatever the slot held.
+    _gedaechtnisGelesen = true;
+    final spent = used.clamp(0, dailyLimit);
+    rememberQuota(
+      ChatQuotaSnapshot(
+        used: spent,
+        remaining: dailyLimit - spent,
+        dailyLimit: dailyLimit,
+      ),
+    );
   }
 
   /// This account's quota memory; null (previews, tests, no cache) keeps
@@ -428,6 +450,8 @@ class CoachChatService {
       // Key of the local image store. The bytes are gone with the response, so
       // the card renders its placeholder until /recipe runs again.
       assistantMessageId: antwort.id.isEmpty ? null : antwort.id,
+      // Free: the stored row says so, the card shows "KI-Bild mit Premium".
+      imageLocked: vorschlag != null && antwort.recipeImageLocked,
     );
   }
 
@@ -655,10 +679,11 @@ class CoachChatService {
   /// `p_daily_limit` is display arithmetic only: the RPC is read-only and
   /// derives `remaining` from the passed value and echoes it back. The limit
   /// is enforced server-side via `claim_chat_quota` (service_role only)
-  /// against `COACH_DAILY_LIMIT`, which this RPC never sees — so the only
-  /// reliable limit is the one a function answer named, kept in
-  /// [serverDailyLimit]. Until then the request goes out with the client's
-  /// assumption and the snapshot says so via [ChatQuotaSnapshot.limitAssumed].
+  /// against the plan's `coach_daily` (resolved per request via
+  /// `resolve_plan`), which this RPC never sees — so the only reliable limit
+  /// is the one a function answer named, kept in [serverDailyLimit]. Until
+  /// then the request goes out with the client's assumption and the
+  /// snapshot says so via [ChatQuotaSnapshot.limitAssumed].
   ///
   /// Throws [CoachDataUnavailable] if the RPC fails or returns no usable
   /// numbers — inventing a full quota there would lift an existing lock.
@@ -1044,6 +1069,7 @@ class CoachChatService {
         assistantMessageId: map['assistant_message_id'] is String
             ? map['assistant_message_id'] as String
             : null,
+        imageLocked: proposal != null && map['image_locked'] == true,
       );
     } on CoachQuotaExceeded {
       rethrow;
@@ -1603,13 +1629,18 @@ class CoachChatService {
       // Only quota_exceeded is the daily limit. `rate_limited` (burst brake)
       // carries no daily_limit and must not lock the composer for the day.
       if (map['error'] == 'quota_exceeded') {
-        final limit = map['daily_limit'];
+        // The tier quota a Premium-aware function names (docs/PREMIUM.md
+        // 3.1); an older deployment sends none and keeps today's handling.
+        final hit = PlanLimitHit.fromBody(map);
+        final planLimit = hit?.feature == PlanFeature.coach ? hit : null;
+        final raw = map['daily_limit'];
+        final limit = raw is num ? raw.toInt() : planLimit?.limit;
         // The 429 is the second place the server names its own limit.
-        if (limit is num) _tageslimitMerken(limit.toInt());
+        if (limit != null) _tageslimitMerken(limit);
         return CoachQuotaExceeded(
-          message: limit is num
+          message: limit != null
               ? _l10n.coachErrorDailyLimitReached(
-                  limit.toInt(),
+                  limit,
                   coachQuotaResetLabel(_l10n.localeName),
                 )
               : _l10n.coachErrorQuotaFallback(
@@ -1617,8 +1648,9 @@ class CoachChatService {
                 ),
           // The function's 429 always carries daily_limit; if a gateway body
           // omits it, fall back to the shared display constant.
-          dailyLimit:
-              limit is num ? limit.toInt() : ChatQuotaSnapshot.standardTageslimit,
+          dailyLimit: limit ?? ChatQuotaSnapshot.standardTageslimit,
+          limitNamed: limit != null,
+          planLimit: planLimit,
         );
       }
       return CoachChatException(_l10n.coachErrorTooManyRequests);
@@ -1854,9 +1886,10 @@ class CoachChatReply {
   final String? refusalReason;
   final int? remaining;
 
-  /// The daily limit as the server names it (COACH_DAILY_LIMIT); without it
-  /// the screen would count against its assumed default and show an invented
-  /// number. null only on older function deployments.
+  /// The daily limit as the server names it (the plan's `coach_daily`, sent
+  /// as `daily_limit`); without it the screen would count against its
+  /// assumed default and show an invented number. null only on older
+  /// function deployments.
   final int? dailyLimit;
 }
 
@@ -1872,6 +1905,7 @@ class CoachRecipeReply {
     this.remaining,
     this.dailyLimit,
     this.assistantMessageId,
+    this.imageLocked = false,
   });
 
   final String reply;
@@ -1885,6 +1919,10 @@ class CoachRecipeReply {
   /// the card survives a reload. null on older function deployments, where the
   /// card is ephemeral.
   final String? assistantMessageId;
+
+  /// The plan has no AI picture (`image_locked`): the recipe came without
+  /// one on purpose, and the card says Premium has it.
+  final bool imageLocked;
 }
 
 /// Training-plan result. Refusals never carry an adoptable proposal.
@@ -2011,7 +2049,21 @@ class CoachDataUnavailable implements Exception {
 }
 
 class CoachQuotaExceeded implements Exception {
-  const CoachQuotaExceeded({required this.message, required this.dailyLimit});
+  const CoachQuotaExceeded({
+    required this.message,
+    required this.dailyLimit,
+    this.limitNamed = true,
+    this.planLimit,
+  });
+
+  /// The text of a deployment without [planLimit]; with one the screen
+  /// builds the notice from the plan.
   final String message;
   final int dailyLimit;
+
+  /// False when the body named no limit and [dailyLimit] is the fallback.
+  final bool limitNamed;
+
+  /// The tier quota that is used up; null from an older deployment.
+  final PlanLimitHit? planLimit;
 }

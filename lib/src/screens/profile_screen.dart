@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import '../widgets/common/persistence_action.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../app/subscription.dart' show PurchaseState;
 import '../l10n/l10n.dart';
 import '../models/lifetime_stats.dart';
+import '../models/plan_status.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/health_service.dart';
@@ -15,9 +17,10 @@ import '../widgets/common/lively.dart';
 import '../widgets/design/design.dart';
 import '../widgets/profile/food_preferences_sheet.dart';
 import '../widgets/profile/profile_widgets.dart';
+import '../widgets/profile/subscription_card.dart';
 
 /// Profile screen: identity, key figures, plan, body, daily goals,
-/// connections.
+/// subscription, connections.
 ///
 /// The former "Daten & Konto" block is gone (user decision 2026-08-10): it
 /// duplicated the settings, and "Über Eatova" moved there with its sheet
@@ -47,6 +50,10 @@ class ProfileScreen extends StatelessWidget {
     this.onHealthWeightImportChanged,
     this.onSaveFoodPreferences,
     this.weighIns,
+    this.subscriptionPlan,
+    this.onOpenPremium,
+    this.onManageSubscription,
+    this.onRestorePurchases,
   });
 
   final String name;
@@ -89,12 +96,22 @@ class ProfileScreen extends StatelessWidget {
   /// Dated weigh-ins and the weigh-in history for the weight card.
   final WeighInActions? weighIns;
 
+  /// The account's plan for the "Abo" section ([SubscriptionCard]); null or
+  /// the assumed defaults hide it, so nothing unknown is shown as fact.
+  final PlanStatus? subscriptionPlan;
+
+  /// The card's actions; null hides each one.
+  final VoidCallback? onOpenPremium;
+  final VoidCallback? onManageSubscription;
+  final Future<PurchaseState> Function()? onRestorePurchases;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final t = context.t;
     // Same clock as the Today tab, so both show the same streak.
     final streak = stats.effectiveStreakOn(clock.now());
+    final plan = subscriptionPlan;
 
     // Keep health data (weight, BMI, history) out of the app-switcher
     // thumbnail (security audit 2026-08-09).
@@ -214,6 +231,16 @@ class ProfileScreen extends StatelessWidget {
                       onSave: onSaveFoodPreferences,
                     ),
                     const SizedBox(height: 32),
+                    if (plan != null && !plan.assumed) ...<Widget>[
+                      ProfileSectionLabel(l10n.profileSectionSubscription),
+                      SubscriptionCard(
+                        plan: plan,
+                        onUpgrade: onOpenPremium,
+                        onManage: onManageSubscription,
+                        onRestore: onRestorePurchases,
+                      ),
+                      const SizedBox(height: 32),
+                    ],
                     ProfileSectionLabel(l10n.profileSectionConnections),
                     HealthConnectionCard(
                       healthConnect: healthConnect,

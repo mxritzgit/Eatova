@@ -234,6 +234,9 @@ void main() {
       expect(profileWrites, 0, reason: 'A draft cannot complete the account.');
       await _tap(tester, 'onboarding-finish');
       await _drain(tester, 90);
+      // The Premium screen is the onboarding's last step.
+      expect(find.byKey(const ValueKey('screen-paywall')), findsOneWidget);
+      await _tap(tester, 'paywall-continue-free');
       expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
       expect(profileWrites, 1);
       expect(savedProfile!['id'], 'test-user');

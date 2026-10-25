@@ -7,7 +7,9 @@ and the Coach's seven-day context: 2026-10-18; in-app AI consent, Coach
 answer reports and export as a file: 2026-10-19; Coach meal-plan and
 weekly-check context, recipe target, `/meal` and the remembered daily
 counter, health connection per account, Health Connect weight and the scale
-import, reminders and app-icon shortcuts: 2026-10-22_
+import, reminders and app-icon shortcuts: 2026-10-22; Premium subscription
+(purchase data, Google Play and the App Store as payment providers):
+2026-10-25_
 
 > **Pending publication (2026-10-08):** the source now sends coach, meal-scan
 > and recipe-import requests to Anthropic instead of OpenRouter/Google. The
@@ -24,6 +26,12 @@ import, reminders and app-icon shortcuts: 2026-10-22_
 > Connect weight and the scale import).
 > App builds released before this change do not ask for the consent; the
 > consent is requested and enforced by the app, not yet by our server.
+
+> **Pending publication (2026-10-25):** the Premium subscription and its
+> purchase data ("Premium subscription" below) are not yet in the published
+> policy at eatova.de. The website text, and the terms for the paid tier,
+> must be published before the first purchase is possible; a German draft for
+> legal review is in [docs/PREMIUM-LEGAL-DRAFT.md](docs/PREMIUM-LEGAL-DRAFT.md).
 
 > The published German policy for the app and website lives at
 > **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This repository
@@ -234,6 +242,32 @@ You enter and the app stores the following, tied to your account:
   with Apple Health, the calories-burned estimate derived from them is part of
   the coach snapshot when you use the AI coach. Availability, permission and
   an empty source are handled as distinct states.
+- **Premium subscription (optional):** if you buy Premium, you buy it in
+  Google Play or the App Store, which handle the payment; Eatova never
+  receives your payment details (card, bank account, billing address). Before
+  a purchase the server creates a random **account token** for your account
+  (not your user id, no personal content); the app passes it to the store
+  with the purchase, so the purchase can be assigned to your Eatova account. To grant Premium,
+  our server checks the store's proof of purchase and stores, tied to your
+  account: the store (Google Play or App Store), the product and plan
+  (monthly or yearly), the status (for example active, cancelled but paid
+  until the end date, payment problem, expired, refunded), the end or renewal
+  date, whether it renews automatically, whether it was a real or a test
+  purchase (environment), the store's identifier of the purchase (the Google
+  Play purchase token or Apple's original transaction id), the store's latest
+  order or transaction id, and technical times of the last check, the last
+  store event and (App Store) the latest purchase. For Google Play
+  purchases the server asks Google for the current state with the purchase
+  token; an Apple purchase is checked on our
+  server with Apple's signature alone, without contacting Apple. When the
+  stores' optional notifications are switched on, Google and Apple tell our
+  server about renewals, cancellations and refunds, and the server updates
+  the purchase record; it also keeps each notification's id, without your
+  account, for up to 90 days, so a repeated delivery can be recognised. The app keeps the last state of your plan and today's
+  usage counts in its encrypted local cache, and remembers whether the
+  Premium screen after the onboarding and the notice about changed limits
+  were already shown and on which day it last offered Premium at a daily
+  limit; signing out deletes them.
 
 In addition, and **not** tied to your account:
 
@@ -254,8 +288,11 @@ In addition, and **not** tied to your account:
   the address in clear text: they keep a **SHA-256 hash** of it together with a
   request counter.
 
-We do **not** collect advertising identifiers, location data, or contacts, and
-the app contains **no advertising SDK and no product-analytics or tracking SDK**.
+We do **not** collect advertising identifiers, location data, contacts or
+payment details, and the app contains **no advertising SDK and no
+product-analytics or tracking SDK**. Purchases use the platforms' own billing
+(Google Play Billing, Apple's StoreKit), not a third-party subscription
+service.
 The only third-party telemetry component in the app is the crash reporter named
 above; it reports errors, not usage. Its automatic session tracking — which
 would report every app start and every return to the foreground — is switched
@@ -345,6 +382,21 @@ the device, before the photo is uploaded.
   converts your spoken meal description if you use voice input on Android,
   under that provider's terms; it may process the audio on its servers. Only
   the resulting text reaches Eatova, never the audio.
+- **Google Play and the Apple App Store** (only if you buy Premium) sell the
+  subscription and process the payment, the renewal and any refund under
+  their own terms and privacy policies, as independent controllers; they are
+  not our processors, and we receive from them only the purchase data listed
+  under "Premium subscription". Our server queries Google's Play Developer API
+  with the purchase token, and Apple and Google can send notifications about
+  your subscription to our server. Cancelling, refunds and payment questions
+  go through the store. The purchase records are stored in our Supabase
+  database like your other data, and no third-party subscription service is
+  involved. The one possible addition: if the optional Google notifications
+  are switched on, Google delivers them through Google Cloud Pub/Sub in our
+  own Google Cloud project, which then processes the message (the app's
+  package name, the purchase token, the product or order id and the event
+  type, not your name or payment details) for us; this processor role is to
+  be confirmed before the notifications are switched on.
 
 Management, service-role and AI provider credentials remain server-side.
 The app contains public Supabase client configuration and a limited product
@@ -413,6 +465,12 @@ again before sending anything — and is logged on our server, at the latest
 the next time the device is online. It does not affect the lawfulness of
 processing before the withdrawal.
 
+**Premium subscription.** Checking your purchase, assigning it to your
+account, granting the higher limits and showing the status in the app are
+needed to perform the subscription contract (Art. 6(1)(b)). The same holds
+for the store notifications about renewals, cancellations and refunds. No
+consent is asked for this; it only happens if you buy Premium.
+
 Reports of Coach answers rest on our legitimate interest in finding wrong,
 harmful or inappropriate AI output and in meeting app-store rules for AI
 features (Art. 6(1)(f)); filing one is up to you.
@@ -437,8 +495,11 @@ You can, at any time:
   are not part of this server export. Every section is read page by page
   until the server has no more rows; outside the diary a section stops at a
   safety bound of 100,000 rows. Missing
-  or truncated sections are explicitly identified. You can also request your
-  data by email.
+  or truncated sections are explicitly identified. The Premium purchase
+  record and the account token are not in the in-app export, because the
+  store's purchase identifiers stay on our server; the Profile shows your
+  plan, its status and the end or renewal date, and you can request the full
+  record by email. You can also request your data by email.
 - **Correct** supported editable values in the app, or contact us for other
   corrections; completed training history is intentionally immutable.
 - **Delete** your account and all associated data — in-app via Today →
@@ -446,7 +507,11 @@ You can, at any time:
   table hangs off it with `on delete cascade` and is deleted with it. You
   confirm the deletion with an eight-digit one-time code emailed to you, on top
   of typing the confirmation word — deletion is immediate and irreversible
-  once confirmed, there is no grace period.
+  once confirmed, there is no grace period. Deletion also removes the
+  Premium purchase record and the account token, but it does **not** cancel
+  a subscription in Google Play or the App Store: cancel it there, otherwise
+  the store keeps billing. With an automatically renewing subscription the
+  app warns about this before the deletion.
 - **Withdraw your AI consent** under Settings → AI & data (see "Why (legal
   basis)"), and **withdraw health/voice permission** in the platform privacy
   settings or Health Connect permissions. Account/data deletion is available
@@ -506,6 +571,13 @@ Exceptions:
   not offer to delete single entries; both are part of the data export. The
   copy of your latest consent decision on the device is deleted when you sign
   out or another account signs in.
+- the **Premium purchase record** and the **account token** are kept as long
+  as your account exists, also after the subscription ended, so a renewal,
+  refund or restore can be assigned and the Profile can show "expired on";
+  they are deleted with the account. The **store notification ids** hold no
+  account identifier; they are removed once older than 90 days, when the
+  next notification arrives (not by a scheduler). Invoices and payment
+  records are kept by Google or Apple under their terms, not by Eatova.
 
 Recipe version history preserves previous versions and deleted recipes so you
 can inspect and restore them. Deleting the current recipe removes it from the

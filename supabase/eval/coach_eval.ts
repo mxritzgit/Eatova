@@ -322,6 +322,8 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
     }
     if (method === "POST") switch (url.pathname) {
       case "/rest/v1/rpc/ensure_default_chat_session": return json(SESSION);
+      // A Premium account, so a recipe still reaches the (refused) image call.
+      case "/rest/v1/rpc/resolve_plan": return json({ tier: "premium", legacy: false, coach_daily: 20, meal_analysis_daily: 30, recipe_import_daily: 10, provider_calls_daily: 150, recipe_picture: true, premium: { coach_daily: 20, meal_analysis_daily: 30, recipe_import_daily: 10, recipe_picture: true } });
       case "/rest/v1/rpc/claim_chat_quota": return json([{ used: 1, remaining: 4, quota_day: "2026-09-15" }]);
       case "/rest/v1/rpc/reserve_ai_provider_call": return json({ allowed: true, reason: "allowed" });
       case "/rest/v1/rpc/touch_chat_session":
