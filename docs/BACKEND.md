@@ -60,19 +60,33 @@ account per canonical key, `public.email_canonical_key(text)`:
 
 Yahoo-style `-` addresses, IDN spellings and `name.fastmail.com` subdomains
 are not folded. Another account holds a key when it is confirmed, or, for
-an email signup or an email change request, when it is unconfirmed and was
-created less than an hour ago (`email_alias_holder_exists`): a stranger's
-unconfirmed alias never gets its code and blocks the real owner for an hour
-at most. The user's own account never counts.
+an email signup, when it is unconfirmed, was created less than an hour ago
+and no unconfirmed row of the key is older (`email_alias_holder_exists`): a
+stranger's unconfirmed alias never gets its code and blocks the real owner
+for one hour at most, also when it is renewed with a new spelling every
+hour. The user's own account never counts.
 
 | Path | Guard | Answer |
 | --- | --- | --- |
 | Signup by email or OTP, first Google, OAuth or ID-token sign-in | Before User Created hook `auth_before_user_created` | 422 `User already registered`, GoTrue's own duplicate answer (code `unknown`) |
 | Any insert into `auth.users`: concurrent signups (per-key advisory lock), admin-created users, the hook switched off | BEFORE INSERT trigger | 500, raised as `P0001` without an address |
-| Email change request, the confirmed change, the first confirmation of an address | BEFORE UPDATE trigger | 500 |
+| The confirmed email change, the first confirmation of an address | BEFORE UPDATE trigger | 500 |
 
-There is no key table and no unique index: each check scans `auth.users`;
-revisit with a server-only key table at about 20,000 accounts. Existing
+An email change request itself passes: refusing it would roll back
+`email_change_sent_at` after GoTrue sent the change mails, and GoTrue's
+per-user mail throttle reads that column, so one account could drain the
+project's mail budget.
+
+There is no key table and no unique index: each check scans `auth.users`,
+first with a builtin prefix test (without dots, an address starts with the
+first three characters of its key's local part) and only then with the key
+function. Measured on the CI Postgres image with 100,000 synthetic accounts
+whose first names share prefixes: about 115 ms per lookup (about 2 s
+without the prefix test). A signup runs it twice (hook and insert trigger),
+a first Google sign-in three times. GoTrue gives the hook no time limit of
+its own (see [operations](OPERATIONS.md#before-user-created-hook)), so
+revisit with a server-only, indexed key table at about 50,000 accounts.
+Existing
 rows are not changed (one pair of the owner's test accounts shares a key
 and keeps working), and deleting an account frees its key at once. The hook
 and the trigger function are SECURITY DEFINER with an empty `search_path`;

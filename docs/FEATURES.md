@@ -209,8 +209,9 @@ and [Backend](BACKEND.md) for persistence details.
   a limit notice or an upgrade offer.
   Deleting the account does not cancel a store subscription.
 - Sign-in and password recovery match the exact spelling of the address.
-  Once the alias guard is live, an email change to another spelling of an
-  existing account's address fails with the generic server-error text.
+  Once the alias guard is live, confirming an email change to another
+  spelling of an existing account's address fails with the generic
+  server-error text.
 - Dietary preference can be chosen during onboarding and changed later in the
   Profile's Nutrition section, together with avoided foods and dislikes.
 - JSON export is available through **Today → avatar (Profile) → gear

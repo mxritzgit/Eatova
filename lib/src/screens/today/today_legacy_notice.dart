@@ -261,7 +261,7 @@ class TodayLegacyNoticeCard extends StatelessWidget {
               SoftPillButton(
                 key: const ValueKey('today-legacy-notice-upgrade'),
                 label: l10n.planLimitUpgrade,
-                icon: Icons.auto_awesome_rounded,
+                icon: Icons.arrow_forward_rounded,
                 expand: true,
                 onTap: upgrade,
               ),

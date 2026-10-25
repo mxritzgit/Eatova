@@ -58,7 +58,8 @@ Postfach: Gmail-Schreibweisen mit oder ohne Punkte, `googlemail.com` und ein
 Einschalten, Proben und Rückbau: [Betrieb](../docs/OPERATIONS.md#before-user-created-hook).
 
 - **Registrierung:** Hält ein bestätigtes Konto oder ein unbestätigtes aus
-  der letzten Stunde den Schlüssel, lehnt der Before User Created Hook mit
+  der letzten Stunde (solange kein älteres unbestätigtes desselben
+  Schlüssels existiert) den Schlüssel, lehnt der Before User Created Hook mit
   `422` und GoTrues eigenem Satz „User already registered“ ab (Code
   `unknown` in API-Version 2024-01-01). Jeder ausgelieferte Build erkennt
   den Satz und zeigt denselben neutralen Hinweis wie beim exakten Duplikat
@@ -71,21 +72,27 @@ Einschalten, Proben und Rückbau: [Betrieb](../docs/OPERATIONS.md#before-user-cr
   ist bewusst nicht umgesetzt; die Hausregel halten
   `test/auth_enumeration_test.dart` und
   `test/auth_screen_existing_account_test.dart` fest. 422 statt 200 verrät
-  nicht mehr als das `identities: []`, das GoTrue beim exakten bestätigten
-  Duplikat schon liefert.
+  über ein bestätigtes Konto nicht mehr als das `identities: []`, das GoTrue
+  beim exakten bestätigten Duplikat schon liefert. Neu verrät es, dass in
+  der letzten Stunde jemand eine Registrierung mit einer Schreibweise dieses
+  Postfachs begonnen hat (das exakte unbestätigte Duplikat antwortet `200`).
+  Clients ohne Versions-Header sehen bei den `500`-Pfaden den festen Text
+  `email alias of an existing account`, nie eine Adresse.
 - **Anmeldung und Recovery bleiben exakt:** Wer nach dem Hinweis die andere
   Schreibweise eingibt, erhält `invalid_credentials`, und „Passwort
   vergessen“ mit ihr verschickt nichts. Deshalb verweist der Zusatzsatz auf
   die Schreibweise der Registrierung.
-- **E-Mail-Änderung auf einen Alias:** Der Trigger bricht sie bei der
-  Anforderung ab. GoTrue hat die Änderungsmails da schon verschickt (die an
-  die neue Adresse landet im Postfach des bestehenden Kontos), die Tokens
-  werden aber zurückgerollt, ihre Codes verifizieren nie. Der Client erhält
-  `500` („Error sending email change email“) und zeigt
-  `authErrorServerFault`. Das ist akzeptiert: Eine Vorabprüfung wäre ein
-  Enumerations-Orakel für angemeldete Nutzer. Die Bestätigung einer Änderung
-  und die erste Bestätigung eines zweiten Alias prüft der Trigger erneut
-  (ebenfalls `500`).
+- **E-Mail-Änderung auf einen Alias:** Die Anforderung geht durch (`200`),
+  GoTrue verschickt die Änderungsmails mit seiner üblichen Drossel pro
+  Nutzer (die an die neue Adresse landet im Postfach des bestehenden
+  Kontos). Erst die Bestätigung bricht der Trigger ab: `/verify` antwortet
+  `500`, die App zeigt `authErrorServerFault`, die Adresse bleibt die alte.
+  Ein Abbruch schon bei der Anforderung würde `email_change_sent_at`
+  zurückrollen und damit die Drossel aushebeln (ein Konto könnte das
+  Mailbudget des Projekts leeren). Eine Vorabprüfung wäre ein
+  Enumerations-Orakel für angemeldete Nutzer; bestätigen kann nur, wer das
+  Postfach hat. Die erste Bestätigung eines zweiten Alias prüft der Trigger
+  ebenso (`500`).
 - **Konfigurationsvertrag:** Nach dem Einschalten kommen
   `hook_before_user_created_enabled` und `hook_before_user_created_uri` in
   `auth_config.expected.json`.

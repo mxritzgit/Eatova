@@ -15,13 +15,13 @@ const InputBorder _noLine = OutlineInputBorder(
 /// laid over the fill, never a ripple. Focus is the strongest step, so a
 /// keyboard user sees where they are without a ring (focus highlights only
 /// show in the traditional highlight mode).
-WidgetStateProperty<Color?> _buttonOverlay(Color foreground) =>
+WidgetStateProperty<Color?> _buttonOverlay(Color foreground, {Color? focus}) =>
     WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.pressed)) {
         return foreground.withValues(alpha: 0.10);
       }
       if (states.contains(WidgetState.focused)) {
-        return foreground.withValues(alpha: 0.16);
+        return focus ?? foreground.withValues(alpha: 0.16);
       }
       if (states.contains(WidgetState.hovered)) {
         return foreground.withValues(alpha: 0.05);
@@ -258,7 +258,10 @@ ThemeData buildEatovaTheme(Brightness brightness) {
           borderRadius: BorderRadius.circular(rButton),
         ),
         splashFactory: NoSplash.splashFactory,
-      ).copyWith(overlayColor: _buttonOverlay(t.onAccentFill)),
+      ).copyWith(
+        // The dark palette's label ink is near-black: focus would darken.
+        overlayColor: _buttonOverlay(t.onAccentFill, focus: kLitFocusOverlay),
+      ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(

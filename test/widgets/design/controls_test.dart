@@ -372,6 +372,26 @@ void main() {
       expect(taps, 1);
     });
 
+    // The paywall's buy label cross-fades; a screen reader must not hear
+    // the outgoing label next to the new one.
+    testWidgets('ein wechselndes Label wird nur einmal vorgelesen',
+        (tester) async {
+      final semantics = tester.ensureSemantics();
+      Widget knopf(String label) => designHarness(
+            PrimaryActionButton(label: label, animateLabel: true, onTap: () {}),
+          );
+      await tester.pumpWidget(knopf('7 Tage gratis testen'));
+      await tester.pumpWidget(knopf('Premium abonnieren'));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('7 Tage gratis testen'), findsOneWidget,
+          reason: 'mitten im Uebergang');
+      expect(
+        tester.getSemantics(find.byType(PrimaryActionButton)),
+        isSemantics(label: 'Premium abonnieren', isButton: true),
+      );
+      semantics.dispose();
+    });
+
     testWidgets('destructive faerbt die Flaeche auf danger', (tester) async {
       Material materialOf() => tester.widget<Material>(
             find

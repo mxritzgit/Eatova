@@ -33,8 +33,14 @@ begin
   end loop;
 end $$;
 
--- H confirmed, F pending for minutes, S pending for two hours, O unrelated.
+-- H confirmed, F pending for minutes, S pending for two hours, O unrelated;
+-- R1 and R2 a squat renewed with a new spelling after the hour; D confirmed
+-- with leading dots, the one spelling whose key starts with another character.
 insert into auth.users(id,email,email_confirmed_at,created_at,raw_app_meta_data) values
+ ('78000000-0000-4000-8000-00000000000c','.dot.lead@gmail.com',now(),now(),'{"provider":"email"}'),
+ ('78000000-0000-4000-8000-00000000000a','renew.squat@gmail.com',null,now()-interval '2 hours',
+   '{"provider":"email"}'),
+ ('78000000-0000-4000-8000-00000000000b','renewsquat+2@gmail.com',null,now(),'{"provider":"email"}'),
  ('78000000-0000-4000-8000-000000000001','alias.holder@gmail.com',now()-interval '2 days',
    now()-interval '2 days','{"provider":"email"}'),
  ('78000000-0000-4000-8000-000000000002','fresh.pending@gmail.com',null,now(),'{"provider":"email"}'),
@@ -64,6 +70,14 @@ select pg_temp.require(
     = '{}'::jsonb,
   'an unconfirmed holder older than an hour does not block');
 select pg_temp.require(
+  public.auth_before_user_created('{"user":{"email":"renewsquat@gmail.com","app_metadata":{"provider":"email"}}}')
+    = '{}'::jsonb,
+  'a squat renewed after the hour does not block the owner again');
+select pg_temp.require(
+  public.auth_before_user_created('{"user":{"email":"dotlead@gmail.com","app_metadata":{"provider":"email"}}}')
+    = '{"error":{"http_code":422,"message":"User already registered"}}'::jsonb,
+  'a holder with leading dots is found');
+select pg_temp.require(
   public.auth_before_user_created('{"user":{"phone":"4915100000000","app_metadata":{"provider":"phone"}}}')
     = '{}'::jsonb
   and public.auth_before_user_created('{"user":{"email":"someone.new@gmail.com","app_metadata":{"provider":"email"}}}')
@@ -79,11 +93,14 @@ select pg_temp.require(pg_temp.sqlstate_of(
 insert into auth.users(id,email,raw_app_meta_data) values
  ('78000000-0000-4000-8000-000000000006','freshpending@gmail.com','{"provider":"google"}');
 update auth.users set email_confirmed_at=now() where id='78000000-0000-4000-8000-000000000006';
+-- An email change is refused when it is confirmed, not when it is requested:
+-- the request keeps email_change_sent_at, which GoTrue's mail throttle reads.
+update auth.users set email_change='aliasholder+o@gmail.com' where id='78000000-0000-4000-8000-000000000004';
 select pg_temp.require(pg_temp.sqlstate_of(
-  $q$update auth.users set email_change='aliasholder+o@gmail.com' where id='78000000-0000-4000-8000-000000000004'$q$)
-  = 'P0001','an email change to another account''s alias raises');
-update auth.users set email_change='alias.holder+own@gmail.com' where id='78000000-0000-4000-8000-000000000001';
-select pg_temp.require((select email_change='alias.holder+own@gmail.com' from auth.users
+  $q$update auth.users set email=email_change, email_change='' where id='78000000-0000-4000-8000-000000000004'$q$)
+  = 'P0001','confirming an email change to another account''s alias raises');
+update auth.users set email='alias.holder+own@gmail.com' where id='78000000-0000-4000-8000-000000000001';
+select pg_temp.require((select email='alias.holder+own@gmail.com' from auth.users
   where id='78000000-0000-4000-8000-000000000001'),'an email change to an alias of the own address passes');
 -- Batch farming: the stale pending alias cannot be confirmed next to a
 -- confirmed one.
@@ -92,6 +109,22 @@ insert into auth.users(id,email,email_confirmed_at) values
 select pg_temp.require(pg_temp.sqlstate_of(
   $q$update auth.users set email_confirmed_at=now() where id='78000000-0000-4000-8000-000000000003'$q$)
   = 'P0001','confirming a second alias raises');
+
+-- The lookup's prefix test never hides a holder: every confirmed spelling is
+-- found by its own key.
+set local session_replication_role = replica;
+insert into auth.users(id,email,email_confirmed_at)
+select ('78000000-0000-4000-8001-' || lpad(n::text, 12, '0'))::uuid, a, now()
+from unnest(array['ab+t@outlook.com','a@x.com','..+x@gmail.com','M.O.R@GoogleMail.com',
+  'x.y.z+tag+more@gmail.com','q@gmail.com.','no-at','@nolocal.com','x@','.+@gmail.com'])
+  with ordinality v(a, n);
+set local session_replication_role = origin;
+select pg_temp.require(not exists(
+  select 1 from auth.users u
+  where u.email_confirmed_at is not null
+    and public.email_canonical_key(u.email) is not null
+    and not public.email_alias_holder_exists(public.email_canonical_key(u.email), null, false)),
+  'every confirmed spelling is found by its own key');
 
 -- A pair that predates the guard keeps working.
 set local session_replication_role = replica;

@@ -228,20 +228,28 @@ class LifecycleProbe:
         self.require('alias_signup_has_duplicate_sentence_and_no_row',
                      rejected.get('msg') == 'User already registered' and
                      self.mailbox_accounts(email) == 1)
-        # A change request to that alias fails in the update trigger before the
-        # change codes are stored. This legacy body shows only the fixed raise
-        # text; 2024-01-01 clients get 500 with GoTrue's generic message.
+        # A change request to that alias passes, so GoTrue's per-user mail
+        # throttle (email_change_sent_at) keeps working; the update trigger
+        # refuses the confirmation. This legacy body shows only the fixed
+        # raise text; 2024-01-01 clients get 500 with a generic message.
         actor = self.actor('alias_change')
-        blocked = self.call('alias_email_change_blocked', '/user', {
-            'email': email.replace('@', '+change@'),
-        }, actor['session']['access_token'], 'PUT', status=500)
+        alias = email.replace('@', '+change@')
+        self.call('alias_email_change_requested', '/user', {'email': alias},
+                  actor['session']['access_token'], 'PUT')
+        old_code = self.code('alias_email_old', 'email_change_current',
+                             actor['email'], new_email=alias)
+        new_code = self.code('alias_email_new', 'email_change_new',
+                             actor['email'], new_email=alias)
+        self.verify('alias_email_change_first_code', 'email_change',
+                    actor['email'], old_code)
+        refused = self.verify('alias_email_change_confirmation_refused',
+                              'email_change', alias, new_code, status=500)
         actor_id = str(uuid.UUID(actor['id']))
-        self.require('alias_email_change_raised_by_trigger_and_kept_row',
-                     blocked == {'code': 'P0001',
+        self.require('alias_email_change_raised_by_trigger_and_kept_address',
+                     refused == {'code': 'P0001',
                                  'message': 'email alias of an existing account'} and
-                     self.sql("SELECT email || '|' || coalesce(email_change, '') "
-                              f"FROM auth.users WHERE id = '{actor_id}'::uuid;")
-                     == actor['email'] + '|')
+                     self.sql("SELECT email FROM auth.users "
+                              f"WHERE id = '{actor_id}'::uuid;") == actor['email'])
 
         recovery = self.actor('recovery')
         self.call('existing_recovery_request_neutral', '/recover',

@@ -4564,8 +4564,8 @@ spellings of one Gmail mailbox could each hold an account and its Free
 allowance. Migration `20261027100000_email_alias_guard.sql`: the Before
 User Created hook `auth_before_user_created` rejects an alias with GoTrue's
 own 422 "User already registered"; BEFORE triggers on `auth.users` cover
-concurrent signups, admin-created users, email changes and confirming a
-second alias, and keep blocking with the hook off. The contract was checked
+concurrent signups, admin-created users, confirmed email changes and
+confirming a second alias, and keep blocking with the hook off. The contract was checked
 against the GoTrue v2.197.0 source and smoke-tested on a throwaway Postgres
 17.6. Rule and paths: [backend](BACKEND.md#one-account-per-mailbox);
 runbook: [operations](OPERATIONS.md#before-user-created-hook). Live facts,
@@ -4585,20 +4585,44 @@ Decisions:
   Outlook, iCloud, Proton and Fastmail and the cheapest way to farm
   accounts. Dots are folded for Gmail only.
 - **1-hour window:** an unconfirmed account blocks an email signup with the
-  same key for one hour after its creation, so a stranger's squat cannot
-  lock the real owner out for long; confirmed accounts always block, and
-  confirming a second alias is refused.
+  same key for one hour after its creation, and only while no older
+  unconfirmed row of the key exists, so a stranger's squat cannot lock the
+  real owner out for more than an hour, even when renewed with a new
+  spelling; confirmed accounts always block, and confirming a second alias
+  is refused.
 - **Existing pair untouched:** the owner's two test accounts that share a
   key are neither changed nor deleted and keep signing in (no unique
   index); neither can confirm or change to another alias. For a clean state
   the owner deletes one in the app.
-- Accepted limits: an email change to an alias shows the server-fault text;
-  sign-in and recovery stay exact; deleting and signing up again stays
+- **Email change:** the request to an alias passes and only its
+  confirmation is refused (500, server-fault text in the app). Refusing the
+  request rolled back `email_change_sent_at` after GoTrue had sent the
+  mails, which disabled GoTrue's per-user mail throttle.
+- Accepted limits: sign-in and recovery stay exact; the web OAuth fallback
+  shows no message on a rejection ([Google](../supabase/OAUTH_SETUP.md#one-account-per-mailbox)); deleting and signing up again stays
   allowed ([PREMIUM.md](PREMIUM.md#77-before-the-public-launch) point 7).
 
-**Delivery state:** code on branches, not merged; migration not live; hook
-not enabled. The orchestrator updates this entry with the PRs, the checks
-and the rollout.
+**Review (3 agents, 2026-10-25):** a design pass removed the last rings
+on the auth entry (mode switch and Google button, selection thumb 7.8:1 /
+5.0:1 against its track) and aligned the paywall close button. The
+correctness review led to: keyboard focus brightens lit fills in both
+palettes (the dark palette's near-black label ink darkened them), the
+sign-out card keeps the account line at large text, the decision card is
+announced as an alert dialog with its title, the paywall's buy label is
+read once during its cross-fade, and tests that pinned tuned constants
+check outcomes instead. The security review led to: a builtin prefix test
+in front of the key lookup (about 115 ms instead of about 2 s at 100,000
+accounts; GoTrue's hook has no working time limit of its own), the capped
+1-hour window and the email change rule above, and the trigger's advisory
+lock outside its fail-open handler. Each SQL and Dart fix has a test that
+fails without it; the real GoTrue probe passes (193 lifecycle checks).
+Known and left: app-wide card rims (settings, Health Connect, onboarding),
+light-mode focus on tinted and fill-less controls darkens rather than
+brightens, and the stroke-less dark Google button has had no branding
+review.
+
+**Delivery state:** PR open, not merged; migration not live; hook not
+enabled.
 
 **Owner steps:**
 1. Explicit approval for the merge, the live migration and enabling the

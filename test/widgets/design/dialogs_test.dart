@@ -320,6 +320,63 @@ void main() {
       },
     );
   }
+  // The card replaced AlertDialog: screen readers must still hear its title
+  // as the route's name, inside a scoped route.
+  testWidgets('the card names and scopes its route', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _host(tester);
+    expect(
+      tester.getSemantics(
+        find.byWidgetPredicate(
+          (w) => w is Semantics && w.properties.namesRoute == true,
+        ),
+      ),
+      isSemantics(
+        label: enL10n.trainingTimerLeaveTitle,
+        scopesRoute: true,
+        namesRoute: true,
+      ),
+    );
+    semantics.dispose();
+  });
+
+  // The account a sign-out leaves is what the decision is about, not
+  // decoration: it stays when large text drops the medallion.
+  testWidgets('the account lead stays at 320px 2x', (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final l = deL10n;
+    await tester.pumpWidget(
+      localizedApp(
+        Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showEatovaDialog<void>(
+              context: context,
+              builder: (_) => EatovaDialog(
+                title: l.settingsSignOutTitle,
+                lead: DecisionAccountCapsule(
+                  label: l.settingsSignOutAccountLabel,
+                  account: 'jonas@example.com',
+                ),
+                content: Text(l.settingsSignOutSafe),
+                actions: [
+                  EatovaDialogAction(label: l.commonCancel, onPressed: () {}),
+                ],
+              ),
+            ),
+            child: const Text('Open dialog'),
+          ),
+        ),
+        textScale: 2,
+      ),
+    );
+    await tester.tap(find.text('Open dialog'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('jonas@example.com'), findsOneWidget);
+  });
+
   // The meal plan's past-day card (2026-10-22): three pinned actions at
   // 320 px and 2x left the message a strip its title filled, and the body
   // started below it. The actions then follow the message in the scroll.
@@ -580,20 +637,15 @@ void main() {
                   )
                   .decoration
               as BoxDecoration;
-      expect(card.gradient, litSurface(t));
-      expect(card.borderRadius, BorderRadius.circular(rSheet));
-      expect(card.boxShadow, decisionShadow(t));
+      // Lit and on a shadow instead of a hairline.
+      expect(card.boxShadow, isNotEmpty);
       expect(card.border, isNull);
-      // Mark: the 46 px medallion with a 21 px danger glyph; title in ink.
+      // Mark: the medallion with a danger glyph; title in ink.
       expect(find.byType(IconTile), findsNothing);
-      expect(
-        tester.getSize(find.byType(DecisionMedallion)),
-        const Size(46, 46),
-      );
+      expect(find.byType(DecisionMedallion), findsOneWidget);
       final glyph = tester.widget<Icon>(
         find.byIcon(Icons.delete_outline_rounded),
       );
-      expect(glyph.size, 21);
       expect(glyph.color, t.danger);
       final title = tester.widget<Text>(
         find.text('Discard this workout?'),

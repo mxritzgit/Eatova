@@ -745,6 +745,15 @@ class _LabelMorph extends StatelessWidget {
     duration: motionDuration(context, kMotionLightUp),
     switchInCurve: kMotionCurve,
     switchOutCurve: kMotionCurve.flipped,
+    // The outgoing label fades but must not be read: a screen reader would
+    // hear both buy labels during the cross-fade.
+    layoutBuilder: (current, previous) => Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        for (final child in previous) ExcludeSemantics(child: child),
+        if (current != null) current,
+      ],
+    ),
     transitionBuilder: (child, animation) => FadeTransition(
       opacity: animation,
       child: SlideTransition(

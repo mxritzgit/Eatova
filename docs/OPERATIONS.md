@@ -72,7 +72,10 @@ device-only recipe images or a managed physical/PITR backup.
 A production recovery exercise needs a separate approved destination, encrypted
 transfer and controlled data access. Plan database and object-storage recovery
 together, including deletions that must remain deleted, schema/function version
-compatibility, Auth settings, secrets and external-provider configuration. Never
+compatibility, Auth settings, secrets and external-provider configuration
+(enable the Before User Created hook last, after the database, its
+migrations and their grants are back, and disable it before dropping or
+renaming `public.auth_before_user_created`). Never
 restore over production as a test. Validate ownership boundaries, representative
 authorized reads/writes and post-restore integrity before opening traffic. Record
 the achieved recovery point and duration, then dispose of the recovery copy
@@ -906,12 +909,15 @@ Migration `20261027100000_email_alias_guard.sql` adds the Postgres hook
 user (email or OTP signup, a first Google, OAuth or ID-token sign-in; not
 an admin-created user or an email change) and rejects an address whose canonical key another account holds
 (confirmed, or for an email signup unconfirmed and created within the last
-hour) with GoTrue's own duplicate answer,
+hour while no older unconfirmed row of the key exists) with GoTrue's own
+duplicate answer,
 `{"error":{"http_code":422,"message":"User already registered"}}`, which
 every app build shows as the neutral sign-in hint. A signup without an
 email passes. The triggers apply the same rule to concurrent signups,
-admin-created users, email changes and the confirmation of a second alias,
-and keep blocking, with a 500, when the hook is off. Existing rows are not
+admin-created users, the confirmation of an email change and the
+confirmation of a second alias, and keep blocking, with a 500, when the
+hook is off. An email change request itself passes, so GoTrue's per-user
+mail throttle keeps working. Existing rows are not
 changed; the owner's pair of test accounts keeps working.
 
 Not live yet. Order: migration, SQL dry call, enable the hook, HTTP probe,
@@ -921,7 +927,12 @@ Apply the migration like the earlier ones (a dry run inside
 `begin; ... rollback;` through `/database/query`, then the file and its
 `schema_migrations` row in one transaction) and read back the four
 functions with their ACLs, `prosecdef` and `proconfig`, and both triggers
-in `pg_trigger`. From then on an alias signup already fails, with a 500
+in `pg_trigger`. Then print two booleans that must both be true, because
+the dry call below runs as the owner and proves neither grant:
+`has_schema_privilege('supabase_auth_admin', 'public', 'usage')` and
+`has_function_privilege('supabase_auth_admin',
+'public.auth_before_user_created(jsonb)', 'execute')`; without them every
+signup gets 500 once the hook is on. From then on an alias signup already fails, with a 500
 from the trigger and without a row or a mail; the hook turns that into the
 neutral 422.
 
@@ -974,16 +985,23 @@ neutral 422.
    the read-back date as evidence, in the same PR, which merges only after
    step 2: the drift job on `main` compares the live config with that file.
 
-**Fail open, fail closed.** GoTrue runs the hook in its own transaction
-with a 2-second statement timeout and does not retry it; an SQL error or a
-timeout becomes a 500 "Error running hook URI" for that request, so at the
-GoTrue level the hook fails closed. Both functions therefore fail open: an
-internal error writes the warning `alias check skipped (<SQLSTATE>)`, never
-the address, and lets the request through; only a positive match blocks.
-The timeout (`query_canceled`) is not caught, so that one request gets 500.
-Without the migration's EXECUTE grant for `supabase_auth_admin` and its
-USAGE on `public`, every signup would get 500, and so would dropping or
-renaming the function while the hook is enabled.
+**Fail open, fail closed.** GoTrue (v2.197.0) does not retry the hook,
+and an SQL error becomes a 500 "Error running hook URI" for that request,
+so at the GoTrue level the hook fails closed. It also gives the hook no
+time limit of its own: its `set local statement_timeout` runs outside a
+transaction and has no effect (each call logs `SET LOCAL can only be used
+in transaction blocks`), so a slow hook holds the request until
+`API_MAX_REQUEST_DURATION` (10 s by default) and then answers 504
+`request_timeout`. The lookup is therefore kept cheap (about 115 ms at
+100,000 accounts, [backend](BACKEND.md#one-account-per-mailbox)) rather
+than relying on a timeout. Both functions fail open on internal errors:
+the warning `alias check skipped (<SQLSTATE>)`, never the address, and the
+request goes through; only a positive match blocks. The trigger takes its
+per-key advisory lock outside that handler, so a lock timeout or deadlock
+fails the request instead of skipping the check. Without the migration's
+EXECUTE grant for `supabase_auth_admin` and its USAGE on `public`, every
+signup would get 500, and so would dropping or renaming the function while
+the hook is enabled.
 
 **Rollback:**
 
@@ -1012,12 +1030,13 @@ renaming the function while the hook is enabled.
   metric: the read-only role has no EXECUTE on `email_canonical_key`.
   Recount through `/database/query` when needed; the baseline is 1 (the
   owner's pair), and the guard keeps new groups from forming.
-- **Sentry triage:** after the rollout, a 5xx on `/signup`, `PUT /user` or
-  `/verify` can be the trigger. A 500 "Error sending email change email" on
-  an email change can mean that the new address is an alias of another
-  account: the change mail went out, but its codes never verify, and the
-  app shows its server-fault text (accepted). Check the Postgres log for
-  `email alias of an existing account` before suspecting the mail server.
+- **Sentry triage:** after the rollout, a 5xx on `/signup` or `/verify`
+  can be the trigger. A 500 on `/verify` of an email change can mean that
+  the new address is an alias of another account: the change mails went
+  out, the confirmation is refused, and the app shows its server-fault text
+  (accepted). Check the Postgres log for `email alias of an existing
+  account`. A 504 `request_timeout` on `/signup` means the hook is slow:
+  check the lookup time before anything else.
 
 ### Ending the legacy window
 

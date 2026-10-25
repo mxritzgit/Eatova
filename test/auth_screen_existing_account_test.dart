@@ -218,18 +218,27 @@ void main() {
     _erwarteNeutralenAusweg();
   });
 
-  testWidgets('Gmail-Adresse: neutraler Hinweis plus Satz zu Schreibweisen',
-      (tester) async {
-    final repo = _ExistingAccountAuthRepository(fehler: hookAblehnung);
-    await _pumpAuth(tester, repo);
-    await _fillRegistration(tester, email: 'Moritz.Gietl@GMAIL.com');
+  // The sentence on spellings follows the shape of the input, the two
+  // shapes the server folds: Gmail (dots, googlemail) and a +tag anywhere.
+  for (final (email, hinweis) in <(String, String)>[
+    ('Moritz.Gietl@GMAIL.com', deL10n.authSignupExistingAccountAliasHint),
+    ('moritzgietl@googlemail.com', deL10n.authSignupExistingAccountAliasHint),
+    ('jane+eatova@outlook.com', deL10n.authSignupExistingAccountAliasHint),
+    ('jane.doe@outlook.com', deL10n.authSignupExistingAccountHint),
+  ]) {
+    testWidgets('$email: neutraler Hinweis, Satz zu Schreibweisen je nach Form',
+        (tester) async {
+      final repo = _ExistingAccountAuthRepository(fehler: hookAblehnung);
+      await _pumpAuth(tester, repo);
+      await _fillRegistration(tester, email: email);
 
-    await tester.tap(find.byKey(const ValueKey('auth-submit')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('auth-submit')));
+      await tester.pumpAndSettle();
 
-    expect(repo.signUpCalls, 1);
-    _erwarteNeutralenAusweg(deL10n.authSignupExistingAccountAliasHint);
-  });
+      expect(repo.signUpCalls, 1);
+      _erwarteNeutralenAusweg(hinweis);
+    });
+  }
 
   testWidgets('zwei schnelle Taps auf Absenden sind eine Registrierung',
       (tester) async {

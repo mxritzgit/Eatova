@@ -46,12 +46,12 @@ const Map<String, AppTokens> _paletten = <String, AppTokens>{
 void main() {
   group('AppTokens', () {
     // Depth and light (2026-10-25): a floating surface's top catches light.
-    // In dark it must sit above `surf` (the falloff runs down into it); in
-    // light it stays white and the shadow carries the depth.
+    // It never sits below `surf` (in dark the falloff runs down into it).
     test('surfLit hebt die Oberkante, nie unter surf', () {
       expect(AppTokens.dark.surfLit.computeLuminance(),
           greaterThan(AppTokens.dark.surf.computeLuminance()));
-      expect(AppTokens.light.surfLit, AppTokens.light.surf);
+      expect(AppTokens.light.surfLit.computeLuminance(),
+          greaterThanOrEqualTo(AppTokens.light.surf.computeLuminance()));
       for (final MapEntry(key: modus, value: t) in _paletten.entries) {
         expect(_contrast(t.ink, t.surfLit), greaterThanOrEqualTo(4.5),
             reason: '$modus: ink auf surfLit');

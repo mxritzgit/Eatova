@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -185,20 +186,17 @@ class EatovaDialog extends StatelessWidget {
         ],
       ),
     );
-    // The mark is decoration: with large text on a narrow phone it gives its
-    // room to the decision itself.
-    final Widget? mark = compactText
-        ? null
-        : lead ??
-              (icon == null
-                  ? null
-                  : Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: DecisionMedallion(
-                        icon: icon!,
-                        destructive: destructive,
-                      ),
-                    ));
+    // The medallion is decoration: with large text on a narrow phone it
+    // gives its room to the decision itself. A [lead] names what the decision
+    // is about (the account a sign-out leaves) and stays.
+    final Widget? mark =
+        lead ??
+        (compactText || icon == null
+            ? null
+            : Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: DecisionMedallion(icon: icon!, destructive: destructive),
+              ));
     final message = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -282,6 +280,7 @@ class EatovaDialog extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(rSheet),
           ),
+          semanticsRole: SemanticsRole.alertDialog,
           // What AlertDialog said for the route: a named, scoped dialog.
           child: Semantics(
             scopesRoute: true,

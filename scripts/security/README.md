@@ -106,9 +106,10 @@ The probe verifies these real server boundaries:
 - One account per mailbox: the Before User Created hook is enabled and
   `supabase/migrations/20261027100000_email_alias_guard.sql` is applied after
   boot. A `+tag` alias of the confirmed account gets 422 `User already
-  registered` (code `unknown`) and leaves no row. Another account's change
-  request to that alias fails with 500 in the update trigger; the legacy body
-  carries only the fixed raise text, and the address and `email_change` stay
+  registered` (code `unknown`) and leaves no row. Another account may
+  request a change to that alias (GoTrue's per-user mail throttle keeps
+  working), but confirming it fails with 500 in the update trigger; the
+  legacy body carries only the fixed raise text, and the address stays
   unchanged. The provider rule (Google with a fresh unconfirmed holder) and the
   hook grants are tested in SQL only (`test/migrations/email_alias_guard.sql`).
 - Existing/missing recovery requests return the same successful status. Recovery

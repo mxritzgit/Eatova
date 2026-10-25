@@ -2,8 +2,9 @@
 -- moritz.gietl@gmail.com and moritzgietl@gmail.com (one Gmail mailbox) could
 -- each hold an account. The Before User Created hook below rejects such an
 -- alias with GoTrue's own duplicate sentence (the app shows its neutral hint);
--- the BEFORE triggers are the guarantee for races, admin-created users, email
--- changes and confirming a second alias. Existing rows are not touched.
+-- the BEFORE triggers are the guarantee for races, admin-created users,
+-- confirming an email change and confirming a second alias. Existing rows are
+-- not touched.
 -- The hook is enabled separately in the Auth config (docs/OPERATIONS.md).
 
 -- lower(btrim()), split at the last @, one trailing dot off the domain,
@@ -37,8 +38,15 @@ as $$
   ) p;
 $$;
 
--- Another account holds the key: confirmed, or (signup only) created within
--- the last hour. Unconfirmed squats therefore block for at most an hour.
+-- Another account holds the key: confirmed, or (email signup only) created
+-- within the last hour while no unconfirmed row of the key is older. A squat
+-- therefore blocks the real owner for one hour at most; renewing it with a
+-- new spelling every hour does not extend that.
+-- The prefix test runs first, on builtins: without dots, an address starts
+-- with the first three characters of its key's local part, because the key
+-- only drops dots and a +tag suffix. It spares the key function (~20
+-- microseconds a call) on almost every row; over all accounts that became
+-- seconds at 100k.
 create or replace function public.email_alias_holder_exists(
   p_key text, p_self uuid, p_count_fresh boolean)
 returns boolean
@@ -46,14 +54,20 @@ language sql
 stable
 set search_path = ''
 as $$
-  select exists (
-    select 1
-    from auth.users u
-    where u.id is distinct from p_self
-      and public.email_canonical_key(u.email) = p_key
-      and (u.email_confirmed_at is not null
-           or (p_count_fresh and u.created_at > now() - interval '1 hour'))
-  );
+  select coalesce(
+    bool_or(u.email_confirmed_at is not null)
+    or (p_count_fresh
+        and bool_or(u.email_confirmed_at is null
+                    and u.created_at > now() - interval '1 hour')
+        and not bool_or(u.email_confirmed_at is null
+                        and u.created_at <= now() - interval '1 hour')),
+    false)
+  from auth.users u,
+       (select least(3, length(split_part(replace(p_key, '.', ''), '@', 1))) as n) p
+  where u.id is distinct from p_self
+    and left(replace(lower(btrim(u.email)), '.', ''), p.n)
+        = left(replace(p_key, '.', ''), p.n)
+    and public.email_canonical_key(u.email) = p_key;
 $$;
 
 create or replace function public.auth_before_user_created(event jsonb)
@@ -102,26 +116,30 @@ declare
   email_key text;
   taken boolean := false;
 begin
+  -- An email change is checked when it is confirmed (the email itself
+  -- changes), not when it is requested: a refused request would roll back
+  -- email_change_sent_at after GoTrue sent the mails, and GoTrue's per-user
+  -- mail throttle reads that column.
   begin
+    address := new.email;
     if tg_op = 'INSERT' then
-      address := new.email;
       count_fresh := new.email_confirmed_at is null
         and coalesce(new.raw_app_meta_data ->> 'provider', 'email') = 'email';
-    elsif new.email_change is distinct from old.email_change
-          and coalesce(new.email_change, '') <> '' then
-      address := new.email_change;
-      count_fresh := true;
-    elsif new.email is distinct from old.email
-          or (old.email_confirmed_at is null and new.email_confirmed_at is not null) then
-      address := new.email;
     end if;
     email_key := public.email_canonical_key(address);
-    if email_key is not null then
-      -- Serialises same-key rows until commit: two concurrent alias signups
-      -- cannot both pass.
-      perform pg_advisory_xact_lock(hashtextextended('email_key:' || email_key, 0));
-      taken := public.email_alias_holder_exists(email_key, new.id, count_fresh);
-    end if;
+  exception when others then
+    raise warning 'guard_auth_user_email_alias: alias check skipped (%)', sqlstate;
+    return new;
+  end;
+  if email_key is null then
+    return new;
+  end if;
+  -- Serialises same-key rows until commit: two concurrent alias signups
+  -- cannot both pass. Outside the handler, so a lock timeout or deadlock
+  -- fails this request instead of skipping the check.
+  perform pg_advisory_xact_lock(hashtextextended('email_key:' || email_key, 0));
+  begin
+    taken := public.email_alias_holder_exists(email_key, new.id, count_fresh);
   exception when others then
     raise warning 'guard_auth_user_email_alias: alias check skipped (%)', sqlstate;
     return new;
@@ -143,10 +161,9 @@ create trigger on_auth_user_email_alias_insert
 
 drop trigger if exists on_auth_user_email_alias_update on auth.users;
 create trigger on_auth_user_email_alias_update
-  before update of email, email_change, email_confirmed_at on auth.users
+  before update of email, email_confirmed_at on auth.users
   for each row
   when (new.email is distinct from old.email
-        or new.email_change is distinct from old.email_change
         or (old.email_confirmed_at is null and new.email_confirmed_at is not null))
   execute function public.guard_auth_user_email_alias();
 
