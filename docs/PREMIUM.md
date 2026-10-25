@@ -71,8 +71,8 @@ in sections 6 and 7.
   billed amount ("49,99 EUR pro Jahr"); the monthly equivalent and the savings
   are secondary and computed from the store's prices at runtime (PAngV).
 - A trial is never shown without its price and first charge date: a short
-  timeline in the offer ("Heute: Premium freigeschaltet", "Ab {date}:
-  {price} pro Jahr, vorher jederzeit kündbar"), and the charge line directly
+  timeline inside the yearly plan ("Heute: Premium freigeschaltet", "Ab
+  {date}: {price} pro Jahr, vorher jederzeit kündbar"), and the charge line directly
   above the purchase button in the pinned foot (trial: first charge date and
   price; otherwise the billed price), so it is visible whenever the button is.
 - "Weiter mit Free" is full width and as tall as the purchase button; the
@@ -607,40 +607,55 @@ onboarding; close and system Back mean Free) and `PaywallMode.upsell` (a
 pushed route, opened with a `PremiumSource`: profile, settings, coach,
 mealAnalysis, recipeImport, recipePicture).
 
-Layout (dark default, both palettes; no overflow at 320 px and 2.0x text):
-1. Close button top right, visible at once.
-2. Hero card in the IdentityCard recipe (rHero, glow): eyebrow
-   "EATOVA PREMIUM", display title (the promise), the subline naming what
-   stays free.
-3. Free vs Premium table with the effective numbers from `PlanStatus`
+Layout (dark default, both palettes; no overflow at 320 px and 2.0x text;
+the "depth and light" language of the 2026-10-25 polish: no hairlines, a
+floating surface separates by its lit top and shadow):
+1. A pinned top bar: the lit dot and the eyebrow "EATOVA PREMIUM", the close
+   button top right, visible at once. Content scrolling under the bar or
+   toward the foot fades out over 24 px instead of being cut.
+2. Hero on the page itself, no card and no glow: the display title (the
+   promise, 44 px, 36 px under 360 px; the no-break space in "Jeden Tag."
+   keeps the only break after "KI.") and the subline naming what Premium
+   lifts and what stays free.
+3. Free vs Premium ledger with the effective numbers from `PlanStatus`
    (`limits.free`, `limits.premium`; the assumed defaults until loaded): Coach
-   questions, AI analyses, recipe imports, AI picture. For a legacy account
-   without Premium a note under the table with its current limits and
-   `legacy.until`; with Premium its current limits are not the previous
-   ones, so the note does not show.
-4. Two reassurance lines: the picture stays on the device; nothing is lost
-   when the subscription ends.
-5. Plan choice: two `OptionCard`s, yearly first and preselected (billed price
-   large, monthly equivalent and savings badge secondary, trial badge when
-   eligible), monthly second. Prices only from the store.
-6. With a trial: the timeline (today unlocked; from {date} {price} per year,
-   cancel before in {store}).
+   questions, AI analyses, recipe imports, AI picture. Names and Free numbers
+   sit on the page; the Premium column is one lit pillar whose numbers count
+   up once from the Free ones (static under reduced motion). On a narrow
+   phone at large text each row stacks. For a legacy account without Premium
+   a note under the ledger with its current limits and `legacy.until`; with
+   Premium its current limits are not the previous ones, so the note does
+   not show.
+4. Two reassurance footnotes: the picture stays on the device; nothing is
+   lost when the subscription ends.
+5. Plan choice: one floating plan picker, yearly first and preselected,
+   monthly second. The selected row lights its well and its pip turns into a
+   lit check; billed price large, monthly equivalent, savings and trial as
+   secondary text (no badges). A real switch ticks once (selection haptic).
+   Prices only from the store.
+6. With a trial: the timeline inside the yearly well (today unlocked; from
+   {date} {price} per year, cancel before in {store}) on one track, folding
+   away with the selection.
 7. `PrimaryActionButton`: trial-eligible yearly "{days} Tage gratis testen",
-   otherwise "Premium abonnieren"; busy while the store sheet is open. In the
-   pinned foot, directly above it, the charge line of the selected offer: a
-   trial's first charge date and price (`premiumTrialCharge`), otherwise the
-   billed price (`premiumPlanYearlyPrice` / `premiumPlanMonthlyPrice`).
+   otherwise "Premium abonnieren"; busy while the store sheet is open; its
+   label cross-fades with the plan, a light haptic on tap. In the pinned
+   foot, directly above it, the charge line of the selected offer: a trial's
+   first charge date and price (`premiumTrialCharge`), otherwise the billed
+   price (`premiumPlanYearlyPrice` / `premiumPlanMonthlyPrice`).
    The pinned foot never scrolls and caps its text scale at 1.3x, so at 2.0x
    it leaves the content its space.
-8. Fine print: renewal sentence with the selected price and period, cancel any
-   time in the store's subscription settings, links Nutzungsbedingungen and
-   Datenschutz, and "Käufe wiederherstellen".
-9. Onboarding mode: "Weiter mit Free" as a full-width soft capsule with the
-   primary button's height.
+8. Fine print, left-aligned: renewal sentence with the selected price and
+   period, cancel any time in the store's subscription settings, links
+   Nutzungsbedingungen and Datenschutz, and "Käufe wiederherstellen" on its
+   own line.
+9. Onboarding mode: "Weiter mit Free" as a full-width neutral soft capsule
+   with the primary button's height (never the fill-less quiet tone).
 
-States: loading offers; store unavailable (CalmState with retry; the table
-and the Free choice stay); purchasing; pending payment; success ("Willkommen
-bei Premium"); owned by another account (a `409`, or a `422` with reason
+States: loading offers (the picker's skeleton); store unavailable (a calm
+note with retry; the table and the Free choice stay); purchasing; pending
+payment; success ("Willkommen bei Premium": a lit check lands and draws
+itself, the new daily limits count up); owned by another account (a `409`,
+or a `422` with reason
 `account`); already Premium, or without Premium a store subscription still
 live on hold, paused or pending (the status card and "Abo verwalten" in
 place of the plan choice, and no purchase button: it is fixed in its store,
@@ -659,15 +674,19 @@ Back and a finished purchase write `answered`. The four deferred-entry guards
 ### 4.4 Profile, Settings, deletion, legacy notice
 
 - Profile: a new section "Abo" before "Verbindungen" with a
-  `SubscriptionCard`: tier pill (Free or Premium), status line (renews on,
-  ends on, payment problem with access until, unlocked until for manual,
-  expired on), "über Google Play / über den App Store", a test-purchase badge
-  for sandbox and test, today's usage (Coach 1/2, KI-Analysen 2/3,
-  Importe 0/1), and the actions: "Mehr mit Premium" on Free without a live
-  store subscription; "Abo verwalten" for a live store subscription (Premium,
-  or on Free one on hold, paused or pending, with the spans of 4.3; when
-  bought on the other platform: the note that it is managed there); always
-  "Käufe wiederherstellen". A legacy account without Premium shows its
+  `SubscriptionCard` on one lit surface (no rim, no divider): the tier as a
+  word with the lit dot (lit for Premium, unlit for Free), status line in
+  its state colour (renews on, ends on, payment problem with access until,
+  unlocked until for manual, expired on), "über Google Play / über den App
+  Store", a test-purchase badge for sandbox and test, today's usage (Coach
+  1/2, KI-Analysen 2/3, Importe 0/1, each with a meter that fills once and
+  turns to `warning` when used up), and the actions: "Mehr mit Premium" as
+  the lit primary action on Free without a live store subscription; "Abo
+  verwalten" as a tonal pill for a live store subscription (Premium, or on
+  Free one on hold, paused or pending, with the spans of 4.3; when bought on
+  the other platform: the note that it is managed there); always "Käufe
+  wiederherstellen" as a quiet capsule under it. A legacy account without
+  Premium shows its
   current limits and `legacy.until` (`premiumLegacyNote` /
   `premiumLegacyNoteUntil`). A legacy account with Premium shows, once
   `legacy.until` is set, a lasting note with that date and the regular
@@ -731,8 +750,8 @@ Numbers in the copy always come from `PlanStatus`, never literals.
 | --- | --- | --- |
 | `premiumEyebrow` | EATOVA PREMIUM | |
 | `premiumScreenLabel` | Eatova Premium | (screen semantics) |
-| `premiumTitle` | Mehr KI an jedem Tag | |
-| `premiumSubtitle` | Tagebuch, Barcode, Suche, Rezepte, Wochenplan, Einkaufsliste, Training und Trends bleiben für alle kostenlos. | |
+| `premiumTitle` | Mehr KI. Jeden Tag. | (a no-break space between "Jeden" and "Tag.") |
+| `premiumSubtitle` | Premium hebt die Tageslimits für Coach, Analysen und Rezept-Importe. Tagebuch, Training und alles andere bleiben kostenlos. | |
 | `premiumCompareTitle` | Free und Premium | |
 | `premiumCompareFree` | Free | |
 | `premiumComparePremium` | Premium | |
@@ -740,6 +759,13 @@ Numbers in the copy always come from `PlanStatus`, never literals.
 | `premiumRowMealAnalysis` | KI-Analysen pro Tag (Foto & Text) | |
 | `premiumRowRecipeImport` | Rezept-Importe pro Tag | |
 | `premiumRowRecipePicture` | KI-Bild zu Coach-Rezepten | |
+| `premiumRowCoachShort` | Coach-Fragen | (visible row name; `premiumRowCoach` stays the spoken label) |
+| `premiumRowMealAnalysisShort` | KI-Analysen | (visible row name) |
+| `premiumRowRecipeImportShort` | Rezept-Importe | (visible row name) |
+| `premiumRowRecipePictureShort` | KI-Bild | (visible row name) |
+| `premiumRowPerDay` | pro Tag | (detail line) |
+| `premiumRowMealAnalysisDetail` | Foto & Text, pro Tag | (detail line) |
+| `premiumRowRecipePictureDetail` | zu Coach-Rezepten | (detail line) |
 | `premiumIncluded` | enthalten | (semantics) |
 | `premiumNotIncluded` | nicht enthalten | (semantics) |
 | `premiumLegacyNote` | Für dein Konto gelten vorerst weiter die bisherigen Limits: {coach} Coach-Fragen, {analyses} KI-Analysen und {imports} Rezept-Importe pro Tag. | coach:int, analyses:int, imports:int |
