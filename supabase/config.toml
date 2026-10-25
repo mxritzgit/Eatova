@@ -1,0 +1,10 @@
+# Read by `supabase --workdir <checkout> functions deploy` (deploy-functions.yml).
+# The public store webhook authenticates every request itself (Apple JWS,
+# Google OIDC), so only it turns the gateway's JWT check off. Every other
+# function keeps the default verify_jwt = true; scripts/operations/
+# deploy_functions.py refuses verify_jwt = false for any slug not on its
+# PUBLIC_WEBHOOKS allowlist.
+project_id = "eatova"
+
+[functions.store-notifications]
+verify_jwt = false

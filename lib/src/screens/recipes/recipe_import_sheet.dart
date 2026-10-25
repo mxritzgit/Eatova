@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/subscription.dart';
 import '../../l10n/l10n.dart';
 import '../../models/fitness_recipe.dart';
+import '../../models/plan_limit_hit.dart';
+import '../../models/plan_status.dart';
 import '../../models/recipe_import_result.dart';
 import '../../services/recipe_import_service.dart';
 import '../../services/sync_error_messages.dart';
@@ -15,6 +18,7 @@ import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_sections.dart';
 import '../../widgets/shared/ai_consent_sheet.dart';
+import '../../widgets/shared/plan_limit_notice.dart';
 import 'recipe_import_nutrition.dart';
 import 'recipes_screen.dart' show showRecipeNutritionDraftEditor;
 
@@ -89,6 +93,15 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   bool _showInput = true;
   bool _sourceOpen = false;
   String? _error;
+  // The account's import quota for today is spent ([_limitHolds]); the
+  // upgrade offer was decided once, when the denial arrived.
+  PlanLimitHit? _limit;
+  bool _limitUpsell = false;
+  // The account's tierRevision when that denial arrived: only a later plan
+  // change lifts it.
+  int? _limitDeniedAt;
+  // The signed-in account's plan, listened to for [_limitHolds].
+  SubscriptionController? _subscription;
   String? _editError;
   // The text whose last import ended as source_too_long. Sending it unchanged
   // would fail the same way and spend another paid import.
@@ -136,7 +149,27 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final account = planAccountOf(context);
+    if (identical(account, _subscription)) return;
+    _subscription?.removeListener(_planChanged);
+    _subscription = account?..addListener(_planChanged);
+  }
+
+  /// An upgrade from the notice lifts the limit at once.
+  void _planChanged() {
+    if (mounted && _limit != null) setState(() {});
+  }
+
+  /// The spent quota still blocks a new attempt: until its reset, unless the
+  /// account moved to Premium with imports left since the denial.
+  bool get _limitHolds =>
+      planLimitHolding(_limit, _subscription, deniedAt: _limitDeniedAt) != null;
+
+  @override
   void dispose() {
+    _subscription?.removeListener(_planChanged);
     _scroll.dispose();
     for (final field in [_text, _title, _portion, _ingredients, _preparation]) {
       field.dispose();
@@ -198,9 +231,11 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     setState(() {
       _loading = true;
       _error = null;
+      _limit = null;
       _tooLongText = null;
       _showInput = false;
     });
+    final account = planAccountOf(context);
     try {
       final result = await widget.service.extract(
         text,
@@ -229,8 +264,15 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       _scrollToTop();
     } catch (error) {
       if (!mounted) return;
+      final limit = error is RecipeImportException
+          ? planLimitInForce(error.planLimit)
+          : null;
+      final upsell = limit != null && notePlanLimitHit(context, account, limit);
       setState(() {
-        _error = _importError(error);
+        _limit = limit;
+        _limitUpsell = upsell;
+        _limitDeniedAt = _subscription?.tierRevision;
+        _error = limit == null ? _importError(error) : null;
         if (error is RecipeImportException &&
             error.failure == RecipeImportFailure.sourceTooLong) {
           _tooLongText = text;
@@ -491,6 +533,22 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
               ),
             ),
             const SizedBox(height: 16),
+          ] else if (_limitHolds) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: t.accentTint,
+                borderRadius: BorderRadius.circular(rTile),
+              ),
+              child: PlanLimitNotice(
+                hit: _limit!,
+                onUpgrade: planUpsellShows(_limitUpsell, _subscription)
+                    ? () =>
+                          openPremiumAtLimit(context, PlanFeature.recipeImport)
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 16),
           ],
           content,
         ],
@@ -674,13 +732,18 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         PrimaryActionButton(
           key: const ValueKey('recipe-import-analyze'),
           // Too much recipe content is final: no retry offer, and the same
-          // text cannot be sent again until it changes.
+          // text cannot be sent again until it changes. A spent tier quota
+          // holds no matter the text.
           label: _error == null || _tooLongText != null
               ? l10n.recipeImportAnalyze
               : l10n.recipeImportRetry,
           icon: Icons.auto_awesome_outlined,
           onTap:
-              _busy || _text.text.trim().isEmpty || _textTooLong || _linkOnly
+              _busy ||
+                  _text.text.trim().isEmpty ||
+                  _textTooLong ||
+                  _linkOnly ||
+                  _limitHolds
               ? null
               : _extract,
         ),

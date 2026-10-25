@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../models/meal_analysis_request.dart';
 import '../models/meal_analysis_result.dart';
+import '../models/plan_limit_hit.dart';
 import 'eatova_http.dart';
 
 abstract class MealAnalyzer {
@@ -31,9 +32,14 @@ sealed class MealAnalysisException implements Exception {
 /// HTTP 429. [resetAt] comes from the server's `rateLimit.resetAt` when the
 /// body was JSON; null for an HTML body from the gateway.
 class MealAnalysisRateLimited extends MealAnalysisException {
-  const MealAnalysisRateLimited({this.resetAt});
+  const MealAnalysisRateLimited({this.resetAt, this.planLimit});
 
   final DateTime? resetAt;
+
+  /// Set only when the account's daily tier quota denied the request
+  /// (`planLimit`, docs/PREMIUM.md 3.3). The hourly, IP and global gates
+  /// leave it null, so they never lead to an upgrade hint.
+  final PlanLimitHit? planLimit;
 
   @override
   String get code => 'rate_limited';
@@ -113,18 +119,74 @@ Map<String, dynamic> buildAnalyzeMealBody(MealAnalysisRequest request) {
 String encodeAnalyzeMealBody(MealAnalysisRequest request) =>
     jsonEncode(buildAnalyzeMealBody(request));
 
+/// The account's daily analysis bucket after a successful answer, from the
+/// 2xx body's `rateLimit.userDay` (docs/PREMIUM.md 4.5). The photo scan and
+/// Describe share it.
+class MealAnalysisUsage {
+  const MealAnalysisUsage({required this.limit, required this.remaining});
+
+  final int limit;
+  final int remaining;
+
+  /// Today's analyses, this one included.
+  int get used => limit - remaining;
+
+  /// Null unless `rateLimit.userDay` carries a usable limit and remainder.
+  static MealAnalysisUsage? fromBody(Map<String, dynamic> body) {
+    final rateLimit = body['rateLimit'];
+    final day = rateLimit is Map ? rateLimit['userDay'] : null;
+    if (day is! Map) return null;
+    final limit = day['limit'];
+    final remaining = day['remaining'];
+    if (limit is! int ||
+        remaining is! int ||
+        limit < 1 ||
+        remaining < 0 ||
+        remaining > limit) {
+      return null;
+    }
+    return MealAnalysisUsage(limit: limit, remaining: remaining);
+  }
+}
+
+// The analyzer and describer interfaces stay as they are (many fakes
+// implement them); the usage rides on the parsed answer object instead.
+final Expando<MealAnalysisUsage> _answerUsage = Expando<MealAnalysisUsage>(
+  'analyze-meal usage',
+);
+
+/// The usage `analyze-meal` reported with [answer], a [MealAnalysisResult]
+/// or a described meal parsed from its 2xx body; null for anything else
+/// (barcode lookups, fakes, a server without `userDay`).
+MealAnalysisUsage? mealAnalysisUsageOf(Object answer) => _answerUsage[answer];
+
+/// [answer] with [usage] attached for [mealAnalysisUsageOf].
+T withMealAnalysisUsage<T extends Object>(T answer, MealAnalysisUsage? usage) {
+  _answerUsage[answer] = usage;
+  return answer;
+}
+
 /// Turns a raw `analyze-meal` answer into a result or a typed error. Status
 /// codes are checked BEFORE the body is trusted: a 429/502 from the gateway
 /// carries HTML, which used to surface as a `FormatException`.
-MealAnalysisResult parseAnalyzeMealResponse(int statusCode, String body) =>
-    MealAnalysisResult.fromEdgeFunction(
-      readAnalyzeMealResult(statusCode, body),
-    );
+MealAnalysisResult parseAnalyzeMealResponse(int statusCode, String body) {
+  final answer = readAnalyzeMealAnswer(statusCode, body);
+  return withMealAnalysisUsage(
+    MealAnalysisResult.fromEdgeFunction(answer.result),
+    answer.usage,
+  );
+}
 
-/// The `result` object of a 2xx `analyze-meal` answer, or the typed error of
+/// The `result` object of a 2xx `analyze-meal` answer and the bucket's usage.
+typedef AnalyzeMealAnswer = ({
+  Map<String, dynamic> result,
+  MealAnalysisUsage? usage,
+});
+
+/// The [AnalyzeMealAnswer] of a 2xx, or the typed error of
 /// [parseAnalyzeMealResponse]. Shared by the photo scan and the meal
-/// description, which parse the object differently.
-Map<String, dynamic> readAnalyzeMealResult(int statusCode, String body) {
+/// description, which parse the result object differently.
+AnalyzeMealAnswer readAnalyzeMealAnswer(int statusCode, String body) {
   final decoded = _decodeLeniently(body);
   final code = decoded['error']?.toString();
   final message = decoded['message']?.toString();
@@ -135,7 +197,10 @@ Map<String, dynamic> readAnalyzeMealResult(int statusCode, String body) {
   // Shared provider capacity can be exhausted while this user's photo quota
   // is still available. Preserve that code for the service-availability text.
   if (statusCode == 429 && code != 'ai_budget_exhausted') {
-    throw MealAnalysisRateLimited(resetAt: _readResetAt(decoded));
+    throw MealAnalysisRateLimited(
+      resetAt: _readResetAt(decoded),
+      planLimit: PlanLimitHit.fromBody(decoded),
+    );
   }
   if (statusCode == 413 ||
       code == 'image_too_large' ||
@@ -158,7 +223,7 @@ Map<String, dynamic> readAnalyzeMealResult(int statusCode, String body) {
       debugMessage: 'result missing or not an object',
     );
   }
-  return result;
+  return (result: result, usage: MealAnalysisUsage.fromBody(decoded));
 }
 
 Map<String, dynamic> _decodeLeniently(String body) {

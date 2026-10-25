@@ -4,8 +4,10 @@ part of 'profile_widgets.dart';
 /// routine), with the logging streak and record under a hairline when the
 /// screen passes them in.
 ///
-/// Real data only: no membership badge and no "member since" — the account
-/// has neither (pinned by `profile_screen_design_test`).
+/// Real data only: no "member since" (the account has none) and no tier
+/// badge — the tier and its dates live in the "Abo" section's
+/// `SubscriptionCard`, from the server's plan (pinned by
+/// `profile_screen_design_test`).
 class IdentityCard extends StatelessWidget {
   const IdentityCard({
     super.key,

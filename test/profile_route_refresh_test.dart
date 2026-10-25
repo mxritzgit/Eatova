@@ -3,15 +3,25 @@ import 'support/food_navigation.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/app/subscription.dart';
+import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
+import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/services/local_cache.dart';
 
+import 'flows/flow_test_helpers.dart'
+    show FakeProductLookupService, pumpUntil, settleFrames;
+import 'support/fixlauf_a_helpers.dart'
+    show FixlaufServer, completedProfile, kFixlaufUser, serverProfileRow;
 import 'support/harness.dart';
+import 'support/subscription_fakes.dart';
 
 // INT-B / ARCH-1+PERF-2 tests for eatova_home_page.dart:
 //
@@ -21,9 +31,12 @@ import 'support/harness.dart';
 //    AnimatedBuilder + _profileRefresh is the bridge carrying a mid-route
 //    state change (a health steps refresh) into the open screen. Test 1
 //    proves the bridge is intact.
+//  * The account's plan notifies outside the store, so the open profile and
+//    settings listen to the SubscriptionController too (Premium, 2026-10-25).
 //
 // sync == null on purpose: the page lands on home immediately (no onboarding
-// gate) and the health paths run without Supabase.
+// gate) and the health paths run without Supabase. Only the plan test boots
+// over a fake server, since a plan needs an account.
 
 /// HealthService with a switchable steps answer. authState = granted so the
 /// ProfileScreen shows the 'profile-health-refresh' button. [nextSteps] picks
@@ -198,5 +211,68 @@ void main() {
     profile.onOpenSettings();
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen, skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('offenes Profil und offene Einstellungen folgen dem Plan', (
+    tester,
+  ) async {
+    _pinViewport(tester);
+    await withClock(Clock.fixed(kPlanDay), () async {
+      final log = FakeSubscriptionLog(plan: planOf(PlanTier.free));
+      final binding = SubscriptionBinding();
+      final server = FixlaufServer()
+        ..profileRow = serverProfileRow(completedProfile);
+      final client = SupabaseClient(
+        'https://example.supabase.co',
+        'test-anon-key',
+        httpClient: server.client(),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      await pumpLocalized(
+        tester,
+        SubscriptionScope(
+          binding: binding,
+          child: EatovaHomePage(
+            productService: FakeProductLookupService(),
+            sync: EatovaSync.forUser(client, kFixlaufUser, subscription: log),
+            debugCache: LocalCache(InMemoryKeyValueStore(), kFixlaufUser),
+            showWelcome: false,
+          ),
+        ),
+        scaffold: false,
+        safeArea: false,
+      );
+      await pumpUntil(
+        tester,
+        () => find.byKey(const ValueKey('today-profile')).evaluate().isNotEmpty,
+        'die Shell nach dem Boot-Load',
+      );
+      Future<void> serverSays(PlanTier tier) async {
+        log.plan = planOf(tier);
+        await binding.controller!.refresh(force: true);
+        await settleFrames(tester);
+      }
+
+      await tester.tap(find.byKey(const ValueKey('today-profile')));
+      await settleFrames(tester);
+      expect(
+        find.byKey(const ValueKey('profile-subscription-free')),
+        findsOneWidget,
+      );
+      await serverSays(PlanTier.premium);
+      expect(
+        find.byKey(const ValueKey('profile-subscription-premium')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('profile-open-settings')));
+      await settleFrames(tester);
+      final row = find.byKey(const ValueKey('settings-subscription'));
+      expect(find.descendant(of: row, matching: find.text('Premium')),
+          findsOneWidget);
+      await serverSays(PlanTier.free);
+      expect(find.descendant(of: row, matching: find.text('Free')),
+          findsOneWidget);
+    });
   });
 }

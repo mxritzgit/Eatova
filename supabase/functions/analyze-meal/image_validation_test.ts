@@ -1,6 +1,7 @@
 import { userToken } from "../_shared/auth_test_fixtures.ts";
 import { handleRequest } from './handler.ts';
 import { JPEG_BASE64, PNG_BASE64, WEBP_ALPHA_BASE64, WEBP_BASE64, WEBP_LOSSLESS_BASE64 } from './image_fixtures.ts';
+import { PLAN_ANSWERS, RESOLVE_PLAN_RPC } from './plan_fixtures.ts';
 import { claudeResponse, isClaudeCall } from '../_shared/claude_test_fixtures.ts';
 
 Deno.env.set('SUPABASE_URL', 'https://supabase.test.invalid');
@@ -29,6 +30,7 @@ async function probe(imageBase64: string) {
   let reservations = 0;
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input);
+    if (url.endsWith(RESOLVE_PLAN_RPC)) return Promise.resolve(json(PLAN_ANSWERS.free));
     if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) {
       reservations++;
       return Promise.resolve(json({ allowed: true, reason: "allowed" }));

@@ -14,6 +14,8 @@ import 'src/services/app_shortcuts.dart';
 import 'src/services/platform_health_service.dart';
 import 'src/services/crash_reporter.dart';
 import 'src/services/background_sync_scheduler.dart';
+import 'src/services/billing/purchase_coordinator.dart';
+import 'src/services/billing/store_billing_client.dart';
 import 'src/services/notification_service.dart';
 import 'src/services/sync_connectivity.dart';
 import 'src/theme/app_theme.dart';
@@ -113,6 +115,9 @@ EatovaApp buildEatovaApp({ThemeModeController? themeModeController}) =>
       backgroundSyncScheduler: PlatformBackgroundSyncScheduler.isSupported
           ? PlatformBackgroundSyncScheduler()
           : null,
+      // The store on Android and iOS; it connects on first use, so building
+      // the app touches no platform channel.
+      purchaseFlow: PurchaseCoordinator(createBillingClient()),
       themeModeController: themeModeController,
     );
 

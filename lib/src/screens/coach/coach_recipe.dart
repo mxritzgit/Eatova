@@ -16,6 +16,8 @@ class _RecipeProposalCard extends StatelessWidget {
     required this.enabled,
     required this.onAdd,
     this.onReportImage,
+    this.pictureLocked = false,
+    this.onUnlockPicture,
   });
 
   final CoachRecipeProposal proposal;
@@ -26,6 +28,11 @@ class _RecipeProposalCard extends StatelessWidget {
   /// Reports the generated picture (long press on it, or the screen-reader
   /// action); null without a picture or a report path.
   final VoidCallback? onReportImage;
+
+  /// The plan has no AI picture (docs/PREMIUM.md 1.2): a quiet line where
+  /// the picture would be, no teaser; [onUnlockPicture] opens Premium.
+  final bool pictureLocked;
+  final VoidCallback? onUnlockPicture;
 
   @override
   Widget build(BuildContext context) {
@@ -42,45 +49,55 @@ class _RecipeProposalCard extends StatelessWidget {
           label: l10n.coachRecipeCardEyebrow,
         ),
         const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(rCard),
-          child: SizedBox(
-            height: 150,
-            width: double.infinity,
-            // Without a generated photo (failed or still to come): the
-            // recipes' glowing bowl, never a wireframe stripe. A proposal has
-            // no categories, so the bowl is the motif.
-            child: bytes == null
-                ? const RecipeArt()
-                : _ImageReport(
-                    onReport: onReportImage,
-                    child: Stack(
-                    // expand, not the default loose fit: the image below has
-                    // no intrinsic box of its own here, it fills the 150 px
-                    // slot. Loosening would collapse it to the decoded size.
-                    fit: StackFit.expand,
-                    children: <Widget>[
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          // Limit decode to card width (same pattern as the
-                          // user photo bubble in _MessageView).
-                          final dpr = MediaQuery.devicePixelRatioOf(context);
-                          final w = constraints.maxWidth.isFinite
-                              ? constraints.maxWidth
-                              : 320.0;
-                          return Image.memory(
-                            bytes,
-                            fit: BoxFit.cover,
-                            cacheWidth: (w * dpr).round().clamp(1, 1600),
-                          );
-                        },
-                      ),
-                      const _AiImageBadgeOverlay(),
-                    ],
-                  ),
-                  ),
+        if (bytes == null && pictureLocked)
+          SoftPillButton(
+            key: const ValueKey('coach-recipe-picture-locked'),
+            icon: Icons.image_outlined,
+            label: l10n.coachRecipePictureLocked,
+            tone: SoftPillTone.neutral,
+            expand: true,
+            onTap: onUnlockPicture,
+          )
+        else
+          ClipRRect(
+            borderRadius: BorderRadius.circular(rCard),
+            child: SizedBox(
+              height: 150,
+              width: double.infinity,
+              // Without a generated photo (failed or still to come): the
+              // recipes' glowing bowl, never a wireframe stripe. A proposal has
+              // no categories, so the bowl is the motif.
+              child: bytes == null
+                  ? const RecipeArt()
+                  : _ImageReport(
+                      onReport: onReportImage,
+                      child: Stack(
+                      // expand, not the default loose fit: the image below has
+                      // no intrinsic box of its own here, it fills the 150 px
+                      // slot. Loosening would collapse it to the decoded size.
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Limit decode to card width (same pattern as the
+                            // user photo bubble in _MessageView).
+                            final dpr = MediaQuery.devicePixelRatioOf(context);
+                            final w = constraints.maxWidth.isFinite
+                                ? constraints.maxWidth
+                                : 320.0;
+                            return Image.memory(
+                              bytes,
+                              fit: BoxFit.cover,
+                              cacheWidth: (w * dpr).round().clamp(1, 1600),
+                            );
+                          },
+                        ),
+                        const _AiImageBadgeOverlay(),
+                      ],
+                    ),
+                    ),
+            ),
           ),
-        ),
         const SizedBox(height: 12),
         Text(proposal.title, style: _proposalTitleStyle(t)),
         const SizedBox(height: 6),

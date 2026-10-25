@@ -27,12 +27,15 @@ import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/training_plan.dart';
+import 'package:eatova/src/screens/premium/paywall_screen.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
 import 'package:eatova/src/widgets/design/readable_width.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 
 import '../flows/flow_test_helpers.dart' show storeOf;
 import '../support/harness.dart';
+import '../support/subscription_fakes.dart'
+    show FakePurchaseFlow, subscriptionController;
 
 // A Wednesday; recommendations rotate by date, so the clock is frozen.
 final _now = DateTime(2026, 9, 16, 12);
@@ -361,7 +364,44 @@ Future<List<String>> _walk(
       onOpened?.call(player);
       await _scrollThrough(tester);
       expect(errors, isEmpty, reason: errors.join('\n'));
-      await tester.pumpWidget(const SizedBox.shrink());
+
+      // The Premium screen needs a signed-in account's plan, so it is mounted
+      // directly too, in both modes, with the store's offers (its longest
+      // state: plans, trial timeline, fine print, the Free choice).
+      for (final mode in PaywallMode.values) {
+        current = 'Premium (${mode.name})';
+        final controller = await subscriptionController(
+          flow: FakePurchaseFlow(),
+        );
+        await tester.pumpWidget(
+          localizedApp(
+            PaywallScreen(
+              mode: mode,
+              controller: controller,
+              onAnswered: mode == PaywallMode.onboarding ? () async {} : null,
+            ),
+            locale: locale,
+            brightness: brightness,
+            textScale: textScale,
+            safeArea: false,
+            scaffold: false,
+          ),
+        );
+        await _settle(tester);
+        final paywall = _step(
+          current,
+          'Heute',
+          const [],
+          _key('paywall-plans'),
+          column: _key('paywall-scroll'),
+        );
+        expect(paywall.opened, findsOneWidget, reason: '$current fehlt');
+        onOpened?.call(paywall);
+        await _scrollThrough(tester);
+        expect(errors, isEmpty, reason: errors.join('\n'));
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+      }
       await _settle(tester);
     });
   } finally {

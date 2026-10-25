@@ -123,6 +123,7 @@ void main() {
         'requestId': 'r1',
         'rateLimit': <String, Object?>{
           'user': <String, Object?>{'remaining': 3},
+          'userDay': <String, Object?>{'limit': 4, 'remaining': 2},
         },
       });
 
@@ -132,6 +133,8 @@ void main() {
       );
 
       expect(meal.base.mealName, 'Nutella-Toast');
+      // The bucket it shares with the photo scan (PREMIUM.md 4.5).
+      expect(mealAnalysisUsageOf(meal)?.used, 2);
       expect(meal.slotHint, MealSlot.breakfast);
       expect(meal.items.single.brand, 'Ferrero');
       final request = loopback.seen.single;

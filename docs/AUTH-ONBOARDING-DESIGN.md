@@ -88,7 +88,13 @@ a custom target.
 
 Completing setup does not opt into reminders or trigger a notification
 permission prompt. The existing explicit reminder setting remains available.
-There is no extra permissions tour, upsell or forced tutorial.
+There is no extra permissions tour or forced tutorial. Since the Premium
+tier (2026-10-25) a fresh onboarding ends once on the Premium screen,
+before Today: "Weiter mit Free" is full width and as tall as the purchase
+button, the close button is visible at once, and close, system Back and
+"Weiter mit Free" all mean Free. Accounts that were already onboarded never
+see it, and it does not return on app start
+([Premium contract](PREMIUM.md), section 4.3).
 
 ## Behavioral boundaries
 

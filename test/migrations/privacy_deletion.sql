@@ -40,6 +40,13 @@ end $$;
 -- are synthetic; no provider call is made by the SQL function.
 select public.reserve_ai_provider_call('33333333-3333-4333-8333-333333333333','coach_answer');
 select public.reserve_ai_provider_call('44444444-4444-4444-8444-444444444444','coach_answer');
+-- Store purchases are written only after a verified store proof.
+select public.record_store_subscription('33333333-3333-4333-8333-333333333333','google',
+  'privacy-purchase-a','eatova_premium','yearly','active',now()+interval '1 day',true,
+  'production',null,true,null,null,null);
+select public.record_store_subscription('44444444-4444-4444-8444-444444444444','google',
+  'privacy-purchase-b','eatova_premium','yearly','active',now()+interval '1 day',true,
+  'production',null,true,null,null,null);
 
 set local role authenticated;
 do $$
@@ -54,6 +61,7 @@ begin
     perform rlstest.training_delete('77777777-7777-4777-8777-777777777777');
     perform public.save_planned_meal(rlstest.meal_plan('88888888-8888-4888-8888-888888888888'));
     perform public.save_shopping_check('2026-09-07:'||repeat('a',64),true);
+    perform public.get_store_account_token();
   end loop;
 end $$;
 
@@ -66,7 +74,8 @@ begin
     'profiles','logged_meals','favorite_meals','weight_log','user_recipes',
     'lifetime_stats','lifetime_stats_requests','training_plans','training_history',
     'training_history_deletions','planned_meals','shopping_checks',
-    'chat_sessions','chat_messages','chat_quota_usage','ai_provider_user_usage'
+    'chat_sessions','chat_messages','chat_quota_usage','ai_provider_user_usage',
+    'store_subscriptions','store_account_tokens'
   ] loop
     k := case when t='profiles' then 'id' else 'user_id' end;
     execute format('select jsonb_agg(to_jsonb(r) order by to_jsonb(r)::text) from public.%I r where %I=%L',
@@ -101,6 +110,8 @@ begin
   perform rlstest.erwarte_ablehnung('select * from public.lifetime_stats_requests','private operational markers');
   perform rlstest.erwarte_ablehnung('select * from public.ai_provider_daily_usage','private global AI usage');
   perform rlstest.erwarte_ablehnung('select * from public.ai_provider_limits','private global AI limits');
+  perform rlstest.erwarte_ablehnung('select * from public.store_subscriptions','private store purchases');
+  perform rlstest.erwarte_ablehnung('select * from public.store_account_tokens','private store account token');
   perform rlstest.erwarte_ablehnung($q$insert into public.ai_provider_user_usage(user_id,usage_date,calls)
     values('33333333-3333-4333-8333-333333333333',current_date,0)$q$,'forged AI usage');
   perform rlstest.erwarte_ablehnung('update public.ai_provider_user_usage set calls=0','AI budget reset');
@@ -133,4 +144,4 @@ begin
   end loop;
 end $$;
 rollback;
-select 'Privacy: A removed from 16 tables, B contents preserved; 15 export tables isolated' as result;
+select 'Privacy: A removed from 18 tables, B contents preserved; 15 export tables isolated' as result;

@@ -16,6 +16,7 @@ import { handleRequest } from './handler.ts';
 import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { userToken } from '../_shared/auth_test_fixtures.ts';
 import { PNG_BASE64 } from './image_fixtures.ts';
+import { PLAN_ANSWERS, RESOLVE_PLAN_RPC } from './plan_fixtures.ts';
 import { DESCRIBE_OUTPUT_SCHEMA } from './normalize.ts';
 import {
   CLAUDE_URL,
@@ -108,6 +109,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
 
   function route(url: string, body: string): Response {
     if (url.includes('/auth/v1/user')) return jsonRes({ id: USER_ID });
+    if (url.endsWith(RESOLVE_PLAN_RPC)) return jsonRes(PLAN_ANSWERS.free);
     if (url.endsWith('/rest/v1/rpc/reserve_ai_provider_call')) {
       return jsonRes({ allowed: !options.providerBudgetDenied,
         reason: options.providerBudgetDenied ? 'budget_exhausted' : 'allowed' });

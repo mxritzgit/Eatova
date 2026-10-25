@@ -275,6 +275,29 @@
 		</dict>
 
 		<!--
+		  Purchase history: the Premium subscription (product, plan, status,
+		  expiry, sandbox or production).
+		  Source: `PurchaseCoordinator` (purchase_coordinator.dart) sends the
+		  StoreKit 2 signed transaction to the `subscription-verify` Edge
+		  Function, which verifies it and stores the subscription in
+		  `store_subscriptions` under the user_id, so it is linked. Purpose:
+		  unlocking Premium for the account = app functionality. Payment
+		  details stay with Apple; the app never sees them (no PaymentInfo).
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!--
 		  BEWUSST NICHT deklariert, mit Begruendung:
 
 		  * ProductInteraction (App-Starts/Sessions): Sentrys
@@ -315,8 +338,10 @@
 		  * DeviceID: kein IDFA, kein IDFV im Code. Sentry vergibt eine eigene
 		    Installations-ID; die ist app-lokal und pseudonym, kein Geraete-
 		    Identifikator im Sinne der Kategorie.
-		  * PurchaseHistory, PaymentInfo, Contacts, BrowsingHistory: die App hat
-		    weder Kauf- noch Adressbuch- noch Browser-Funktionen.
+		  * PaymentInfo: Zahlungsdaten des Abos sieht nur Apple; die App und
+		    der Server bekommen sie nie (PurchaseHistory steht oben).
+		  * Contacts, BrowsingHistory: die App hat weder Adressbuch- noch
+		    Browser-Funktionen.
 		-->
 	</array>
 </dict>

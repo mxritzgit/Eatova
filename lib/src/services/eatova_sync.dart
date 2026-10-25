@@ -6,6 +6,7 @@ import 'lifetime_stats_sync.dart';
 import 'meals_sync.dart';
 import 'meal_plans_sync.dart';
 import 'profile_sync.dart';
+import 'subscription_sync.dart';
 import 'tracking_sync.dart';
 import 'training_plans_sync.dart';
 import 'training_history_sync.dart';
@@ -31,15 +32,18 @@ class EatovaSync {
     required this.trainingHistory,
     required this.operations,
     required this.aiTrust,
+    required this.subscription,
   });
 
   /// [coachChat] is a test seam: [CoachChatService] talks to an edge function,
   /// not to PostgREST, so a fake PostgREST client cannot stand in for it.
-  /// Null (production) builds the real service.
+  /// Null (production) builds the real service. [subscription] is the same
+  /// kind of seam for the plan and purchase verification.
   factory EatovaSync.forUser(
     SupabaseClient client,
     String userId, {
     CoachChatService? coachChat,
+    SubscriptionLog? subscription,
   }) {
     return EatovaSync._(
       client: client,
@@ -55,6 +59,7 @@ class EatovaSync {
       trainingHistory: TrainingHistorySync(client, userId),
       operations: SyncOperationSync(client, userId),
       aiTrust: AiTrustSync(client, userId),
+      subscription: subscription ?? SupabaseSubscriptionLog(client, userId),
     );
   }
 
@@ -76,6 +81,10 @@ class EatovaSync {
 
   /// AI consent log and Coach answer reports (`ai_consents`, `ai_reports`).
   final AiTrustSync aiTrust;
+
+  /// The Premium plan and store purchase verification (`get_my_plan`,
+  /// `subscription-verify`).
+  final SubscriptionLog subscription;
 
   /// GDPR Art. 17: deletes the user's auth.users row, app tables cascade, and
   /// the client must log out afterwards. Not freely movable — the RPC needs a

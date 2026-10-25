@@ -388,6 +388,58 @@ class LocalCache {
   /// Missing or corrupt -> null (nothing remembered).
   Future<Map<String, dynamic>?> readCoachQuota() => _readJson(_coachQuotaKey);
 
+  // ---- Premium (2026-10-25) ------------------------------------------------
+  // The account's last plan snapshot (`get_my_plan`: tier, limits, today's
+  // usage, the subscription without any store key), the onboarding paywall's
+  // answer, the `legacy_until` whose notice was dismissed, and the UTC day
+  // each "Mehr mit Premium" was last offered. The server is the record for
+  // the plan; all four are cleared with the other account slots.
+  String get _planStatusKey => 'eatova.v1.plan_status.$_userId';
+  String get _paywallPromptKey => 'eatova.v1.paywall_prompt.$_userId';
+  String get _legacyNoticeKey => 'eatova.v1.legacy_notice.$_userId';
+  String get _upsellShownKey => 'eatova.v1.upsell_shown.$_userId';
+
+  Future<void> writePlanStatus(Map<String, dynamic> snapshot) =>
+      _writeJson(_planStatusKey, snapshot);
+
+  /// Missing or corrupt -> null (the plan is not known yet).
+  Future<Map<String, dynamic>?> readPlanStatus() => _readJson(_planStatusKey);
+
+  /// `pending` or `answered`.
+  Future<void> writePaywallPrompt(String state) =>
+      _writeJson(_paywallPromptKey, <String, dynamic>{'state': state});
+
+  /// Missing or corrupt -> null: no paywall is waiting.
+  Future<String?> readPaywallPrompt() async {
+    final state = (await _readJson(_paywallPromptKey))?['state'];
+    return state is String ? state : null;
+  }
+
+  Future<void> writeLegacyNotice(DateTime until) => _writeJson(
+    _legacyNoticeKey,
+    <String, dynamic>{'until': until.toUtc().toIso8601String()},
+  );
+
+  /// Missing or corrupt -> null: no notice was dismissed.
+  Future<DateTime?> readLegacyNotice() async {
+    final until = (await _readJson(_legacyNoticeKey))?['until'];
+    return until is String ? DateTime.tryParse(until)?.toUtc() : null;
+  }
+
+  /// Feature wire name (`coach`, `meal_analysis`, `recipe_import`) to the
+  /// ISO UTC day its upgrade hint was last offered.
+  Future<void> writeUpsellShown(Map<String, String> days) =>
+      _writeJson(_upsellShownKey, days);
+
+  /// Missing or corrupt -> empty: no hint was offered.
+  Future<Map<String, String>> readUpsellShown() async {
+    final json = await _readJson(_upsellShownKey) ?? const <String, dynamic>{};
+    return <String, String>{
+      for (final MapEntry(:key, :value) in json.entries)
+        if (value is String) key: value,
+    };
+  }
+
   // ---- Profile ------------------------------------------------------------
 
   // The wire format (userProfileToJson/-FromJson) lives in sync_outbox.dart:
@@ -1084,6 +1136,10 @@ class LocalCache {
       await _store.remove(_weighInReminderKey);
       await _store.remove(_aiConsentKey);
       await _store.remove(_coachQuotaKey);
+      await _store.remove(_planStatusKey);
+      await _store.remove(_paywallPromptKey);
+      await _store.remove(_legacyNoticeKey);
+      await _store.remove(_upsellShownKey);
       await _store.remove(_healthConnectKey);
       await _store.remove(_healthPromptKey);
       await _store.remove(_healthWeightImportKey);

@@ -76,6 +76,12 @@ const Set<String> _nichtExportierbar = <String>{
   'recipe_revisions',
   'sync_operation_receipts',
   'sync_entity_deletions',
+  // Premium (20261025100000): no client privilege on any of them.
+  'plan_tiers', // Tier limits, the same for every account.
+  'plan_settings', // The legacy window, one row without a user.
+  'store_subscriptions', // Store keys stay server-side; get_my_plan shows it.
+  'store_account_tokens', // A random binding id, no personal content.
+  'store_notification_receipts', // Store notification ids without a user.
 };
 
 /// PostgREST fake that behaves like the REAL server: a table that no longer

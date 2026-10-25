@@ -21,6 +21,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 
 import { handleRequest, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
 import { claudeResponse, isClassifierRequest, isClaudeCall, isProviderCall } from "../_shared/claude_test_fixtures.ts";
+import { isResolvePlanCall, resolvePlanResponse } from "./plan_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -177,6 +178,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/prune_edge_rate_limits")) return new Response(null, { status: 204 });
     if (url.includes("/rest/v1/rpc/ensure_default_chat_session")) return jsonRes(SESSION_ID);
     if (url.includes("/rest/v1/rpc/touch_chat_session")) return new Response(null, { status: 204 });
+    if (isResolvePlanCall(url)) return resolvePlanResponse("legacy");
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) return jsonRes([{ used: 1, remaining: 4, quota_day: "2026-09-08" }]);
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) return new Response(null, { status: 204 });
     if (isClaudeCall(url)) {
@@ -309,6 +311,31 @@ Deno.test("E1: ein haengender Anspruch endet als 500, ohne Erstattung auf Verdac
       assertEquals(stub.callsTo("refund_chat_quota").length, 0, "keine Erstattung auf Verdacht");
       assertEquals(stub.providerCalls().length, 0, "kein bezahlter Aufruf hinter dem Anspruch");
     } finally {
+      stub.restore();
+    }
+  });
+});
+
+Deno.test("E1: ein haengender Plan-Lookup faellt nach der Frist auf Free zurueck", async () => {
+  // resolve_plan bekommt dieselbe Frist wie jeder Supabase-Aufruf. Ein Ausfall
+  // gibt die Free-Limits, nie mehr, und die Frage laeuft weiter. Die Antwort
+  // nennt sie nicht als Limit des Kontos.
+  await mitKurzerFrist(async () => {
+    const stub = installFetch({ stall: "resolve_plan" });
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ")); };
+    try {
+      const res = await ohneHaenger(handleRequest(makeRequest()));
+      assertEquals(res.status, 200, "Status");
+      const body = await res.json() as JsonRecord;
+      assert(!("daily_limit" in body) && !("remaining" in body), "kein Limit und kein Rest in der Antwort");
+      const claims = stub.callsTo("claim_chat_quota");
+      assertEquals(claims.length, 1, "ein Anspruch");
+      assertEquals((JSON.parse(claims[0].body) as JsonRecord).p_daily_limit, 3, "Free-Limit im Anspruch");
+      assert(errors.includes("resolve_plan unavailable"), "der Ausfall wird gemeldet");
+    } finally {
+      console.error = originalError;
       stub.restore();
     }
   });

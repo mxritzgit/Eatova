@@ -7,11 +7,14 @@ import 'package:flutter/material.dart';
 
 import '../common/persistence_action.dart';
 
+import '../../app/subscription.dart' show SubscriptionController;
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_request.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/meal_component.dart';
+import '../../models/plan_limit_hit.dart';
+import '../../models/plan_status.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
@@ -19,6 +22,7 @@ import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
+import '../shared/plan_limit_notice.dart';
 import 'diary_meal_card.dart' show formatMealTime;
 
 /// Maps an analysis/lookup error to the message shown in the sheet.
@@ -336,6 +340,14 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   int _attempt = 0;
   // False while an attempt is in flight -> dispose cancels it.
   bool _settled = false;
+  // Whether the current tier-quota notice offers Premium, decided once per
+  // denial (notePlanLimitHit).
+  bool _upsell = false;
+  // The account's tierRevision when that denial arrived: only a later plan
+  // change lifts it (planLimitHolding).
+  int? _deniedAt;
+  // The signed-in account's plan: an upgrade from the notice lifts the quota.
+  SubscriptionController? _subscription;
 
   @override
   void initState() {
@@ -344,7 +356,21 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final account = planAccountOf(context);
+    if (identical(account, _subscription)) return;
+    _subscription?.removeListener(_planChanged);
+    _subscription = account?..addListener(_planChanged);
+  }
+
+  void _planChanged() {
+    if (mounted && _error is MealAnalysisRateLimited) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _subscription?.removeListener(_planChanged);
     _slowTimer?.cancel();
     if (!_settled) widget.cancellation?.cancel();
     super.dispose();
@@ -374,6 +400,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
 
   Future<void> _run(Future<MealAnalysisResult> future) async {
     final attempt = ++_attempt;
+    final account = planAccountOf(context);
     _settled = false;
     _slowTimer?.cancel();
     _slowTimer = Timer(MealAnalysisSheet.slowAfter, () {
@@ -385,6 +412,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       if (attempt != _attempt) return;
       _settled = true;
       if (!mounted) return;
+      noteMealAnalysisUsage(context, account, value);
       setState(() {
         _result = value;
         _isLoading = false;
@@ -398,8 +426,12 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       // and still mounted for the ~250 ms pop animation — an error card
       // would flash. Nothing to show.
       if (error is MealAnalysisCancelled) return;
+      final limit = mealPlanLimitOf(error);
+      final upsell = limit != null && notePlanLimitHit(context, account, limit);
       setState(() {
         _error = error;
+        _upsell = upsell;
+        _deniedAt = _subscription?.tierRevision;
         _isLoading = false;
         _slowHint = false;
       });
@@ -531,6 +563,10 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
     final error = _error;
+    final spent = mealPlanLimitOf(error);
+    final limit = planLimitHolding(spent, _subscription, deniedAt: _deniedAt);
+    // An upgrade since the denial: the same bytes may go out again.
+    final lifted = spent != null && limit == null;
     final pinnedActions =
         !_isLoading &&
         _result != null &&
@@ -575,17 +611,27 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
                   ],
                 ] else if (error != null)
                   _AnalysisErrorCard(
-                    message: mealAnalysisErrorMessage(
-                      error,
-                      widget.failureMessage,
-                      context.l10n,
-                      clockLabel: (at) => formatMealTime(context, at),
-                    ),
+                    message: lifted
+                        ? context.l10n.premiumSuccessBody
+                        : mealAnalysisErrorMessage(
+                            error,
+                            widget.failureMessage,
+                            context.l10n,
+                            clockLabel: (at) => formatMealTime(context, at),
+                          ),
+                    lifted: lifted,
                     // "Not found" is final; a retry is for the connection.
                     onRetry: widget.retry == null || isFinalBarcodeAnswer(error)
                         ? null
                         : _retry,
                     onManualEntry: _manualEntry,
+                    limit: limit,
+                    onUpgrade: planUpsellShows(_upsell, _subscription)
+                        ? () => openPremiumAtLimit(
+                            context,
+                            PlanFeature.mealAnalysis,
+                          )
+                        : null,
                   )
                 else if (_result != null) ...[
                   MealResultCard(
@@ -666,22 +712,51 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
 }
 
 /// Error state INSIDE the sheet (F4-02): the preview above stays, the user
-/// can retry from the same bytes or switch to manual entry.
+/// can retry from the same bytes or switch to manual entry. A spent tier
+/// quota ([limit]) shows the [PlanLimitNotice] instead, without a retry;
+/// once an upgrade [lifted] it, the card says so and offers the retry.
 class _AnalysisErrorCard extends StatelessWidget {
   const _AnalysisErrorCard({
     required this.message,
     required this.onRetry,
     required this.onManualEntry,
+    this.lifted = false,
+    this.limit,
+    this.onUpgrade,
   });
 
   final String message;
   final VoidCallback? onRetry;
   final VoidCallback onManualEntry;
+  final bool lifted;
+  final PlanLimitHit? limit;
+  final VoidCallback? onUpgrade;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    if (limit case final limit?) {
+      return AppCard(
+        key: const ValueKey('analyse-error'),
+        radius: rCard,
+        padding: const EdgeInsets.all(16),
+        child: PlanLimitNotice(
+          hit: limit,
+          onUpgrade: onUpgrade,
+          secondary: SoftPillButton(
+            key: const ValueKey('analyse-manual-entry'),
+            label: l10n.foodAnalysisManualEntryButton,
+            icon: Icons.edit_outlined,
+            onTap: onManualEntry,
+            tone: onUpgrade == null
+                ? SoftPillTone.accent
+                : SoftPillTone.neutral,
+            expand: true,
+          ),
+        ),
+      );
+    }
     return AppCard(
       key: const ValueKey('analyse-error'),
       radius: rCard,
@@ -691,11 +766,23 @@ class _AnalysisErrorCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.error_outline_rounded, color: t.danger, size: 20),
+              lifted
+                  ? Icon(
+                      Icons.auto_awesome_rounded,
+                      color: t.accentText,
+                      size: 20,
+                    )
+                  : Icon(
+                      Icons.error_outline_rounded,
+                      color: t.danger,
+                      size: 20,
+                    ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  l10n.foodAnalysisErrorTitle,
+                  lifted
+                      ? l10n.premiumSuccessTitle
+                      : l10n.foodAnalysisErrorTitle,
                   style: AppType.ui(14, weight: FontWeight.w700, color: t.ink),
                 ),
               ),

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/app/subscription.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
@@ -15,8 +16,10 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/recipes/recipe_photo.dart' show RecipeArt;
 
 import 'support/harness.dart';
+import 'support/subscription_fakes.dart';
 
 // Coach recipe generator:
 //   * /recipe goes to requestRecipe, not the chat. That an empty wish and an
@@ -141,6 +144,7 @@ Future<void> _pumpCoach(
   Set<String>? userRecipeSlugs,
   Future<SyncDelivery> Function(FitnessRecipe)? onCreateRecipe,
   ValueChanged<FitnessRecipe>? onOpenRecipe,
+  PremiumOpener? premiumOpener,
   Locale locale = const Locale('de'),
 }) async {
   tester.view.devicePixelRatio = 3.0;
@@ -150,23 +154,27 @@ Future<void> _pumpCoach(
 
   await pumpLocalized(
     tester,
-    CoachChatScreen(
-      service: service,
-      userName: 'Moritz',
-      // The shell mirrors the HomeStore: createUserRecipe makes the
-      // recipe visible at once, so the slug enters the live slug view
-      // in the same step.
-      onCreateRecipe:
-          onCreateRecipe ??
-          (created == null
-              ? null
-              : (recipe) async {
-                  created.add(recipe);
-                  userRecipeSlugs?.add(recipe.slug);
-                  return SyncDelivery.delivered;
-                }),
-      userRecipeSlugs: userRecipeSlugs ?? const <String>{},
-      onOpenRecipe: onOpenRecipe,
+    withSubscription(
+      null,
+      opener: premiumOpener,
+      CoachChatScreen(
+        service: service,
+        userName: 'Moritz',
+        // The shell mirrors the HomeStore: createUserRecipe makes the
+        // recipe visible at once, so the slug enters the live slug view
+        // in the same step.
+        onCreateRecipe:
+            onCreateRecipe ??
+            (created == null
+                ? null
+                : (recipe) async {
+                    created.add(recipe);
+                    userRecipeSlugs?.add(recipe.slug);
+                    return SyncDelivery.delivered;
+                  }),
+        userRecipeSlugs: userRecipeSlugs ?? const <String>{},
+        onOpenRecipe: onOpenRecipe,
+      ),
     ),
     locale: locale,
     // The coach tab owns its gutters (the shell passes no padding).
@@ -499,5 +507,67 @@ void main() {
 
     expect(find.byKey(const ValueKey('coach-recipe-card')), findsNothing);
     expect(find.text('Ich erstelle nur Essensrezepte.'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Plan ohne KI-Bild: eine leise Zeile statt des Bilds oeffnet Premium',
+    (tester) async {
+      final svc = _RecipeCoach.create()
+        ..recipeReply = (sessionId) => CoachRecipeReply(
+          reply: 'Rezeptvorschlag: Huehnchenauflauf.',
+          refusal: false,
+          proposal: _proposal(),
+          remaining: 2,
+          dailyLimit: 3,
+          sessionId: sessionId,
+          imageLocked: true,
+        );
+      final opened = <PremiumSource>[];
+      await _pumpCoach(
+        tester,
+        service: svc,
+        created: <FitnessRecipe>[],
+        premiumOpener: (context, source) async => opened.add(source),
+      );
+
+      await _type(tester, '/recipe Huehnchenauflauf');
+
+      final locked = find.byKey(const ValueKey('coach-recipe-picture-locked'));
+      expect(
+        find.descendant(of: locked, matching: find.text('KI-Bild mit Premium')),
+        findsOneWidget,
+      );
+      expect(find.byType(RecipeArt), findsNothing, reason: 'no teaser');
+      await tester.tap(locked);
+      await tester.pump();
+      expect(opened, <PremiumSource>[PremiumSource.recipePicture]);
+    },
+  );
+
+  testWidgets('Neustart: die Free-Karte aus dem Verlauf behaelt die leise '
+      'Premium-Zeile', (tester) async {
+    // coach-chat stores `image_locked` in the row's recipe (docs/PREMIUM.md
+    // 1.2); the card must not fall back to the placeholder bowl.
+    final svc = _RecipeCoach.create()
+      ..history = <ChatMessage>[
+        ChatMessage.fromRow(<String, dynamic>{
+          'id': 'srv-free-recipe',
+          'role': 'assistant',
+          'content': 'Rezeptvorschlag: Huehnchenauflauf.',
+          'created_at': '2026-10-25T12:00:00Z',
+          'recipe': <String, dynamic>{
+            'title': 'Huehnchenauflauf',
+            'calories_kcal': 520,
+            'image_locked': true,
+          },
+        }),
+      ];
+    await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
+
+    expect(
+      find.byKey(const ValueKey('coach-recipe-picture-locked')),
+      findsOneWidget,
+    );
+    expect(find.byType(RecipeArt), findsNothing);
   });
 }

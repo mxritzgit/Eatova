@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import tomllib
 import unittest
 from unittest import mock
 import urllib.error
@@ -97,18 +98,44 @@ class SlugTest(unittest.TestCase):
 
 
 class VerifyJwtGuardTest(unittest.TestCase):
-    def test_a_config_that_disables_verify_jwt_is_refused(self):
+    def guard(self, config, slugs=()):
         with tempfile.TemporaryDirectory() as base:
-            deploy.assert_verify_jwt_kept(base)
-            write(base, 'supabase/config.toml', '[functions.coach-chat]\nverify_jwt = true\n')
-            deploy.assert_verify_jwt_kept(base)
-            write(base, 'supabase/config.toml', '[functions.search-key]\n  verify_jwt   =   false # temporary\n')
-            with self.assertRaises(deploy.DeployError) as caught:
-                deploy.assert_verify_jwt_kept(base)
-            self.assertEqual(str(caught.exception), 'verify_jwt_disabled_in_config')
+            if config is not None:
+                write(base, 'supabase/config.toml', config)
+            deploy.assert_verify_jwt_kept(base, slugs)
 
-    def test_the_repository_keeps_the_cli_default(self):
-        deploy.assert_verify_jwt_kept(ROOT)
+    def refused(self, config, slugs=()):
+        with self.assertRaises(deploy.DeployError, msg=config) as caught:
+            self.guard(config, slugs)
+        return str(caught.exception)
+
+    def test_only_an_allowlisted_webhook_may_switch_verify_jwt_off(self):
+        self.guard(None, ['coach-chat'])
+        self.guard('[functions.coach-chat]\nverify_jwt = true\n')
+        self.guard('project_id = "eatova"\n\n[functions.store-notifications]\nverify_jwt = false\n',
+                   ['coach-chat', 'store-notifications'])
+        for config in ('[functions.search-key]\n  verify_jwt   =   false # temporary\n',
+                       'functions.coach-chat.verify_jwt = false\n',
+                       'functions = { "analyze-meal" = { verify_jwt = false } }\n',
+                       '[functions.store-notifications-v2]\nverify_jwt = false\n',
+                       # Merged over the base config for that project ref.
+                       '[remotes.live.functions.store-notifications]\nverify_jwt = false\n',
+                       '[functions.coach-chat]\nverify_jwt = "true"\n',
+                       'verify_jwt = false\n'):
+            self.assertEqual(self.refused(config), 'verify_jwt_disabled_in_config')
+        self.assertEqual(self.refused('[functions.coach-chat\nverify_jwt = true\n'), 'config_toml_unreadable')
+
+    def test_a_planned_webhook_must_declare_verify_jwt_off_itself(self):
+        # Without it the CLI keeps the live value or the server default.
+        for config in (None, '[functions.store-notifications]\nverify_jwt = true\n', 'functions = 1\n'):
+            self.assertEqual(self.refused(config, ['store-notifications']),
+                             'public_webhook_not_configured:store-notifications')
+
+    def test_the_repository_config_is_exactly_the_webhook_exception(self):
+        config = tomllib.loads((ROOT / 'supabase/config.toml').read_text(encoding='utf-8'))
+        self.assertEqual(config, {'project_id': 'eatova', 'functions': {'store-notifications': {'verify_jwt': False}}})
+        self.assertEqual(deploy.PUBLIC_WEBHOOKS, frozenset({'store-notifications'}))
+        deploy.assert_verify_jwt_kept(ROOT, deploy.available_functions(ROOT))
 
 
 class ImportGraphTest(unittest.TestCase):
@@ -396,8 +423,11 @@ class ManagementTest(unittest.TestCase):
     def test_unknown_values_never_pass_as_healthy(self):
         body = json.dumps({'version': '57', 'status': 'ACTIVE; ok', 'verify_jwt': 'true'}).encode()
         api, _ = self.api(lambda request: FakeResponse(200, body))
+        # Neither on nor off: fails the record for a gateway function and a public webhook alike.
         self.assertEqual(api.function('coach-chat'),
-                         {'version': None, 'status': 'other', 'verify_jwt': False, 'updated_at': None})
+                         {'version': None, 'status': 'other', 'verify_jwt': None, 'updated_at': None})
+        api, _ = self.api(lambda request: FakeResponse(200, json.dumps({'verify_jwt': False}).encode()))
+        self.assertIs(api.function('store-notifications')['verify_jwt'], False)
 
     def test_missing_function_and_errors(self):
         api, _ = self.api(lambda request: (_ for _ in ()).throw(http_error(request.full_url, 404)))
@@ -419,7 +449,7 @@ class ManagementTest(unittest.TestCase):
 
 
 class ProbeTest(unittest.TestCase):
-    def fake(self, verify_jwt=True, booted=True):
+    def fake(self, verify_jwt=True, booted=True, gateway_off=()):
         requests = []
 
         def open_url(request, timeout):
@@ -429,7 +459,7 @@ class ProbeTest(unittest.TestCase):
             if request.get_method() == 'OPTIONS':
                 return FakeResponse(204, b'')
             authorized = request.get_header('Authorization') is not None
-            if not authorized and verify_jwt:
+            if not authorized and verify_jwt and slug not in gateway_off:
                 raise http_error(request.full_url, 401, b'{"code":401,"message":"Missing authorization header"}')
             if not booted:
                 raise http_error(request.full_url, 503, b'{"code":"BOOT_ERROR","message":"Function failed to start"}')
@@ -455,6 +485,20 @@ class ProbeTest(unittest.TestCase):
         open_url, _ = self.fake(booted=False)
         result = deploy.probe(['recipe-import'], REF, ANON, open_url, lambda seconds: None)['recipe-import']
         self.assertFalse(result['checks']['handler_answers_anon_key'])
+
+    def test_a_public_webhook_must_refuse_both_requests_itself(self):
+        open_url, _ = self.fake(gateway_off={'store-notifications'})
+        result = deploy.probe(['coach-chat', 'store-notifications'], REF, ANON, open_url)
+        self.assertTrue(all(item['passed'] for item in result.values()), result)
+        self.assertEqual(result['store-notifications']['checks'],
+                         {'preflight_204': True, 'handler_401_without_token': True, 'handler_answers_anon_key': True})
+        # Deployed with verify_jwt still on: the gateway answers, not the handler.
+        open_url, _ = self.fake()
+        webhook = deploy.probe(['store-notifications'], REF, ANON, open_url)['store-notifications']
+        self.assertEqual((webhook['passed'], webhook['checks']['handler_401_without_token']), (False, False))
+        # The allowlist is per slug: a gateway function without the check still fails.
+        open_url, _ = self.fake(gateway_off={'coach-chat'})
+        self.assertFalse(deploy.probe(['coach-chat'], REF, ANON, open_url)['coach-chat']['passed'])
 
     def test_one_lost_request_is_asked_again_and_a_lasting_failure_still_fails(self):
         pauses = []
@@ -531,6 +575,24 @@ class RecordTest(unittest.TestCase):
             self.assertFalse(checks['verify_jwt'])
             self.assertFalse(checks['boot_probe'])
             self.assertFalse(record['functions'][1]['checks']['new_version'])
+
+    def test_verify_jwt_is_expected_on_except_for_a_public_webhook(self):
+        cases = {
+            'each as expected': ({'coach-chat': True, 'store-notifications': False}, 'success'),
+            'webhook behind the gateway': ({'coach-chat': True, 'store-notifications': True}, 'failure'),
+            'gateway function public': ({'coach-chat': False, 'store-notifications': False}, 'failure'),
+            'unknown flag': ({'coach-chat': True, 'store-notifications': None}, 'failure'),
+        }
+        for name, (flags, result) in cases.items():
+            with tempfile.TemporaryDirectory() as base:
+                directory = self.directory(base, slugs=tuple(flags))
+                deploy.write_json(directory / 'after.json', {slug: {
+                    'exists': True, 'version': 11, 'status': 'ACTIVE', 'verify_jwt': flag} for slug, flag in flags.items()})
+                record = deploy.build_record(directory, 'success', SHA_A, SHA_A, self.ENV, self.NOW)
+                self.assertEqual(record['result'], result, name)
+                if result == 'success':
+                    self.assertIn('| `store-notifications` | 10 -> 11 | yes | yes | yes (off, public webhook) |',
+                                  deploy.markdown(record))
 
     def test_an_older_commit_is_recorded_as_rollback(self):
         with tempfile.TemporaryDirectory() as base:

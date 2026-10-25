@@ -97,6 +97,7 @@ class OptionCard extends StatelessWidget {
     this.subtitle,
     this.leading,
     this.badge,
+    this.detail,
   });
 
   final Key actionKey;
@@ -105,6 +106,10 @@ class OptionCard extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? leading;
+
+  /// Content between the title and the [subtitle], such as the Premium
+  /// screen's billed price; part of the card's one semantics node.
+  final Widget? detail;
 
   /// Short value next to the title, e.g. the PAL factor "×1,45".
   final String? badge;
@@ -231,6 +236,10 @@ class OptionCard extends StatelessWidget {
               ),
             ],
           ),
+        if (detail != null) ...<Widget>[
+          const SizedBox(height: 6),
+          detail!,
+        ],
         if (subtitle != null) ...<Widget>[
           const SizedBox(height: 4),
           Text(

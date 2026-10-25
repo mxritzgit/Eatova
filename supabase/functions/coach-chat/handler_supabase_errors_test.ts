@@ -8,6 +8,7 @@ import {
 } from "../_shared/claude_test_fixtures.ts";
 // Real handler, stubbed transport: failures before and after response headers.
 import { handleRequest, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
+import { isResolvePlanCall, resolvePlanResponse } from "./plan_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -102,6 +103,7 @@ async function withStub(
       }
       if (url.endsWith("/prune_edge_rate_limits")) return Promise.resolve(json(null));
       if (url.endsWith("/ensure_default_chat_session")) return Promise.resolve(answer("session", SESSION_ID));
+      if (isResolvePlanCall(url)) return Promise.resolve(resolvePlanResponse("legacy"));
       if (url.endsWith("/claim_chat_quota")) {
         return Promise.resolve(answer("claim", [{
           used: 1, remaining: 4,

@@ -103,6 +103,10 @@ void main() {
         await c.writeWeighInReminderEnabled(true);
         await c.writeAiConsent(const <String, dynamic>{'granted': false});
         await c.writeCoachQuota(const <String, dynamic>{'used': 1});
+        await c.writePlanStatus(const <String, dynamic>{'tier': 'free'});
+        await c.writePaywallPrompt('pending');
+        await c.writeLegacyNotice(DateTime.utc(2027, 1, 31));
+        await c.writeUpsellShown(const {'coach': '2026-10-25T00:00:00.000Z'});
         await c.writeHealthConnectEnabled(true);
         await c.writeHealthPrompt('asked');
         await c.writeHealthWeightImport(const <String, dynamic>{'mode': 'off'});
@@ -153,6 +157,16 @@ void main() {
           // Renamed, a cold start forgets a used-up Coach day until the
           // server answers (and the old slot would outlive the cleanup).
           'eatova.v1.coach_quota.user-42',
+          // Renamed, a cold start shows the assumed Free plan until the
+          // server answers (and the old slot would outlive the cleanup).
+          'eatova.v1.plan_status.user-42',
+          // Renamed, a pending onboarding paywall is skipped after a restart.
+          'eatova.v1.paywall_prompt.user-42',
+          // Renamed, a dismissed legacy notice comes back.
+          'eatova.v1.legacy_notice.user-42',
+          // Renamed, "Mehr mit Premium" shows again on the same day (and the
+          // old slot would outlive the cleanup).
+          'eatova.v1.upsell_shown.user-42',
           'eatova.v1.health_connect_enabled.user-42',
           'eatova.v1.health_prompt.user-42',
           // Renamed, a deleted scale import comes back.

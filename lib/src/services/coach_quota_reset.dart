@@ -33,8 +33,22 @@ String coachQuotaResetLabel(
   DateTime? now,
   Duration Function(DateTime utc)? offsetOf,
   bool? alwaysUse24HourFormat,
+}) => coachQuotaClockLabel(
+  localeName,
+  nextCoachQuotaReset(now ?? clock.now()),
+  offsetOf: offsetOf,
+  alwaysUse24HourFormat: alwaysUse24HourFormat,
+);
+
+/// [at] (a reset the server named, `planLimit.resetAt`) as a local clock
+/// time, in the format of [coachQuotaResetLabel].
+String coachQuotaClockLabel(
+  String localeName,
+  DateTime at, {
+  Duration Function(DateTime utc)? offsetOf,
+  bool? alwaysUse24HourFormat,
 }) {
-  final reset = nextCoachQuotaReset(now ?? clock.now());
+  final reset = at.toUtc();
   // Wall time of the reset in the device zone, read off a UTC value so the
   // process zone plays no part when [offsetOf] is given.
   final wall = reset.add((offsetOf ?? _deviceOffset)(reset));

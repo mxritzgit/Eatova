@@ -52,6 +52,7 @@ import 'meal_slot_picker.dart';
 import 'meal_suggestion_item.dart';
 import 'saved_meal_presentation.dart';
 import '../shared/ai_consent_sheet.dart';
+import '../shared/plan_limit_notice.dart';
 
 /// Message when a search/favorite/recent row without calories is logged —
 /// `l10n.foodSuggestionWithoutCaloriesMessage`.
@@ -1344,7 +1345,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
                         button: true,
                         child: _ManualEntryRow(onTap: () => _openManualEntry()),
                       )
-                    else
+                    else ...[
                       MealEntryMethods(
                         onCamera: _scanWithCamera,
                         onGallery: _pickFromGallery,
@@ -1352,6 +1353,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
                         onDescribe: _openDescribe,
                         onManual: () => _openManualEntry(),
                       ),
+                      // Under both AI ways in: photo and Describe share it.
+                      const PlanRemainingAnalysesHint(
+                        padding: EdgeInsets.fromLTRB(4, 10, 4, 0),
+                      ),
+                    ],
                     const SizedBox(height: _kSectionGap),
                   ],
                   if (_slotMeals.isNotEmpty) ...[

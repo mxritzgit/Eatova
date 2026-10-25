@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
+import 'package:eatova/src/models/plan_limit_hit.dart';
+import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/models/recipe_import_result.dart';
 import 'package:eatova/src/services/recipe_import_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -164,6 +167,88 @@ void main() {
       () => parseRecipeImportResponse(502, '{"error":"provider_error"}'),
       throwsA(failure(RecipeImportFailure.unavailable)),
     );
+  });
+
+  // docs/PREMIUM.md 3.3: only the daily tier gate adds planLimit and
+  // resetAt; every other 429 names its reset only in Retry-After.
+  test('keeps the tier quota and the reset time of a 429', () async {
+    final now = DateTime.utc(2026, 10, 25, 12);
+    final midnight = DateTime.utc(2026, 10, 26);
+    Object? caught(void Function() parse) {
+      try {
+        parse();
+      } on RecipeImportException catch (error) {
+        return error;
+      }
+      return null;
+    }
+
+    // The hourly gate over the wire: Retry-After is its only reset time.
+    final client = MockClient(
+      (_) async => http.Response(
+        '{"error":"rate_limited"}',
+        429,
+        headers: {'retry-after': '120'},
+      ),
+    );
+    Object? hourly;
+    await withClock(Clock.fixed(now), () async {
+      try {
+        await service(client).extract('recipe', locale: 'de');
+      } on RecipeImportException catch (error) {
+        hourly = error;
+      }
+    });
+    final daily = caught(
+      () => parseRecipeImportResponse(
+        429,
+        jsonEncode({
+          'error': 'rate_limited',
+          'resetAt': '2026-10-26T00:00:00.000Z',
+          'planLimit': {
+            'feature': 'recipe_import',
+            'tier': 'free',
+            'limit': 2,
+            'resetAt': '2026-10-26T00:00:00.000Z',
+            'premiumLimit': 10,
+          },
+        }),
+        retryAfter: '60',
+      ),
+    );
+    final gateway = caught(
+      () => parseRecipeImportResponse(429, '<html>429</html>'),
+    );
+    for (final (name, error, hit, reset)
+        in <(String, Object?, PlanLimitHit?, DateTime?)>[
+          ('hourly gate', hourly, null, now.add(const Duration(seconds: 120))),
+          (
+            'daily tier quota',
+            daily,
+            PlanLimitHit(
+              feature: PlanFeature.recipeImport,
+              tier: PlanTier.free,
+              limit: 2,
+              resetAt: midnight,
+              premiumLimit: 10,
+            ),
+            midnight,
+          ),
+          ('gateway HTML', gateway, null, null),
+        ]) {
+      expect(
+        error,
+        isA<RecipeImportException>()
+            .having(
+              (e) => e.failure,
+              'failure',
+              RecipeImportFailure.rateLimited,
+            )
+            .having((e) => e.planLimit, 'planLimit', hit)
+            .having((e) => e.resetAt, 'resetAt', reset),
+        reason: name,
+      );
+    }
   });
 
   test('too much recipe content is final, not a retryable failure', () {

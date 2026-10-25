@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -9,6 +10,7 @@ import '../../app/home_store.dart' show ReminderState;
 import '../../app/locale_controller.dart';
 import '../../auth/auth_repository.dart';
 import '../../l10n/l10n.dart';
+import '../../models/plan_status.dart';
 import '../../models/reminder_time.dart';
 import '../../services/crash_reporter.dart';
 import '../../services/export_file_share.dart';
@@ -68,6 +70,9 @@ class SettingsScreen extends StatefulWidget {
     this.weighInReminderState,
     this.onWeighInReminderChanged,
     this.onOpenNotificationSettings,
+    this.subscriptionPlan,
+    this.onOpenPremium,
+    this.onManageSubscription,
   });
 
   /// Session mail address. Null in previews/tests without auth — the row is
@@ -116,6 +121,18 @@ class SettingsScreen extends StatefulWidget {
 
   /// Opens the OS notification settings: the way out of a blocked reminder.
   final VoidCallback? onOpenNotificationSettings;
+
+  /// The account's plan (docs/PREMIUM.md 4.4): the "Abo" row and the
+  /// deletion sheet's billing warning. Null or the assumed defaults show
+  /// neither.
+  final PlanStatus? subscriptionPlan;
+
+  /// The paywall, for a Free account's "Abo" row.
+  final VoidCallback? onOpenPremium;
+
+  /// The store's subscription management: Premium's "Abo" row and the
+  /// deletion warning's pill.
+  final VoidCallback? onManageSubscription;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -348,7 +365,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
           subtitle: l10n.settingsChangeEmailSubtitle,
           onTap: () => _openMailAendern(repo, email),
         ),
+      if (_subscriptionRow(t, l10n) case final row?) row,
     ]);
+  }
+
+  /// "Abo": Free opens the paywall, a store subscription its management,
+  /// also one on hold, paused or pending without Premium (fixed there, not
+  /// bought again). A manual grant has nothing to manage, so its row only
+  /// names the tier.
+  Widget? _subscriptionRow(AppTokens t, AppLocalizations l10n) {
+    final plan = widget.subscriptionPlan;
+    if (plan == null || plan.assumed) return null;
+    final premium = plan.isPremium;
+    final now = clock.now();
+    final live = plan.liveStoreSubscription(now);
+    final managed = premium || live != null;
+    final storeManaged = plan.subscription?.isStorePurchase ?? false;
+    return SettingsStudioRow(
+      key: const ValueKey('settings-subscription'),
+      leading: SettingsRowTile(
+        icon: Icons.workspace_premium_outlined,
+        tone: premium ? t.accent : null,
+      ),
+      title: l10n.settingsSubscriptionRow,
+      // Without Premium a live subscription names its problem, so the
+      // store link makes sense.
+      subtitle: switch (live?.lineAt(now)) {
+        _ when premium => l10n.subscriptionTierPremium,
+        SubscriptionLine.onHold => l10n.subscriptionOnHold(live!.platform.wire),
+        SubscriptionLine.paused => l10n.subscriptionPaused,
+        SubscriptionLine.pending => l10n.premiumPendingTitle,
+        _ => l10n.subscriptionTierFree,
+      },
+      // Management leaves the app for the store.
+      endIcon: managed ? Icons.open_in_new_rounded : null,
+      onTap: !managed
+          ? widget.onOpenPremium
+          : storeManaged
+          ? widget.onManageSubscription
+          : null,
+    );
   }
 
   Future<void> _openPasswortAendern(AuthRepository repo, String? email) async {
@@ -739,6 +795,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // (EX_REAUTH_REQUIRED, migration 20260815120000_delete_account_reauth.sql),
     // and a scoped recovery verification creates that token. The UI hurdles
     // still matter: they act BEFORE any mail goes out.
+    final subscription = widget.subscriptionPlan?.subscription;
     final bestaetigt = await showEatovaSheet<bool>(
       context,
       _DeleteAccountSheet(
@@ -746,6 +803,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         authRepository: repo,
         email: email,
         onDeleteAccount: loeschen,
+        billingStore: _storeKeepsBilling(subscription)
+            ? subscription!.platform
+            : null,
+        onManageSubscription: widget.onManageSubscription,
       ),
       dragHandle: false,
     );
@@ -758,6 +819,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 // ---------------------------------------------------------------------------
 // Building blocks of this screen
 // ---------------------------------------------------------------------------
+
+/// Whether the store keeps billing [subscription] once the account is gone:
+/// a Google or Apple subscription that still renews and has not ended.
+/// Apple's renewal stays unknown (null) until a store notification, and an
+/// unknown renewal counts as renewing. Deleting the account cancels nothing
+/// in the store.
+bool _storeKeepsBilling(SubscriptionInfo? subscription) {
+  if (subscription == null || !subscription.isStorePurchase) return false;
+  if (subscription.autoRenewing == false) return false;
+  return switch (subscription.state) {
+    SubscriptionState.active ||
+    SubscriptionState.grace ||
+    SubscriptionState.onHold ||
+    SubscriptionState.paused ||
+    SubscriptionState.pending => true,
+    SubscriptionState.canceled ||
+    SubscriptionState.expired ||
+    SubscriptionState.revoked => false,
+  };
+}
 
 /// A row that opens a legal page in the browser.
 ///
@@ -1093,10 +1174,17 @@ class _DeleteAccountSheet extends StatefulWidget {
     required this.authRepository,
     required this.email,
     required this.onDeleteAccount,
+    this.billingStore,
+    this.onManageSubscription,
   });
 
   final AuthRepository authRepository;
   final ScopedAccountDeleteAction onDeleteAccount;
+
+  /// The store that keeps billing after the deletion; step 1 warns about
+  /// it. Null shows no warning. Deletion is never blocked (GDPR Art. 17).
+  final StorePlatform? billingStore;
+  final VoidCallback? onManageSubscription;
 
   /// Address the code goes to — required, because it is verified against
   /// exactly this one.
@@ -1283,6 +1371,24 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
           ? () => _codeAnfordern(wort)
           : _loeschenBestaetigen,
       children: <Widget>[
+        if (ersterSchritt && widget.billingStore != null) ...<Widget>[
+          SettingsNote(
+            key: const ValueKey('settings-delete-subscription-warning'),
+            l10n.settingsDeleteSubscriptionWarning(widget.billingStore!.wire),
+            tone: context.t.warning,
+            icon: Icons.autorenew_rounded,
+            boxed: true,
+            action: widget.onManageSubscription == null
+                ? null
+                : SoftPillButton(
+                    key: const ValueKey('settings-delete-subscription-manage'),
+                    label: l10n.premiumManage,
+                    icon: Icons.open_in_new_rounded,
+                    onTap: widget.onManageSubscription,
+                  ),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (ersterSchritt)
           SheetField(
             key: const ValueKey('settings-delete-confirm-field'),

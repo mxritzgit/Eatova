@@ -438,13 +438,14 @@ void main() {
     });
 
     test('stummer Server, Rezept aber gespeichert: die Karte kommt aus dem '
-        'Verlauf — ohne Bild, mit Server-Id', () async {
+        'Verlauf — ohne Bild, mit Server-Id und Bildsperre', () async {
       final backend = _Backend(
         antwortNach: null,
         verlauf: _austausch(
           frage: 'Bowl mit Kichererbsen',
           antwort: 'Bowl — 480 kcal',
-          rezept: _rezeptZeile,
+          // A Free account's recipe, stored without a picture.
+          rezept: <String, Object?>{..._rezeptZeile, 'image_locked': true},
         ),
       );
       final svc =
@@ -463,6 +464,9 @@ void main() {
               'Platzhalter, wie auf einem zweiten Geraet');
       expect(res.assistantMessageId, 'm-antwort',
           reason: 'Schluessel des lokalen Bildspeichers');
+      expect(res.imageLocked, isTrue,
+          reason: 'die Karte zeigt „KI-Bild mit Premium", nicht erst nach '
+              'einem Neuladen');
       expect(backend.funktionsAufrufe, 1);
     });
 

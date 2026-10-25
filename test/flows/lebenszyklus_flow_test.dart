@@ -205,6 +205,9 @@ void main() {
 
     expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing,
         reason: 'nach „Plan aktivieren" darf das Gate nicht mehr stehen');
+    // The Premium screen is the onboarding's last step; Free goes on.
+    expect(find.byKey(const ValueKey('screen-paywall')), findsOneWidget);
+    await tapKey('paywall-continue-free');
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
     // The finished plan reached the server, not just the local store.
     expect(server.profileRow?['onboarding_completed'], isTrue,

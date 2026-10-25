@@ -2,6 +2,7 @@ import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { userToken } from '../_shared/auth_test_fixtures.ts';
 import { handleRequest, PROVIDER_TIMINGS_MS } from './handler.ts';
 import { CLAUDE_URL, claudeResponse, isClaudeCall, outputSchema } from '../_shared/claude_test_fixtures.ts';
+import { PLAN_ANSWERS, RESOLVE_PLAN_RPC } from '../analyze-meal/plan_fixtures.ts';
 import { extractionPrompt } from './extraction.ts';
 import { extractionSchema } from './schema.ts';
 
@@ -20,6 +21,9 @@ const MODEL = {
 type Call = { url: string; body: Record<string, unknown>; headers: Headers; redirect?: RequestRedirect };
 type Options = {
   authStatus?: number; authBody?: unknown; gate?: unknown; budget?: unknown;
+  // resolve_plan answer (default Free; 'unavailable' answers 500) and the
+  // answer of the day-gate batch alone.
+  plan?: unknown; dayGate?: unknown;
   authCancelStall?: boolean; gateCancelStall?: boolean; providerCancelStall?: boolean;
   // finishReason uses the handler's vocabulary ("stop", "length", ...);
   // claudeResponse turns it into the matching stop_reason.
@@ -58,11 +62,15 @@ async function stub(options: Options, run: (calls: Call[]) => Promise<void>): Pr
       }), { status: 503 }));
       return Promise.resolve(Response.json(options.authBody ?? { id: USER }, { status: options.authStatus ?? 200 }));
     }
+    if (target.endsWith(RESOLVE_PLAN_RPC)) {
+      return Promise.resolve(options.plan === 'unavailable' ? Response.json({}, { status: 500 }) : Response.json(options.plan ?? PLAN_ANSWERS.free));
+    }
     if (target.endsWith('/consume_edge_rate_limit')) return Promise.resolve(Response.json({ allowed: true }));
     if (target.endsWith('/consume_edge_rate_limits')) {
       if (options.gateCancelStall) return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
         cancel() { return new Promise<void>(() => {}); },
       }), { status: 503 }));
+      if (options.dayGate && body.p_gates[0].scope === 'recipe-import:user-day') return Promise.resolve(Response.json(options.dayGate));
       return Promise.resolve(Response.json(options.gate ?? body.p_gates.map(() => ({ allowed: true }))));
     }
     if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budgetSequence?.[calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length - 1] ?? options.budget ?? { allowed: true, reason: 'allowed' }));
@@ -100,7 +108,7 @@ Deno.test('recipe-import authenticated text succeeds only after independent prov
     check(calls.at(-2)?.url.endsWith('/reserve_ai_provider_call'), 'Budget immediately precedes provider');
     check(calls.at(-2)?.body.p_operation === 'coach_recipe' && calls.at(-2)?.body.p_user_id === USER, 'Existing shared budget bound to verified account');
     check(calls.every((call) => !/user_recipes|chat_messages|sessions/.test(call.url)), 'No saved-recipe or chat writes');
-    check(calls.filter((call) => /auth\/v1\/user|consume_edge_rate_limits/.test(call.url)).every((call) => call.redirect === 'error'), 'Credential-bearing fetches cannot redirect');
+    check(calls.filter((call) => /auth\/v1\/user|consume_edge_rate_limits|resolve_plan/.test(call.url)).every((call) => call.redirect === 'error'), 'Credential-bearing fetches cannot redirect');
     const provider = calls.at(-1)!;
     check(!JSON.stringify(provider.body).includes(ENV.SUPABASE_SERVICE_ROLE_KEY), 'No secret in prompt');
     check(provider.body.max_tokens === 4500, 'Room for several complete recipes within the window');
@@ -154,7 +162,7 @@ Deno.test('recipe-import auth outage responds despite a stalled body cancellatio
 Deno.test('recipe-import limiter and provider errors do not wait for stalled body cancellation', async () => {
   for (const [options, expectedStatus, expectedCode, expectedCalls] of [
     [{ gateCancelStall: true }, 503, 'rate_limit_unavailable', 2],
-    [{ providerCancelStall: true }, 502, 'provider_unavailable', 5],
+    [{ providerCancelStall: true }, 502, 'provider_unavailable', 6],
   ] as const) {
     await stub(options, async (calls) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -226,7 +234,54 @@ Deno.test('recipe-import rate-limit denial or malformed batch prevents source fe
       const response = await handleRequest(request({ text: VIDEO, locale: 'de' }));
       check(response.status === expected && calls.length === 2, 'Gate fails closed');
       if (expected === 429) check(response.headers.has('retry-after'), 'Retry delay');
+      // The hourly and IP gates are no plan limit: the body stays as it was.
+      if (expected === 429) check(JSON.stringify(await response.json()) === '{"error":"rate_limited"}', 'No planLimit');
     });
+  }
+});
+
+// docs/PREMIUM.md 3.3: the day gate takes the account's plan, and only its
+// denial names it (resetAt, planLimit; the upgrade offer only where Premium
+// gives more). A failed lookup is Free, never more, and a denial under it is
+// a retryable 503 without planLimit: the account may be Premium.
+Deno.test('recipe-import day gate follows the account plan, and only its denial carries planLimit', async () => {
+  const resetAt = '2026-10-26T00:00:00.000Z';
+  for (const [label, plan, expected] of [
+    ['free', PLAN_ANSWERS.free, { tier: 'free', limit: 2, premiumLimit: 10 }],
+    ['premium', PLAN_ANSWERS.premium, { tier: 'premium', limit: 10 }],
+    ['legacy', PLAN_ANSWERS.legacy, { tier: 'free', limit: 20 }],
+    ['resolve_plan down', 'unavailable', { tier: 'free', limit: 2 }],
+  ] as const) {
+    const dayGate = [{ allowed: false, limit: expected.limit, remaining: 0, resetAt, windowSeconds: 86_400 }];
+    const savedError = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+    try {
+      await stub({ plan, dayGate }, async (calls) => {
+        const response = await handleRequest(request());
+        const body = await response.json();
+        const gate = calls.find((call) => call.url.endsWith('/consume_edge_rate_limits') &&
+          (call.body.p_gates as { scope: string }[])[0].scope === 'recipe-import:user-day');
+        const sent = (gate?.body.p_gates as { limit: number }[] | undefined)?.[0];
+        check(sent?.limit === expected.limit, `${label}: day limit ${sent?.limit}`);
+        check(calls.find((call) => call.url.endsWith(RESOLVE_PLAN_RPC))?.body.p_user_id === USER, `${label}: plan of the verified account`);
+        if (plan === 'unavailable') {
+          check(response.status === 503 && !response.headers.has('retry-after'), `${label}: ${response.status}`);
+          check(JSON.stringify(body) === '{"error":"plan_unavailable"}', `${label}: body ${JSON.stringify(body)}`);
+        } else {
+          check(response.status === 429 && Number(response.headers.get('retry-after')) >= 1, `${label}: ${response.status}`);
+          check(JSON.stringify(body) === JSON.stringify({
+            error: 'rate_limited', resetAt,
+            planLimit: { feature: 'recipe_import', tier: expected.tier, limit: expected.limit, resetAt,
+              ...('premiumLimit' in expected ? { premiumLimit: expected.premiumLimit } : {}) },
+          }), `${label}: body ${JSON.stringify(body)}`);
+        }
+        check(!calls.some((call) => call.url.endsWith('/reserve_ai_provider_call') || isClaudeCall(call.url)), `${label}: no paid call`);
+      });
+    } finally {
+      console.error = savedError;
+    }
+    check(JSON.stringify(errors) === JSON.stringify(plan === 'unavailable' ? ['resolve_plan unavailable'] : []), `${label}: log ${errors}`);
   }
 });
 
@@ -259,6 +314,7 @@ Deno.test('recipe-import inaccessible or unsupported link asks for text without 
     const body = await response.json();
     check(response.status === 200 && body.status === 'needs_text' && body.candidates.length === 0, 'Honest fallback');
     check(!calls.some((call) => call.url.includes('reserve_ai_provider_call') || isClaudeCall(call.url)), 'No paid call for absent content');
+    check(calls.filter((call) => call.url.endsWith('/consume_edge_rate_limits')).length === 1, 'No day slot for absent content');
   });
 });
 

@@ -41,11 +41,13 @@ grant anon, authenticated, service_role to current_user;
 create schema if not exists auth;
 
 -- Columns per the trigger bodies of handle_new_user_profile() and the backfill
--- in 20260516160000: id, email, raw_user_meta_data.
+-- in 20260516160000: id, email, raw_user_meta_data; created_at for the legacy
+-- rule of resolve_plan (20261025100000).
 create table if not exists auth.users (
   id                 uuid primary key default gen_random_uuid(),
   email              text,
-  raw_user_meta_data jsonb not null default '{}'::jsonb
+  raw_user_meta_data jsonb not null default '{}'::jsonb,
+  created_at         timestamptz not null default now()
 );
 
 -- GoTrue puts the verified JWT claims into this GUC; PostgREST sets it per

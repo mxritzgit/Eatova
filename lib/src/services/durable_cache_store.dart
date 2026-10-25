@@ -31,6 +31,10 @@ const durableCacheSlotNames = {
   'ai_consent',
   'coach_quota',
   'weekly_result_seen',
+  'plan_status',
+  'paywall_prompt',
+  'legacy_notice',
+  'upsell_shown',
 };
 
 bool isDurableCacheSlotKey(String key) {

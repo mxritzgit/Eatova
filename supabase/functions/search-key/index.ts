@@ -10,8 +10,10 @@
 // can never hang in "new URL, old key".
 //
 // Requiring a JWT is fine: product search only runs post-login, behind the
-// AuthGate. No config.toml is added — the platform default `verify_jwt = true`
-// already applies.
+// AuthGate. supabase/config.toml has no [functions.search-key] entry, so the
+// default `verify_jwt = true` applies; deploy_functions.py
+// (assert_verify_jwt_kept, PUBLIC_WEBHOOKS) refuses to deploy it with
+// verify_jwt = false.
 
 import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
 import type { AuthFailGateResult } from '../_shared/auth_fail_gate.ts';

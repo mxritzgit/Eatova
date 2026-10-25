@@ -58,8 +58,9 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
   recovery checkpoint. Completed sessions store actual set values and immutable
   history; previous results are available as “Last time”.
 - **Coach:** conversations with sessions, image input, optional iOS
-  dictation, nutrition context and a server-enforced daily quota. `/recipe`
-  creates a recipe proposal with an image; `/plan` uses an explicit training
+  dictation, nutrition context and a server-enforced daily quota per plan.
+  `/recipe` creates a recipe proposal, with an image for Premium and for
+  existing accounts during the transition; `/plan` uses an explicit training
   brief and can discuss/adapt a selected plan. Saving a proposal requires
   confirmation. Replies use SSE transport and are released after the complete
   provider response passes server-side checks; the thinking state stays visible
@@ -76,6 +77,11 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
 - **Health and reminders:** Apple HealthKit steps and weight on iOS; read-only
   Health Connect steps on Android. One local evening reminder helps protect the
   logging streak.
+- **Free and Premium:** everything without AI is free; Premium is a store
+  subscription (Google Play, App Store) with higher daily AI limits and the
+  Coach recipe picture, verified and enforced on the server. A paywall follows
+  a fresh onboarding once, with an equal Free choice; Profile shows the plan.
+  See [Premium](docs/PREMIUM.md); the store products are not live yet.
 
 The [feature and platform matrix](docs/FEATURES.md) covers core capabilities
 and limits, including Android weight sync and export sharing. The newer
@@ -127,6 +133,7 @@ Flutter screens / widgets / theme
               +-- Edge Functions --> Anthropic Claude (text, vision)
               |                 \-> OpenRouter --> image model (recipe pictures)
               +-- Meilisearch / Open Food Facts
+              +-- Google Play Billing / StoreKit (verified by Edge Functions)
               +-- HealthKit / Health Connect
               +-- Local notifications / optional Sentry
 ```
@@ -174,7 +181,8 @@ Google Sign-In, search fallback, Sentry and signed Android release builds.
 
 ## Backend
 
-The endpoints are `analyze-meal`, `coach-chat`, `recipe-import` and `search-key`.
+The endpoints are `analyze-meal`, `coach-chat`, `recipe-import`, `search-key`,
+`subscription-verify` and the public store webhook `store-notifications`.
 Apply the versioned migrations to your own project and configure the needed
 function secrets before deploying. Schema changes and function deployments are
 separate.

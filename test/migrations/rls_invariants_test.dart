@@ -240,6 +240,20 @@ const Map<String, Erwartung> _erwartet = {
     grund: 'Reports of Coach output without content (2026-10-19); owner, id '
         'and timestamp come from defaults, append-only.',
   ),
+  'plan_tiers': Erwartung.nurServer(
+    grund: 'Premium tier limits (2026-10-25); operator-owned, read through '
+        'resolve_plan. Writable would mean self-raised limits.'),
+  'plan_settings': Erwartung.nurServer(
+    grund: 'Legacy window of the existing accounts; only the operator sets '
+        'legacy_until.'),
+  'store_account_tokens': Erwartung.nurServer(
+    grund: 'Per-account store token; the client gets its own only through '
+        'get_store_account_token.'),
+  'store_subscriptions': Erwartung.nurServer(
+    grund: 'Verified purchases with credential-like store keys; a client '
+        'privilege would be a self-granted Premium or a leaked token.'),
+  'store_notification_receipts': Erwartung.nurServer(
+    grund: 'Dedupe of store notifications, written by the server RPC only.'),
 };
 
 /// What one function in schema `public` is allowed to be.
@@ -362,8 +376,37 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
       definer: true, grund: 'Streak-Fortschreibung des eigenen Tages.'),
   'rename_chat_session': FunktionsErwartung.client(
       definer: true, grund: 'Coach: Unterhaltung umbenennen.'),
+  'get_my_plan': FunktionsErwartung.client(
+      definer: true,
+      grund: 'Premium: plan_snapshot of auth.uid() only, without store keys.'),
+  'get_store_account_token': FunktionsErwartung.client(
+      definer: true,
+      grund: 'Premium: creates and returns only the store token of the caller.'),
 
   // -- server only ---------------------------------------------------------
+  'plan_tier_for': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Premium tier of any account; server only.'),
+  'resolve_plan': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'The limit rules per account, read by the AI functions; any '
+          'account id, so server only.'),
+  'plan_snapshot': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Plan and usage of any account; clients use get_my_plan.'),
+  'store_account_owner': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Maps a store token to its account (webhooks).'),
+  'store_subscription_owner': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Owner of a stored purchase (webhooks, verify).'),
+  'record_store_subscription': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Writes a purchase only after the server verified the store '
+          'proof; client-callable would grant Premium without paying.'),
+  'record_store_notification': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Dedupe of verified store notifications.'),
+  'mark_store_subscription_acknowledged': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Sets the acknowledged flag of one purchase after the store '
+          'acknowledged it; client-callable would forge store state.'),
   'reserve_ai_provider_call': FunktionsErwartung.nurServer(
       definer: true,
       grund: 'Reserviert globale und eigene Providerkosten atomar vor jedem '

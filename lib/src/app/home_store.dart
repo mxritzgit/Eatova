@@ -16,6 +16,7 @@ import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
+import '../models/plan_status.dart' show PlanFeature, PlanStatus, utcDay;
 import '../models/planned_meal.dart';
 import '../models/recipe_pick.dart';
 import '../models/reminder_time.dart';
@@ -71,6 +72,7 @@ import '../widgets/common/app_snack.dart';
 // so it is the only place that can hand the sign-out intent back to the gate.
 import 'ai_trust.dart' show AiConsentCache;
 import 'auth_gate.dart' show IntentionalSignOut;
+import 'subscription.dart' show PaywallPromptState, PlanStatusCache;
 
 part 'home_store_meals.dart';
 part 'home_store_recipe_edits.dart';
@@ -84,6 +86,7 @@ part 'home_store_derivations.dart';
 part 'home_store_energy_check.dart';
 part 'home_store_ai_consent.dart';
 part 'home_store_coach_quota.dart';
+part 'home_store_subscription.dart';
 
 /// Context-free snackbar request emitted by [HomeStore].
 ///
@@ -699,7 +702,8 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreTrainingHistoryPart,
         _HomeStoreDerivationsPart,
         _HomeStoreAiConsentPart,
-        _HomeStoreCoachQuotaPart {
+        _HomeStoreCoachQuotaPart,
+        _HomeStoreSubscriptionPart {
   HomeStore({
     required super.sync,
     required super.health,
@@ -822,6 +826,50 @@ class HomeStore extends _HomeStoreBase
 
   @override
   bool get _needsOnboardingForHealth => needsOnboarding;
+
+  // --- Onboarding paywall (docs/PREMIUM.md 4.3) ------------------------------
+
+  /// The account cache slot `paywall_prompt` as this session knows it; null
+  /// until a fresh onboarding asked or the cache said so. A missing slot is
+  /// no prompt: accounts onboarded before Premium never see the paywall.
+  PaywallPromptState? _paywallPrompt;
+
+  /// The paywall waits between the onboarding and the tabs. Never without
+  /// sync (test/preview), like [needsOnboarding].
+  bool get paywallPending =>
+      sync != null && _paywallPrompt == PaywallPromptState.pending;
+
+  @override
+  void _promptPaywall() {
+    if (_disposed || _paywallPrompt == PaywallPromptState.answered) return;
+    _paywallPrompt = PaywallPromptState.pending;
+    unawaited(_writePaywallPromptGuarded(PaywallPromptState.pending));
+  }
+
+  /// "Weiter mit Free", close, Back or a finished purchase: the paywall is
+  /// answered for good, also across restarts.
+  Future<void> answerPaywall() async {
+    if (_disposed || _paywallPrompt != PaywallPromptState.pending) return;
+    _mutate(() => _paywallPrompt = PaywallPromptState.answered);
+    await _writePaywallPromptGuarded(PaywallPromptState.answered);
+  }
+
+  Future<void> _writePaywallPromptGuarded(PaywallPromptState state) async {
+    try {
+      await writePaywallPrompt(state);
+    } catch (e, st) {
+      // A lost write costs one paywall at most; the session goes on.
+      unawaited(CrashReporter.capture(e, st, context: 'paywall-prompt-write'));
+    }
+  }
+
+  /// Reads the slot on the boot path. An answer given in this session
+  /// during the read wins.
+  Future<void> _hydratePaywallPrompt() async {
+    final stored = await _leseSlot('paywall_prompt', readPaywallPrompt);
+    if (_disposed || stored == null || _paywallPrompt != null) return;
+    _mutate(() => _paywallPrompt = stored);
+  }
 
   /// The meal load answered in this session — the weekly check's third
   /// source (docs/WEIGHT-TREND.md); same lifecycle as the two above.
@@ -965,6 +1013,9 @@ class HomeStore extends _HomeStoreBase
     }
     if (_cache != null) {
       await _hydrateFromCache();
+      // Before the gate opens: a paywall still waiting after a kill shows
+      // at once, without a frame of the tabs.
+      await _hydratePaywallPrompt();
     } else {
       // Without a cache there is no persisted sync state an early logout
       // would have to preserve — the A2 window does not exist here.

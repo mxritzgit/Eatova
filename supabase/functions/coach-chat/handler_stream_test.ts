@@ -35,12 +35,15 @@ import {
 } from "../_shared/claude_test_fixtures.ts";
 import { claudeErrorTypeFor, isDraftRequest, simulatedThinkingTokens } from "./claude_mode_test_helpers.ts";
 import { handleRequest, PROMPT_LEAK_GUARD, PROVIDER_TIMEOUTS_MS } from "./handler.ts";
+import { isResolvePlanCall, resolvePlanResponse } from "./plan_test_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 const ASSISTANT_MSG_ID = "33333333-3333-4333-8333-333333333333";
 const BASE_URL = "https://supabase.test.invalid";
-const DAILY_LIMIT = 5;
+// The stub's plan is Premium (20), mirrored by the quota ledger below: a
+// constant 5 in meta, done or the body fails.
+const DAILY_LIMIT = 20;
 
 // Katalogtexte (REFUSAL_TEXTS in handler.ts) — Byte-Kopien, dieselbe Regel wie
 // in handler_test.ts: eine Aenderung dort muss hier rot werden.
@@ -255,6 +258,8 @@ function deltaTexte(events: SseEvent[]): string[] {
 
 interface StubOptions {
   quota?: "ok" | "exhausted" | "forbidden";
+  /** resolve_plan answers 503: the request runs under the Free fallback. */
+  planUnavailable?: boolean;
   classifierCategory?: string;
   /** Byte-Bloecke des gestreamten Antwort-Bodys. */
   answerChunks?: string[];
@@ -353,6 +358,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/prune_edge_rate_limits")) return new Response(null, { status: 204 });
     if (url.includes("/rest/v1/rpc/ensure_default_chat_session")) return jsonRes(SESSION_ID);
     if (url.includes("/rest/v1/rpc/touch_chat_session")) return new Response(null, { status: 204 });
+    if (isResolvePlanCall(url)) {
+      return options.planUnavailable ? jsonRes({ message: "plan lookup down" }, 503) : resolvePlanResponse("premium");
+    }
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) {
       const mode = options.quota ?? "ok";
       if (mode === "forbidden") {
@@ -627,7 +635,7 @@ Deno.test("A3: ohne Accept-Header bleibt alles gepuffertes JSON", async () => {
     assertEquals(body.reply, "Klar, machen wir das.", "Antworttext");
     assertEquals(body.refusal, false, "refusal");
     assertEquals(body.session_id, SESSION_ID, "session_id");
-    assertEquals(body.remaining, 4, "remaining");
+    assertEquals(body.remaining, DAILY_LIMIT - 1, "remaining");
     assertEquals(body.daily_limit, DAILY_LIMIT, "daily_limit");
     // Der entscheidende Beweis fuer alte Builds im Feld: der Anbieter wird
     // nicht einmal um einen Stream gebeten.
@@ -713,7 +721,7 @@ Deno.test("A3: Reihenfolge ist meta, delta..., done — und done traegt die gepu
 
     const meta = events[0].data;
     assertEquals(meta.session_id, SESSION_ID, "meta.session_id");
-    assertEquals(meta.remaining, 4, "meta.remaining");
+    assertEquals(meta.remaining, DAILY_LIMIT - 1, "meta.remaining");
     assertEquals(meta.daily_limit, DAILY_LIMIT, "meta.daily_limit");
 
     const done = events[events.length - 1].data;
@@ -721,7 +729,7 @@ Deno.test("A3: Reihenfolge ist meta, delta..., done — und done traegt die gepu
     assertEquals(done.reply, volltext, "done.reply");
     assertEquals(done.refusal, false, "done.refusal");
     assertEquals(done.refusal_reason, null, "done.refusal_reason");
-    assertEquals(done.remaining, 4, "done.remaining");
+    assertEquals(done.remaining, DAILY_LIMIT - 1, "done.remaining");
     assertEquals(done.daily_limit, DAILY_LIMIT, "done.daily_limit");
     assertEquals(done.session_id, SESSION_ID, "done.session_id");
     // Die deltas ergeben zusammen genau den Antworttext.
@@ -754,6 +762,25 @@ Deno.test("A3: done traegt exakt dieselbe Nutzlast wie der gepufferte Body", asy
     );
   } finally {
     gestreamt.restore();
+  }
+});
+
+Deno.test("Tarif: unter dem Plan-Ausfall nennen meta und done weder Limit noch Rest", async () => {
+  // The Free fallback's 3 is not the account's limit (docs/PREMIUM.md 3.1);
+  // a named limit would lock a Premium composer for the session.
+  const stub = installFetch({ planUnavailable: true, answerDeltas: [LANGER_TEXT_A, LANGER_TEXT_B] });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const events = parseSse(await (await handleRequest(makeRequest({ message: FRAGE }, true))).text());
+    assertEquals(events.map((e) => e.event).filter((e) => e !== "delta").join(","), "meta,done", "Events");
+    for (const { event, data } of events.filter((e) => e.event !== "delta")) {
+      assert(!("daily_limit" in data) && !("remaining" in data), `${event}: ${JSON.stringify(data)}`);
+    }
+    assertEquals(stub.quotaUsed(), 1, "der Slot ist trotzdem verbraucht");
+  } finally {
+    console.error = originalError;
+    stub.restore();
   }
 });
 

@@ -110,7 +110,7 @@ content, images, chat text, access tokens or user-identifying labels.
 | --- | --- | --- |
 | API availability | More than 5% server errors over 5 minutes with at least 20 requests | Check deployment, database health and sanitized error categories |
 | Authentication abuse | Sustained rejected-login/rate-limit spike above the established baseline | Review aggregate origin/rate data and account protections |
-| AI budget | 80% of approved daily reservation limit; separate alert at exhaustion | Check usage trend, reserve policy and stop switches |
+| AI budget | 60% of approved daily reservation limit (the [ops watch](#ops-watch) threshold since Premium); separate alert at exhaustion | Check usage trend, reserve policy and stop switches |
 | Backups | Latest completed recovery point older than the agreed RPO or a failed scheduled backup | Repair backup path and verify a new usable recovery point |
 | Privileged changes | Owner/membership/token changes or security protection disabled | Verify the authorized change and actor through restricted admin audit access |
 | Monitoring failure | Missing expected heartbeat or disabled rule | Restore collection/routing before relying on silence |
@@ -235,9 +235,10 @@ each.
    a protected scheduler through the Management API's logs endpoint, or route a
    log drain into an alerting tool where the plan allows it. Do not put the
    management token into PR-reachable workflows.
-2. **Provider budget at 80%.** Schedule the readiness check below: it exits 1
-   when global AI calls or images reach 80% of the approved daily limit
-   (`--budget-warning-percent`), and 2 when the state is unknown. Route both
+2. **Provider budget at 60%.** Schedule the readiness check below: it exits 1
+   when global AI calls or images reach the warning share of the approved
+   daily limit (`--budget-warning-percent`, 60 in the ops watch), and 2 when
+   the state is unknown. Route both
    exit codes and a missed run. Separately set the provider accounts' spend
    notifications to 80% of the approved monthly money limit where the provider
    console offers them; the daily reservation limit is not a money limit.
@@ -284,8 +285,10 @@ The JSON report and exit code can be consumed by an operator-approved scheduler:
 | `1` | Attention: project unhealthy, no fresh completed recovery point, a failed backup, an active AI stop/zero limit, or usage at the warning/exhaustion threshold | Review the indicated condition; stops may be intentional |
 | `2` | Unknown: identity/access/transport/response validation failed | Treat the check as unavailable; do not read silence as healthy |
 
-The initial usage warning is 80%; change it explicitly with
-`--budget-warning-percent` after agreeing the threshold. The required backup
+The script's default usage warning is 80%; the [ops watch](#ops-watch)
+passes 60 (the Premium decision, see [alerts and checks](#alerts-and-checks)).
+Change it explicitly with `--budget-warning-percent` after agreeing the
+threshold. The required backup
 age is a monitoring threshold, not proof of achieved RPO/RTO. A current backup
 record is not a successful restore. Completed daily physical backups count even
 with PITR disabled; if only an unlisted physical window is returned without PITR,
@@ -336,17 +339,19 @@ yet; who reviews them and how often is an open owner decision.
 hourly (minute 17) and on demand from `main`. It makes no paid call and reads
 no user data:
 
-1. the readiness check above with `--budget-warning-percent 80`: project
+1. the readiness check above with `--budget-warning-percent 60`: project
    identity and health, the AI stop switches, the zero account limit, and the
-   shared daily AI calls and images at 80 % or exhausted. Exit 1 (attention)
+   shared daily AI calls and images at 60 % or exhausted. Exit 1 (attention)
    and exit 2 (unknown) fail the run. Backups are checked only once the
    variable `OPS_WATCH_BACKUP_MAX_AGE_HOURS` holds the agreed RPO in hours;
    without it the summary names them as not checked, because a project
    without completed backups would otherwise fail every hour;
 2. the deploy workflow's boot probe for every function (`probe --slugs all`):
    preflight 204, the gateway's 401 without a token and the handler's own 401
-   with the anon key. A missing, undeployed or crashing function, or one that
-   lost `verify_jwt`, fails the run. A request without an answer or with a
+   with the anon key (for the public webhook `store-notifications` the
+   handler's own `invalid_notification_auth` 401 both times). A missing,
+   undeployed or crashing function, or one whose `verify_jwt` differs from
+   its registered mode, fails the run. A request without an answer or with a
    5xx is asked once more after five seconds, so one lost request does not
    fail the run (2026-10-22: one `analyze-meal` request never reached the
    gateway and the run went red).
@@ -410,7 +415,8 @@ decision. A technical database cascade alone does not close the external case.
 
 Remaining operator inputs are specific: production backup destination and
 RPO/RTO/retention; separately identified staging project and credentials; actual
-Anthropic and OpenRouter accounts/keys and money budgets; read access to Sentry/provider settings;
+Anthropic and OpenRouter accounts/keys and money budgets; Play Console and App
+Store Connect access and the Premium service-account key; read access to Sentry/provider settings;
 primary/backup responders and approved alert destination; privacy owner and
 provider access/deletion procedures. Keep their secrets and personal contact
 details outside this repository.
@@ -435,7 +441,8 @@ details outside this repository.
    `images_enabled` scope the stop. Zero daily limits also deny reservations.
    Confirm the expected row exists and verify the setting afterwards. These
    switches do not cancel in-flight provider work or reverse existing charges.
-   Do not delete user history or reset counters to recover service.
+   Do not delete user history or reset counters to recover service. For
+   Premium store processing see [the new functions' stop](#deploy-modes-of-the-new-functions).
 4. For an exposed secret, identify its consumers and minimum permissions,
    prepare the replacement in the secret manager, update those consumers,
    verify a legitimate operation using synthetic input, revoke the old secret,
@@ -511,10 +518,12 @@ After the environment approval the run:
 
 1. checks out `main` for its own tooling and the chosen commit separately, so
    an older commit never supplies its own deployer or verifier;
-2. plans: the slugs exist, each has a boot probe definition, and no
-   `supabase/config.toml` sets `verify_jwt = false` (there is none today, so
-   the CLI default `verify_jwt = true` applies; the workflow never passes
-   `--no-verify-jwt`);
+2. plans: the slugs exist, each has a boot probe definition, and the tracked
+   `supabase/config.toml` sets `verify_jwt = false` only for a slug on the
+   explicit allowlist of public webhooks in `deploy_functions.py` (only
+   `store-notifications`, which authenticates every request itself); every
+   other function keeps the CLI default `verify_jwt = true`, and the workflow
+   never passes `--no-verify-jwt`;
 3. refuses a commit older than a chosen function's lowest safe rollback
    commit (below), and a commit with a migration that is not registered in
    the live `supabase_migrations.schema_migrations` (the drift job's query,
@@ -523,13 +532,17 @@ After the environment approval the run:
 4. reads each function's version and downloads its live source, compared with
    the commit ignoring CRLF; a mismatch here only shows what was live before;
 5. deploys one function after another with the pinned CLI and `--use-api`;
-6. reads back ACTIVE, `verify_jwt = true` and a new version, downloads the live
-   source again and compares it byte for byte with the function's import
+6. reads back ACTIVE, the registered `verify_jwt` mode (true; false only for
+   `store-notifications`) and a new version, downloads the live source
+   again and compares it byte for byte with the function's import
    graph in the commit: a missing, changed or unexpected file fails;
 7. runs the boot probe: preflight 204, 401 from the gateway without a token,
    and the handler's own 401 with the anon key, which proves it booted and
-   passed its configuration check. A request without an answer or with a
-   5xx is asked once more after five seconds. No user token, no paid call;
+   passed its configuration check. `store-notifications` has no gateway
+   check, so its probe expects the handler's own `invalid_notification_auth`
+   401 both without a token and with the anon key. A request without an
+   answer or with a 5xx is asked once more after five seconds. No user
+   token, no paid call;
    a key that reaches the Auth lookup counts one failed lookup for the
    runner's address;
 8. writes the deploy record and the job summary.
@@ -564,6 +577,12 @@ that does not contain it is refused:
 | --- | --- | --- |
 | `coach-chat` | `a3a7263b` | Clients from #155 send `preferences` to `/recipe`; older handlers reject it with 400 |
 | `analyze-meal`, `recipe-import`, `search-key` | `ea2722e6` | The last source verified live with today's schema and clients (identical before the #155 deploy); nothing older was checked against them |
+| `subscription-verify`, `store-notifications` | `fdd8d63f` | `first_release`: the base of the Premium PR; a commit without the function fails as unknown anyway |
+
+The three AI functions keep their floors in the Premium PR. Raise them to the
+Premium merge commit in a follow-up once it exists: an older handler applies
+one limit to every account (Premium accounts would get 5 Coach questions
+instead of 20) and knows no picture lock.
 
 Only set `allow_below_floor` after checking that the older handler works with
 the installed clients and the live schema; the record names the functions
@@ -571,6 +590,300 @@ deployed below their floor. Raise a floor in the same PR that makes older
 handlers incompatible (a new required request field, a renamed RPC, a
 migration the old code breaks on), and give a new function its floor before
 its first deploy.
+
+## Premium store setup
+
+Owner steps outside the repository for the [Premium tier](PREMIUM.md)
+(server side in [Backend](BACKEND.md#premium-plans-and-store-subscriptions)).
+None of them was carried out from this repository; record each with its
+date in the handoff, without keys, tokens or personal account data. Order:
+migration live, merge, deploy `coach-chat`, `analyze-meal`, `recipe-import`,
+`subscription-verify` and `store-notifications`, app build. The terms and the
+privacy text for the paid tier must be published before the first real
+purchase ([legal draft](PREMIUM-LEGAL-DRAFT.md)). Prices live only in the
+store consoles; the app shows the store's price.
+
+### Google Play
+
+1. **Billing build and products.** Upload a build with the billing
+   dependency (it adds `com.android.vending.BILLING`, which
+   `android/permissions_allowlist.txt` must list) to the internal track; Play
+   Console offers subscription products only once such a build exists and a
+   payments profile is set up. Then, under Monetize, Subscriptions, create the
+   subscription `eatova_premium` with two auto-renewing base plans:
+   `monthly` (billing period one month, 7,99 EUR) and `yearly` (one year,
+   49,99 EUR), prices for other countries set or converted in the console.
+   On `yearly` add one offer with a 7-day free trial for new customers
+   (Google's eligibility: never had this subscription); `monthly` gets no
+   trial. Activate both base plans and the offer. Keep grace period and
+   account hold enabled: they become the states `grace` and `on_hold`.
+2. **License testers.** Under Setup, License testing, add the testers'
+   Google accounts and invite them to the internal track. Their purchases
+   cost nothing, renew in minutes instead of months, and arrive with
+   `testPurchase`, stored as environment `test`; the Profile marks them as a
+   test purchase. They grant Premium on the production backend.
+3. **Service account.** In a Google Cloud project, enable the Google Play
+   Android Developer API and create a service account without Cloud roles,
+   used only for this (not the release lane's upload account). Invite its
+   email in Play Console under Users and permissions, for the Eatova app,
+   with exactly "View financial data, orders, and cancellation survey
+   responses" and "Manage orders and subscriptions". New permissions can take
+   hours to apply; until then verification answers `503 store_unavailable`.
+   Create one JSON key for it.
+4. **Function secret.** Set the whole key JSON as
+   `EATOVA_PLAY_SERVICE_ACCOUNT_JSON` without putting the value on a command
+   line (`supabase secrets set NAME=value` leaves it in shell history and the
+   process list). Either paste it in the Supabase dashboard (Edge Functions,
+   Secrets), or let a short script read the file and post it to the
+   Management API, run under the approved secret manager so that
+   `SUPABASE_ACCESS_TOKEN` and the verified `SUPABASE_PROJECT_REF` are
+   injected into the process (`python set_play_secret.py <key-file>`):
+
+   ```python
+   # Reads the key file named as the only argument and the management token
+   # from the environment; prints only the HTTP status.
+   import json, os, sys, urllib.request
+
+   class NoRedirect(urllib.request.HTTPRedirectHandler):
+       def redirect_request(self, *args, **kwargs):
+           return None  # a redirect raises instead of resending the token
+
+   with open(sys.argv[1], encoding='utf-8') as f:
+       key = json.load(f)
+   body = json.dumps([{'name': 'EATOVA_PLAY_SERVICE_ACCOUNT_JSON',
+                       'value': json.dumps(key, separators=(',', ':'))}]).encode()
+   ref = os.environ['SUPABASE_PROJECT_REF']
+   request = urllib.request.Request(
+       f'https://api.supabase.com/v1/projects/{ref}/secrets', data=body, method='POST',
+       headers={'Authorization': 'Bearer ' + os.environ['SUPABASE_ACCESS_TOKEN'],
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (eatova-ops)'})
+   with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
+       print(response.status)
+   ```
+
+   The browser user agent is needed because a Cloudflare rule in front of
+   the Management API rejects default library agents (error 1010). Keep the
+   script and the key file outside the repository, store the key in the
+   secret manager and delete the downloaded copy. `EATOVA_PLAY_PACKAGE_NAME`
+   and `EATOVA_PREMIUM_PRODUCT_IDS` are needed only when they differ from
+   their defaults. To rotate, create a new key, set it the same way, check a
+   purchase, then delete the old key in Google Cloud.
+5. **Check.** A license tester buys on the internal track; the Profile shows
+   Premium with the test badge. From an operator connection, read only
+   non-secret columns, never `store_key`:
+   `select platform, product_id, base_plan_id, status, expires_at, environment, acknowledged from public.store_subscriptions order by created_at desc limit 5`.
+   Google refunds a purchase that is not acknowledged within three days, so
+   `subscription-verify` must stay reachable. A new purchase is stored first
+   with Google's state (`acknowledged = false`); once the server's
+   acknowledgement succeeds, `mark_store_subscription_acknowledged` sets
+   `acknowledged = true` on that row (in `verify` and in `refresh`), and any
+   later verification stores Google's state again. An active or grace Google
+   row still at `false` after a day therefore means the server's
+   acknowledgement failed or was not recorded (a failed mark is ignored):
+   look for `subscription-verify acknowledge failed`
+   in the function logs (it carries only the HTTP status) and check the order
+   in Play Console. The app's own purchase completion also acknowledges, so
+   Play may already show it acknowledged; the row then turns `true` at the
+   next verification.
+6. **Optional: real-time developer notifications.** Without them refunds
+   and cancellations reach the account only at the next restore or
+   `refresh`.
+   1. Set `EATOVA_PUBSUB_PUSH_AUDIENCE` (the audience string the push
+      subscription will send, for example the push URL) and
+      `EATOVA_PUBSUB_PUSH_SA_EMAIL` (the email of a dedicated push service
+      account) as function secrets first; without them the function answers
+      `503 not_configured` and Pub/Sub keeps retrying.
+   2. In Google Cloud Pub/Sub create a topic and give
+      `google-play-developer-notifications@system.gserviceaccount.com` the
+      Pub/Sub Publisher role on it.
+   3. Create a push subscription to
+      `https://<project-ref>.supabase.co/functions/v1/store-notifications`
+      with authentication on, using that service account and audience (in
+      older projects the Pub/Sub service agent also needs the Service
+      Account Token Creator role on it). Keep the default retry and message
+      retention.
+   4. In Play Console, Monetization setup, enter the topic
+      (`projects/<gcp-project>/topics/<topic>`) for real-time developer
+      notifications and send a test notification: the function answers 200
+      to `testNotification`.
+
+   Before switching this on, confirm the privacy wording for Pub/Sub as a
+   processor ([PRIVACY.md](../PRIVACY.md), legal draft).
+7. **Data safety.** In App content, Data safety, add Financial info,
+   Purchase history: collected, not shared, linked to the account, optional
+   (only for buyers), purpose app functionality; keep encryption in transit
+   and deletion on request as declared. Check the answers against the form's
+   current questions; the [legal draft](PREMIUM-LEGAL-DRAFT.md) lists the
+   text to publish with it.
+
+### App Store
+
+These need the paid Apple Developer Program, which is not active yet (owner
+decision); until then iOS shows the store as unavailable.
+
+1. **Agreement.** Accept the Paid Apps Agreement in App Store Connect
+   (Business: banking and tax). The App ID `com.eatova.app` needs the In-App
+   Purchase capability.
+2. **Products.** Under Monetization, Subscriptions, create the group
+   "Eatova Premium" with `eatova_premium_monthly` (one month, 7,99 EUR) and
+   `eatova_premium_yearly` (one year, 49,99 EUR), display name and
+   description in German and English, and the review screenshot. Suggested
+   levels: yearly above monthly, so a change to yearly applies at once and a
+   change to monthly at the next renewal, as on Google Play. Family Sharing
+   stays off (it cannot be turned off again once on).
+3. **Introductory offer.** On `eatova_premium_yearly` only: free, one week,
+   for new subscribers. Apple grants it once per subscription group.
+4. **Server notifications.** Under App Information, App Store Server
+   Notifications, set the production and the sandbox URL to
+   `https://<project-ref>.supabase.co/functions/v1/store-notifications`,
+   version 2. A sandbox purchase sends `SUBSCRIBED`; a `TEST` notification
+   can be requested through the App Store Server API, which this repository
+   does not call.
+5. **Sandbox testers.** Under Users and Access, Sandbox, create testers and
+   sign in with one on the device (Settings, App Store, Sandbox Account).
+   Sandbox and TestFlight purchases are free, arrive as environment Sandbox,
+   are stored as `sandbox` and grant Premium on the production backend (App
+   Review buys the same way); the Profile marks them as test purchases.
+6. **App privacy and review.** In App Privacy add Purchases, Purchase
+   History: linked to the user, not used for tracking, purpose app
+   functionality (it matches `NSPrivacyCollectedDataTypePurchaseHistory` in
+   `ios/Runner/PrivacyInfo.xcprivacy`). The app description or the EULA field
+   must link the terms of use and the privacy policy; the paywall links both.
+   `EATOVA_APPLE_BUNDLE_ID` is needed only when the bundle id differs.
+
+### Manual grants
+
+`platform = 'manual'` gives an account Premium without a store, for testing
+before the stores exist and for support cases. Run it from a trusted
+operator connection (the Management API's SQL endpoint or the SQL editor),
+not with the service key, which may only read the table. Take the account id
+from the verified case record; the label names the case, never a person.
+
+```sql
+-- Grant until a fixed date. environment 'test' marks an operator test in the
+-- Profile; use 'production' for a support case.
+insert into public.store_subscriptions
+  (user_id, platform, store_key, product_id, status, expires_at, environment, acknowledged)
+values
+  ('<account-uuid>', 'manual', 'manual:<case-label>', 'eatova_premium_manual',
+   'active', '<end, e.g. 2026-12-31T23:59:59Z>', 'test', true);
+
+-- End it early: the account is Free from its next request.
+update public.store_subscriptions
+  set status = 'revoked', updated_at = now()
+  where platform = 'manual' and store_key = 'manual:<case-label>';
+```
+
+The Profile shows a manual grant as "Freigeschaltet bis {date}" and offers
+no store management. The row is deleted with the account.
+
+### Changing limits
+
+The functions read `plan_tiers` on every request; a change applies from the
+next request, without a deploy or an app release. The app shows the new
+numbers after its next plan read (on start and on resume, at most every five
+minutes).
+
+```sql
+update public.plan_tiers set coach_daily = 4, updated_at = now() where tier = 'free';
+select tier, coach_daily, meal_analysis_daily, recipe_import_daily,
+  provider_calls_daily, recipe_picture from public.plan_tiers order by tier;
+```
+
+- Bounds: 1 to 10,000 per feature, 0 to 10,000 provider calls.
+- Raising a limit is always possible. Lowering a Free limit needs the AGB
+  notice four weeks ahead; lowering a Premium limit changes a paid product
+  and needs the notice and termination right of the terms (see the
+  [legal draft](PREMIUM-LEGAL-DRAFT.md)).
+- `provider_calls_daily` must stay above what the features can spend (Free
+  3 Coach × 2 + 4 + 2 imports × 2 = 14 calls under 30; Premium 20 × 3 with
+  pictures + 30 + 10 × 2 = 110 under 150), and
+  `ai_provider_limits.daily_user_limit` at least the highest
+  `provider_calls_daily`, because the lower value wins. A legacy account
+  with Premium gets the merged maximum 20 × 3 + 100 + 20 × 2 = 200 as its
+  ceiling (`resolve_plan` merges it), so the migration raises
+  `daily_user_limit` to at least 200. A legacy Free account can spend
+  5 × 3 + 100 + 20 × 2 = 155 against its 150, as before Premium.
+- `FREE_FALLBACK` in `_shared/plan.ts` and the app's assumed defaults stay at
+  the decided values; changing them needs a code change.
+
+### Ending the legacy window
+
+Accounts created before the migration keep the `legacy` limits while
+`plan_settings.legacy_until` is null. Set it only after the new terms are
+published, to the date on which they take effect for existing accounts, at
+least four weeks after the notice reaches them (AGB section 11):
+
+```sql
+update public.plan_settings
+  set legacy_until = '<effective date, e.g. 2026-12-15T00:00:00Z>', updated_at = now()
+  where singleton;
+```
+
+Setting it makes the app show legacy accounts a one-time notice on Today
+with that date (an app build with the notice is needed). A Free account sees
+the new Free limits there, and its Premium screen and Profile name the date
+as well. An account with Premium sees the regular Premium limits instead, on
+Today and in a lasting note on its Profile; its Premium screen shows no
+date. From that instant they are Free, or Premium if they bought it. The
+notice and the notes reach only people who open an updated app, and
+subscribers never see the date on the Premium screen; whether an email must
+accompany them is a legal question
+([legal draft](PREMIUM-LEGAL-DRAFT.md)). Do not move an announced date
+earlier; a later date shows the notice again. Never change
+`legacy_created_before`.
+
+### Alerts and checks
+
+- **Global caps.** The migration raises the shared ceilings to 3,000
+  provider calls and 200 recipe pictures per day. The [ops watch](#ops-watch)
+  warns at 60 % of them (1,800 calls, 120 pictures), so a few heavy accounts
+  cannot exhaust the day unseen. The 60 % reaches the watch with the Premium
+  merge, which follows the live migration; against the old ceilings (1,000
+  and 50) it would already warn at 600 calls and 30 pictures.
+- **Plan lookup.** A failed `resolve_plan` writes `resolve_plan unavailable`
+  and serves the Free limits, also to Premium accounts; a request those
+  limits would deny answers `503 plan_unavailable` (the app shows a
+  retryable error, no limit notice and no upgrade offer). In the Logs Explorer
+  (not run live): `select timestamp_trunc(timestamp, hour) as hour, count(*) as lookups_failed from function_logs where regexp_contains(event_message, r'resolve_plan unavailable') group by hour order by hour desc`.
+- **Cost triggers** from the contract, read from the `ai_call` lines two to
+  four weeks after launch: above about 2,20 EUR AI cost per subscriber and
+  month, move the picture to a cheaper size or model first; if a typical
+  Free account costs more than 0,75 EUR a month, lower Free analyses by one.
+
+### Deploy modes of the new functions
+
+| Function | `verify_jwt` | Boot probe | Rollback floor |
+| --- | --- | --- | --- |
+| `subscription-verify` | on (gateway checks the user JWT) | gateway 401 without a token, handler 401 with the anon key | `fdd8d63f`, `first_release` |
+| `store-notifications` | off, only through `supabase/config.toml` and the webhook allowlist | handler `invalid_notification_auth` 401 without a token and with the anon key | `fdd8d63f`, `first_release` |
+
+To stop Google Play processing in an incident, remove
+`EATOVA_PLAY_SERVICE_ACCOUNT_JSON`: Google verification, a `refresh` with
+rows to re-check and Google notifications answer 503, the app keeps the
+purchase uncompleted and retries, and Pub/Sub retries. Removing only the
+Pub/Sub pair (`EATOVA_PUBSUB_PUSH_AUDIENCE`, `EATOVA_PUBSUB_PUSH_SA_EMAIL`)
+stops just the notifications. Mind Google's three-day acknowledgement
+window.
+
+There is no server switch for the App Store: Apple proofs and notifications
+are verified offline against the pinned root and read none of these
+secrets. To pause Apple notifications, remove the App Store Server
+Notifications URLs in App Store Connect; Apple does not resend them later
+unless they are requested through the App Store Server API (which this
+repository does not call), so a missed event reaches the account only at
+its next verify. Stopping Apple verification means deleting
+`subscription-verify` in the dashboard, which stops Google verification
+too: the app treats the missing function as unavailable, keeps purchases
+uncompleted and retries, and the [ops watch](#ops-watch) fails until the
+deploy workflow brings it back. A rollback cannot remove it: the deploy
+workflow only deploys and never deletes a function, and a target without
+`subscription-verify` refuses that slug as `unknown_function` (with `all`
+it simply leaves the live function in place).
+
+Existing grants keep working in every case, since `resolve_plan` reads only
+the database.
 
 ## Client release and rollback gate
 

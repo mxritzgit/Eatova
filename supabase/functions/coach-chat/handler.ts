@@ -12,8 +12,9 @@
 // Text and photo understanding run on the Claude Messages API
 // (../_shared/claude.ts); only recipe image generation stays on OpenRouter.
 //
-// DAILY_LIMIT/day/user is reserved atomically via claim_chat_quota, granted to
-// service_role only, so the client cannot bypass it.
+// The account's daily Coach limit (resolve_plan, ../_shared/plan.ts) is
+// reserved atomically via claim_chat_quota, granted to service_role only, so
+// the client cannot bypass it.
 
 // deno-lint-ignore-file no-explicit-any
 
@@ -37,7 +38,7 @@ import { authFailGate, forgetAuthFailure, knownAuthFailure } from "../_shared/au
 import type { AuthFailGateResult, AuthRejection } from "../_shared/auth_fail_gate.ts";
 import { hasExpectedUserTokenContext } from "../_shared/user_token_context.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
-import { positiveIntFromEnv } from "../_shared/env.ts";
+import { nextUtcMidnightIso, planLimitWire, resolvePlan } from "../_shared/plan.ts";
 import { allowedOrigin, allowedOriginsFromEnv, jsonResponse, responseHeaders as sharedResponseHeaders } from "../_shared/http.ts";
 import { loggableFinishReason } from "../_shared/provider_log.ts";
 import { consumeRateLimits, retryAfterSeconds } from "../_shared/rate_limit.ts";
@@ -119,7 +120,6 @@ const PLAN_EFFORT = effortFromEnv("COACH_PLAN_EFFORT", "medium");
 // Image GENERATION stays on OpenRouter: Claude produces no images.
 const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
 
-const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
 // Thinking AND visible text count against these caps; the prompts still ask
 // for concise output, not for filling them. Sonnet writes about 120 tokens/s,
 // so each cap also stays inside PROVIDER_TIMEOUTS_MS.answer.
@@ -1419,7 +1419,8 @@ async function generateRecipeImage(
 
 /// Persists the assistant row WITH the recipe JSON and returns its id: the
 /// client stores the generated image locally under that id and rebuilds the
-/// card after a reload. null leaves the card ephemeral.
+/// card after a reload. null leaves the card ephemeral. `image_locked` in the
+/// stored JSON keeps the "picture with Premium" line across a reload.
 async function storeRecipeMessage(
   serviceKey: string,
   supabaseUrl: string,
@@ -1427,7 +1428,7 @@ async function storeRecipeMessage(
     user_id: string;
     session_id: string;
     content: string;
-    recipe: RecipeDraft;
+    recipe: RecipeDraft & { image_locked?: true };
   },
 ): Promise<string | null> {
   let resp: Response;
@@ -1468,6 +1469,10 @@ async function storeRecipeMessage(
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
+/// The quota fields of every successful body after the claim, worked out once
+/// in handleCoachRequest. Empty under the plan fallback.
+type WireQuota = { remaining?: number; daily_limit?: number };
+
 /// The whole recipe branch. Runs after auth, limits, prefilter, session, quota
 /// claim and Layer 2; whether the wish is a food recipe is decided by the
 /// recipe prompt. Persists the user message before the paid calls (E5).
@@ -1483,10 +1488,16 @@ async function handleRecipeMode(params: {
   sessionId: string;
   message: string;
   locale: "de" | "en";
-  remaining: number | null;
+  quotaFields: WireQuota;
   quotaDay: string | null;
   /// Validated profile preferences (C3); null without any.
   preferences: RecipePreferences | null;
+  /// The plan includes the AI picture; without it no image call and no
+  /// coach_image reservation happen.
+  recipePicture: boolean;
+  /// The plan lookup failed. The Free fallback draws no picture, but the
+  /// account's plan may include one, so the recipe is not marked locked.
+  planFallback: boolean;
 }): Promise<Response> {
   const {
     serviceKey,
@@ -1497,7 +1508,7 @@ async function handleRecipeMode(params: {
     sessionId,
     message,
     locale,
-    remaining,
+    quotaFields,
     quotaDay,
     preferences,
   } = params;
@@ -1547,8 +1558,7 @@ async function handleRecipeMode(params: {
       refusal: true,
       refusal_reason: "model_refusal",
       session_id: sessionId,
-      ...(remaining === null ? {} : { remaining }),
-      daily_limit: DAILY_LIMIT,
+      ...quotaFields,
     }, 200);
   }
 
@@ -1586,10 +1596,13 @@ async function handleRecipeMode(params: {
   if (conflicts.length > 0) console.log(`recipe preference check flagged ${conflicts.length}`);
   const delivered = labelPreferenceConflicts(draft, conflicts, locale);
   const summary = recipeSummary(delivered, locale);
+  const imageLocked = !params.recipePicture && !params.planFallback;
   const [image, assistantMessageId] = await Promise.all([
-    generateRecipeImage(openRouterKey, params.budget, recipeImagePrompt(draft)),
+    // A plan without the picture skips the image call and its reservation.
+    params.recipePicture ? generateRecipeImage(openRouterKey, params.budget, recipeImagePrompt(draft)) : null,
     storeRecipeMessage(serviceKey, supabaseUrl, {
-      user_id: userId, session_id: sessionId, content: summary, recipe: delivered,
+      user_id: userId, session_id: sessionId, content: summary,
+      recipe: imageLocked ? { ...delivered, image_locked: true } : delivered,
     }),
     touchSession(serviceKey, supabaseUrl, sessionId),
   ]);
@@ -1601,12 +1614,13 @@ async function handleRecipeMode(params: {
     ...(image === null
       ? {}
       : { image_base64: image.base64, image_mime_type: image.mimeType }),
+    // The card shows where Premium adds the picture; old builds ignore it.
+    ...(imageLocked ? { image_locked: true } : {}),
     // The client stores the image locally under this id (reload card).
     ...(assistantMessageId === null
       ? {}
       : { assistant_message_id: assistantMessageId }),
-    ...(remaining === null ? {} : { remaining }),
-    daily_limit: DAILY_LIMIT,
+    ...quotaFields,
     session_id: sessionId,
   }, 200);
 }
@@ -1663,10 +1677,10 @@ async function handlePlanMode(params: {
   requestSignal: AbortSignal;
   serviceKey: string; supabaseUrl: string; claudeKey: string;
   userId: string; sessionId: string; message: string; locale: CoachLocale;
-  remaining: number | null; quotaDay: string | null;
+  quotaFields: WireQuota; quotaDay: string | null;
   trainingContext?: TrainingContext;
 }): Promise<Response> {
-  const { serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
+  const { serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale, quotaDay } = params;
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
@@ -1695,7 +1709,7 @@ async function handlePlanMode(params: {
   const refusalText = completion.finishReason === "content_filter"
     ? refusalForReason("fallback", locale)
     : ["stop", "length"].includes(completion.finishReason ?? "") ? parseTrainingPlanRefusal(raw) : null;
-  const quotaFields = { ...(remaining === null ? {} : { remaining }), daily_limit: DAILY_LIMIT, session_id: sessionId };
+  const quotaFields = { ...params.quotaFields, session_id: sessionId };
   if (refusalText !== null) {
     await storeMessage(serviceKey, supabaseUrl, {
       user_id: userId, session_id: sessionId, role: "assistant", content: refusalText,
@@ -1788,9 +1802,9 @@ async function handleWorkoutLogMode(params: {
   serviceKey: string; supabaseUrl: string; claudeKey: string;
   userId: string; sessionId: string; message: string; locale: CoachLocale;
   localDate: string; medicalRisk: boolean;
-  remaining: number | null; quotaDay: string | null;
+  quotaFields: WireQuota; quotaDay: string | null;
 }): Promise<Response> {
-  const { serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
+  const { serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale, quotaDay } = params;
   const refund = () => params.requestSignal.aborted ? Promise.resolve() : rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
     user_id: userId, session_id: sessionId, role: "user", content: message,
@@ -1817,7 +1831,7 @@ async function handleWorkoutLogMode(params: {
     return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
   }
 
-  const quotaFields = { ...(remaining === null ? {} : { remaining }), daily_limit: DAILY_LIMIT, session_id: sessionId };
+  const quotaFields = { ...params.quotaFields, session_id: sessionId };
   const refuse = async (reply: string, reason: string): Promise<Response> => {
     // Paid refusals keep the slot, like every other refusal.
     await storeMessage(serviceKey, supabaseUrl, {
@@ -1971,11 +1985,19 @@ function refusalForReason(reason: string, locale: CoachLocale): string {
 // Limit messages. Kept out of the refusal catalogue (they never run through
 // refusalForReason) but bilingual for the same reason: the client shows
 // `reply` unfiltered, so German text would land in an English UI.
+//
+// The quota text carries the request's plan limit; `premiumLimit` (only for a
+// Free account that Premium would give more) adds the Premium allowance.
+function quotaExceededText(limit: number, premiumLimit: number | undefined, locale: CoachLocale): string {
+  if (locale === "en") {
+    const text = `Daily limit reached (${limit} coach questions per day). Back tomorrow.`;
+    return premiumLimit === undefined ? text : `${text} With Premium it's ${premiumLimit} per day.`;
+  }
+  const text = `Tageslimit erreicht (${limit} Coach-Fragen pro Tag). Morgen geht's weiter.`;
+  return premiumLimit === undefined ? text : `${text} Mit Premium sind es ${premiumLimit} pro Tag.`;
+}
+
 const LIMIT_TEXTS: Record<string, Record<CoachLocale, string>> = {
-  quota_exceeded: {
-    de: `Tageslimit erreicht (${DAILY_LIMIT} Coach-Fragen pro Tag). Morgen geht's weiter.`,
-    en: `Daily limit reached (${DAILY_LIMIT} coach questions per day). Back tomorrow.`,
-  },
   // 120/10min per IP — "try again in a moment" is realistic here.
   rate_limited_short: {
     de: "Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen.",
@@ -2016,6 +2038,7 @@ async function rpcClaimQuota(
   serviceKey: string,
   supabaseUrl: string,
   userId: string,
+  dailyLimit: number,
 ): Promise<{ used: number | null; remaining: number | null; quotaDay: string | null } | { error: string }> {
   let resp: Response;
   try {
@@ -2026,7 +2049,7 @@ async function rpcClaimQuota(
         "apikey": serviceKey,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ p_user_id: userId, p_daily_limit: DAILY_LIMIT }),
+      body: JSON.stringify({ p_user_id: userId, p_daily_limit: dailyLimit }),
     });
   } catch (e) {
     if (!isSupabaseIoError(e)) throw e;
@@ -2034,7 +2057,7 @@ async function rpcClaimQuota(
     // ANSWER says nothing about whether the row was written — refunding a claim
     // that never happened would hand out a free slot on every hiccup. The user
     // gets an honest 500 in seconds instead of the client's 75 s timeout, and
-    // at worst one of five slots is gone; every path BEHIND this point is the
+    // at worst one daily slot is gone; every path BEHIND this point is the
     // one that must not lose a slot silently, and does not.
     console.error(isAbortError(e) ? "claim_chat_quota timeout" : "claim_chat_quota unavailable");
     return { error: "rpc_unavailable" };
@@ -2818,6 +2841,17 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
     imageMimeType = measured.mime;
   }
 
+  // The account's plan sets the daily limit and the recipe picture. The
+  // lookup runs alongside the session, prefilter and history steps and the
+  // claim awaits it; it starts only now so throttled or invalid requests read
+  // no account data. resolvePlan never throws: an outage gives Free.
+  const planLookup = resolvePlan({
+    supabaseUrl,
+    serviceKey,
+    userId,
+    signal: AbortSignal.timeout(SUPABASE_TIMEOUTS_MS.call),
+  });
+
   // Before the prefilter, so refusals land in the right conversation.
   const sessionId = await ensureSession(serviceKey, supabaseUrl, userId, requestedSessionId);
   if (!sessionId) return json({ error: "session_unavailable" }, 500);
@@ -2860,20 +2894,39 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
   // Quota claim BEFORE Layer 2 (CWE-770): the classifier is a paid call, and
   // claiming after it let an exhausted user trigger up to 1440 paid classifier
   // calls a day via the hourly gate.
-  const claim = await rpcClaimQuota(serviceKey, supabaseUrl, userId);
+  const plan = await planLookup;
+  const dailyLimit = plan.coachDaily;
+  const claim = await rpcClaimQuota(serviceKey, supabaseUrl, userId, dailyLimit);
   if ("error" in claim) {
+    // The Free fallback after a failed plan lookup may be stricter than the
+    // account's plan: a retryable outage, not a day lock or an upsell. The
+    // denied claim spent nothing.
+    if (claim.error === "quota_exceeded" && plan.fallback) return json({ error: "plan_unavailable" }, 503);
     if (claim.error === "quota_exceeded") {
+      const resetAt = nextUtcMidnightIso();
+      const planLimit = planLimitWire(plan, "coach", resetAt);
       return json({
         error: "quota_exceeded",
-        reply: LIMIT_TEXTS.quota_exceeded[locale],
+        reply: quotaExceededText(dailyLimit, planLimit.premiumLimit, locale),
         remaining: 0,
-        daily_limit: DAILY_LIMIT,
+        daily_limit: dailyLimit,
+        planLimit,
+        reset_at: resetAt,
       }, 429);
     }
     return json({ error: claim.error }, 500);
   }
 
   const quotaDay = claim.quotaDay;
+  // E1: an unknown remaining is omitted, never invented. E10: the limit
+  // belongs with the number, or the client counts against its assumed default.
+  // Under the plan fallback neither number is the account's (docs/PREMIUM.md
+  // 3.1): every 200 names none, so the client keeps its counter and asks the
+  // plan again instead of locking at the Free fallback's limit.
+  const quotaFields: WireQuota = plan.fallback ? {} : {
+    ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
+    daily_limit: dailyLimit,
+  };
   // A disconnect never restores a claimed daily slot, including when a later
   // budget gate stops work after an already-paid classifier. Provider calls
   // already in flight (buffered drafts and, since COACH-4, the streamed
@@ -2963,9 +3016,7 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
         refusal: true,
         refusal_reason: refusalReason,
         session_id: sessionId,
-        // E1: an unknown remaining is omitted, never invented.
-        ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
-        daily_limit: DAILY_LIMIT,
+        ...quotaFields,
       }, 200);
     }
   }
@@ -2975,7 +3026,7 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
       budget,
       requestSignal: req.signal,
       serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale,
-      remaining: claim.remaining, quotaDay,
+      quotaFields, quotaDay,
       trainingContext,
     });
   }
@@ -2986,7 +3037,7 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
       requestSignal: req.signal,
       serviceKey, supabaseUrl, claudeKey, userId, sessionId, message, locale,
       localDate: localDate as string, medicalRisk,
-      remaining: claim.remaining, quotaDay,
+      quotaFields, quotaDay,
     });
   }
 
@@ -3006,9 +3057,11 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
       sessionId,
       message,
       locale,
-      remaining: claim.remaining,
+      quotaFields,
       quotaDay,
       preferences: recipePreferences,
+      recipePicture: plan.recipePicture,
+      planFallback: plan.fallback,
     });
   }
 
@@ -3069,13 +3122,6 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
       return json({ error: "provider_timeout", session_id: sessionId }, 504);
     }
     return json({ error: "provider_error", session_id: sessionId }, 502);
-  };
-
-  // E1: an unknown remaining is omitted, never invented. E10: the limit
-  // belongs with the number, or the client counts against its assumed default.
-  const quotaFields = {
-    ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
-    daily_limit: DAILY_LIMIT,
   };
 
   // A3 — streamed delivery, opt-in only. Recipe mode can never reach this

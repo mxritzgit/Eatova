@@ -38,11 +38,11 @@ class OpsWatchWorkflowTest(unittest.TestCase):
         self.assertRegex(self.text, r'(?m)^    timeout-minutes: 10$')
         self.assertIn('persist-credentials: false', self.text)
 
-    def test_budget_warning_at_80_and_boot_probe_of_every_function(self):
+    def test_budget_warning_at_60_and_boot_probe_of_every_function(self):
         readiness = step(self.text, 'Readiness (project and AI budget)')
         probe = step(self.text, 'Boot probe (all functions)')
         self.assertIn('python3 scripts/operations/readiness.py', readiness)
-        self.assertIn('--budget-warning-percent 80', readiness)
+        self.assertIn('--budget-warning-percent 60', readiness)
         self.assertIn('set -euo pipefail', readiness)
         self.assertIn('deploy_functions.py probe --slugs all', probe)
         # The probe runs even when the budget already failed the job.

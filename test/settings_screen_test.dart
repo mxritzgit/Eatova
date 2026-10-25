@@ -4,9 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 
 import 'support/harness.dart';
+import 'support/subscription_fakes.dart' show kPlanDay, planOf;
 
 // The settings page — account, preferences, data, danger zone. Profile &
 // goals is its own page; only the row leading there lives here.
@@ -52,6 +54,9 @@ void main() {
     Future<String> Function()? onExportData,
     Brightness brightness = Brightness.light,
     NavigatorObserver? observer,
+    PlanStatus? subscriptionPlan,
+    VoidCallback? onOpenPremium,
+    VoidCallback? onManageSubscription,
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
@@ -83,6 +88,9 @@ void main() {
                   localRecipePhotoCount: () => localRecipePhotos,
                   onDeleteAccount: onDeleteAccount == null ? null : (deleteRemote, _) async { await deleteRemote(); await onDeleteAccount(); },
                   onExportData: onExportData,
+                  subscriptionPlan: subscriptionPlan,
+                  onOpenPremium: onOpenPremium,
+                  onManageSubscription: onManageSubscription,
                 ),
               ),
             ),
@@ -177,6 +185,55 @@ void main() {
         find.byKey(const ValueKey('settings-change-email')),
         findsOneWidget,
       );
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets('„Abo" oeffnet bei Free die Paywall, bei Premium die Verwaltung',
+      (tester) async {
+    final l10n = lookupAppLocalizations(const Locale('de'));
+    for (final (plan, subtitle, paywall, manage)
+        in <(PlanStatus, String?, int, int)>[
+      (planOf(PlanTier.free), 'Free', 1, 0),
+      (planOf(PlanTier.premium), 'Premium', 0, 1),
+      // Free again while Google holds the subscription: fix it there, do
+      // not buy a second one.
+      (
+        planOf(
+          PlanTier.free,
+          subscription: SubscriptionInfo(
+            platform: StorePlatform.google,
+            productId: 'eatova_premium',
+            state: SubscriptionState.onHold,
+            expiresAt: kPlanDay,
+          ),
+        ),
+        l10n.subscriptionOnHold('google'),
+        0,
+        1,
+      ),
+      // Unknown until the server answered: no row.
+      (PlanStatus.assumed(), null, 0, 0),
+    ]) {
+      var paywalls = 0;
+      var manages = 0;
+      await pump(
+        tester,
+        subscriptionPlan: plan,
+        onOpenPremium: () => paywalls++,
+        onManageSubscription: () => manages++,
+      );
+      final row = find.byKey(const ValueKey('settings-subscription'));
+      final why = '${plan.tier} assumed: ${plan.assumed}';
+
+      expect(row, subtitle == null ? findsNothing : findsOneWidget,
+          reason: why);
+      if (subtitle != null) {
+        expect(find.descendant(of: row, matching: find.text(subtitle)),
+            findsOneWidget, reason: why);
+        await tippe(tester, row);
+      }
+      expect((paywalls, manages), (paywall, manage), reason: why);
       await tester.pumpWidget(const SizedBox.shrink());
     }
   });
@@ -385,6 +442,77 @@ void main() {
     expect(repo.verifiedCodes, <String>['jonas@example.com:12345678']);
     expect(geloescht, 1);
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
+  });
+
+  testWidgets('die Loeschung warnt nur vor einem Store-Abo, das sich '
+      'verlaengert, und sperrt nie', (tester) async {
+    SubscriptionInfo abo(
+      StorePlatform platform, {
+      SubscriptionState state = SubscriptionState.active,
+      bool? autoRenewing = true,
+    }) =>
+        SubscriptionInfo(
+          platform: platform,
+          productId: 'eatova_premium',
+          state: state,
+          expiresAt: kPlanDay.add(const Duration(days: 30)),
+          autoRenewing: autoRenewing,
+        );
+    for (final (name, subscription, warns)
+        in <(String, SubscriptionInfo?, bool)>[
+      ('Google, verlaengert sich', abo(StorePlatform.google), true),
+      // Apple's renewal stays unknown until a store notification.
+      ('Apple, Verlaengerung unbekannt',
+          abo(StorePlatform.apple, autoRenewing: null), true),
+      ('Google, Zahlung haengt',
+          abo(StorePlatform.google, state: SubscriptionState.onHold), true),
+      ('Google, gekuendigt',
+          abo(StorePlatform.google,
+              state: SubscriptionState.canceled, autoRenewing: false),
+          false),
+      ('Google, Verlaengerung aus',
+          abo(StorePlatform.google, autoRenewing: false), false),
+      ('Google, abgelaufen',
+          abo(StorePlatform.google, state: SubscriptionState.expired), false),
+      ('vom Betreiber', abo(StorePlatform.manual), false),
+      ('ohne Abo', null, false),
+    ]) {
+      final repo = baueRepo();
+      var manages = 0;
+      await pump(
+        tester,
+        authRepository: repo,
+        onDeleteAccount: () async {},
+        subscriptionPlan: planOf(
+          subscription == null ? PlanTier.free : PlanTier.premium,
+          subscription: subscription,
+        ),
+        onManageSubscription: () => manages++,
+      );
+      await tippe(
+          tester, find.byKey(const ValueKey('settings-delete-account')));
+
+      expect(
+        find.byKey(const ValueKey('settings-delete-subscription-warning')),
+        warns ? findsOneWidget : findsNothing,
+        reason: name,
+      );
+      if (warns) {
+        await tippe(tester,
+            find.byKey(const ValueKey('settings-delete-subscription-manage')));
+        expect(manages, 1, reason: name);
+      }
+      // The warning blocks nothing: the word still requests the code.
+      await tester.enterText(
+        find.byKey(const ValueKey('settings-delete-confirm-field')),
+        'löschen',
+      );
+      await tester.pumpAndSettle();
+      await tippe(tester, find.text('Code anfordern'));
+      expect(repo.accountDeletionCodes, <String>['jonas@example.com'],
+          reason: name);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
   });
 
   testWidgets('ohne onDeleteAccount fehlt der Loesch-Block', (tester) async {

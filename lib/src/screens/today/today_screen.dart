@@ -88,6 +88,7 @@ class TodayScreen extends StatelessWidget {
     this.onAskCoachAboutCheck,
     this.targetReached,
     this.onAcknowledgeEnergyCheckResult,
+    this.legacyNotice,
   });
 
   final String userName;
@@ -231,6 +232,11 @@ class TodayScreen extends StatelessWidget {
   })?
   targetReached;
 
+  /// The one-time Premium notice for legacy accounts (a
+  /// `TodayLegacyNotice`, which decides itself whether it shows); null
+  /// leaves it out. Today only, under the day strip.
+  final Widget? legacyNotice;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -274,6 +280,7 @@ class TodayScreen extends StatelessWidget {
     final trends = istHeute && !dayLoading ? trendsPreview : null;
     final reached = istHeute ? targetReached : null;
     final fillYesterday = istHeute && !dayLoading ? onFillYesterday : null;
+    final legacy = istHeute ? legacyNotice : null;
     final healthMissing = steps == null && healthConnect && healthConnectLinked;
     final showActivity =
         !dayLoading &&
@@ -321,6 +328,13 @@ class TodayScreen extends StatelessWidget {
               isComplete: isCompleteDay,
             ),
             const SizedBox(height: 16),
+            // Keyed, so the stagger keeps its state when cards around it
+            // come and go; it brings its own gap when it shows.
+            if (legacy != null)
+              KeyedSubtree(
+                key: const ValueKey('today-legacy-notice-slot'),
+                child: legacy,
+              ),
             // While an archive day loads its numbers are still zero; the one
             // loading card under the heading carries that state instead.
             if (!dayLoading) ...<Widget>[

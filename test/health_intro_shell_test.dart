@@ -144,6 +144,11 @@ void main() {
       ),
     );
     await _drain(tester);
+    // The Premium screen ends the onboarding; Free leads to Today.
+    expect(find.byKey(const ValueKey('screen-paywall')), findsOneWidget);
+    expect(health.requests, 0, reason: 'nothing asks over the paywall');
+    await tester.runAsync(() => _storeOf(tester).answerPaywall());
+    await _drain(tester);
 
     expect(health.requests, 0, reason: 'the card asks, not the shell');
     final card = find.byKey(const ValueKey('today-health-prompt'));
