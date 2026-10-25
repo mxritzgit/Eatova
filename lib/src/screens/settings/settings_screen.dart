@@ -292,32 +292,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           child: Align(
             alignment: AlignmentDirectional.centerStart,
-            child: TextButton.icon(
-              key: const ValueKey('settings-sync-retry'),
-              onPressed: enabled ? _syncNow : null,
-              // A tonal capsule: the one action of the section, quieter than
-              // a page's primary button.
-              style: TextButton.styleFrom(
-                backgroundColor: t.accentTint,
-                foregroundColor: t.accentText,
-                disabledBackgroundColor: t.tile,
-                disabledForegroundColor: t.ink3,
-                minimumSize: const Size(0, 44),
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                shape: const StadiumBorder(),
-                textStyle: AppType.ui(14, weight: FontWeight.w700),
-              ),
-              icon: _syncing
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: t.accentText,
-                      ),
-                    )
-                  : const Icon(Icons.sync_rounded, size: 18),
-              label: Text(_syncing ? l10n.settingsSyncRunning : l10n.settingsSyncRetry),
+            // A tonal capsule: the one action of the section, quieter than a
+            // page's primary button. While it runs, its label says so.
+            child: EatovaTextAction(
+              buttonKey: const ValueKey('settings-sync-retry'),
+              capsule: true,
+              icon: Icons.refresh_rounded,
+              label: _syncing
+                  ? l10n.settingsSyncRunning
+                  : l10n.settingsSyncRetry,
+              onTap: enabled ? _syncNow : null,
             ),
           ),
         ),
@@ -664,12 +648,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
     );
-    // A danger-edged card of its own; the whole card is the target.
+    // A card of its own with a faint danger wash instead of a rim; the whole
+    // card is the target.
     return Material(
-      color: t.surf,
+      color: Color.alphaBlend(t.danger.withValues(alpha: 0.07), t.surf),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(rCard),
-        side: BorderSide(color: t.danger.withValues(alpha: 0.30)),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -747,20 +731,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (abmelden == null) return;
     final l10n = context.l10n;
     final photos = widget.localRecipePhotoCount?.call() ?? 0;
+    final email = _adresse;
+    // Photos are lost for good; pending changes are not.
+    final destructive = photos > 0;
     final confirmed = await showEatovaDialog<bool>(
       context: context,
-      builder: (dialogContext) => EatovaConfirmDialog(
+      builder: (dialogContext) => EatovaDialog(
         title: l10n.settingsSignOutConfirmTitle,
-        body: _signOutBody(l10n, photos),
+        // Without a known address the logout medallion stands instead.
         icon: Icons.logout_rounded,
-        // Photos are lost for good; pending changes are not.
-        destructive: photos > 0,
-        confirmKey: const ValueKey('settings-sign-out-confirm'),
-        cancelKey: const ValueKey('settings-sign-out-cancel'),
-        cancelLabel: l10n.commonCancel,
-        onCancel: () => Navigator.pop(dialogContext, false),
-        confirmLabel: l10n.settingsSignOutTitle,
-        onConfirm: () => Navigator.pop(dialogContext, true),
+        lead: email == null || email.isEmpty
+            ? null
+            : DecisionAccountCapsule(
+                key: const ValueKey('settings-sign-out-account'),
+                label: l10n.settingsSignOutAccountLabel,
+                account: email,
+                destructive: destructive,
+              ),
+        destructive: destructive,
+        content: DecisionConsequences(
+          children: _signOutConsequences(dialogContext.t, l10n, photos),
+        ),
+        actions: <Widget>[
+          EatovaDialogAction(
+            buttonKey: const ValueKey('settings-sign-out-confirm'),
+            label: l10n.settingsSignOutTitle,
+            destructive: destructive,
+            onPressed: () => Navigator.pop(dialogContext, true),
+          ),
+          EatovaDialogAction(
+            buttonKey: const ValueKey('settings-sign-out-cancel'),
+            label: l10n.commonCancel,
+            secondary: true,
+            quiet: true,
+            // Keyboard confirmation defaults to the safe way out.
+            autofocus: true,
+            onPressed: () => Navigator.pop(dialogContext, false),
+          ),
+        ],
       ),
     );
     if (confirmed != true || !mounted) return;
@@ -769,20 +777,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await abmelden();
   }
 
-  /// What sign-out leaves behind: unsent changes stay in the encrypted outbox
-  /// and replay on the next sign-in to this account; own recipe photos are
-  /// deleted (`HomeStore` clears `RecipeImageStore` by design).
-  String _signOutBody(AppLocalizations l10n, int photos) {
+  /// What sign-out leaves behind, one line each: unsent changes stay in the
+  /// encrypted outbox and replay on the next sign-in to this account; own
+  /// recipe photos are deleted (`HomeStore` clears `RecipeImageStore` by
+  /// design).
+  List<Widget> _signOutConsequences(
+    AppTokens t,
+    AppLocalizations l10n,
+    int photos,
+  ) {
     final pending = widget.pendingSyncCount;
-    return <String>[
+    return <Widget>[
       if (!widget.syncStatusReadable)
-        l10n.settingsSignOutPendingUnknown
+        DecisionConsequence(
+          icon: Icons.cloud_off_outlined,
+          color: t.ink2,
+          text: l10n.settingsSignOutPendingUnknown,
+        )
       else if (pending > 0)
-        l10n.settingsSignOutPending(pending),
-      if (photos > 0) l10n.settingsSignOutPhotos(photos),
+        DecisionConsequence(
+          icon: Icons.cloud_upload_outlined,
+          color: t.accentText,
+          text: l10n.settingsSignOutPending(pending),
+        ),
+      if (photos > 0)
+        DecisionConsequence(
+          icon: Icons.hide_image_outlined,
+          color: t.danger,
+          text: l10n.settingsSignOutPhotos(photos),
+        ),
       if (widget.syncStatusReadable && pending == 0 && photos == 0)
-        l10n.settingsSignOutSafe,
-    ].join('\n\n');
+        DecisionConsequence(
+          icon: Icons.cloud_done_outlined,
+          color: t.success,
+          text: l10n.settingsSignOutSafe,
+        ),
+    ];
   }
 
   Future<void> _openDeleteSheet(AuthRepository repo, String email) async {

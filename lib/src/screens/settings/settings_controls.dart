@@ -13,6 +13,8 @@ import '../../widgets/common/motion.dart';
 import '../../widgets/design/controls.dart';
 import '../../widgets/design/sheets.dart'
     show FieldCapsule, SheetFieldShape;
+import '../../widgets/design/soft_actions.dart'
+    show EatovaTextAction, EatovaTextTone;
 import '../../widgets/design/states.dart' show SignalNote;
 
 // ---------------------------------------------------------------------------
@@ -526,19 +528,12 @@ class _LegalLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     // Small text, full 48 px target like every other control on the page.
-    return TextButton(
-      onPressed: () => openLegalLink(context, url),
-      style: TextButton.styleFrom(
-        foregroundColor: t.ink2,
-        minimumSize: const Size(48, 48),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-      ),
-      child: Text(
-        label,
-        style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-      ),
+    return EatovaTextAction(
+      label: label,
+      tone: EatovaTextTone.neutral,
+      textStyle: AppType.ui(12, weight: FontWeight.w500),
+      onTap: () => openLegalLink(context, url),
     );
   }
 }

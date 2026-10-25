@@ -185,18 +185,38 @@ class HealthConnectionCard extends StatelessWidget {
 }
 
 /// Tinted capsule for the Health Connect actions; [quiet] for the secondary
-/// one. 48 px tall like every touch target on the page.
-ButtonStyle _pillStyle(AppTokens t, {bool quiet = false}) =>
-    TextButton.styleFrom(
-      backgroundColor: quiet ? t.surf2 : t.accentTint,
-      foregroundColor: quiet ? t.inkSoft : t.accentText,
-      disabledBackgroundColor: t.tile,
-      disabledForegroundColor: t.inkDisabled,
-      minimumSize: const Size(0, 48),
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      shape: const StadiumBorder(),
-      textStyle: AppType.ui(14, weight: FontWeight.w700),
-    );
+/// one, which shows its `softFill` capsule only under a finger or keyboard
+/// focus. No ripple: a press deepens the fill. 48 px tall like every touch
+/// target on the page.
+ButtonStyle _pillStyle(AppTokens t, {bool quiet = false}) {
+  final fg = quiet ? t.inkSoft : t.accentText;
+  return TextButton.styleFrom(
+    backgroundColor: quiet ? Colors.transparent : t.accentTintStrong,
+    foregroundColor: fg,
+    disabledBackgroundColor: quiet ? Colors.transparent : t.tile,
+    disabledForegroundColor: t.inkDisabled,
+    minimumSize: const Size(0, 48),
+    padding: const EdgeInsets.symmetric(horizontal: 18),
+    shape: const StadiumBorder(),
+    textStyle: AppType.ui(14, weight: FontWeight.w700),
+    splashFactory: NoSplash.splashFactory,
+  ).copyWith(
+    overlayColor: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.pressed)) {
+        return quiet ? t.softFill : fg.withValues(alpha: 0.10);
+      }
+      if (states.contains(WidgetState.focused)) {
+        return quiet ? t.softFill : fg.withValues(alpha: 0.14);
+      }
+      if (states.contains(WidgetState.hovered)) {
+        return quiet
+            ? t.softFill.withValues(alpha: t.softFill.a * 0.6)
+            : fg.withValues(alpha: 0.05);
+      }
+      return null;
+    }),
+  );
+}
 
 class _HealthConnectCard extends StatelessWidget {
   const _HealthConnectCard({
@@ -298,33 +318,42 @@ class _HealthConnectCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                TextButton(
-                  key: ValueKey(
-                    connected
-                        ? 'profile-health-refresh'
-                        : 'profile-health-connect',
-                  ),
-                  style: _pillStyle(t),
-                  onPressed: syncing
-                      ? null
-                      : connected
-                      ? onRefresh
-                      : onConnect,
-                  child: Text(
-                    connected
-                        ? l10n.healthConnectRefresh
-                        : state == HealthAuthState.updateRequired
-                        ? l10n.healthConnectInstall
-                        : l10n.healthConnectConnect,
+                // The soft pills' press dip and rebound.
+                PressScale(
+                  enabled: !syncing,
+                  rebound: true,
+                  child: TextButton(
+                    key: ValueKey(
+                      connected
+                          ? 'profile-health-refresh'
+                          : 'profile-health-connect',
+                    ),
+                    style: _pillStyle(t),
+                    onPressed: syncing
+                        ? null
+                        : connected
+                        ? onRefresh
+                        : onConnect,
+                    child: Text(
+                      connected
+                          ? l10n.healthConnectRefresh
+                          : state == HealthAuthState.updateRequired
+                          ? l10n.healthConnectInstall
+                          : l10n.healthConnectConnect,
+                    ),
                   ),
                 ),
                 if (onSettings != null &&
                     state != HealthAuthState.updateRequired)
-                  TextButton(
-                    key: const ValueKey('profile-health-settings'),
-                    style: _pillStyle(t, quiet: true),
-                    onPressed: syncing ? null : onSettings,
-                    child: Text(l10n.healthConnectSettings),
+                  PressScale(
+                    enabled: !syncing,
+                    rebound: true,
+                    child: TextButton(
+                      key: const ValueKey('profile-health-settings'),
+                      style: _pillStyle(t, quiet: true),
+                      onPressed: syncing ? null : onSettings,
+                      child: Text(l10n.healthConnectSettings),
+                    ),
                   ),
               ],
             ),

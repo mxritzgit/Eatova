@@ -119,27 +119,18 @@ class SettingsAiConsentRow extends StatelessWidget {
             ),
             child: Align(
               alignment: AlignmentDirectional.centerStart,
-              child: TextButton(
-                key: ValueKey(
+              // The sync row's tonal capsule: the section's one action,
+              // neutral to withdraw, accent to grant.
+              child: EatovaTextAction(
+                buttonKey: ValueKey(
                   allows ? 'settings-ai-withdraw' : 'settings-ai-grant',
                 ),
-                onPressed: action,
-                // The sync row's tonal capsule: the section's one action.
-                style: TextButton.styleFrom(
-                  backgroundColor: allows ? t.tile : t.accentTint,
-                  foregroundColor: allows ? t.ink : t.accentText,
-                  disabledBackgroundColor: t.tile,
-                  disabledForegroundColor: t.ink3,
-                  minimumSize: const Size(0, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  shape: const StadiumBorder(),
-                  textStyle: AppType.ui(14, weight: FontWeight.w700),
-                ),
-                child: Text(
-                  allows
-                      ? l10n.settingsAiDataWithdrawAction
-                      : l10n.settingsAiDataGrantAction,
-                ),
+                capsule: true,
+                tone: allows ? EatovaTextTone.neutral : EatovaTextTone.accent,
+                label: allows
+                    ? l10n.settingsAiDataWithdrawAction
+                    : l10n.settingsAiDataGrantAction,
+                onTap: action,
               ),
             ),
           ),

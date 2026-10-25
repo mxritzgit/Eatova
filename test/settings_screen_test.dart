@@ -6,6 +6,7 @@ import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/plan_status.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 import 'support/subscription_fakes.dart' show kPlanDay, planOf;
@@ -49,6 +50,7 @@ void main() {
     VoidCallback? onOpenGoals,
     Future<void> Function()? onSignOut,
     int pendingSyncCount = 0,
+    bool syncStatusReadable = true,
     int localRecipePhotos = 0,
     Future<void> Function()? onDeleteAccount,
     Future<String> Function()? onExportData,
@@ -85,6 +87,7 @@ void main() {
                   onOpenGoals: onOpenGoals,
                   onSignOut: onSignOut,
                   pendingSyncCount: pendingSyncCount,
+                  syncStatusReadable: syncStatusReadable,
                   localRecipePhotoCount: () => localRecipePhotos,
                   onDeleteAccount: onDeleteAccount == null ? null : (deleteRemote, _) async { await deleteRemote(); await onDeleteAccount(); },
                   onExportData: onExportData,
@@ -326,6 +329,23 @@ void main() {
     await tippe(tester, find.byKey(const ValueKey('settings-sign-out')));
     expect(find.textContaining(l10n.settingsSignOutPending(3)), findsOneWidget);
     expect(find.textContaining(l10n.settingsSignOutPhotos(2)), findsOneWidget);
+    expect(find.byType(DecisionConsequence), findsNWidgets(2));
+    // The card names the account it leaves; lost photos make the confirm
+    // destructive, and the cancel stays the quiet, autofocused way out.
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('settings-sign-out-account')),
+        matching: find.text('jonas@example.com'),
+      ),
+      findsOneWidget,
+    );
+    EatovaDialogAction aktion(String key) => tester.widget(find.ancestor(
+          of: find.byKey(ValueKey(key)),
+          matching: find.byType(EatovaDialogAction),
+        ));
+    expect(aktion('settings-sign-out-confirm').destructive, isTrue);
+    final abbrechen = aktion('settings-sign-out-cancel');
+    expect((abbrechen.quiet, abbrechen.autofocus), (true, true));
     await tippe(tester, find.byKey(const ValueKey('settings-sign-out-cancel')));
     expect(abgemeldet, 0, reason: 'Abbrechen meldet nicht ab');
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
@@ -341,6 +361,33 @@ void main() {
       reason: 'erst Dialog und Seite schliessen, dann abmelden',
     );
     expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
+  });
+
+  testWidgets(
+      '„Abmelden" ohne Adresse zeigt das Logout-Zeichen und je Lage genau '
+      'eine Folge', (tester) async {
+    final l10n = deL10n;
+    for (final (lesbar, folge) in <(bool, String)>[
+      (true, l10n.settingsSignOutSafe),
+      (false, l10n.settingsSignOutPendingUnknown),
+    ]) {
+      await pump(
+        tester,
+        email: null,
+        syncStatusReadable: lesbar,
+        onSignOut: () async {},
+      );
+      await tippe(tester, find.byKey(const ValueKey('settings-sign-out')));
+
+      expect(find.byType(DecisionConsequence), findsOneWidget, reason: folge);
+      expect(find.textContaining(folge), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('settings-sign-out-account')),
+        findsNothing,
+      );
+      expect(find.byType(DecisionMedallion), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
   });
 
   testWidgets('ein fehlender Callback blendet seine Zeile aus', (tester) async {
