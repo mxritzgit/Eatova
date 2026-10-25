@@ -204,13 +204,14 @@ def git(repo, *args):
 
 
 class RollbackGuardTest(unittest.TestCase):
-    def test_every_function_has_a_full_floor_and_coach_chat_needs_preferences(self):
+    def test_every_function_has_a_full_floor_and_the_ai_functions_need_premium(self):
         self.assertEqual(sorted(deploy.ROLLBACK_FLOORS), sorted(deploy.PROBES))
         for slug, (sha, reason) in deploy.ROLLBACK_FLOORS.items():
             self.assertRegex(sha, r'^[0-9a-f]{40}$', slug)
             self.assertRegex(reason, r'^[a-z_]+$', slug)
-        # Older coach-chat handlers reject the `preferences` field of #155 clients.
-        self.assertEqual(deploy.ROLLBACK_FLOORS['coach-chat'][0], 'a3a7263bc9e915b99ac7984ff106d3d74dee8142')
+        # Older AI handlers give a Premium account the one shared limit (#170).
+        for slug in ('coach-chat', 'analyze-meal', 'recipe-import'):
+            self.assertEqual(deploy.ROLLBACK_FLOORS[slug][0], '3aa48b8648a8706476075c30d788a9d4146207e4', slug)
 
     def test_a_target_below_a_floor_is_refused_unless_overridden(self):
         floors = {'coach-chat': (SHA_A, 'reason'), 'search-key': (SHA_B, 'reason')}

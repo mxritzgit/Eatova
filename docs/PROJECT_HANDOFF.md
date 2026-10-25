@@ -4311,3 +4311,114 @@ The owner asked to deploy the functions and any migration.
     `/recipe` target line) need a signed-in account. No authenticated request
     was made against production.
   - The app build, device checks and external steps listed above.
+
+## Premium tier, built with agents, 2026-10-25
+
+Owner request (owner asleep, every decision delegated, approval for
+migrations and deployments): a complete Premium tier; three decision agents
+for the Free and Premium usage and the price; a paywall after the onboarding
+with a Free choice; a Profile section with tier, status and end date; hints
+"upgrade or wait" at every limit; a clean purchase screen; migrations and
+deploys. Contract and reasoning: [PREMIUM.md](PREMIUM.md).
+
+**CI failure first:** the main run of `fdd8d63f`
+([39825418974](https://github.com/mxritzgit/Eatova/actions/runs/39825418974))
+failed in "Android Debug-Build (APK)", step "Inventory Android release
+dependencies": Gradle's download of NDK 28.2.13676358 arrived corrupt
+("Archive is not a ZIP archive"). The release job of the same run installed
+the same NDK. A rerun of the job passed; no code change.
+
+**Decisions** (open for review; limits change in `plan_tiers` without a
+release, prices in the store consoles):
+
+| | Free | Premium |
+| --- | --- | --- |
+| Coach questions per day (every mode, `/meal` free) | 3 | 20 |
+| AI meal analyses per day (photo and Describe) | 4 | 30 |
+| Recipe imports per day | 2 | 10 |
+| AI picture with `/recipe` | no | yes |
+| Provider-call cap per account and day | 30 | 150 |
+| Price | – | 7,99 EUR / month, 49,99 EUR / year, 7-day trial on yearly |
+
+- Existing accounts (all 7 at the migration) keep 5 / 100 / 20 with the
+  picture until `plan_settings.legacy_until` is set after the four-week AGB
+  notice; a legacy account with Premium gets the higher value per feature
+  (provider cap 200).
+- Global ceilings raised: 3000 provider calls, 200 pictures a day; ops-watch
+  warns at 60 %.
+- Paywall once after a fresh onboarding; no non-AI feature is Premium-only;
+  inline hints, the upgrade action once per feature per UTC day.
+- Official `in_app_purchase` with server verification, no RevenueCat; one
+  random account token per account; Google first-binding-wins, Apple
+  re-binds a newer purchase that carries the caller's own token.
+
+**Process:**
+1. Seven read-only agents mapped quotas, AI entry points, onboarding and
+   profile, the store, backend conventions, product/legal and purchase tech.
+2. Three decision agents proposed in two rounds (median and majority).
+3. Four foundation agents and ten build agents worked in their own
+   worktrees with fixed file ownership; the orchestrator integrated them.
+4. Two adversarial reviews (six lenses, then three), every finding checked
+   by a skeptical verifier: 28 and 13 confirmed findings, none high, all
+   fixed by two waves of four agents.
+5. The branch was squashed before the push: gitleaks' `generic-api-key`
+   flagged random-looking test UUIDs named `*TOKEN` in intermediate commits;
+   they now use low-entropy UUIDs.
+
+**Verification:** strict analyzer clean; 6,476 Flutter tests in random order;
+coverage 96.64 % without generated l10n; 799 Deno tests, each of the 70 files
+also alone; real Postgres 17.6 (all 59 migrations, `rls_cross_user.sql` with
+the new `premium_subscriptions_rls.sql`, `ai_provider_budget.sql`) and
+`backup_restore.py --prove-detection`; operations and tooling tests;
+gitleaks 8.30.1 clean. Every critical guarantee has a test that was shown
+failing on broken code. [PR #170](https://github.com/mxritzgit/Eatova/pull/170)
+CI 17/17 green, including the iOS build with `in_app_purchase_storekit` and
+the release AAB with `com.android.vending.BILLING`.
+
+### Rollout of PR #170, 2026-10-25
+
+- **Migration `20261025100000`:** before, 58 registered (last
+  `20261019110000`), none of the five tables present, and the live bodies of
+  `reserve_ai_provider_call`, `consume_edge_rate_limits` and
+  `consume_edge_rate_limit` equal to their latest repo definitions. Dry run
+  with rollback left the state unchanged. Applied in one transaction with
+  its `schema_migrations` row before the merge. After: 59 = 59, the
+  registered source equals the file, all five tables with RLS and no
+  policies, no table right for `anon` or `authenticated`, only `get_my_plan`
+  and `get_store_account_token` executable by `authenticated`, the tiers as
+  decided, `legacy_until` empty, 7 of 7 accounts legacy,
+  `ai_provider_limits` 3000 / 200 / 200.
+- **Merge:** squash-merged as `3aa48b86`; its tree equals the reviewed head
+  `c5a8fb58`.
+- **Functions** (the `supabase-deploy` environment still does not exist, so
+  the workflow's steps ran locally from an LF export of `3aa48b86` with CLI
+  2.120.0 `--use-api`): `coach-chat` v60 -> **v61**, `analyze-meal` v42 ->
+  **v43**, `recipe-import` v17 -> **v18**, `subscription-verify` **v1**,
+  `store-notifications` **v1** (verify_jwt off, as the webhook allowlist
+  expects), `search-key` v17 -> **v18** (comment only). All ACTIVE, live
+  source equal to `3aa48b86` byte for byte, boot probe 204 / 401 / 401 for
+  each, deploy record SUCCESS.
+- **Rollback floors** of `coach-chat`, `analyze-meal` and `recipe-import`
+  raised to `3aa48b86` in the follow-up PR.
+- **Not checked live:** no authenticated request, no store purchase.
+
+**Owner steps** (details in [operations](OPERATIONS.md#premium-store-setup)):
+1. Play Console: upload a build with Billing, create `eatova_premium` with
+   the base plans `monthly` and `yearly` and the 7-day trial offer, add
+   license testers; declare purchase history and the BILLING permission in
+   Data safety.
+2. A Google service account with the Play permissions; its key JSON as the
+   function secret `EATOVA_PLAY_SERVICE_ACCOUNT_JSON`. Until then Google
+   verification answers 503 `store_not_configured` (the app keeps the
+   purchase open).
+3. Optional: Pub/Sub real-time notifications to `store-notifications`
+   (`EATOVA_PUBSUB_PUSH_AUDIENCE`, `EATOVA_PUBSUB_PUSH_SA_EMAIL`).
+4. Apple (paid program): agreement, group, both products with the intro
+   offer, the App Store Server Notifications V2 URL; check the In-App
+   Purchase capability on the Mac build.
+5. Legal: publish new AGB and the privacy text
+   ([draft](PREMIUM-LEGAL-DRAFT.md), for counsel), announce the AGB change at
+   least four weeks ahead, then set `plan_settings.legacy_until`.
+6. Device build and checks: paywall after a fresh onboarding, the Profile
+   "Abo" card, the hints at each limit, a manual Premium grant (SQL in
+   operations) to see the Premium side before the stores exist.

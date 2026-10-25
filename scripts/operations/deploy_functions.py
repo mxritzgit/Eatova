@@ -89,12 +89,14 @@ PUBLIC_WEBHOOKS = frozenset({'store-notifications'})
 # The oldest commit each function may be deployed from: a rollback target must
 # contain it. A new function needs an entry before the workflow deploys it.
 ROLLBACK_FLOORS = {
-    # #155 clients send `preferences` to /recipe; older handlers answer 400.
-    'coach-chat': ('a3a7263bc9e915b99ac7984ff106d3d74dee8142', 'clients_send_recipe_preferences'),
-    # The last source verified live with today's schema and clients: all three
-    # were byte-identical to ea2722e6 right before the #155 deploy (2026-10-18).
-    'analyze-meal': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
-    'recipe-import': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
+    # Premium (#170): older handlers apply one limit to every account (a
+    # Premium account would get 5 Coach questions instead of 20), send no
+    # planLimit and know no picture lock.
+    'coach-chat': ('3aa48b8648a8706476075c30d788a9d4146207e4', 'premium_tier_limits'),
+    'analyze-meal': ('3aa48b8648a8706476075c30d788a9d4146207e4', 'premium_tier_limits'),
+    'recipe-import': ('3aa48b8648a8706476075c30d788a9d4146207e4', 'premium_tier_limits'),
+    # The last source verified live with today's schema and clients before the
+    # #155 deploy (2026-10-18); #170 changed only a comment.
     'search-key': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),
     # New with Premium (docs/PREMIUM.md 3.4, 3.5): the base main of their PR.
     # A target without the function fails unknown_function anyway.
