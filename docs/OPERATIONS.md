@@ -575,14 +575,9 @@ that does not contain it is refused:
 
 | Function | Floor | Why |
 | --- | --- | --- |
-| `coach-chat` | `a3a7263b` | Clients from #155 send `preferences` to `/recipe`; older handlers reject it with 400 |
-| `analyze-meal`, `recipe-import`, `search-key` | `ea2722e6` | The last source verified live with today's schema and clients (identical before the #155 deploy); nothing older was checked against them |
+| `coach-chat`, `analyze-meal`, `recipe-import` | `3aa48b86` | Premium (#170): an older handler applies one limit to every account (Premium accounts would get 5 Coach questions instead of 20), sends no `planLimit` and knows no picture lock |
+| `search-key` | `ea2722e6` | The last source verified live with today's schema and clients (identical before the #155 deploy); #170 changed only a comment |
 | `subscription-verify`, `store-notifications` | `fdd8d63f` | `first_release`: the base of the Premium PR; a commit without the function fails as unknown anyway |
-
-The three AI functions keep their floors in the Premium PR. Raise them to the
-Premium merge commit in a follow-up once it exists: an older handler applies
-one limit to every account (Premium accounts would get 5 Coach questions
-instead of 20) and knows no picture lock.
 
 Only set `allow_below_floor` after checking that the older handler works with
 the installed clients and the live schema; the record names the functions
