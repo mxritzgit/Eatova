@@ -1862,22 +1862,22 @@ Deno.test("P5-07b: der Bildblock traegt den GEMESSENEN Typ, nicht die Behauptung
 
 Deno.test("Fund 2 + Tarif: Claim, daily_limit und die 429 folgen dem Plan, in der locale des Requests", async () => {
   // Without Premium sentence the DE text is the incumbent, byte-identical.
-  const freeDe = "Tageslimit erreicht (3 Coach-Fragen pro Tag). Morgen geht's weiter. Mit Premium sind es 20 pro Tag.";
-  const freeEn = "Daily limit reached (3 coach questions per day). Back tomorrow. With Premium it's 20 per day.";
+  const freeDe = "Tageslimit erreicht (2 Coach-Fragen pro Tag). Morgen geht's weiter. Mit Premium sind es 20 pro Tag.";
+  const freeEn = "Daily limit reached (2 coach questions per day). Back tomorrow. With Premium it's 20 per day.";
   const rows: Array<{
     plan: PlanFixture | "unavailable"; locale?: "en"; limit: number; tier?: string; premiumLimit?: number; reply?: string;
     category?: string;
   }> = [
-    { plan: "free", limit: 3, tier: "free", premiumLimit: 20, reply: freeDe },
-    { plan: "free", locale: "en", limit: 3, tier: "free", premiumLimit: 20, reply: freeEn },
+    { plan: "free", limit: 2, tier: "free", premiumLimit: 20, reply: freeDe },
+    { plan: "free", locale: "en", limit: 2, tier: "free", premiumLimit: 20, reply: freeEn },
     { plan: "premium", limit: 20, tier: "premium", reply: "Tageslimit erreicht (20 Coach-Fragen pro Tag). Morgen geht's weiter." },
     { plan: "premium", locale: "en", limit: 20, tier: "premium", reply: "Daily limit reached (20 coach questions per day). Back tomorrow." },
     {
       plan: "legacy", limit: 5, tier: "free", premiumLimit: 20,
       reply: "Tageslimit erreicht (5 Coach-Fragen pro Tag). Morgen geht's weiter. Mit Premium sind es 20 pro Tag.",
     },
-    { plan: "unavailable", locale: "en", limit: 3 },
-    { plan: "unavailable", limit: 3, category: "off_topic" },
+    { plan: "unavailable", locale: "en", limit: 2 },
+    { plan: "unavailable", limit: 2, category: "off_topic" },
   ];
   const realNow = Date.now;
   // Every limit resets at the next 00:00 UTC.
@@ -2767,6 +2767,8 @@ Deno.test("Provider budget: global exhaustion and disable stop all paid Coach pa
       try {
         const res = await handleRequest(makeRequest({ message: "Please help with dinner", ...extra }));
         assertEquals(res.status, providerBudgetReason === "disabled" ? 503 : 429, "budget status");
+        assertEquals(Object.keys(await res.json() as JsonRecord).join(","),
+          providerBudgetReason === "disabled" ? "error,session_id" : "error,resetAt,session_id", "public budget body keeps the session");
         assertEquals(stub.providerCalls().length, 0, "no paid call without global budget");
         assertEquals(stub.callsTo("refund_chat_quota").length, 1, "user question refunded, not provider call budget");
       } finally { logs.restore(); stub.restore(); }

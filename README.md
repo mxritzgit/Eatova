@@ -59,8 +59,7 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
   history; previous results are available as “Last time”.
 - **Coach:** conversations with sessions, image input, optional iOS
   dictation, nutrition context and a server-enforced daily quota per plan.
-  `/recipe` creates a recipe proposal, with an image for Premium and for
-  existing accounts during the transition; `/plan` uses an explicit training
+  `/recipe` creates a recipe proposal, with an image for Premium; `/plan` uses an explicit training
   brief and can discuss/adapt a selected plan. Saving a proposal requires
   confirmation. Replies use SSE transport and are released after the complete
   provider response passes server-side checks; the thinking state stays visible

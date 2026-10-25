@@ -28,8 +28,8 @@ import '../support/subscription_fakes.dart';
 import 'flow_test_helpers.dart'
     show FakeProductLookupService, pumpUntil, settleFrames, storeOf;
 
-/// A Coach on Free at 3/3: every question ends in the tier 429, after which
-/// the service remembers the limit 3, as the real one does.
+/// A Coach on Free at 2/2: every question ends in the tier 429, after which
+/// the service remembers the limit 2, as the real one does.
 class _UsedUpCoach extends CoachChatService {
   _UsedUpCoach(super.client, super.userId);
 
@@ -73,14 +73,14 @@ class _UsedUpCoach extends CoachChatService {
     String? userContext,
     void Function(String text)? onPartialReply,
   }) async {
-    serverDailyLimit = 3;
+    serverDailyLimit = 2;
     throw CoachQuotaExceeded(
-      message: deL10n.coachErrorDailyLimitReached(3, '01:00'),
-      dailyLimit: 3,
+      message: deL10n.coachErrorDailyLimitReached(2, '01:00'),
+      dailyLimit: 2,
       planLimit: PlanLimitHit(
         feature: PlanFeature.coach,
         tier: PlanTier.free,
-        limit: 3,
+        limit: 2,
         resetAt: nextUtcMidnight(kPlanDay),
         premiumLimit: 20,
       ),
@@ -142,21 +142,21 @@ void main() {
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('coach-send')));
       await settleFrames(tester);
-      expect(_composerTypeable(tester), isFalse, reason: 'Free at 3/3');
-      expect(coach.serverDailyLimit, 3);
+      expect(_composerTypeable(tester), isFalse, reason: 'Free at 2/2');
+      expect(coach.serverDailyLimit, 2);
 
       // The store purchase verified: the server's plan is Premium now.
       flow.emit(
         PurchaseVerified(
           active: true,
-          plan: planOf(PlanTier.premium, coachUsed: 3),
+          plan: planOf(PlanTier.premium, coachUsed: 2),
         ),
       );
       await settleFrames(tester);
 
       // `subscription: _subscription` reaches the Coach screen ...
       expect(_composerTypeable(tester), isTrue);
-      expect(find.text(deL10n.coachQuotaCounter(17, 20)), findsOneWidget);
+      expect(find.text(deL10n.coachQuotaCounter(18, 20)), findsOneWidget);
       // ... and the shell's tierChanges listener moved the service's limit,
       // which the UI alone cannot show.
       expect(coach.serverDailyLimit, 20);

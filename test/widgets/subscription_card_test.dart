@@ -119,7 +119,7 @@ void main() {
             premium: false,
             details: const <String>[],
             status: null,
-            usage: const <String>['1/3', '2/4', '0/2'],
+            usage: const <String>['1/2', '2/3', '0/1'],
             shows: const <String>{'upgrade'},
             note: l10n.subscriptionFreeBody(20, 30),
           ),
@@ -181,7 +181,7 @@ void main() {
             premium: false,
             details: const <String>[],
             status: l10n.subscriptionOnHold('google'),
-            usage: const <String>['0/3', '0/4', '0/2'],
+            usage: const <String>['0/2', '0/3', '0/1'],
             shows: const <String>{'manage'},
             note: null,
           ),
@@ -198,7 +198,7 @@ void main() {
             premium: false,
             details: <String>[l10n.subscriptionPlanMonthly],
             status: l10n.subscriptionPaused,
-            usage: const <String>['0/3', '0/4', '0/2'],
+            usage: const <String>['0/2', '0/3', '0/1'],
             shows: const <String>{'manage'},
             note: null,
           ),
@@ -214,7 +214,7 @@ void main() {
             premium: false,
             details: const <String>[],
             status: l10n.subscriptionExpiredOn('15. Okt. 2026'),
-            usage: const <String>['0/3', '0/4', '0/2'],
+            usage: const <String>['0/2', '0/3', '0/1'],
             shows: const <String>{'upgrade'},
             note: null,
           ),
@@ -227,7 +227,7 @@ void main() {
             premium: false,
             details: const <String>[],
             status: l10n.subscriptionRevoked,
-            usage: const <String>['0/3', '0/4', '0/2'],
+            usage: const <String>['0/2', '0/3', '0/1'],
             shows: const <String>{'upgrade'},
             note: null,
           ),
@@ -366,7 +366,7 @@ void main() {
     }
   });
 
-  testWidgets('Vorleser hoeren "1 von 3 genutzt", keinen Bruch', (
+  testWidgets('Vorleser hoeren "1 von 2 genutzt", keinen Bruch', (
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
@@ -379,8 +379,8 @@ void main() {
       );
     });
     final label = tester.getSemantics(_part('usage-coach')).label;
-    expect(label, contains(l10n.subscriptionUsageValueLabel(1, 3)));
-    expect(label, isNot(contains('1/3')));
+    expect(label, contains(l10n.subscriptionUsageValueLabel(1, 2)));
+    expect(label, isNot(contains('1/2')));
     semantics.dispose();
   });
 

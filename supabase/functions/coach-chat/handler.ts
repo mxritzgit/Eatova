@@ -18,7 +18,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 
-import { providerCallBudget, ProviderBudgetError, type ProviderCallBudget } from "../_shared/provider_budget.ts";
+import { providerBudgetErrorBody, providerCallBudget, ProviderBudgetError, type ProviderCallBudget } from "../_shared/provider_budget.ts";
 import { type AiCall, AiCallLog, aiAnswerOutcome, aiOutcomeOf, type AiRoute } from "../_shared/ai_telemetry.ts";
 import { readProviderBody } from "../_shared/provider_body.ts";
 import { MAX_INPUT_CHARS, preFilter } from "./prefilter.ts";
@@ -1534,7 +1534,7 @@ async function handleRecipeMode(params: {
       await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     }
     await touchSession(serviceKey, supabaseUrl, sessionId);
-    if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
+    if (e instanceof ProviderBudgetError) return json({ ...providerBudgetErrorBody(e), session_id: sessionId }, e.status);
     if (isProviderTimeout(e)) {
       return json({ error: "provider_timeout", session_id: sessionId }, 504);
     }
@@ -1701,7 +1701,7 @@ async function handlePlanMode(params: {
       e instanceof ProviderError ? `training plan provider status ${e.status}` : "training plan provider unavailable");
     if (!params.requestSignal.aborted && !isClientFaultFailure(e)) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);
     await touchSession(serviceKey, supabaseUrl, sessionId);
-    if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
+    if (e instanceof ProviderBudgetError) return json({ ...providerBudgetErrorBody(e), session_id: sessionId }, e.status);
     return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
   }
 
@@ -1827,7 +1827,7 @@ async function handleWorkoutLogMode(params: {
       e instanceof ProviderError ? `workout log provider status ${e.status}` : "workout log provider unavailable");
     if (!isClientFaultFailure(e)) await refund();
     await touchSession(serviceKey, supabaseUrl, sessionId);
-    if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
+    if (e instanceof ProviderBudgetError) return json({ ...providerBudgetErrorBody(e), session_id: sessionId }, e.status);
     return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
   }
 
@@ -2979,7 +2979,7 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
       if (!req.signal.aborted && !isClientFaultFailure(e)) {
         await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, calls);
       }
-      if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
+      if (e instanceof ProviderBudgetError) return json({ ...providerBudgetErrorBody(e), session_id: sessionId }, e.status);
       if (isProviderTimeout(e)) {
         return json({ error: "provider_timeout", session_id: sessionId }, 504);
       }
@@ -3117,7 +3117,7 @@ async function handleCoachRequest(req: Request, calls: AiCallLog): Promise<Respo
       await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, calls);
     }
     await touchSession(serviceKey, supabaseUrl, sessionId);
-    if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
+    if (e instanceof ProviderBudgetError) return json({ ...providerBudgetErrorBody(e), session_id: sessionId }, e.status);
     if (isProviderTimeout(e)) {
       return json({ error: "provider_timeout", session_id: sessionId }, 504);
     }

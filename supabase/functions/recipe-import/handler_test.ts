@@ -74,6 +74,7 @@ async function stub(options: Options, run: (calls: Call[]) => Promise<void>): Pr
       return Promise.resolve(Response.json(options.gate ?? body.p_gates.map(() => ({ allowed: true }))));
     }
     if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budgetSequence?.[calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length - 1] ?? options.budget ?? { allowed: true, reason: 'allowed' }));
+    if (target.endsWith('/release_edge_rate_limit')) return Promise.resolve(Response.json(true));
     if (target.startsWith('https://www.tiktok.com/oembed?')) return Promise.resolve(Response.json(options.metadata ?? { title: TEXT, author_name: 'Cook' }, { status: options.metadataStatus ?? 200 }));
     if (isClaudeCall(target)) {
       if (options.providerHang) {
@@ -247,10 +248,10 @@ Deno.test('recipe-import rate-limit denial or malformed batch prevents source fe
 Deno.test('recipe-import day gate follows the account plan, and only its denial carries planLimit', async () => {
   const resetAt = '2026-10-26T00:00:00.000Z';
   for (const [label, plan, expected] of [
-    ['free', PLAN_ANSWERS.free, { tier: 'free', limit: 2, premiumLimit: 10 }],
+    ['free', PLAN_ANSWERS.free, { tier: 'free', limit: 1, premiumLimit: 10 }],
     ['premium', PLAN_ANSWERS.premium, { tier: 'premium', limit: 10 }],
     ['legacy', PLAN_ANSWERS.legacy, { tier: 'free', limit: 20 }],
-    ['resolve_plan down', 'unavailable', { tier: 'free', limit: 2 }],
+    ['resolve_plan down', 'unavailable', { tier: 'free', limit: 1 }],
   ] as const) {
     const dayGate = [{ allowed: false, limit: expected.limit, remaining: 0, resetAt, windowSeconds: 86_400 }];
     const savedError = console.error;
@@ -319,15 +320,29 @@ Deno.test('recipe-import inaccessible or unsupported link asks for text without 
 });
 
 Deno.test('recipe-import provider budget exhaustion, disabled and outage all fail closed', async () => {
-  for (const [budget, expected, error] of [
-    [{ allowed: false, reason: 'budget_exhausted' }, 429, 'ai_budget_exhausted'],
-    [{ allowed: false, reason: 'disabled' }, 503, 'ai_disabled'],
-    [{ allowed: true }, 503, 'ai_budget_unavailable'],
-  ] as const) await stub({ budget }, async (calls) => {
-    const response = await handleRequest(request());
-    check(response.status === expected && (await response.json()).error === error, 'Budget error preserved');
-    check(!calls.some((call) => isClaudeCall(call.url)), 'No unreserved provider call');
-  });
+  // Nothing was paid, so every stop gives the day slot back to the window it
+  // counted in; only the capacity stop names its pool and the reset.
+  const realNow = Date.now;
+  Date.now = () => Date.parse('2026-10-25T21:30:00.000Z');
+  const dayGate = [{ allowed: true, limit: 1, remaining: 0, resetAt: '2026-10-26T00:00:00.000Z', windowSeconds: 86_400 }];
+  const released = [{ p_scope: 'recipe-import:user-day', p_subject: USER, p_window_start: '2026-10-25T00:00:00.000Z', p_window_seconds: 86_400 }];
+  try {
+    for (const [budget, expected, error] of [
+      [{ allowed: false, reason: 'budget_exhausted', scope: 'free' }, 429,
+        { error: 'ai_budget_exhausted', scope: 'free', resetAt: '2026-10-26T00:00:00.000Z' }],
+      [{ allowed: false, reason: 'disabled' }, 503, { error: 'ai_disabled' }],
+      [{ allowed: true }, 503, { error: 'ai_budget_unavailable' }],
+    ] as const) await stub({ budget, dayGate }, async (calls) => {
+      const response = await handleRequest(request());
+      const body = JSON.stringify(await response.json());
+      check(response.status === expected && body === JSON.stringify(error), `Budget error preserved: ${body}`);
+      check(!calls.some((call) => isClaudeCall(call.url)), 'No unreserved provider call');
+      const releases = JSON.stringify(calls.filter((call) => call.url.endsWith('/release_edge_rate_limit')).map((call) => call.body));
+      check(releases === JSON.stringify(released), `Day slot released: ${releases}`);
+    });
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 Deno.test('recipe-import three recipes and vegan variant are all returned for explicit choice', async () => {
@@ -404,6 +419,7 @@ Deno.test('recipe-import retry never bypasses a denied budget or a permanent pro
     const response = await handleRequest(request());
     check(response.status === 429, 'Second reservation fails closed');
     check(calls.filter((c) => isClaudeCall(c.url)).length === 1, 'No unreserved second request');
+    check(!calls.some((c) => c.url.endsWith('/release_edge_rate_limit')), 'A paid attempt keeps the day slot spent');
   });
   await stub({ providerStatus: 400 }, async (calls) => {
     check((await handleRequest(request())).status === 502, 'Permanent provider failure');

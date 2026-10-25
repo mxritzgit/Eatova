@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (59)
+## Migrationen (60)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -93,6 +93,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 57. `20261019100000_ai_consents_reports.sql`
 58. `20261019110000_weight_log_edit.sql`
 59. `20261025100000_premium_subscriptions.sql`
+60. `20261026100000_free_ai_pool.sql`
 
 ## Tabellen in `public` (31)
 
@@ -216,7 +217,7 @@ Policies umzuschreiben. `normalisiereAusdruck` in
 `test/migrations/migration_schema.dart` liest beide Schreibweisen
 als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
-## Funktionen in `public` (61)
+## Funktionen in `public` (62)
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
@@ -268,8 +269,9 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `record_training_history` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260910181000_training_history.sql` |
 | `refund_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260808210000_chat_quota_honesty.sql` |
 | `refund_chat_quota_for_day` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
+| `release_edge_rate_limit` | **Eigentuemers** | `public, extensions` | `service_role` | `20261026100000_free_ai_pool.sql` |
 | `rename_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
-| `reserve_ai_provider_call` | **Eigentuemers** | `''` | `service_role` | `20261025100000_premium_subscriptions.sql` |
+| `reserve_ai_provider_call` | **Eigentuemers** | `''` | `service_role` | `20261026100000_free_ai_pool.sql` |
 | `resolve_plan` | **Eigentuemers** | `''` | `service_role` | `20261025100000_premium_subscriptions.sql` |
 | `rls_auto_enable` | Aufrufers | `public` | `service_role` | `20260814120000_audit_rls_guard.sql` |
 | `save_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |

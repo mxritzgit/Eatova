@@ -427,6 +427,10 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
       definer: true, grund: 'das Rate-Limit selbst.'),
   'consume_edge_rate_limits': FunktionsErwartung.nurServer(
       definer: true, grund: 'Stapelform desselben Rate-Limits.'),
+  'release_edge_rate_limit': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Gives back a limiter slot after a denied provider reservation; '
+          'client-callable it would reset any daily limit.'),
   'prune_chat_quota_usage': FunktionsErwartung.nurServer(
       definer: true,
       grund: 'Aufbewahrung; client-aufrufbar waere sie ein Reset-Knopf fuer '

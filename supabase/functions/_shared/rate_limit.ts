@@ -15,6 +15,10 @@
 // Deliberate differences between the functions stay with the caller: the
 // public status of an outage (500 or 503), the Retry-After ceiling and the
 // texts of a 429. Pruning stays in rate_limit_prune.ts.
+//
+// releaseRateLimit is the one way back: a slot spent on a request whose first
+// provider reservation failed (denied, disabled or unavailable, so nothing
+// was paid) is given back, best effort.
 
 import { readProviderBody } from './provider_body.ts';
 
@@ -165,6 +169,60 @@ export async function consumeRateLimits(options: ConsumeRateLimitsOptions): Prom
     return unavailable('incomplete', `consume_edge_rate_limits (${scopes}): nur ${verdicts.length}/${gates.length} Tore, ohne Ablehnung`);
   }
   return { kind: 'allowed', verdicts };
+}
+
+/** Upper bound of one release; the answer to the client waits for it. */
+const RELEASE_TIMEOUT_MS = 3000;
+
+/**
+ * Gives one consumed slot of `gate` back through
+ * public.release_edge_rate_limit (20261026100000), for a request that ended
+ * before anything was paid. The window is the consumed one, `verdict.resetAt`
+ * minus the gate's window, so a release after midnight still hits the day it
+ * counted. Best effort: never throws, resolves whether a slot came back, and
+ * a failure logs one fixed line, never a body or a subject.
+ */
+export async function releaseRateLimit(options: {
+  supabaseUrl: string;
+  serviceKey: string;
+  gate: RateLimitGate;
+  verdict: RateLimitVerdict;
+}): Promise<boolean> {
+  const { gate } = options;
+  const signal = AbortSignal.timeout(RELEASE_TIMEOUT_MS);
+  try {
+    // An unreadable resetAt throws a RangeError here: the fallback below.
+    const windowStart = new Date(Date.parse(options.verdict.resetAt) - gate.windowSeconds * 1000).toISOString();
+    const response = await fetch(`${options.supabaseUrl}/rest/v1/rpc/release_edge_rate_limit`, {
+      method: 'POST',
+      headers: {
+        apikey: options.serviceKey,
+        authorization: `Bearer ${options.serviceKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_scope: gate.scope,
+        p_subject: gate.subject,
+        p_window_start: windowStart,
+        p_window_seconds: gate.windowSeconds,
+      }),
+      // The service key must never follow a redirect.
+      redirect: 'error',
+      signal,
+    });
+    if (response.ok) {
+      const raw = await readProviderBody(response, 64, signal);
+      const released = raw === null ? null : JSON.parse(raw);
+      if (typeof released === 'boolean') return released;
+    } else {
+      // Not awaited: a stalled cancel must not hold the answer.
+      void response.body?.cancel().catch(() => {});
+    }
+  } catch {
+    // Transport, timeout, invalid window or unreadable body: the line below.
+  }
+  console.error('release_edge_rate_limit unavailable');
+  return false;
 }
 
 /**

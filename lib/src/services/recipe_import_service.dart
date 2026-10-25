@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
 import '../models/plan_limit_hit.dart';
+import '../models/plan_status.dart' show freePoolResetOf;
 import '../models/recipe_import_result.dart';
 import 'meal_scan_identity.dart';
 
@@ -19,6 +20,10 @@ enum RecipeImportFailure {
   sourceTooLong,
   reauthRequired,
   rateLimited,
+
+  /// The AI capacity all Free accounts share is spent for today (not the
+  /// account's quota); [RecipeImportException.resetAt] names when it opens.
+  freePoolExhausted,
   unavailable,
   timeout,
   network,
@@ -190,6 +195,13 @@ RecipeImportResult parseRecipeImportResponse(
   if (status == 429) {
     // Shared provider capacity is not the user's import quota.
     if (code == 'ai_budget_exhausted') {
+      final freeReset = freePoolResetOf(error);
+      if (freeReset != null) {
+        throw RecipeImportException(
+          RecipeImportFailure.freePoolExhausted,
+          resetAt: freeReset,
+        );
+      }
       throw const RecipeImportException(RecipeImportFailure.unavailable);
     }
     throw RecipeImportException(

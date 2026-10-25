@@ -2,7 +2,8 @@
 
 Updated for the **2026-09-15 security work**; the Premium tier (plans, store
 subscriptions and two new functions) was added **2026-10-25**
-([contract](PREMIUM.md), [section below](#premium-plans-and-store-subscriptions)).
+([contract](PREMIUM.md), [section below](#premium-plans-and-store-subscriptions)),
+and the same day the shared Free AI pool ([abuse protection](PREMIUM.md#7-abuse-protection)).
 This guide describes source contracts; environment values can override
 defaults. Runtime inspection and deployment are separate from editing this
 documentation.
@@ -252,20 +253,40 @@ fails closed. Existing feature quotas and their selective refunds remain separat
 
 | `ai_provider_limits` setting | Default | Meaning |
 | --- | --- | --- |
-| `daily_call_limit` | 1000; raised to at least 3000 by `20261025100000` | All provider calls per UTC day |
-| `daily_user_limit` | 150; raised to at least 200 by `20261025100000` | Operator ceiling per account and UTC day; the effective ceiling is the lower of this and the account plan's `provider_calls_daily` (30 Free, 150 Premium or legacy, 200 for a legacy account with Premium) |
-| `daily_image_limit` | 50; raised to at least 200 by `20261025100000` | Recipe image calls per UTC day, also counted globally |
+| `daily_call_limit` | 1000; raised to at least 3000 by `20261025100000`, lowered to at most 400 by `20261026100000` | All provider calls per UTC day, Free and Premium |
+| `daily_user_limit` | 150; raised to at least 200 by `20261025100000` | Operator ceiling per account and UTC day; the effective ceiling is the lower of this and the account plan's `provider_calls_daily` (11 Free, 150 Premium or legacy, 200 for a legacy account with Premium) |
+| `daily_image_limit` | 50; raised to at least 200 by `20261025100000`, lowered to at most 20 by `20261026100000` | Recipe image calls per UTC day, also counted globally |
+| `daily_free_call_limit` | 150 (`20261026100000`, 0 to 100,000) | Provider calls of all Free accounts together per UTC day (the Free pool); 0 stops Free AI and keeps Premium working |
 | `enabled`, `coach_enabled`, `analysis_enabled`, `images_enabled` | true | Administrative stop switches |
 
-The Premium migration only raises these values (`greatest(...)`), never
-lowers them; the live values are not recorded here.
+`20261025100000` only raised these values (`greatest(...)`);
+`20261026100000` lowers the call and picture ceilings to pre-launch values
+with `least(...)`, so a lower live value stays. The live values are not
+recorded here; sizing is in [operations](OPERATIONS.md#free-ai-pool).
 Zero is a valid limit. Administrative configuration is not client-writable.
-An exhausted budget returns `429/ai_budget_exhausted`; disabled or unavailable
+An exhausted budget returns `429/ai_budget_exhausted` with the `scope` of
+the denial and `resetAt` (the next 00:00 UTC); disabled or unavailable
 budget verification returns a controlled `503`. Optional image exhaustion keeps
 an otherwise valid recipe usable without a generated picture. The client does
 not mislabel these service limits as the user's personal question quota.
 These are request counts, **not dollar limits**, and they cannot cancel an
 already reserved upstream call. See the [stop and recovery procedure](OPERATIONS.md).
+
+Since `20261026100000` the RPC resolves the plan once per call and counts an
+account as Free when its tier is not `premium`. An allowed Free call also
+adds 1 to the global `ai_provider_daily_usage.free_calls`, and a Free call is
+denied once that reaches `daily_free_call_limit`. The answer stays
+`{allowed, reason}`, plus `scope` on a `budget_exhausted` denial (`all`,
+`images`, `plan`, `free`, `account`, checked in that order), so older
+handlers keep working. When the first reservation of a request ends in any
+provider budget error (a denial, `disabled`, or a failed, timed-out or
+aborted reservation RPC), nothing was paid: `analyze-meal` gives back the
+`analyze-meal:user-day` and `analyze-meal:global` slots it took, and
+`recipe-import` its `recipe-import:user-day` slot, through
+`release_edge_rate_limit`, best effort; neither releases after a paid call,
+and the reservation itself is never refunded. `coach-chat` refunds the question as before. The
+app shows `scope: "free"` as a calm "at capacity" notice with the reset time
+([contract](PREMIUM.md#74-what-the-user-sees)).
 
 The Coach upload reader has a 30-second total and 10-second idle deadline while
 preserving its byte limit. Provider text/error envelopes are capped at 512 KiB;
@@ -294,7 +315,8 @@ Per-account provider counters contain only user ID, UTC date and reserved-call
 count; own counters are exportable and cascade on account deletion. Records
 older than 30 days are pruned on the first permitted call of a new UTC day,
 not by a guaranteed background TTL. Inactivity or disabled AI can delay pruning.
-Global counters have no user ID. See [privacy data flows](../PRIVACY.md).
+Global counters, the Free pool's `free_calls` included, have no user ID.
+See [privacy data flows](../PRIVACY.md).
 
 Changing a model requires checking its input/output capabilities separately:
 the recipe-image model must generate images; a chat/vision model is not a
@@ -331,11 +353,12 @@ part of the in-app export (the Profile shows the plan through `get_my_plan`).
 `store_account_tokens` and `store_subscriptions` cascade with account
 deletion; deleting the account does not cancel the store subscription.
 
-Seeded limits per UTC day (reset 00:00 UTC):
+Seeded limits per UTC day (reset 00:00 UTC; the `free` row as set by
+`20261026100000`, first seeded as 3 / 4 / 2 / 30):
 
 | Tier | Coach questions | AI meal analyses | Recipe imports | Provider calls | Coach recipe picture |
 | --- | --- | --- | --- | --- | --- |
-| `free` | 3 | 4 | 2 | 30 | no |
+| `free` | 2 | 3 | 1 | 11 | no |
 | `premium` | 20 | 30 | 10 | 150 | yes |
 | `legacy` | 5 | 100 | 20 | 150 | yes |
 
@@ -373,7 +396,8 @@ Rules, all in `resolve_plan`:
 | `mark_store_subscription_acknowledged(text, text)` | `service_role` | Sets `acknowledged = true` on one row after the server's Google acknowledgement succeeded |
 | `record_store_notification(text, text)` | `service_role` | True the first time an id is seen; prunes receipts older than 90 days |
 | `consume_edge_rate_limits(jsonb)` | `service_role` | The shared limiter, same signature: increments a bucket only while it is below its limit, so a denied attempt counts in no bucket |
-| `reserve_ai_provider_call(uuid, text)` | `service_role` | Unchanged except that the per-account ceiling is `least(daily_user_limit, provider_calls_daily of the plan)` |
+| `reserve_ai_provider_call(uuid, text)` | `service_role` | `20261025100000`: the per-account ceiling is `least(daily_user_limit, provider_calls_daily of the plan)`. `20261026100000`: the plan is resolved once; a Free account also counts in `free_calls` against `daily_free_call_limit`; a picture call needs `recipe_picture`; a `budget_exhausted` denial carries `scope` |
+| `release_edge_rate_limit(text, text, timestamptz, integer)` | `service_role` | `20261026100000`: takes one count off a limiter bucket (scope, raw subject hashed like `consume_edge_rate_limits`, window start, window seconds), never below 0; the window start must be aligned and not in the future; returns whether a row changed |
 
 `record_store_subscription` validates every enum and length (`22023`, also
 for an unknown account). The first verified binding of a `(platform,
@@ -412,7 +436,7 @@ legacy maximum.
 authentication: `/rest/v1/rpc/resolve_plan` with the service key,
 `redirect: 'error'`, a 4 KiB answer cap, at most 5 s, and a strict check of
 the answer's shape. Any failure (transport, timeout, non-2xx, another shape)
-returns `FREE_FALLBACK`, never more: Free 3/4/2 with 30 provider calls and no
+returns `FREE_FALLBACK`, never more: Free 2/3/1 with 11 provider calls and no
 picture, Premium 20/30/10 for the upgrade hint, `fallback: true`. The request
 keeps working with those limits and writes one log line,
 `resolve_plan unavailable`, without a body or a user id. During such an
@@ -425,7 +449,7 @@ the outage gets the real plan. A `coach-chat` request the fallback allows is
 answered as usual, but its 200 names no limit: in every mode (chat,
 `/recipe`, `/plan`, `/log`), streamed or buffered, and for a refusal after
 the claim, the body carries neither `daily_limit` nor `remaining`. The app
-then keeps its counter and asks for the count again, so the fallback's 3
+then keeps its counter and asks for the count again, so the fallback's 2
 never locks a Premium or legacy account's composer. A `/recipe` under the
 fallback gets no picture and no `image_locked`, neither in the response nor
 in the stored row, because the account's plan may include the picture.
@@ -442,6 +466,7 @@ like any other unavailable budget configuration.
 | Recipe imports per day (`recipe-import:user-day`) | 20 (constant) | `recipe_import_daily` of the plan |
 | Coach `/recipe` picture | every recipe | only with `recipe_picture`; otherwise no image call and no `coach_image` reservation. When a real plan excludes the picture, the recipe response and the stored recipe JSON in `chat_messages` carry `image_locked: true` (so the app shows the lock again after a reload); under the fallback neither does |
 | Provider calls per account | `daily_user_limit` (150) | `least(daily_user_limit, provider_calls_daily)` |
+| Free pool | none: Free and Premium shared one ceiling | `daily_free_call_limit` for all Free accounts together (`20261026100000`); Premium is not counted |
 | Burst, IP, auth-fail and global gates | constants and overrides | unchanged: Coach 60/h and IP 120/600 s; `analyze-meal` hourly, IP and global gates with their `ANALYZE_MEAL_*` overrides; `recipe-import` 20/h and IP 60/600 s; the global provider and image ceilings |
 
 The contract records `COACH_DAILY_LIMIT` and `ANALYZE_MEAL_USER_DAY_LIMIT`
@@ -453,7 +478,7 @@ A denial of exactly the per-account daily quota adds this object to the
 existing 429 body of all three AI functions:
 
 ```json
-"planLimit": { "feature": "coach", "tier": "free", "limit": 3, "resetAt": "2026-10-26T00:00:00.000Z", "premiumLimit": 20 }
+"planLimit": { "feature": "coach", "tier": "free", "limit": 2, "resetAt": "2026-10-26T00:00:00.000Z", "premiumLimit": 20 }
 ```
 
 `feature` is `coach`, `meal_analysis` or `recipe_import`; `resetAt` is the

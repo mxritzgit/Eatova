@@ -117,8 +117,8 @@ Deno.test('resolvePlan gives up on a stalled body at the caller deadline', async
 
 Deno.test('FREE_FALLBACK carries the decided Free and Premium values and cannot be changed', () => {
   assertJson(FREE_FALLBACK, {
-    tier: 'free', legacy: false, coachDaily: 3, mealAnalysisDaily: 4, recipeImportDaily: 2,
-    providerCallsDaily: 30, recipePicture: false,
+    tier: 'free', legacy: false, coachDaily: 2, mealAnalysisDaily: 3, recipeImportDaily: 1,
+    providerCallsDaily: 11, recipePicture: false,
     premium: { coachDaily: 20, mealAnalysisDaily: 30, recipeImportDaily: 10, recipePicture: true },
     fallback: true,
   }, 'decided defaults');
@@ -138,11 +138,11 @@ Deno.test('planLimitWire offers the Premium limit only to Free accounts that wou
   };
   const resetAt = '2026-10-26T00:00:00.000Z';
   const cases: Array<[ResolvedPlan, PlanFeature, unknown]> = [
-    [free, 'coach', { feature: 'coach', tier: 'free', limit: 3, resetAt, premiumLimit: 20 }],
-    [free, 'meal_analysis', { feature: 'meal_analysis', tier: 'free', limit: 4, resetAt, premiumLimit: 30 }],
-    [free, 'recipe_import', { feature: 'recipe_import', tier: 'free', limit: 2, resetAt, premiumLimit: 10 }],
+    [free, 'coach', { feature: 'coach', tier: 'free', limit: 2, resetAt, premiumLimit: 20 }],
+    [free, 'meal_analysis', { feature: 'meal_analysis', tier: 'free', limit: 3, resetAt, premiumLimit: 30 }],
+    [free, 'recipe_import', { feature: 'recipe_import', tier: 'free', limit: 1, resetAt, premiumLimit: 10 }],
     // A failed lookup says nothing about the account: no upgrade offer.
-    [FREE_FALLBACK, 'coach', { feature: 'coach', tier: 'free', limit: 3, resetAt }],
+    [FREE_FALLBACK, 'coach', { feature: 'coach', tier: 'free', limit: 2, resetAt }],
     [premium, 'coach', { feature: 'coach', tier: 'premium', limit: 20, resetAt }],
     [legacy, 'coach', { feature: 'coach', tier: 'free', limit: 5, resetAt, premiumLimit: 20 }],
     // Premium would not raise a legacy account's analyses: no upgrade offer.

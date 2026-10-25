@@ -481,12 +481,12 @@ void main() {
 
         controller.noteUsage(PlanFeature.mealAnalysis, 2);
         controller.noteUsage(PlanFeature.mealAnalysis, 1);
-        expect(controller.plan.remaining(PlanFeature.mealAnalysis), 2);
+        expect(controller.plan.remaining(PlanFeature.mealAnalysis), 1);
         expect(cache.stored!.usage.mealAnalysis, 2);
 
         // A server count that is behind does not take it back.
         await controller.refresh(force: true);
-        expect(controller.plan.remaining(PlanFeature.mealAnalysis), 2);
+        expect(controller.plan.remaining(PlanFeature.mealAnalysis), 1);
 
         // Premium bought on another device: the server applied 20.
         log.plan = _premium;

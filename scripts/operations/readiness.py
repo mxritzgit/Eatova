@@ -26,8 +26,10 @@ USER_AGENT = ('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
 BUDGET_QUERY = """
 select l.enabled, l.coach_enabled, l.analysis_enabled, l.images_enabled,
        l.daily_call_limit, l.daily_image_limit, l.daily_user_limit,
+       l.daily_free_call_limit,
        (current_timestamp at time zone 'UTC')::date::text as usage_date,
-       coalesce(u.calls, 0) as calls, coalesce(u.image_calls, 0) as image_calls
+       coalesce(u.calls, 0) as calls, coalesce(u.image_calls, 0) as image_calls,
+       coalesce(u.free_calls, 0) as free_calls
 from public.ai_provider_limits as l
 left join public.ai_provider_daily_usage as u
   on u.usage_date = (current_timestamp at time zone 'UTC')::date
@@ -199,11 +201,13 @@ def budgets(payload, now, warning_percent):
     if any(type(item.get(key)) is not bool for key in switches):
         raise CheckError('invalid_budget_configuration')
     limits = {'daily_call_limit': 100000, 'daily_image_limit': 10000,
-              'daily_user_limit': 10000, 'calls': 2_147_483_647,
-              'image_calls': 2_147_483_647}
+              'daily_user_limit': 10000, 'daily_free_call_limit': 100000,
+              'calls': 2_147_483_647, 'image_calls': 2_147_483_647,
+              'free_calls': 2_147_483_647}
     if any(not integer(item.get(key), maximum) for key, maximum in limits.items()):
         raise CheckError('invalid_budget_counter')
-    if item['image_calls'] > item['calls']:
+    # Pictures and Free calls are both parts of all calls.
+    if item['image_calls'] > item['calls'] or item['free_calls'] > item['calls']:
         raise CheckError('invalid_budget_counter')
     # Refuse a UTC-day rollover between observing the check time and the query.
     # A new invocation can safely retry; yesterday's zero is never a green today.
@@ -214,8 +218,12 @@ def budgets(payload, now, warning_percent):
         reasons.append('stop_switch_active')
     if item['daily_user_limit'] == 0:
         reasons.append('account_call_limit_zero')
+    # A Free pool as large as all calls leaves Premium no reserve.
+    if item['daily_free_call_limit'] >= item['daily_call_limit']:
+        reasons.append('free_limit_not_below_total')
     for counter, limit, name in [('calls', 'daily_call_limit', 'calls'),
-                                 ('image_calls', 'daily_image_limit', 'images')]:
+                                 ('image_calls', 'daily_image_limit', 'images'),
+                                 ('free_calls', 'daily_free_call_limit', 'free_calls')]:
         if item[counter] >= item[limit]:
             reasons.append(name + '_exhausted')
         elif item[counter] * 100 >= item[limit] * warning_percent:
@@ -272,8 +280,9 @@ def markdown(report):
     lines = ['### Readiness: ' + verdict, '', '| Check | State | Detail |', '| --- | --- | --- |']
     for name, result in sorted((report.get('checks') or {}).items()):
         if name == 'budgets' and 'calls' in result:
-            detail = 'calls {}/{}, images {}/{}'.format(
-                result['calls'], result['daily_call_limit'], result['image_calls'],
+            detail = 'calls {}/{}, free {}/{}, images {}/{}'.format(
+                result['calls'], result['daily_call_limit'], result['free_calls'],
+                result['daily_free_call_limit'], result['image_calls'],
                 result['daily_image_limit'])
             if result.get('reasons'):
                 detail += '; ' + ', '.join(result['reasons'])

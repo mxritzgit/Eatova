@@ -17,7 +17,9 @@ import and Coach `/meal` followed **2026-10-22**
 ([review](IMPROVEMENT-REVIEW-2026-10-22.md)); Free and Premium with their
 daily limits, the paywall after a fresh onboarding, the Profile's "Abo"
 section and the upgrade hints followed **2026-10-25** ([contract](PREMIUM.md);
-the store products and the live rollout are still open).
+the store products are still open), and the same day the shared Free AI pool
+with lower Free limits ([abuse protection](PREMIUM.md#7-abuse-protection), not
+live yet).
 This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
@@ -38,8 +40,8 @@ Dated reviews describe what was present at their own checkpoint.
 | Workout player | List of exercise cards with one tap per set (✓; timed sets ▶ with a 3 s lead and "Done early"); weights carry forward within an exercise or come from Last time; undo, skip set/exercise, complete the rest as planned; rests and timed sets keep running while the phone is locked; one generic rest alert per phase, whose tap reopens the workout; finish sheet (save the done sets, log the rest as shown, or discard); local recovery | [Player](../lib/src/screens/training/training_player_screen.dart), [Training design](TRAINING-DESIGN.md#workout-player-list-2026-10-03) |
 | Training log | "Log workout" for a free workout (today, yesterday or up to 30 days back, optional duration, exercises with sets or a time, note) and "Log as done" for the plan's shown workout; nothing is written before Add | [Log editor](../lib/src/screens/training/training_log_editor.dart) |
 | Training history | Completed immutable sessions with actual values, previous results/Last time and deletion; records by exercise name across plans and logs (bodyweight sets earn reps records), named in the finish sheet and the detail; "History" per exercise shows the best set per workout. The week card counts done sessions ("4 done") | [History](../lib/src/screens/training/training_history_screen.dart) |
-| Coach | Chat over SSE with full server-side approval before text is released; sessions, attached image, quota, and a shared nutrition context: today, diet and avoided foods, and a seven-day block (logged days, average kcal against the goal, protein days, the weekly check's weight trend, workouts; unlogged days marked as missing); answers and generated recipe pictures can be reported (reason only, no content); the daily limit comes from the account's plan and its reset shows in local time on the phone's clock; the composer shows the questions left today ("2/3 left today"; at 0 a "Mehr Fragen mit Premium" pill for Free) and the limit is remembered per account between starts, and an upgrade unlocks it at once; the context also names the weekly check's state (without figures) and the planned dishes for today and tomorrow; `/meal` (or the chip) opens the Food tab's Describe sheet prefilled without using a question; Today and Trends prepare questions that stay unsent; a failed load offers a retry; each bubble starts with its speaker for screen readers; with entries lacking protein the start card says "at most … protein left" | [Coach service](../lib/src/services/coach_chat_service.dart) |
-| Coach recipes | `/recipe` proposal with recipe text and, for Premium and existing accounts in the transition, a generated picture (a Free card shows the full recipe and a quiet "KI-Bild mit Premium" line instead, also after a reload); the profile's diet, avoided foods and dislikes are hard rules of the request (a suspected conflict is flagged; no allergy guarantee); explicit confirmation saves the recipe; the request names the slot and what is still open today; the saved toast's "Open" shows it | [Recipe flow](../lib/src/screens/coach/coach_recipe.dart) |
+| Coach | Chat over SSE with full server-side approval before text is released; sessions, attached image, quota, and a shared nutrition context: today, diet and avoided foods, and a seven-day block (logged days, average kcal against the goal, protein days, the weekly check's weight trend, workouts; unlogged days marked as missing); answers and generated recipe pictures can be reported (reason only, no content); the daily limit comes from the account's plan and its reset shows in local time on the phone's clock; the composer shows the questions left today ("1/2 left today"; at 0 a "Mehr Fragen mit Premium" pill for Free) and the limit is remembered per account between starts, and an upgrade unlocks it at once; the context also names the weekly check's state (without figures) and the planned dishes for today and tomorrow; `/meal` (or the chip) opens the Food tab's Describe sheet prefilled without using a question; Today and Trends prepare questions that stay unsent; a failed load offers a retry; each bubble starts with its speaker for screen readers; with entries lacking protein the start card says "at most … protein left" | [Coach service](../lib/src/services/coach_chat_service.dart) |
+| Coach recipes | `/recipe` proposal with recipe text and, for Premium, a generated picture (a Free card shows the full recipe and a quiet "KI-Bild mit Premium" line instead, also after a reload); the profile's diet, avoided foods and dislikes are hard rules of the request (a suspected conflict is flagged; no allergy guarantee); explicit confirmation saves the recipe; the request names the slot and what is still open today; the saved toast's "Open" shows it | [Recipe flow](../lib/src/screens/coach/coach_recipe.dart) |
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
 | Coach workout log | `/log` (typed, dictated or from Training's "Tell the Coach instead") turns a described finished workout into a draft card; one of the daily Coach requests. "Add to history" opens the log editor prefilled, and its Add is the confirmation; the card then reads Added or Removed from history | [Log card](../lib/src/screens/coach/coach_workout_log.dart) |
 | Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals; a weekly check on Today proposes a calibrated calorie goal from logged intake and the weight trend, applied only after confirmation ([weight trend](WEIGHT-TREND.md)); a Nutrition section edits the diet form, 13 avoided foods (common allergens, pork, alcohol) and short dislikes; a weigh-in history edits, deletes (with undo) and dates weigh-ins, and the onboarding weight is the first weigh-in; a reached target holds within 1.5 kg of the weight trend, and the goals page names the hold and its end; a switch imports scale weigh-ins from Apple Health or Health Connect; an "Abo" section before "Verbindungen" shows Free or Premium, the status (renews on, ends on, payment problem, expired), the store, a test-purchase badge, today's usage against the limits and the actions "Mehr mit Premium", "Abo verwalten" and "Käufe wiederherstellen" | [Profile](../lib/src/screens/profile_screen.dart), [Premium](#free-and-premium) |
@@ -60,9 +62,10 @@ app release. The values below are the seeded defaults
 
 | Per day | Free | Premium |
 | --- | --- | --- |
-| Coach questions (chat, photo, `/recipe`, `/plan`, `/log`; `/meal` stays free) | 3 | 20 |
-| AI meal analyses (photo scan and Describe share one bucket) | 4 | 30 |
-| Recipe imports | 2 | 10 |
+| Coach questions (chat, photo, `/recipe`, `/plan`, `/log`; `/meal` stays free) | 2 | 20 |
+| AI meal analyses (photo scan and Describe share one bucket) | 3 | 30 |
+| Recipe imports | 1 | 10 |
+| Shared AI capacity | 150 provider calls for all Free accounts together | not counted |
 | AI picture with a Coach `/recipe` | no (the full recipe stays) | yes |
 | Price (store price incl. VAT) | free | 7,99 EUR per month, or 49,99 EUR per year with a 7-day free trial on the yearly plan only |
 
@@ -73,7 +76,13 @@ app release. The values below are the seeded defaults
   date is set, they see a one-time notice on Today with it and the new Free
   limits; an account with Premium sees the regular Premium limits instead,
   without an upgrade offer, and keeps the date and those limits as a note on
-  its Profile.
+  its Profile. The window ended live on 2026-10-25 (only the owner's test
+  accounts existed), so no account is legacy now.
+- **Free AI at capacity:** when the shared Free capacity is used up, the
+  Coach, the meal analysis and the recipe import say calmly that Free AI is
+  at capacity and when it is back (local time), with no upgrade offer and
+  no locked composer; such a denial uses no day slot, and barcode, search
+  and favorites keep working. Premium is not affected.
 - **Paywall:** once, as the last step of a fresh onboarding, before Today;
   already onboarded accounts never see it, and it never returns on app start.
   Yearly is preselected; the billed amount is the large number, the monthly

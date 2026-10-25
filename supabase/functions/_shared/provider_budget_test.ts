@@ -1,4 +1,4 @@
-import { providerCallBudget, ProviderBudgetError } from './provider_budget.ts';
+import { providerBudgetErrorBody, providerCallBudget, ProviderBudgetError } from './provider_budget.ts';
 
 const context = { supabaseUrl: 'https://budget.invalid', serviceKey: 'test-service', userId: '11111111-1111-4111-8111-111111111111' };
 function assert(value: boolean, message: string): void { if (!value) throw new Error(message); }
@@ -41,6 +41,26 @@ Deno.test('provider budget rejects denied, missing, malformed and oversized resp
     await failure(() => new Response(raw));
   }
   await failure(() => new Response('PRIVATE_RPC_FAILURE', { status: 500 }));
+});
+
+Deno.test('provider budget names the denying pool and builds the public body', async () => {
+  // An unknown or missing scope must not turn the denial into an outage.
+  for (const scope of ['all', 'images', 'plan', 'free', 'account', 'galaxy', 7, undefined]) {
+    const saved = globalThis.fetch;
+    globalThis.fetch = (() => Promise.resolve(Response.json({ allowed: false, reason: 'budget_exhausted', scope }))) as typeof fetch;
+    try {
+      let error: unknown;
+      try { await providerCallBudget(context)('coach_answer'); } catch (caught) { error = caught; }
+      const known = typeof scope === 'string' && scope !== 'galaxy' ? scope : undefined;
+      assert(error instanceof ProviderBudgetError && error.code === 'ai_budget_exhausted' && error.scope === known, `scope ${scope}`);
+    } finally { globalThis.fetch = saved; }
+  }
+  const now = Date.parse('2026-10-25T21:30:00.000Z');
+  const body = (error: ProviderBudgetError) => JSON.stringify(providerBudgetErrorBody(error, now));
+  const resetAt = '2026-10-26T00:00:00.000Z';
+  assert(body(new ProviderBudgetError('ai_budget_exhausted', 'free')) === JSON.stringify({ error: 'ai_budget_exhausted', scope: 'free', resetAt }), 'pool and next UTC midnight');
+  assert(body(new ProviderBudgetError('ai_budget_exhausted')) === JSON.stringify({ error: 'ai_budget_exhausted', resetAt }), 'unknown pool: reset only');
+  assert(body(new ProviderBudgetError('ai_disabled')) === '{"error":"ai_disabled"}', 'no capacity stop: code only');
 });
 
 Deno.test('provider budget bounds stalled response bodies and cancels the reader', async () => {

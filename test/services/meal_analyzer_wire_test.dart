@@ -396,7 +396,7 @@ void main() {
       const reset = '2026-10-26T00:00:00.000Z';
       const gate = <String, Object?>{
         'allowed': false,
-        'limit': 4,
+        'limit': 3,
         'remaining': 0,
         'resetAt': reset,
         'windowSeconds': 86400,
@@ -410,7 +410,7 @@ void main() {
             'planLimit': <String, Object?>{
               'feature': 'meal_analysis',
               'tier': 'free',
-              'limit': 4,
+              'limit': 3,
               'resetAt': reset,
               'premiumLimit': 30,
             },
@@ -418,7 +418,7 @@ void main() {
           PlanLimitHit(
             feature: PlanFeature.mealAnalysis,
             tier: PlanTier.free,
-            limit: 4,
+            limit: 3,
             resetAt: DateTime.utc(2026, 10, 26),
             premiumLimit: 30,
           ),

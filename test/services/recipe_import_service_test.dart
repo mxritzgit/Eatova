@@ -208,7 +208,7 @@ void main() {
           'planLimit': {
             'feature': 'recipe_import',
             'tier': 'free',
-            'limit': 2,
+            'limit': 1,
             'resetAt': '2026-10-26T00:00:00.000Z',
             'premiumLimit': 10,
           },
@@ -228,7 +228,7 @@ void main() {
             PlanLimitHit(
               feature: PlanFeature.recipeImport,
               tier: PlanTier.free,
-              limit: 2,
+              limit: 1,
               resetAt: midnight,
               premiumLimit: 10,
             ),

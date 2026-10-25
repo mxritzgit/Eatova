@@ -120,12 +120,17 @@ requires creator authorization and cannot read arbitrary shared creators' videos
 Authentication uses the project's verified user endpoint plus JWT user-context
 binding. Import gates allow 60 requests per IP / 10 minutes, 20 per account /
 hour and the account plan's extraction attempts per UTC day (`resolve_plan`:
-Free 2, Premium 10, accounts from before Premium 20; [Premium](../../../docs/PREMIUM.md)).
+Free 1, Premium 10; the legacy limits ended on 2026-10-25; [Premium](../../../docs/PREMIUM.md)).
 A failed plan lookup applies the Free limit. Each model call also
 requires the existing non-refundable `coach_recipe` provider reservation,
 sharing the global/account provider-call budget and kill switch with other AI
-features. It does not consume a coach chat message slot. The provider-budget,
-rate-limit and Premium (`20261025100000`) migrations must be deployed first.
+features. It does not consume a coach chat message slot. When the first
+`coach_recipe` reservation fails, nothing was paid and the handler gives the
+`recipe-import:user-day` slot back through `release_edge_rate_limit` (best
+effort); a failure on the retry keeps it spent, and the reservation itself
+is never refunded. The provider-budget, rate-limit, Premium
+(`20261025100000`) and Free pool (`20261026100000`) migrations must be
+deployed first.
 
 Existing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, and
 `ANTHROPIC_API_KEY` configuration is used. The model is `CLAUDE_MODEL` (default

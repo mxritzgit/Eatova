@@ -74,6 +74,10 @@ interface StubOptions {
   /** Answer of resolve_plan (default: Free); 'unavailable' answers 500. */
   plan?: JsonRecord | 'unavailable';
   providerBudgetDenied?: boolean;
+  /** `scope` of that denial (20261026100000). */
+  providerBudgetScope?: string;
+  /** resetAt of both allowed day gates, the end of the window they counted in. */
+  dayResetAt?: string;
   /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
   /** P7-02: per-token status of the lookup; `undefined` falls back to
@@ -151,6 +155,7 @@ interface FetchStub {
  *  validation, then the two day buckets that must count analyses rather than
  *  attempts. Reasoning in handler.ts, the WHEN in gate_order_test.ts. */
 const GATE_ORDER = 'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day,analyze-meal:global';
+const DAY_SCOPES = ['analyze-meal:user-day', 'analyze-meal:global'];
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -202,7 +207,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
       return options.plan === 'unavailable' ? jsonRes({ message: 'down' }, 500) : jsonRes(options.plan ?? PLAN_ANSWERS.free);
     }
     if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: !options.providerBudgetDenied,
-      reason: options.providerBudgetDenied ? "budget_exhausted" : "allowed" });
+      reason: options.providerBudgetDenied ? "budget_exhausted" : "allowed", scope: options.providerBudgetScope });
+    if (url.endsWith('/rest/v1/rpc/release_edge_rate_limit')) return jsonRes(true);
     if (url.includes('/auth/v1/user')) {
       if (options.authCancelStall) return new Response(new ReadableStream<Uint8Array>({
         cancel() { return new Promise<void>(() => {}); },
@@ -242,6 +248,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
           ...limitBody(gate.limit, gate.window_seconds, allowed),
           ...(gate.scope === 'analyze-meal:global' && !allowed && options.globalDeniedResetAt
             ? { resetAt: options.globalDeniedResetAt } : {}),
+          ...(DAY_SCOPES.includes(gate.scope) && allowed && options.dayResetAt ? { resetAt: options.dayResetAt } : {}),
         });
         // THE rule of the contract: after a denial the RPC touches nothing
         // else, so the array comes back short.
@@ -434,16 +441,34 @@ Deno.test('OPTIONS -> 204 ohne jeden Roundtrip', async () => {
 });
 
 Deno.test('Provider budget: exhausted shared allowance stops photo analysis before provider', async () => {
-  const stub = installFetch({ providerBudgetDenied: true });
+  // The slots were counted just before midnight, the pool denies just after:
+  // nothing was paid, so both go back to the day they were counted in.
+  const realNow = Date.now;
+  Date.now = () => Date.parse('2026-10-26T00:00:01.000Z');
+  const stub = installFetch({ providerBudgetDenied: true, providerBudgetScope: 'free', dayResetAt: '2026-10-26T00:00:00.000Z' });
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
     assertEquals(res.status, 429, 'budget status');
-    assertEquals((await res.json()).error, 'ai_budget_exhausted', 'stable public error');
+    const body = await res.json() as JsonRecord;
+    assertEquals(JSON.stringify(body), JSON.stringify({
+      error: 'ai_budget_exhausted', scope: 'free', resetAt: '2026-10-27T00:00:00.000Z', requestId: body.requestId,
+    }), 'stable public error with pool and reset');
     assertEquals(stub.callsTo(CLAUDE_URL).length, 0, 'no unreserved paid photo call');
     const claim = JSON.parse(stub.callsTo('reserve_ai_provider_call')[0].body);
     assertEquals(claim.p_operation, 'analyze_meal', 'shared budget operation');
     assertEquals(claim.p_user_id, USER_ID, 'verified account identity');
-  } finally { stub.restore(); }
+    assertEquals(JSON.stringify(stub.callsTo('release_edge_rate_limit').map((call) => JSON.parse(call.body))), JSON.stringify(
+      DAY_SCOPES.map((scope) => ({
+        p_scope: scope,
+        p_subject: scope === 'analyze-meal:global' ? 'all' : USER_ID,
+        p_window_start: '2026-10-25T00:00:00.000Z',
+        p_window_seconds: 86_400,
+      })),
+    ), 'both day slots released in the window they counted in');
+  } finally {
+    Date.now = realNow;
+    stub.restore();
+  }
 });
 
 Deno.test('Provider body: oversized successful and failed analysis envelopes are rejected', async () => {
@@ -618,7 +643,7 @@ Deno.test('F9-01: globales Tageslimit erschoepft -> 429 als letztes Gate, kein P
 // denial names it (planLimit; the upgrade offer only where Premium gives
 // more). A failed lookup is Free, never more (the test after this one).
 const PLAN_CASES: [string, JsonRecord, { tier: string; limit: number; premiumLimit?: number }][] = [
-  ['Free', PLAN_ANSWERS.free, { tier: 'free', limit: 4, premiumLimit: 30 }],
+  ['Free', PLAN_ANSWERS.free, { tier: 'free', limit: 3, premiumLimit: 30 }],
   ['Premium', PLAN_ANSWERS.premium, { tier: 'premium', limit: 30 }],
   ['Bestandskonto', PLAN_ANSWERS.legacy, { tier: 'free', limit: 100 }],
 ];
@@ -675,7 +700,7 @@ Deno.test('F9-01: User-Tageslimit unter dem Free-Fallback -> 503 plan_unavailabl
     assertEquals(res.status, 503, 'Status');
     assertEquals(Object.keys(body).join(','), 'error,message,requestId', 'Felder');
     assertEquals(body.error, 'plan_unavailable', 'Fehlercode');
-    assertEquals(stub.rateLimitParams('analyze-meal:user-day')!.p_limit, 4, 'Free-Limit am Tor');
+    assertEquals(stub.rateLimitParams('analyze-meal:user-day')!.p_limit, 3, 'Free-Limit am Tor');
     assertEquals(stub.callsTo('reserve_ai_provider_call').length + stub.callsTo(CLAUDE_URL).length, 0, 'keine bezahlte Arbeit');
     assert(logs.text().includes('resolve_plan unavailable'), 'Ausfall-Logzeile');
   } finally {
@@ -1147,9 +1172,11 @@ Deno.test('P6-04: Provider-Fehlerfamilie -> eigener Code, redigiertes Log', asyn
       const text = await res.text();
       assertEquals(res.status, testCase.status, `${label}: Status`);
       assertEquals((JSON.parse(text) as JsonRecord).error, testCase.code, `${label}: Fehlercode`);
-      // The call happened and was paid for; the four gates ran before it.
+      // The call happened and was paid for; the four gates ran before it and
+      // stay spent.
       assertEquals(stub.providerBodies.length, 1, `${label}: Provider-Calls`);
       assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, `${label}: Gate-Reihenfolge`);
+      assertEquals(stub.callsTo('release_edge_rate_limit').length, 0, `${label}: keine Freigabe`);
 
       assertRedacted(logs.text(), text, testCase.code);
       if (testCase.digest) {

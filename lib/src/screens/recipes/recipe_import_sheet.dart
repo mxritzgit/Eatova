@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -321,6 +322,12 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       RecipeImportFailure.sourceTooLong => l10n.recipeImportSourceTooLong,
       RecipeImportFailure.reauthRequired => l10n.recipeImportReauth,
       RecipeImportFailure.rateLimited => l10n.recipeImportRateLimited,
+      RecipeImportFailure.freePoolExhausted => l10n.planFreePoolExhausted(
+        planLimitClockLabel(
+          context,
+          error.resetAt ?? nextUtcMidnight(clock.now()),
+        ),
+      ),
       RecipeImportFailure.unavailable => l10n.recipeImportUnavailable,
       RecipeImportFailure.invalidResponse => l10n.recipeImportInvalidResponse,
       RecipeImportFailure.timeout => l10n.recipeImportTimeout,

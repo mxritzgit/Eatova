@@ -30,12 +30,12 @@ insert into public.store_subscriptions(user_id,platform,store_key,product_id,sta
 select pg_temp.require(
   (select jsonb_object_agg(tier, jsonb_build_array(coach_daily, meal_analysis_daily,
      recipe_import_daily, provider_calls_daily, recipe_picture)) from public.plan_tiers)
-  = '{"free":[3,4,2,30,false],"premium":[20,30,10,150,true],"legacy":[5,100,20,150,true]}'::jsonb,
+  = '{"free":[2,3,1,11,false],"premium":[20,30,10,150,true],"legacy":[5,100,20,150,true]}'::jsonb,
   'the decided tiers are seeded');
 select pg_temp.require(
-  (select daily_user_limit >= 200 and daily_image_limit >= 200 and daily_call_limit >= 3000
-     from public.ai_provider_limits),
-  'the provider ceilings were raised');
+  (select daily_user_limit = 200 and daily_image_limit = 20 and daily_call_limit = 400
+     and daily_free_call_limit = 150 from public.ai_provider_limits),
+  'the pre-launch ceilings and the Free pool are set');
 
 -- Clients reach none of the five tables: no self-grant, no limit change.
 set local role authenticated;
@@ -176,8 +176,8 @@ end $$;
 -- resolve_plan: Free, Premium, legacy, legacy with Premium, and the window.
 set local role service_role;
 select pg_temp.require(public.resolve_plan('a7000000-0000-4000-8000-000000000002') =
-  '{"tier":"free","legacy":false,"coach_daily":3,"meal_analysis_daily":4,"recipe_import_daily":2,
-    "provider_calls_daily":30,"recipe_picture":false,
+  '{"tier":"free","legacy":false,"coach_daily":2,"meal_analysis_daily":3,"recipe_import_daily":1,
+    "provider_calls_daily":11,"recipe_picture":false,
     "premium":{"coach_daily":20,"meal_analysis_daily":30,"recipe_import_daily":10,"recipe_picture":true}}','Free');
 select pg_temp.require(public.resolve_plan('a7000000-0000-4000-8000-000000000001') =
   '{"tier":"premium","legacy":false,"coach_daily":20,"meal_analysis_daily":30,"recipe_import_daily":10,
@@ -216,19 +216,19 @@ do $$
 begin
   for i in 1..6 loop
     perform public.consume_edge_rate_limits(jsonb_build_array(jsonb_build_object('scope','analyze-meal:user-day',
-      'subject','a7000000-0000-4000-8000-000000000002','limit',4,'window_seconds',86400)));
+      'subject','a7000000-0000-4000-8000-000000000002','limit',3,'window_seconds',86400)));
   end loop;
   perform public.consume_edge_rate_limits(jsonb_build_array(jsonb_build_object('scope','recipe-import:user-day',
-    'subject','a7000000-0000-4000-8000-000000000002','limit',2,'window_seconds',86400)));
+    'subject','a7000000-0000-4000-8000-000000000002','limit',1,'window_seconds',86400)));
   for i in 1..3 loop
     perform public.consume_edge_rate_limits(jsonb_build_array(jsonb_build_object('scope','recipe-import:user-day',
       'subject','a7000000-0000-4000-8000-000000000001','limit',10,'window_seconds',86400)));
   end loop;
-  -- Denied attempts are not counted: after 4 analyses and 2 denials on Free,
-  -- a mid-day upgrade to 30 leaves 25. The single gate behaves the same.
+  -- Denied attempts are not counted: after 3 analyses and 3 denials on Free,
+  -- a mid-day upgrade to 30 leaves 26. The single gate behaves the same.
   if not public.consume_edge_rate_limits(jsonb_build_array(jsonb_build_object('scope','analyze-meal:user-day',
        'subject','a7000000-0000-4000-8000-000000000002','limit',30,'window_seconds',86400))) -> 0
-     @> '{"allowed":true,"remaining":25}' then
+     @> '{"allowed":true,"remaining":26}' then
     raise exception 'Assertion failed: a denied batch attempt was counted';
   end if;
   for i in 1..3 loop
@@ -246,11 +246,11 @@ set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"a7000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
 select pg_temp.require(public.get_my_plan() = jsonb_build_object(
   'tier','free','subscription',null,'legacy',null,
-  'limits','{"current":{"coach_daily":3,"meal_analysis_daily":4,"recipe_import_daily":2,"recipe_picture":false},
-             "free":{"coach_daily":3,"meal_analysis_daily":4,"recipe_import_daily":2,"recipe_picture":false},
+  'limits','{"current":{"coach_daily":2,"meal_analysis_daily":3,"recipe_import_daily":1,"recipe_picture":false},
+             "free":{"coach_daily":2,"meal_analysis_daily":3,"recipe_import_daily":1,"recipe_picture":false},
              "premium":{"coach_daily":20,"meal_analysis_daily":30,"recipe_import_daily":10,"recipe_picture":true}}'::jsonb,
   'usage',jsonb_build_object('day',to_char((now() at time zone 'utc')::date,'YYYY-MM-DD'),
-    'coach',2,'meal_analysis',4,'recipe_import',1),
+    'coach',2,'meal_analysis',3,'recipe_import',1),
   'reset_at',to_char(((now() at time zone 'utc')::date + 1)::timestamp,'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
   'B sees its own Free snapshot, usage capped');
 select set_config('request.jwt.claims','{"sub":"a7000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
@@ -284,7 +284,7 @@ reset role;
 update public.ai_provider_limits set enabled=true, coach_enabled=true, analysis_enabled=true,
   images_enabled=true, daily_call_limit=100000, daily_user_limit=150;
 insert into public.ai_provider_user_usage(user_id,usage_date,calls) values
-  ('a7000000-0000-4000-8000-000000000002',(clock_timestamp() at time zone 'UTC')::date,29),
+  ('a7000000-0000-4000-8000-000000000002',(clock_timestamp() at time zone 'UTC')::date,10),
   ('a7000000-0000-4000-8000-000000000001',(clock_timestamp() at time zone 'UTC')::date,149),
   ('a7000000-0000-4000-8000-000000000004',(clock_timestamp() at time zone 'UTC')::date,149),
   ('a7000000-0000-4000-8000-000000000005',(clock_timestamp() at time zone 'UTC')::date,9);
@@ -294,7 +294,7 @@ do $$
 declare u record;
 begin
   for u in select * from (values
-    ('a7000000-0000-4000-8000-000000000002'::uuid, 'Free stops at 30'),
+    ('a7000000-0000-4000-8000-000000000002'::uuid, 'Free stops at 11'),
     ('a7000000-0000-4000-8000-000000000001'::uuid, 'Premium stops at 150'),
     ('a7000000-0000-4000-8000-000000000004'::uuid, 'legacy stops at 150')
   ) as v(id, label) loop

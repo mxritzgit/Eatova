@@ -395,9 +395,9 @@ Deno.test("account isolation: overlapping A/B requests keep context, plan, budge
       backend.invoke({ message: "USER_B_CURRENT: Name two balanced snacks." }, USER_B),
     ]);
     equal(results.map((result) => result.status), [200, 200], "Both independent requests complete");
-    equal(results.map((result) => result.body.daily_limit), [3, 20], "Each answer carries its own account's limit");
+    equal(results.map((result) => result.body.daily_limit), [2, 20], "Each answer carries its own account's limit");
     const claims = backend.calls.filter((call) => call.url.pathname.endsWith("/claim_chat_quota"));
-    equal(claims.map((call) => [call.body.p_user_id, call.body.p_daily_limit]).sort(), [[USER_A, 3], [USER_B, 20]],
+    equal(claims.map((call) => [call.body.p_user_id, call.body.p_daily_limit]).sort(), [[USER_A, 2], [USER_B, 20]],
       "Each claim uses the plan of its own account");
     const answers = backend.providers().filter((call) => !isClassifierRequest(call.body));
     equal(answers.length, 2, "Two answer payloads");

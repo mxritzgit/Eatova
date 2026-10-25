@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/services/coach_quota_reset.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 import 'package:flutter/widgets.dart';
@@ -86,6 +87,70 @@ void main() {
       _analysisMessage(408, 'request_timeout', l10n),
       l10n.foodAnalysisTimeoutMessage,
     );
+  });
+
+  // The shared Free pool (scope 'free') names its reset as a local clock
+  // time; every other scope keeps the service-availability text.
+  final freeReset = DateTime.utc(2026, 10, 26);
+  Map<String, Object?> budgetBody(String? scope) => {
+    'error': 'ai_budget_exhausted',
+    'scope': ?scope,
+    'resetAt': freeReset.toIso8601String(),
+    'message': _serverDetail,
+  };
+
+  test('analysis: the spent Free pool names its reset, never a quota', () {
+    for (final scope in <String?>['free', 'all', 'account', null]) {
+      Object? failure;
+      try {
+        parseAnalyzeMealResponse(429, jsonEncode(budgetBody(scope)));
+      } catch (error) {
+        failure = error;
+      }
+      // No MealAnalysisRateLimited: no plan-limit notice, no upgrade.
+      expect(failure, isNot(isA<MealAnalysisRateLimited>()), reason: scope);
+      expect(
+        mealAnalysisErrorMessage(failure!, _fallback, l10n),
+        scope == 'free'
+            ? l10n.planFreePoolExhaustedMeal(mealAnalysisClockLabel(freeReset))
+            : l10n.foodAnalysisServiceUnavailableMessage,
+        reason: scope,
+      );
+    }
+  });
+
+  test('coach: the spent Free pool names its reset, without quota lock',
+      () async {
+    for (final scope in <String?>['free', 'account']) {
+      final client = SupabaseClient(
+        'https://edge.test.invalid',
+        'synthetic-anon-key',
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode({...budgetBody(scope), 'session_id': 'synthetic'}),
+            429,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      );
+      addTearDown(client.dispose);
+      final service = CoachChatService(client, 'synthetic-user')..l10n = l10n;
+      Object? failure;
+      try {
+        await service.send('Dinner advice', sessionId: 'synthetic-session');
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, isNot(isA<CoachQuotaExceeded>()), reason: scope);
+      expect(
+        (failure as CoachChatException).message,
+        scope == 'free'
+            ? l10n.planFreePoolExhausted(coachQuotaClockLabel('en', freeReset))
+            : l10n.coachErrorUnreachable,
+        reason: scope,
+      );
+      expect(service.serverDailyLimit, isNull, reason: scope);
+    }
   });
 
   // Chat, recipe and plan reach the edge function through separate paths, so

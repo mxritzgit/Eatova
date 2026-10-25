@@ -110,7 +110,7 @@ content, images, chat text, access tokens or user-identifying labels.
 | --- | --- | --- |
 | API availability | More than 5% server errors over 5 minutes with at least 20 requests | Check deployment, database health and sanitized error categories |
 | Authentication abuse | Sustained rejected-login/rate-limit spike above the established baseline | Review aggregate origin/rate data and account protections |
-| AI budget | 60% of approved daily reservation limit (the [ops watch](#ops-watch) threshold since Premium); separate alert at exhaustion | Check usage trend, reserve policy and stop switches |
+| AI budget | 60% of an approved daily reservation limit: all calls, pictures or the [Free pool](#free-ai-pool) (the [ops watch](#ops-watch) threshold since Premium); separate alert at exhaustion | Check usage trend, reserve policy and stop switches |
 | Backups | Latest completed recovery point older than the agreed RPO or a failed scheduled backup | Repair backup path and verify a new usable recovery point |
 | Privileged changes | Owner/membership/token changes or security protection disabled | Verify the authorized change and actor through restricted admin audit access |
 | Monitoring failure | Missing expected heartbeat or disabled rule | Restore collection/routing before relying on silence |
@@ -236,12 +236,12 @@ each.
    log drain into an alerting tool where the plan allows it. Do not put the
    management token into PR-reachable workflows.
 2. **Provider budget at 60%.** Schedule the readiness check below: it exits 1
-   when global AI calls or images reach the warning share of the approved
-   daily limit (`--budget-warning-percent`, 60 in the ops watch), and 2 when
-   the state is unknown. Route both
+   when global AI calls, images or the Free pool's calls reach the warning
+   share of their approved daily limit (`--budget-warning-percent`, 60 in the
+   ops watch), and 2 when the state is unknown. Route both
    exit codes and a missed run. Separately set the provider accounts' spend
-   notifications to 80% of the approved monthly money limit where the provider
-   console offers them; the daily reservation limit is not a money limit.
+   limits and alerts ([provider spend limits](#provider-spend-limits)); the
+   daily reservation limit is not a money limit.
 
 ### Executable read-only readiness check
 
@@ -269,8 +269,8 @@ python -m unittest discover -s test/operations -p '*_test.py'
 
 The script verifies project identity first, reads completed-backup metadata and
 the enabled PITR recovery window, and reads only the singleton AI limits and the
-current UTC day's global call/image counters. The sole POST uses Supabase's
-[read-only SQL endpoint](https://supabase.com/docs/reference/api/v1-read-only-query)
+current UTC day's global call, image and Free-pool counters. The sole POST
+uses Supabase's [read-only SQL endpoint](https://supabase.com/docs/reference/api/v1-read-only-query)
 with a fixed aggregate query. It never queries account rows, sends notifications,
 creates a backup, changes a stop switch or exports a database. HTTPS uses the
 fixed Supabase management host, certificate/hostname verification, no proxies or
@@ -284,6 +284,12 @@ The JSON report and exit code can be consumed by an operator-approved scheduler:
 | `0` | Requested metadata checks passed | Keep the dated result; still require restore and alarm-delivery evidence |
 | `1` | Attention: project unhealthy, no fresh completed recovery point, a failed backup, an active AI stop/zero limit, or usage at the warning/exhaustion threshold | Review the indicated condition; stops may be intentional |
 | `2` | Unknown: identity/access/transport/response validation failed | Treat the check as unavailable; do not read silence as healthy |
+
+The budget part also reads the [Free pool](#free-ai-pool)
+(`daily_free_call_limit` and the day's `free_calls`): `free_calls_warning`
+and `free_calls_exhausted` use the same warning share as calls and images,
+and `free_limit_not_below_total` means the pool is not below
+`daily_call_limit`, so it no longer keeps a reserve for Premium.
 
 The script's default usage warning is 80%; the [ops watch](#ops-watch)
 passes 60 (the Premium decision, see [alerts and checks](#alerts-and-checks)).
@@ -340,8 +346,9 @@ hourly (minute 17) and on demand from `main`. It makes no paid call and reads
 no user data:
 
 1. the readiness check above with `--budget-warning-percent 60`: project
-   identity and health, the AI stop switches, the zero account limit, and the
-   shared daily AI calls and images at 60 % or exhausted. Exit 1 (attention)
+   identity and health, the AI stop switches, the zero account limit, the
+   shared daily AI calls, images and Free-pool calls at 60 % or exhausted,
+   and a Free pool not below the total. Exit 1 (attention)
    and exit 2 (unknown) fail the run. Backups are checked only once the
    variable `OPS_WATCH_BACKUP_MAX_AGE_HOURS` holds the agreed RPO in hours;
    without it the summary names them as not checked, because a project
@@ -439,6 +446,8 @@ details outside this repository.
    update the singleton `public.ai_provider_limits` row: `enabled=false` stops
    new reservations globally; `coach_enabled`, `analysis_enabled` and
    `images_enabled` scope the stop. Zero daily limits also deny reservations.
+   Two switches stop only Free AI and keep Premium working (see the
+   [Free AI pool](#free-ai-pool)).
    Confirm the expected row exists and verify the setting afterwards. These
    switches do not cancel in-flight provider work or reverse existing charges.
    Do not delete user history or reset counters to recover service. For
@@ -787,13 +796,15 @@ select tier, coach_daily, meal_analysis_daily, recipe_import_daily,
 ```
 
 - Bounds: 1 to 10,000 per feature, 0 to 10,000 provider calls.
-- Raising a limit is always possible. Lowering a Free limit needs the AGB
-  notice four weeks ahead; lowering a Premium limit changes a paid product
-  and needs the notice and termination right of the terms (see the
-  [legal draft](PREMIUM-LEGAL-DRAFT.md)).
+- Raising a limit is always possible. Once the app is public, lowering a
+  Free limit needs the AGB notice four weeks ahead; lowering a Premium limit
+  changes a paid product and needs the notice and termination right of the
+  terms (see the [legal draft](PREMIUM-LEGAL-DRAFT.md)). `20261026100000`
+  lowered Free to 2 / 3 / 1 without a notice: the app is not public and its
+  only accounts are the owner's test accounts.
 - `provider_calls_daily` must stay above what the features can spend (Free
-  3 Coach × 2 + 4 + 2 imports × 2 = 14 calls under 30; Premium 20 × 3 with
-  pictures + 30 + 10 × 2 = 110 under 150), and
+  2 Coach × 2 + 3 + 1 import × 2 = 9 calls, cap 11 for one refunded Coach
+  retry; Premium 20 × 3 with pictures + 30 + 10 × 2 = 110 under 150), and
   `ai_provider_limits.daily_user_limit` at least the highest
   `provider_calls_daily`, because the lower value wins. A legacy account
   with Premium gets the merged maximum 20 × 3 + 100 + 20 × 2 = 200 as its
@@ -803,7 +814,97 @@ select tier, coach_daily, meal_analysis_daily, recipe_import_daily,
 - `FREE_FALLBACK` in `_shared/plan.ts` and the app's assumed defaults stay at
   the decided values; changing them needs a code change.
 
+### Free AI pool
+
+`reserve_ai_provider_call` counts every provider call of a Free account (tier
+not `premium`, a legacy account without Premium included) in the global
+`ai_provider_daily_usage.free_calls` and denies Free once it reaches
+`ai_provider_limits.daily_free_call_limit` (`429 ai_budget_exhausted` with
+`scope: "free"`). Premium is not counted and not stopped by it. Why, the
+order of checks and the bounds: [Premium, section 7](PREMIUM.md#7-abuse-protection).
+
+| Setting | Before the launch | Meaning |
+| --- | --- | --- |
+| `daily_free_call_limit` | 150 | Provider calls of all Free accounts together per UTC day |
+| `daily_call_limit` | 400 | All provider calls per UTC day, Free and Premium |
+| `daily_image_limit` | 20 | Recipe pictures per UTC day (Premium only) |
+| `daily_user_limit` | 200 (unchanged) | Operator ceiling per account; the plan's `provider_calls_daily` (11 for Free) is lower |
+
+`20261026100000` sets the pool to 150 and replaces only the ceilings
+`20261025100000` left (3000 calls, 200 pictures) with 400 and 20; any other
+live value, and an operator's later change, stays on a second run. Worst case before the launch:
+about 16 USD a day from Free and at most about 43.5 USD from all calls,
+pictures included. Keep `daily_free_call_limit` below `daily_call_limit`;
+the readiness check reports `free_limit_not_below_total` otherwise.
+
+Sizing at the launch, from a few weeks of ops-watch numbers:
+
+- `daily_free_call_limit`: about Free daily active accounts × 5 calls × 1.5.
+- `daily_call_limit`: the Free pool plus a Premium reserve of at least 150 ×
+  the heavy Premium accounts.
+- `daily_image_limit`: about 50 to 100.
+- Raise the Anthropic spend limit to match ([below](#provider-spend-limits)):
+  at least 30 × `daily_free_call_limit` × about 0.105 USD plus the expected
+  Premium spend, so a Free pool used up every day for a month cannot reach
+  it. Otherwise lower `daily_free_call_limit` to about (limit − Premium
+  spend) / (30 × 0.105 USD).
+
+```sql
+update public.ai_provider_limits
+  set daily_free_call_limit = <pool>, daily_call_limit = <total>, daily_image_limit = <pictures>
+  where singleton;
+select daily_free_call_limit, daily_call_limit, daily_image_limit, daily_user_limit
+  from public.ai_provider_limits;
+```
+
+Two switches stop Free AI and keep Premium working:
+
+1. `update public.ai_provider_limits set daily_free_call_limit = 0 where singleton;`
+   denies every Free call with `scope: "free"`; a current app shows the calm
+   "at capacity" notice with the next 00:00 UTC as the return time. Use it
+   only for a stop that ends by then.
+2. `update public.plan_tiers set provider_calls_daily = 0, updated_at = now() where tier = 'free';`
+   denies through the per-account cap (`scope: "account"`, the generic
+   message without a time). Use it, or a general stop switch, for a stop of
+   unknown length. It does not reach a legacy account, which reads the
+   `legacy` row.
+
+With either, a meal analysis or recipe import denied at its first
+reservation gets its day slot back. Undo a switch by setting the earlier
+value again. Neither cancels a call in flight; the general stop switches are
+in the [incident response](#incident-response-containment-and-rollback).
+
+### Provider spend limits
+
+The reservation limits count requests, not money. The only bounds in
+dollars are in the provider consoles. Owner steps (the console labels are
+not verified):
+
+1. **Anthropic Console:** on the workspace that holds the production
+   `ANTHROPIC_API_KEY`, a monthly spend limit of about 50 USD before the
+   launch, with an alert at about 20 USD. Raise it with the pools at the
+   launch.
+2. **OpenRouter:** a credit limit of about 10 USD on the picture key
+   (`OPENROUTER_API_KEY`).
+
+Once the Anthropic limit is reached, the provider refuses further calls for
+every tier until the limit resets or is raised. A Free farm that uses the
+whole pool every day (about 7 to 16 USD a day) reaches a 50 USD limit in
+about 3 to 7 days and then stops Premium too; the 20 USD alert, or
+`free_calls_warning` on several days in a row, is the signal to lower
+`daily_free_call_limit` or set it to 0 first. Record the date and the
+values in the handoff, never a key. The readiness check cannot see these
+settings and keeps reporting `monetary_limit_verified: false`.
+
 ### Ending the legacy window
+
+**Ended live on 2026-10-25 at 08:30:35 UTC**, with the owner's consent and
+without the notice: all 7 accounts were the owner's test accounts and the
+app is not public, so no announced terms applied. One statement set
+`legacy_until = now()` on the settings row while it was still null. Since
+then no account is legacy, every account without Premium gets the `free`
+row, and no app shows the notice (it needs a legacy account). The procedure
+below is kept as built.
 
 Accounts created before the migration keep the `legacy` limits while
 `plan_settings.legacy_until` is null. Set it only after the new terms are
@@ -831,12 +932,12 @@ earlier; a later date shows the notice again. Never change
 
 ### Alerts and checks
 
-- **Global caps.** The migration raises the shared ceilings to 3,000
-  provider calls and 200 recipe pictures per day. The [ops watch](#ops-watch)
-  warns at 60 % of them (1,800 calls, 120 pictures), so a few heavy accounts
-  cannot exhaust the day unseen. The 60 % reaches the watch with the Premium
-  merge, which follows the live migration; against the old ceilings (1,000
-  and 50) it would already warn at 600 calls and 30 pictures.
+- **Global caps.** Until the launch the shared ceilings are 400 provider
+  calls and 20 recipe pictures per day, with 150 calls for Free
+  (`20261026100000`; the Premium migration had raised them to 3,000 and
+  200). The [ops watch](#ops-watch) warns at 60 % of each (240 calls, 12
+  pictures, 90 Free calls), so a farm or a few heavy accounts cannot
+  exhaust the day unseen.
 - **Plan lookup.** A failed `resolve_plan` writes `resolve_plan unavailable`
   and serves the Free limits, also to Premium accounts; a request those
   limits would deny answers `503 plan_unavailable` (the app shows a

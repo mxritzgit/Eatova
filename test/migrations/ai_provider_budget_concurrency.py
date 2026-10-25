@@ -32,12 +32,23 @@ def run_tests(sql):
         assert granted == 4, f"account race: expected 4 grants, got {granted}"
         assert sql("select sum(calls) from public.ai_provider_daily_usage").strip() == "4"
         assert sql("select sum(calls) from public.ai_provider_user_usage").strip() == "4"
+
+        # The accounts are Free: together they never pass the Free pool.
+        sql("truncate public.ai_provider_daily_usage,public.ai_provider_user_usage; update public.ai_provider_limits set daily_call_limit=100,daily_user_limit=100,daily_free_call_limit=5")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+            outcomes = list(pool.map(claim, users))
+        granted = sum(result.get("allowed") is True for result in outcomes)
+        assert granted == 5, f"Free pool race: expected 5 grants, got {granted}"
+        assert sum(result.get("scope") == "free" for result in outcomes) == 15
+        assert sql("select sum(calls)||'/'||sum(free_calls) from public.ai_provider_daily_usage").strip() == "5/5"
         return {"global_accounts": 20, "global_granted": 7, "global_denied": 13,
-                "same_account_requests": 12, "same_account_granted": 4, "same_account_denied": 8}
+                "same_account_requests": 12, "same_account_granted": 4, "same_account_denied": 8,
+                "free_pool_accounts": 20, "free_pool_granted": 5, "free_pool_denied": 15}
     finally:
         sql("delete from auth.users where id in (" + ",".join("'" + user + "'" for user in users) + ");"
             "truncate public.ai_provider_daily_usage,public.ai_provider_user_usage;"
-            "update public.ai_provider_limits set daily_call_limit=default,daily_user_limit=default")
+            "update public.ai_provider_limits set daily_call_limit=default,daily_user_limit=default,"
+            "daily_free_call_limit=default")
 
 
 if __name__ == "__main__":
