@@ -278,6 +278,13 @@ class FunktionsErwartung {
     required this.grund,
   }) : executeRollen = const {'service_role'};
 
+  /// GoTrue's Before User Created hook: called as `supabase_auth_admin`,
+  /// never by a client.
+  const FunktionsErwartung.authHook({
+    required this.definer,
+    required this.grund,
+  }) : executeRollen = const {'service_role', 'supabase_auth_admin'};
+
   /// `security definer` runs the body with the OWNER's rights, i.e. past RLS.
   /// Pinned in both directions: losing it breaks the function (it then hits
   /// the caller's grants), gaining it hands a caller the owner's reach.
@@ -450,6 +457,22 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
       definer: true, grund: 'Bootstrap-Trigger auf auth.users.'),
   'handle_new_user_stats': FunktionsErwartung.nurServer(
       definer: true, grund: 'Bootstrap-Trigger auf auth.users.'),
+  'email_canonical_key': FunktionsErwartung.nurServer(
+      definer: false,
+      grund: 'One-account-per-mailbox key from pure text; runs only inside '
+          'the alias trigger and hook below.'),
+  'email_alias_holder_exists': FunktionsErwartung.nurServer(
+      definer: false,
+      grund: 'Scans auth.users for another holder of a key; client-callable '
+          'it would answer whether an address has an account.'),
+  'guard_auth_user_email_alias': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'BEFORE trigger on auth.users against alias signups, email '
+          'changes and confirming a second alias.'),
+  'auth_before_user_created': FunktionsErwartung.authHook(
+      definer: true,
+      grund: 'Before User Created hook; GoTrue calls it as '
+          'supabase_auth_admin, a client call would be an address oracle.'),
   'touch_chat_session': FunktionsErwartung.nurServer(
       definer: true, grund: 'Trigger auf chat_messages.'),
   'set_updated_at': FunktionsErwartung.nurServer(

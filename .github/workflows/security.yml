@@ -592,6 +592,9 @@ jobs:
       - name: Offline-Sync unter gleichzeitiger Last pruefen
         run: python3 test/migrations/offline_sync_concurrency.py
 
+      - name: Gleichzeitige Alias-Registrierungen pruefen
+        run: python3 test/migrations/email_alias_concurrency.py
+
       - name: Rezept-Upgrade mit vorhandenem Datenbestand pruefen
         run: python3 test/migrations/offline_sync_upgrade.py
 

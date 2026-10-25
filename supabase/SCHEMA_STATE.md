@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (60)
+## Migrationen (61)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -94,6 +94,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 58. `20261019110000_weight_log_edit.sql`
 59. `20261025100000_premium_subscriptions.sql`
 60. `20261026100000_free_ai_pool.sql`
+61. `20261027100000_email_alias_guard.sql`
 
 ## Tabellen in `public` (31)
 
@@ -217,13 +218,14 @@ Policies umzuschreiben. `normalisiereAusdruck` in
 `test/migrations/migration_schema.dart` liest beide Schreibweisen
 als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
-## Funktionen in `public` (62)
+## Funktionen in `public` (66)
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
 | `apply_recipe_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20261011100000_recipe_recreate_after_delete.sql` |
 | `apply_sync_operation` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20261019110000_weight_log_edit.sql` |
 | `apply_training_plan_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
+| `auth_before_user_created` | **Eigentuemers** | `''` | `service_role`, `supabase_auth_admin` | `20261027100000_email_alias_guard.sql` |
 | `claim_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
 | `consume_edge_rate_limit` | **Eigentuemers** | `public, extensions` | `service_role` | `20261025100000_premium_subscriptions.sql` |
 | `consume_edge_rate_limits` | **Eigentuemers** | `public, extensions` | `service_role` | `20261025100000_premium_subscriptions.sql` |
@@ -233,12 +235,15 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `delete_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `delete_training_history` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260910181000_training_history.sql` |
 | `eat_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
+| `email_alias_holder_exists` | Aufrufers | `''` | `service_role` | `20261027100000_email_alias_guard.sql` |
+| `email_canonical_key` | Aufrufers | `''` | `service_role` | `20261027100000_email_alias_guard.sql` |
 | `enforce_user_daily_row_cap` | **Eigentuemers** | `''` | `service_role` | `20261019100000_ai_consents_reports.sql` |
 | `enforce_user_row_cap` | **Eigentuemers** | `public` | `service_role` | `20260829120000_row_caps_and_hardening.sql` |
 | `ensure_default_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260609120000_chat_rpc_least_privilege.sql` |
 | `get_chat_quota_today` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260808210000_chat_quota_honesty.sql` |
 | `get_my_plan` | **Eigentuemers** | `''` | `authenticated`, `service_role` | `20261025100000_premium_subscriptions.sql` |
 | `get_store_account_token` | **Eigentuemers** | `''` | `authenticated`, `service_role` | `20261025100000_premium_subscriptions.sql` |
+| `guard_auth_user_email_alias` | **Eigentuemers** | `''` | `service_role` | `20261027100000_email_alias_guard.sql` |
 | `guard_training_plan_incarnation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20261011101000_profile_display_name_clamp.sql` |
 | `handle_new_user_stats` | **Eigentuemers** | `public` | `service_role` | `20260516160000_app_data_schema.sql` |

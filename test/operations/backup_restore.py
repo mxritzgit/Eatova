@@ -90,7 +90,8 @@ def schema_fingerprint(container):
 
 def role_fingerprint(container):
     return sql(container, "select rolname, rolcanlogin, rolinherit, rolsuper, rolbypassrls "
-               "from pg_roles where rolname in ('anon','authenticated','service_role') "
+               "from pg_roles where rolname in ('anon','authenticated','service_role',"
+               "'supabase_auth_admin') "
                "order by rolname").stdout
 
 
@@ -136,7 +137,8 @@ def main():
         # cluster; all values below were generated inside this synthetic run.
         roles = sql(source, "select format('CREATE ROLE %I NOLOGIN NOINHERIT %s;', "
                     "rolname, case when rolbypassrls then 'BYPASSRLS' else 'NOBYPASSRLS' end) "
-                    "from pg_roles where rolname in ('anon','authenticated','service_role') "
+                    "from pg_roles where rolname in ('anon','authenticated','service_role',"
+                    "'supabase_auth_admin') "
                     "order by rolname").stdout.decode()
         sql(restored, roles)
         dump = docker('exec', source, 'pg_dump', '-U', 'postgres', '-d',
