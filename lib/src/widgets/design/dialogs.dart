@@ -795,8 +795,9 @@ class EatovaConfirmDialog extends StatelessWidget {
 ///
 /// A locked lit action is "not yet": its own accent at [kLockedFillAlpha]
 /// with a dimmed `accentText` label and no light. Busy keeps full colour.
-/// Keyboard focus (traditional highlight mode) lays the label tone over the
-/// fill and lifts a lit action's light; never a ring. Haptics: a lit
+/// Keyboard focus (traditional highlight mode) brightens a lit fill with
+/// [kLitFocusOverlay], lays the label tone over the others and lifts a lit
+/// action's light; never a ring. Haptics: a lit
 /// destructive confirm gives a medium impact, a lit one a light impact.
 class EatovaDialogAction extends StatefulWidget {
   const EatovaDialogAction({
@@ -937,7 +938,9 @@ class _EatovaDialogActionState extends State<EatovaDialogAction> {
               return foreground.withValues(alpha: 0.10);
             }
             if (keyboard && states.contains(WidgetState.focused)) {
-              return foreground.withValues(alpha: 0.16);
+              return lit
+                  ? kLitFocusOverlay
+                  : foreground.withValues(alpha: 0.16);
             }
             if (states.contains(WidgetState.hovered)) {
               return foreground.withValues(alpha: 0.05);

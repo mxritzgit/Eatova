@@ -802,6 +802,10 @@ const double kPrimaryButtonHeight = 54;
 /// Touch-target floor for themed Material buttons (Filled/Outlined).
 const double kButtonMinHeight = 48;
 
+/// Keyboard focus over a lit fill: white, so focus BRIGHTENS it in both
+/// palettes. The dark palette's label ink is near-black and darkened it.
+const Color kLitFocusOverlay = Color(0x2EFFFFFF);
+
 /// Soft elevation for floating surfaces (sheets, input capsules). Depth
 /// normally comes from [AppTokens.line]; shadows stay the exception for
 /// things that really sit above the content.

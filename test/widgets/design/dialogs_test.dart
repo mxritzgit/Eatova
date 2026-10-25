@@ -385,8 +385,8 @@ void main() {
   });
 
   // Keyboard focus is a fill change, never a ring, and only in the
-  // traditional highlight mode: the lit confirm lays its label tone over
-  // the fill, the quiet cancel takes the `field` capsule and an `ink` label.
+  // traditional highlight mode: the lit confirm brightens in both palettes,
+  // the quiet cancel takes the `field` capsule and an `ink` label.
   testWidgets('keyboard focus brightens the fill without a ring, touch none', (
     tester,
   ) async {
@@ -410,10 +410,14 @@ void main() {
     FocusManager.instance.highlightStrategy =
         FocusHighlightStrategy.alwaysTraditional;
     await tester.pump();
-    expect(
-      style(_confirm).overlayColor!.resolve(focused),
-      t.onAccentFill.withValues(alpha: 0.16),
-    );
+    final lifted = style(_confirm).overlayColor!.resolve(focused)!;
+    for (final palette in [AppTokens.light, AppTokens.dark]) {
+      expect(
+        Color.alphaBlend(lifted, palette.accentFill).computeLuminance(),
+        greaterThan(palette.accentFill.computeLuminance()),
+        reason: 'focus brightens the lit fill in both palettes',
+      );
+    }
     expect(style(_cancel).backgroundColor!.resolve(focused), t.field);
     expect(style(_cancel).foregroundColor!.resolve(focused), t.ink);
     for (final key in [_confirm, _cancel]) {

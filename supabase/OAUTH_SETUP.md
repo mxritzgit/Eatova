@@ -30,8 +30,12 @@ address in another spelling and to sign in the way the user registered
 the generic error. This reveals nothing to a stranger, because Google has
 proven the mailbox, and a stranger's unconfirmed alias signup never blocks
 the Google sign-in. Linking Google to the existing account is a follow-up.
-The web fallback's error path (`error_description` in the redirect) was not
-traced.
+The web fallback (no native sign-in, and Apple) shows nothing: GoTrue
+redirects to `eatova://login-callback/?error=server_error&error_description=...`,
+which [`isOAuthCallbackDeeplink`](../lib/src/config/supabase_config.dart)
+drops because it carries no `code`, so the user closes the browser sheet and
+is back on the sign-in screen without a message. Rendering that error is a
+follow-up that has to keep the predicate as strict as it is.
 
 ## Configure your own project
 

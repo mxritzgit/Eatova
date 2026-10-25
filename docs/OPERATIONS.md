@@ -963,7 +963,7 @@ neutral 422.
    `Content-Type: application/json` and `x-supabase-api-version: 2024-01-01`,
    the alias from step 1 (computed in the script, never printed) and a
    random 24-character password. Expect status 422, `code` `unknown` and
-   `msg` `User already registered`; print only these three, then check that
+   `message` `User already registered`; print only these three, then check that
    the account count is unchanged. With the hook inactive the trigger
    answers 500, still without a row or a mail, because the insert fails
    before the confirmation mail. Only if both failed would one code mail
@@ -1008,9 +1008,10 @@ renaming the function while the hook is enabled.
 - Postgres logs: `alias check skipped` warnings from either function stay
   at zero; a hit means the guard is failing open, so investigate the
   SQLSTATE.
-- The [readiness check](#executable-read-only-readiness-check) reports
-  `email_alias_groups`, the number of keys held by more than one account;
-  the baseline is 1 (the owner's pair), and the ops watch flags an increase.
+- Alias groups (keys held by more than one account) are not a readiness
+  metric: the read-only role has no EXECUTE on `email_canonical_key`.
+  Recount through `/database/query` when needed; the baseline is 1 (the
+  owner's pair), and the guard keeps new groups from forming.
 - **Sentry triage:** after the rollout, a 5xx on `/signup`, `PUT /user` or
   `/verify` can be the trigger. A 500 "Error sending email change email" on
   an email change can mean that the new address is an alias of another

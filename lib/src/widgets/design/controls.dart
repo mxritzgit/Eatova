@@ -680,7 +680,7 @@ class _PrimaryActionButtonState extends State<PrimaryActionButton>
                   borderRadius: radius,
                   splashFactory: NoSplash.splashFactory,
                   highlightColor: onFill.withValues(alpha: 0.10),
-                  focusColor: onFill.withValues(alpha: 0.16),
+                  focusColor: kLitFocusOverlay,
                   hoverColor: onFill.withValues(alpha: 0.05),
                   child: ConstrainedBox(
                     // Min height, not a fixed one: at textScaler 2.0 the
