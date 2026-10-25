@@ -4462,16 +4462,38 @@ account is legacy, and the accounts got the `free` row (then 3 / 4 / 2).
   and an optional identity key
   ([list](PREMIUM.md#77-before-the-public-launch)).
 
-**Delivery state:** code committed on branch `premium/free-ai-pool`; the PR
-is not merged yet, migration `20261026100000_free_ai_pool.sql` is not live,
-and `coach-chat`, `analyze-meal` and `recipe-import` are not deployed. The
-orchestrator updates this entry with the PR, the checks and the rollout.
+**Delivery state: PR #172 merged and live.** CI 16/16 green on the reviewed
+head `89f0d5c5` (real-Postgres RLS and budget suites, Deno, the Flutter
+suite in four shards with the 95 % floor, gitleaks). The owner approved the
+merge, the live migration and the three deploys on 2026-10-25.
+
+- **Migration `20261026100000`:** before, 59 registered (last
+  `20261025100000`), the live body of `reserve_ai_provider_call` equal to
+  its #170 definition, neither new column nor `release_edge_rate_limit`
+  present, Free 3 / 4 / 2 / 30, ceilings 3000 / 200. Dry run with rollback
+  left the state unchanged. Applied in one transaction with its
+  `schema_migrations` row before the merge (readiness on main reads the new
+  columns). After: 60 = 60, the registered source equals the file, Free
+  2 / 3 / 1 / 11, Premium and legacy unchanged, ceilings 400 / 20,
+  `daily_free_call_limit` 150, both functions security definer and
+  executable only by `service_role`.
+- **Merge:** squash-merged as `27ee6c44`; its tree equals the reviewed head.
+- **Functions** (locally from an LF export of `27ee6c44`, CLI 2.120.0
+  `--use-api`, as for #170): `coach-chat` v61 -> **v62**, `analyze-meal`
+  v43 -> **v44**, `recipe-import` v18 -> **v19**. All ACTIVE, verify_jwt on,
+  live source equal to `27ee6c44`, boot probe 204 / 401 / 401, deploy
+  record SUCCESS.
+- **Readiness** right after: OK, calls 3/400, free 0/150, images 0/20.
+- **Rollback floors** of the three AI functions raised to `27ee6c44` in the
+  follow-up PR ([operations](OPERATIONS.md#rollback)).
+- **Not checked live:** no authenticated request and no denied request in
+  production.
 
 **Owner steps** (details in [operations](OPERATIONS.md#provider-spend-limits)):
 1. Anthropic Console: a monthly spend limit of about 50 USD with an alert at
    about 20 USD on the workspace of the production key.
 2. OpenRouter: a credit limit of about 10 USD on the picture key.
-3. Explicit approval for the merge, the live migration and the three
-   function deploys; then the app build as usual.
+3. The app build as usual: the calm Free notice needs it; older builds show
+   the general budget message.
 4. To test Premium on one of the test accounts, a manual grant
    ([operations](OPERATIONS.md#manual-grants)).

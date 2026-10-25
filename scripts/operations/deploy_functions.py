@@ -89,12 +89,13 @@ PUBLIC_WEBHOOKS = frozenset({'store-notifications'})
 # The oldest commit each function may be deployed from: a rollback target must
 # contain it. A new function needs an entry before the workflow deploys it.
 ROLLBACK_FLOORS = {
-    # Premium (#170): older handlers apply one limit to every account (a
-    # Premium account would get 5 Coach questions instead of 20), send no
-    # planLimit and know no picture lock.
-    'coach-chat': ('3aa48b8648a8706476075c30d788a9d4146207e4', 'premium_tier_limits'),
-    'analyze-meal': ('3aa48b8648a8706476075c30d788a9d4146207e4', 'premium_tier_limits'),
-    'recipe-import': ('3aa48b8648a8706476075c30d788a9d4146207e4', 'premium_tier_limits'),
+    # Free AI pool (#172): older handlers send no scope or resetAt on a budget
+    # denial and fall back to the old Free numbers; analyze-meal and
+    # recipe-import also keep the day slot of a capacity denial. Before #170
+    # they gave every account one limit.
+    'coach-chat': ('27ee6c44bc8914e525235ad2a602e9e89c53d4e2', 'free_ai_pool'),
+    'analyze-meal': ('27ee6c44bc8914e525235ad2a602e9e89c53d4e2', 'free_ai_pool'),
+    'recipe-import': ('27ee6c44bc8914e525235ad2a602e9e89c53d4e2', 'free_ai_pool'),
     # The last source verified live with today's schema and clients before the
     # #155 deploy (2026-10-18); #170 changed only a comment.
     'search-key': ('ea2722e6e9811e31dc92da5e152f4c68ca645701', 'last_verified_live_source'),

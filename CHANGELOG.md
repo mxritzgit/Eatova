@@ -36,8 +36,9 @@ the complete current product.
   - Docs: why the pool bounds abuse, the bounds in USD, both Free stop
     switches, pool sizing, the provider spend limits and the list before
     the public launch. The legacy window ended live on 2026-10-25 with the
-    owner's consent (only test accounts existed). Not live yet: the
-    migration, three function deploys and an app build.
+    owner's consent (only test accounts existed). The migration and the
+    three function deploys went live with #172 on 2026-10-25; the app
+    change ships with the next build.
 
 - **Premium tier** (2026-10-25, [contract](docs/PREMIUM.md)):
   - Free and Premium with server-side daily limits per UTC day: Coach

@@ -204,14 +204,14 @@ def git(repo, *args):
 
 
 class RollbackGuardTest(unittest.TestCase):
-    def test_every_function_has_a_full_floor_and_the_ai_functions_need_premium(self):
+    def test_every_function_has_a_full_floor_and_the_ai_functions_need_the_free_pool(self):
         self.assertEqual(sorted(deploy.ROLLBACK_FLOORS), sorted(deploy.PROBES))
         for slug, (sha, reason) in deploy.ROLLBACK_FLOORS.items():
             self.assertRegex(sha, r'^[0-9a-f]{40}$', slug)
             self.assertRegex(reason, r'^[a-z_]+$', slug)
-        # Older AI handlers give a Premium account the one shared limit (#170).
+        # Older AI handlers send no Free pool scope and use the old Free numbers (#172).
         for slug in ('coach-chat', 'analyze-meal', 'recipe-import'):
-            self.assertEqual(deploy.ROLLBACK_FLOORS[slug][0], '3aa48b8648a8706476075c30d788a9d4146207e4', slug)
+            self.assertEqual(deploy.ROLLBACK_FLOORS[slug][0], '27ee6c44bc8914e525235ad2a602e9e89c53d4e2', slug)
 
     def test_a_target_below_a_floor_is_refused_unless_overridden(self):
         floors = {'coach-chat': (SHA_A, 'reason'), 'search-key': (SHA_B, 'reason')}

@@ -584,7 +584,7 @@ that does not contain it is refused:
 
 | Function | Floor | Why |
 | --- | --- | --- |
-| `coach-chat`, `analyze-meal`, `recipe-import` | `3aa48b86` | Premium (#170): an older handler applies one limit to every account (Premium accounts would get 5 Coach questions instead of 20), sends no `planLimit` and knows no picture lock |
+| `coach-chat`, `analyze-meal`, `recipe-import` | `27ee6c44` | Free AI pool (#172): an older handler sends no `scope` or `resetAt` on a budget denial (the app's Free notice falls back to the general message) and uses the old Free numbers when the plan lookup fails; older `analyze-meal` and `recipe-import` keep the day slot of a capacity denial. Before #170 a handler also applied one limit to every account |
 | `search-key` | `ea2722e6` | The last source verified live with today's schema and clients (identical before the #155 deploy); #170 changed only a comment |
 | `subscription-verify`, `store-notifications` | `fdd8d63f` | `first_release`: the base of the Premium PR; a commit without the function fails as unknown anyway |
 
