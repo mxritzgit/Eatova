@@ -46,13 +46,17 @@ void main() {
   for (final brightness in Brightness.values) {
     final t = brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
 
-    test('Menue-Kante ist lineStrong wie die Entscheidungskarte '
+    // Depth and light: the menu floats like the decision card, lit and on
+    // a wide shadow, without an edge line.
+    test('Menue schwebt ohne Kante wie die Entscheidungskarte '
         '(${brightness.name})', () {
-      final shape =
-          buildEatovaTheme(brightness).popupMenuTheme.shape!
-              as RoundedRectangleBorder;
-      expect(shape.side.color, t.lineStrong);
+      final menu = buildEatovaTheme(brightness).popupMenuTheme;
+      final shape = menu.shape! as RoundedRectangleBorder;
+      expect(shape.side, BorderSide.none);
       expect(shape.borderRadius, BorderRadius.circular(rCard));
+      expect(menu.color, t.surfLit);
+      expect(menu.elevation, 10);
+      expect(menu.shadowColor, t.shadowFloat);
     });
   }
 

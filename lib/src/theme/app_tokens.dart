@@ -31,6 +31,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.surf2,
     required this.surfRaised,
     required this.surfWell,
+    required this.surfLit,
     required this.tile,
     required this.line,
     required this.lineStrong,
@@ -77,6 +78,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.snack,
     required this.danger,
     required this.warning,
+    required this.dangerFill,
+    required this.onDangerFill,
     required this.shadowTint,
     required this.shadowFloat,
     required this.field,
@@ -112,6 +115,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   /// Quiet well behind illustrations and photos on a card.
   final Color surfWell;
+
+  /// The lit top of a floating surface (decision card, plan picker, Abo
+  /// card): [litSurface] falls off from this tone into [surf], so the
+  /// surface catches light from above instead of being drawn with a
+  /// hairline. Dark lifts it a step over [surf]; light keeps it white and
+  /// lets the indigo shadow carry the depth.
+  final Color surfLit;
 
   /// Translucent tint for icon tiles and bar tracks; on a dark card it lands
   /// on the design's track tone #24232D.
@@ -238,6 +248,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// State signals. Separate from brand and data.
   final Color danger, warning;
 
+  /// FILL of a lit destructive action ("Konto löschen", "Verwerfen"):
+  /// a real red where [danger] stays the text and glyph tone. The dark
+  /// [danger] salmon read as a warm accent once it filled a whole button.
+  final Color dangerFill;
+
+  /// Label on [dangerFill] (≥ 4.5:1 in both palettes).
+  final Color onDangerFill;
+
   /// Shadow for raised surfaces.
   final Color shadowTint;
 
@@ -313,6 +331,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     surf2: Color(0xFFEFEDF5),
     surfRaised: Color(0xFFF6F5FA),
     surfWell: Color(0xFFF9F8FC),
+    surfLit: Color(0xFFFFFFFF),
     // 6 % of #2E2A55: #F3F2F5 on a card, #E8E7EE on the page.
     tile: Color(0x0F2E2A55),
     // 9 % / 14 % of #2E2A45: hairlines of 1.18:1 / 1.27:1 on a card.
@@ -380,6 +399,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     // on their own 10–16 % fills.
     danger: Color(0xFFB53327),
     warning: Color(0xFF94600A),
+    // Light `danger` already fills: 6.1:1 under a white label.
+    dangerFill: Color(0xFFB53327),
+    onDangerFill: Color(0xFFFFFFFF),
     // Soft indigo shadows (10 % raised / 15 % floating), never black.
     shadowTint: Color(0x1A1C1833),
     shadowFloat: Color(0x261C1833),
@@ -410,6 +432,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
     surf2: Color(0xFF1F1E27),
     surfRaised: Color(0xFF1B1A22),
     surfWell: Color(0xFF16151C),
+    // 1.09:1 over `surf`: a lift the eye reads as light, not as an edge.
+    surfLit: Color(0xFF1C1B24),
     // 10 % of #BDB3EA: exactly #24232D on `surf`, #1B1A22 on `bg`.
     tile: Color(0x1ABDB3EA),
     // rgba(255, 255, 255, 0.06) / 0.08
@@ -465,6 +489,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     snack: Color(0xFFB9A5FF),
     danger: Color(0xFFF08A72),
     warning: Color(0xFFF0B458),
+    // 4.7:1 under its label, 3.7:1 against the card.
+    dangerFill: Color(0xFFC4422F),
+    onDangerFill: Color(0xFFFFF4F1),
     // rgba(0, 0, 0, 0.5) raised / 0.55 floating
     shadowTint: Color(0x80000000),
     shadowFloat: Color(0x8C000000),
@@ -511,6 +538,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? surf2,
     Color? surfRaised,
     Color? surfWell,
+    Color? surfLit,
     Color? tile,
     Color? line,
     Color? lineStrong,
@@ -557,6 +585,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? snack,
     Color? danger,
     Color? warning,
+    Color? dangerFill,
+    Color? onDangerFill,
     Color? shadowTint,
     Color? shadowFloat,
     Color? field,
@@ -582,6 +612,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       surf2: surf2 ?? this.surf2,
       surfRaised: surfRaised ?? this.surfRaised,
       surfWell: surfWell ?? this.surfWell,
+      surfLit: surfLit ?? this.surfLit,
       tile: tile ?? this.tile,
       line: line ?? this.line,
       lineStrong: lineStrong ?? this.lineStrong,
@@ -628,6 +659,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
       snack: snack ?? this.snack,
       danger: danger ?? this.danger,
       warning: warning ?? this.warning,
+      dangerFill: dangerFill ?? this.dangerFill,
+      onDangerFill: onDangerFill ?? this.onDangerFill,
       shadowTint: shadowTint ?? this.shadowTint,
       shadowFloat: shadowFloat ?? this.shadowFloat,
       field: field ?? this.field,
@@ -659,6 +692,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       surf2: c(surf2, other.surf2),
       surfRaised: c(surfRaised, other.surfRaised),
       surfWell: c(surfWell, other.surfWell),
+      surfLit: c(surfLit, other.surfLit),
       tile: c(tile, other.tile),
       line: c(line, other.line),
       lineStrong: c(lineStrong, other.lineStrong),
@@ -705,6 +739,8 @@ class AppTokens extends ThemeExtension<AppTokens> {
       snack: c(snack, other.snack),
       danger: c(danger, other.danger),
       warning: c(warning, other.warning),
+      dangerFill: c(dangerFill, other.dangerFill),
+      onDangerFill: c(onDangerFill, other.onDangerFill),
       shadowTint: c(shadowTint, other.shadowTint),
       shadowFloat: c(shadowFloat, other.shadowFloat),
       field: c(field, other.field),
@@ -789,6 +825,69 @@ List<BoxShadow> raisedShadow(AppTokens t) => <BoxShadow>[
 List<BoxShadow> floatingShadow(AppTokens t) => <BoxShadow>[
   BoxShadow(color: t.shadowFloat, blurRadius: 32, offset: const Offset(0, 12)),
 ];
+
+// --- DEPTH AND LIGHT (polish 2026-10-25) ------------------------------------
+// A floating surface separates from its ground by light, never by a hairline:
+// a lit top falling off into `surf`, a tight contact shadow and a wide
+// ambient one. A lit control (the one primary action) casts its own colour;
+// a press sinks it into that light. No brightness branch: the palettes
+// differ only in their tokens.
+
+/// Fill of a floating surface: [AppTokens.surfLit] at the top edge, falling
+/// off into [AppTokens.surf] over the upper part.
+LinearGradient litSurface(AppTokens t) => LinearGradient(
+  begin: Alignment.topCenter,
+  end: const Alignment(0, 0.1),
+  colors: <Color>[t.surfLit, t.surf],
+);
+
+/// Depth of a decision surface (the dialog card, the paywall's plan picker):
+/// contact plus a wide ambient falloff.
+List<BoxShadow> decisionShadow(AppTokens t) => <BoxShadow>[
+  BoxShadow(
+    color: t.shadowTint,
+    blurRadius: 10,
+    offset: const Offset(0, 3),
+    spreadRadius: -4,
+  ),
+  BoxShadow(
+    color: t.shadowFloat,
+    blurRadius: 44,
+    offset: const Offset(0, 22),
+    spreadRadius: -10,
+  ),
+];
+
+/// The light a lit control casts onto its ground: [light] (`accentGlow`, or
+/// `dangerFill` at 38 % for a destructive action) under it, plus a contact
+/// shadow. [strength] fades both in as a locked control arms (0 = unlit,
+/// flat; above 1 lifts a keyboard-focused control); [press] (0 at rest, 1
+/// fully pressed) pulls the light in and down, so the control sinks.
+List<BoxShadow> castLight(
+  AppTokens t,
+  Color light, {
+  double strength = 1,
+  double press = 0,
+}) {
+  if (strength <= 0) return const <BoxShadow>[];
+  final lift = 1 - press.clamp(0.0, 1.0);
+  return <BoxShadow>[
+    BoxShadow(
+      color: light.withValues(alpha: (light.a * strength).clamp(0.0, 1.0)),
+      blurRadius: 10 + 12 * lift,
+      offset: Offset(0, 3 + 6 * lift),
+      spreadRadius: -6,
+    ),
+    BoxShadow(
+      color: t.shadowTint.withValues(
+        alpha: (t.shadowTint.a * strength * 0.7).clamp(0.0, 1.0),
+      ),
+      blurRadius: 4,
+      offset: Offset(0, 1 + lift),
+      spreadRadius: -1,
+    ),
+  ];
+}
 
 // --- TYPE --------------------------------------------------------------------
 // Bundled families (assets/fonts, NO google_fonts):

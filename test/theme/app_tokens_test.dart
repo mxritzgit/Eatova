@@ -45,6 +45,33 @@ const Map<String, AppTokens> _paletten = <String, AppTokens>{
 
 void main() {
   group('AppTokens', () {
+    // Depth and light (2026-10-25): a floating surface's top catches light.
+    // In dark it must sit above `surf` (the falloff runs down into it); in
+    // light it stays white and the shadow carries the depth.
+    test('surfLit hebt die Oberkante, nie unter surf', () {
+      expect(AppTokens.dark.surfLit.computeLuminance(),
+          greaterThan(AppTokens.dark.surf.computeLuminance()));
+      expect(AppTokens.light.surfLit, AppTokens.light.surf);
+      for (final MapEntry(key: modus, value: t) in _paletten.entries) {
+        expect(_contrast(t.ink, t.surfLit), greaterThanOrEqualTo(4.5),
+            reason: '$modus: ink auf surfLit');
+        expect(_contrast(t.ink2, t.surfLit), greaterThanOrEqualTo(4.5),
+            reason: '$modus: ink2 auf surfLit');
+      }
+    });
+
+    // A lit destructive action fills with a real red; `danger` stays the
+    // text tone. Its label reads as text, the fill as a control.
+    test('dangerFill traegt sein Label und hebt sich von der Karte ab', () {
+      for (final MapEntry(key: modus, value: t) in _paletten.entries) {
+        expect(_contrast(t.onDangerFill, t.dangerFill),
+            greaterThanOrEqualTo(4.5),
+            reason: '$modus: onDangerFill auf dangerFill');
+        expect(_contrast(t.dangerFill, t.surf), greaterThanOrEqualTo(3.0),
+            reason: '$modus: dangerFill gegen surf');
+      }
+    });
+
     test('hell ist wirklich hell, dunkel wirklich dunkel', () {
       expect(AppTokens.light.bg.computeLuminance(), greaterThan(0.5),
           reason: 'die helle Palette braucht einen hellen Grund');

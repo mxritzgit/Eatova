@@ -143,7 +143,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Step 2: the code. Subtitle with full mail address, labelled digit
-      // field, 52-px button.
+      // field, 52-px button. At double font size step 1's button sits
+      // below the fold of the scrolling sheet.
+      await tester.ensureVisible(find.text('Code anfordern'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Code anfordern'));
       await tester.pumpAndSettle();
 
