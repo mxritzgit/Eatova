@@ -33,8 +33,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # Exit 1 is attention (project not healthy, a stop switch, calls or
-      # images at 60 % or exhausted; the Premium decision, PREMIUM.md 1.1),
+      # Exit 1 is attention (project not healthy, a stop switch, calls, the
+      # Free pool or images at 60 % or exhausted; PREMIUM.md 1.1 and 7),
       # exit 2 unknown (access, transport or an invalid response); both fail.
       # Backups join once the repository or environment variable
       # OPS_WATCH_BACKUP_MAX_AGE_HOURS holds the agreed RPO; until then the

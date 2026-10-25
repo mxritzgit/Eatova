@@ -1,7 +1,7 @@
 -- Free AI pool: Free accounts share their own daily provider pool, the global
 -- ceilings drop to pre-launch values, and the Edge Function limiter can hand
 -- back a slot that never reached the provider (docs/PREMIUM.md section 7,
--- 2026-10-26).
+-- 2026-10-25).
 --
 --   ai_provider_limits.daily_free_call_limit
 --                                calls all non-Premium accounts together may

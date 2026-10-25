@@ -766,7 +766,7 @@ Deno.test("A3: done traegt exakt dieselbe Nutzlast wie der gepufferte Body", asy
 });
 
 Deno.test("Tarif: unter dem Plan-Ausfall nennen meta und done weder Limit noch Rest", async () => {
-  // The Free fallback's 3 is not the account's limit (docs/PREMIUM.md 3.1);
+  // The Free fallback's 2 is not the account's limit (docs/PREMIUM.md 3.1);
   // a named limit would lock a Premium composer for the session.
   const stub = installFetch({ planUnavailable: true, answerDeltas: [LANGER_TEXT_A, LANGER_TEXT_B] });
   const originalError = console.error;
