@@ -108,12 +108,12 @@ void main() {
           'error': 'quota_exceeded',
           'reply': 'Tageslimit erreicht.',
           'remaining': 0,
-          'daily_limit': 3,
+          'daily_limit': 2,
           'reset_at': '2026-10-26T00:00:00.000Z',
           'planLimit': <String, Object?>{
             'feature': 'coach',
             'tier': 'free',
-            'limit': 3,
+            'limit': 2,
             'resetAt': '2026-10-26T00:00:00.000Z',
             'premiumLimit': 20,
           },
@@ -125,7 +125,7 @@ void main() {
           'reply': 'Rezeptvorschlag: Bowl.',
           'refusal': false,
           'remaining': 1,
-          'daily_limit': 3,
+          'daily_limit': 2,
           'session_id': 's1',
           'image_locked': true,
           'recipe': <String, Object?>{
@@ -164,7 +164,7 @@ void main() {
     expect(failure, isA<CoachQuotaExceeded>());
     final hit = (failure as CoachQuotaExceeded).planLimit;
     expect(hit?.tier, PlanTier.free);
-    expect(hit?.limit, 3);
+    expect(hit?.limit, 2);
     expect(hit?.premiumLimit, 20);
     expect(hit?.resetAt, DateTime.utc(2026, 10, 26));
 
@@ -182,7 +182,7 @@ void main() {
         log: FakeSubscriptionLog(plan: planOf(PlanTier.free)),
       );
       addTearDown(plan.dispose);
-      final svc = _Coach(_quota429(PlanTier.free, 3, premiumLimit: 20));
+      final svc = _Coach(_quota429(PlanTier.free, 2, premiumLimit: 20));
       final coach = CoachChatController(service: svc, subscription: plan);
       addTearDown(coach.dispose);
       await coach.bootstrap();
@@ -190,7 +190,7 @@ void main() {
 
       await coach.send('Frage');
       expect(coach.canType, isFalse);
-      expect(coach.error, deL10n.planLimitCoachPremium(3, time, 20));
+      expect(coach.error, deL10n.planLimitCoachPremium(2, time, 20));
       expect(coach.limitUpsell, isTrue);
       expect(
         plan.plan.remaining(PlanFeature.coach),
@@ -202,7 +202,7 @@ void main() {
       await coach.returnToChat(svc);
       await coach.send('Noch eine');
       expect(svc.sends, 1, reason: 'a known used-up day sends nothing');
-      expect(coach.error, deL10n.planLimitCoach(3, time));
+      expect(coach.error, deL10n.planLimitCoach(2, time));
       expect(coach.limitUpsell, isFalse);
     }),
   );
@@ -261,7 +261,7 @@ void main() {
         flow: flow,
       );
       addTearDown(plan.dispose);
-      final svc = _Coach(_quota429(PlanTier.free, 3, premiumLimit: 20));
+      final svc = _Coach(_quota429(PlanTier.free, 2, premiumLimit: 20));
       await pumpLocalized(
         tester,
         withSubscription(
@@ -271,7 +271,7 @@ void main() {
         safeArea: false,
         settle: true,
       );
-      expect(find.text('3/3 heute frei'), findsOneWidget);
+      expect(find.text('2/2 heute frei'), findsOneWidget);
 
       await tester.enterText(find.byKey(const ValueKey('coach-input')), 'Frage');
       await tester.pump();
@@ -290,13 +290,13 @@ void main() {
       flow.emit(
         PurchaseVerified(
           active: true,
-          plan: planOf(PlanTier.premium, coachUsed: 3),
+          plan: planOf(PlanTier.premium, coachUsed: 2),
         ),
       );
       await tester.pump();
 
       expect(_composerTippbar(tester), isTrue);
-      expect(find.text('17/20 heute frei'), findsOneWidget);
+      expect(find.text('18/20 heute frei'), findsOneWidget);
       expect(find.byKey(const ValueKey('coach-limit-upgrade')), findsNothing);
       expect(find.byKey(const ValueKey('coach-composer-upgrade')), findsNothing);
       expect(find.byKey(const ValueKey('coach-unsent-retry')), findsOneWidget);

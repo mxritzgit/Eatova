@@ -9,6 +9,7 @@ import '../config/supabase_config.dart';
 import '../models/meal_analysis_request.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/plan_limit_hit.dart';
+import '../models/plan_status.dart' show freePoolResetOf;
 import 'eatova_http.dart';
 
 abstract class MealAnalyzer {
@@ -43,6 +44,18 @@ class MealAnalysisRateLimited extends MealAnalysisException {
 
   @override
   String get code => 'rate_limited';
+}
+
+/// HTTP 429 `ai_budget_exhausted` with scope `free`: the AI capacity all
+/// Free accounts share is spent for today, not this account's quota. Opens
+/// again at [resetAt]; never leads to an upgrade hint.
+class MealAnalysisFreePoolExhausted extends MealAnalysisException {
+  const MealAnalysisFreePoolExhausted({required this.resetAt});
+
+  final DateTime resetAt;
+
+  @override
+  String get code => 'ai_budget_exhausted';
 }
 
 /// No session token, or the server answered 401/403.
@@ -195,7 +208,12 @@ AnalyzeMealAnswer readAnalyzeMealAnswer(int statusCode, String body) {
     throw const MealAnalysisReauthRequired();
   }
   // Shared provider capacity can be exhausted while this user's photo quota
-  // is still available. Preserve that code for the service-availability text.
+  // is still available. Preserve that code for the service-availability text;
+  // only the Free pool names when it opens again.
+  final freeReset = statusCode == 429 ? freePoolResetOf(decoded) : null;
+  if (freeReset != null) {
+    throw MealAnalysisFreePoolExhausted(resetAt: freeReset);
+  }
   if (statusCode == 429 && code != 'ai_budget_exhausted') {
     throw MealAnalysisRateLimited(
       resetAt: _readResetAt(decoded),

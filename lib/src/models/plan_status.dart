@@ -157,6 +157,19 @@ DateTime utcDay(DateTime moment) {
 DateTime nextUtcMidnight(DateTime moment) =>
     utcDay(moment).add(const Duration(days: 1));
 
+/// When the shared Free AI pool opens again, for a 429 [body] of
+/// `ai_budget_exhausted` with scope `free`; null for any other body, where
+/// the caller keeps its own text. Without a readable `resetAt`: the next
+/// 00:00 UTC, when every pool resets.
+DateTime? freePoolResetOf(Object? body) {
+  if (body is! Map ||
+      body['error'] != 'ai_budget_exhausted' ||
+      body['scope'] != 'free') {
+    return null;
+  }
+  return _instant(body['resetAt']) ?? nextUtcMidnight(clock.now());
+}
+
 int? _dailyLimit(Object? value) =>
     value is int && value >= 1 && value <= kMaxPlanDailyLimit ? value : null;
 
@@ -255,9 +268,9 @@ class TierLimits {
 
 /// The decided Free limits (1.1), used until the server answered.
 const TierLimits kAssumedFreeLimits = TierLimits(
-  coachDaily: 3,
-  mealAnalysisDaily: 4,
-  recipeImportDaily: 2,
+  coachDaily: 2,
+  mealAnalysisDaily: 3,
+  recipeImportDaily: 1,
   recipePicture: false,
 );
 

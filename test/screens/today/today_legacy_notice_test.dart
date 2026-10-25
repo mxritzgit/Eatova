@@ -68,7 +68,7 @@ void main() {
       expect(_card, findsOneWidget);
       expect(
         find.text(
-          '${l10n.legacyNoticeBody('1. Dez. 2026', 3, 4, 2)} '
+          '${l10n.legacyNoticeBody('1. Dez. 2026', 2, 3, 1)} '
           '${l10n.legacyNoticeMorePremium}',
         ),
         findsOneWidget,

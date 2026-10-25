@@ -23,7 +23,7 @@ Map<String, dynamic> _snapshot() =>
   },
   "limits": {
     "current": { "coach_daily": 20, "meal_analysis_daily": 30, "recipe_import_daily": 10, "recipe_picture": true },
-    "free":    { "coach_daily": 3,  "meal_analysis_daily": 4,  "recipe_import_daily": 2,  "recipe_picture": false },
+    "free":    { "coach_daily": 2,  "meal_analysis_daily": 3,  "recipe_import_daily": 1,  "recipe_picture": false },
     "premium": { "coach_daily": 20, "meal_analysis_daily": 30, "recipe_import_daily": 10, "recipe_picture": true }
   },
   "legacy": null,
@@ -36,7 +36,7 @@ Map<String, dynamic> _snapshot() =>
 Map<String, dynamic> _limitHit() => <String, dynamic>{
   'feature': 'coach',
   'tier': 'free',
-  'limit': 3,
+  'limit': 2,
   'resetAt': '2026-10-26T00:00:00.000Z',
   'premiumLimit': 20,
 };
@@ -109,7 +109,7 @@ void main() {
       'ohne Tarif': (j) => j.remove('tier'),
       'ohne Limits': (j) => j.remove('limits'),
       'Limit 0': (j) => limits(j, 'current')['coach_daily'] = 0,
-      'Limit als Text': (j) => limits(j, 'free')['meal_analysis_daily'] = '4',
+      'Limit als Text': (j) => limits(j, 'free')['meal_analysis_daily'] = '3',
       'Bild als Text': (j) => limits(j, 'premium')['recipe_picture'] = 'yes',
       'ohne Premium-Limits': (j) => part(j, 'limits').remove('premium'),
       'negative Nutzung': (j) => part(j, 'usage')['coach'] = -1,
@@ -146,14 +146,14 @@ void main() {
         'planLimit': _limitHit(),
       })!;
       expect(hit.feature, PlanFeature.coach);
-      expect(hit.limit, 3);
+      expect(hit.limit, 2);
       expect(hit.resetAt, DateTime.utc(2026, 10, 26));
       expect(hit.premiumLimit, 20);
       expect(hit.offersPremium, isTrue);
 
       final noUpgrade = <String, void Function(Map<String, dynamic>)>{
         'Premium-Konto': (j) => j['tier'] = 'premium',
-        'Premium gibt nicht mehr': (j) => j['premiumLimit'] = 3,
+        'Premium gibt nicht mehr': (j) => j['premiumLimit'] = 2,
         'ohne Premium-Limit': (j) => j.remove('premiumLimit'),
       };
       for (final MapEntry(key: name, value: mutate) in noUpgrade.entries) {
@@ -169,7 +169,7 @@ void main() {
       final malformed = <String, void Function(Map<String, dynamic>)>{
         'unbekannte Funktion': (j) => j['feature'] = 'chat',
         'ohne Tarif': (j) => j.remove('tier'),
-        'Limit als Text': (j) => j['limit'] = '3',
+        'Limit als Text': (j) => j['limit'] = '2',
         'Limit 0': (j) => j['limit'] = 0,
         'Reset ohne Zeit': (j) => j['resetAt'] = 'soon',
         'Premium-Limit als Text': (j) => j['premiumLimit'] = 'x',
@@ -200,9 +200,9 @@ void main() {
         (assumed.free, assumed.premium),
         (
           const TierLimits(
-            coachDaily: 3,
-            mealAnalysisDaily: 4,
-            recipeImportDaily: 2,
+            coachDaily: 2,
+            mealAnalysisDaily: 3,
+            recipeImportDaily: 1,
             recipePicture: false,
           ),
           const TierLimits(

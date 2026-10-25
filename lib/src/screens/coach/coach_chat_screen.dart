@@ -1920,7 +1920,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     onDictationLanguage: _switchDictationLanguage,
                     onAttach: _openAttachSheet,
                     onQuotaTap: _openCoachInfoSheet,
-                    // At 0 left on Free: the way to more instead of "0/3".
+                    // At 0 left on Free: the way to more instead of "0/2".
                     onUpgrade:
                         _coach.quotaExhausted && _coach.canOfferPremium
                         ? () => _openPremium(PremiumSource.coach)

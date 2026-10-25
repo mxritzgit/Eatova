@@ -16,6 +16,7 @@ import 'package:eatova/src/services/recipe_import_service.dart';
 import 'package:eatova/src/services/recipe_save_result.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/shared/plan_limit_notice.dart';
 
 import 'support/harness.dart';
 
@@ -586,6 +587,43 @@ void main() {
       expect(find.text('Chicken bowl'), findsOneWidget);
     },
   );
+
+  testWidgets('the spent Free pool names its reset, without an upgrade', (
+    tester,
+  ) async {
+    final reset = DateTime.utc(2026, 10, 26);
+    String body(String scope) => jsonEncode({
+      'error': 'ai_budget_exhausted',
+      'scope': scope,
+      'resetAt': reset.toIso8601String(),
+    });
+    // Every other scope stays the shared-capacity outage.
+    expect(
+      () => parseRecipeImportResponse(429, body('all')),
+      throwsA(
+        isA<RecipeImportException>().having(
+          (error) => error.failure,
+          'failure',
+          RecipeImportFailure.unavailable,
+        ),
+      ),
+    );
+    await _open(
+      tester,
+      service: _Service(
+        (_) async => parseRecipeImportResponse(429, body('free')),
+      ),
+      save: (_) async => SyncDelivery.delivered,
+    );
+    final error = find.byKey(const ValueKey('recipe-import-error'));
+    expect(
+      tester.widget<Text>(error).data,
+      lookupAppLocalizations(const Locale('en')).planFreePoolExhausted(
+        planLimitClockLabel(tester.element(error), reset),
+      ),
+    );
+    expect(find.byKey(const ValueKey('plan-limit-upgrade')), findsNothing);
+  });
 
   testWidgets('too much recipe content asks for single recipes, not a retry', (
     tester,

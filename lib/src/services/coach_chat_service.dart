@@ -18,7 +18,7 @@ import '../models/coach_training_proposal.dart';
 import '../models/coach_training_context.dart';
 import '../models/coach_workout_log.dart';
 import '../models/plan_limit_hit.dart';
-import '../models/plan_status.dart' show PlanFeature;
+import '../models/plan_status.dart' show PlanFeature, freePoolResetOf;
 import '../models/user_profile.dart';
 import 'coach_quota_reset.dart';
 import 'crash_reporter.dart';
@@ -1612,7 +1612,15 @@ class CoachChatService {
     // Provider capacity is independent of the user's question quota. Never
     // lock the composer or claim that the user sent too many requests here.
     if (status == 429 && map['error'] == 'ai_budget_exhausted') {
-      return CoachChatException(_unreachableMessage);
+      // The shared Free pool names when it opens again; no upgrade offer.
+      final freeReset = freePoolResetOf(map);
+      return CoachChatException(
+        freeReset == null
+            ? _unreachableMessage
+            : _l10n.planFreePoolExhausted(
+                coachQuotaClockLabel(_l10n.localeName, freeReset),
+              ),
+      );
     }
     if (status == 408 && map['error'] == 'request_timeout') {
       return CoachChatException(_l10n.coachErrorTimeout);

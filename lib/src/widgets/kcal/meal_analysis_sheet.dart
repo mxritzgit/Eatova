@@ -82,6 +82,8 @@ String _mealAnalysisExceptionMessage(
       resetAt != null && resetAt.isAfter(clock.now())
           ? l10n.foodAnalysisRateLimitUntilMessage(clockLabel(resetAt))
           : l10n.foodAnalysisRateLimitError,
+    MealAnalysisFreePoolExhausted(:final resetAt) =>
+      l10n.planFreePoolExhaustedMeal(clockLabel(resetAt)),
     MealAnalysisServerError(:final code, :final statusCode) => switch (code) {
       'invalid_hint' => l10n.foodScanContextInvalid,
       // `request_timeout` (408) is the server giving up on a body that

@@ -45,7 +45,7 @@ Key _key(String value) => ValueKey(value);
 
 /// The denial of [feature] in [c]; null for the burst gate.
 PlanLimitHit? _hit(_Case c, PlanFeature feature) {
-  final free = feature == PlanFeature.mealAnalysis ? 4 : 2;
+  final free = feature == PlanFeature.mealAnalysis ? 3 : 1;
   final premium = feature == PlanFeature.mealAnalysis ? 30 : 10;
   return switch (c) {
     _Case.freeFirst || _Case.freeAgain => PlanLimitHit(
@@ -464,7 +464,7 @@ void main() {
   testWidgets('"Heute noch n KI-Analysen" ab 2 verbleibenden, auch aus der '
       'Antwort eines Scans, nur fuer das fragende Konto', (tester) async {
     await withClock(Clock.fixed(kPlanDay), () async {
-      for (final (used, shown) in <(int, bool)>[(2, true), (1, false)]) {
+      for (final (used, shown) in <(int, bool)>[(1, true), (0, false)]) {
         final controller = await subscriptionController(
           log: FakeSubscriptionLog(
             plan: planOf(PlanTier.free, analysesUsed: used),
@@ -525,7 +525,7 @@ void main() {
                 'items': <Object?>[],
               },
               'rateLimit': <String, Object?>{
-                'userDay': <String, Object?>{'limit': 4, 'remaining': 2},
+                'userDay': <String, Object?>{'limit': 3, 'remaining': 2},
               },
             }),
           ),
@@ -534,12 +534,12 @@ void main() {
         const left = PlanFeature.mealAnalysis;
         expect(
           asker.plan.remaining(left),
-          switched ? 4 : 2,
+          switched ? 3 : 2,
           reason: switched ? 'nach Kontowechsel' : 'gleiches Konto',
         );
         expect(
           other.plan.remaining(left),
-          4,
+          3,
           reason: switched ? 'nach Kontowechsel' : 'gleiches Konto',
         );
       }
