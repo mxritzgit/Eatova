@@ -1312,6 +1312,7 @@ class _AddItemDialogState extends State<_AddItemDialog> {
           EatovaDialogAction(
             label: l10n.commonCancel,
             secondary: true,
+            quiet: true,
             // maybePop, not pop: an explicit cancel also asks first.
             onPressed: () => Navigator.of(context).maybePop(),
           ),

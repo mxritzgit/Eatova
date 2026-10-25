@@ -519,6 +519,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             label: l.trainingTimerAlertsLater,
             onPressed: () => Navigator.pop(context, false),
             secondary: true,
+            quiet: true,
             // Keyboard focus starts on the answer that asks nothing.
             autofocus: true,
           ),
@@ -810,6 +811,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             label: l.trainingTimerStay,
             onPressed: () => Navigator.pop(context, _UnstoredChoice.stay),
             secondary: true,
+            quiet: true,
             // Keyboard focus starts on the safe way out.
             autofocus: true,
           ),

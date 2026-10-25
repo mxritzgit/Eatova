@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
+import '../../widgets/design/design.dart';
 
 const trainingStudioImage = 'assets/training/nightstudio.png';
 
@@ -115,8 +116,9 @@ class TrainingStudioArtwork extends StatelessWidget {
   }
 }
 
-/// The design's primary pill (54 px, accent fill, soft violet glow): Start,
-/// Resume and Review on the workout card, Coach on the empty state.
+/// The workout card's lit action: Start, Resume and Review, Coach on the
+/// empty state. The app's [PrimaryActionButton] (54 px, cast light, press
+/// rebound) with a leading glyph; null [onPressed] is its locked "not yet".
 class TrainingStartButton extends StatelessWidget {
   const TrainingStartButton({
     super.key,
@@ -130,40 +132,6 @@ class TrainingStartButton extends StatelessWidget {
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(rButton),
-        boxShadow: onPressed == null
-            ? null
-            : [
-                BoxShadow(
-                  color: t.accentGlow,
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          onPressed: onPressed,
-          icon: Icon(icon, size: 20),
-          label: Text(label, style: AppType.ui(16, weight: FontWeight.w800)),
-          style: FilledButton.styleFrom(
-            backgroundColor: t.accentFill,
-            foregroundColor: t.onAccentFill,
-            disabledBackgroundColor: t.accentFill.withValues(alpha: 0.38),
-            disabledForegroundColor: t.onAccentFill.withValues(alpha: 0.8),
-            minimumSize: const Size(0, kPrimaryButtonHeight),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(rButton),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      PrimaryActionButton(label: label, icon: icon, onTap: onPressed);
 }

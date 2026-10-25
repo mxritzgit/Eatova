@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 
 import '../../../l10n/l10n.dart';
 import '../../../models/training_plan.dart';
@@ -345,15 +346,13 @@ class PlayerExerciseCard extends StatelessWidget {
             ],
             if (running && lead == 0) ...[
               const SizedBox(height: 8),
-              TextButton.icon(
-                key: const ValueKey('training-timer-done-early'),
-                onPressed: enabled && activeValid ? actions.complete : null,
-                style: TextButton.styleFrom(
-                  foregroundColor: t.onForest,
-                  minimumSize: const Size(0, 48),
-                ),
-                icon: const Icon(Icons.check_rounded),
-                label: Text(l.trainingTimerDoneEarly),
+              // On the forest card: the link takes the card's own ink.
+              EatovaTextAction(
+                buttonKey: const ValueKey('training-timer-done-early'),
+                onTap: enabled && activeValid ? actions.complete : null,
+                icon: Icons.check_rounded,
+                label: l.trainingTimerDoneEarly,
+                color: t.onForest,
               ),
             ],
           ],
@@ -441,10 +440,22 @@ class _ColumnHeads extends StatelessWidget {
           children: [
             SizedBox(
               width: 28,
-              child: Text(
-                l.trainingTimerColumnSet.toUpperCase(),
-                textAlign: TextAlign.center,
-                style: style,
+              // "SATZ" with the eyebrow tracking is wider than the index
+              // column: centred over it, it may reach into the 6 px gutters
+              // on both sides and only shrinks past them, never breaking
+              // into "SAT / Z".
+              child: OverflowBox(
+                maxWidth: 40,
+                fit: OverflowBoxFit.deferToChild,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    l.trainingTimerColumnSet.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: style,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 6),
