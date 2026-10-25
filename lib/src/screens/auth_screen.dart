@@ -75,7 +75,15 @@ class _AuthScreenState extends State<AuthScreen> {
       await widget.authRepository.signInWithOAuth(provider);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = _friendlyError(error));
+      // The Before User Created hook rejects an address whose other spelling
+      // already has an account. The provider has proven this mailbox, so
+      // saying so reveals nothing. OAuth only: [_friendlyError] also serves
+      // email signup, where this verdict must stay neutral.
+      final message =
+          classifyAuthError(error).kind == AuthErrorKind.emailTaken
+          ? context.l10n.authErrorOAuthAccountExists
+          : _friendlyError(error);
+      setState(() => _error = message);
     } finally {
       if (mounted) setState(() => _oauthLoading = null);
     }
@@ -121,7 +129,7 @@ class _AuthScreenState extends State<AuthScreen> {
         );
         if (!mounted) return;
         if (ergebnis == SignUpOutcome.emailAlreadyRegistered) {
-          _zeigeNeutralenLoginHinweis();
+          _zeigeNeutralenLoginHinweis(email);
           return;
         }
         // Lets the password manager store the new credentials.
@@ -137,7 +145,7 @@ class _AuthScreenState extends State<AuthScreen> {
     } catch (error) {
       if (!mounted) return;
       if (_isRegister && _isExistingAccount(error)) {
-        _zeigeNeutralenLoginHinweis();
+        _zeigeNeutralenLoginHinweis(email);
       } else {
         setState(() {
           _error = _friendlyError(error);
@@ -186,13 +194,34 @@ class _AuthScreenState extends State<AuthScreen> {
   /// ([_isExistingAccount]). Both end here because the code page is a dead end
   /// without a mail. The wording stays NEUTRAL — it never confirms whether the
   /// account exists (house rule against account enumeration).
-  void _zeigeNeutralenLoginHinweis() {
+  ///
+  /// For an [email] the server folds with other spellings (see
+  /// [_mayBeAliasSpelling]) the hint adds one sentence about those spellings:
+  /// sign-in matches exactly, so signing in with the alias would fail.
+  void _zeigeNeutralenLoginHinweis(String email) {
     setState(() {
       _isRegister = false;
-      _message = context.l10n.authSignupExistingAccountHint;
+      _message = _mayBeAliasSpelling(email)
+          ? context.l10n.authSignupExistingAccountAliasHint
+          : context.l10n.authSignupExistingAccountHint;
     });
   }
 
+  /// Gmail (dots ignored) or a `+tag` local part, the two shapes the server's
+  /// alias check folds. Decided by the typed input alone, so it confirms
+  /// nothing about any account.
+  static bool _mayBeAliasSpelling(String email) {
+    final at = email.lastIndexOf('@');
+    if (at < 0) return false;
+    final domain = email.substring(at + 1).toLowerCase();
+    return email.substring(0, at).contains('+') ||
+        domain == 'gmail.com' ||
+        domain == 'googlemail.com';
+  }
+
+  /// GoTrue's "address already has an account", by code or by its sentence.
+  /// The Before User Created hook answers 422 `User already registered`, code
+  /// `unknown`, so only the sentence matches it.
   bool _isExistingAccount(Object error) {
     if (error is AuthException &&
         (error.code == 'user_already_exists' || error.code == 'email_exists')) {

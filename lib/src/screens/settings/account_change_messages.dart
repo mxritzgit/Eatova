@@ -57,7 +57,8 @@ String kAccountCodeRejected([AppLocalizations? l10n]) =>
 
 /// Same lenient check as in `auth_screen.dart`: shape only, existence is the
 /// server's business. Stricter rules would reject valid addresses (`+` aliases,
-/// new TLDs, IDN).
+/// new TLDs, IDN). A `+` alias passes here; the server folds it (and Gmail
+/// dots) into one account per mailbox.
 bool isPlausibleAccountEmail(String value) {
   final adresse = value.trim();
   return adresse.contains('@') && adresse.contains('.');
