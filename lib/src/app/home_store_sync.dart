@@ -273,7 +273,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (_disposed) return;
     _emitSnack(
       message ?? directSyncErrorMessage(error, _l10n),
-      icon: Icons.error_outline_rounded,
+      icon: AppIcons.error,
       tone: SnackTone.error,
       duration: kSnackError,
     );
@@ -387,7 +387,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     };
     _emitSnack(
       message,
-      icon: Icons.sync_problem_rounded,
+      icon: AppIcons.syncProblem,
       tone: SnackTone.neutral,
     );
   }
@@ -876,7 +876,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (_disposed) return;
     _emitSnack(
       label,
-      icon: Icons.delete_outline_rounded,
+      icon: AppIcons.delete,
       tone: SnackTone.error,
       action: SnackBarAction(label: _l10n.commonUndo, onPressed: onUndo),
     );

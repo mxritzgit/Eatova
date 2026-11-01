@@ -308,13 +308,9 @@ const Map<String, String> _eigeneUeberschriftErlaubt = <String, String>{
       'defines HeadingSemantics — the one place both properties are set, and the only one that can guarantee they stay paired',
 };
 
-/// The design base layer that speaks only `AppIcons` (UI polish
-/// 2026-11-01). The integration of the screen rounds widens this to `lib/`.
-const List<String> _iconBasis = <String>[
-  'lib/src/theme/',
-  'lib/src/widgets/design/',
-  'lib/src/widgets/common/',
-];
+/// Everything that speaks only `AppIcons` (UI polish 2026-11-01): the base
+/// layer came first, the screen rounds widened it to all of `lib/`.
+const List<String> _iconBasis = <String>['lib/'];
 
 /// Base-layer files that may still name Material `Icons.*`, each with its
 /// reason. An entry goes when its file is migrated.
@@ -833,7 +829,7 @@ void main() {
   // Four "edit" glyphs and filled next to outlined glyphs are what made the
   // app read as stock; the base layer goes first, the screens follow.
   // =========================================================================
-  test('Icon-Familie: kein Icons.* in der Basis-Schicht ausser app_icons.dart, '
+  test('Icon-Familie: kein Icons.* in lib/ ausser app_icons.dart, '
       'kein Symbols.* und kein IconData von Hand', () {
     final treffer = <String>[];
     final genutzteAusnahmen = <String>{};

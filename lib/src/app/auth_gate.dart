@@ -15,6 +15,7 @@ import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/rest_alerts.dart';
 import '../services/sync_execution_guard.dart';
+import '../theme/app_icons.dart';
 import '../widgets/common/app_snack.dart';
 
 /// Why a deliberate session end happens; decides what the gate tells the user.
@@ -311,7 +312,7 @@ class _AuthGateState extends State<AuthGate> {
         showAppSnack(
           context,
           context.l10n.authSessionExpired,
-          icon: Icons.lock_clock_rounded,
+          icon: AppIcons.lockClock,
           duration: kSnackError,
         );
       } else if (!isLoggedIn && gewollt == SignOutIntent.accountDeleted) {
@@ -320,7 +321,7 @@ class _AuthGateState extends State<AuthGate> {
         showAppSnack(
           context,
           context.l10n.authAccountDeleted,
-          icon: Icons.check_circle_outline_rounded,
+          icon: AppIcons.checkCircle,
           duration: kSnackError,
         );
       }

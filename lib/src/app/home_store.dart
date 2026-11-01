@@ -67,6 +67,7 @@ import '../services/training_session_source.dart';
 import '../services/user_recipe_reads.dart';
 import '../services/uuid.dart';
 import '../services/weigh_in_reminder_planner.dart';
+import '../theme/app_icons.dart';
 import '../widgets/common/app_snack.dart';
 // P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
 // so it is the only place that can hand the sign-out intent back to the gate.
@@ -1042,7 +1043,7 @@ class HomeStore extends _HomeStoreBase
         if (!liegtAn || _disposed) return;
         _emitSnack(
           _l10n.commonCacheResetNotice,
-          icon: Icons.info_outline_rounded,
+          icon: AppIcons.info,
           duration: const Duration(seconds: 6),
         );
       }),
