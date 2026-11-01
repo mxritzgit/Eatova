@@ -86,58 +86,44 @@ class _ProgressRow extends StatelessWidget {
         decoration: BoxDecoration(
           border: first ? null : Border(top: BorderSide(color: t.line)),
         ),
+        // The list row's type and rhythm: title, muted subtitle, the value
+        // in display figures at the end.
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.symmetric(vertical: kSpace12),
             child: Row(
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        day,
-                        style: AppType.ui(
-                          15,
-                          weight: FontWeight.w700,
-                          color: t.ink,
-                          height: kTrainingLine,
-                        ),
-                      ),
-                      Text(
-                        title,
-                        style: AppType.ui(
-                          13,
-                          color: t.ink3,
-                          height: kTrainingLine,
-                        ),
-                      ),
+                      Text(day, style: AppType.rowTitle(t.ink)),
+                      const SizedBox(height: 3),
+                      Text(title, style: AppType.subhead(t.ink2)),
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: kSpace12),
                 Flexible(
                   child: Text(
                     value,
                     textAlign: TextAlign.end,
-                    style: AppType.display(
+                    style: AppType.numeric(
                       16,
-                      weight: FontWeight.w700,
                       color: t.ink,
                       height: kTrainingLine,
-                      letterSpacing: 0,
                     ),
                   ),
                 ),
                 if (row.isRecord) ...[
-                  const SizedBox(width: 8),
+                  const SizedBox(width: kSpace8),
                   Icon(
-                    Icons.emoji_events_outlined,
+                    AppIcons.trophy,
                     key: ValueKey(
                       'training-exercise-history-record-${row.entry.id}',
                     ),
-                    size: 18,
+                    size: AppIconSize.button,
                     color: t.fatInk,
                   ),
                 ],

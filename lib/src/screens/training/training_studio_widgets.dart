@@ -124,7 +124,7 @@ class TrainingStartButton extends StatelessWidget {
     super.key,
     required this.label,
     required this.onPressed,
-    this.icon = Icons.play_arrow_rounded,
+    this.icon = AppIcons.playArrow,
   });
 
   final String label;

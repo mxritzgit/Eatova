@@ -89,12 +89,12 @@ class TrainingHistoryScreen extends StatelessWidget {
                 CalmState(
                   key: const ValueKey('training-history-error'),
                   card: true,
-                  icon: Icons.cloud_off_rounded,
+                  icon: AppIcons.cloudOff,
                   text: l.trainingHistoryLoadError,
                   actions: [
                     SoftPillButton(
                       onTap: onRetry,
-                      icon: Icons.refresh_rounded,
+                      icon: AppIcons.refresh,
                       label: l.trainingPageRetry,
                     ),
                   ],
@@ -114,7 +114,7 @@ class TrainingHistoryScreen extends StatelessWidget {
                       SoftPillButton(
                         key: const ValueKey('training-history-empty-log'),
                         onTap: log,
-                        icon: Icons.edit_note_rounded,
+                        icon: AppIcons.editNote,
                         label: l.trainingLogTitle,
                       ),
                   ],
@@ -146,10 +146,10 @@ class TrainingHistoryScreen extends StatelessWidget {
   }
 }
 
-/// One finished workout as a calm card in the language of the Training
-/// tab's "Recent" rows: tinted glyph tile, title, day with the duration (or
-/// the Logged tag), the set count only when sets were skipped, and the record
-/// badge or a chevron; the whole card opens it.
+/// One finished workout as a calm card holding the Training tab's "Recent"
+/// row ([TrainingWorkoutRow]): glyph tile, title, day with the duration (or
+/// the Logged tag), the set count only when sets were skipped, the record
+/// pill and the chevron; the whole card opens it.
 class _HistoryRow extends StatelessWidget {
   const _HistoryRow({
     required this.entry,
@@ -166,83 +166,24 @@ class _HistoryRow extends StatelessWidget {
     final t = context.t;
     final l = context.l10n;
     final snapshot = entry.snapshot;
-    final title = snapshot.workout.title;
-    final meta = trainingWorkoutMeta(l, entry);
     final done = snapshot.completedSets.length;
-    final progress = done < snapshot.totalSets
-        ? l.trainingTimerProgress(done, snapshot.totalSets)
-        : null;
-    final badge = records > 0 ? l.trainingRecentPrs(records) : null;
-    final line = AppType.ui(13, color: t.ink3, height: kTrainingLine);
-    // From 1.5x text the tile gives its width to the text, and the record
-    // badge moves under it.
-    final large = MediaQuery.textScalerOf(context).scale(16) > 24;
-    final record = badge == null
-        ? null
-        : TrainingRecordBadge(
-            key: ValueKey('training-history-pr-${entry.id}'),
-            count: records,
-          );
-    final content = Row(
-      children: [
-        if (!large) ...[
-          TrainingWorkoutGlyph(workoutIndex: snapshot.workoutIndex),
-          const SizedBox(width: 12),
-        ],
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppType.ui(
-                  16,
-                  weight: FontWeight.w700,
-                  color: t.ink,
-                  height: kTrainingLine,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(meta, style: line),
-              if (progress != null) Text(progress, style: line),
-              if (large && record != null) ...[
-                const SizedBox(height: 6),
-                record,
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        if (!large && record != null)
-          record
-        else
-          Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
-      ],
-    );
-    return Semantics(
-      container: true,
-      button: true,
-      label: [title, meta, ?progress, ?badge].join(', '),
-      child: Material(
-        color: t.surf,
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rTile),
-          side: BorderSide(color: t.cardBorder),
-        ),
-        child: InkWell(
-          key: ValueKey('training-history-${entry.id}'),
-          onTap: onTap,
-          child: ExcludeSemantics(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 64),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-                child: content,
-              ),
-            ),
-          ),
-        ),
+    return Material(
+      color: t.surf,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rTile),
+        side: BorderSide(color: t.cardBorder),
+      ),
+      child: TrainingWorkoutRow(
+        key: ValueKey('training-history-${entry.id}'),
+        entry: entry,
+        title: snapshot.workout.title,
+        records: records,
+        recordKey: ValueKey('training-history-pr-${entry.id}'),
+        detail: done < snapshot.totalSets
+            ? l.trainingTimerProgress(done, snapshot.totalSets)
+            : null,
+        onTap: onTap,
       ),
     );
   }
@@ -314,7 +255,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
         body: isLoggedTrainingEntry(widget.entry)
             ? l.trainingHistoryDeleteLogBody
             : l.trainingHistoryDeleteBody,
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         destructive: true,
         cancelLabel: l.trainingPageCancel,
         onCancel: () => Navigator.pop(dialogContext, false),
@@ -333,7 +274,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
       showAppSnack(
         context,
         deliveryHint(l.trainingHistoryDeleted, delivery, l),
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         tone: SnackTone.error,
       );
       Navigator.pop(context);
@@ -421,7 +362,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
                 SignalNote(
                   _error!,
                   tone: t.danger,
-                  icon: Icons.error_outline_rounded,
+                  icon: AppIcons.error,
                   boxed: true,
                 ),
                 const SizedBox(height: 12),
@@ -431,7 +372,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
                 tone: SoftPillTone.danger,
                 expand: true,
                 onTap: _busy ? null : _delete,
-                icon: Icons.delete_outline_rounded,
+                icon: AppIcons.delete,
                 label: _busy
                     ? l.trainingHistoryDeleting
                     : l.trainingHistoryDeleteAction,
@@ -536,7 +477,7 @@ class _SummaryCard extends StatelessWidget {
                 excludeSemantics: true,
                 child: TrainingMetaItem(
                   key: const ValueKey('training-history-detail-day'),
-                  icon: Icons.calendar_today_rounded,
+                  icon: AppIcons.calendar,
                   text: day,
                 ),
               ),
@@ -552,7 +493,7 @@ class _SummaryCard extends StatelessWidget {
                   excludeSemantics: true,
                   child: TrainingMetaItem(
                     key: const ValueKey('training-history-detail-time'),
-                    icon: Icons.schedule_rounded,
+                    icon: AppIcons.schedule,
                     text: '$span · $minutes',
                   ),
                 ),
@@ -580,6 +521,8 @@ class _ExerciseCard extends StatelessWidget {
   /// Opens this exercise's best set per workout; null hides the button.
   final VoidCallback? onShowProgress;
 
+  static const double _number = 32;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -595,27 +538,22 @@ class _ExerciseCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              TrainingIndexBadge(number: index + 1),
-              const SizedBox(width: 12),
+              // The exercise order in the app's one number style.
+              StepNumber(index + 1, size: _number),
+              const SizedBox(width: kRowLeadingGap),
               Expanded(
                 child: HeadingSemantics(
                   level: 2,
-                  child: Text(
-                    exercise.name,
-                    style: AppType.ui(
-                      16,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                      height: kTrainingLine,
-                    ),
-                  ),
+                  child: Text(exercise.name, style: AppType.headline(t.ink)),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Padding(
-            padding: EdgeInsetsDirectional.only(start: large ? 0 : 40),
+            padding: EdgeInsetsDirectional.only(
+              start: large ? 0 : _number + kRowLeadingGap,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -632,7 +570,7 @@ class _ExerciseCard extends StatelessWidget {
                 child: SoftPillButton(
                   key: ValueKey('training-history-progress-$index'),
                   tone: SoftPillTone.neutral,
-                  icon: Icons.show_chart_rounded,
+                  icon: AppIcons.showChart,
                   label: l.trainingExerciseHistoryOpen,
                   semanticLabel: l.trainingExerciseHistoryOpenLabel(
                     exercise.name,
@@ -747,19 +685,14 @@ class _NoteCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.notes_rounded, size: 18, color: t.ink2),
+              Icon(AppIcons.notes, size: AppIconSize.button, color: t.ink2),
               const SizedBox(width: 8),
               Expanded(
                 child: HeadingSemantics(
                   level: 2,
                   child: Text(
                     context.l10n.trainingHistoryNote,
-                    style: AppType.ui(
-                      16,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                      height: kTrainingLine,
-                    ),
+                    style: AppType.headline(t.ink),
                   ),
                 ),
               ),

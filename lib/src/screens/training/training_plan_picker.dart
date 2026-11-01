@@ -92,7 +92,7 @@ class _TrainingPlanPickerState extends State<TrainingPlanPicker> {
               controller: _search,
               hint: l10n.trainingStudioSearch,
               semanticLabel: l10n.trainingStudioSearch,
-              prefix: Icon(Icons.search_rounded, color: t.ink2),
+              prefix: Icon(AppIcons.search, color: t.ink2),
               onChanged: (value) =>
                   setState(() => _query = value.trim().toLowerCase()),
             ),
@@ -122,7 +122,7 @@ class _TrainingPlanPickerState extends State<TrainingPlanPicker> {
               key: const ValueKey('training-library-create'),
               onTap: () =>
                   Navigator.pop(context, TrainingPlanLibraryAction.create),
-              icon: Icons.add_rounded,
+              icon: AppIcons.add,
               label: l10n.trainingPageCreate,
               expand: true,
             ),
@@ -131,7 +131,7 @@ class _TrainingPlanPickerState extends State<TrainingPlanPicker> {
               key: const ValueKey('training-library-coach'),
               onTap: () =>
                   Navigator.pop(context, TrainingPlanLibraryAction.coach),
-              icon: Icons.chat_bubble_outline_rounded,
+              icon: AppIcons.chatBubble,
               label: l10n.trainingPageCoach,
               tone: SoftPillTone.neutral,
               expand: true,
@@ -209,11 +209,12 @@ class _PlanCardState extends State<_PlanCard> {
                             ),
                           ),
                         ),
-                        Icon(
-                          selected
-                              ? Icons.check_circle_rounded
-                              : Icons.arrow_outward_rounded,
-                          size: 21,
+                        // The chosen plan's mark is a state: the filled
+                        // check, any other card the outward arrow.
+                        StateIcon(
+                          selected ? AppIcons.checkCircle : AppIcons.arrowOutward,
+                          on: selected,
+                          size: AppIconSize.standard,
                           color: selected ? t.accent : t.ink2,
                         ),
                       ],
@@ -269,31 +270,21 @@ class _PlanCardState extends State<_PlanCard> {
                       ),
                     if (plan.description.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      TextButton(
-                        key: ValueKey('training-plan-description-${plan.id}'),
-                        onPressed: () => setState(() => _details = !_details),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          alignment: Alignment.centerLeft,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                l10n.trainingStudioPlanDescription,
-                                style: AppType.ui(13, color: t.ink2),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Icon(
-                              _details
-                                  ? Icons.expand_less_rounded
-                                  : Icons.expand_more_rounded,
-                              size: 18,
-                              color: t.ink2,
-                            ),
-                          ],
+                      // The app's quiet text action; its label starts at
+                      // the card's text column.
+                      Transform.translate(
+                        offset: const Offset(-12, 0),
+                        child: EatovaTextAction(
+                          buttonKey: ValueKey(
+                            'training-plan-description-${plan.id}',
+                          ),
+                          onTap: () => setState(() => _details = !_details),
+                          label: l10n.trainingStudioPlanDescription,
+                          tone: EatovaTextTone.neutral,
+                          trailingIcon: _details
+                              ? AppIcons.expandLess
+                              : AppIcons.expandMore,
+                          textStyle: AppType.ui(13, weight: FontWeight.w600),
                         ),
                       ),
                       if (_details)
