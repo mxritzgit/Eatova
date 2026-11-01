@@ -143,6 +143,14 @@ dependencies {
     // Core library desugaring for flutter_local_notifications (java.time on
     // older Android). The plugin requires >= 2.1.4.
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    constraints {
+        // GHSA-xxph-c9ww-hj94 (2026-10-27): Guava before 33.7.2 allocates
+        // without bound when deserializing CompactHashMap/-Set. Plugins pull
+        // 33.5.0-android transitively; same major line, so no API change.
+        implementation("com.google.guava:guava:33.7.2-android") {
+            because("GHSA-xxph-c9ww-hj94, fixed in 33.7.2")
+        }
+    }
 }
 
 apply(from = "../dependency_inventory.gradle")
