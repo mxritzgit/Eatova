@@ -502,11 +502,12 @@ class ListRow extends StatelessWidget {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            // The value's box also holds its kSpace12 gap to the title.
             final stackValue =
                 value != null &&
                 (stacked ||
                     _textWidth(context, value!, valueStyle) >
-                        constraints.maxWidth * _valueShare);
+                        constraints.maxWidth * _valueShare - kSpace12);
             final texts = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -584,6 +585,11 @@ class ListRow extends StatelessWidget {
           button: tap != null && !isToggle,
           enabled: enabled,
           selected: trailing == ListTrailing.check ? selected : null,
+          // A check row is one option of a picker: announced as a choice in
+          // a group, as the settings pickers were before the list rows.
+          inMutuallyExclusiveGroup: trailing == ListTrailing.check
+              ? true
+              : null,
           child: row,
         ),
       );

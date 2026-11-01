@@ -149,6 +149,13 @@ void main() {
             value: 'Deutsch',
             trailing: ListTrailing.value,
           ),
+          ListRow(
+            key: const ValueKey('row-pick'),
+            title: 'Englisch',
+            trailing: ListTrailing.check,
+            selected: true,
+            onTap: () {},
+          ),
         ],
       );
       for (final (width, scale) in <(double, double)>[(393, 1), (320, 2)]) {
@@ -164,7 +171,7 @@ void main() {
         );
         expect(tester.takeException(), isNull, reason: row);
 
-        final divider = find.byType(Divider);
+        final divider = find.byType(Divider).first;
         final lineStart =
             tester.getRect(divider).left + tester.widget<Divider>(divider).indent!;
         expect(
@@ -185,6 +192,11 @@ void main() {
           node.label,
           allOf(contains('Profil'), contains('Ziele'), contains('72 kg')),
           reason: '$row: Titel, Untertitel und Wert in einem Knoten',
+        );
+        expect(
+          tester.getSemantics(find.byKey(const ValueKey('row-pick'))),
+          isSemantics(isSelected: true, isInMutuallyExclusiveGroup: true),
+          reason: '$row: eine Haken-Zeile ist eine Wahl in einer Gruppe',
         );
       }
       handle.dispose();
