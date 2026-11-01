@@ -387,7 +387,7 @@ void main() {
             'deterministischer Karten-Slug statt user_<ms> (Spec 2026-08-13)',
       );
       expect(recipe.userCreated, isTrue);
-      expect(recipe.categories, const <String>['Eigene']);
+      expect(recipe.displayCategories, const <String>['Eigene']);
       expect(
         recipe.imageAsset,
         isEmpty,

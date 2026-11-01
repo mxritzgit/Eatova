@@ -90,7 +90,11 @@ class CoachRecipeProposal {
       carbsG: carbsG,
       fatG: fatG,
       estimatedGrams: estimatedGrams,
-      categories: const <String>['Eigene'],
+      // recipe.ts asks for every number, amounts included, for ONE serving.
+      categories: const <String>[
+        'Eigene',
+        '${recipeIngredientsBasisPrefix}per_serving',
+      ],
       userCreated: true,
     );
   }
