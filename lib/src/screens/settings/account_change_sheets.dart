@@ -431,7 +431,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
             SoftPillButton(
               key: const ValueKey<String>('password-change-resend'),
               onTap: _busy || _resendSeconds > 0 ? null : _codeAnfordern,
-              icon: _resendSeconds > 0 ? Icons.schedule_rounded : null,
+              icon: _resendSeconds > 0 ? AppIcons.schedule : null,
               label: _resendSeconds > 0
                   ? l10n.authCodeResendCountdown(_resendSeconds)
                   : l10n.authCodeResendCta,
@@ -745,18 +745,23 @@ class _CodeFeld extends StatelessWidget {
               Expanded(
                 child: Text(
                   label.toUpperCase(),
-                  style: AppType.eyebrow(t.ink2, size: 9.5),
+                  style: AppType.eyebrow(t.ink2),
                 ),
               ),
               if (erledigt)
-                Icon(Icons.check_circle_rounded, size: 15, color: t.accent),
+                StateIcon(
+                  AppIcons.checkCircle,
+                  on: true,
+                  size: AppIconSize.small,
+                  color: t.accent,
+                ),
             ],
           ),
           if (adresszeile != null && adresszeile.isNotEmpty) ...<Widget>[
             const SizedBox(height: 3),
             Text(
               adresszeile,
-              style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink),
+              style: AppType.caption(t.ink),
             ),
           ],
           const SizedBox(height: 7),
@@ -855,7 +860,7 @@ class _FehlerNotiz extends StatelessWidget {
       key: noteKey,
       text,
       tone: context.t.danger,
-      icon: Icons.error_outline_rounded,
+      icon: AppIcons.error,
       boxed: true,
     );
   }

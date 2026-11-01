@@ -54,7 +54,7 @@ class SettingsAiConsentRow extends StatelessWidget {
         key: const ValueKey('settings-ai-withdraw-dialog'),
         title: l10n.settingsAiDataWithdrawTitle,
         body: l10n.settingsAiDataWithdrawBody,
-        icon: Icons.auto_awesome_outlined,
+        icon: AppIcons.aiMark,
         destructive: true,
         confirmKey: const ValueKey('settings-ai-withdraw-confirm'),
         confirmLabel: l10n.settingsAiDataWithdrawConfirm,
@@ -72,7 +72,7 @@ class SettingsAiConsentRow extends StatelessWidget {
       logged
           ? l10n.settingsAiDataWithdrawnSnack
           : l10n.settingsAiDataWithdrawnPendingSnack,
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
   }
 
@@ -83,7 +83,7 @@ class SettingsAiConsentRow extends StatelessWidget {
     showAppSnack(
       context,
       l10n.settingsAiDataGrantedSnack,
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
   }
 
@@ -107,7 +107,7 @@ class SettingsAiConsentRow extends StatelessWidget {
         return SettingsStudioRow(
           key: const ValueKey('settings-ai-consent'),
           leading: SettingsRowTile(
-            icon: Icons.auto_awesome_outlined,
+            icon: AppIcons.aiMark,
             tone: allows ? t.accent : null,
           ),
           title: l10n.settingsAiDataConsentTitle,
@@ -173,7 +173,7 @@ Future<void> openSupportMail(
   showAppSnack(
     context,
     l10n.settingsSupportMailFailed,
-    icon: Icons.mail_outline_rounded,
+    icon: AppIcons.mail,
     tone: SnackTone.warning,
   );
 }
