@@ -327,7 +327,7 @@ void main() {
             categories: ['Eigene', '${recipeIngredientsBasisPrefix}per_serving'],
           ),
           lines: ['200 g rice', '4 eggs'],
-          hint: enL10n.recipeIngredientsForServings('2'),
+          hint: enL10n.recipeIngredientsForServings(2),
           header: enL10n.recipesOwnTitle,
         ),
         // A catalog text with lines that cannot convert stays as written,
@@ -344,7 +344,7 @@ void main() {
             (r) => r.slug == 'skyr_bowl_mit_beeren_and_granola',
           ),
           lines: ['500 g plain skyr', '2 tsp honey'],
-          hint: enL10n.recipeIngredientsForServings('2'),
+          hint: enL10n.recipeIngredientsForServings(2),
           header: enL10n.recipesBrandTitle,
         ),
         // An own recipe's text has no confirmed basis: as written.

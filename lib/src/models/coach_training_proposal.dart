@@ -8,7 +8,15 @@ final class CoachTrainingProposal {
     String description = '',
     String goal = '',
     required List<TrainingWorkout> workouts,
-  }) : title = TrainingJson.text(
+    int? sessionsPerWeek,
+  }) : sessionsPerWeek = sessionsPerWeek == null
+           ? null
+           : TrainingJson.integer(
+               sessionsPerWeek,
+               1,
+               TrainingLimits.sessionsPerWeekMax,
+             ),
+       title = TrainingJson.text(
          title,
          TrainingLimits.titleMaxLength,
          required: true,
@@ -50,15 +58,20 @@ final class CoachTrainingProposal {
   final String goal;
   final List<TrainingWorkout> workouts;
 
+  /// Planned sessions per week ("2 of 4"); null means no target. Workouts
+  /// rotate, so this is not `workouts.length`.
+  final int? sessionsPerWeek;
+
   /// Malformed provider output or history never becomes an adoptable draft.
   static CoachTrainingProposal? fromJson(Map<dynamic, dynamic> json) {
     try {
-      TrainingJson.requireKeys(json, const {
+      TrainingJson.requireKeys(json, {
         'schema_version',
         'title',
         'description',
         'goal',
         'workouts',
+        if (json.containsKey('sessions_per_week')) 'sessions_per_week',
       });
       TrainingJson.integer(
         json['schema_version'],
@@ -90,18 +103,29 @@ final class CoachTrainingProposal {
               return TrainingWorkout.fromJson(raw);
             })
             .toList(growable: false),
+        // A present key must hold a number; JSON null is rejected.
+        sessionsPerWeek: json.containsKey('sessions_per_week')
+            ? TrainingJson.integer(
+                json['sessions_per_week'],
+                1,
+                TrainingLimits.sessionsPerWeekMax,
+              )
+            : null,
       );
     } on FormatException {
       return null;
     }
   }
 
+  /// Without a target the key is absent, so builds that predate it still
+  /// read the plan.
   Map<String, dynamic> toJson() => {
     'schema_version': TrainingLimits.schemaVersion,
     'title': title,
     'description': description,
     'goal': goal,
     'workouts': workouts.map((workout) => workout.toJson()).toList(),
+    if (sessionsPerWeek != null) 'sessions_per_week': sessionsPerWeek,
   };
 
   TrainingPlan toTrainingPlan({required String id}) =>
@@ -117,5 +141,16 @@ final class CoachTrainingProposal {
     description: description ?? this.description,
     goal: goal ?? this.goal,
     workouts: workouts ?? this.workouts,
+    sessionsPerWeek: sessionsPerWeek,
   );
+
+  /// The same plan with [value] as its weekly target (null clears it).
+  CoachTrainingProposal withSessionsPerWeek(int? value) =>
+      CoachTrainingProposal(
+        title: title,
+        description: description,
+        goal: goal,
+        workouts: workouts,
+        sessionsPerWeek: value,
+      );
 }

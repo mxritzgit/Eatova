@@ -65,7 +65,8 @@ final DateTime _idEpoch = DateTime(2000, 1, 1);
 ///
 /// Reminders speak the language at PLANNING time; [l10n] defaults to German.
 /// A tap opens Food's add sheet ([AppEntry.logMeal]): the text asks for an
-/// entry, so the tap leads to one.
+/// entry, so the tap leads to one. Its buttons Photo, Barcode and Describe
+/// ([ReminderActions.logMeal], 2026-11-01) lead straight to one way in.
 List<NotificationSpec> planStreakReminders(
   DateTime now,
   LifetimeStats stats, [
@@ -126,6 +127,7 @@ List<NotificationSpec> planStreakReminders(
       body: body,
       scheduledFor: when,
       payload: AppEntry.logMeal.id,
+      actions: ReminderActions.logMeal,
     ));
   }
   return specs;

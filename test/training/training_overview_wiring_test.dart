@@ -106,8 +106,10 @@ TrainingScreen _screen({
   void Function(TrainingPlan, int)? logPlanned,
   VoidCallback? coachLog,
   List<TrainingWorkoutSummary> recent = const [],
+  TrainingWeek? week,
 }) => TrainingScreen(
   plans: plans,
+  week: week,
   onCreatePlan: (_) async => SyncDelivery.delivered,
   onUpdatePlan: (_, _) async => SyncDelivery.delivered,
   onSelectPlan: (_) {},
@@ -259,7 +261,7 @@ void main() {
         );
         await _openTraining(tester);
         // No "of 3": the plan's three workouts are a rotation, not a weekly
-        // target ("4 of 2" for a coach plan).
+        // target ("4 of 2" for a coach plan); only sessionsPerWeek is one.
         expect(_weekSummary(tester), '0 done · Sep 28 – Oct 4');
         expect(
           find.byKey(const ValueKey('training-week-done-1')),
@@ -688,6 +690,34 @@ void main() {
       expect(find.text('Upper Body Pull'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('training-start')));
       expect(started, [(plan, 1)]);
+    });
+
+    testWidgets('the week counts "of 4" only with the plan\'s weekly target', (
+      tester,
+    ) async {
+      final week = trainingWeekOf(
+        now: kTrainingDesignNow,
+        history: [
+          trainingDesignEntry(
+            plan,
+            0,
+            finishedAt: DateTime(2026, 9, 28, 8),
+            minutes: 50,
+            topKg: _push,
+            backOff: 0.8,
+          ),
+        ],
+      );
+      for (final (target, summary) in [
+        (null, '1 done · Sep 28 – Oct 4'),
+        (4, '1 of 4 done · Sep 28 – Oct 4'),
+      ]) {
+        final weekly = plan.copyWith(
+          proposal: plan.proposal.withSessionsPerWeek(target),
+        );
+        await _pumpScreen(tester, _screen(plans: [weekly], week: week));
+        expect(_weekSummary(tester), summary, reason: '$target');
+      }
     });
 
     testWidgets('a running session turns Start into Resume', (tester) async {

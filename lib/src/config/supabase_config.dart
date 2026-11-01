@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart' show closeInAppWebView;
 
 import '../services/crash_reporter.dart' show CrashReporter;
+import '../services/deadline_http_client.dart';
 import '../services/local_cache.dart' show KeyValueStore, SharedPreferencesStore;
 import '../services/secure_cache_store.dart'
     show PluginSecureKeyStore, SecureKeyStore;
@@ -72,6 +74,39 @@ class EatovaSupabaseConfig {
   static const PostgrestClientOptions postgrestOptions =
       PostgrestClientOptions(requestTimeout: Duration(seconds: 20));
 
+  /// Deadline for each request of the shared client to GoTrue (`/auth/v1/`).
+  ///
+  /// gotrue 2.27.2 sets no timeout, and `AuthHttpClient` awaits a due token
+  /// refresh before it sends any PostgREST, Storage or Functions request. A
+  /// stalled refresh held all of them until the OS gave up on the socket.
+  /// Why 15 s:
+  /// - at least 10 s: gotrue retries a failed refresh only within its 10 s
+  ///   window, so one stalled attempt ends the refresh. A shorter deadline
+  ///   buys a second attempt and a longer wait.
+  /// - below the 20 s of [postgrestOptions], whose timer already runs while
+  ///   the refresh is awaited, so no PostgREST attempt gets longer.
+  /// - inside the 25 s logout budget; a stalled `/logout` used to keep the
+  ///   sign-out pending without end.
+  ///
+  /// The timeout arrives as an `AuthRetryableFetchException`: a network error
+  /// for `isNetworkSyncError`, and gotrue keeps the session.
+  static const Duration authRequestDeadline = Duration(seconds: 15);
+
+  static final Uri _authEndpoint = Uri.parse('$url/auth/v1/');
+
+  /// The shared client's transport, bounding GoTrue paths only. Not global:
+  /// Coach `/recipe` sends its headers only after the draft and the image,
+  /// and Functions keep their own budgets.
+  @visibleForTesting
+  static http.Client buildHttpClient({http.Client? inner}) =>
+      DeadlineHttpClient(
+        inner ?? http.Client(),
+        authRequestDeadline,
+        bounds: (target) =>
+            target.host == _authEndpoint.host &&
+            target.path.startsWith(_authEndpoint.path),
+      );
+
   static SecureSessionLocalStorage? _sessionStorage;
   static SupabaseClient? _sessionClient;
 
@@ -101,6 +136,7 @@ class EatovaSupabaseConfig {
     await Supabase.initialize(
       url: url,
       publishableKey: anonKey,
+      httpClient: buildHttpClient(),
       postgrestOptions: postgrestOptions,
       authOptions: FlutterAuthClientOptions(
         localStorage: sessionStorage,

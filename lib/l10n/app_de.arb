@@ -72,7 +72,7 @@
   "commonKcalAddedToSlot": "{kcal} kcal zu {slot} hinzugefügt.",
   "@commonKcalAddedToSlot": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "slot": { "type": "String" }
     }
   },
@@ -190,6 +190,16 @@
   "foodSectionSearchResults": "Suchtreffer",
   "foodSectionFavorites": "Favoriten",
   "foodSectionRecentMeals": "Letzte Mahlzeiten",
+  "foodSectionFrequentInSlot": "{slot, select, breakfast{Oft zum Frühstück} lunch{Oft zum Mittagessen} dinner{Oft zum Abendessen} other{Oft als Snack}}",
+  "@foodSectionFrequentInSlot": {"description": "Add sheet: the foods logged in this meal slot on at least three days of the last 35. slot: breakfast, lunch, dinner or snack.", "placeholders": {"slot": {"type": "String"}}},
+  "foodUsualMealTitle": "{slot, select, breakfast{Dein übliches Frühstück} lunch{Dein übliches Mittagessen} dinner{Dein übliches Abendessen} other{Deine üblichen Snacks}}",
+  "@foodUsualMealTitle": {"description": "Add sheet row under the frequent foods while the slot is empty: the same combination of foods on several days; one tap copies all of them into the slot, with undo.", "placeholders": {"slot": {"type": "String"}}},
+  "foodUsualMealHint": "Trägt alle Teile ein",
+  "@foodUsualMealHint": {"description": "Screen reader hint of the usual-meal row."},
+  "foodSectionStillFits": "Was passt noch?",
+  "@foodSectionStillFits": {"description": "Add sheet, today only: own foods whose usual portion fits the calories left today, most protein first."},
+  "foodStillFitsLeft": "{kcal} kcal offen",
+  "@foodStillFitsLeft": {"description": "Beside the What still fits label: the calories left today.", "placeholders": {"kcal": {"type": "int", "format": "decimalPattern"}}},
   "foodSearchModeTitle": "Lebensmittel suchen",
   "foodTakePhotoTooltip": "Foto aufnehmen",
   "foodFromGalleryTooltip": "Aus Galerie",
@@ -216,25 +226,25 @@
   "foodPortionAdjustedUpdated": "{grams} g angepasst. Tageswert aktualisiert.",
   "@foodPortionAdjustedUpdated": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionAdjusted": "{grams} g angepasst.",
   "@foodPortionAdjusted": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionAdjustedItemsUpdated": "{grams} g über Einzelposten angepasst. Tageswert aktualisiert.",
   "@foodPortionAdjustedItemsUpdated": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionAdjustedItems": "{grams} g über Einzelposten angepasst.",
   "@foodPortionAdjustedItems": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "commonAdd": "Hinzufügen",
@@ -243,13 +253,13 @@
   "commonDailyGoalReanchored": "Neues Tagesziel: {kcal} kcal – an deinen Gewichtstrend angepasst.",
   "@commonDailyGoalReanchored": {
     "placeholders": {
-      "kcal": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "commonEnergyCheckApplied": "Tagesziel angepasst: {kcal} kcal.",
   "@commonEnergyCheckApplied": {
     "placeholders": {
-      "kcal": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckTitle": "Wochen-Check",
@@ -290,8 +300,8 @@
   "foodPortionRangeHint": "Portion zwischen {min} und {max} g.",
   "@foodPortionRangeHint": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodMacroProteinShort": "P {value}",
@@ -330,19 +340,19 @@
   "@foodPortionItemized": {
     "placeholders": {
       "count": { "type": "int" },
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionItemizedAdjusted": "{grams} g über Einzelposten angepasst",
   "@foodPortionItemizedAdjusted": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionManuallyAdjusted": "{grams} g manuell angepasst",
   "@foodPortionManuallyAdjusted": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionLabelPrefixed": "Portion: {label}",
@@ -385,8 +395,8 @@
   "foodAdjustedTotalApprox": "{grams} g ≈ {kcal} kcal",
   "@foodAdjustedTotalApprox": {
     "placeholders": {
-      "grams": { "type": "int" },
-      "kcal": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" },
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodItemsCountLabel": "{count} Posten",
@@ -399,8 +409,8 @@
   "foodItemWeightInvalidHint": "Jedes Gewicht braucht eine Zahl zwischen {min} und {max} g.",
   "@foodItemWeightInvalidHint": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodApplyButton": "Übernehmen",
@@ -449,8 +459,8 @@
   "foodAddItemCaloriesRangeHint": "Kalorien zwischen {min} und {max}.",
   "@foodAddItemCaloriesRangeHint": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodAddItemMacrosToggle": "Makros ergänzen (optional)",
@@ -537,7 +547,7 @@
   "@recipesKcalProteinSummary": {
     "placeholders": {
       "kcal": { "type": "int", "format": "decimalPattern" },
-      "protein": { "type": "int" }
+      "protein": { "type": "int", "format": "decimalPattern" }
     }
   },
   "recipesAddToTrackerHint": "Danach wählst du Frühstück, Mittagessen, Abendessen oder Snack.",
@@ -555,15 +565,15 @@
   "recipesRangeErrorKcal": "{min}–{max} kcal",
   "@recipesRangeErrorKcal": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "recipesRangeErrorGrams": "{min}–{max} g",
   "@recipesRangeErrorGrams": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "numberInputAmbiguous": "Meinst du {decimal} oder {grouped}? Bitte ohne Tausendertrennzeichen eingeben.",
@@ -946,7 +956,7 @@
   "profileMacroAmountLabel": "{g} g {macro}",
   "@profileMacroAmountLabel": {
     "placeholders": {
-      "g": { "type": "int" },
+      "g": { "type": "int", "format": "decimalPattern" },
       "macro": { "type": "String" }
     }
   },
@@ -1041,7 +1051,7 @@
     "placeholders": {
       "tracked": { "type": "int" },
       "range": { "type": "int" },
-      "goal": { "type": "int" }
+      "goal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "trendsChartSemanticsWithAvg": "{tracked} von {range} Tagen mit Einträgen, im Schnitt {avg} Kilokalorien pro vollständigem Tag, Tagesziel {goal} Kilokalorien",
@@ -1049,8 +1059,8 @@
     "placeholders": {
       "tracked": { "type": "int" },
       "range": { "type": "int" },
-      "avg": { "type": "int" },
-      "goal": { "type": "int" }
+      "avg": { "type": "int", "format": "decimalPattern" },
+      "goal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "trendsChartSemanticsLabel": "Kalorienverlauf",
@@ -1218,22 +1228,22 @@
   "settingsRangeErrorSteps": "{min}–{max}",
   "@settingsRangeErrorSteps": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "settingsRangeErrorKcal": "{min}–{max} kcal",
   "@settingsRangeErrorKcal": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "settingsRangeErrorGrams": "{min}–{max} g",
   "@settingsRangeErrorGrams": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "goalsIntroHint": "Wir berechnen dein Tagesziel aus Körper, Aktivität und Ziel.",
@@ -1654,7 +1664,7 @@
   "foodPortionEstimated": "{grams} g geschätzt",
   "@foodPortionEstimated": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodImageTooLargeError": "Das Bild ist zu groß. Bitte ein kleineres Foto auswählen.",
@@ -1665,7 +1675,7 @@
   "@foodProductImplausibleMessage": {
     "placeholders": {
       "productName": { "type": "String" },
-      "kcal": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodProductNoNutritionMessage": "{productName} gefunden, aber ohne Nährwertangaben. Bitte manuell eintragen.",
@@ -1729,8 +1739,8 @@
   "foodManualComputedKcal": "= {kcal} kcal für {grams} g",
   "@foodManualComputedKcal": {
     "placeholders": {
-      "kcal": { "type": "int" },
-      "grams": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" },
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
 
@@ -1760,8 +1770,8 @@
   "trainingRestAlertBody": "Zeit für den nächsten Satz.",
   "trainingIntervalAlertTitle": "Zeit um",
   "trainingIntervalAlertBody": "Jetzt Pause.",
-  "trainingRestChannelName": "Trainings-Timer",
-  "trainingRestChannelDescription": "Meldet, wenn eine Pause oder ein Zeitintervall endet.",
+  "trainingRestChannelName": "Timer für Training und Kochen",
+  "trainingRestChannelDescription": "Meldet, wenn eine Pause, ein Zeitintervall oder ein Koch-Timer endet.",
 
   "authCodeRateLimited": "Zu viele Anfragen in kurzer Zeit. Der Versand ist vorübergehend gesperrt — bitte warte etwa eine Minute, bevor du es erneut versuchst.",
   "authCodeRateLimitedSeconds": "Zu viele Anfragen in kurzer Zeit. Der Versand ist noch {sekunden} s gesperrt.",
@@ -2016,6 +2026,17 @@
   "foodFavoritesEmptySearchAction": "Lebensmittel suchen",
   "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche.",
   "trainingPageGoal": "Trainingsziel",
+  "trainingPageSessionsPerWeek": "Einheiten pro Woche",
+  "trainingPageSessionsPerWeekHint": "Optional, z. B. 3",
+  "trainingPageSessionsPerWeekValue": "{count}× pro Woche",
+  "@trainingPageSessionsPerWeekValue": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingPageContentLimit": "Dein Plan enthält zu viel Text. Kürze die Beschreibungen und Hinweise.",
   "trainingPageInvalidCharacters": "Entferne unsichtbare Steuerzeichen.",
   "trainingPageTitle": "Training",
@@ -2381,6 +2402,39 @@
       }
     }
   },
+  "trainingProgressionUp": "Steigern: {value}",
+  "@trainingProgressionUp": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionLighter": "Leichter: {value}",
+  "@trainingProgressionLighter": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionAfterBreak": "Nach Pause: {value}",
+  "@trainingProgressionAfterBreak": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionReps": "{reps} Wdh.",
+  "@trainingProgressionReps": {
+    "placeholders": {
+      "reps": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingTimerDoneEarly": "Früher fertig",
   "trainingTimerGetReady": "Bereit machen · {seconds}",
   "@trainingTimerGetReady": {
@@ -2575,6 +2629,102 @@
       "count": { "type": "int" }
     }
   },
+  "mealPlanSuggestAction": "Woche vorschlagen",
+  "mealPlanSuggestTitle": "Wochenvorschlag",
+  "mealPlanSuggestIntro": "Aus deinen Rezepten und dem Katalog, abgestimmt auf dein Tagesziel. Tausche oder entferne, was nicht passt. Eingeplant wird erst mit „Übernehmen“.",
+  "mealPlanSuggestProfile": "Passend zu: {filter}",
+  "@mealPlanSuggestProfile": {
+    "description": "The profile filters behind the suggestion, e.g. \"Vegan · ohne Nüsse\".",
+    "placeholders": {
+      "filter": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestWithout": "ohne {foods}",
+  "@mealPlanSuggestWithout": {
+    "description": "Avoided foods in the profile filter; foods: comma-separated.",
+    "placeholders": {
+      "foods": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestSlots": "Mahlzeiten",
+  "mealPlanSuggestShuffle": "Neu mischen",
+  "mealPlanSuggestThinFor": "Für „{filter}“ gibt es nur {dishes} – einige wiederholen sich.",
+  "@mealPlanSuggestThinFor": {
+    "description": "dishes: mealPlanSuggestBreakfasts, mealPlanSuggestMains or mealPlanSuggestSnacks.",
+    "placeholders": {
+      "filter": { "type": "String" },
+      "dishes": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestThin": "Es gibt nur {dishes} – einige wiederholen sich.",
+  "@mealPlanSuggestThin": {
+    "placeholders": {
+      "dishes": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestBreakfasts": "{count, plural, =1{ein Frühstück} other{{count} Frühstücke}}",
+  "@mealPlanSuggestBreakfasts": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestMains": "{count, plural, =1{ein Hauptgericht} other{{count} Hauptgerichte}}",
+  "@mealPlanSuggestMains": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestSnacks": "{count, plural, =1{einen Snack} other{{count} Snacks}}",
+  "@mealPlanSuggestSnacks": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestUnfilled": "{count, plural, =1{Für 1 Mahlzeit passt kein Rezept – sie bleibt leer.} other{Für {count} Mahlzeiten passt kein Rezept – sie bleiben leer.}}",
+  "@mealPlanSuggestUnfilled": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestAlreadyPlanned": "{count, plural, =1{1 Mahlzeit schon geplant} other{{count} Mahlzeiten schon geplant}}",
+  "@mealPlanSuggestAlreadyPlanned": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestInBand": "Im Zielbereich",
+  "mealPlanSuggestNothing": "In dieser Woche ist nichts mehr frei: Jede gewählte Mahlzeit ist schon geplant oder vorbei.",
+  "mealPlanSuggestSwap": "„{recipe}“ tauschen",
+  "@mealPlanSuggestSwap": {
+    "placeholders": {
+      "recipe": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestRemove": "„{recipe}“ entfernen",
+  "@mealPlanSuggestRemove": {
+    "placeholders": {
+      "recipe": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestApply": "{count, plural, =1{1 Mahlzeit übernehmen} other{{count} Mahlzeiten übernehmen}}",
+  "@mealPlanSuggestApply": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestApplied": "{count, plural, =1{1 Mahlzeit eingeplant.} other{{count} Mahlzeiten eingeplant.}}",
+  "@mealPlanSuggestApplied": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestAppliedOffline": "{count, plural, =1{1 Mahlzeit auf diesem Gerät eingeplant. Wird später synchronisiert.} other{{count} Mahlzeiten auf diesem Gerät eingeplant. Wird später synchronisiert.}}",
+  "@mealPlanSuggestAppliedOffline": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestNoneAdded": "Nichts eingeplant: Diese Mahlzeiten sind inzwischen schon belegt.",
   "mealPlanEatToday": "Als heute gegessen abhaken",
   "mealPlanEatenOn": "Am {date} eingetragen",
   "@mealPlanEatenOn": {
@@ -2595,6 +2745,8 @@
   },
   "mealPlanServings": "Portionen",
   "mealPlanServingsError": "Gib 0,1 bis 100 Portionen ein.",
+  "mealPlanCookAheadLabel": "Vorkochen: auch an diesen Tagen",
+  "mealPlanCookAheadHint": "Jeder gewählte Tag bekommt einen eigenen Eintrag mit diesen Portionen.",
   "mealPlanSaved": "Gespeichert.",
   "mealPlanSavedOffline": "Auf diesem Gerät gespeichert. Wird später synchronisiert.",
   "mealPlanSaveError": "Nicht gespeichert. Prüfe deine Verbindung oder den Gerätespeicher und versuche es erneut.",
@@ -2904,6 +3056,16 @@
   "@streakYesterdayHint": {
     "description": "Quiet Today line before the first entry of the day when yesterday is empty and an entry for yesterday would save the streak; opens the add flow on yesterday."
   },
+  "todayFirstEntryTitle": "Was hast du zuletzt gegessen?",
+  "@todayFirstEntryTitle": {
+    "description": "Today card shown until the account's very first entry; above three ways to log it."
+  },
+  "todayFirstEntrySearch": "Suchen oder scannen",
+  "@todayFirstEntrySearch": {
+    "description": "First-entry card: opens the add sheet with food search and barcode scan, the way without AI."
+  },
+  "todayFirstEntryDescribe": "Beschreiben",
+  "todayFirstEntryPhoto": "Foto",
   "todayProfileAndSettings": "Profil und Einstellungen",
   "todayCaloriesTitle": "Kalorien",
   "todayEatenPercent": "{percent} % gegessen",
@@ -2920,15 +3082,15 @@
   "todayStatGoalLabel": "Ziel",
   "todayStatActivityLabel": "Aktivität",
   "todayMacroLeft": "{grams} g übrig",
-  "@todayMacroLeft": {"placeholders": {"grams": {"type": "int"}}},
+  "@todayMacroLeft": {"placeholders": {"grams": {"type": "int", "format": "decimalPattern"}}},
   "todayMacroOver": "{grams} g drüber",
-  "@todayMacroOver": {"placeholders": {"grams": {"type": "int"}}},
+  "@todayMacroOver": {"placeholders": {"grams": {"type": "int", "format": "decimalPattern"}}},
   "todayPickEyebrow": "{slot, select, breakfast{Tipp fürs Frühstück} lunch{Tipp fürs Mittagessen} other{Tipp für heute Abend}}",
   "@todayPickEyebrow": {"placeholders": {"slot": {"type": "String"}}},
   "todayPickPlannedEyebrow": "{slot, select, breakfast{Geplant fürs Frühstück} lunch{Geplant fürs Mittagessen} other{Geplant für heute Abend}}",
   "@todayPickPlannedEyebrow": {"placeholders": {"slot": {"type": "String"}}},
   "todayPickMeta": "{kcal} kcal · {protein} g Protein",
-  "@todayPickMeta": {"placeholders": {"kcal": {"type": "String"}, "protein": {"type": "int"}}},
+  "@todayPickMeta": {"placeholders": {"kcal": {"type": "String"}, "protein": {"type": "int", "format": "decimalPattern"}}},
   "todayPickLeaves": "Danach bleiben {kcal} kcal für heute",
   "@todayPickLeaves": {"placeholders": {"kcal": {"type": "String"}}},
   "todayPickOver": "{kcal} kcal über deinem Tagesbudget",
@@ -2948,10 +3110,10 @@
   "@todayMacroProgressValue": {
     "placeholders": {
       "value": {
-        "type": "int"
+        "type": "int", "format": "decimalPattern"
       },
       "goal": {
-        "type": "int"
+        "type": "int", "format": "decimalPattern"
       }
     }
   },
@@ -2968,7 +3130,7 @@
         "type": "String"
       },
       "kcal": {
-        "type": "int"
+        "type": "int", "format": "decimalPattern"
       },
       "slot": {
         "type": "String"
@@ -3061,6 +3223,46 @@
   "mealPlanShoppingEmptyHeading": "Noch nichts einzukaufen",
   "recipeDetailIngredientsHint": "Alles, was du für dieses Gericht brauchst.",
   "recipeDetailPreparationHint": "Schritt für Schritt auf deinen Teller.",
+  "cookingModeStart": "Kochen",
+  "@cookingModeStart": {"description": "Recipe detail action: opens the cooking mode, one step per page with timers; the screen stays on."},
+  "cookingModeStepOf": "Schritt {step} von {total}",
+  "@cookingModeStepOf": {"placeholders": {"step": {"type": "int", "format": "decimalPattern"}, "total": {"type": "int", "format": "decimalPattern"}}},
+  "cookingModeLeave": "Kochmodus beenden",
+  "cookingModeShowIngredients": "Zutaten zeigen",
+  "cookingModeIngredientsBack": "Zurück zum Schritt",
+  "cookingModeBack": "Zurück",
+  "cookingModeNext": "Weiter",
+  "cookingModeDone": "Fertig",
+  "cookingModeEat": "Als gegessen eintragen",
+  "@cookingModeEat": {"description": "Last step of the cooking mode opened from the meal plan: logs the planned meal through the plan."},
+  "cookingModeLeaveTitle": "{count, plural, =1{Ein Timer läuft noch} other{{count} Timer laufen noch}}",
+  "@cookingModeLeaveTitle": {"placeholders": {"count": {"type": "int", "format": "decimalPattern"}}},
+  "cookingModeLeaveBody": "Verlässt du den Kochmodus, endet jeder laufende Timer.",
+  "cookingModeKeepCooking": "Weiterkochen",
+  "cookingTimerStartLabel": "Timer starten: {duration}",
+  "@cookingTimerStartLabel": {"description": "Screen reader label of a step's timer button; duration like \"10 Minuten\".", "placeholders": {"duration": {"type": "String"}}},
+  "cookingTimerStop": "Stopp",
+  "cookingTimerStopLabel": "Timer stoppen: {duration}",
+  "@cookingTimerStopLabel": {"placeholders": {"duration": {"type": "String"}}},
+  "cookingTimerUp": "Zeit um",
+  "cookingTimerDismiss": "OK",
+  "cookingTimerOtherStep": "Schritt {step} · {time}",
+  "@cookingTimerOtherStep": {"description": "A timer of another step, shown above the current one; time is the countdown (\"07:31\") or cookingTimerUp.", "placeholders": {"step": {"type": "int", "format": "decimalPattern"}, "time": {"type": "String"}}},
+  "cookingTimerUpAnnouncement": "Zeit um: Schritt {step}, {duration}",
+  "@cookingTimerUpAnnouncement": {"placeholders": {"step": {"type": "int", "format": "decimalPattern"}, "duration": {"type": "String"}}},
+  "cookingDurationHours": "{count, plural, =1{1 Stunde} other{{count} Stunden}}",
+  "@cookingDurationHours": {"placeholders": {"count": {"type": "int", "format": "decimalPattern"}}},
+  "cookingDurationMinutes": "{count, plural, =1{1 Minute} other{{count} Minuten}}",
+  "@cookingDurationMinutes": {"placeholders": {"count": {"type": "int", "format": "decimalPattern"}}},
+  "cookingDurationSeconds": "{count, plural, =1{1 Sekunde} other{{count} Sekunden}}",
+  "@cookingDurationSeconds": {"placeholders": {"count": {"type": "int", "format": "decimalPattern"}}},
+  "cookingTimerAlertTitle": "Timer abgelaufen",
+  "@cookingTimerAlertTitle": {"description": "Lock-screen alert of a cooking timer; stays generic, no recipe name."},
+  "cookingTimerAlertBody": "Schritt {step} · {duration}",
+  "@cookingTimerAlertBody": {"placeholders": {"step": {"type": "int", "format": "decimalPattern"}, "duration": {"type": "String"}}},
+  "cookingAlertsOff": "Kein Alarm bei gesperrtem Handy",
+  "cookingAlertsTurnOn": "Einschalten",
+  "cookingAlertsSettings": "Einstellungen",
   "recipePortionSheetIntro": "Wähle deine Portion und die passende Mahlzeit.",
   "mealPlanPlannedCount": "{count, plural, =0{Noch keine Mahlzeiten} =1{1 Mahlzeit geplant} other{{count} Mahlzeiten geplant}}",
   "@mealPlanPlannedCount": {
@@ -3221,6 +3423,15 @@
   },
   "trainingWeekTitle": "Diese Woche",
   "trainingWeekDone": "erledigt",
+  "trainingWeekOfTarget": "von {target}",
+  "@trainingWeekOfTarget": {
+    "placeholders": {
+      "target": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingWeekDayToday": "heute",
   "trainingWeekDayDone": "Training erledigt",
   "trainingWeekDayOpen": "kein Training",
@@ -3431,12 +3642,15 @@
   "exportFieldCarbs": "Kohlenhydrate",
   "exportFieldFat": "Fett",
   "exportFieldExplanation": "Erläuterung",
-  "recipeIngredientsForServings": "Zutaten für {count} Portion(en). Die Zubereitung bezieht sich auf das Originalrezept.",
-  "@recipeIngredientsForServings": {"placeholders": {"count": {"type": "String"}}},
-  "recipeIngredientsOriginalBatch": "Originalmengen für {count} Portion(en), nicht umgerechnet.",
-  "@recipeIngredientsOriginalBatch": {"placeholders": {"count": {"type": "String"}}},
+  "recipeIngredientsForServings": "{count, plural, =1{Zutaten für 1 Portion. Die Zubereitung bezieht sich auf das Originalrezept.} other{Zutaten für {count} Portionen. Die Zubereitung bezieht sich auf das Originalrezept.}}",
+  "@recipeIngredientsForServings": {"description": "Ingredients hint when the amounts are converted to count servings.", "placeholders": {"count": {"type": "num", "format": "decimalPattern"}}},
+  "recipeIngredientsOriginalBatch": "{count, plural, =1{Originalmengen für 1 Portion, nicht umgerechnet.} other{Originalmengen für {count} Portionen, nicht umgerechnet.}}",
+  "@recipeIngredientsOriginalBatch": {"description": "Ingredients hint when the amounts stay as written for a recipe of count servings.", "placeholders": {"count": {"type": "num", "format": "decimalPattern"}}},
   "recipeIngredientsOriginalServing": "Originalmengen für eine Portion, nicht umgerechnet.",
   "recipeIngredientsOriginalUnknown": "Originalmengen; Portionsbezug nicht bestätigt.",
+  "recipeIngredientsBasisLabel": "Zutaten für wie viele Portionen?",
+  "recipeIngredientsBasisPlaceholder": "z. B. 4",
+  "recipeIngredientsBasisHint": "Optional. Damit rechnen Speiseplan und Einkaufszettel die Mengen auf deine Portionen um.",
   "exportRecipePortionProjection": "Berechnete Portionsangaben",
   "recipeNutritionCorrect": "Nährwerte korrigieren",
   "recipeNutritionConflictFields": "Widersprüchliche Angaben in der Quelle: {fields}.",
@@ -3567,7 +3781,7 @@
   "foodDescribeOriginEstimate": "Geschätzt",
   "@foodDescribeOriginEstimate": {"description": "Origin badge: the numbers are the AI's estimate."},
   "foodDescribeLineSemantics": "{name}, {grams} g, {kcal} kcal, {origin}",
-  "@foodDescribeLineSemantics": {"description": "Screen reader label of a draft line.", "placeholders": {"name": {"type": "String"}, "grams": {"type": "int"}, "kcal": {"type": "int"}, "origin": {"type": "String"}}},
+  "@foodDescribeLineSemantics": {"description": "Screen reader label of a draft line.", "placeholders": {"name": {"type": "String"}, "grams": {"type": "int", "format": "decimalPattern"}, "kcal": {"type": "int", "format": "decimalPattern"}, "origin": {"type": "String"}}},
   "foodDescribeLineHint": "Portion oder Produkt ändern",
   "foodDescribeTotal": "Gesamt",
   "foodDescribeEdit": "Bearbeiten",
@@ -3580,7 +3794,7 @@
   "@foodDescribeLineSaid": {"placeholders": {"amount": {"type": "String"}}},
   "foodDescribeLineChoose": "Passendes Lebensmittel",
   "foodDescribeCandidateSemantics": "{name}, {kcal} kcal pro 100 g, {origin}",
-  "@foodDescribeCandidateSemantics": {"description": "Screen reader label of a candidate in the line editor.", "placeholders": {"name": {"type": "String"}, "kcal": {"type": "int"}, "origin": {"type": "String"}}},
+  "@foodDescribeCandidateSemantics": {"description": "Screen reader label of a candidate in the line editor.", "placeholders": {"name": {"type": "String"}, "kcal": {"type": "int", "format": "decimalPattern"}, "origin": {"type": "String"}}},
   "foodDescribeDiscardTitle": "Beschreibung verwerfen?",
   "foodDescribeDiscardBody": "Die Mahlzeit ist noch nicht eingetragen.",
   "foodDescribeReauthRequired": "Bitte melde dich erneut an, bevor du eine Mahlzeit beschreibst.",
@@ -3689,8 +3903,8 @@
   "weeklyCheckExplainStep": "Weicht dein Verbrauch deutlich von der Rechnung ab, schlägt der Check ein neues Tagesziel vor: höchstens {step} kcal auf einmal und insgesamt höchstens {max} kcal. Ohne dein „Anpassen“ ändert sich nichts.",
   "@weeklyCheckExplainStep": {
     "placeholders": {
-      "step": { "type": "int" },
-      "max": { "type": "int" }
+      "step": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "weeklyCheckResultTitle": "Dein Wochen-Check",
@@ -3772,7 +3986,7 @@
   "@trendsStepsGoalDays": {"placeholders": {"hit": {"type": "int"}, "days": {"type": "int"}}},
   "trendsStepsChartSemanticsLabel": "Schrittverlauf",
   "trendsStepsChartSemanticsValue": "Im Schnitt {avg} Schritte an {days, plural, one{1 Tag} other{{days} Tagen}} mit Wert",
-  "@trendsStepsChartSemanticsValue": {"placeholders": {"avg": {"type": "int"}, "days": {"type": "int"}}},
+  "@trendsStepsChartSemanticsValue": {"placeholders": {"avg": {"type": "int", "format": "decimalPattern"}, "days": {"type": "int"}}},
   "trendsWeightTitle": "GEWICHT",
   "trendsWeightEmpty": "Keine Wiegung in diesem Zeitraum.",
   "trendsWeightSingle": "Nur eine Wiegung in diesem Zeitraum.",
@@ -3805,9 +4019,9 @@
   "coachRecipeTargetSlot": "(Für: {slot})",
   "@coachRecipeTargetSlot": {"description": "Appended to a /recipe wish and sent to the AI; shown in the chat history.", "placeholders": {"slot": {"type": "String"}}},
   "coachRecipeTargetBudget": "(Für: {slot} · heute noch offen: {kcal} kcal)",
-  "@coachRecipeTargetBudget": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}}},
+  "@coachRecipeTargetBudget": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int", "format": "decimalPattern"}}},
   "coachRecipeTargetBudgetProtein": "(Für: {slot} · heute noch offen: {kcal} kcal, {protein} g Protein)",
-  "@coachRecipeTargetBudgetProtein": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}, "protein": {"type": "int"}}},
+  "@coachRecipeTargetBudgetProtein": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int", "format": "decimalPattern"}, "protein": {"type": "int", "format": "decimalPattern"}}},
   "coachLoadRetry": "Erneut versuchen",
   "coachSpeakerYou": "Du",
   "coachSpeakerCoach": "Coach",
@@ -3829,7 +4043,7 @@
   "foodMacrosMissingEntries": "{count, plural, one{1 Eintrag} other{{count} Einträge}} ohne vollständige Makros",
   "@foodMacrosMissingEntries": {"placeholders": {"count": {"type": "int"}}},
   "todayMacroProgressValueAtLeast": "mindestens {value} von {goal} Gramm",
-  "@todayMacroProgressValueAtLeast": {"placeholders": {"value": {"type": "int"}, "goal": {"type": "int"}}},
+  "@todayMacroProgressValueAtLeast": {"placeholders": {"value": {"type": "int", "format": "decimalPattern"}, "goal": {"type": "int", "format": "decimalPattern"}}},
   "trendsProteinGoalDaysUnknown": "Proteinziel an mindestens {hit} von {tracked, plural, one{1 Tag} other{{tracked} Tagen}} erreicht ({unknown, plural, one{1 Tag} other{{unknown} Tage}} mit Einträgen ohne Protein)",
   "@trendsProteinGoalDaysUnknown": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}, "unknown": {"type": "int"}}},
   "mealPlanOpenRecipe": "Öffnet das Rezept",
@@ -3882,7 +4096,7 @@
   "@healthWeightImportNoAccess": {"placeholders": {"source": {"type": "String"}}},
   "healthConnectStepsAndWeight": "Liest Schritte und Gewicht. Waagenwerte übernimmt Eatova erst, wenn du zustimmst.",
   "targetReachedGoalSnack": "Zielgewicht erreicht! Neues Tagesziel: {kcal} kcal zum Halten.",
-  "@targetReachedGoalSnack": {"placeholders": {"kcal": {"type": "int"}}},
+  "@targetReachedGoalSnack": {"placeholders": {"kcal": {"type": "int", "format": "decimalPattern"}}},
   "todayTargetReachedTitle": "Ziel erreicht – halten oder neues Ziel?",
   "todayTargetReachedBodyLose": "Dein Trend hat dein Wunschgewicht von {target} kg erreicht. Dein Plan hält jetzt dein Gewicht und geht erst wieder aufs Abnehmen, wenn dein Trend {band} kg darüber liegt.",
   "@todayTargetReachedBodyLose": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},

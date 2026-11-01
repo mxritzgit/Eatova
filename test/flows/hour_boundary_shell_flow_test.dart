@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
@@ -55,6 +56,9 @@ Future<HomeStore> _pumpShell(WidgetTester tester, {required int endOn}) async {
   );
   final store = storeOf(tester);
   store.profile = _profile;
+  // An account that has logged before: day 0 shows the first-entry card in
+  // the pick's place.
+  store.lifetimeStats = LifetimeStats(mealsLogged: 1);
   for (final tab in [_today, _food, _recipes, _training, _coach, endOn]) {
     store.setTab(tab);
     await settleFrames(tester);

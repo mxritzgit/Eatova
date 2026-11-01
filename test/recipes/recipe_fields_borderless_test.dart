@@ -120,7 +120,7 @@ void main() {
           t.fieldError,
           reason: 'Fehler als Tönung der Fläche, nicht als roter Rand.',
         );
-        expect(find.text('1–10000 kcal'), findsOneWidget);
+        expect(find.text('1–10.000 kcal'), findsOneWidget);
       });
     });
   }

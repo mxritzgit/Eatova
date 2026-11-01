@@ -34,6 +34,7 @@ Finder field(String name) => find.byKey(ValueKey('recipe-create-$name'));
 
 Future<void> openEditor(
   WidgetTester tester, {
+  FitnessRecipe recipe = original,
   Future<SyncDelivery> Function(FitnessRecipe)? save,
   bool Function()? session,
   double textScale = 1,
@@ -41,7 +42,7 @@ Future<void> openEditor(
   await pumpLocalized(
     tester,
     RecipeDetailScreen(
-      recipe: original,
+      recipe: recipe,
       onAddMeal: (_, _) {},
       onEdit: (recipe) async => RecipeSaveResult.detached(
         recipe,
@@ -82,6 +83,8 @@ void main() {
         'carbs': '60',
         'fat': '12',
         'ingredients': original.ingredients,
+        // An older Coach recipe has no stated basis and keeps none.
+        'basis': '',
         'preparation': original.preparation,
       }.entries) {
         expect(
@@ -114,6 +117,26 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('a stated ingredients basis is prefilled and changes with the '
+      'field', (tester) async {
+    pinPhoneViewport(tester);
+    final saved = <FitnessRecipe>[];
+    await openEditor(
+      tester,
+      recipe: original.withIngredientsBasis(4),
+      save: (recipe) async {
+        saved.add(recipe);
+        return SyncDelivery.delivered;
+      },
+    );
+    expect(tester.widget<TextField>(field('basis')).controller!.text, '4');
+    await tester.enterText(field('basis'), '2');
+    await tester.tap(field('save'));
+    await tester.pumpAndSettle();
+    expect(saved.single.ingredientsBasisServings, 2);
+    expect(saved.single.displayCategories, original.categories);
+  });
 
   testWidgets(
     'nondurable save retains draft and retries without reporting success',

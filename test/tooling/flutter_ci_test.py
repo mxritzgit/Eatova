@@ -171,7 +171,8 @@ class FlutterCiFixtures(unittest.TestCase):
                   "exit_code": 0, "report_sha256": digest(directory / "report.jsonl"),
                   "coverage_sha256": digest(directory / "lcov.info"),
                   "coverage_bytes": (directory / "lcov.info").stat().st_size,
-                  "coverage_inventory": {source: sorted(lines) for source, lines in coverage.items()}}
+                  "coverage_inventory": {source: sorted(lines) for source, lines in coverage.items()},
+                  "seed": 4242}
         if run_attempt is not None:
             result["run_attempt"] = run_attempt
         (directory / "result.json").write_text(json.dumps(result), encoding="utf-8")
@@ -380,8 +381,13 @@ class ArtifactTests(FlutterCiFixtures):
         target = destination / "shard-0/result.json"
         original = json.loads(target.read_text())
         for key, value in [("version", True), ("version", 1.0), ("shard", False),
-                           ("shard", 0.0), ("exit_code", False), ("exit_code", 0.0)]:
-            target.write_text(json.dumps({**original, key: value}))
+                           ("shard", 0.0), ("exit_code", False), ("exit_code", 0.0),
+                           # 0 means "not shuffled" to test_core; above 32 bits is truncated.
+                           ("seed", None), ("seed", 0), ("seed", 2**32), ("seed", True), ("seed", 7.0)]:
+            bad = {**original, key: value}
+            if value is None:
+                del bad[key]
+            target.write_text(json.dumps(bad))
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 self.validate(destination)
         target.write_text(json.dumps(original))
@@ -627,6 +633,32 @@ class RunnerTests(FlutterCiFixtures):
         self.assertEqual(result["exit_code"], 0)
         self.assertEqual(result["coverage_inventory"], {"lib/a.dart": [1]})
         self.assertNotIn("run_attempt", result)
+
+    def test_every_run_shuffles_with_a_logged_seed_that_replays_the_order(self):
+        commands = []
+
+        def compiler(command, **kwargs):
+            commands.append(command)
+            self.write_report(events(self.manifest["shards"][0]), f"{output.name}/shard-0/report.jsonl")
+            (output / "shard-0/lcov.info").write_text(lcov("lib/a.dart", {1: 1}))
+            return SimpleNamespace(returncode=0)
+
+        for extra, drawn in [(["--seed", "4242"], None), ([], 977)]:
+            output = self.root / f"seed-output-{len(commands)}"
+            log = io.StringIO()
+            with self.subTest(extra=extra),                  mock.patch.object(MODULE.secrets, "randbelow", return_value=(drawn or 1) - 1),                  contextlib.redirect_stdout(log):
+                self.assertEqual(self.run_shard(compiler, output, *extra), 0)
+                seed = 4242 if extra else drawn
+                self.assertIn(f"--test-randomize-ordering-seed={seed}", commands[-1])
+                self.assertIn(f"--seed {seed}", log.getvalue())
+                self.assertEqual(json.loads((output / "shard-0/result.json").read_text())["seed"], seed)
+
+    def test_seed_outside_the_shuffling_range_is_rejected_before_running(self):
+        compiler = mock.Mock(return_value=SimpleNamespace(returncode=0))
+        for value in ["0", "-1", str(2**32)]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.run_shard(compiler, self.root / "rejected", "--seed", value)
+        compiler.assert_not_called()
 
     def test_ci_run_stamps_its_attempt_into_the_evidence(self):
         output = self.root / "run-output"

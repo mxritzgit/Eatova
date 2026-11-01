@@ -119,7 +119,9 @@ void main() {
 
     expect(recipe.slug, 'user_coach_test-msg');
     expect(recipe.userCreated, isTrue);
-    expect(recipe.categories, const <String>['Eigene']);
+    expect(recipe.displayCategories, const <String>['Eigene']);
+    // The prompt writes every amount for one serving: plans convert them.
+    expect(recipe.ingredientsBasisServings, 1);
     expect(recipe.title, 'Huehnchenauflauf');
     expect(recipe.description, 'Cremig und proteinreich.');
     expect(recipe.preparation, startsWith('1.'));

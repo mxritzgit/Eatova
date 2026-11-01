@@ -241,18 +241,28 @@ void main() {
     test('2xx ohne products-Liste auf beiden Beinen meldet die '
         'Schema-Aenderung', () async {
       // Valid JSON that simply is not a search response: reading it as an
-      // empty hit list would invent an answer nobody gave.
-      final stub = await _SuchStub.start(<String, ({int status, String body})>{
-        'de': (status: 200, body: '{"ok":true}'),
-        'world': (status: 200, body: '{"ok":true}'),
-      });
-      addTearDown(stub.close);
+      // empty hit list would invent an answer nobody gave. A JSON array or
+      // string used to escape as a TypeError.
+      for (final body in ['{"ok":true}', '[]', '"wartung"']) {
+        gemeldet.clear();
+        kontexte.clear();
+        final stub =
+            await _SuchStub.start(<String, ({int status, String body})>{
+          'de': (status: 200, body: body),
+          'world': (status: 200, body: body),
+        });
+        addTearDown(stub.close);
 
-      await expectLater(suche(stub), throwsA(isA<FormatException>()));
-      await Future<void>.delayed(Duration.zero);
+        await expectLater(
+          suche(stub),
+          throwsA(isA<FormatException>()),
+          reason: body,
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(gemeldet, hasLength(1));
-      expect(kontexte.single, 'product.search.fallback');
+        expect(gemeldet, hasLength(1), reason: body);
+        expect(kontexte.single, 'product.search.fallback', reason: body);
+      }
     });
   });
 }

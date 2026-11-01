@@ -4639,3 +4639,97 @@ deploy. The app changes arrive with the next device build.
    hint.
 3. Optional: delete one account of the test pair that shares a key for a
    clean state.
+
+## Review items built with ten agents, 2026-11-01
+
+Owner request (2026-11-01, then asleep): build everything that can be built
+from the day's two reviews with ten subagents, then run ten more for the
+UI/UX; rights to edit, push, migrations and functions. The reviews (a
+ten-agent audit against the locally installed Flutter agent skills and a
+five-agent feature review) are in
+[FEATURE-REVIEW-2026-11-01.md](FEATURE-REVIEW-2026-11-01.md), with the
+status of every finding and proposal.
+
+**Built** (one worktree agent per branch `build/2026-11-01-<slug>`, merged
+into `feat/review-build-2026-11-01`):
+
+| Slug | What |
+| --- | --- |
+| `auth-timeout` | `/auth/v1/` requests of the shared client end after 15 s (`EatovaSupabaseConfig.authRequestDeadline`); a stalled token refresh is a network error and keeps the session. The isolated GoTrue clients keep 20 s. Coach recipe images decode off the UI isolate |
+| `parse-robustness` | Profile values this build does not know survive cache and every save ([sync](OFFLINE_SYNC.md#legacy-clients-and-rollout)); an unreadable subscription keeps tier and limits; an outbox op with a non-string `predecessor_id` is skipped alone; a non-object 2xx search body raises the schema alarm |
+| `app-fixes` | Recipe ingredient search uses the mirror like the Food tab; the boot error screen swallows platform routes; the capture orientation lock is iOS-only (CameraX pinned the rotation) and the camera cover follows the preview orientation; camera and scanner never open twice; recipe history in `ReadableWidth`; two-digit training badges stay on one line |
+| `ci-tests-texts` | CI shuffles test order with a logged seed per run (`--seed ${{ github.run_number }}`, `result.json` records it); the camera scrub test polls instead of a fixed 2 s; the l10n guard covers training, premium and the shared widgets; amounts before kcal, g and steps carry `decimalPattern` (new repo rule) |
+| `servings-basis` | Own recipes can state "ingredients for N servings", Coach recipes are saved for one serving, so the shopping receipt converts them; cooking ahead puts one recipe on up to six following days in one commit; real plurals for the servings hints |
+| `week-plan` | "Suggest a week": deterministic planner (`week_plan_suggestion.dart`), preview sheet, one commit on "Apply" (`HomeStore.addPlannedMeals`) |
+| `training` | Progression chip in the player (`trainingProgressionFor`); optional `sessions_per_week` on plans (migration `20261101100000`, coach-chat `training_plan.ts`/`training_context.ts` v2), "1 of 4 done" on the week card |
+| `first-entry` | Today card until the account's first entry; Photo, Barcode and Describe buttons on the evening reminder (Android actions, iOS category `eatova-log-meal`) |
+| `own-food-suggestions` | "Often at <slot>", "Your usual <slot>" and "What still fits?" in the add sheet (`own_food_suggestions.dart`) |
+| `cooking-mode` | Step-by-step cooking mode with step timers over the rest-alert path (`recipe_cooking_mode.dart`, `cooking_timers.dart`, `timer_alerts_scope.dart`) |
+
+Integration: one shared open-plan count for the two batch saves (prep ahead
+and the week suggestion came from parallel branches); the Coach recipe flow
+test reads display categories now that Coach recipes carry the basis
+marker; the hour-boundary shell test starts from an account that has logged.
+The Android job's strict OSV scan failed on GHSA-xxph-c9ww-hj94 (Guava
+before 33.7.2, published 2026-10-27, so `main` fails too); a constraint in
+`android/app/build.gradle.kts` resolves `33.7.2-android` (from 33.5.0 and
+31.1), checked with `:app:dependencies --configuration
+releaseRuntimeClasspath` and the CI debug and release builds.
+
+**Decisions taken overnight** (each easy to revert; the owner can
+override):
+- Auth deadline 15 s: at least gotrue's 10 s refresh retry window, below
+  PostgREST's 20 s, inside the 25 s sign-out budget. Sockets are not
+  aborted, only the wait ends.
+- An unknown profile value stays until the user picks a different value;
+  picking the shown default again keeps the raw value. Unknown avoidance
+  codes cannot be removed on the older build.
+- First-entry card replaces the recipe pick on day 0 and sits below the
+  first viewport at 390 x 844; no reminder opt-in on it (the reminder
+  timing is still the owner's decision). Reminder buttons in the order
+  Photo, Barcode, Describe.
+- "Often at": three distinct days in 35; at most five rows. "What still
+  fits?": today only, after the first entry, once ten own foods state their
+  protein, at most three rows. "Your usual": one tap copies with undo.
+- Week suggestion: dislikes filter catalog recipes too (titles and
+  ingredients, 3+ letters; RECIPES-DESIGN had them Coach-only); servings
+  0.5 to 2, spread evenly; snack off by default. Simulation over 1,584 plans:
+  no avoided food or diet violation, no dish twice a day; average repeats per
+  week 1.6 (no diet), 9.6 vegetarian, 13.3 vegan (4 breakfasts, 5 mains), so
+  the preview says when the profile leaves few dishes. A larger vegan and
+  vegetarian catalog would help more than the hint.
+- Servings basis 0.1 to 100; older Coach recipes get no backfill. Cooking
+  ahead offers the six following days and uses the stepper's servings.
+- Cooking mode: a time range starts the timer at its lower end; inexact
+  Android alarms (no `SCHEDULE_EXACT_ALARM`); timers end when the mode is
+  left; the Android rest channel's name now covers cooking timers.
+- Sessions per week 1 to 14 (the Coach brief offers 1 to 7); the target
+  comes from the brief, never from the model; "done" counts all sessions
+  against the selected plan's target; holding after a miss shows no chip.
+- CI seed is the workflow run number, shared by all shards and reruns.
+
+**Rollout order for sessions per week:** migration `20261101100000`, then
+coach-chat, then an app build. Without the migration the `chat_messages`
+CHECK rejects the key; the old function answers a v2 brief with 400. A
+build before 2026-11-01 cannot read a plan that has a target (strict key
+check; the plan list keeps its cache until that device updates; editing
+there drops the target). Raise `ROLLBACK_FLOORS['coach-chat']` to the merge
+commit once an app build with v2 briefs is released.
+
+**Open:**
+- Device checks: camera on an Android 16 tablet in landscape (photo
+  orientation and the cover box), reminder buttons on both platforms
+  including a cold start from a button, cooking-mode alarm with the phone
+  locked, screen kept on, Predictive Back against the cooking pager.
+- Raw kcal and grams still unformatted outside the touched files
+  (`diary_meal_card.dart:627`, `edit_meal_sheet.dart:670`,
+  `meal_copy_sheet.dart:99`, `meal_describe_draft.dart:120`,
+  `product_search_presentation.dart:39`, `saved_meal_presentation.dart:226`,
+  `recipe_ingredient_editor.dart:268`, `recipe_create_sheet.dart:1194`,
+  steps in `profile_widgets_goals.dart:70`).
+- Not built, by reason: label photo (consent text), widget (native,
+  device-only, numbers on the lock screen), Health write (store
+  declarations, bundle with READ_WEIGHT), muscle-group volume, schema.org
+  import, calorie cycling, Premium `/woche`, menu scan, Sign in with Apple
+  (paid Apple program). Unchanged owner decisions: portrait lock on
+  Android tablets, reminder offer from day 1, cache per-row skip.

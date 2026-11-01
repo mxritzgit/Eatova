@@ -9,11 +9,31 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 ## [Unreleased]
 
 Updated 2026-09-16; the dark redesign entry was added 2026-10-01 and the October
-entries on 2026-10-03, 2026-10-08, 2026-10-11, 2026-10-18, 2026-10-20, 2026-10-22 and 2026-10-25. Changes between
+entries on 2026-10-03, 2026-10-08, 2026-10-11, 2026-10-18, 2026-10-20, 2026-10-22 and 2026-10-25, the November entry on 2026-11-01. Changes between
 those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
 repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
 the complete current product.
+
+### November 2026
+
+- **Review items built with ten agents** (2026-11-01,
+  [handoff](docs/PROJECT_HANDOFF.md#review-items-built-with-ten-agents-2026-11-01),
+  [review](docs/FEATURE-REVIEW-2026-11-01.md)):
+  - Meal plan: "Suggest a week" without AI, cooking ahead on several days,
+    and a servings basis for own and Coach recipes so the shopping list
+    converts them.
+  - Recipes: a step-by-step cooking mode with step timers that ring with
+    the phone locked; ingredient search uses the product mirror.
+  - Training: a progression chip in the player and an optional sessions
+    per week target ("1 of 4 done"; migration `20261101100000`).
+  - Logging: a first-entry card on Today, Photo/Barcode/Describe buttons
+    on the evening reminder, "Often at <slot>", "Your usual <slot>" and
+    "What still fits?" in the add sheet.
+  - Robustness: auth requests end after 15 s, unknown profile values and
+    subscription statuses no longer reset data, camera and scanner never
+    open twice, the camera lock is iOS-only, amounts carry thousands
+    separators, CI shuffles test order with a logged seed.
 
 ### October 2026
 

@@ -119,14 +119,6 @@ void main() {
       'Legacy als Text': (j) => j['legacy'] = 'yes',
       'Legacy ohne until': (j) => j['legacy'] = <String, dynamic>{},
       'Legacy-Datum als Zahl': (j) => j['legacy'] = {'until': 5},
-      'unbekannter Abo-Status': (j) =>
-          part(j, 'subscription')['status'] = 'lifetime',
-      'unbekannter Store': (j) => part(j, 'subscription')['platform'] = 'steam',
-      'Abo ohne Ablauf': (j) => part(j, 'subscription').remove('expires_at'),
-      'Verlaengerung als Text': (j) =>
-          part(j, 'subscription')['auto_renewing'] = 'yes',
-      'leeres Produkt': (j) => part(j, 'subscription')['product_id'] = '',
-      'Abo als Liste': (j) => j['subscription'] = <Object>[],
     };
     for (final MapEntry(key: name, value: mutate) in cases.entries) {
       final json = _snapshot();
@@ -135,6 +127,30 @@ void main() {
     }
     for (final Object? shape in <Object?>[null, 'premium', <Object>[]]) {
       expect(PlanStatus.fromJson(shape), isNull, reason: '$shape');
+    }
+  });
+
+  test('ein unlesbares Abo faellt allein weg, Tarif und Limits bleiben', () {
+    // A store status added later must not show a paying account the Free
+    // limits: the server decided tier and limits, the app only lacks the
+    // subscription's details.
+    Map<String, dynamic> abo(Map<String, dynamic> json) =>
+        json['subscription'] as Map<String, dynamic>;
+    final ohneAbo = PlanStatus.fromJson(_snapshot()..['subscription'] = null)!;
+    final cases = <String, void Function(Map<String, dynamic>)>{
+      'unbekannter Abo-Status': (j) => abo(j)['status'] = 'lifetime',
+      'unbekannter Store': (j) => abo(j)['platform'] = 'steam',
+      'Abo ohne Ablauf': (j) => abo(j).remove('expires_at'),
+      'Verlaengerung als Text': (j) => abo(j)['auto_renewing'] = 'yes',
+      'leeres Produkt': (j) => abo(j)['product_id'] = '',
+      'Abo als Liste': (j) => j['subscription'] = <Object>[],
+    };
+    for (final MapEntry(key: name, value: mutate) in cases.entries) {
+      final json = _snapshot();
+      mutate(json);
+      final plan = PlanStatus.fromJson(json);
+      expect(plan, ohneAbo, reason: name);
+      expect(plan!.isPremium, isTrue, reason: name);
     }
   });
 

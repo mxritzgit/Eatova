@@ -19,39 +19,89 @@ mixin _HomeStoreMealPlanPart
     }
   }
 
-  Future<SyncDelivery> savePlannedMeal(PlannedMeal plan) => _serializeMealPlan(
-    () async {
-      _ensureMealPlanActive();
-      final validated = PlannedMeal.fromJson(plan.toJson());
+  /// Open plans the limit counts: not removed, not eaten, in the 35-day window.
+  int _openPlannedMealCount() {
+    final activeSince = localDayKey(
+      clock.now().subtract(const Duration(days: 35)),
+    );
+    return _plannedMeals
+        .where(
+          (p) => !p.removed && !p.isEaten && p.day.compareTo(activeSince) >= 0,
+        )
+        .length;
+  }
+
+  Future<SyncDelivery> savePlannedMeal(PlannedMeal plan) =>
+      savePlannedMeals([plan]);
+
+  /// Saves [plans] in one local commit, all or none, e.g. one recipe cooked
+  /// ahead for several days. The open-plan limit counts every new plan.
+  Future<SyncDelivery> savePlannedMeals(
+    List<PlannedMeal> plans,
+  ) => _serializeMealPlan(() async {
+    _ensureMealPlanActive();
+    final validated = [
+      for (final plan in plans) PlannedMeal.fromJson(plan.toJson()),
+    ];
+    if (validated.isEmpty ||
+        {for (final plan in validated) plan.id}.length != validated.length) {
+      throw ArgumentError.value(plans, 'plans', 'Empty or repeated ids');
+    }
+    var added = 0;
+    for (final plan in validated) {
       final existing = _plannedMeals.where((p) => p.id == plan.id).firstOrNull;
-      if (validated.isEaten || existing?.isEaten == true) {
+      if (plan.isEaten || existing?.isEaten == true) {
         throw const MealPlanAlreadyEaten();
       }
-      final activeSince = localDayKey(
-        clock.now().subtract(const Duration(days: 35)),
-      );
-      if (existing == null &&
-          _plannedMeals
-                  .where(
-                    (p) =>
-                        !p.removed &&
-                        !p.isEaten &&
-                        p.day.compareTo(activeSince) >= 0,
-                  )
-                  .length >=
-              kMaxOpenPlannedMeals) {
-        throw const MealPlanLimitReached();
-      }
-      return _commitSyncIntents(
-        [SyncOp.mealPlanUpsert(validated)],
-        notifyQueued: false,
-        publish: () => _putPlannedMeal(validated),
-      );
-    },
-  );
+      if (existing == null) added++;
+    }
+    if (added > 0 && _openPlannedMealCount() + added > kMaxOpenPlannedMeals) {
+      throw const MealPlanLimitReached();
+    }
+    return _commitSyncIntents(
+      [for (final plan in validated) SyncOp.mealPlanUpsert(plan)],
+      notifyQueued: false,
+      publish: () => validated.forEach(_putPlannedMeal),
+    );
+  });
 
   Future<SyncDelivery> removePlannedMeal(PlannedMeal plan) =>
       savePlannedMeal(plan.copyWith(removed: true));
+
+  /// Adds [plans] as new entries in one local commit, all or none: the week
+  /// suggestion's "Übernehmen". A plan for a day and slot that holds an
+  /// entry by now (another device, an edit meanwhile) is left out, so
+  /// nothing planned is overwritten or doubled. Resolves to the delivery and
+  /// the number of entries written.
+  Future<({SyncDelivery delivery, int added})> addPlannedMeals(
+    List<PlannedMeal> plans,
+  ) => _serializeMealPlan(() async {
+    _ensureMealPlanActive();
+    final taken = {
+      for (final p in _plannedMeals)
+        if (!p.removed) (p.day, p.slot),
+    };
+    final fresh = <PlannedMeal>[];
+    for (final plan in plans) {
+      final validated = PlannedMeal.fromJson(plan.toJson());
+      if (validated.isEaten ||
+          validated.removed ||
+          _plannedMeals.any((p) => p.id == validated.id)) {
+        throw ArgumentError.value(plan.id, 'plans', 'Not a new plan');
+      }
+      if (taken.add((validated.day, validated.slot))) fresh.add(validated);
+    }
+    if (fresh.isEmpty) return (delivery: SyncDelivery.delivered, added: 0);
+    if (_openPlannedMealCount() + fresh.length > kMaxOpenPlannedMeals) {
+      throw const MealPlanLimitReached();
+    }
+    final delivery = await _commitSyncIntents(
+      [for (final plan in fresh) SyncOp.mealPlanUpsert(plan)],
+      notifyQueued: false,
+      publish: () => fresh.forEach(_putPlannedMeal),
+    );
+    return (delivery: delivery, added: fresh.length);
+  });
 
   /// A tick reads no plan state, so it skips the plan queue, and it returns
   /// once committed: the receipt shows no delivery feedback, and waiting for

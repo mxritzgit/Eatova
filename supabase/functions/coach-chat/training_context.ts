@@ -2,7 +2,8 @@ import { BANNED_PATTERNS } from "./prefilter.ts";
 import { type CoachTrainingProposal, parseTrainingPlan } from "./training_plan.ts";
 
 export type TrainingContext = {
-  schema_version: 1;
+  /** 2 (2026-11): same keys; the client reads `sessions_per_week` on plans. */
+  schema_version: 1 | 2;
   intent: "create" | "adapt" | "discuss";
   goal: string;
   experience: "beginner" | "intermediate" | "advanced";
@@ -22,7 +23,7 @@ export function parseTrainingContext(raw: unknown): TrainingContext | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const value = raw as Record<string, unknown>;
   if (Object.keys(value).length !== KEYS.length || !KEYS.every((key) => Object.hasOwn(value, key)) ||
-    value.schema_version !== 1 || typeof value.goal !== "string" ||
+    (value.schema_version !== 1 && value.schema_version !== 2) || typeof value.goal !== "string" ||
     !value.goal.trim() || Array.from(value.goal).length > 200 ||
     !["create", "adapt", "discuss"].includes(value.intent as string) ||
     !["beginner", "intermediate", "advanced"].includes(value.experience as string) ||
@@ -37,6 +38,11 @@ export function parseTrainingContext(raw: unknown): TrainingContext | null {
   if (CONTROLS.test(text) || /[\ud800-\udfff]/u.test(text) ||
     new TextEncoder().encode(JSON.stringify(context)).byteLength > 128 * 1024) return null;
   return context;
+}
+
+/** The proposal's weekly target: the brief's own number, for v2 briefs only. */
+export function briefWeeklyTarget(context: TrainingContext | undefined): number | null {
+  return context?.schema_version === 2 ? context.sessions_per_week : null;
 }
 
 export function trainingContextText(context: TrainingContext): string {

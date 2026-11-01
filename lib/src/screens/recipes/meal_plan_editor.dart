@@ -39,6 +39,12 @@ class _PlanEditorState extends State<_PlanEditor> {
         orElse: () => MealSlot.dinner,
       );
   late DateTime _day = widget.day;
+
+  /// Cook ahead: the following days that get the same recipe, slot and
+  /// servings, saved with [_day] in one commit. Ids per day key stay the
+  /// same across retries, like [_draftId].
+  final _alsoDays = <String>{};
+  final _alsoIds = <String, String>{};
   FitnessRecipe? _recipe;
   bool _saving = false;
   String? _error;
@@ -100,7 +106,22 @@ class _PlanEditorState extends State<_PlanEditor> {
       lastDate: last,
       confirmLabel: context.l10n.mealPlanDateConfirm,
     );
-    if (selected != null && mounted) setState(() => _day = selected);
+    if (selected != null && mounted) {
+      setState(() {
+        _day = selected;
+        // The choices were days after the previous day.
+        _alsoDays.clear();
+      });
+    }
+  }
+
+  /// The six days after [_day] that can still be planned.
+  List<DateTime> get _followingDays {
+    final last = _lastPlanDay(DateUtils.dateOnly(clock.now()));
+    return [
+      for (var i = 1; i <= 6; i++)
+        DateTime(_day.year, _day.month, _day.day + i),
+    ].where((day) => !day.isAfter(last)).toList();
   }
 
   Future<void> _save() async {
@@ -120,7 +141,20 @@ class _PlanEditorState extends State<_PlanEditor> {
             slot: _slot,
             servings: amount,
           );
-      final result = await widget.store.savePlannedMeal(plan);
+      final also = [
+        for (final day in _followingDays)
+          if (_alsoDays.contains(localDayKey(day)))
+            PlannedMeal.create(
+              id: _alsoIds.putIfAbsent(localDayKey(day), uuidV4),
+              recipe: _recipe!,
+              day: day,
+              slot: _slot,
+              servings: amount,
+            ),
+      ];
+      final result = also.isEmpty
+          ? await widget.store.savePlannedMeal(plan)
+          : await widget.store.savePlannedMeals([plan, ...also]);
       if (!mounted) return;
       showAppSnack(
         context,
@@ -356,6 +390,42 @@ class _PlanEditorState extends State<_PlanEditor> {
                           l.mealPlanServingsError
                     : null,
               ),
+              if (widget.plan == null && _followingDays.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                _EditorLabel(l.mealPlanCookAheadLabel),
+                Semantics(
+                  container: true,
+                  label: l.mealPlanCookAheadLabel,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final day in _followingDays)
+                        FilterChipPill(
+                          key: ValueKey('meal-plan-also-${localDayKey(day)}'),
+                          label: DateFormat.MEd(l.localeName).format(day),
+                          semanticLabel: DateFormat.MMMMEEEEd(
+                            l.localeName,
+                          ).format(day),
+                          selected: _alsoDays.contains(localDayKey(day)),
+                          onTap: _saving
+                              ? null
+                              : () => setState(() {
+                                  final key = localDayKey(day);
+                                  if (!_alsoDays.remove(key)) {
+                                    _alsoDays.add(key);
+                                  }
+                                }),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  l.mealPlanCookAheadHint,
+                  style: AppType.ui(13, color: t.ink2, height: 1.45),
+                ),
+              ],
               const SizedBox(height: 10),
               Text(
                 l.mealPlanSnapshotHint,

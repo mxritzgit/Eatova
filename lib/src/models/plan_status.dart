@@ -674,7 +674,8 @@ class PlanStatus {
   };
 
   /// Null for anything that is not a complete snapshot; unknown extra fields
-  /// are ignored (the server only adds fields).
+  /// are ignored (the server only adds fields), and an unreadable
+  /// subscription reads as none.
   static PlanStatus? fromJson(Object? json) {
     if (json is! Map) return null;
     final tier = PlanTier.fromWire(json['tier']);
@@ -692,9 +693,9 @@ class PlanStatus {
         resetAt == null) {
       return null;
     }
-    final rawSubscription = json['subscription'];
-    final subscription = SubscriptionInfo.fromJson(rawSubscription);
-    if (rawSubscription != null && subscription == null) return null;
+    // A subscription this build cannot read (a store status added later) is
+    // left out, not the plan: tier and limits still come from the server.
+    final subscription = SubscriptionInfo.fromJson(json['subscription']);
     final rawLegacy = json['legacy'];
     LegacyPlan? legacy;
     if (rawLegacy != null) {

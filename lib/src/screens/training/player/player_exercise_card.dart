@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show OverflowBoxFit;
 
 import '../../../l10n/l10n.dart';
+import '../../../models/training_insights.dart'
+    show TrainingProgression, TrainingProgressionKind;
 import '../../../models/training_plan.dart';
 import '../../../models/training_session.dart';
 import '../../../services/training_session_controller.dart';
 import '../../../theme/app_tokens.dart';
 import '../../../widgets/design/design.dart';
+import '../training_actual_fields.dart' show formatTrainingWeight;
 import 'player_format.dart';
 import 'player_set_row.dart';
 
@@ -28,6 +31,8 @@ class PlayerExerciseCard extends StatelessWidget {
     required this.activeValid,
     required this.enabled,
     this.copyRevision = 0,
+    this.progression,
+    this.onApplyProgression,
   });
 
   final TrainingSessionController session;
@@ -35,6 +40,11 @@ class PlayerExerciseCard extends StatelessWidget {
 
   /// Last time's sets of this exercise, ordered by set index.
   final List<TrainingSetActual> lastTime;
+
+  /// The progression hint, shown as a chip while this exercise is active;
+  /// only [onApplyProgression] (a tap) takes its value.
+  final TrainingProgression? progression;
+  final ValueChanged<TrainingProgression>? onApplyProgression;
   final PlayerActions actions;
 
   /// A done or upcoming card the user opened.
@@ -196,6 +206,7 @@ class PlayerExerciseCard extends StatelessWidget {
               style: AppType.ui(14, color: t.ink, height: 1.45),
             ),
           ],
+          if (active) ?_progressionChip(context),
           if (active) _activeTimer(context),
           if (showRows) ...[
             const SizedBox(height: 12),
@@ -274,6 +285,43 @@ class PlayerExerciseCard extends StatelessWidget {
                 session.actualFor(ref) == null
             ? () => actions.editCompleted(ref, null, null)
             : null,
+      ),
+    );
+  }
+
+  /// "Step up: 82.5 kg" (T3); none for a hold, which changes nothing. It
+  /// stays selected once taken, so the rows never jump under the ✓.
+  Widget? _progressionChip(BuildContext context) {
+    final hint = progression;
+    final apply = onApplyProgression;
+    if (hint == null || apply == null) return null;
+    if (hint.kind == TrainingProgressionKind.hold) return null;
+    final l = context.l10n;
+    final weight = hint.weightKg;
+    final value = weight != null
+        ? l.trainingHistoryWeightValue(formatTrainingWeight(weight, l))
+        : l.trainingProgressionReps(hint.reps!);
+    final taken = weight != null
+        ? session.actualWeightKg == weight
+        : session.actualReps == hint.reps;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: FilterChipPill(
+          key: ValueKey('training-progression-$exerciseIndex'),
+          label: switch (hint.kind) {
+            TrainingProgressionKind.increase => l.trainingProgressionUp(value),
+            TrainingProgressionKind.afterBreak =>
+              l.trainingProgressionAfterBreak(value),
+            _ => l.trainingProgressionLighter(value),
+          },
+          icon: hint.kind == TrainingProgressionKind.increase
+              ? Icons.trending_up_rounded
+              : Icons.trending_down_rounded,
+          selected: taken,
+          onTap: enabled ? () => apply(hint) : null,
+        ),
       ),
     );
   }
@@ -380,6 +428,9 @@ class _IndexBadge extends StatelessWidget {
       child: Container(
         width: 32,
         height: 32,
+        // A fixed circle: at large text the number shrinks to fit inside it
+        // instead of breaking into "2 / 0".
+        padding: const EdgeInsets.all(4),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: active
@@ -391,12 +442,16 @@ class _IndexBadge extends StatelessWidget {
         ),
         child: done && !active
             ? Icon(Icons.check_rounded, size: 18, color: t.accentText)
-            : Text(
-                '$number',
-                style: AppType.ui(
-                  14,
-                  weight: FontWeight.w800,
-                  color: active ? t.onAccentFill : t.ink2,
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '$number',
+                  maxLines: 1,
+                  style: AppType.ui(
+                    14,
+                    weight: FontWeight.w800,
+                    color: active ? t.onAccentFill : t.ink2,
+                  ),
                 ),
               ),
       ),

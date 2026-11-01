@@ -154,12 +154,17 @@ class _MealCameraSheetState extends State<MealCameraSheet>
         await controller.dispose();
         return;
       }
-      // iOS otherwise rotates preview and photo buffers on physical turns,
-      // despite the portrait lock. No-op on Android.
-      try {
-        await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
-      } on CameraException {
-        // Without the lock the camera still runs; not a failure.
+      // iOS only: it otherwise rotates preview and photo buffers on physical
+      // turns, despite the portrait lock. On Android the lock pins CameraX's
+      // target rotation, so a tablet that ignores the portrait request
+      // (Android 16, sw >= 600) would take sideways photos; there the
+      // rotation follows the UI instead.
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        try {
+          await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
+        } on CameraException {
+          // Without the lock the camera still runs; not a failure.
+        }
       }
       if (!mounted) {
         await controller.dispose();
@@ -435,13 +440,34 @@ class _CoveredCameraPreview extends StatelessWidget {
 
   final CameraController controller;
 
+  /// The orientation [CameraPreview] sizes itself for (camera 0.12; no video
+  /// here). Portrait on phones; landscape where the UI rotates with it.
+  static bool _isLandscape(CameraValue value) {
+    final orientation =
+        value.previewPauseOrientation ??
+        value.lockedCaptureOrientation ??
+        value.deviceOrientation;
+    return orientation == DeviceOrientation.landscapeLeft ||
+        orientation == DeviceOrientation.landscapeRight;
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Rebuilds on orientation events like CameraPreview itself does.
+    return ValueListenableBuilder<CameraValue>(
+      valueListenable: controller,
+      builder: (context, value, _) => _buildCover(value),
+    );
+  }
+
+  Widget _buildCover(CameraValue value) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final boxAspect = constraints.maxWidth / constraints.maxHeight;
         // `aspectRatio` is landscape-defined -> invert for portrait.
-        final previewAspect = 1 / controller.value.aspectRatio;
+        final previewAspect = _isLandscape(value)
+            ? value.aspectRatio
+            : 1 / value.aspectRatio;
         double w;
         double h;
         if (previewAspect < boxAspect) {

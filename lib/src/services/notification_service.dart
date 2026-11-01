@@ -10,6 +10,8 @@ import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../l10n/l10n.dart';
+import 'app_entry.dart';
+import 'app_shortcuts.dart';
 import 'crash_reporter.dart';
 import 'rest_alerts.dart';
 
@@ -20,6 +22,29 @@ import 'rest_alerts.dart';
 const int reminderNudgeIdFirst = 700;
 const int reminderNudgeIdCount = 36;
 
+/// Buttons under a reminder (2026-11-01). Each opens the app in the
+/// foreground at its [AppEntry]; nothing runs in the background. iOS takes
+/// a set as a category registered at init, so the sets are fixed here.
+enum ReminderActions {
+  /// Photo · Barcode · Describe under the evening reminder, named like the
+  /// app-icon shortcuts for the same ways in.
+  logMeal('eatova-log-meal', <AppEntry>[
+    AppEntry.photo,
+    AppEntry.barcode,
+    AppEntry.describe,
+  ]);
+
+  const ReminderActions(this.categoryId, this.entries);
+
+  /// The iOS category; scheduled notifications store it, so it never
+  /// changes.
+  final String categoryId;
+
+  /// The buttons in order. Each button's id is its entry's id, which a tap
+  /// reports instead of the payload.
+  final List<AppEntry> entries;
+}
+
 /// A fully resolved, schedule-ready notification spec. Pure immutable value
 /// type passed straight to zonedSchedule; no Flutter or IO dependency.
 class NotificationSpec {
@@ -29,6 +54,7 @@ class NotificationSpec {
     required this.body,
     required this.scheduledFor,
     this.payload,
+    this.actions,
   });
 
   /// Stable, deterministic platform id: same inputs -> same ids, so a repeat
@@ -43,6 +69,10 @@ class NotificationSpec {
   /// Where a tap leads (an `AppEntry` id); null only opens the app.
   final String? payload;
 
+  /// The buttons under it; null shows none. Their titles follow the
+  /// service's locale ([NotificationLocalizable]).
+  final ReminderActions? actions;
+
   @override
   bool operator ==(Object other) =>
       other is NotificationSpec &&
@@ -50,10 +80,12 @@ class NotificationSpec {
       other.title == title &&
       other.body == body &&
       other.scheduledFor == scheduledFor &&
-      other.payload == payload;
+      other.payload == payload &&
+      other.actions == actions;
 
   @override
-  int get hashCode => Object.hash(id, title, body, scheduledFor, payload);
+  int get hashCode =>
+      Object.hash(id, title, body, scheduledFor, payload, actions);
 
   @override
   String toString() =>
@@ -306,7 +338,8 @@ class _PluginGateway implements NotificationPluginGateway {
 /// It also carries the training rest alerts (spec A5): their own Android
 /// channel and reserved ids, ordered through the same FIFO as the reminders,
 /// closed at session end ([cancelAll]) until the auth gate opens the next
-/// account ([openRestAlerts]).
+/// account ([openRestAlerts]). The cooking mode's timers take the same path
+/// under their own ids ([isCookingTimerId]), without the Training payload.
 class LocalNotificationService
     implements
         NotificationService,
@@ -359,18 +392,25 @@ class LocalNotificationService
 
   /// Android names the channels only when they are created, and [init] runs
   /// once per process, often before the app's locale arrives (the signed-out
-  /// cancel, a permission read). A new locale therefore renames them.
+  /// cancel, a permission read). A new locale therefore renames them, and on
+  /// iOS registers the reminder actions' categories again with new titles.
   @override
   void setLocalizations(AppLocalizations l10n) {
     if (l10n.localeName == _l10n.localeName) return;
     _l10n = l10n;
-    if (_platform != NotificationPlatform.android) return;
+    if (!_supported) return;
     unawaited(
       _enqueueMutation(() async {
         // Not initialized yet: the next init() names them in this locale.
         if (!_initialized) return;
         try {
-          await _createAndroidChannels();
+          if (_platform == NotificationPlatform.android) {
+            await _createAndroidChannels();
+          } else {
+            // The plugin sets the categories only in initialize, which asks
+            // for no permission here (every request flag is off).
+            await _initializePlugin();
+          }
         } catch (e, st) {
           await CrashReporter.capture(
             e,
@@ -435,10 +475,9 @@ class LocalNotificationService
   static Future<String> _flutterTimezoneName() async =>
       (await FlutterTimezone.getLocalTimezone()).identifier;
 
-  @override
-  Future<void> init() async {
-    if (_initialized || !_supported) return;
-
+  /// The plugin's settings in the current locale: iOS registers the
+  /// reminder actions here, one category per [ReminderActions].
+  InitializationSettings _initSettings() {
     // Android reads the small icon only through its alpha channel, so the
     // fully opaque @mipmap/ic_launcher rendered as a white square. Hence the
     // monochrome vector drawable whose shape lives in transparency. It is the
@@ -446,16 +485,51 @@ class LocalNotificationService
     // _details() so no call site has to repeat the reference.
     const androidInit =
         AndroidInitializationSettings('@drawable/ic_notification');
-    const iosInit = DarwinInitializationSettings(
+    final iosInit = DarwinInitializationSettings(
       // Do not force permission at init — that runs via requestPermission().
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
+      notificationCategories: <DarwinNotificationCategory>[
+        for (final set in ReminderActions.values)
+          DarwinNotificationCategory(
+            set.categoryId,
+            actions: <DarwinNotificationAction>[
+              for (final entry in set.entries)
+                // Foreground: the app opens, no background isolate.
+                DarwinNotificationAction.plain(
+                  entry.id,
+                  _actionTitle(entry),
+                  options: const <DarwinNotificationActionOption>{
+                    DarwinNotificationActionOption.foreground,
+                  },
+                ),
+            ],
+          ),
+      ],
     );
-    const settings = InitializationSettings(
-      android: androidInit,
-      iOS: iosInit,
-    );
+    return InitializationSettings(android: androidInit, iOS: iosInit);
+  }
+
+  /// A reminder button's title: the app-icon shortcut's name for the same
+  /// way in, in the current locale.
+  String _actionTitle(AppEntry entry) =>
+      appShortcutsFor(_l10n).firstWhere((s) => s.entry == entry).title;
+
+  /// Initializes the plugin in the current locale. On iOS a locale that
+  /// arrives meanwhile registers its button titles too.
+  Future<void> _initializePlugin() async {
+    String named;
+    do {
+      named = _l10n.localeName;
+      await _gateway.initialize(_initSettings(), onResponse: _onResponse);
+    } while (_platform == NotificationPlatform.ios &&
+        named != _l10n.localeName);
+  }
+
+  @override
+  Future<void> init() async {
+    if (_initialized || !_supported) return;
     try {
       // zonedSchedule needs a local location set, or tz.local throws. Use
       // the system zone; on failure stay on UTC (better than crashing).
@@ -463,7 +537,7 @@ class LocalNotificationService
       // init as a zone error either.
       tzdata.initializeTimeZones();
       await _setLocalTimezone();
-      await _gateway.initialize(settings, onResponse: _onResponse);
+      await _initializePlugin();
       // Android 8+ needs an explicit channel or nudges are not shown.
       if (_platform == NotificationPlatform.android) {
         await _createAndroidChannels();
@@ -596,7 +670,6 @@ class LocalNotificationService
       // alert in the same plugin must survive a re-plan (spec A5).
       await _cancelNudgeIds();
 
-      final details = _details();
       final now = tz.TZDateTime.now(tz.local);
       for (final spec in specs) {
         // The INSTANT, not the wall-clock components (F7-04): building
@@ -618,7 +691,7 @@ class LocalNotificationService
           title: spec.title,
           body: spec.body,
           scheduledDate: when,
-          details: details,
+          details: _details(spec.actions),
           payload: spec.payload,
         );
       }
@@ -756,6 +829,15 @@ class LocalNotificationService
 
   // --- Rest alerts (spec A5) ------------------------------------------------
 
+  /// Rest alerts and cooking timers; reminder nudges never pass here.
+  static bool _isTimerAlertId(int id) =>
+      isRestAlertId(id) || isCookingTimerId(id);
+
+  /// A tapped cooking timer only brings the app back (to the cooking mode);
+  /// a tapped rest alert opens Training.
+  static String? _timerPayload(int id) =>
+      isCookingTimerId(id) ? null : trainingRestNotificationPayload;
+
   @override
   void openRestAlerts(String ownerId) {
     if (_restAlertsOpen && _restAlertOwner == ownerId) return;
@@ -784,7 +866,7 @@ class LocalNotificationService
     required String title,
     required String body,
   }) {
-    if (!isRestAlertId(id)) return Future<void>.value();
+    if (!_isTimerAlertId(id)) return Future<void>.value();
     if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
       // Constant only: no id, no text (privacy rule of the facade).
       CrashReporter.breadcrumb('notification-rest-refused');
@@ -841,7 +923,7 @@ class LocalNotificationService
       body: body,
       scheduledDate: when,
       details: _restDetails(),
-      payload: trainingRestNotificationPayload,
+      payload: _timerPayload(id),
     );
     _liveRestAlerts[id] = (when: when, title: title, body: body, epoch: epoch);
   }
@@ -853,7 +935,7 @@ class LocalNotificationService
     required String body,
   }) {
     // iOS delivers the planned alert on time; only Android needs the cue.
-    if (!isRestAlertId(id) || _platform != NotificationPlatform.android) {
+    if (!_isTimerAlertId(id) || _platform != NotificationPlatform.android) {
       return Future<void>.value();
     }
     if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
@@ -871,7 +953,7 @@ class LocalNotificationService
           title: title,
           body: body,
           details: _restCueDetails(),
-          payload: trainingRestNotificationPayload,
+          payload: _timerPayload(id),
         );
       } catch (e, st) {
         await CrashReporter.capture(e, st, context: 'notification-rest-cue');
@@ -881,7 +963,7 @@ class LocalNotificationService
 
   @override
   Future<void> cancelRestAlert(int id) {
-    if (!isRestAlertId(id)) return Future<void>.value();
+    if (!_isTimerAlertId(id)) return Future<void>.value();
     // Registers the id with the open session, so its end fences it. The
     // cancel itself always runs, also after a session end.
     if (_restAlertsOpen && !_endedRestAlertOwners.containsKey(id)) {
@@ -955,14 +1037,20 @@ class LocalNotificationService
   Stream<String> get taps => _taps.stream;
 
   void _onResponse(NotificationResponse response) {
-    final payload = response.payload;
-    if (response.notificationResponseType !=
-            NotificationResponseType.selectedNotification ||
-        payload == null ||
-        payload.isEmpty) {
-      return;
-    }
-    _taps.add(payload);
+    final entry = _entryOf(response);
+    if (entry != null) _taps.add(entry);
+  }
+
+  /// Where a response leads: a tapped notification's payload, or the id of
+  /// the button tapped under it (a [ReminderActions] entry, which wins
+  /// over the payload). Null for a dismissal or an empty payload.
+  static String? _entryOf(NotificationResponse response) {
+    final entry = switch (response.notificationResponseType) {
+      NotificationResponseType.selectedNotification => response.payload,
+      NotificationResponseType.selectedNotificationAction => response.actionId,
+      NotificationResponseType.notificationDismissed => null,
+    };
+    return entry == null || entry.isEmpty ? null : entry;
   }
 
   @override
@@ -972,26 +1060,39 @@ class LocalNotificationService
     try {
       final details = await _gateway.launchDetails();
       if (details == null || !details.didNotificationLaunchApp) return null;
-      final payload = details.notificationResponse?.payload;
-      return payload == null || payload.isEmpty ? null : payload;
+      final response = details.notificationResponse;
+      return response == null ? null : _entryOf(response);
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'notification-launch');
       return null;
     }
   }
 
-  NotificationDetails _details() {
+  NotificationDetails _details(ReminderActions? actions) {
     final android = AndroidNotificationDetails(
       _androidChannelId,
       _androidChannelName,
       channelDescription: _androidChannelDescription,
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
+      actions: actions == null
+          ? null
+          : <AndroidNotificationAction>[
+              for (final entry in actions.entries)
+                AndroidNotificationAction(
+                  entry.id,
+                  _actionTitle(entry),
+                  // Opens the app's activity, which reports the tap; no
+                  // broadcast receiver and no background isolate.
+                  showsUserInterface: true,
+                ),
+            ],
     );
-    const ios = DarwinNotificationDetails(
+    final ios = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
+      categoryIdentifier: actions?.categoryId,
     );
     return NotificationDetails(android: android, iOS: ios);
   }

@@ -85,8 +85,10 @@ import {
   TRAINING_PLAN_OUTPUT_SCHEMA,
   trainingPlanSummary,
   trainingPlanSystemPrompt,
+  withWeeklyTarget,
 } from "./training_plan.ts";
 import {
+  briefWeeklyTarget,
   parseTrainingContext,
   type TrainingContext,
   TRAINING_CONTEXT_RULES,
@@ -1718,7 +1720,8 @@ async function handlePlanMode(params: {
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ reply: refusalText, refusal: true, refusal_reason: "model_refusal", ...quotaFields });
   }
-  const draft = completion.finishReason === "stop" ? parseTrainingPlanDraft(raw) : null;
+  const parsed = completion.finishReason === "stop" ? parseTrainingPlanDraft(raw) : null;
+  const draft = parsed && withWeeklyTarget(parsed, briefWeeklyTarget(params.trainingContext));
   if (draft === null) {
     console.error(`training plan invalid (chars=${raw.length})`);
     if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay, params.budget.calls);

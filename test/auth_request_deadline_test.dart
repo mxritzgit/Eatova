@@ -3,10 +3,13 @@ import 'dart:convert';
 
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/auth/google_id_token_provider.dart';
+import 'package:eatova/src/config/supabase_config.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/screens/settings/account_change_messages.dart';
+import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -20,14 +23,16 @@ import 'support/harness.dart';
 // running with every control on the entry screen disabled until the app was
 // killed. Each GoTrue exchange of the isolated mutation client is bounded by
 // the same deadline as the other auth flows; a native account chooser is not.
+// The shared client's transport bounds its own GoTrue requests, token refresh
+// included.
 
-String _session(String user, String sid) {
+String _session(String user, String sid, {int exp = 4102444800}) {
   String encode(Object value) =>
       base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
   return jsonEncode({
     'access_token':
         '${encode({'alg': 'HS256'})}.'
-        '${encode({'sub': user, 'session_id': sid, 'exp': 4102444800})}.'
+        '${encode({'sub': user, 'session_id': sid, 'exp': exp})}.'
         'synthetic-signature',
     'refresh_token': 'synthetic-$sid',
     'token_type': 'bearer',
@@ -291,5 +296,76 @@ void main() {
       find.byKey(const ValueKey('auth-submit')),
     );
     expect(submit.onTap, isNotNull, reason: 'the form is usable again');
+  });
+
+  // The shared client's transport: GoTrue requests get the auth deadline,
+  // Functions do not (Coach /recipe sends its headers only at the end).
+  test('the shared transport bounds GoTrue requests, not Functions', () {
+    fakeAsync((async) {
+      const authDeadline = EatovaSupabaseConfig.authRequestDeadline;
+      final transport = EatovaSupabaseConfig.buildHttpClient(
+        inner: MockClient((_) async {
+          await Future<void>.delayed(authDeadline + const Duration(seconds: 1));
+          return http.Response('{}', 200);
+        }),
+      );
+      const auth = '/auth/v1/token';
+      const functions = '/functions/v1/coach-chat';
+      final outcomes = <String, Object?>{};
+      for (final path in [auth, functions]) {
+        transport
+            .post(Uri.parse('${EatovaSupabaseConfig.url}$path'))
+            .then<void>(
+              (response) => outcomes[path] = response.statusCode,
+              onError: (Object error) => outcomes[path] = error,
+            );
+      }
+
+      async.elapse(authDeadline);
+      expect(outcomes[auth], isA<TimeoutException>());
+      expect(outcomes[functions], isNull, reason: 'still waiting');
+
+      async.elapse(const Duration(seconds: 1));
+      expect(outcomes[functions], 200);
+    });
+  });
+
+  // The audit scenario: the access token has expired and the network swallows
+  // packets. Every PostgREST, Storage and Functions request first awaits this
+  // refresh, so it used to spin until the OS gave up on the socket.
+  test('a stalled token refresh ends as a network error and keeps the '
+      'session', () {
+    fakeAsync((async) {
+      final requests = <http.Request>[];
+      final auth = GoTrueClient(
+        url: '${EatovaSupabaseConfig.url}/auth/v1',
+        httpClient: EatovaSupabaseConfig.buildHttpClient(
+          inner: _stalled(requests),
+        ),
+        autoRefreshToken: false,
+      );
+      auth.setInitialSession(_session('a', 'sid-a', exp: 1));
+      async.flushMicrotasks();
+      expect(auth.currentSession!.isExpired, isTrue);
+
+      Object? failure;
+      auth.refreshSession().then<void>(
+        (_) {},
+        onError: (Object error) => failure = error,
+      );
+      // gotrue retries while ITS wall clock (DateTime.now) is inside a 10 s
+      // window, which fake time never moves: here it makes the seven attempts
+      // its backoff allows, each cut at the deadline. On a device the first
+      // stalled attempt already spends that window.
+      async.elapse(const Duration(minutes: 5));
+
+      expect(failure, isA<AuthRetryableFetchException>());
+      expect(isNetworkSyncError(failure!), isTrue);
+      expect(auth.currentSession?.refreshToken, 'synthetic-sid-a',
+          reason: 'a timeout must not sign the user out');
+      expect(requests.map((request) => request.url.path).toSet(),
+          {'/auth/v1/token'});
+      auth.dispose();
+    });
   });
 }

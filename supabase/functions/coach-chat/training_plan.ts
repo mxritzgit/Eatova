@@ -10,6 +10,7 @@ export const TRAINING_PLAN_LIMITS = {
   notes: 500,
   workouts: 7,
   exercises: 20,
+  sessionsPerWeek: 14,
 } as const;
 
 export interface TrainingExercise {
@@ -33,7 +34,11 @@ export interface CoachTrainingProposal {
   description: string;
   goal: string;
   workouts: TrainingWorkout[];
+  /** Optional weekly target (migration 20261101100000); absent means none. */
+  sessions_per_week?: number;
 }
+
+const PLAN_KEYS = ["schema_version", "title", "description", "goal", "workouts"];
 
 const planText = { type: "string" };
 const planInteger = { type: "integer" };
@@ -129,7 +134,9 @@ export function text(value: unknown, max: number, required = false): value is st
 
 /** Validate without silently changing an exercise's duration or prescription. */
 export function parseTrainingPlan(value: unknown): CoachTrainingProposal | null {
-  if (!objectWithKeys(value, ["schema_version", "title", "description", "goal", "workouts"]) ||
+  const weekly = value !== null && typeof value === "object" && Object.hasOwn(value, "sessions_per_week");
+  if (!objectWithKeys(value, weekly ? [...PLAN_KEYS, "sessions_per_week"] : PLAN_KEYS) ||
+    (weekly && !integer(value.sessions_per_week, 1, TRAINING_PLAN_LIMITS.sessionsPerWeek)) ||
     value.schema_version !== 1 || !text(value.title, 120, true) ||
     !text(value.description, 1000) || !text(value.goal, 200) ||
     !Array.isArray(value.workouts) || value.workouts.length < 1 || value.workouts.length > 7) return null;
@@ -159,7 +166,16 @@ export function parseTrainingPlan(value: unknown): CoachTrainingProposal | null 
     }
     workouts.push({ title: workout.title, description: workout.description, exercises });
   }
-  return { schema_version: 1, title: value.title, description: value.description, goal: value.goal, workouts };
+  const plan: CoachTrainingProposal = { schema_version: 1, title: value.title, description: value.description, goal: value.goal, workouts };
+  return weekly ? withWeeklyTarget(plan, value.sessions_per_week as number) : plan;
+}
+
+/** The proposal with exactly [sessionsPerWeek] as its weekly target, or none.
+ *  The handler sets it from the brief, never from model output: builds that
+ *  send a v1 brief reject any unknown plan key. */
+export function withWeeklyTarget(plan: CoachTrainingProposal, sessionsPerWeek: number | null): CoachTrainingProposal {
+  const { sessions_per_week: _previous, ...rest } = plan;
+  return sessionsPerWeek === null ? rest : { ...rest, sessions_per_week: sessionsPerWeek };
 }
 
 export function decodeDraft(raw: string): unknown {

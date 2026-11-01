@@ -71,6 +71,24 @@ Set<FoodAvoidance> parseFoodAvoidances(Object? raw) {
   return Set<FoodAvoidance>.unmodifiable(out);
 }
 
+/// The codes [parseFoodAvoidances] drops as unknown, in stored order and
+/// without duplicates. The profile keeps them, so a code a newer migration
+/// added survives this build's save.
+List<String> unknownFoodAvoidanceCodes(Object? raw) {
+  if (raw is! List) return const <String>[];
+  final known = {for (final a in FoodAvoidance.values) a.name};
+  final out = <String>[];
+  for (final code in raw) {
+    if (code is String &&
+        code.isNotEmpty &&
+        !known.contains(code) &&
+        !out.contains(code)) {
+      out.add(code);
+    }
+  }
+  return out.isEmpty ? const <String>[] : List<String>.unmodifiable(out);
+}
+
 /// The dislikes text as `profiles_food_dislikes_check` accepts it.
 ///
 /// The server check rejects control characters (U+0001..U+001F,

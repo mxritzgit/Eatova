@@ -618,6 +618,15 @@ mixin _HomeStoreMealsPart
         mealsForFoodDate(addDays(DateUtils.dateOnly(now), -1)).isEmpty;
   }
 
+  /// Today's first-entry card (2026-11-01): this account has never logged
+  /// a meal. Derived, nothing stored: the lifetime counters reach beyond the
+  /// loaded window, the diary holds an entry before its counters return,
+  /// and the first entry ends it in both.
+  bool get firstEntryPending =>
+      lifetimeStats.mealsLogged == 0 &&
+      lifetimeStats.lastTrackedDate == null &&
+      loggedMeals.isEmpty;
+
   /// "Repeat yesterday": copies the entries of [slot] on the day before [day]
   /// onto [day], into the same slot. A no-op (empty result) once [slot] on
   /// [day] holds anything, which also absorbs a double tap.

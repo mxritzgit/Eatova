@@ -1,18 +1,27 @@
 part of 'training_plan_editor.dart';
 
 class _PlanText {
-  _PlanText(String text, this.maximum, {this.required = false, this.min})
-    : controller = TextEditingController(text: text);
+  _PlanText(
+    String text,
+    this.maximum, {
+    this.required = false,
+    this.min,
+    this.optional = false,
+  }) : controller = TextEditingController(text: text);
 
   final TextEditingController controller;
   final int maximum;
   final bool required;
   final int? min;
+
+  /// A number that may stay empty (the plan's weekly target).
+  final bool optional;
   String? error;
 
   String? validate(AppLocalizations l10n) {
     final value = controller.text;
     if (min != null) {
+      if (optional && value.trim().isEmpty) return null;
       // Whole numbers only: "3,5" sets get a hint instead of becoming 35.
       final input = NumberInput.parse(value);
       final hint = numberInputHint(input, l10n, wholeNumber: true);
@@ -33,6 +42,9 @@ class _PlanText {
 
   /// Only read after [validate] passed.
   int get number => NumberInput.parse(controller.text).wholeValue!;
+
+  /// [number], or null for an [optional] field left empty.
+  int? get optionalNumber => controller.text.trim().isEmpty ? null : number;
   void dispose() => controller.dispose();
 }
 

@@ -162,7 +162,7 @@ void main() {
   });
 
   testWidgets('„Zum Speiseplan" öffnet den Editor mit dem Rezept, der Tag kommt '
-      'aus dem Kalender, gespeichert '
+      'aus dem Kalender, Vorkochen legt weitere Tage an, gespeichert '
       'wird erst beim Speichern', (tester) async {
     await withClock(Clock.fixed(_today), () async {
       final store = _store();
@@ -204,15 +204,31 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('food-date-confirm')));
       await tester.pumpAndSettle();
 
+      // Cooking ahead: the same dish on two of the following days.
+      for (final day in ['2026-09-10', '2026-09-12']) {
+        final chip = find.byKey(ValueKey('meal-plan-also-$day'));
+        await tester.ensureVisible(chip);
+        await tester.tap(chip);
+        await tester.pumpAndSettle();
+      }
+
       await tester.ensureVisible(find.byKey(const ValueKey('meal-plan-save')));
       await tester.tap(find.byKey(const ValueKey('meal-plan-save')));
       await tester.pumpAndSettle();
-      final plan = store.plannedMeals.single;
-      expect(plan.recipe.slug, skyr.slug);
-      expect(plan.day, '2026-09-09');
-      // A breakfast dish starts on breakfast.
-      expect(plan.slot, MealSlot.breakfast);
-      expect(plan.isEaten, isFalse, reason: 'planning logs nothing');
+      final plans = store.plannedMeals.toList()
+        ..sort((a, b) => a.day.compareTo(b.day));
+      expect([for (final p in plans) p.day], [
+        '2026-09-09',
+        '2026-09-10',
+        '2026-09-12',
+      ]);
+      for (final plan in plans) {
+        expect(plan.recipe.slug, skyr.slug);
+        // A breakfast dish starts on breakfast.
+        expect(plan.slot, MealSlot.breakfast);
+        expect(plan.servings, 1);
+        expect(plan.isEaten, isFalse, reason: 'planning logs nothing');
+      }
     });
   });
 

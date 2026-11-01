@@ -7,6 +7,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/services/kcal_format.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 
 import 'package:eatova/src/widgets/design/design.dart';
@@ -30,8 +31,8 @@ import 'support/recipe_navigation.dart';
 // `logged_meals` bounds apply on logging (FitnessRecipe.toMealResult), so a
 // 50,000 kcal recipe could be created and then never used.
 
-/// All input fields of the sheet. A ninth one turns the "sheet has exactly as
-/// many fields as this list" test red, which also proves the discard guard
+/// All input fields of the sheet. An eleventh one turns the "sheet has exactly
+/// as many fields as this list" test red, which also proves the discard guard
 /// covers the new field.
 const List<String> alleFeldKeys = <String>[
   'recipe-create-name',
@@ -42,6 +43,7 @@ const List<String> alleFeldKeys = <String>[
   'recipe-create-carbs',
   'recipe-create-fat',
   'recipe-create-ingredients',
+  'recipe-create-basis',
   'recipe-create-preparation',
 ];
 
@@ -325,6 +327,8 @@ void main() {
     const kcalMax = LoggedMealLimits.caloriesKcalMax;
     const gramsMax = LoggedMealLimits.estimatedGMax;
     final macroMax = LoggedMealLimits.macroGMax.toInt();
+    // Error texts show the bounds with the German thousands separator.
+    String de(int value) => formatThousands(value, 'de');
 
     testWidgetsRobust(
         'genau $kcalMax kcal ist erlaubt, darueber wird abgelehnt statt '
@@ -336,11 +340,11 @@ void main() {
 
       await _tippe(tester, 'recipe-create-kcal', '$kcalMax');
       expect(_saveButton(tester).onTap, isNotNull);
-      expect(find.text('1–$kcalMax kcal'), findsNothing);
+      expect(find.text('1–${de(kcalMax)} kcal'), findsNothing);
 
       await _tippe(tester, 'recipe-create-kcal', '${kcalMax + 1}');
       expect(_saveButton(tester).onTap, isNull);
-      expect(find.text('1–$kcalMax kcal'), findsOneWidget);
+      expect(find.text('1–${de(kcalMax)} kcal'), findsOneWidget);
       expect(capture.created, isEmpty);
     });
 
@@ -354,7 +358,7 @@ void main() {
       for (final grams in ['0', '${gramsMax + 1}']) {
         await _tippe(tester, 'recipe-create-grams', grams);
         expect(_saveButton(tester).onTap, isNull, reason: grams);
-        expect(find.text('1–$gramsMax g'), findsOneWidget, reason: grams);
+        expect(find.text('1–${de(gramsMax)} g'), findsOneWidget, reason: grams);
       }
     });
 
@@ -371,7 +375,7 @@ void main() {
         await _tippe(tester, key, '${macroMax + 1}');
         await tester.pumpAndSettle();
         expect(_saveButton(tester).onTap, isNull, reason: key);
-        expect(find.text('0–$macroMax g'), findsOneWidget, reason: key);
+        expect(find.text('0–${de(macroMax)} g'), findsOneWidget, reason: key);
 
         // Empty means "not stated" and is allowed.
         await _tippe(tester, key, '');
@@ -501,6 +505,28 @@ void main() {
     );
     expect(find.byKey(const ValueKey('ingredient-add')), findsOneWidget);
     semantics.dispose();
+  });
+
+  // Without a stated basis the plan and the shopping list cannot convert an
+  // own recipe's amounts (2026-11-01).
+  testWidgetsRobust('„Zutaten für wie viele Portionen?" wird die Grundmenge, '
+      'leer bleibt das Rezept wie bisher', (tester) async {
+    for (final (typed, categories, batch) in [
+      ('4', ['Eigene', '${recipeIngredientsBasisPrefix}per_recipe'], 4.0),
+      ('', ['Eigene'], 1.0),
+    ]) {
+      final capture = _CreateCapture();
+      await _openSheet(tester, capture);
+      await _tippe(tester, 'recipe-create-name', 'Chili');
+      await _tippe(tester, 'recipe-create-kcal', '520');
+      await _tippe(tester, 'recipe-create-ingredients', '400 g Bohnen');
+      if (typed.isNotEmpty) await _tippe(tester, 'recipe-create-basis', typed);
+      await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
+      await tester.pumpAndSettle();
+      final saved = capture.created.single;
+      expect(saved.categories, categories, reason: typed);
+      expect(saved.batchServings, batch, reason: typed);
+    }
   });
 
   group('Live-Vorschau oben im Sheet', () {

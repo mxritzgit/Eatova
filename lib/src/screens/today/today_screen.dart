@@ -10,6 +10,7 @@ import '../../models/reminder_time.dart';
 import '../../models/training_insights.dart';
 import '../../models/training_session.dart';
 import '../../models/user_profile.dart';
+import '../../services/app_entry.dart';
 import '../../services/day_math.dart';
 import '../../services/energy_check.dart';
 import '../../services/meal_totals.dart';
@@ -21,6 +22,7 @@ import '../../widgets/profile/profile_widgets.dart'
     show WeighInActions, showWeightEntrySheet;
 import 'today_day_strip.dart';
 import 'today_energy_check.dart';
+import 'today_first_entry.dart';
 import 'today_glyphs.dart';
 import 'today_health_prompt.dart';
 import 'today_hero.dart';
@@ -84,6 +86,7 @@ class TodayScreen extends StatelessWidget {
     this.onOpenTrends,
     this.isCompleteDay,
     this.onFillYesterday,
+    this.onFirstEntry,
     this.energyCheckResult,
     this.onAskCoachAboutCheck,
     this.targetReached,
@@ -210,6 +213,11 @@ class TodayScreen extends StatelessWidget {
   /// (`HomeStore.yesterdayRescuesStreak`). Today only.
   final VoidCallback? onFillYesterday;
 
+  /// The first-entry card's ways in; non-null only while the account has
+  /// never logged a meal (`HomeStore.firstEntryPending`). Today only; the
+  /// card takes the recipe pick's place, so one prompt leads the page.
+  final ValueChanged<AppEntry>? onFirstEntry;
+
   /// The week's result when the check estimates without a proposal
   /// (`HomeStore.energyCheckResult`, once a week); today only, and never
   /// beside the proposal card, which speaks for the check then.
@@ -280,6 +288,7 @@ class TodayScreen extends StatelessWidget {
     final trends = istHeute && !dayLoading ? trendsPreview : null;
     final reached = istHeute ? targetReached : null;
     final fillYesterday = istHeute && !dayLoading ? onFillYesterday : null;
+    final firstEntry = istHeute && !dayLoading ? onFirstEntry : null;
     final legacy = istHeute ? legacyNotice : null;
     final healthMissing = steps == null && healthConnect && healthConnectLinked;
     final showActivity =
@@ -386,7 +395,10 @@ class TodayScreen extends StatelessWidget {
                   onDismiss: onDismissEnergyCheck!,
                 ),
               ],
-              if (shownPick != null) ...<Widget>[
+              if (firstEntry != null) ...<Widget>[
+                const SizedBox(height: 16),
+                TodayFirstEntryCard(onEntry: firstEntry),
+              ] else if (shownPick != null) ...<Widget>[
                 const SizedBox(height: 16),
                 TodayPickRow(
                   pick: shownPick,

@@ -1,6 +1,7 @@
-/// Ways into the app from outside it: the payload of a tapped reminder and
-/// the type of an app-icon shortcut. One list, so a notification and a
-/// shortcut that mean the same thing reach the same route in the shell.
+/// Ways into the app from outside it: the payload of a tapped reminder, the
+/// id of a button under one and the type of an app-icon shortcut. One list,
+/// so a notification and a shortcut that mean the same thing reach the same
+/// route in the shell. Today's first-entry card offers the same ways.
 ///
 /// The ids are stored with the OS (scheduled notifications, the launcher's
 /// shortcut list), so they never change; unknown ids are ignored.

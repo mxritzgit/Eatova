@@ -22,6 +22,7 @@ declare
   test_case record;
   total_limit jsonb;
   codepoint integer;
+  target jsonb;
 begin
   if public.is_valid_training_plan(draft) is distinct from true then
     raise exception 'TRAINING: valid repetitions/timed draft rejected';
@@ -122,6 +123,23 @@ begin
   if public.is_valid_training_plan(draft || jsonb_build_object('description', repeat('a', 131073))) then
     raise exception 'TRAINING: oversized payload accepted';
   end if;
+
+  -- Optional weekly target (20261101100000): absent, or an integer 1..14.
+  foreach target in array array['0'::jsonb, '15', '2.5', '"3"', 'null', 'true', '[]', '1e1000'] loop
+    if public.is_valid_training_plan(draft || jsonb_build_object('sessions_per_week', target)) is distinct from false then
+      raise exception 'TRAINING: invalid sessions_per_week % accepted', target;
+    end if;
+  end loop;
+  foreach target in array array['1'::jsonb, '14', '4.0'] loop
+    if public.is_valid_training_plan(draft || jsonb_build_object('sessions_per_week', target)) is distinct from true then
+      raise exception 'TRAINING: valid sessions_per_week % rejected', target;
+    end if;
+  end loop;
+  -- The saved-plan and chat CHECKs reach the key through the same function.
+  insert into public.training_plans(user_id,id,plan) values
+    ('11111111-1111-1111-1111-111111111111', 'weekly', draft || '{"sessions_per_week":4}');
+  insert into public.chat_messages(user_id, role, content, training_plan) values
+    ('11111111-1111-1111-1111-111111111111', 'assistant', 'Plan', draft || '{"sessions_per_week":4}');
 end $$;
 rollback;
 

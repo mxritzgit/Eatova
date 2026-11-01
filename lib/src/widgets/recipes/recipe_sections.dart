@@ -180,6 +180,15 @@ class RecipeIngredientLines extends StatelessWidget {
   }
 }
 
+/// The steps [RecipePreparationSteps] numbers, without their own markers:
+/// one per non-empty line. Fewer than two read as one paragraph there.
+List<String> recipePreparationSteps(String text) => [
+  for (final line in _lines(text))
+    if (line.replaceFirst(RecipePreparationSteps._marker, '') case final step
+        when step.isNotEmpty)
+      step,
+];
+
 /// Preparation as numbered steps when the text has several lines; a single
 /// paragraph stays a paragraph, an empty one shows [empty]. Numbers the
 /// steps already carry ("1.", "2)") give way to the badge.

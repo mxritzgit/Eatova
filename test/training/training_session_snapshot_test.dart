@@ -18,6 +18,26 @@ void main() {
     return json;
   }
 
+  test('the frozen plan copy drops the weekly target, so a history row stays '
+      'readable for builds without the key', () {
+    final plan = timerPlan();
+    final weekly = plan.copyWith(
+      proposal: plan.proposal.withSessionsPerWeek(4),
+    );
+    final controller = TrainingSessionController(
+      plan: weekly,
+      autoTick: false,
+    );
+    final json = controller.snapshot().toJson();
+    controller.dispose();
+    expect(json['plan'], plan.toJson());
+    final restored = valid()..['plan'] = weekly.toJson();
+    expect(
+      TrainingSessionSnapshot.fromJson(restored).plan.sessionsPerWeek,
+      isNull,
+    );
+  });
+
   test('strict wire roundtrip accepts lossless numeric integers', () {
     final json = valid()..['schema_version'] = 2.0;
     json['remaining_milliseconds'] = 30000.0;

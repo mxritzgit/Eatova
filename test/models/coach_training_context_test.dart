@@ -21,8 +21,9 @@ CoachTrainingProposal _plan({String notes = ''}) => CoachTrainingProposal(
   ],
 );
 
+// Version 2: this build reads sessions_per_week on the returned proposal.
 Map<String, dynamic> _brief() => {
-  'schema_version': 1,
+  'schema_version': 2,
   'intent': 'create',
   'goal': 'Strength',
   'experience': 'beginner',

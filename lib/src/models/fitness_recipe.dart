@@ -577,6 +577,35 @@ class FitnessRecipe {
   bool get hasImportedIngredientContext => slug.startsWith('user_import_') ||
       categories.any((c) => c.startsWith(recipeIngredientsBasisPrefix));
 
+  /// A link import (`RecipeImportCandidate.toRecipe`): its basis comes from
+  /// the source, and its caption may lack values an own recipe requires.
+  bool get isImport => slug.startsWith('user_import_');
+
+  /// The servings the free-text amounts are written for, once confirmed;
+  /// null while unconfirmed.
+  double? get ingredientsBasisServings => switch (ingredientsBasis) {
+    RecipeIngredientsBasis.perRecipe => batchServings,
+    RecipeIngredientsBasis.perServing => 1,
+    RecipeIngredientsBasis.unspecified => null,
+  };
+
+  /// This recipe with its free-text amounts stated for [servings], or with
+  /// no statement for null. A marker in [categories], so rows, cache, outbox
+  /// and plan snapshots keep their shape; the shopping list and a planned
+  /// meal's detail then convert the amounts.
+  FitnessRecipe withIngredientsBasis(double? servings) {
+    if (servings != null) validateRecipeServings(servings);
+    return copyWith(
+      categories: [
+        for (final category in categories)
+          if (!category.startsWith(recipeIngredientsBasisPrefix)) category,
+        if (servings != null) '${recipeIngredientsBasisPrefix}per_recipe',
+      ],
+      // A structured recipe's batch belongs to its weighed ingredients.
+      batchServings: servings ?? (hasStructuredIngredients ? null : 1),
+    );
+  }
+
   RecipeIngredientProjection ingredientProjectionForServings(double servings,
           {String decimalSeparator = '.'}) =>
       projectRecipeIngredients(ingredients, basis: ingredientsBasis,
@@ -593,21 +622,17 @@ class FitnessRecipe {
 
   String ingredientQuantityHint(AppLocalizations l10n, {double servings = 1}) {
     if (ingredientProjectionForServings(servings).isScaled) {
-      return l10n.recipeIngredientsForServings(_servingNumber(servings, l10n));
+      return l10n.recipeIngredientsForServings(servings);
     }
     return sourceIngredientQuantityHint(l10n);
   }
 
   String sourceIngredientQuantityHint(AppLocalizations l10n) =>
       switch (ingredientsBasis) {
-        RecipeIngredientsBasis.perRecipe => l10n.recipeIngredientsOriginalBatch(_servingNumber(batchServings, l10n)),
+        RecipeIngredientsBasis.perRecipe => l10n.recipeIngredientsOriginalBatch(batchServings),
         RecipeIngredientsBasis.perServing => l10n.recipeIngredientsOriginalServing,
         RecipeIngredientsBasis.unspecified => l10n.recipeIngredientsOriginalUnknown,
       };
-
-  static String _servingNumber(double value, AppLocalizations l10n) =>
-      (value == value.roundToDouble() ? '${value.round()}' : '$value')
-          .replaceAll('.', l10n.localeName == 'de' ? ',' : '.');
 
   /// Display value of [preparation]. No form field, so for [userCreated] this
   /// is always a placeholder.

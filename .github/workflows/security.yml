@@ -73,8 +73,10 @@ jobs:
         run: flutter pub get
       # Explicit whole-file partitions avoid loading every test suite in every
       # runner, as native --total-shards does. All discovered files are required.
+      # Test order is shuffled with one seed per workflow run: every shard and
+      # every re-run uses the run number, which the log prints for a replay.
       - name: Complete test shard with coverage and JSON evidence
-        run: python3 tool/flutter_ci.py run --shards 4 --shard ${{ matrix.shard }} --run-attempt ${{ github.run_attempt }} --output .dart_tool/flutter-ci
+        run: python3 tool/flutter_ci.py run --shards 4 --shard ${{ matrix.shard }} --run-attempt ${{ github.run_attempt }} --seed ${{ github.run_number }} --output .dart_tool/flutter-ci
       # A rerun keeps earlier attempts' artifacts in the run. Same-named
       # artifacts would make the download pick by artifact ID, which is not
       # chronological, so each attempt uploads its own name instead.

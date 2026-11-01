@@ -18,6 +18,7 @@ import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/training_session.dart';
+import 'package:eatova/src/services/app_entry.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
@@ -78,6 +79,9 @@ class _FakeGateway implements NotificationPluginGateway {
   bool grantOnRequest = true;
   int permissionRequests = 0;
 
+  /// The settings of every initialize, the latest last.
+  final List<InitializationSettings> inits = <InitializationSettings>[];
+
   /// Holds every zonedSchedule until completed (slow native call).
   Completer<void>? hold;
   Completer<void>? holdEntered;
@@ -87,6 +91,7 @@ class _FakeGateway implements NotificationPluginGateway {
     InitializationSettings settings, {
     DidReceiveNotificationResponseCallback? onResponse,
   }) async {
+    inits.add(settings);
     this.onResponse = onResponse;
   }
 
@@ -338,6 +343,12 @@ void main() {
       ) {
         expect(isRestAlertId(id), isFalse);
       }
+      // Cooking timers have a range of their own, next to the rests.
+      for (var i = 0; i < 2000; i++) {
+        final id = cookingTimerIdFor('visit-${i ~/ 7}', i % 7);
+        expect(isCookingTimerId(id), isTrue, reason: '$i');
+        expect(isRestAlertId(id), isFalse, reason: '$i');
+      }
     });
 
     test(
@@ -391,6 +402,26 @@ void main() {
           gateway.channels.map((c) => c.id),
           containsAll(<String>['eatova_nudges', 'eatova_training']),
         );
+      }),
+    );
+
+    test(
+      'Koch-Timer: gleicher Weg und Kanal, aber ohne Payload, damit ein Tipp '
+      'kein Training oeffnet',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..setLocalizations(enL10n);
+        final id = cookingTimerIdFor('0b7c9f0e-cooking-visit', 0);
+
+        await _scheduleRest(service, id);
+        await service.cueRestAlert(id: id, title: 'Timer done', body: 'Step 2');
+
+        final scheduled = gateway.pending[id]!;
+        expect(scheduled.payload, isNull);
+        expect(scheduled.details.android!.channelId, 'eatova_training');
+        expect(gateway.shown[id]!.payload, isNull);
+        await service.cancelRestAlert(id);
+        expect(gateway.pending, isEmpty);
       }),
     );
 
@@ -576,7 +607,7 @@ void main() {
           last(gateway, 'eatova_nudges').description,
           enL10n.notifChannelDescription,
         );
-        expect(last(gateway, 'eatova_training').name, 'Workout timer');
+        expect(last(gateway, 'eatova_training').name, 'Workout and cooking timers');
         expect(
           last(gateway, 'eatova_training').description,
           enL10n.trainingRestChannelDescription,
@@ -591,7 +622,8 @@ void main() {
     );
 
     test(
-      'iOS legt bei einem Sprachwechsel keine Kanaele an',
+      'iOS legt bei einem Sprachwechsel keine Kanaele an, registriert aber '
+      'die Knoepfe der Erinnerung in der neuen Sprache',
       () => _frozen(() async {
         final gateway = _FakeGateway();
         final service = _service(gateway, platform: NotificationPlatform.ios);
@@ -601,6 +633,13 @@ void main() {
         await service.cancelNudges();
 
         expect(gateway.channels, isEmpty);
+        final category = gateway.inits.last.iOS!.notificationCategories
+            .singleWhere((c) => c.identifier == 'eatova-log-meal');
+        expect(category.actions.map((a) => a.title), [
+          enL10n.shortcutPhoto,
+          enL10n.shortcutBarcode,
+          enL10n.shortcutDescribe,
+        ]);
       }),
     );
 
@@ -620,10 +659,10 @@ void main() {
 
         expect(
           gateway.channels.map((c) => c.name),
-          everyElement(isIn(['Eatova reminders', 'Workout timer'])),
+          everyElement(isIn(['Eatova reminders', 'Workout and cooking timers'])),
         );
         expect(last(gateway, 'eatova_nudges').name, 'Eatova reminders');
-        expect(last(gateway, 'eatova_training').name, 'Workout timer');
+        expect(last(gateway, 'eatova_training').name, 'Workout and cooking timers');
       }),
     );
   });
@@ -1472,6 +1511,82 @@ void main() {
 
         await taps;
       },
+    );
+
+    test(
+      'ein Knopf unter der Erinnerung meldet seinen Einstieg statt der '
+      'Nutzlast, warm und beim Kaltstart',
+      () async {
+        NotificationResponse button(AppEntry entry) => NotificationResponse(
+          notificationResponseType:
+              NotificationResponseType.selectedNotificationAction,
+          actionId: entry.id,
+          payload: AppEntry.logMeal.id,
+        );
+        final gateway = _FakeGateway()
+          ..launch = NotificationAppLaunchDetails(
+            true,
+            notificationResponse: button(AppEntry.photo),
+          );
+        final service = _service(gateway);
+        await service.init();
+        final taps = expectLater(
+          service.taps,
+          emitsInOrder(<String>[AppEntry.barcode.id]),
+        );
+
+        // Swiping it away leads nowhere.
+        gateway.onResponse!(
+          NotificationResponse(
+            notificationResponseType:
+                NotificationResponseType.notificationDismissed,
+            payload: AppEntry.logMeal.id,
+          ),
+        );
+        gateway.onResponse!(button(AppEntry.barcode));
+
+        await taps;
+        expect(await service.launchPayload(), AppEntry.photo.id);
+      },
+    );
+
+    test(
+      'die Knoepfe oeffnen die App: Android ohne Hintergrund-Empfaenger, iOS '
+      'ueber die beim Init registrierte Vordergrund-Kategorie',
+      () => _frozen(() async {
+        final spec = NotificationSpec(
+          id: reminderNudgeIdFirst,
+          title: 'Serie retten',
+          body: 'Ein Eintrag genügt.',
+          scheduledFor: _now.add(const Duration(hours: 11)),
+          payload: AppEntry.logMeal.id,
+          actions: ReminderActions.logMeal,
+        );
+        final ids = [
+          AppEntry.photo.id,
+          AppEntry.barcode.id,
+          AppEntry.describe.id,
+        ];
+
+        final android = _FakeGateway();
+        await _service(android).scheduleAll([spec]);
+        final buttons = android.pending[spec.id]!.details.android!.actions!;
+        expect(buttons.map((b) => b.id), ids);
+        expect(buttons.map((b) => b.showsUserInterface), everyElement(isTrue));
+
+        final ios = _FakeGateway();
+        await _service(ios, platform: NotificationPlatform.ios).scheduleAll([
+          spec,
+        ]);
+        final category = ios.pending[spec.id]!.details.iOS!.categoryIdentifier;
+        final registered = ios.inits.single.iOS!.notificationCategories
+            .singleWhere((c) => c.identifier == category);
+        expect(registered.actions.map((a) => a.identifier), ids);
+        expect(
+          registered.actions.map((a) => a.options),
+          everyElement(contains(DarwinNotificationActionOption.foreground)),
+        );
+      }),
     );
 
     test(

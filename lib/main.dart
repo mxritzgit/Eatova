@@ -8,6 +8,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'src/app/eatova_app.dart';
 import 'src/app/locale_controller.dart';
+import 'src/app/platform_route_guard.dart';
 import 'src/config/supabase_config.dart';
 import 'src/l10n/l10n.dart';
 import 'src/services/app_shortcuts.dart';
@@ -32,10 +33,12 @@ Future<void> main() async {
   // errors visible in the dart:developer log. With Sentry they are chained,
   // not replaced (capture first, then our log).
   _installGlobalErrorHandlers();
-  // Layouts are portrait-only. This is a request, not a guarantee:
+  // Layouts are designed for portrait. This is a request, not a guarantee:
   //  * Android: from targetSdk 36 on, Android 16 ignores orientation limits on
   //    displays with smallestWidth >= 600dp, so tablets and unfolded foldables
-  //    still rotate (Review E6). No crash, just an untested layout.
+  //    still rotate (Review E6). Pages then keep a readable column
+  //    (ReadableWidth); test/responsive/app_layout_sweep_test.dart walks
+  //    tablet and landscape windows.
   //  * iOS: the portrait-only set in ios/Runner/Info.plist holds because
   //    TARGETED_DEVICE_FAMILY = "1" makes this an iPhone-only bundle.
   //    Re-enabling iPad means bringing back the ~ipad keys.
@@ -169,8 +172,13 @@ class _BootErrorApp extends StatelessWidget {
   /// The error itself is already reported via CrashReporter.capture.
   final bool showDetails;
 
+  // Same deeplink route guard as the app: without it every `eatova://` link
+  // throws "Could not find a generator for route" on this screen.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PlatformRouteGuard(child: _buildApp(context));
+
+  Widget _buildApp(BuildContext context) {
     // Theme tokens instead of hardcoded colors, so this screen follows the
     // device's light or dark mode. The stored mode is not read here: boot
     // failed before anything else could be trusted. Safe: `buildEatovaTheme`

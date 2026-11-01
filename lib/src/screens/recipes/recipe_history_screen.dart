@@ -148,95 +148,97 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
-        child: ListView(
-          key: const ValueKey('recipe-history-list'),
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-          children: [
-            PageHeader(
-              title: l10n.recipeHistoryTitle,
-              onBack: () => Navigator.pop(context),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.recipeHistoryExplanation,
-              style: AppType.ui(14, color: t.ink2, height: 1.5),
-            ),
-            const SizedBox(height: 20),
-            for (final version in _versions) ...[
-              _VersionCard(
-                key: ValueKey('recipe-history-version-${version.revision}'),
-                version: version,
-                restoreEnabled: _restoring == null,
-                checking: _checkingHead && _restoring == version.revision,
-                restoring:
-                    _restoreConfirmed && _restoring == version.revision,
-                onRestore: () => _restore(version),
+        child: ReadableWidth(
+          child: ListView(
+            key: const ValueKey('recipe-history-list'),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            children: [
+              PageHeader(
+                title: l10n.recipeHistoryTitle,
+                onBack: () => Navigator.pop(context),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              Text(
+                l10n.recipeHistoryExplanation,
+                style: AppType.ui(14, color: t.ink2, height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              for (final version in _versions) ...[
+                _VersionCard(
+                  key: ValueKey('recipe-history-version-${version.revision}'),
+                  version: version,
+                  restoreEnabled: _restoring == null,
+                  checking: _checkingHead && _restoring == version.revision,
+                  restoring:
+                      _restoreConfirmed && _restoring == version.revision,
+                  onRestore: () => _restore(version),
+                ),
+                const SizedBox(height: 12),
+              ],
+              // The first page: two version cards in outline.
+              if (_loading && _versions.isEmpty)
+                Semantics(
+                  container: true,
+                  label: l10n.recipeHistoryLoading,
+                  child: const ExcludeSemantics(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SkeletonCard(rows: 1, tileSize: 36),
+                        SizedBox(height: 12),
+                        SkeletonCard(rows: 1, tileSize: 36),
+                      ],
+                    ),
+                  ),
+                ),
+              if (_answered && _versions.isEmpty && _error == null)
+                CalmState(
+                  key: const ValueKey('recipe-history-empty'),
+                  card: true,
+                  icon: Icons.history_rounded,
+                  title: l10n.recipeHistoryEmptyTitle,
+                  text: l10n.recipeHistoryEmptyBody,
+                ),
+              if (_error != null) ...[
+                if (_versions.isNotEmpty) const SizedBox(height: 4),
+                CalmState(
+                  key: const ValueKey('recipe-history-error'),
+                  card: true,
+                  icon: Icons.cloud_off_rounded,
+                  text: directSyncErrorMessage(_error!, l10n),
+                  actions: [
+                    SoftPillButton(
+                      key: const ValueKey('recipe-history-retry'),
+                      label: l10n.commonBootUnansweredRetry,
+                      icon: Icons.refresh_rounded,
+                      onTap: _load,
+                    ),
+                  ],
+                ),
+              ] else if (!_loading && _next != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Center(
+                    child: SoftPillButton(
+                      key: const ValueKey('recipe-history-load-more'),
+                      label: l10n.recipeHistoryLoadMore,
+                      icon: Icons.expand_more_rounded,
+                      tone: SoftPillTone.neutral,
+                      onTap: _load,
+                    ),
+                  ),
+                ),
+              // Earlier versions on their way. A restore shows its progress on
+              // the tapped version's pill instead, next to where it started.
+              if (_loading && _versions.isNotEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: AppSpinner(),
+                  ),
+                ),
             ],
-            // The first page: two version cards in outline.
-            if (_loading && _versions.isEmpty)
-              Semantics(
-                container: true,
-                label: l10n.recipeHistoryLoading,
-                child: const ExcludeSemantics(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SkeletonCard(rows: 1, tileSize: 36),
-                      SizedBox(height: 12),
-                      SkeletonCard(rows: 1, tileSize: 36),
-                    ],
-                  ),
-                ),
-              ),
-            if (_answered && _versions.isEmpty && _error == null)
-              CalmState(
-                key: const ValueKey('recipe-history-empty'),
-                card: true,
-                icon: Icons.history_rounded,
-                title: l10n.recipeHistoryEmptyTitle,
-                text: l10n.recipeHistoryEmptyBody,
-              ),
-            if (_error != null) ...[
-              if (_versions.isNotEmpty) const SizedBox(height: 4),
-              CalmState(
-                key: const ValueKey('recipe-history-error'),
-                card: true,
-                icon: Icons.cloud_off_rounded,
-                text: directSyncErrorMessage(_error!, l10n),
-                actions: [
-                  SoftPillButton(
-                    key: const ValueKey('recipe-history-retry'),
-                    label: l10n.commonBootUnansweredRetry,
-                    icon: Icons.refresh_rounded,
-                    onTap: _load,
-                  ),
-                ],
-              ),
-            ] else if (!_loading && _next != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Center(
-                  child: SoftPillButton(
-                    key: const ValueKey('recipe-history-load-more'),
-                    label: l10n.recipeHistoryLoadMore,
-                    icon: Icons.expand_more_rounded,
-                    tone: SoftPillTone.neutral,
-                    onTap: _load,
-                  ),
-                ),
-              ),
-            // Earlier versions on their way. A restore shows its progress on
-            // the tapped version's pill instead, next to where it started.
-            if (_loading && _versions.isNotEmpty)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: AppSpinner(),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );

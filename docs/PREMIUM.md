@@ -312,7 +312,10 @@ effective Premium for this account.
 - `subscription`: the entitled row with the latest `expires_at`; without one,
   the most recently updated row (so "payment failed" or "expired on" can be
   shown); `null` without any row. Never contains `store_key`, tokens or
-  transaction ids. Manual rows report `platform: "manual"`.
+  transaction ids. Manual rows report `platform: "manual"`. A subscription
+  the app cannot read (e.g. a store status a newer server added) becomes
+  `null` in the app; tier, limits, usage and legacy still apply (since
+  2026-11-01, `plan_status.dart`).
 - `usage.coach` = today's `chat_quota_usage.used_count`.
   `usage.meal_analysis` and `usage.recipe_import` = today's
   `edge_rate_limits.request_count` for scope `analyze-meal:user-day` and

@@ -251,6 +251,17 @@ Image generation uses the generated title/description. Training can receive an e
 snapshot. Proposals are returned/persisted as chat data, but user recipes and
 training plans are adopted only after confirmation in the client.
 
+A training plan may carry an optional weekly target, `sessions_per_week`
+(integer 1–14, migration `20261101100000_training_plan_sessions_per_week.sql`).
+`is_valid_training_plan` keeps `schema_version` 1 and still accepts plans
+without the key, for `training_plans`, `chat_messages.training_plan` and
+history snapshots alike. A `/plan` proposal carries it only when the request's
+`training_context` has `schema_version` 2; the value is the brief's own
+`sessions_per_week`, never model output. Version 1 briefs and plain `/plan`
+text get no key, because builds before 2026-11 reject unknown plan keys. The
+app omits the key without a target and drops it from a workout's frozen plan
+copy, so history rows never carry it.
+
 Coach request modes are a closed set: absent (chat, plus the `/plan` text
 command), `chat`, `recipe`, `plan` and `log`. Any other `mode` is
 `400 invalid_mode`, and an explicit mode always wins over text commands.

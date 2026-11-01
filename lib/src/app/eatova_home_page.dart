@@ -24,6 +24,8 @@ import '../services/day_math.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/billing/purchase_flow.dart';
 import '../services/eatova_sync.dart';
+import '../services/fallback_product_service.dart'
+    show defaultProductLookupService;
 import '../services/favorites_view.dart' show favoriteUseCounts;
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
@@ -1160,6 +1162,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onFillYesterday: today && _store.yesterdayRescuesStreak
             ? _fillYesterday
             : null,
+        // The way a reminder or a shortcut takes: Food on today, its sheet.
+        onFirstEntry: today && _store.firstEntryPending ? _openEntry : null,
         targetReached: switch (today ? _store.targetReachedPrompt : null) {
           final reached? => (
             targetKg: reached.targetKg,
@@ -1426,6 +1430,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // The search's "From you" (E3): local only, no network.
         diaryMeals: () => _store.loggedMeals,
         ownRecipes: () => _store.visibleUserRecipes,
+        // "What still fits?": the same budget as the day card.
+        remainingKcalForDay: (day) =>
+            _store.nutritionSummaryForFoodDate(day).remainingKcal,
         child: MealEditScope(
           onUpdateMeal: _store.updateLoggedMealDetails,
           onRemoveMeal: _store.removeLoggedMeal,
@@ -1827,8 +1834,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     return describeMealFromCoach(
       context,
       text: text,
-      productService:
-          widget.productService ?? MealAnalysisScreen.defaultProductService(),
+      productService: widget.productService ?? defaultProductLookupService(),
       favorites: () => ownerStore.favorites,
       onAdd: (result, slot) async {
         if (!_isStoreSessionCurrent(ownerStore)) {

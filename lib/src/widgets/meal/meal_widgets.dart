@@ -14,6 +14,7 @@ import '../../models/meal_component.dart';
 import '../../models/model_limits.dart'
     show LoggedMealLimits, PlausibilityLimits;
 import '../../models/number_input.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import '../common/basic_widgets.dart';
 import '../common/decimal_text.dart';

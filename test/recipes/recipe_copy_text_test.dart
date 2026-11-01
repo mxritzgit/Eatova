@@ -94,7 +94,7 @@ void main() {
     expect(
       recipeAsPlainText(recipe, deL10n, servings: 2),
       contains(
-        '\nZutaten\n${deL10n.recipeIngredientsForServings('2')}\n'
+        '\nZutaten\n${deL10n.recipeIngredientsForServings(2)}\n'
         '150 g Reis\nSalz\n',
       ),
     );

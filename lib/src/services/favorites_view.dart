@@ -45,6 +45,14 @@ List<FavoriteMeal> filterFavoritesByQuery(
 /// Order of the favorites sheet's list (lively list, 2026-10-03).
 enum FavoriteSort { recent, frequent, alphabetical }
 
+/// Start of the use window: local midnight [days] days before [now]. Meals
+/// logged before it do not count.
+///
+/// Calendar arithmetic, not a Duration: the window starts at midnight on
+/// both sides of a DST switch.
+DateTime foodUseWindowStart(DateTime now, {int days = 35}) =>
+    DateTime(now.year, now.month, now.day - days);
+
 /// How often each favorite was logged since local midnight [days] days
 /// before [now], keyed by [FavoriteMeal.canonicalId] of [FavoriteMeal.idFor]
 /// (barcode, else name), so both UPC-A spellings count for one product
@@ -55,9 +63,7 @@ Map<String, int> favoriteUseCounts(
   required DateTime now,
   int days = 35,
 }) {
-  // Calendar arithmetic, not a Duration: the window starts at midnight on
-  // both sides of a DST switch.
-  final since = DateTime(now.year, now.month, now.day - days);
+  final since = foodUseWindowStart(now, days: days);
   final counts = <String, int>{};
   for (final meal in meals) {
     if (meal.loggedAt.isBefore(since)) continue;

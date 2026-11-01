@@ -189,15 +189,21 @@ class PlayerSetRow extends StatelessWidget {
       );
     }
 
+    // Aligned under the "SET" head, so the column keeps its width: at large
+    // text a two-digit number shrinks to fit instead of breaking into "1 / 0".
     final number = SizedBox(
       width: 28,
-      child: Text(
-        '$_number',
-        textAlign: TextAlign.center,
-        style: AppType.ui(
-          15,
-          weight: FontWeight.w800,
-          color: active ? t.accentText : t.ink2,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          '$_number',
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          style: AppType.ui(
+            15,
+            weight: FontWeight.w800,
+            color: active ? t.accentText : t.ink2,
+          ),
         ),
       ),
     );

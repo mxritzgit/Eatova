@@ -12,6 +12,13 @@ import '../models/training_history.dart';
 import '../models/user_profile.dart';
 import 'local_day.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
+import 'profile_sync.dart'
+    show
+        parseDietPreference,
+        parseProfileActivity,
+        parseProfileGoal,
+        parseProfileSex,
+        unknownProfileValue;
 import 'uuid.dart';
 
 /// DATA-7 write outbox: failed sync writes are persisted as a [SyncOp]
@@ -650,6 +657,8 @@ class SyncOp {
     if (kind == null) return null;
     final entityId = json['entity_id'];
     if (entityId is! String || entityId.isEmpty) return null;
+    final predecessorId = json['predecessor_id'];
+    if (predecessorId != null && predecessorId is! String) return null;
     final rawPayload = json['payload'];
     final payload = rawPayload is Map
         ? rawPayload.cast<String, dynamic>()
@@ -679,7 +688,7 @@ class SyncOp {
       deliveryStarted: json['delivery_started'] == true,
       wirePayload: wire as Map<String, dynamic>?,
       wireSchema: schema as int?,
-      predecessorId: json['predecessor_id'] as String?,
+      predecessorId: predecessorId as String?,
       blockedReason: SyncBlockedReason.values
           .where((reason) => reason.name == json['blocked_reason'])
           .firstOrNull,
@@ -849,13 +858,19 @@ MealSlot? _parseSlot(String? raw) {
 // paths since gap D (cache slot and outbox op); two copies of the mapping
 // would let a new field land in only one. Key names are unchanged (they sit
 // on every existing install) and follow the public.profiles columns.
+//
+// A value this build does not know (UserProfile.unknownSex and siblings) is
+// written back raw under the same key, in the cache and in every profile op:
+// a value a newer migration added must not turn into the fallback the UI
+// shows. The full-row upsert has no "missing key keeps" rule for the enum
+// columns, so leaving the key out is no option.
 
 Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
   'weight_kg': p.weightKg,
   'height_cm': p.heightCm,
   'age_years': p.ageYears,
-  'sex': p.sex.name,
-  'activity_level': p.activityLevel.name,
+  'sex': p.unknownSex ?? p.sex.name,
+  'activity_level': p.unknownActivityLevel ?? p.activityLevel.name,
   'target_weight_kg': p.targetWeightKg,
   'daily_steps_goal': p.dailyStepsGoal,
   'daily_kcal_goal': p.dailyKcalGoal,
@@ -864,17 +879,21 @@ Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
   'protein_goal_g': p.proteinGoalG,
   'carbs_goal_g': p.carbsGoalG,
   'fat_goal_g': p.fatGoalG,
-  'weight_goal': p.weightGoal.name,
+  'weight_goal': p.unknownWeightGoal ?? p.weightGoal.name,
   // A7: MUST be written. The cache is the first hydration source and sets
   // the clobber lock (_hydratedFromRealSource); without this key `diet`
   // silently fell back to none on cold start and the next profile.save()
   // wrote that none to the server for good. Key name mirrors the column
   // profiles.diet_preference.
-  'diet_preference': p.diet.name,
+  'diet_preference': p.unknownDiet ?? p.diet.name,
   // Food preferences (20261018100000), normalized so the server checks
   // cannot reject the whole profile op. Mirror profiles.food_avoidances and
-  // profiles.food_dislikes; a missing key keeps the server value.
-  'food_avoidances': foodAvoidancesToWire(p.foodAvoidances),
+  // profiles.food_dislikes; a missing key keeps the server value. Unknown
+  // codes follow the known ones.
+  'food_avoidances': [
+    ...foodAvoidancesToWire(p.foodAvoidances),
+    ...p.unknownFoodAvoidances,
+  ],
   'food_dislikes': normalizeFoodDislikes(p.foodDislikes),
   'onboarding_completed': p.onboardingCompleted,
   // F7-01: the manual/live switch must survive the cache and the outbox,
@@ -926,12 +945,10 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
     weightKg: weightKg,
     heightCm: heightCm,
     ageYears: ageYears,
-    sex: _profileEnum(BiologicalSex.values, j['sex'], BiologicalSex.neutral),
-    activityLevel: _profileEnum(
-      ActivityLevel.values,
-      j['activity_level'],
-      ActivityLevel.sedentary,
-    ),
+    // The same parsers as the server load, so a legacy alias maps onto its
+    // current value instead of being kept raw.
+    sex: parseProfileSex(_profileString(j['sex'])),
+    activityLevel: parseProfileActivity(_profileString(j['activity_level'])),
     targetWeightKg: targetWeightKg,
     dailyStepsGoal: dailyStepsGoal,
     dailyKcalGoal: dailyKcalGoal,
@@ -940,23 +957,24 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
     proteinGoalG: proteinGoalG,
     carbsGoalG: carbsGoalG,
     fatGoalG: fatGoalG,
-    weightGoal: _profileEnum(
-      WeightGoal.values,
-      j['weight_goal'],
-      WeightGoal.maintain,
-    ),
+    weightGoal: parseProfileGoal(_profileString(j['weight_goal'])),
     // Counterpart to 'diet_preference' above; unknown or missing values
     // fall back to none.
-    diet: _profileEnum(
-      DietPreference.values,
-      j['diet_preference'],
-      DietPreference.none,
-    ),
+    diet: parseDietPreference(_profileString(j['diet_preference'])),
     // Missing (older cache blob or payload): nothing avoided, no dislikes.
     foodAvoidances: parseFoodAvoidances(j['food_avoidances']),
     foodDislikes: j['food_dislikes'] is String
         ? normalizeFoodDislikes(j['food_dislikes'] as String)
         : '',
+    // Written back raw (see userProfileToJson).
+    unknownSex: unknownProfileValue(j['sex'], parseProfileSex),
+    unknownActivityLevel: unknownProfileValue(
+      j['activity_level'],
+      parseProfileActivity,
+    ),
+    unknownWeightGoal: unknownProfileValue(j['weight_goal'], parseProfileGoal),
+    unknownDiet: unknownProfileValue(j['diet_preference'], parseDietPreference),
+    unknownFoodAvoidances: unknownFoodAvoidanceCodes(j['food_avoidances']),
     onboardingCompleted: j['onboarding_completed'] == true,
     // Missing (blob from an older build) counts as live, like the column
     // default — never reconstructed from the numbers.
@@ -974,10 +992,5 @@ int? _profileInt(Object? v) {
   return null;
 }
 
-T _profileEnum<T extends Enum>(List<T> values, Object? raw, T fallback) {
-  if (raw is! String) return fallback;
-  for (final v in values) {
-    if (v.name == raw) return v;
-  }
-  return fallback;
-}
+/// Non-strings read as missing, so they fall back like an unknown value.
+String? _profileString(Object? raw) => raw is String ? raw : null;

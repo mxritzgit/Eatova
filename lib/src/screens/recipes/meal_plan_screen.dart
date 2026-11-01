@@ -32,6 +32,7 @@ import '../../widgets/recipes/recipe_avoid_hint.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
 import '../today/today_texts.dart' show kcalThousands, todayWeekdayShort;
+import 'meal_plan_suggest_sheet.dart';
 import 'recipes_screen.dart' show RecipeDetailScreen;
 
 part 'meal_plan_editor.dart';
@@ -240,6 +241,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   /// The planned recipe, read-only, with its ingredients for the planned
   /// servings: it is eaten here, through the plan, never from the detail.
+  /// Its cooking mode ends with the same [_eat].
   void _openRecipe(PlannedMeal plan) => Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => RecipeDetailScreen(
@@ -248,6 +250,18 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         showAddAction: false,
         onAddMeal: (_, _) {},
         avoidances: store.profile.foodAvoidances,
+        onEatPlanned: plan.isEaten || _plannedKcal(plan, context.l10n) == null
+            ? null
+            : () async {
+                PlannedMeal? current() => store.plannedMeals
+                    .where((p) => p.id == plan.id)
+                    .firstOrNull;
+                // The entry as it is now: edited or eaten while cooking.
+                final entry = current();
+                if (!mounted || entry == null) return false;
+                if (!entry.isEaten) await _eat(entry);
+                return current()?.isEaten ?? false;
+              },
       ),
     ),
   );
@@ -279,6 +293,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   bool _plannable(DateTime day) {
     final now = DateUtils.dateOnly(clock.now());
     return !day.isBefore(_firstPlanDay(now)) && !day.isAfter(_lastPlanDay(now));
+  }
+
+  /// The shown week's days a week suggestion may fill: today and later.
+  List<DateTime> get _suggestDays {
+    final today = DateUtils.dateOnly(clock.now());
+    return _days.where((d) => !d.isBefore(today) && _plannable(d)).toList();
   }
 
   /// Today when the shown week holds it, else the week's first plannable day.
@@ -441,6 +461,24 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       checks: checks,
                     )
                   else ...[
+                    // Offline too: a failed load still shows the cached plan.
+                    if (!store.mealPlansLoading && _suggestDays.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: SoftPillButton(
+                          key: const ValueKey('meal-plan-suggest'),
+                          label: l.mealPlanSuggestAction,
+                          icon: Icons.calendar_view_week_rounded,
+                          onTap: () => showWeekPlanSuggestion(
+                            context,
+                            store: store,
+                            week: _week,
+                            days: _suggestDays,
+                          ),
+                        ),
+                      ),
+                    ],
                     // One child, so every day is built and the strip can
                     // scroll to any of them.
                     Column(

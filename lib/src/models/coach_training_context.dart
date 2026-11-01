@@ -58,8 +58,10 @@ final class CoachTrainingContext {
     }
   }
 
+  /// Version 2 tells coach-chat this build reads `sessions_per_week` on the
+  /// proposal; a version 1 brief gets a plan without it.
   Map<String, dynamic> toJson() => {
-    'schema_version': 1,
+    'schema_version': 2,
     'intent': intent.name,
     'goal': goal,
     'experience': experience.name,
