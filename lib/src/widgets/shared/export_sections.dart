@@ -259,11 +259,9 @@ class _ExportSectionViewState extends State<ExportSectionView>
             child: Semantics(
               expanded: _expanded,
               button: true,
+              // Flush with the sheet's text column, like the cards above.
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 16,
-                  horizontal: 4,
-                ),
+                padding: const EdgeInsets.symmetric(vertical: kSpace16),
                 child: Row(
                   children: [
                     const IconBadge(
