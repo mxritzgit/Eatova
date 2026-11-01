@@ -342,8 +342,9 @@ List<String> _eigeneUeberschriftFunde(String pfad, String quelle) {
 /// At the end of the migration it covers `lib/` completely.
 ///
 /// Deliberate, permanent exclusions — design decisions, not migration gaps:
-///  * `main.dart` — the boot error screen runs before l10n exists, so
-///    `AppLocalizations.of` is structurally unreachable there.
+///  * `lib/src/widgets/design/design_previews.dart` — German preview names for
+///    `flutter widget-preview`; the app never imports the file, so no user
+///    sees them. Skipped through [_nichtAusgeliefert].
 ///  * `lib/src/models/recipe_catalog_de.dart` — German content by design.
 ///  * `lib/src/models/meal_analysis_result.dart` — remaining hits are legacy
 ///    compatibility DATA the `resolve()` methods must recognise, including
@@ -381,7 +382,7 @@ const List<String> _migriertePfade = <String>[
   'lib/src/app/home_store_meals.dart',
   'lib/src/app/home_store_sync.dart',
   'lib/src/app/home_store_tracking.dart',
-  'lib/src/widgets/design/rows.dart',
+  'lib/src/widgets/design/',
   'lib/src/models/fitness_recipe.dart',
   'lib/src/models/recipe_catalog_en.dart',
   'lib/src/services/meal_analyzer.dart',
@@ -397,7 +398,19 @@ const List<String> _migriertePfade = <String>[
   'lib/src/screens/auth_code_screen.dart',
   'lib/src/widgets/auth/',
   'lib/src/auth/',
+  'lib/main.dart',
+  'lib/src/screens/training/',
+  'lib/src/screens/premium/',
+  'lib/src/widgets/common/',
+  'lib/src/widgets/recipes/',
+  'lib/src/app/subscription.dart',
 ];
+
+/// Files under a migrated directory that never ship to a user; see the
+/// exclusions above [_migriertePfade].
+const Set<String> _nichtAusgeliefert = <String>{
+  'lib/src/widgets/design/design_previews.dart',
+};
 
 /// Documented per-literal exceptions (file -> literals): deliberately
 /// unmigrated single hits inside otherwise migrated files. A short, justified
@@ -868,6 +881,7 @@ HeadingSemantics(level: 1, child: Text(titel)),
       final funde = <String>[];
       for (final pfad in _migriertePfade) {
         for (final quelle in _unter(pfad)) {
+          if (_nichtAusgeliefert.contains(quelle.pfad)) continue;
           funde.addAll(_fundeIn(
             quelle.pfad,
             quelle.roh,
@@ -897,6 +911,9 @@ HeadingSemantics(level: 1, child: Text(titel)),
           reason: pfad,
         );
         expect(_unter(pfad), isNotEmpty, reason: '$pfad enthaelt kein Dart');
+      }
+      for (final pfad in _nichtAusgeliefert) {
+        expect(File(pfad).existsSync(), isTrue, reason: pfad);
       }
     });
 
