@@ -162,33 +162,65 @@ class LitDot extends StatelessWidget {
   }
 }
 
-/// The heading above a group of cards.
+/// The heading above a group of cards: the one section size, Display 17/700
+/// ([AppType.section]), a level-2 jump mark.
+///
+/// [trailing] is a muted note on the right (period, goal); [action] a link
+/// there instead (an [EatovaTextAction] such as "All"), on the title's
+/// baseline with its label flush to the content edge.
 class SectionHeading extends StatelessWidget {
-  const SectionHeading({super.key, required this.title, this.trailing});
+  const SectionHeading({
+    super.key,
+    required this.title,
+    this.trailing,
+    this.action,
+  });
 
   final String title;
 
-  /// Muted addition on the right (period, goal, action).
+  /// Muted addition on the right (period, goal).
   final String? trailing;
+
+  /// A text action on the right, outside the heading node.
+  final Widget? action;
+
+  /// The horizontal padding of an [EatovaTextAction] without a capsule: the
+  /// action shifts by it so its label ends at the content edge while its
+  /// 48 px target reaches into the gutter.
+  static const double _actionInset = 12;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final heading = HeadingSemantics(
+      level: 2,
+      child: Text(title, style: AppType.section(t.ink)),
+    );
+    if (action case final action?) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: <Widget>[
+          Expanded(child: heading),
+          const SizedBox(width: kSpace8),
+          Transform.translate(
+            offset: Offset(
+              Directionality.of(context) == TextDirection.rtl
+                  ? -_actionInset
+                  : _actionInset,
+              0,
+            ),
+            child: action,
+          ),
+        ],
+      );
+    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: <Widget>[
-        Expanded(
-          // One rank below the screen title; the muted [trailing] is no jump
-          // mark of its own.
-          child: HeadingSemantics(
-            level: 2,
-            child: Text(
-              title,
-              style:
-                  AppType.display(17, weight: FontWeight.w700, color: t.ink),
-            ),
-          ),
-        ),
+        // One rank below the screen title; the muted [trailing] is no jump
+        // mark of its own.
+        Expanded(child: heading),
         // Flexible instead of a fixed text: at textScaler 2.0 the trailing
         // text would burst the row. The Align puts a short label flush with
         // the card edge; a loose Flexible alone left it at the half mark.
@@ -202,11 +234,7 @@ class SectionHeading extends StatelessWidget {
                 child: Text(
                   trailing!,
                   textAlign: TextAlign.end,
-                  style: AppType.ui(
-                    11.5,
-                    weight: FontWeight.w600,
-                    color: t.ink2,
-                  ),
+                  style: AppType.caption(t.ink2),
                 ),
               ),
             ),
