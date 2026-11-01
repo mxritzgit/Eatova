@@ -1113,6 +1113,42 @@ const x = 'today';
           reason: 'Diese Keys sind noch nicht uebersetzt');
     });
 
+    // docs/I18N_PAKETE.md: numbers keep their locale format ("2.200 kcal").
+    // An amount right before a kcal, gram or step unit without decimalPattern
+    // renders 2200. gen-l10n takes placeholder types from the template only.
+    test('Mengen vor kcal, Gramm und Schritten tragen ein Zahlenformat', () {
+      final vorlage =
+          jsonDecode(_lies('lib/l10n/app_de.arb')) as Map<String, dynamic>;
+      final menge = RegExp(
+        r'\{(\w+)\}((?:\s*(?:–|bis|und|von)\s*\{\w+\})*)\s*'
+        r'(?:kcal|g|Gramm|Kilokalorien|Schritte)\b',
+      );
+      final name = RegExp(r'\{(\w+)\}');
+      final funde = <String>[];
+      for (final MapEntry(:key, :value) in vorlage.entries) {
+        if (key.startsWith('@') || value is! String) continue;
+        final meta = vorlage['@$key'] as Map<String, dynamic>?;
+        final platzhalter =
+            meta?['placeholders'] as Map<String, dynamic>? ?? const {};
+        for (final m in menge.allMatches(value)) {
+          final namen = [
+            m.group(1)!,
+            for (final innen in name.allMatches(m.group(2)!)) innen.group(1)!,
+          ];
+          for (final n in namen) {
+            final info = platzhalter[n] as Map<String, dynamic>?;
+            if (info != null &&
+                const {'int', 'num', 'double'}.contains(info['type']) &&
+                !info.containsKey('format')) {
+              funde.add('$key.$n');
+            }
+          }
+        }
+      }
+      expect(funde, isEmpty,
+          reason: 'Diese Platzhalter brauchen "format": "decimalPattern"');
+    });
+
     // -----------------------------------------------------------------------
     // Kein UI-Text darf echte Fotos behaupten
     //

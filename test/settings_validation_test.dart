@@ -84,7 +84,7 @@ void main() {
       // The age used to be clamped to 16 on save, writing an invented age
       // into a 12-year-old's profile and calorie target.
       ('settings-age', '12', '16–100 Jahre', '31'),
-      ('settings-steps-goal', '999', '1000–100000', '8000'),
+      ('settings-steps-goal', '999', '1.000–100.000', '8000'),
     ]) {
       final fall = '$feld "$falsch"';
       await tippe(tester, feld, falsch);
@@ -123,7 +123,7 @@ void main() {
     );
 
     await tippe(tester, 'settings-kcal', '500');
-    expect(find.text('800–7000 kcal'), findsOneWidget);
+    expect(find.text('800–7.000 kcal'), findsOneWidget);
     expect(saveHandler(tester), isNull);
 
     // 1000 is below the calculator floor (1350), but it is a deliberate manual

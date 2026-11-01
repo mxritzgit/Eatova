@@ -110,7 +110,7 @@ void main() {
       await _tippe(tester, 'recipe-create-name', 'Familienblech');
       // Two groups can only be grouping — no hint, no guess.
       await _tippe(tester, 'recipe-create-kcal', '1.000.000');
-      expect(find.text('1–10000 kcal'), findsOneWidget,
+      expect(find.text('1–10.000 kcal'), findsOneWidget,
           reason: 'eindeutig 1 000 000, also ausserhalb des Bereichs');
       await _tippe(tester, 'recipe-create-kcal', '2.500,0');
       expect(_speichernAktiv(tester), isTrue);

@@ -159,7 +159,7 @@ void main() {
     expect(a.server.profileRow!['energy_adjustment_kcal'], -150);
     expect(a.server.profileRow!['energy_checked_on'], '2026-10-03');
     expect(a.server.profileRow!['daily_kcal_goal'], 1950);
-    expect(a.snacks.messages, contains('Tagesziel angepasst: 1950 kcal.'));
+    expect(a.snacks.messages, contains('Tagesziel angepasst: 1.950 kcal.'));
     expect(a.store.energyCheckProposal, isNull, reason: 'answered today');
   }));
 

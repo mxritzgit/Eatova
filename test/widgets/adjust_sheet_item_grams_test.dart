@@ -245,7 +245,7 @@ void main() {
           find.byKey(const ValueKey('analyse-invalid-weight-hint')),
           findsOneWidget,
         );
-        expect(find.textContaining('10000'), findsWidgets);
+        expect(find.textContaining('10.000'), findsWidgets);
 
         // Vorher: Zeile "12000 g · 52100 kcal", Karte "10000 g ≈ 52100 kcal".
         expect(

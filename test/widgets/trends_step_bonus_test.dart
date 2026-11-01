@@ -116,8 +116,8 @@ void main() {
                 (w.properties.value ?? '')
                     .contains('Tagesziel $ziel Kilokalorien'),
           );
-      expect(ansage('2430'), findsOneWidget);
-      expect(ansage('2200'), findsNothing);
+      expect(ansage('2.430'), findsOneWidget);
+      expect(ansage('2.200'), findsNothing);
     }));
   });
 }
