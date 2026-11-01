@@ -380,6 +380,9 @@ class _IndexBadge extends StatelessWidget {
       child: Container(
         width: 32,
         height: 32,
+        // A fixed circle: at large text the number shrinks to fit inside it
+        // instead of breaking into "2 / 0".
+        padding: const EdgeInsets.all(4),
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: active
@@ -391,12 +394,16 @@ class _IndexBadge extends StatelessWidget {
         ),
         child: done && !active
             ? Icon(Icons.check_rounded, size: 18, color: t.accentText)
-            : Text(
-                '$number',
-                style: AppType.ui(
-                  14,
-                  weight: FontWeight.w800,
-                  color: active ? t.onAccentFill : t.ink2,
+            : FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '$number',
+                  maxLines: 1,
+                  style: AppType.ui(
+                    14,
+                    weight: FontWeight.w800,
+                    color: active ? t.onAccentFill : t.ink2,
+                  ),
                 ),
               ),
       ),

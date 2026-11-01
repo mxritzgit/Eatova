@@ -15,6 +15,7 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
 import 'package:eatova/src/services/app_entry.dart';
 import 'package:eatova/src/services/app_shortcuts.dart';
 import 'package:eatova/src/services/day_math.dart';
@@ -63,13 +64,16 @@ class _Shortcuts extends NoopAppShortcuts {
 class _Camera implements MealCameraLauncher {
   int launches = 0;
 
+  /// While set, the camera stays open until it completes.
+  Completer<MealCameraCapture?>? open;
+
   @override
   Future<MealCameraCapture?> launch(
     BuildContext context, {
     required MealSlot initialSlot,
   }) async {
     launches++;
-    return null;
+    return open?.future;
   }
 }
 
@@ -205,6 +209,31 @@ void main() {
       shortcuts.controller.add(AppEntry.photo);
       await pumpUntil(tester, () => camera.launches == 1, 'the camera');
       expect(store.selectedTab, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  testWidgets('bei offener Kamera startet ein weiterer Einstieg weder eine '
+      'zweite Kamera noch den Scanner', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      final shortcuts = _Shortcuts();
+      final camera = _Camera()..open = Completer<MealCameraCapture?>();
+      await _pumpShell(tester, shortcuts: shortcuts, camera: camera);
+
+      shortcuts.controller.add(AppEntry.photo);
+      await pumpUntil(tester, () => camera.launches == 1, 'the camera');
+      for (final entry in [AppEntry.photo, AppEntry.barcode]) {
+        shortcuts.controller.add(entry);
+        await settleFrames(tester);
+      }
+      expect(camera.launches, 1, reason: 'one camera controller at a time');
+      expect(find.byType(BarcodeScannerSheet), findsNothing);
+
+      // Closed, the next entry opens the camera again.
+      camera.open!.complete(null);
+      await settleFrames(tester);
+      shortcuts.controller.add(AppEntry.photo);
+      await pumpUntil(tester, () => camera.launches == 2, 'the camera again');
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

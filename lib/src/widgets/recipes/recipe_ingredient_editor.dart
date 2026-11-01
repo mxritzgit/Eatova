@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/number_input.dart';
 import '../../models/recipe_ingredient.dart';
+import '../../services/fallback_product_service.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
@@ -11,23 +12,25 @@ import '../kcal/saved_meal_presentation.dart';
 
 /// Controlled list editor. Only confirmed, valid ingredient snapshots escape.
 class RecipeIngredientEditor extends StatelessWidget {
-  const RecipeIngredientEditor({
+  RecipeIngredientEditor({
     super.key,
     required this.ingredients,
     required this.onChanged,
-    this.productService,
-  });
+    ProductLookupService? productService,
+  }) : productService = productService ?? defaultProductLookupService();
 
   final List<RecipeIngredient> ingredients;
   final ValueChanged<List<RecipeIngredient>> onChanged;
-  final ProductLookupService? productService;
+
+  /// Same search as the Food tab: own index first, live OFF as fallback.
+  final ProductLookupService productService;
 
   Future<void> _edit(BuildContext context, [int? index]) async {
     final ingredient = await showEatovaSheet<RecipeIngredient>(
       context,
       _IngredientSheet(
         initial: index == null ? null : ingredients[index],
-        productService: productService ?? const OpenFoodFactsProductService(),
+        productService: productService,
       ),
     );
     if (!context.mounted || ingredient == null) return;

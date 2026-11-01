@@ -16,7 +16,6 @@ import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/recipe_pick.dart';
 import '../models/user_profile.dart';
-import '../config/search_config.dart';
 import '../services/day_math.dart';
 import '../services/fallback_product_service.dart';
 import '../services/meal_analyzer.dart';
@@ -24,7 +23,6 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/meal_scan_identity.dart';
 import '../services/meal_totals.dart';
-import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../services/own_products.dart';
 import '../services/trend_service.dart';
@@ -92,7 +90,7 @@ class MealAnalysisScreen extends StatelessWidget {
     this.previousDayMeals = const <LoggedMeal>[],
     this.onRepeatSlot,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
-       productService = productService ?? defaultProductService(),
+       productService = productService ?? defaultProductLookupService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
        cameraLauncher = cameraLauncher ?? const InAppMealCameraLauncher(),
        selectedDate = DateUtils.dateOnly(selectedDate ?? clock.now()),
@@ -101,20 +99,6 @@ class MealAnalysisScreen extends StatelessWidget {
        onUpdateMeal = onUpdateMeal ?? _noopUpdate,
        onRemoveFavorite = onRemoveFavorite ?? _noopString,
        onRemoveMeal = onRemoveMeal ?? _noopString;
-
-  // Own search index (Meilisearch) with live OFF as fallback for new products,
-  // barcode lookups and mirror outages.
-  //
-  // Runs on EVERY rebuild, so it stays strictly synchronous and
-  // allocation-free: no `await`, no SharedPreferences, no `Supabase.instance`.
-  // Credentials are decided by the search request itself; only the hard local
-  // kill switch `--dart-define=OFF_MIRROR_URL=` lives here. Public for the
-  // Coach's /meal path, which searches the same way.
-  static ProductLookupService defaultProductService() {
-    const off = OpenFoodFactsProductService();
-    if (SearchConfig.mirrorHardDisabled) return off;
-    return const FallbackProductService(MeilisearchProductService(), off);
-  }
 
   // Default onAddMeal returns an empty id (preview/test without persistence);
   // a later re-portioning then hits the no-op update.
@@ -291,9 +275,9 @@ class MealAnalysisScreen extends StatelessWidget {
     if (!await ensureAiConsent(context) || !context.mounted) return;
     final identity = MealScanIdentity();
     final add = _addToShownDay();
-    final capture = await cameraLauncher.launch(
+    final capture = await _openCaptureSheet(
       context,
-      initialSlot: currentMealSlot(),
+      () => cameraLauncher.launch(context, initialSlot: currentMealSlot()),
     );
     if (capture == null || !context.mounted || !identity.isCurrent) return;
     // One request for first try and retries (same bytes); the camera sheet's
@@ -384,9 +368,9 @@ class MealAnalysisScreen extends StatelessWidget {
     // The clock slot only preselects the scanner's chips; the choice there
     // decides where the product goes (finding 2026-08-22: the slot was not
     // selectable from this button before).
-    final scan = await showBarcodeScannerSheet(
+    final scan = await _openCaptureSheet(
       context,
-      initialSlot: currentMealSlot(),
+      () => showBarcodeScannerSheet(context, initialSlot: currentMealSlot()),
     );
     if (scan == null || !context.mounted) return;
     // The user's own product first (E5); the database only without one.
@@ -814,6 +798,27 @@ class _RequestListenerState<T extends Object>
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// Camera or barcode scanner open on a navigator. Both start a camera, and a
+/// shortcut or reminder arriving while one is open would start a second.
+/// Keyed by the navigator, so the mark goes away with its tree.
+final Expando<bool> _captureSheetOpen = Expando<bool>('captureSheetOpen');
+
+/// Runs [open] unless a capture sheet is already open there; then the open
+/// sheet stays and this entry returns null, like a cancel.
+Future<T?> _openCaptureSheet<T>(
+  BuildContext context,
+  Future<T?> Function() open,
+) async {
+  final navigator = Navigator.of(context);
+  if (_captureSheetOpen[navigator] ?? false) return null;
+  _captureSheetOpen[navigator] = true;
+  try {
+    return await open();
+  } finally {
+    _captureSheetOpen[navigator] = null;
+  }
 }
 
 /// One-time init of the `intl` date symbols. The screen rebuilds on every

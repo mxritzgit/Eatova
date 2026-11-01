@@ -14,6 +14,7 @@ import 'package:eatova/src/services/training_session_controller.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1928,6 +1929,60 @@ void main() {
         await tester.pumpWidget(const SizedBox());
       });
     }
+
+    testWidgets('2.0 text: set 10 and exercise 20 stay whole on one line in '
+        'their fixed badges', (tester) async {
+      final plan = TrainingPlan(
+        id: 'player_longest',
+        proposal: CoachTrainingProposal(
+          title: 'Longest',
+          workouts: [
+            TrainingWorkout(
+              title: 'Day L',
+              exercises: [
+                for (var i = 0; i < TrainingLimits.exercisesMax; i++)
+                  TrainingExercise(
+                    name: 'Move ${i + 1}',
+                    sets: i == 0 ? TrainingLimits.setsMax : 1,
+                    reps: 8,
+                    restSeconds: 60,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      );
+      await _open(tester, plan: plan, size: const Size(320, 568), scale: 2);
+      final list = find.descendant(
+        of: _key('training-player-list'),
+        matching: find.byType(Scrollable),
+      );
+      const last = TrainingLimits.exercisesMax - 1;
+      for (final (number, scope) in [
+        (TrainingLimits.setsMax, find.byType(PlayerSetRow)),
+        (TrainingLimits.exercisesMax, _key('training-exercise-$last')),
+      ]) {
+        final text = find.descendant(of: scope, matching: find.text('$number'));
+        await tester.scrollUntilVisible(text, 200, scrollable: list.first);
+        final paragraph = tester.renderObject<RenderParagraph>(text);
+        final whole = paragraph.getMaxIntrinsicWidth(double.infinity);
+        final glyphs = paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: '$number'.length),
+        );
+        expect(
+          glyphs.map((box) => box.top).toSet(),
+          hasLength(1),
+          reason: '$number stays on one line',
+        );
+        expect(
+          paragraph.size.width,
+          greaterThanOrEqualTo(whole - 0.5),
+          reason: '$number is not cut off',
+        );
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
 
     // Typing the next set's weight during a rest is the core flow: the
     // keyboard shrinks the body, and the rest bar must never take the row
