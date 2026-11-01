@@ -71,6 +71,8 @@ void main() {
           row,
           matchesSemantics(
             isButton: true,
+            hasEnabledState: true,
+            isEnabled: true,
             hasTapAction: true,
             isFocusable: true,
             hasFocusAction: true,

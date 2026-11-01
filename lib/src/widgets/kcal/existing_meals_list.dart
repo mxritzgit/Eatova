@@ -132,7 +132,7 @@ class _SlotTotalLine extends StatelessWidget {
         Text(
           macroSummaryLine(l10n, totals),
           key: const ValueKey('analyse-existing-total-macros'),
-          style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3),
+          style: AppType.ui(12, weight: FontWeight.w500, color: t.ink3),
         ),
       ],
     );
@@ -203,14 +203,18 @@ class _ExistingMealRow extends StatelessWidget {
               style: AppType.ui(14, weight: FontWeight.w600, color: t.ink2)
                   .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
             ),
-            if (onRemove != null)
-              IconButton(
+            if (onRemove != null) ...[
+              const SizedBox(width: kSpace4),
+              AppIconButton(
                 key: ValueKey('analyse-existing-remove-${meal.id}'),
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-                onPressed: () => onRemove!(meal.id),
-                icon: Icon(Icons.close_rounded, size: 18, color: t.ink3),
-                tooltip: l10n.foodRemoveTooltip,
+                icon: AppIcons.close,
+                semanticLabel: l10n.foodRemoveTooltip,
+                tone: IconButtonTone.plain,
+                size: IconButtonSize.compact,
+                target: 48,
+                onTap: () => onRemove!(meal.id),
               ),
+            ],
           ],
         ),
       ),
