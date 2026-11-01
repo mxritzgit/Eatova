@@ -64,7 +64,9 @@ void main() {
           'https://ci.invalid',
           'ci-dummy-key',
           authOptions: const AuthClientOptions(autoRefreshToken: false),
-          httpClient: MockClient((_) async => throw http.ClientException('offline')),
+          httpClient: MockClient(
+            (_) async => throw http.ClientException('offline'),
+          ),
         );
         store = HomeStore(
           sync: EatovaSync.forUser(client, 'A'),

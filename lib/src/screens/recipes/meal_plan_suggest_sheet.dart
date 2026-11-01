@@ -63,6 +63,9 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
   int _seed = 0;
   String? _locale;
   late WeekPlanSuggestion _plan;
+
+  /// Whether the week had an open slot at all, before any row was removed.
+  bool _anythingOpen = true;
   bool _saving = false;
   String? _error;
 
@@ -83,7 +86,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
     final last = localDayKey(
       DateTime(widget.week.year, widget.week.month, widget.week.day + 6),
     );
-    return suggestWeekPlan(
+    final plan = suggestWeekPlan(
       days: widget.days,
       slots: _slots,
       profile: store.profile,
@@ -102,6 +105,8 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
       ),
       seed: _seed,
     );
+    _anythingOpen = plan.meals.isNotEmpty || plan.unfilled.isNotEmpty;
+    return plan;
   }
 
   void _toggleSlot(MealSlot slot) {
@@ -283,7 +288,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
               boxed: true,
             ),
           ],
-          if (plan.meals.isEmpty && plan.unfilled.isEmpty) ...[
+          if (!_anythingOpen) ...[
             const SizedBox(height: 10),
             SignalNote(
               l.mealPlanSuggestNothing,
@@ -452,7 +457,10 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
               children: [
                 Row(children: [thumb, const Spacer(), actions]),
                 const SizedBox(height: 8),
-                Padding(padding: const EdgeInsets.only(right: 10), child: texts),
+                Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: texts,
+                ),
               ],
             )
           : Row(

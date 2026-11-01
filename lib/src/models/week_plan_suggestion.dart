@@ -289,8 +289,9 @@ WeekPlanSuggestion suggestWeekPlan({
         unfilled.add((day: day, slot: open[i]));
         continue;
       }
+      final recipe = choice.candidate.recipe;
       meals.add(choice.candidate.suggest(day, open[i], choice.step));
-      usage.update(choice.candidate.recipe.slug, (n) => n + 1, ifAbsent: () => 1);
+      usage.update(recipe.slug, (n) => n + 1, ifAbsent: () => 1);
     }
   }
 
@@ -393,7 +394,9 @@ typedef _Choice = ({_Candidate candidate, int step});
     }
     for (final candidate in shortlists[i]) {
       final ids = _identities(candidate.recipe);
-      if (picked.any((p) => p != null && _identities(p.recipe).any(ids.contains))) {
+      if (picked.any(
+        (p) => p != null && _identities(p.recipe).any(ids.contains),
+      )) {
         continue;
       }
       picked.add(candidate);
@@ -515,7 +518,9 @@ bool _dislikes(FitnessRecipe recipe, List<String> terms) {
 
 String _mondayKey(String day) {
   final date = parseLocalDayKey(day)!;
-  return localDayKey(DateTime(date.year, date.month, date.day - date.weekday + 1));
+  return localDayKey(
+    DateTime(date.year, date.month, date.day - date.weekday + 1),
+  );
 }
 
 /// FNV-1a over [text]: a stable order that does not depend on the platform's

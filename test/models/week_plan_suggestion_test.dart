@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/recipe_pick.dart' show recipeSuitsSlot;
 import 'package:eatova/src/models/user_profile.dart';
@@ -43,7 +44,8 @@ WeekPlanSuggestion _suggest({
 );
 
 List<String> _signature(WeekPlanSuggestion plan) => [
-  for (final m in plan.meals) '${m.day} ${m.slot.name} ${m.recipe.slug} ${m.servings}',
+  for (final m in plan.meals)
+    '${m.day} ${m.slot.name} ${m.recipe.slug} ${m.servings}',
 ];
 
 FitnessRecipe _catalog(String slug) =>
@@ -83,7 +85,8 @@ void main() {
           (1400, _threeMeals),
           (3000, MealSlot.values.toSet()),
         ]) {
-          final row = '${diet.name} ohne ${avoid.map((a) => a.name)} $goal kcal '
+          final row =
+              '${diet.name} ohne ${avoid.map((a) => a.name)} $goal kcal '
               '${slots.length} Slots';
           final plan = _suggest(
             diet: diet,
@@ -129,8 +132,9 @@ void main() {
     }
   });
 
-  test('bestehende Einträge bleiben stehen und zählen zur Tagessumme und zu '
-      'den Wiederholungen', () {
+  test('bestehende Einträge und heute schon vergangene Mahlzeiten bleiben '
+      'unberührt; '
+      'Geplantes zählt zur Tagessumme und zu den Wiederholungen', () {
     final chili = _catalog('rinderhack_chili_mit_bohnen');
     final tuesdayLunch = PlannedMeal.create(
       recipe: chili,
@@ -172,6 +176,35 @@ void main() {
     );
     expect(plan.existingOn('2026-11-03'), 1);
     expect(plan.meals, hasLength(21 - 3));
+
+    // Today at 13:00 with a snack in the diary: breakfast is over, the
+    // snack is eaten; lunch and dinner stay open.
+    final snack = LoggedMeal(
+      id: 'snack',
+      loggedAt: DateTime(2026, 11, 2, 10),
+      forcedSlot: MealSlot.snack,
+      result: const MealAnalysisResult(
+        mealName: 'Apfel',
+        caloriesKcal: 80,
+        estimatedGrams: 150,
+        kcalPer100G: 53,
+        protein: '0 g',
+        carbs: '20 g',
+        fat: '0 g',
+        confidence: 'Hoch',
+        portionNotes: '',
+      ),
+    );
+    expect(
+      weekPlanSkipsForToday(
+        now: DateTime(2026, 11, 2, 13),
+        todaysMeals: [snack],
+      ),
+      {
+        (day: '2026-11-02', slot: MealSlot.breakfast),
+        (day: '2026-11-02', slot: MealSlot.snack),
+      },
+    );
   });
 
   test('gleicher Input, gleicher Plan; ein anderer Seed mischt neu', () {
