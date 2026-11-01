@@ -349,7 +349,7 @@ class MealAnalysisScreen extends StatelessWidget {
       showAppSnack(
         context,
         l10n.foodSuggestionWithoutCaloriesMessage,
-        icon: Icons.error_outline_rounded,
+        icon: AppIcons.error,
         tone: SnackTone.error,
         duration: kSnackError,
       );
@@ -358,7 +358,7 @@ class MealAnalysisScreen extends StatelessWidget {
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, selectedSlot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
   }
 
@@ -877,7 +877,7 @@ class _DayLoadFailedCard extends StatelessWidget {
     return CalmState(
       key: const ValueKey('food-day-load-failed'),
       card: true,
-      icon: Icons.cloud_off_rounded,
+      icon: AppIcons.cloudOff,
       title: l10n.foodDayLoadFailedTitle,
       text: l10n.foodDayLoadFailedBody,
       actions: [
@@ -885,7 +885,7 @@ class _DayLoadFailedCard extends StatelessWidget {
           SoftPillButton(
             key: const ValueKey('food-day-load-retry'),
             label: l10n.foodDayLoadRetry,
-            icon: Icons.refresh_rounded,
+            icon: AppIcons.refresh,
             onTap: onRetry,
           ),
       ],

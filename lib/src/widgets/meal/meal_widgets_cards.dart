@@ -39,9 +39,9 @@ class MealPreviewCard extends StatelessWidget {
                   cacheWidth: (width * dpr).round().clamp(1, 1600),
                   errorBuilder: (_, _, _) => Center(
                     child: Icon(
-                      Icons.image_not_supported_outlined,
+                      AppIcons.imageNotSupported,
                       color: t.ink2,
-                      size: 32,
+                      size: AppIconSize.large,
                     ),
                   ),
                 );
@@ -73,10 +73,10 @@ class _MealLoadingCardState extends State<MealLoadingCard>
   static const int _stageCount = 4;
 
   List<(IconData, String)> _stages(AppLocalizations l10n) => [
-    (Icons.image_search_rounded, l10n.foodLoadingStageDetect),
-    (Icons.straighten_rounded, l10n.foodLoadingStageEstimate),
-    (Icons.calculate_rounded, l10n.foodLoadingStageCalculate),
-    (Icons.fact_check_outlined, l10n.foodLoadingStageFinal),
+    (AppIcons.imageSearch, l10n.foodLoadingStageDetect),
+    (AppIcons.straighten, l10n.foodLoadingStageEstimate),
+    (AppIcons.calculate, l10n.foodLoadingStageCalculate),
+    (AppIcons.factCheck, l10n.foodLoadingStageFinal),
   ];
 
   @override
@@ -121,7 +121,7 @@ class _MealLoadingCardState extends State<MealLoadingCard>
         children: [
           Row(
             children: [
-              IconTile(icon: stage.$1, color: t.accent, size: 38),
+              IconBadge(icon: stage.$1, color: t.accent),
               const SizedBox(width: 12),
               Expanded(
                 child: AnimatedSwitcher(
@@ -160,11 +160,7 @@ class _MealLoadingCardState extends State<MealLoadingCard>
                                 _stepIndex + 1,
                                 stages.length,
                               ),
-                        style: AppType.ui(
-                          11,
-                          weight: FontWeight.w500,
-                          color: t.ink2,
-                        ),
+                        style: AppType.caption(t.ink2),
                       ),
                     ],
                   ),
