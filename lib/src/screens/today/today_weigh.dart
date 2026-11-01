@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../services/energy_check.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
+import '../../widgets/design/design.dart';
 import '../../widgets/profile/profile_widgets.dart' show formatKgDe;
 import 'today_sections.dart' show TodayTapTarget;
 import 'today_texts.dart';
@@ -64,8 +65,8 @@ class TodayWeighRow extends StatelessWidget {
 
   static const double _gap = 12;
 
-  /// The info glyph after a tappable line, with its gap.
-  static const double _glyph = 19;
+  /// The info glyph after a tappable line, with its 4 px gap.
+  static const double _glyph = AppIconSize.small + 4;
 
   @override
   Widget build(BuildContext context) {
@@ -111,8 +112,8 @@ class TodayWeighRow extends StatelessWidget {
                           const SizedBox(width: 4),
                           ExcludeSemantics(
                             child: Icon(
-                              Icons.info_outline_rounded,
-                              size: _glyph - 4,
+                              AppIcons.info,
+                              size: AppIconSize.small,
                               color: t.ink3,
                             ),
                           ),
@@ -180,7 +181,7 @@ class _WeighChip extends StatelessWidget {
   final String? value;
   final VoidCallback? onTap;
 
-  static const double _iconSize = 18;
+  static const double _iconSize = AppIconSize.button;
   static const double _iconGap = 8;
   static const double _padding = 14;
 
@@ -243,9 +244,7 @@ class _WeighChip extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       Icon(
-                        value == null
-                            ? Icons.add_rounded
-                            : Icons.monitor_weight_outlined,
+                        value == null ? AppIcons.add : AppIcons.monitorWeight,
                         size: _iconSize,
                         color: t.accentText,
                       ),

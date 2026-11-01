@@ -26,7 +26,8 @@ file records the data and interaction contract behind it.
    "Describe" and "Photo", the shell's `AppEntry` ways in.
 6. "Meals" with "Open food log" (switches to the Food tab), and the four slot
    rows. Each row's "+" opens the Food tab's add flow for that slot on the
-   shown day; the next open main meal's "+" is accent-filled.
+   shown day; the next open main meal's "+" is lit (the page's one lit
+   action), the others are tinted.
 7. Activity card: steps against the goal with the kcal credit, then the
    workout row. While a workout checkpoint exists it reads
    "In progress · Resume" and resumes that workout; otherwise it shows the
@@ -35,6 +36,14 @@ file records the data and interaction contract behind it.
    shows the review hint instead.
 
 The page runs under the floating tab bar and pads its end by the bar's band.
+
+The question and notice cards (health intro, scale import, reminder,
+weekly check and its result, reached target, legacy notice, first entry)
+share one build, `TodayPromptCard` (UI polish 2026-11-01): an accent badge
+on the title's first line, callout copy, the answers at full width with
+"Not now" as a quiet pill. The list cards (meals, activity) follow the
+`ListRow` anatomy: 18 px insets, hairlines at the text column, a chevron
+only where a row navigates.
 
 ## Data rules
 
