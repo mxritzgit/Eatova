@@ -201,17 +201,14 @@ class _RecipeSearchCapsule extends StatelessWidget {
                   valueListenable: controller,
                   builder: (context, value, _) {
                     if (value.text.isEmpty) return const SizedBox(width: 6);
-                    return IconButton(
-                      key: const ValueKey('recipes-search-clear'),
-                      onPressed: onClear,
-                      tooltip: l10n.recipesSearchClearTooltip,
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints(
-                        minWidth: 44,
-                        minHeight: 44,
-                      ),
-                      icon: Icon(Icons.close_rounded, color: t.ink2, size: 18),
+                    // An action inside the field: plain until touched.
+                    return AppIconButton(
+                      buttonKey: const ValueKey('recipes-search-clear'),
+                      onTap: onClear,
+                      semanticLabel: l10n.recipesSearchClearTooltip,
+                      icon: AppIcons.close,
+                      tone: IconButtonTone.plain,
+                      size: IconButtonSize.compact,
                     );
                   },
                 ),
@@ -225,46 +222,22 @@ class _RecipeSearchCapsule extends StatelessWidget {
   }
 }
 
-/// The design's 40 px filter square inside a 44 px touch target.
+/// The filter button at the capsule's end: the app's round neutral icon
+/// button with the design's sliders glyph.
 class _FilterButton extends StatelessWidget {
   const _FilterButton({required this.onTap});
 
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: context.l10n.recipesFiltersButton,
-      child: PressScale(
-        child: SizedBox.square(
-          dimension: 44,
-          child: Center(
-            child: Material(
-              color: t.surf2,
-              borderRadius: BorderRadius.circular(rControl),
-              child: InkWell(
-                key: const ValueKey('recipes-filter-button'),
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(rControl),
-                child: SizedBox.square(
-                  dimension: 40,
-                  child: Center(
-                    child: RecipeGlyphIcon(
-                      RecipeGlyph.sliders,
-                      size: 18,
-                      color: t.inkMuted,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    buttonKey: const ValueKey('recipes-filter-button'),
+    semanticLabel: context.l10n.recipesFiltersButton,
+    onTap: onTap,
+    // A 36 px disc keeps an even margin inside the 52 px capsule.
+    size: IconButtonSize.compact,
+    child: const RecipeGlyphIcon(RecipeGlyph.sliders, size: AppIconSize.button),
+  );
 }
 
 /// One chip of the bar: a section (For you, All, My recipes) or a category.
@@ -491,18 +464,12 @@ class _AddChoiceRow extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: t.accentTint,
-                      borderRadius: BorderRadius.circular(rControl),
-                    ),
-                    child: Center(
-                      child: RecipeGlyphIcon(glyph, color: t.accentText),
-                    ),
+                  IconBadge(
+                    size: IconBadgeSize.lg,
+                    tone: IconBadgeTone.accent,
+                    child: RecipeGlyphIcon(glyph),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: kRowLeadingGap),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,8 +490,12 @@ class _AddChoiceRow extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Icon(Icons.chevron_right_rounded, color: t.ink2, size: 22),
+                  const SizedBox(width: kSpace8),
+                  Icon(
+                    AppIcons.chevronRight,
+                    color: t.ink3,
+                    size: AppIconSize.standard,
+                  ),
                 ],
               ),
             ),
