@@ -4,7 +4,7 @@ import 'dart:developer' as dev;
 import 'dart:typed_data';
 
 import 'package:clock/clock.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 // Only for the `ClientException` arm below: a connection that dies MID-STREAM
 // is past everything functions_client wraps, so the type arrives raw.
 import 'package:http/http.dart' as http;
@@ -1032,7 +1032,8 @@ class CoachChatService {
       final rawImage = map['image_base64'];
       if (rawImage is String && rawImage.isNotEmpty) {
         try {
-          imageBytes = base64Decode(rawImage);
+          // 2-3 MB of base64: decoded off the UI isolate.
+          imageBytes = await compute(base64Decode, rawImage);
         } catch (_) {
           imageBytes = null;
         }
