@@ -3,6 +3,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/theme/app_icons.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
@@ -40,32 +41,112 @@ Widget _navShell(Widget nav, {Widget? body}) => MaterialApp(
 );
 
 void main() {
-  group('SquareIconButton', () {
-    testWidgets('Tap ruft onTap und die Semantik traegt das Label',
-        (tester) async {
+  group('AppIconButton und AppStepper', () {
+    // Every icon-only action and every stepper of the app goes through these
+    // two, so the floors live here: a 44 px target even where the disc is
+    // 36 (a tap on its margin still counts), a spoken name, a disabled state
+    // that is reported, and one adjustable stepper node.
+    testWidgets('jeder Ton und jede Groesse traegt ein beschriftetes 44er-Ziel '
+        'und meldet "deaktiviert"; der Stepper ist ein einstellbarer Knoten', (
+      tester,
+    ) async {
       final handle = tester.ensureSemantics();
-      var taps = 0;
+      const button = ValueKey<String>('icon-button');
+      for (final size in IconButtonSize.values) {
+        for (final tone in IconButtonTone.values) {
+          for (final enabled in <bool>[true, false]) {
+            final row = '${tone.name}/${size.name}/${enabled ? 'an' : 'aus'}';
+            var taps = 0;
+            await tester.pumpWidget(
+              designHarness(
+                Center(
+                  child: AppIconButton(
+                    key: button,
+                    icon: AppIcons.edit,
+                    semanticLabel: 'Bearbeiten',
+                    tone: tone,
+                    size: size,
+                    onTap: enabled ? () => taps++ : null,
+                  ),
+                ),
+              ),
+            );
+            await expectLater(
+              tester,
+              meetsGuideline(iOSTapTargetGuideline),
+              reason: row,
+            );
+            await expectLater(
+              tester,
+              meetsGuideline(labeledTapTargetGuideline),
+              reason: row,
+            );
+            expect(
+              tester.getSemantics(find.byKey(button)),
+              isSemantics(
+                label: 'Bearbeiten',
+                isButton: true,
+                hasEnabledState: true,
+                isEnabled: enabled,
+              ),
+              reason: row,
+            );
+            // The corner of the target lies outside even the 36 px disc.
+            final target = tester.getRect(find.byKey(button));
+            await tester.tapAt(target.topLeft + const Offset(3, 3));
+            expect(taps, enabled ? 1 : 0, reason: row);
+          }
+        }
+      }
+
+      var portions = 2;
       await tester.pumpWidget(
         designHarness(
-          SquareIconButton(
-            icon: Icons.chevron_left_rounded,
-            onTap: () => taps++,
-            semanticLabel: 'Zurueck',
+          StatefulBuilder(
+            builder: (context, setState) => Center(
+              child: AppStepper(
+                value: '$portions',
+                semanticLabel: 'Portionen',
+                increasedValue: '${portions + 1}',
+                decreasedValue: '${portions - 1}',
+                onDecrement: portions > 1
+                    ? () => setState(() => portions--)
+                    : null,
+                onIncrement: () => setState(() => portions++),
+              ),
+            ),
           ),
         ),
       );
-
-      await tester.tap(find.byType(SquareIconButton));
-      expect(taps, 1);
+      final stepper = find.semantics.byLabel('Portionen');
       expect(
-        tester.getSemantics(find.byType(SquareIconButton)),
-        isSemantics(label: 'Zurueck', isButton: true),
+        tester.getSemantics(find.byType(AppStepper)),
+        isSemantics(
+          label: 'Portionen',
+          value: '2',
+          increasedValue: '3',
+          decreasedValue: '1',
+          hasIncreaseAction: true,
+          hasDecreaseAction: true,
+        ),
       );
-      // The visible chip is 34 px, the hit area 44. Shrinking the SizedBox to
-      // the drawn size passed every test in this file — back, close and menu
-      // buttons sit on almost every screen, so the floor belongs here and not
-      // only on the nav bar.
-      await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+      tester.semantics.increase(stepper);
+      await tester.pump();
+      expect(portions, 3, reason: 'Wischen nach oben erhoeht');
+      tester.semantics.decrease(stepper);
+      tester.semantics.decrease(stepper);
+      await tester.pump();
+      expect(portions, 1);
+      // At the limit the minus button is off and the node offers no
+      // decrease; the buttons keep their own names for touch exploration.
+      expect(
+        tester.getSemantics(find.byType(AppStepper)),
+        isSemantics(label: 'Portionen', value: '1', hasDecreaseAction: false),
+      );
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Verringern')),
+        isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),
+      );
       handle.dispose();
     });
   });
@@ -82,10 +163,11 @@ void main() {
         decorationOf(tester, find.byType(IconTile)).color,
         AppTokens.light.tile,
       );
-      // On `tile` plain ink is right; readableOnTint would only lighten it.
+      // On `tile` the neutral badge ink is right (IconBadge, 2026-11-01);
+      // readableOnTint would only lighten it.
       expect(
         tester.widget<Icon>(find.byIcon(Icons.bolt_rounded)).color,
-        AppTokens.light.ink,
+        AppTokens.light.inkMuted,
       );
     });
 

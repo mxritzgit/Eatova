@@ -167,6 +167,15 @@
   "commonSave": "Save",
   "commonCancel": "Cancel",
   "commonDelete": "Delete",
+  "commonStepOf": "Step {current} of {total}",
+  "@commonStepOf": {
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "commonIncrease": "Increase",
+  "commonDecrease": "Decrease",
   "foodDiscardChangesTitle": "Discard changes?",
   "foodDiscardChangesBody": "Your changes to this meal haven't been saved yet.",
   "foodDiscardChangesKeepEditing": "Keep editing",
