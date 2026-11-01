@@ -127,13 +127,11 @@ class _AiConsentSheetState extends State<AiConsentSheet> {
         children: <Widget>[
           SheetHeader(
             title: l10n.aiConsentTitle,
-            leading: const ExcludeSemantics(
-              child: IconTile(
-                icon: Icons.auto_awesome_outlined,
-                size: 44,
-                glyphSize: 20,
-                radius: rControl,
-              ),
+            // The AI origin mark, right beside the word "KI" in the title.
+            leading: const IconBadge(
+              icon: AppIcons.aiMark,
+              size: IconBadgeSize.lg,
+              tone: IconBadgeTone.accent,
             ),
             onClose: _notNow,
             closeEnabled: !_saving,
@@ -176,8 +174,8 @@ class _AiConsentSheetState extends State<AiConsentSheet> {
                       child: EatovaTextAction(
                         buttonKey: const ValueKey('ai-consent-privacy'),
                         label: l10n.aiConsentPrivacyLink,
-                        icon: Icons.open_in_new_rounded,
-                        iconSize: 16,
+                        icon: AppIcons.openInNew,
+                        iconSize: AppIconSize.small,
                         onTap: () => openLegalLink(context, kPrivacyUrl),
                       ),
                     ),
@@ -194,13 +192,13 @@ class _AiConsentSheetState extends State<AiConsentSheet> {
                   ),
                   if (_failed) ...<Widget>[
                     const SizedBox(height: 12),
-                    Semantics(
+                    SignalNote(
+                      l10n.aiConsentSaveFailed,
+                      key: const ValueKey('ai-consent-error'),
+                      tone: t.danger,
+                      icon: AppIcons.error,
+                      boxed: true,
                       liveRegion: true,
-                      child: Text(
-                        l10n.aiConsentSaveFailed,
-                        key: const ValueKey('ai-consent-error'),
-                        style: AppType.ui(13, color: t.danger, height: 1.4),
-                      ),
                     ),
                   ],
                 ],
@@ -323,8 +321,8 @@ class _ConsentCheck extends StatelessWidget {
                         ),
                         child: value
                             ? Icon(
-                                Icons.check_rounded,
-                                size: 16,
+                                AppIcons.check,
+                                size: AppIconSize.small,
                                 color: t.onSelected,
                               )
                             : null,

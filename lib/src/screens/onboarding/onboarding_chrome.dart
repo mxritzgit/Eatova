@@ -60,7 +60,7 @@ class OnboardingHeader extends StatelessWidget {
               if (onBack != null)
                 HeaderIconButton(
                   key: const ValueKey('onboarding-back'),
-                  icon: Icons.chevron_left_rounded,
+                  icon: AppIcons.chevronLeft,
                   semanticLabel: l10n.onboardingBackSemanticLabel,
                   onTap: onBack,
                 )
@@ -92,13 +92,13 @@ class OnboardingHeader extends StatelessWidget {
                     minimumSize: const Size.square(HeaderIconButton.size),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  icon: Icon(Icons.more_horiz_rounded, color: t.ink3),
+                  icon: Icon(AppIcons.moreHoriz, color: t.ink3),
                   onSelected: (_) => signOut(),
                   itemBuilder: (_) => <PopupMenuEntry<String>>[
                     eatovaMenuItem(
                       key: const ValueKey('onboarding-sign-out'),
                       value: 'sign-out',
-                      icon: Icons.logout_rounded,
+                      icon: AppIcons.logout,
                       label: l10n.onboardingSignOutAction,
                     ),
                   ],

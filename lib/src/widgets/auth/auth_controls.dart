@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
 import '../common/motion.dart';
@@ -322,14 +323,18 @@ class AuthIconDisc extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
         alignment: Alignment.center,
-        child: Icon(icon, size: size * 0.5, color: ink),
+        child: Icon(
+          icon,
+          size: size >= 44 ? AppIconSize.tile : AppIconSize.button,
+          color: ink,
+        ),
       ),
     );
   }
 }
 
-/// The password "eye": a real button with label and a 48 px hit box, so a
-/// screen reader announces it and a thumb hits it.
+/// The password "eye": a plain [AppIconButton] with its label as tooltip and
+/// a 48 px target, so a screen reader announces it and a thumb hits it.
 class AuthPasswordToggle extends StatelessWidget {
   const AuthPasswordToggle({
     super.key,
@@ -347,40 +352,14 @@ class AuthPasswordToggle extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final label = visible ? hideLabel : showLabel;
-    // The Semantics label carries the spoken text; the tooltip only serves
-    // long-press/hover and must not be read a second time.
-    return Semantics(
-      button: true,
-      enabled: onTap != null,
-      label: label,
-      child: Tooltip(
-        message: label,
-        excludeFromSemantics: true,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              key: toggleKey,
-              onTap: onTap,
-              customBorder: const CircleBorder(),
-              child: Icon(
-                visible
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded,
-                size: 20,
-                color: t.inkMuted,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    buttonKey: toggleKey,
+    icon: visible ? AppIcons.visibilityOff : AppIcons.visibility,
+    semanticLabel: visible ? hideLabel : showLabel,
+    tone: IconButtonTone.plain,
+    target: 48,
+    onTap: onTap,
+  );
 }
 
 /// Text action (forgot password, resend, a note's way out) with button
@@ -431,7 +410,7 @@ class AuthTextLink extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (icon != null) ...[
-                  Icon(icon, size: 16, color: color),
+                  Icon(icon, size: AppIconSize.small, color: color),
                   const SizedBox(width: 6),
                 ],
                 Flexible(
@@ -439,7 +418,7 @@ class AuthTextLink extends StatelessWidget {
                     label,
                     textAlign: TextAlign.center,
                     style: AppType.ui(
-                      13.5,
+                      14,
                       weight: FontWeight.w700,
                       color: color,
                     ),
@@ -447,7 +426,7 @@ class AuthTextLink extends StatelessWidget {
                 ),
                 if (trailingIcon != null) ...[
                   const SizedBox(width: 6),
-                  Icon(trailingIcon, size: 16, color: color),
+                  Icon(trailingIcon, size: AppIconSize.small, color: color),
                 ],
               ],
             ),
@@ -458,8 +437,8 @@ class AuthTextLink extends StatelessWidget {
   }
 }
 
-/// [PrimaryActionButton] with a loading state: while [loading] the same
-/// accent pill shows a spinner and takes no taps.
+/// [PrimaryActionButton] with a loading state: while [loading] the same lit
+/// pill shows its spinner beside the label and takes no taps.
 class AuthPrimaryButton extends StatelessWidget {
   const AuthPrimaryButton({
     super.key,
@@ -479,42 +458,13 @@ class AuthPrimaryButton extends StatelessWidget {
   final IconData? icon;
 
   @override
-  Widget build(BuildContext context) {
-    if (!loading) {
-      return PrimaryActionButton(
-        key: buttonKey,
-        label: label,
-        icon: icon,
-        onTap: enabled ? onTap : null,
-      );
-    }
-    final t = context.t;
-    // Same geometry and fill as PrimaryActionButton (accent pill, rButton,
-    // kPrimaryButtonHeight), so nothing jumps when the spinner replaces the
-    // label.
-    return Semantics(
-      button: true,
-      enabled: false,
-      label: label,
-      child: Container(
-        key: buttonKey,
-        constraints: const BoxConstraints(minHeight: kPrimaryButtonHeight),
-        decoration: BoxDecoration(
-          color: t.accentFill,
-          borderRadius: BorderRadius.circular(rButton),
-        ),
-        alignment: Alignment.center,
-        child: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            color: t.onAccentFill,
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => PrimaryActionButton(
+    key: buttonKey,
+    label: label,
+    icon: icon,
+    busy: loading,
+    onTap: enabled ? onTap : null,
+  );
 }
 
 /// Secondary pill (Google sign-in) in the depth-and-light language: a flush
@@ -703,10 +653,8 @@ class AuthInlineNote extends StatelessWidget {
                     ),
                     alignment: Alignment.center,
                     child: Icon(
-                      isError
-                          ? Icons.priority_high_rounded
-                          : Icons.check_rounded,
-                      size: 16,
+                      isError ? AppIcons.priorityHigh : AppIcons.check,
+                      size: AppIconSize.small,
                       color: color,
                     ),
                   ),
@@ -718,7 +666,7 @@ class AuthInlineNote extends StatelessWidget {
                     child: Text(
                       text,
                       style: AppType.ui(
-                        13.5,
+                        14,
                         weight: FontWeight.w500,
                         color: t.ink,
                         height: 1.4,
@@ -741,7 +689,7 @@ class AuthInlineNote extends StatelessWidget {
                   label: action,
                   onTap: onAction,
                   emphasis: true,
-                  trailingIcon: Icons.arrow_forward_rounded,
+                  trailingIcon: AppIcons.arrowForward,
                 ),
               ),
             ),

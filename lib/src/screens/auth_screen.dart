@@ -11,12 +11,14 @@ import '../models/model_limits.dart' show ProfileLimits;
 import '../services/secure_screen.dart';
 import '../services/sync_error_messages.dart'
     show isAuthNetworkError, isAuthServerFaultError;
+import '../theme/app_icons.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/auth/auth_entry_header.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/text_length_limit.dart';
 import '../widgets/common/motion.dart';
+import '../widgets/design/spinner.dart';
 import 'auth_code_screen.dart';
 import 'settings/account_change_messages.dart'
     show kAccountMinPasswordLength, classifyAuthError, AuthErrorKind;
@@ -439,7 +441,14 @@ class _GoogleButton extends StatelessWidget {
       enabled: enabled,
       onTap: onTap,
       leading: loading
-          ? CircularProgressIndicator(strokeWidth: 2.2, color: t.inkMuted)
+          ? Center(
+              child: AppSpinner(
+                size: 18,
+                strokeWidth: 2,
+                color: t.inkMuted,
+                trackColor: t.inkMuted.withValues(alpha: 0.2),
+              ),
+            )
           : const CustomPaint(painter: _GoogleGPainter()),
     );
   }
@@ -631,7 +640,7 @@ class _EmailForm extends StatelessWidget {
                   child: AuthField(
                     fieldKey: const ValueKey('auth-name-field'),
                     error: invalidField == _FormField.name,
-                    icon: Icons.person_outline_rounded,
+                    icon: AppIcons.person,
                     label: l10n.authFieldNameLabel,
                     hint: l10n.authFieldNameHint,
                     controller: nameController,
@@ -654,7 +663,7 @@ class _EmailForm extends StatelessWidget {
         AuthField(
           fieldKey: const ValueKey('auth-email-field'),
           error: invalidField == _FormField.email,
-          icon: Icons.alternate_email_rounded,
+          icon: AppIcons.alternateEmail,
           label: l10n.authFieldEmailLabel,
           hint: l10n.authFieldEmailHint,
           controller: emailController,
@@ -669,7 +678,7 @@ class _EmailForm extends StatelessWidget {
         AuthField(
           fieldKey: const ValueKey('auth-password-field'),
           error: invalidField == _FormField.password,
-          icon: Icons.lock_outline_rounded,
+          icon: AppIcons.lock,
           label: l10n.authFieldPasswordLabel,
           hint: isRegister
               ? l10n.authFieldPasswordHint
@@ -775,7 +784,7 @@ class _ConsentNoticeState extends State<_ConsentNotice> {
     showAppSnack(
       context,
       context.l10n.authLegalLinkFailed(url),
-      icon: Icons.link_off_rounded,
+      icon: AppIcons.linkOff,
       tone: SnackTone.warning,
     );
   }

@@ -76,4 +76,46 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Mahlzeit gelöscht'), findsNothing);
   });
+
+  testWidgets('Undo-Toast steht 4 s, lang genug fuer das Rueckgaengig',
+      (tester) async {
+    await tester.pumpWidget(_host(() {}));
+    final ctx = tester.element(find.text('go'));
+    showAppSnack(ctx, 'Rezept gelöscht',
+        action: SnackBarAction(label: 'Rückgängig', onPressed: () {}));
+    await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 3900));
+    expect(find.text('Rückgängig'), findsOneWidget,
+        reason: 'the undo stays within reach for 4 s');
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(find.text('Rezept gelöscht'), findsNothing);
+  });
+
+  testWidgets('Mit Screenreader bleibt nur der Toast mit Aktion stehen',
+      (tester) async {
+    // Flutter's own SnackBar does the same: with TalkBack or VoiceOver the
+    // undo must stay reachable until it is used or the toast is dismissed.
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: true);
+    addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await tester.pumpWidget(_host(() {}));
+    final ctx = tester.element(find.text('go'));
+
+    for (final (label, action, stays) in <(String, SnackBarAction?, bool)>[
+      ('Rezept gelöscht', SnackBarAction(label: 'Rückgängig', onPressed: () {}),
+          true),
+      ('Gespeichert', null, false),
+    ]) {
+      showAppSnack(ctx, label, action: action);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(find.text(label), stays ? findsOneWidget : findsNothing,
+          reason: label);
+    }
+  });
 }
