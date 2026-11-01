@@ -1760,8 +1760,8 @@
   "trainingRestAlertBody": "Zeit für den nächsten Satz.",
   "trainingIntervalAlertTitle": "Zeit um",
   "trainingIntervalAlertBody": "Jetzt Pause.",
-  "trainingRestChannelName": "Trainings-Timer",
-  "trainingRestChannelDescription": "Meldet, wenn eine Pause oder ein Zeitintervall endet.",
+  "trainingRestChannelName": "Timer für Training und Kochen",
+  "trainingRestChannelDescription": "Meldet, wenn eine Pause, ein Zeitintervall oder ein Koch-Timer endet.",
 
   "authCodeRateLimited": "Zu viele Anfragen in kurzer Zeit. Der Versand ist vorübergehend gesperrt — bitte warte etwa eine Minute, bevor du es erneut versuchst.",
   "authCodeRateLimitedSeconds": "Zu viele Anfragen in kurzer Zeit. Der Versand ist noch {sekunden} s gesperrt.",

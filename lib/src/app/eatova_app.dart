@@ -33,6 +33,7 @@ import 'auth_gate.dart';
 import 'eatova_home_page.dart';
 import 'locale_controller.dart';
 import 'subscription.dart';
+import 'timer_alerts_scope.dart';
 
 class EatovaApp extends StatefulWidget {
   const EatovaApp({
@@ -184,7 +185,15 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           controller: _locale,
           // Without a ThemeModeScope the settings page drops its appearance
           // row.
-          child: ThemeModeScope(controller: _themeMode, child: app),
+          child: ThemeModeScope(
+            controller: _themeMode,
+            // The cooking mode is a pushed route; its timers ring through
+            // the same service as the training player's rests.
+            child: TimerAlertsScope(
+              notifications: widget.notificationService,
+              child: app,
+            ),
+          ),
         ),
       ),
     );

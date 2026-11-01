@@ -35,16 +35,40 @@ int restAlertFollowUpIdForSession(String sessionId) =>
 /// Id of the [RestAlertCue] of a session, apart from both planned alerts.
 int restAlertCueIdForSession(String sessionId) => _restAlertSlot(sessionId, 2);
 
-int _restAlertSlot(String sessionId, int offset) {
+int _restAlertSlot(String sessionId, int offset) =>
+    restAlertIdFirst + (_fnv1a(sessionId) + offset) % restAlertIdCount;
+
+int _fnv1a(String text) {
   var hash = 0x811c9dc5;
-  for (final unit in sessionId.codeUnits) {
+  for (final unit in text.codeUnits) {
     hash ^= unit;
     hash = (hash * 0x01000193) & 0xffffffff;
   }
-  return restAlertIdFirst + (hash + offset) % restAlertIdCount;
+  return hash;
 }
 
+/// First id of the range reserved for the cooking mode's timers, right above
+/// the rest alerts. They share the scheduler, its channel and the session
+/// fence; only a tap differs: it carries no payload, so it brings the app
+/// back to the cooking mode instead of opening Training.
+const int cookingTimerIdFirst = restAlertIdFirst + restAlertIdCount;
+
+/// Size of the reserved cooking-timer id range.
+const int cookingTimerIdCount = 1000000;
+
+/// Whether [id] lies in the reserved cooking-timer range.
+bool isCookingTimerId(int id) =>
+    id >= cookingTimerIdFirst && id < cookingTimerIdFirst + cookingTimerIdCount;
+
+/// Id of timer [slot] in one cooking-mode visit [visitId], for its alert and
+/// its cue. A fresh visit id each time, like a training session id: an id
+/// an ended account session saw stays refused for the next account
+/// ([RestAlertSessionScope]).
+int cookingTimerIdFor(String visitId, int slot) =>
+    cookingTimerIdFirst + (_fnv1a(visitId) + slot) % cookingTimerIdCount;
+
 /// Payload of every rest/interval alert; a tap carrying it opens Training.
+/// Cooking timers ([isCookingTimerId]) carry none.
 const String trainingRestNotificationPayload = 'training-rest';
 
 /// One alert of a running rest or timed set, as the player plans it.
@@ -55,8 +79,9 @@ abstract class RestAlertScheduler {
   /// Schedules one alert at [at] under [id], replacing an earlier one with
   /// the same id. The player uses [restAlertIdForSession] for the alert of
   /// the current phase and [restAlertFollowUpIdForSession] for the rest that
-  /// follows a timed interval. Texts must stay generic (D5: no exercise names
-  /// or weights on the lock screen).
+  /// follows a timed interval; the cooking mode uses [cookingTimerIdFor].
+  /// Texts must stay generic (D5: no exercise names or weights on the lock
+  /// screen).
   ///
   /// Ignored from a session end until the next account's session opens
   /// (see [RestAlertSessionScope]).

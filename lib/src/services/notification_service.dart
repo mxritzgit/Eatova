@@ -306,7 +306,8 @@ class _PluginGateway implements NotificationPluginGateway {
 /// It also carries the training rest alerts (spec A5): their own Android
 /// channel and reserved ids, ordered through the same FIFO as the reminders,
 /// closed at session end ([cancelAll]) until the auth gate opens the next
-/// account ([openRestAlerts]).
+/// account ([openRestAlerts]). The cooking mode's timers take the same path
+/// under their own ids ([isCookingTimerId]), without the Training payload.
 class LocalNotificationService
     implements
         NotificationService,
@@ -756,6 +757,15 @@ class LocalNotificationService
 
   // --- Rest alerts (spec A5) ------------------------------------------------
 
+  /// Rest alerts and cooking timers; reminder nudges never pass here.
+  static bool _isTimerAlertId(int id) =>
+      isRestAlertId(id) || isCookingTimerId(id);
+
+  /// A tapped cooking timer only brings the app back (to the cooking mode);
+  /// a tapped rest alert opens Training.
+  static String? _timerPayload(int id) =>
+      isCookingTimerId(id) ? null : trainingRestNotificationPayload;
+
   @override
   void openRestAlerts(String ownerId) {
     if (_restAlertsOpen && _restAlertOwner == ownerId) return;
@@ -784,7 +794,7 @@ class LocalNotificationService
     required String title,
     required String body,
   }) {
-    if (!isRestAlertId(id)) return Future<void>.value();
+    if (!_isTimerAlertId(id)) return Future<void>.value();
     if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
       // Constant only: no id, no text (privacy rule of the facade).
       CrashReporter.breadcrumb('notification-rest-refused');
@@ -841,7 +851,7 @@ class LocalNotificationService
       body: body,
       scheduledDate: when,
       details: _restDetails(),
-      payload: trainingRestNotificationPayload,
+      payload: _timerPayload(id),
     );
     _liveRestAlerts[id] = (when: when, title: title, body: body, epoch: epoch);
   }
@@ -853,7 +863,7 @@ class LocalNotificationService
     required String body,
   }) {
     // iOS delivers the planned alert on time; only Android needs the cue.
-    if (!isRestAlertId(id) || _platform != NotificationPlatform.android) {
+    if (!_isTimerAlertId(id) || _platform != NotificationPlatform.android) {
       return Future<void>.value();
     }
     if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
@@ -871,7 +881,7 @@ class LocalNotificationService
           title: title,
           body: body,
           details: _restCueDetails(),
-          payload: trainingRestNotificationPayload,
+          payload: _timerPayload(id),
         );
       } catch (e, st) {
         await CrashReporter.capture(e, st, context: 'notification-rest-cue');
@@ -881,7 +891,7 @@ class LocalNotificationService
 
   @override
   Future<void> cancelRestAlert(int id) {
-    if (!isRestAlertId(id)) return Future<void>.value();
+    if (!_isTimerAlertId(id)) return Future<void>.value();
     // Registers the id with the open session, so its end fences it. The
     // cancel itself always runs, also after a session end.
     if (_restAlertsOpen && !_endedRestAlertOwners.containsKey(id)) {
