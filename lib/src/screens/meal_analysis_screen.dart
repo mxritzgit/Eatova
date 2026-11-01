@@ -275,9 +275,9 @@ class MealAnalysisScreen extends StatelessWidget {
     if (!await ensureAiConsent(context) || !context.mounted) return;
     final identity = MealScanIdentity();
     final add = _addToShownDay();
-    final capture = await cameraLauncher.launch(
+    final capture = await _openCaptureSheet(
       context,
-      initialSlot: currentMealSlot(),
+      () => cameraLauncher.launch(context, initialSlot: currentMealSlot()),
     );
     if (capture == null || !context.mounted || !identity.isCurrent) return;
     // One request for first try and retries (same bytes); the camera sheet's
@@ -368,9 +368,9 @@ class MealAnalysisScreen extends StatelessWidget {
     // The clock slot only preselects the scanner's chips; the choice there
     // decides where the product goes (finding 2026-08-22: the slot was not
     // selectable from this button before).
-    final scan = await showBarcodeScannerSheet(
+    final scan = await _openCaptureSheet(
       context,
-      initialSlot: currentMealSlot(),
+      () => showBarcodeScannerSheet(context, initialSlot: currentMealSlot()),
     );
     if (scan == null || !context.mounted) return;
     // The user's own product first (E5); the database only without one.
@@ -798,6 +798,27 @@ class _RequestListenerState<T extends Object>
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// Camera or barcode scanner open on a navigator. Both start a camera, and a
+/// shortcut or reminder arriving while one is open would start a second.
+/// Keyed by the navigator, so the mark goes away with its tree.
+final Expando<bool> _captureSheetOpen = Expando<bool>('captureSheetOpen');
+
+/// Runs [open] unless a capture sheet is already open there; then the open
+/// sheet stays and this entry returns null, like a cancel.
+Future<T?> _openCaptureSheet<T>(
+  BuildContext context,
+  Future<T?> Function() open,
+) async {
+  final navigator = Navigator.of(context);
+  if (_captureSheetOpen[navigator] ?? false) return null;
+  _captureSheetOpen[navigator] = true;
+  try {
+    return await open();
+  } finally {
+    _captureSheetOpen[navigator] = null;
+  }
 }
 
 /// One-time init of the `intl` date symbols. The screen rebuilds on every
