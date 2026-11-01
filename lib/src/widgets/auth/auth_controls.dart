@@ -418,7 +418,7 @@ class AuthTextLink extends StatelessWidget {
                     label,
                     textAlign: TextAlign.center,
                     style: AppType.ui(
-                      13.5,
+                      14,
                       weight: FontWeight.w700,
                       color: color,
                     ),
@@ -666,7 +666,7 @@ class AuthInlineNote extends StatelessWidget {
                     child: Text(
                       text,
                       style: AppType.ui(
-                        13.5,
+                        14,
                         weight: FontWeight.w500,
                         color: t.ink,
                         height: 1.4,
