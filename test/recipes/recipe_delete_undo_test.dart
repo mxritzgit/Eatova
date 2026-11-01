@@ -210,6 +210,43 @@ void main() {
     expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsOneWidget);
   });
 
+  testWidgets('mit Screenreader endet die Frist erst mit dem Toast: '
+      '„Rückgängig" wirkt auch nach der Zeit, der Hook läuft beim Schließen', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final calls = <String>[];
+    _pinViewport(tester);
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (slug) async {
+          calls.add(slug);
+          return SyncDelivery.delivered;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _loesche(tester, 'user_weg');
+    await _fristAblaufen(tester);
+    expect(calls, isEmpty, reason: 'Der Toast steht noch, also die Frist.');
+    await tester.tap(find.text('Rückgängig'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsOneWidget);
+
+    await _loesche(tester, 'user_weg');
+    await _fristAblaufen(tester);
+    ScaffoldMessenger.of(
+      tester.element(find.text('Rückgängig')),
+    ).removeCurrentSnackBar();
+    await tester.pumpAndSettle();
+    expect(calls, ['user_weg']);
+  });
+
   testWidgets(
     'nach der Frist: Hook genau einmal, Historienfoto bleibt, kein zweiter '
     'Snack bei Zustellung',

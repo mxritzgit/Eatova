@@ -213,7 +213,11 @@ class _PendingDelete {
   const _PendingDelete(this.recipe, this.timer);
 
   final FitnessRecipe recipe;
-  final Timer timer;
+
+  /// Null while a screen reader is on: the undo toast then stays until it is
+  /// used or leaves, and the window ends with it ([showAppSnack]'s
+  /// `onClosed`), not after [kRecipeUndoWindow].
+  final Timer? timer;
 }
 
 /// How often [_RecipeIndex] actually recomputed something.
@@ -553,7 +557,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     // The home shell keeps tabs mounted (IndexedStack, D6), so this is not a
     // tab switch but logout or route removal: commit now, silently.
     for (final pending in _pendingDeletes.values.toList(growable: false)) {
-      pending.timer.cancel();
+      pending.timer?.cancel();
       unawaited(_commitDelete(pending.recipe));
     }
     super.dispose();
@@ -583,7 +587,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     }
     for (final slug in _pendingDeletes.keys.toList(growable: false)) {
       if (widget.isDeletePending?.call(slug) == false) {
-        _pendingDeletes.remove(slug)?.timer.cancel();
+        _pendingDeletes.remove(slug)?.timer?.cancel();
       }
     }
     // Outside the identity check on purpose (P3-04b): the sweep hangs off the
@@ -1050,13 +1054,15 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// run in [_commitDelete] once the window has passed (or on dispose), so an
   /// undo needs no upsert and the device-only photo bytes never go early.
   void _deleteUserRecipe(FitnessRecipe recipe) {
-    _pendingDeletes[recipe.slug]?.timer.cancel();
-    setState(() {
-      _pendingDeletes[recipe.slug] = _PendingDelete(
-        recipe,
-        Timer(kRecipeUndoWindow, () => unawaited(_commitDelete(recipe))),
-      );
-    });
+    _pendingDeletes[recipe.slug]?.timer?.cancel();
+    final heldByReader = MediaQuery.accessibleNavigationOf(context);
+    final pending = _PendingDelete(
+      recipe,
+      heldByReader
+          ? null
+          : Timer(kRecipeUndoWindow, () => unawaited(_commitDelete(recipe))),
+    );
+    setState(() => _pendingDeletes[recipe.slug] = pending);
     widget.onDeletePendingChanged?.call(recipe.slug, pending: true);
     final l10n = context.l10n;
     showAppSnack(
@@ -1072,6 +1078,14 @@ class _RecipesScreenState extends State<RecipesScreen> {
         label: l10n.commonUndo,
         onPressed: () => _undoDelete(recipe.slug),
       ),
+      // Only this delete: a later delete of the same recipe has its own toast.
+      onClosed: heldByReader
+          ? (_) {
+              if (identical(_pendingDeletes[recipe.slug], pending)) {
+                unawaited(_commitDelete(recipe));
+              }
+            }
+          : null,
     );
   }
 
@@ -1080,7 +1094,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
   void _undoDelete(String slug) {
     final pending = _pendingDeletes.remove(slug);
     if (pending == null) return;
-    pending.timer.cancel();
+    pending.timer?.cancel();
     widget.onDeletePendingChanged?.call(slug, pending: false);
     if (mounted) setState(() {});
   }

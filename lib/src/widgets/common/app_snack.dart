@@ -121,6 +121,7 @@ void showAppSnack(
   Color? accent,
   SnackBarAction? action,
   Duration? duration,
+  ValueChanged<SnackBarClosedReason>? onClosed,
 }) {
   // A live sheet host wins over the caller's own messenger: the root one
   // paints UNDER a modal sheet's scrim, where an undo button looks alive but
@@ -158,11 +159,10 @@ void showAppSnack(
     ),
     action: action,
   );
-  if (host != null) {
-    host._show(snackBar, message, hasIcon: true);
-  } else {
-    messenger.showSnackBar(snackBar);
-  }
+  final closed = host != null
+      ? host._show(snackBar, message, hasIcon: true)
+      : messenger.showSnackBar(snackBar).closed;
+  if (onClosed != null) closed?.then(onClosed);
 }
 
 /// Toast surface INSIDE a modal sheet that stays open after actions (add-meal,
@@ -265,9 +265,13 @@ class _SnackHostState extends State<SnackHost> {
 
   /// Presents [snackBar] and keeps the strip reserved until it has closed —
   /// the controller's `closed` future is the only lifecycle signal needed.
-  void _show(SnackBar snackBar, String message, {required bool hasIcon}) {
+  Future<SnackBarClosedReason>? _show(
+    SnackBar snackBar,
+    String message, {
+    required bool hasIcon,
+  }) {
     final messenger = _messenger;
-    if (messenger == null) return;
+    if (messenger == null) return null;
     setState(() {
       _visible = true;
       _message = message;
@@ -283,6 +287,7 @@ class _SnackHostState extends State<SnackHost> {
         _current = null;
       });
     });
+    return controller.closed;
   }
 
   /// Real fonts and large text can wrap past the old two-line estimate.
