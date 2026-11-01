@@ -121,9 +121,40 @@ class _SessionTile extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     // The list row's anatomy (ListRow cannot hold a second action): badge,
-    // title and time, and the delete button at the end. The open
+    // title and time, and the delete button at the end; from 1.6x text the
+    // badge and the button sit above the text, as in ListRow. The open
     // conversation shows the accent badge with the filled glyph ("on"); a
     // screen reader learns it from the selected state.
+    final stacked = listRowStacked(context);
+    final badge = IconBadge(
+      icon: isActive ? AppIcons.filled(AppIcons.chatBubble) : AppIcons.chatBubble,
+      tone: isActive ? IconBadgeTone.accent : IconBadgeTone.neutral,
+    );
+    final texts = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          _sessionTitle(session, l10n),
+          maxLines: stacked ? 2 : 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppType.rowTitle(t.ink),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          _humanizeTimestamp(session.lastMessageAt, l10n),
+          style: AppType.subhead(t.ink2),
+        ),
+      ],
+    );
+    // 48 px target: the floor for a destructive action.
+    final delete = AppIconButton(
+      icon: AppIcons.delete,
+      semanticLabel: l10n.commonDelete,
+      tone: IconButtonTone.plain,
+      target: 48,
+      onTap: onDelete,
+    );
     return Semantics(
       key: ValueKey('coach-session-${session.id}'),
       container: true,
@@ -134,45 +165,27 @@ class _SessionTile extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 68),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(kCardInset, 10, 6, 10),
-            child: Row(
-              children: <Widget>[
-                IconBadge(
-                  icon: isActive
-                      ? AppIcons.filled(AppIcons.chatBubble)
-                      : AppIcons.chatBubble,
-                  tone: isActive ? IconBadgeTone.accent : IconBadgeTone.neutral,
-                ),
-                const SizedBox(width: kRowLeadingGap),
-                Expanded(
-                  child: Column(
+            child: stacked
+                ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Text(
-                        _sessionTitle(session, l10n),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.rowTitle(t.ink),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        _humanizeTimestamp(session.lastMessageAt, l10n),
-                        style: AppType.subhead(t.ink2),
+                      Row(children: <Widget>[badge, const Spacer(), delete]),
+                      const SizedBox(height: kSpace8),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: texts,
                       ),
                     ],
+                  )
+                : Row(
+                    children: <Widget>[
+                      badge,
+                      const SizedBox(width: kRowLeadingGap),
+                      Expanded(child: texts),
+                      const SizedBox(width: kSpace4),
+                      delete,
+                    ],
                   ),
-                ),
-                const SizedBox(width: kSpace4),
-                // 48 px target: the floor for a destructive action.
-                AppIconButton(
-                  icon: AppIcons.delete,
-                  semanticLabel: l10n.commonDelete,
-                  tone: IconButtonTone.plain,
-                  target: 48,
-                  onTap: onDelete,
-                ),
-              ],
-            ),
           ),
         ),
       ),
