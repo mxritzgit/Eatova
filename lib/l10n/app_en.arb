@@ -2516,6 +2516,102 @@
       "count": { "type": "int" }
     }
   },
+  "mealPlanSuggestAction": "Suggest a week",
+  "mealPlanSuggestTitle": "Week suggestion",
+  "mealPlanSuggestIntro": "From your recipes and the catalog, matched to your daily goal. Swap or remove what doesn't suit you. Nothing is planned until you tap “Apply”.",
+  "mealPlanSuggestProfile": "Matching: {filter}",
+  "@mealPlanSuggestProfile": {
+    "description": "The profile filters behind the suggestion, e.g. \"Vegan · no nuts\".",
+    "placeholders": {
+      "filter": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestWithout": "no {foods}",
+  "@mealPlanSuggestWithout": {
+    "description": "Avoided foods in the profile filter; foods: comma-separated.",
+    "placeholders": {
+      "foods": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestSlots": "Meals",
+  "mealPlanSuggestShuffle": "Shuffle",
+  "mealPlanSuggestThinFor": "For “{filter}” there are only {dishes} – some repeat.",
+  "@mealPlanSuggestThinFor": {
+    "description": "dishes: mealPlanSuggestBreakfasts, mealPlanSuggestMains or mealPlanSuggestSnacks.",
+    "placeholders": {
+      "filter": { "type": "String" },
+      "dishes": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestThin": "There are only {dishes} – some repeat.",
+  "@mealPlanSuggestThin": {
+    "placeholders": {
+      "dishes": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestBreakfasts": "{count, plural, =1{one breakfast} other{{count} breakfasts}}",
+  "@mealPlanSuggestBreakfasts": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestMains": "{count, plural, =1{one main dish} other{{count} main dishes}}",
+  "@mealPlanSuggestMains": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestSnacks": "{count, plural, =1{one snack} other{{count} snacks}}",
+  "@mealPlanSuggestSnacks": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestUnfilled": "{count, plural, =1{No recipe fits 1 meal – it stays empty.} other{No recipe fits {count} meals – they stay empty.}}",
+  "@mealPlanSuggestUnfilled": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestAlreadyPlanned": "{count, plural, =1{1 meal already planned} other{{count} meals already planned}}",
+  "@mealPlanSuggestAlreadyPlanned": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestInBand": "Within your goal",
+  "mealPlanSuggestNothing": "Nothing left to fill this week: every chosen meal is already planned or past.",
+  "mealPlanSuggestSwap": "Swap “{recipe}”",
+  "@mealPlanSuggestSwap": {
+    "placeholders": {
+      "recipe": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestRemove": "Remove “{recipe}”",
+  "@mealPlanSuggestRemove": {
+    "placeholders": {
+      "recipe": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestApply": "{count, plural, =1{Apply 1 meal} other{Apply {count} meals}}",
+  "@mealPlanSuggestApply": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestApplied": "{count, plural, =1{1 meal planned.} other{{count} meals planned.}}",
+  "@mealPlanSuggestApplied": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestAppliedOffline": "{count, plural, =1{1 meal planned on this device. It will sync later.} other{{count} meals planned on this device. They will sync later.}}",
+  "@mealPlanSuggestAppliedOffline": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestNoneAdded": "Nothing planned: these meals have been filled in the meantime.",
   "mealPlanEatToday": "Mark as eaten today",
   "mealPlanEatenOn": "Logged on {date}",
   "@mealPlanEatenOn": {

@@ -32,6 +32,7 @@ import '../../widgets/recipes/recipe_avoid_hint.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
 import '../today/today_texts.dart' show kcalThousands, todayWeekdayShort;
+import 'meal_plan_suggest_sheet.dart';
 import 'recipes_screen.dart' show RecipeDetailScreen;
 
 part 'meal_plan_editor.dart';
@@ -281,6 +282,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     return !day.isBefore(_firstPlanDay(now)) && !day.isAfter(_lastPlanDay(now));
   }
 
+  /// The shown week's days a week suggestion may fill: today and later.
+  List<DateTime> get _suggestDays {
+    final today = DateUtils.dateOnly(clock.now());
+    return _days.where((d) => !d.isBefore(today) && _plannable(d)).toList();
+  }
+
   /// Today when the shown week holds it, else the week's first plannable day.
   DateTime get _defaultPlanDay {
     final today = DateUtils.dateOnly(clock.now());
@@ -441,6 +448,24 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       checks: checks,
                     )
                   else ...[
+                    // Offline too: a failed load still shows the cached plan.
+                    if (!store.mealPlansLoading && _suggestDays.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: SoftPillButton(
+                          key: const ValueKey('meal-plan-suggest'),
+                          label: l.mealPlanSuggestAction,
+                          icon: Icons.calendar_view_week_rounded,
+                          onTap: () => showWeekPlanSuggestion(
+                            context,
+                            store: store,
+                            week: _week,
+                            days: _suggestDays,
+                          ),
+                        ),
+                      ),
+                    ],
                     // One child, so every day is built and the strip can
                     // scroll to any of them.
                     Column(
