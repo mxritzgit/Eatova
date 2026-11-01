@@ -344,7 +344,7 @@ void main() {
       expect(
         mealAnalysisErrorMessage(unplausibel, _barcodeFallback, _de),
         'Nussmus gefunden, aber die Nährwertangabe ist unplausibel '
-        '(2180 kcal / 100 g). Bitte manuell eintragen.',
+        '(2.180 kcal / 100 g). Bitte manuell eintragen.',
       );
     });
   });

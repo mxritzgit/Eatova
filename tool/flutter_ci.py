@@ -2,6 +2,7 @@
 
 Timing hints affect placement only. Tests are always discovered from the checkout;
 no prior result can satisfy this gate. Artifacts bind to the exact manifest/SHA.
+Every shard shuffles test order with a logged seed so a red run can be replayed.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import re
+import secrets
 import subprocess
 import sys
 from urllib.parse import unquote, urlparse
@@ -19,6 +21,8 @@ from urllib.parse import unquote, urlparse
 ROOT = Path(__file__).resolve().parents[1]
 TIMINGS = ROOT / "tool/flutter_ci_timings.json"
 GENERATED = "lib/src/l10n/generated/"
+# test_core keeps the low 32 bits of the seed and does not shuffle for 0.
+SEED_MAX = 2**32 - 1
 
 
 def _decode_json(text: str):
@@ -273,6 +277,10 @@ def _valid_attempt(value) -> bool:
     return type(value) is int and value >= 1
 
 
+def _valid_seed(value) -> bool:
+    return type(value) is int and 1 <= value <= SEED_MAX
+
+
 def select_attempts(artifact_dir: Path, shard_count: int, run_attempt: int) -> dict[int, tuple[int, Path]]:
     """Pick each shard's artifact from its latest workflow run attempt.
 
@@ -331,6 +339,8 @@ def validate_shards(manifest: dict, artifact_dir: Path, root: Path | None = None
         # The artifact name and the evidence inside it must name the same attempt.
         if attempt is not None and (not _valid_attempt(result.get("run_attempt")) or result["run_attempt"] != attempt):
             raise ValueError("Shard artifact does not belong to its run attempt")
+        if not _valid_seed(result.get("seed")):
+            raise ValueError("Shard did not record a shuffled test order")
         report, lcov = folder / "report.jsonl", folder / "lcov.info"
         if (result.get("report_sha256") != _sha(report) or result.get("coverage_sha256") != _sha(lcov)
                 or result.get("coverage_bytes") != lcov.stat().st_size):
@@ -380,10 +390,14 @@ def main(argv=None) -> int:
     parser.add_argument("--floor", type=float, default=95.0)
     parser.add_argument("--run-attempt", type=int,
                         help="GitHub run attempt; artifacts are then named shard-N-attempt-K")
+    parser.add_argument("--seed", type=int,
+                        help=f"test order seed 1..{SEED_MAX}; drawn at random when omitted")
     args = parser.parse_args(argv)
     root, output = args.root.resolve(), args.output.resolve()
     if args.run_attempt is not None and not _valid_attempt(args.run_attempt):
         raise ValueError("Invalid run attempt")
+    if args.seed is not None and not _valid_seed(args.seed):
+        raise ValueError(f"Invalid test order seed; choose 1..{SEED_MAX}")
     if args.command == "aggregate" and os.environ.get("GITHUB_ACTIONS") == "true":
         check_dependencies(json.loads(os.environ.get("FLUTTER_CI_NEEDS", "{}")))
     manifest = build_manifest(root, args.shards, _timings(args.timings))
@@ -399,11 +413,16 @@ def main(argv=None) -> int:
             raise ValueError("Shard output already exists; choose a fresh output directory")
         _write(folder / "manifest.json", manifest)
         files = manifest["shards"][args.shard]
+        seed = args.seed if args.seed is not None else secrets.randbelow(SEED_MAX) + 1
         command = [args.flutter, "test", "--no-pub", "--coverage", f"--coverage-path={folder / 'lcov.info'}",
                    f"--file-reporter=json:{folder / 'report.jsonl'}", "--reporter=expanded",
+                   f"--test-randomize-ordering-seed={seed}",
                    f"--concurrency={max(1, min(4, (os.cpu_count() or 2) // 2))}",
                    "--dart-define=SUPABASE_URL=https://ci.invalid", "--dart-define=SUPABASE_ANON_KEY=ci-dummy-key", *files]
         print(f"Running {len(files)} complete test files in shard {args.shard + 1}/{args.shards}", flush=True)
+        # Printed before the run so a failing log still names it.
+        print(f"Test order seed {seed}; replay with --seed {seed}, or one file with "
+              f"flutter test --test-randomize-ordering-seed={seed} <file>", flush=True)
         process = subprocess.run(command, cwd=root, check=False)
         if process.returncode != 0:
             return process.returncode
@@ -414,7 +433,7 @@ def main(argv=None) -> int:
         result = {"version": 1, "revision": manifest["revision"], "manifest_sha256": manifest_digest(manifest),
                   "shard": args.shard, "exit_code": 0, "report_sha256": _sha(folder / "report.jsonl"),
                   "coverage_sha256": _sha(coverage_file), "coverage_bytes": coverage_file.stat().st_size,
-                  "coverage_inventory": coverage_inventory(coverage), **summary}
+                  "coverage_inventory": coverage_inventory(coverage), "seed": seed, **summary}
         if args.run_attempt is not None:
             result["run_attempt"] = args.run_attempt
         _write(folder / "result.json", result)

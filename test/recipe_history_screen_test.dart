@@ -338,7 +338,7 @@ void main() {
         find.byKey(const ValueKey('recipe-meal-picker-sheet')),
         findsOneWidget,
       );
-      expect(find.textContaining('Added 1000 kcal'), findsNothing);
+      expect(find.textContaining('Added 1,000 kcal'), findsNothing);
       pending.completeError(StateError('private fixture'));
       await tester.pumpAndSettle();
       expect(
@@ -362,7 +362,7 @@ void main() {
         find.byKey(const ValueKey('recipe-meal-picker-sheet')),
         findsNothing,
       );
-      expect(find.textContaining('Added 1000 kcal'), findsOneWidget);
+      expect(find.textContaining('Added 1,000 kcal'), findsOneWidget);
     },
   );
 }

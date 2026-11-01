@@ -742,7 +742,10 @@ class _ItemEditCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(right: 6),
             child: Text(
-              l10n.foodOriginallyLabel(item.gramsLabel, item.caloriesLabel),
+              l10n.foodOriginallyLabel(
+                '${formatThousands(item.grams, l10n.localeName)} g',
+                '${formatThousands(item.caloriesKcal, l10n.localeName)} kcal',
+              ),
               style: AppType.display(
                 11,
                 weight: FontWeight.w500,
@@ -764,7 +767,8 @@ class _ItemEditCard extends StatelessWidget {
                   color: t.accent,
                 ),
                 Text(
-                  '${angepasst.grams} g · ${angepasst.caloriesKcal} kcal',
+                  '${formatThousands(angepasst.grams, l10n.localeName)} g · '
+                  '${formatThousands(angepasst.caloriesKcal, l10n.localeName)} kcal',
                   style: AppType.display(
                     12,
                     weight: FontWeight.w600,

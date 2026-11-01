@@ -7,6 +7,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/services/kcal_format.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 
 import 'package:eatova/src/widgets/design/design.dart';
@@ -326,6 +327,8 @@ void main() {
     const kcalMax = LoggedMealLimits.caloriesKcalMax;
     const gramsMax = LoggedMealLimits.estimatedGMax;
     final macroMax = LoggedMealLimits.macroGMax.toInt();
+    // Error texts show the bounds with the German thousands separator.
+    String de(int value) => formatThousands(value, 'de');
 
     testWidgetsRobust(
         'genau $kcalMax kcal ist erlaubt, darueber wird abgelehnt statt '
@@ -337,11 +340,11 @@ void main() {
 
       await _tippe(tester, 'recipe-create-kcal', '$kcalMax');
       expect(_saveButton(tester).onTap, isNotNull);
-      expect(find.text('1–$kcalMax kcal'), findsNothing);
+      expect(find.text('1–${de(kcalMax)} kcal'), findsNothing);
 
       await _tippe(tester, 'recipe-create-kcal', '${kcalMax + 1}');
       expect(_saveButton(tester).onTap, isNull);
-      expect(find.text('1–$kcalMax kcal'), findsOneWidget);
+      expect(find.text('1–${de(kcalMax)} kcal'), findsOneWidget);
       expect(capture.created, isEmpty);
     });
 
@@ -355,7 +358,7 @@ void main() {
       for (final grams in ['0', '${gramsMax + 1}']) {
         await _tippe(tester, 'recipe-create-grams', grams);
         expect(_saveButton(tester).onTap, isNull, reason: grams);
-        expect(find.text('1–$gramsMax g'), findsOneWidget, reason: grams);
+        expect(find.text('1–${de(gramsMax)} g'), findsOneWidget, reason: grams);
       }
     });
 
@@ -372,7 +375,7 @@ void main() {
         await _tippe(tester, key, '${macroMax + 1}');
         await tester.pumpAndSettle();
         expect(_saveButton(tester).onTap, isNull, reason: key);
-        expect(find.text('0–$macroMax g'), findsOneWidget, reason: key);
+        expect(find.text('0–${de(macroMax)} g'), findsOneWidget, reason: key);
 
         // Empty means "not stated" and is allowed.
         await _tippe(tester, key, '');

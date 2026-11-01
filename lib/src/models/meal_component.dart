@@ -40,9 +40,6 @@ class MealComponent {
   /// `MealAnalysisResult.adjustedToItems` summing macros from the items.
   bool get hasMacros => proteinG != null && carbsG != null && fatG != null;
 
-  String get gramsLabel => '$grams g';
-  String get caloriesLabel => '$caloriesKcal kcal';
-
   /// kcal/100 g if usable, else `null` (docs/REVIEW-2026-08-08.md, B1).
   ///
   /// Three cases count as missing: `null`; `<= 0`, because the server clamps

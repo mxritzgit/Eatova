@@ -72,7 +72,7 @@
   "commonKcalAddedToSlot": "Added {kcal} kcal to {slot}.",
   "@commonKcalAddedToSlot": {
     "placeholders": {
-      "kcal": { "type": "int" },
+      "kcal": { "type": "int", "format": "decimalPattern" },
       "slot": { "type": "String" }
     }
   },
@@ -226,25 +226,25 @@
   "foodPortionAdjustedUpdated": "Adjusted to {grams} g. Today's total updated.",
   "@foodPortionAdjustedUpdated": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionAdjusted": "Adjusted to {grams} g.",
   "@foodPortionAdjusted": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionAdjustedItemsUpdated": "Adjusted to {grams} g via individual items. Today's total updated.",
   "@foodPortionAdjustedItemsUpdated": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionAdjustedItems": "Adjusted to {grams} g via individual items.",
   "@foodPortionAdjustedItems": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "commonAdd": "Add",
@@ -253,13 +253,13 @@
   "commonDailyGoalReanchored": "New daily goal: {kcal} kcal, adjusted to your weight trend.",
   "@commonDailyGoalReanchored": {
     "placeholders": {
-      "kcal": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "commonEnergyCheckApplied": "Daily goal adjusted: {kcal} kcal.",
   "@commonEnergyCheckApplied": {
     "placeholders": {
-      "kcal": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "todayEnergyCheckTitle": "Weekly check",
@@ -300,8 +300,8 @@
   "foodPortionRangeHint": "Portion between {min} and {max} g.",
   "@foodPortionRangeHint": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodMacroProteinShort": "P {value}",
@@ -340,19 +340,19 @@
   "@foodPortionItemized": {
     "placeholders": {
       "count": { "type": "int" },
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionItemizedAdjusted": "Adjusted to {grams} g via individual items",
   "@foodPortionItemizedAdjusted": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionManuallyAdjusted": "Adjusted to {grams} g manually",
   "@foodPortionManuallyAdjusted": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodPortionLabelPrefixed": "Portion: {label}",
@@ -395,8 +395,8 @@
   "foodAdjustedTotalApprox": "{grams} g ≈ {kcal} kcal",
   "@foodAdjustedTotalApprox": {
     "placeholders": {
-      "grams": { "type": "int" },
-      "kcal": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" },
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodItemsCountLabel": "{count, plural, one{1 item} other{{count} items}}",
@@ -409,8 +409,8 @@
   "foodItemWeightInvalidHint": "Every weight needs a number between {min} and {max} g.",
   "@foodItemWeightInvalidHint": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodApplyButton": "Apply",
@@ -459,8 +459,8 @@
   "foodAddItemCaloriesRangeHint": "Calories between {min} and {max}.",
   "@foodAddItemCaloriesRangeHint": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodAddItemMacrosToggle": "Add macros (optional)",
@@ -542,7 +542,7 @@
   "@recipesKcalProteinSummary": {
     "placeholders": {
       "kcal": { "type": "int", "format": "decimalPattern" },
-      "protein": { "type": "int" }
+      "protein": { "type": "int", "format": "decimalPattern" }
     }
   },
   "recipesAddToTrackerHint": "Then choose breakfast, lunch, dinner, or snack.",
@@ -560,15 +560,15 @@
   "recipesRangeErrorKcal": "{min}–{max} kcal",
   "@recipesRangeErrorKcal": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "recipesRangeErrorGrams": "{min}–{max} g",
   "@recipesRangeErrorGrams": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "numberInputAmbiguous": "Did you mean {decimal} or {grouped}? Please type it without a thousands separator.",
@@ -919,7 +919,7 @@
   "profileMacroAmountLabel": "{g} g {macro}",
   "@profileMacroAmountLabel": {
     "placeholders": {
-      "g": { "type": "int" },
+      "g": { "type": "int", "format": "decimalPattern" },
       "macro": { "type": "String" }
     }
   },
@@ -1011,7 +1011,7 @@
     "placeholders": {
       "tracked": { "type": "int" },
       "range": { "type": "int" },
-      "goal": { "type": "int" }
+      "goal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "trendsChartSemanticsWithAvg": "{tracked} of {range} days with entries, averaging {avg} kilocalories per complete day, daily goal {goal} kilocalories",
@@ -1019,8 +1019,8 @@
     "placeholders": {
       "tracked": { "type": "int" },
       "range": { "type": "int" },
-      "avg": { "type": "int" },
-      "goal": { "type": "int" }
+      "avg": { "type": "int", "format": "decimalPattern" },
+      "goal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "trendsChartSemanticsLabel": "Calorie trend",
@@ -1186,22 +1186,22 @@
   "settingsRangeErrorSteps": "{min}–{max}",
   "@settingsRangeErrorSteps": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "settingsRangeErrorKcal": "{min}–{max} kcal",
   "@settingsRangeErrorKcal": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "settingsRangeErrorGrams": "{min}–{max} g",
   "@settingsRangeErrorGrams": {
     "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
+      "min": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "goalsIntroHint": "We calculate your daily goal from body, activity and weight goal.",
@@ -1609,7 +1609,7 @@
   "foodPortionEstimated": "{grams} g estimated",
   "@foodPortionEstimated": {
     "placeholders": {
-      "grams": { "type": "int" }
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodImageTooLargeError": "The photo is too large. Please choose a smaller one.",
@@ -1620,7 +1620,7 @@
   "@foodProductImplausibleMessage": {
     "placeholders": {
       "productName": { "type": "String" },
-      "kcal": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" }
     }
   },
   "foodProductNoNutritionMessage": "{productName} found, but without nutrition info. Please add it manually.",
@@ -1684,8 +1684,8 @@
   "foodManualComputedKcal": "= {kcal} kcal for {grams} g",
   "@foodManualComputedKcal": {
     "placeholders": {
-      "kcal": { "type": "int" },
-      "grams": { "type": "int" }
+      "kcal": { "type": "int", "format": "decimalPattern" },
+      "grams": { "type": "int", "format": "decimalPattern" }
     }
   },
 
@@ -3030,10 +3030,10 @@
   "@todayMacroProgressValue": {
     "placeholders": {
       "value": {
-        "type": "int"
+        "type": "int", "format": "decimalPattern"
       },
       "goal": {
-        "type": "int"
+        "type": "int", "format": "decimalPattern"
       }
     }
   },
@@ -3050,7 +3050,7 @@
         "type": "String"
       },
       "kcal": {
-        "type": "int"
+        "type": "int", "format": "decimalPattern"
       },
       "slot": {
         "type": "String"
@@ -3701,7 +3701,7 @@
   "foodDescribeOriginEstimate": "Estimated",
   "@foodDescribeOriginEstimate": {"description": "Origin badge: the numbers are the AI's estimate."},
   "foodDescribeLineSemantics": "{name}, {grams} g, {kcal} kcal, {origin}",
-  "@foodDescribeLineSemantics": {"description": "Screen reader label of a draft line.", "placeholders": {"name": {"type": "String"}, "grams": {"type": "int"}, "kcal": {"type": "int"}, "origin": {"type": "String"}}},
+  "@foodDescribeLineSemantics": {"description": "Screen reader label of a draft line.", "placeholders": {"name": {"type": "String"}, "grams": {"type": "int", "format": "decimalPattern"}, "kcal": {"type": "int", "format": "decimalPattern"}, "origin": {"type": "String"}}},
   "foodDescribeLineHint": "Change portion or product",
   "foodDescribeTotal": "Total",
   "foodDescribeEdit": "Edit",
@@ -3714,7 +3714,7 @@
   "@foodDescribeLineSaid": {"placeholders": {"amount": {"type": "String"}}},
   "foodDescribeLineChoose": "Matching food",
   "foodDescribeCandidateSemantics": "{name}, {kcal} kcal per 100 g, {origin}",
-  "@foodDescribeCandidateSemantics": {"description": "Screen reader label of a candidate in the line editor.", "placeholders": {"name": {"type": "String"}, "kcal": {"type": "int"}, "origin": {"type": "String"}}},
+  "@foodDescribeCandidateSemantics": {"description": "Screen reader label of a candidate in the line editor.", "placeholders": {"name": {"type": "String"}, "kcal": {"type": "int", "format": "decimalPattern"}, "origin": {"type": "String"}}},
   "foodDescribeDiscardTitle": "Discard description?",
   "foodDescribeDiscardBody": "This meal hasn't been added yet.",
   "foodDescribeReauthRequired": "Please sign in again before describing a meal.",
@@ -3816,8 +3816,8 @@
   "weeklyCheckExplainStep": "If what you burn clearly differs from the calculation, the check proposes a new daily goal: at most {step} kcal at a time and {max} kcal in total. Nothing changes until you tap “Adjust”.",
   "@weeklyCheckExplainStep": {
     "placeholders": {
-      "step": { "type": "int" },
-      "max": { "type": "int" }
+      "step": { "type": "int", "format": "decimalPattern" },
+      "max": { "type": "int", "format": "decimalPattern" }
     }
   },
   "weeklyCheckResultTitle": "Your weekly check",
@@ -3918,9 +3918,9 @@
   "coachRecipeTargetSlot": "(For: {slot})",
   "@coachRecipeTargetSlot": {"description": "Appended to a /recipe wish and sent to the AI; shown in the chat history.", "placeholders": {"slot": {"type": "String"}}},
   "coachRecipeTargetBudget": "(For: {slot} · still open today: {kcal} kcal)",
-  "@coachRecipeTargetBudget": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}}},
+  "@coachRecipeTargetBudget": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int", "format": "decimalPattern"}}},
   "coachRecipeTargetBudgetProtein": "(For: {slot} · still open today: {kcal} kcal, {protein} g protein)",
-  "@coachRecipeTargetBudgetProtein": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int"}, "protein": {"type": "int"}}},
+  "@coachRecipeTargetBudgetProtein": {"placeholders": {"slot": {"type": "String"}, "kcal": {"type": "int", "format": "decimalPattern"}, "protein": {"type": "int", "format": "decimalPattern"}}},
   "coachLoadRetry": "Try again",
   "coachSpeakerYou": "You",
   "coachSpeakerCoach": "Coach",
@@ -3942,7 +3942,7 @@
   "foodMacrosMissingEntries": "{count, plural, one{1 entry} other{{count} entries}} without full macros",
   "@foodMacrosMissingEntries": {"placeholders": {"count": {"type": "int"}}},
   "todayMacroProgressValueAtLeast": "at least {value} of {goal} grams",
-  "@todayMacroProgressValueAtLeast": {"placeholders": {"value": {"type": "int"}, "goal": {"type": "int"}}},
+  "@todayMacroProgressValueAtLeast": {"placeholders": {"value": {"type": "int", "format": "decimalPattern"}, "goal": {"type": "int", "format": "decimalPattern"}}},
   "trendsProteinGoalDaysUnknown": "Protein goal reached on at least {hit} of {tracked, plural, one{1 day} other{{tracked} days}} ({unknown, plural, one{1 day} other{{unknown} days}} with entries without protein)",
   "@trendsProteinGoalDaysUnknown": {"placeholders": {"hit": {"type": "int"}, "tracked": {"type": "int"}, "unknown": {"type": "int"}}},
   "mealPlanOpenRecipe": "Opens the recipe",
@@ -3995,7 +3995,7 @@
   "@healthWeightImportNoAccess": {"placeholders": {"source": {"type": "String"}}},
   "healthConnectStepsAndWeight": "Reads steps and weight. Eatova imports scale weigh-ins only once you agree.",
   "targetReachedGoalSnack": "Target weight reached! New daily goal: {kcal} kcal to hold it.",
-  "@targetReachedGoalSnack": {"placeholders": {"kcal": {"type": "int"}}},
+  "@targetReachedGoalSnack": {"placeholders": {"kcal": {"type": "int", "format": "decimalPattern"}}},
   "todayTargetReachedTitle": "Goal reached – hold or set a new goal?",
   "todayTargetReachedBodyLose": "Your trend reached your target weight of {target} kg. Your plan now holds your weight and only goes back to losing once your trend is {band} kg above it.",
   "@todayTargetReachedBodyLose": {"placeholders": {"target": {"type": "int"}, "band": {"type": "String"}}},

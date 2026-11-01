@@ -66,7 +66,7 @@ void main() {
     expect(a.server.operations('profileUpsert').length - upsertsBefore, 1);
     expect(
       a.snacks.messages,
-      contains('Neues Tagesziel: 2050 kcal – an deinen Gewichtstrend angepasst.'),
+      contains('Neues Tagesziel: 2.050 kcal – an deinen Gewichtstrend angepasst.'),
     );
   });
 
@@ -137,7 +137,7 @@ void main() {
     expect(a.server.profileRow!['weight_kg'], 81);
     expect(
       a.snacks.messages,
-      contains('Neues Tagesziel: 2050 kcal – an deinen Gewichtstrend angepasst.'),
+      contains('Neues Tagesziel: 2.050 kcal – an deinen Gewichtstrend angepasst.'),
     );
   }));
 

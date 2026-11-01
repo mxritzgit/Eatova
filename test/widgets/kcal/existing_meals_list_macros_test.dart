@@ -121,6 +121,42 @@ void main() {
     );
   });
 
+  testWidgets('Summe und Zeile ab 1.000 kcal mit Tausendertrennzeichen',
+      (tester) async {
+    _pin390(tester);
+    final semantics = tester.ensureSemantics();
+    final gross = _meal(
+      id: 'g',
+      name: 'Familienpizza',
+      kcal: 1250,
+      grams: 900,
+      protein: '50 g',
+      carbs: '150 g',
+      fat: '45 g',
+    );
+    await tester.pumpWidget(
+      designHarness(
+        ExistingMealsList(
+          meals: [gross, _meals.first],
+          slot: MealSlot.dinner,
+          onRemove: (_) {},
+          onEdit: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_textOf(tester, 'analyse-existing-total-kcal'), '1.670 kcal');
+    expect(find.text('1.250'), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(find.byKey(const ValueKey('analyse-existing-edit-g')))
+          .label,
+      contains('1.250 kcal'),
+    );
+    semantics.dispose();
+  });
+
   // A kcal-only entry adds 0 g: the total is a lower bound (2026-10-22).
   testWidgets('ein Eintrag ohne Makros macht die Summe zur Untergrenze', (
     tester,

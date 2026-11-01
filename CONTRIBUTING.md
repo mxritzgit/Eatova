@@ -150,7 +150,8 @@ stable required PR check documents this split; it does not query production.
 
 If you touch `lib/l10n/*.arb`, run `flutter gen-l10n` afterwards; the
 generated code under `lib/src/l10n/generated/` is git-ignored and rebuilt in
-CI, but `test/l10n/` guards ARB parity and hard-coded text.
+CI, but `test/repo_rules_test.dart` guards ARB parity and hard-coded text
+(its migrated-path list is the coverage of that guard).
 
 ## Writing tests
 
