@@ -1160,6 +1160,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onFillYesterday: today && _store.yesterdayRescuesStreak
             ? _fillYesterday
             : null,
+        // The way a reminder or a shortcut takes: Food on today, its sheet.
+        onFirstEntry: today && _store.firstEntryPending ? _openEntry : null,
         targetReached: switch (today ? _store.targetReachedPrompt : null) {
           final reached? => (
             targetKg: reached.targetKg,

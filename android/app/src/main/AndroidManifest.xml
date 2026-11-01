@@ -154,8 +154,10 @@
         </receiver>
 
         <!-- Deliberately not declared, because nothing uses them:
-             ActionBroadcastReceiver (notification actions / dismissIsolate) and
-             ForegroundService (startForegroundService). Adding either feature
+             ActionBroadcastReceiver (background notification actions /
+             dismissIsolate) and ForegroundService (startForegroundService).
+             The reminder's buttons open the app (showsUserInterface), which
+             goes to this activity, not to the receiver. Adding either feature
              requires declaring its component here, or it fails silently like
              D1. -->
 

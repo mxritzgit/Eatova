@@ -525,6 +525,55 @@ void main() {
     });
   });
 
+  testWidgets('before the first entry a card asks what was eaten last; the '
+      'way without AI leads and opens the add sheet; the first entry ends it', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(designNow), () async {
+      final store = await pumpDesignToday(tester, emptyDay: true);
+      final card = find.byKey(const ValueKey('today-first-entry'));
+      expect(card, findsNothing, reason: 'the fixture has logged before');
+
+      store.lifetimeStats = LifetimeStats(sessionStart: designNow);
+      store.setTab(0);
+      await tester.pumpAndSettle();
+      expect(card, findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('today-pick')),
+        findsNothing,
+        reason: 'the card takes the pick\'s place',
+      );
+      expect(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('today-first-entry-search')))
+            .dy,
+        lessThan(
+          tester
+              .getTopLeft(
+                find.byKey(const ValueKey('today-first-entry-describe')),
+              )
+              .dy,
+        ),
+        reason: 'search spends nothing of the Free AI pool',
+      );
+
+      await _tap(tester, 'today-first-entry-search');
+      expect(store.selectedTab, 1);
+      expect(find.byKey(const ValueKey('add-meal-sheet')), findsOneWidget);
+      expect(
+        tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
+        currentMealSlot(),
+      );
+      await _tap(tester, 'add-meal-sheet-close');
+
+      await _backToToday(tester);
+      expect(card, findsOneWidget, reason: 'an open sheet logs nothing');
+      await store.addResultToDailyTotal(_dinner(), slot: MealSlot.dinner);
+      await tester.pumpAndSettle();
+      expect(card, findsNothing);
+    });
+  });
+
   testWidgets('the steps row follows the step source; the credit reaches '
       'the calorie card', (tester) async {
     await withClock(Clock.fixed(designNow), () async {
