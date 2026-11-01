@@ -61,6 +61,7 @@ earlier baseline in the same area.
 | Recipes, plan and shopping | [Recipes (dark redesign root, Spotlight details/plan/shopping)](RECIPES-DESIGN.md) |
 | Training | [Training (dark redesign root, Nachtstudio library/player)](TRAINING-DESIGN.md), [artwork provenance](../assets/training/README.md) |
 | Coach | No separate contract; see the [handoff](PROJECT_HANDOFF.md#dark-redesign-of-the-five-tabs-2026-09-28-to-2026-09-30) |
+| Shared components, icons, lists | [UI foundation (2026-11-01): AppIcons, buttons, lists, states](design/UI-FOUNDATION-2026-11-01.md) |
 | Shared navigation and icons | [Gestures](GESTURE-NAVIGATION.md), [original icon family](ICON-FAMILY-2026-09-14.md) |
 | Account and headers | [App polish](APP-POLISH-2026-09-13.md) |
 | Login, signup and onboarding | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding questions and redesign (2026-10-04)](ONBOARDING-2026-10-04.md) |
