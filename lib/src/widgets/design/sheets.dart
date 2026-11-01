@@ -674,7 +674,7 @@ class _SheetFieldState extends State<SheetField> {
               excluding: eyebrowSaid,
               child: Text(
                 label.toUpperCase(),
-                style: AppType.eyebrow(t.ink2, size: 9.5),
+                style: AppType.eyebrow(t.ink2),
               ),
             ),
             const SizedBox(height: 7),
