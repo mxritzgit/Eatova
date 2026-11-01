@@ -10,6 +10,7 @@ import '../../services/meal_describer.dart';
 import '../../services/meal_description_matcher.dart';
 import '../../services/open_food_facts_product_service.dart'
     show ProductLookupService;
+import '../../theme/app_icons.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/persistence_action.dart';
@@ -57,7 +58,7 @@ Future<bool> describeMealFromCoach(
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, outcome.slot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
   }
   return true;

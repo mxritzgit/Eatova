@@ -458,7 +458,11 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         context.l10n,
       );
       if (_result!.candidates.length == 1) {
-        showAppSnack(context, message, icon: Icons.bookmark_added_rounded);
+        showAppSnack(
+          context,
+          message,
+          icon: AppIcons.filled(AppIcons.bookmarkAdded),
+        );
         Navigator.of(context).pop(recipe);
       } else {
         setState(() {
@@ -527,7 +531,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         children: [
           if (_error != null) ...[
             _Notice(
-              icon: Icons.error_outline_rounded,
+              icon: AppIcons.error,
               iconColor: t.danger,
               fill: t.danger.withValues(alpha: 0.12),
               child: Semantics(
@@ -692,7 +696,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         const SizedBox(height: 20),
         if (notice != null) ...[
           _Notice(
-            icon: Icons.info_outline_rounded,
+            icon: AppIcons.info,
             iconColor: t.accentText,
             fill: t.accentTint,
             child: Semantics(
@@ -725,7 +729,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             child: SoftPillButton(
               key: const ValueKey('recipe-import-paste'),
               label: l10n.recipeImportPaste,
-              icon: Icons.content_paste_rounded,
+              icon: AppIcons.contentPaste,
               onTap: _busy ? null : _paste,
             ),
           ),
@@ -744,7 +748,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           label: _error == null || _tooLongText != null
               ? l10n.recipeImportAnalyze
               : l10n.recipeImportRetry,
-          icon: Icons.auto_awesome_outlined,
+          icon: AppIcons.search,
           onTap:
               _busy ||
                   _text.text.trim().isEmpty ||
@@ -821,7 +825,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       children: [
         if (_saveMessage != null) ...[
           _Notice(
-            icon: Icons.bookmark_added_rounded,
+            icon: AppIcons.filled(AppIcons.bookmarkAdded),
             iconColor: t.accentText,
             fill: t.accentTint,
             child: Semantics(
@@ -835,15 +839,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           const SizedBox(height: 18),
         ],
-        Text(
-          l10n.recipeImportChoose,
-          style: AppType.display(
-            19,
-            weight: FontWeight.w700,
-            color: t.ink,
-            height: 1.2,
-          ),
-        ),
+        Text(l10n.recipeImportChoose, style: AppType.title2(t.ink)),
         const SizedBox(height: 6),
         Text(
           l10n.recipeImportChooseHint,
@@ -861,7 +857,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           child: SoftPillButton(
             key: const ValueKey('recipe-import-change-text'),
             label: l10n.recipeImportChangeText,
-            icon: Icons.edit_note_rounded,
+            icon: AppIcons.editNote,
             tone: SoftPillTone.neutral,
             onTap: () {
               setState(() => _showInput = true);
@@ -913,10 +909,10 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                   padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
                   child: Row(
                     children: [
-                      ExcludeSemantics(
-                        child: RecipeStepBadge(number: index + 1, size: 34),
-                      ),
-                      const SizedBox(width: 12),
+                      // The candidates are a real sequence: the app's one
+                      // number style, leading the row.
+                      StepNumber(index + 1, size: 32),
+                      const SizedBox(width: kSpace12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -925,7 +921,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                             Text(
                               (_drafts[candidate.id] ?? candidate).title,
                               style: AppType.ui(
-                                15.5,
+                                15,
                                 weight: FontWeight.w700,
                                 color: saved ? t.ink2 : t.ink,
                                 height: 1.3,
@@ -938,12 +934,15 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                                 runSpacing: 6,
                                 children: [
                                   if (candidate.variantLabel.isNotEmpty)
-                                    _TintChip(label: candidate.variantLabel),
+                                    StatusPill(
+                                      label: candidate.variantLabel,
+                                      tone: StatusTone.accent,
+                                    ),
                                   if (saved)
-                                    _TintChip(
+                                    StatusPill(
                                       label: l10n.recipeImportAdded,
-                                      icon: Icons.check_rounded,
-                                      done: true,
+                                      icon: AppIcons.check,
+                                      tone: StatusTone.success,
                                     ),
                                 ],
                               ),
@@ -953,13 +952,17 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                       ),
                       const SizedBox(width: 8),
                       ExcludeSemantics(
-                        child: Icon(
-                          saved
-                              ? Icons.check_circle_rounded
-                              : Icons.chevron_right_rounded,
-                          size: 22,
-                          color: saved ? t.accent : t.ink3,
-                        ),
+                        child: saved
+                            ? Icon(
+                                AppIcons.filled(AppIcons.checkCircle),
+                                size: AppIconSize.standard,
+                                color: t.accentText,
+                              )
+                            : Icon(
+                                AppIcons.chevronRight,
+                                size: AppIconSize.standard,
+                                color: t.ink3,
+                              ),
                       ),
                     ],
                   ),
@@ -992,7 +995,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             child: SoftPillButton(
               key: const ValueKey('recipe-import-back'),
               label: l10n.recipeImportOtherRecipe,
-              icon: Icons.arrow_back_rounded,
+              icon: AppIcons.arrowBack,
               tone: SoftPillTone.neutral,
               onTap: _saving
                   ? null
@@ -1046,7 +1049,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             SignalNote(
               _editError!,
               tone: t.danger,
-              icon: Icons.error_outline_rounded,
+              icon: AppIcons.error,
               boxed: true,
             ),
             const SizedBox(height: 12),
@@ -1056,7 +1059,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             child: SoftPillButton(
               key: const ValueKey('recipe-import-finish-editing'),
               label: l10n.recipeImportFinishEditing,
-              icon: Icons.visibility_outlined,
+              icon: AppIcons.visibility,
               onTap: _saving ? null : _applyEdits,
             ),
           ),
@@ -1069,7 +1072,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                 ? SoftPillButton(
                     key: const ValueKey('recipe-import-correct-nutrition'),
                     label: l10n.recipeNutritionCorrect,
-                    icon: Icons.tune_rounded,
+                    icon: AppIcons.tune,
                     onTap: _busy || _attemptedRecipes.containsKey(candidate.id)
                         ? null
                         : _correctNutrition,
@@ -1078,7 +1081,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           const SizedBox(height: 22),
           RecipeSectionCard(
-            icon: Icons.restaurant_rounded,
+            icon: AppIcons.restaurant,
             title: l10n.recipesSectionPortion,
             child: RecipeParagraph(
               text: portion,
@@ -1087,7 +1090,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           const SizedBox(height: 12),
           RecipeSectionCard(
-            icon: Icons.shopping_basket_outlined,
+            icon: AppIcons.shoppingBasket,
             title: l10n.recipesSectionIngredients,
             child: RecipeIngredientLines(
               hint: previewRecipe.ingredientQuantityHint(l10n),
@@ -1096,7 +1099,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           const SizedBox(height: 12),
           RecipeSectionCard(
-            icon: Icons.soup_kitchen_outlined,
+            icon: AppIcons.soupKitchen,
             title: l10n.recipesSectionPreparation,
             child: RecipePreparationSteps(
               text: candidate.preparation,
@@ -1109,7 +1112,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             child: SoftPillButton(
               key: const ValueKey('recipe-import-edit'),
               label: l10n.recipeImportEdit,
-              icon: Icons.edit_outlined,
+              icon: AppIcons.edit,
               onTap: _saving || _attemptedRecipes.containsKey(candidate.id)
                   ? null
                   : _edit,
@@ -1122,7 +1125,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: _Notice(
-              icon: Icons.info_outline_rounded,
+              icon: AppIcons.info,
               iconColor: t.ink2,
               fill: t.surf2,
               child: Text(
@@ -1144,8 +1147,9 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         PrimaryActionButton(
           key: const ValueKey('recipe-import-save'),
           label: _saving ? l10n.recipeImportSaving : l10n.recipeImportSave,
-          icon: Icons.bookmark_add_outlined,
+          icon: AppIcons.bookmarkAdd,
           onTap: _saving ? null : _save,
+          busy: _saving,
         ),
       ],
     );
@@ -1176,7 +1180,10 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           if (candidate.variantLabel.isNotEmpty) ...[
             const SizedBox(height: 10),
-            _TintChip(label: candidate.variantLabel),
+            StatusPill(
+              label: candidate.variantLabel,
+              tone: StatusTone.accent,
+            ),
           ],
           if (candidate.description.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -1216,7 +1223,7 @@ class _ImportSteps extends StatefulWidget {
 
 class _ImportStepsState extends State<_ImportSteps>
     with SingleTickerProviderStateMixin {
-  static const double _tile = 36;
+  static final double _tile = IconBadgeSize.md.edge;
 
   late final AnimationController _pulse = AnimationController(
     vsync: this,
@@ -1257,9 +1264,10 @@ class _ImportStepsState extends State<_ImportSteps>
     final l10n = context.l10n;
     final t = context.t;
     final steps = [
-      (Icons.ios_share_rounded, l10n.recipeImportStepShare),
-      (Icons.auto_awesome_rounded, l10n.recipeImportStepRead),
-      (Icons.bookmark_add_rounded, l10n.recipeImportStepSave),
+      (AppIcons.iosShare, l10n.recipeImportStepShare),
+      // Beside "KI liest das Rezept": the AI origin mark.
+      (AppIcons.aiMark, l10n.recipeImportStepRead),
+      (AppIcons.bookmarkAdd, l10n.recipeImportStepSave),
     ];
     return Container(
       key: const ValueKey('recipe-import-steps'),
@@ -1273,7 +1281,7 @@ class _ImportStepsState extends State<_ImportSteps>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final (i, (icon, label)) in steps.indexed)
-            _step(context, i, icon, label, last: i == steps.length - 1),
+            _step(context, i, icon, label, count: steps.length),
         ],
       ),
     );
@@ -1284,26 +1292,23 @@ class _ImportStepsState extends State<_ImportSteps>
     int index,
     IconData icon,
     String label, {
-    required bool last,
+    required int count,
   }) {
     final t = context.t;
+    final last = index == count - 1;
     final active = widget.active;
     final done = active != null && index < active;
     final current = active == index;
     final waiting = active != null && index > active;
-    final (fill, glyph) = current
-        ? (t.accentFill, t.onAccentFill)
-        : waiting
-        ? (t.tile, t.ink3)
-        : (t.accentTint, t.accentText);
-    Widget tile = Container(
-      width: _tile,
-      height: _tile,
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: BorderRadius.circular(rChip),
-      ),
-      child: Icon(done ? Icons.check_rounded : icon, size: 18, color: glyph),
+    // Filled while it runs, tinted when explained or done, neutral while
+    // it waits.
+    Widget tile = IconBadge(
+      icon: done ? AppIcons.check : icon,
+      tone: current
+          ? IconBadgeTone.solid
+          : waiting
+          ? IconBadgeTone.neutral
+          : IconBadgeTone.accent,
     );
     if (current && !reducedMotion(context)) {
       // A halo that grows and fades from the tile: calm "working" feedback.
@@ -1334,8 +1339,12 @@ class _ImportStepsState extends State<_ImportSteps>
       );
     }
     // The rail under each tile runs to the next tile however tall the label
-    // grows, so the three rows read as one flow at any text scale.
-    return MergeSemantics(
+    // grows, so the three rows read as one flow at any text scale; it is the
+    // order, no number beside the label. Read as "Step 2 of 3. <label>".
+    return Semantics(
+      container: true,
+      label: '${context.l10n.commonStepOf(index + 1, count)}. $label',
+      excludeSemantics: true,
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1362,22 +1371,11 @@ class _ImportStepsState extends State<_ImportSteps>
               child: Padding(
                 padding: EdgeInsets.only(bottom: last ? 0 : 10),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: _tile),
+                  constraints: BoxConstraints(minHeight: _tile),
                   child: Align(
                     alignment: AlignmentDirectional.centerStart,
-                    child: Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text: '${index + 1}  ',
-                            style: AppType.display(
-                              13,
-                              color: waiting ? t.ink3 : t.accentText,
-                            ),
-                          ),
-                          TextSpan(text: label),
-                        ],
-                      ),
+                    child: Text(
+                      label,
                       style: AppType.ui(
                         14,
                         weight: current ? FontWeight.w700 : FontWeight.w600,
@@ -1433,45 +1431,6 @@ class _Notice extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(child: child),
-        ],
-      ),
-    );
-  }
-}
-
-/// A small tinted label chip (variant, "Added").
-class _TintChip extends StatelessWidget {
-  const _TintChip({required this.label, this.icon, this.done = false});
-
-  final String label;
-  final IconData? icon;
-  final bool done;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final (fill, ink) = done
-        ? (t.surf2, t.inkSoft)
-        : (t.accentTint, t.accentText);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 13, color: done ? t.success : ink),
-            const SizedBox(width: 4),
-          ],
-          Flexible(
-            child: Text(
-              label,
-              style: AppType.ui(12, weight: FontWeight.w700, color: ink),
-            ),
-          ),
         ],
       ),
     );

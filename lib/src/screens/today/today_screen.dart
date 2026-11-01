@@ -574,7 +574,7 @@ class _StreakPill extends StatelessWidget {
                   children: <Widget>[
                     TodayGlyphIcon(
                       TodayGlyph.flame,
-                      size: 18,
+                      size: AppIconSize.button,
                       color: t.activityInk,
                     ),
                     const SizedBox(width: 6),

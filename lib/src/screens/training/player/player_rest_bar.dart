@@ -281,7 +281,7 @@ class PlayerRestControls extends StatelessWidget {
           id: 'rest-resume',
           text: l.trainingTimerResume,
           label: null,
-          icon: Icons.play_arrow_rounded,
+          icon: AppIcons.playArrow,
           onTap: live(rest.onResume),
         ),
     ];
@@ -301,7 +301,7 @@ class PlayerRestControls extends StatelessWidget {
     final skip = PrimaryActionButton(
       key: const ValueKey('training-timer-skip-rest'),
       label: l.trainingTimerSkipRest,
-      icon: Icons.skip_next_rounded,
+      icon: AppIcons.skipNext,
       height: kButtonMinHeight,
       onTap: live(rest.onSkip),
     );
@@ -414,36 +414,19 @@ class _AlertsOffChip extends StatelessWidget {
 
   final PlayerRestState rest;
 
+  /// Still tappable (it asks or opens the settings): the quiet neutral pill.
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: rest.alertsAsk
+    return SoftPillButton(
+      key: const ValueKey('training-timer-alerts-off'),
+      label: l.trainingTimerAlertsOff,
+      semanticLabel: rest.alertsAsk
           ? l.trainingTimerAlertsOffAskLabel
           : l.trainingTimerAlertsOffLabel,
-      excludeSemantics: true,
+      icon: AppIcons.notificationsOff,
+      tone: SoftPillTone.neutral,
       onTap: rest.onAlertsOff,
-      child: InkWell(
-        key: const ValueKey('training-timer-alerts-off'),
-        onTap: rest.onAlertsOff,
-        borderRadius: BorderRadius.circular(rPill),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 48),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.notifications_off_outlined, size: 16, color: t.ink2),
-              const SizedBox(width: 6),
-              Text(
-                l.trainingTimerAlertsOff,
-                style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

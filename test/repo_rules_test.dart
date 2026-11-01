@@ -308,6 +308,29 @@ const Map<String, String> _eigeneUeberschriftErlaubt = <String, String>{
       'defines HeadingSemantics — the one place both properties are set, and the only one that can guarantee they stay paired',
 };
 
+/// Everything that speaks only `AppIcons` (UI polish 2026-11-01): the base
+/// layer came first, the screen rounds widened it to all of `lib/`.
+const List<String> _iconBasis = <String>['lib/'];
+
+/// Base-layer files that may still name Material `Icons.*`, each with its
+/// reason. An entry goes when its file is migrated.
+const Map<String, String> _materialIconsErlaubt = <String, String>{};
+
+/// The one file that names font glyphs (`Icons.*`, or `Symbols.*` should
+/// the family switch).
+const String _iconFamilie = 'lib/src/theme/app_icons.dart';
+
+/// Material's icon class; `AppIcons.` and `CupertinoIcons.` have no word
+/// boundary before `Icons` and stay quiet.
+final RegExp _materialIcons = RegExp(r'\bIcons\.');
+
+/// Anything that defeats the release build's icon shaking or bypasses the
+/// one family anywhere in lib/: a Symbols glyph outside [_iconFamilie], a
+/// computed IconData, a lookup by name.
+final RegExp _iconFamilieUmgangen = RegExp(
+  r'\bSymbols\.|\bIconData\(|SymbolsGet|symbols_map\.dart',
+);
+
 /// Every way of asking the device for its display mode. The argument is
 /// `[^)]*` on purpose: `context`, `ctx`, `c` and `this.context` are the same
 /// branch, and pinning one spelling is what let the rule be walked around.
@@ -799,6 +822,42 @@ void main() {
         expect(_helligkeitsAbzweig.hasMatch(ok), isFalse, reason: ok);
       }
     });
+  });
+
+  // =========================================================================
+  // One icon layer (UI polish 2026-11-01): every glyph comes from AppIcons.
+  // Four "edit" glyphs and filled next to outlined glyphs are what made the
+  // app read as stock; the base layer goes first, the screens follow.
+  // =========================================================================
+  test('Icon-Familie: kein Icons.* in lib/ ausser app_icons.dart, '
+      'kein Symbols.* und kein IconData von Hand', () {
+    final treffer = <String>[];
+    final genutzteAusnahmen = <String>{};
+    for (final quelle in _libQuellen) {
+      if (quelle.pfad == _iconFamilie) continue;
+      final basis = _iconBasis.any(quelle.pfad.startsWith);
+      for (final zeile in quelle.ohneKommentare.split('\n')) {
+        if (_iconFamilieUmgangen.hasMatch(zeile)) {
+          treffer.add('${quelle.pfad}: ${zeile.trim()}');
+        }
+        if (!basis || !_materialIcons.hasMatch(zeile)) continue;
+        if (_materialIconsErlaubt.containsKey(quelle.pfad)) {
+          genutzteAusnahmen.add(quelle.pfad);
+        } else {
+          treffer.add('${quelle.pfad}: ${zeile.trim()}');
+        }
+      }
+    }
+    expect(
+      treffer,
+      isEmpty,
+      reason: 'Glyphen kommen aus AppIcons ($_iconFamilie); ein neues '
+          'Konzept wird dort als const ergaenzt:\n${treffer.join('\n')}',
+    );
+    for (final pfad in _materialIconsErlaubt.keys) {
+      expect(genutzteAusnahmen, contains(pfad),
+          reason: '$pfad nennt kein Icons.* mehr - Eintrag entfernen');
+    }
   });
 
   // =========================================================================

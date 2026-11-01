@@ -258,12 +258,12 @@ void main() {
         ),
       );
 
-      final beschriftung = tester.getSemantics(find.text('KONTO'));
+      final beschriftung = tester.getSemantics(find.text('Konto'));
       final zeile =
           tester.getSemantics(find.byKey(const ValueKey('settings-group-row')));
       handle.dispose();
 
-      // Drawn as "KONTO", read in its own case.
+      // A section heading since 2026-11-01 (no longer an all-caps caption).
       expect(
         beschriftung,
         isSemantics(label: 'Konto', isHeader: true),

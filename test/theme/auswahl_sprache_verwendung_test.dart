@@ -493,7 +493,7 @@ void main() {
             .widgetList<Container>(_drin(gewaehlt, Container))
             .map((c) => c.decoration)
             .whereType<BoxDecoration>()
-            .firstWhere((d) => d.color == t.tile);
+            .firstWhere((d) => d.color == t.accentTint);
         final glyphe = _iconFarbe(tester, gewaehlt);
         expect(
           _kontrast(glyphe, _ueber(kachel.color!, flaeche)),

@@ -11,6 +11,7 @@ import 'package:eatova/main.dart';
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'flow_test_helpers.dart';
 import '../support/meal_slot_picker.dart';
@@ -88,7 +89,7 @@ void main() {
     // The mirrored row carries the store id, so match the key by prefix.
     final entfernen = find.byWidgetPredicate((w) {
       final key = w.key;
-      return w is IconButton &&
+      return w is AppIconButton &&
           key is ValueKey<String> &&
           key.value.startsWith('analyse-existing-remove-');
     });

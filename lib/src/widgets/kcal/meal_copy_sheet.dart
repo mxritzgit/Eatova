@@ -145,7 +145,7 @@ class _MealCopySheetState extends State<MealCopySheet> {
                       child: SoftPillButton(
                         key: const ValueKey('meal-copy-calendar'),
                         onTap: _saving ? null : _pickOtherDay,
-                        icon: Icons.calendar_month_rounded,
+                        icon: AppIcons.calendar,
                         label:
                             '${l10n.foodOtherDateLine1} ${l10n.foodOtherDateLine2}',
                         semanticLabel: l10n.foodOtherDateCalendarSemantics,
@@ -171,7 +171,7 @@ class _MealCopySheetState extends State<MealCopySheet> {
                       key: const ValueKey('meal-copy-confirm'),
                       onTap: _copy,
                       busy: _saving,
-                      icon: Icons.content_copy_rounded,
+                      icon: AppIcons.copy,
                       label: l10n.foodCopyConfirm,
                     ),
                   ],
@@ -194,6 +194,6 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(
     text.toUpperCase(),
     semanticsLabel: text,
-    style: AppType.eyebrow(context.t.ink2, size: 11),
+    style: AppType.sectionEyebrow(context.t.ink2),
   );
 }

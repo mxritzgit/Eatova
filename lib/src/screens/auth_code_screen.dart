@@ -10,6 +10,7 @@ import '../l10n/l10n.dart';
 import '../services/local_cache.dart'
     show KeyValueStore, SharedPreferencesStore;
 import '../services/secure_screen.dart';
+import '../theme/app_icons.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/common/motion.dart';
@@ -864,7 +865,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                     children: [
                       HeaderIconButton(
                         key: const ValueKey('auth-code-back'),
-                        icon: Icons.chevron_left_rounded,
+                        icon: AppIcons.chevronLeft,
                         onTap: _busy
                             ? null
                             : () => Navigator.of(context).maybePop(),
@@ -923,9 +924,9 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                     children: [
                       AuthIconDisc(
                         icon: switch (_step) {
-                          _Step.email => Icons.lock_reset_rounded,
-                          _Step.code => Icons.mark_email_unread_outlined,
-                          _Step.password => Icons.key_rounded,
+                          _Step.email => AppIcons.lockReset,
+                          _Step.code => AppIcons.markEmailUnread,
+                          _Step.password => AppIcons.key,
                         },
                         active: true,
                         size: 46,
@@ -970,7 +971,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                       controller: _email,
                       label: l10n.authFieldEmailLabel,
                       hint: l10n.authFieldEmailHint,
-                      icon: Icons.alternate_email_rounded,
+                      icon: AppIcons.alternateEmail,
                       enabled: !_busy,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.done,
@@ -995,7 +996,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                       controller: _password,
                       label: l10n.authCodeTitlePassword,
                       hint: l10n.authFieldPasswordHint,
-                      icon: Icons.lock_outline_rounded,
+                      icon: AppIcons.lock,
                       enabled: !_busy,
                       textInputAction: TextInputAction.done,
                       autofillHints: const [AutofillHints.newPassword],
@@ -1066,7 +1067,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                         // accent action; the tap works either way.
                         emphasis: _cooldownSeconds <= 0,
                         icon: _cooldownSeconds > 0
-                            ? Icons.schedule_rounded
+                            ? AppIcons.schedule
                             : null,
                         // The tap stays enabled during the cooldown so
                         // _resend can say how long is left; a dead link

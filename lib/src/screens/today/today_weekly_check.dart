@@ -5,6 +5,7 @@ import '../../models/user_profile.dart' show paceLabelForWeeklyRateKg;
 import '../../services/energy_check.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
+import 'today_prompt_card.dart';
 
 /// The weekly check explained (2026-10-19), from Today's progress line and
 /// the result card: what it compares, what it needs, how far it may move
@@ -30,7 +31,6 @@ class _WeeklyCheckExplainer extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final style = AppType.ui(14, color: t.ink2, height: 1.45);
     void then(VoidCallback action) {
       Navigator.of(context).pop();
       action();
@@ -56,33 +56,30 @@ class _WeeklyCheckExplainer extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  Text(
-                    l10n.weeklyCheckExplainCompare(EnergyCheck.windowDays),
-                    style: style,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.weeklyCheckExplainData(
-                      EnergyCheck.minLoggedDays,
-                      EnergyCheck.minWeighInDays,
-                      EnergyCheck.minWeighInSpanDays,
-                    ),
-                    style: style,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.weeklyCheckExplainStep(
-                      EnergyCheck.maxStepKcal,
-                      EnergyCheck.maxAdjustmentKcal,
-                    ),
-                    style: style,
+                  // Three rules of one check: what it compares, what it
+                  // needs, how far it may move the goal.
+                  BulletList(
+                    items: <String>[
+                      l10n.weeklyCheckExplainCompare(EnergyCheck.windowDays),
+                      l10n.weeklyCheckExplainData(
+                        EnergyCheck.minLoggedDays,
+                        EnergyCheck.minWeighInDays,
+                        EnergyCheck.minWeighInSpanDays,
+                      ),
+                      l10n.weeklyCheckExplainStep(
+                        EnergyCheck.maxStepKcal,
+                        EnergyCheck.maxAdjustmentKcal,
+                      ),
+                    ],
+                    gap: kSpace12,
+                    style: AppType.body(t.ink2),
                   ),
                   if (logWeight != null || openLog != null)
-                    const SizedBox(height: 20),
+                    const SizedBox(height: kSpace24),
                   if (logWeight != null)
                     SoftPillButton(
                       key: const ValueKey('weekly-check-explainer-weigh'),
-                      icon: Icons.monitor_weight_outlined,
+                      icon: AppIcons.monitorWeight,
                       label: l10n.todayWeighChipLog,
                       expand: true,
                       onTap: () => then(logWeight),
@@ -92,7 +89,7 @@ class _WeeklyCheckExplainer extends StatelessWidget {
                   if (openLog != null)
                     SoftPillButton(
                       key: const ValueKey('weekly-check-explainer-log'),
-                      icon: Icons.restaurant_rounded,
+                      icon: AppIcons.restaurant,
                       label: l10n.todayOpenFoodLog,
                       tone: SoftPillTone.neutral,
                       expand: true,
@@ -141,103 +138,79 @@ class TodayWeeklyResultCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final e = estimate;
-    return Semantics(
-      container: true,
-      explicitChildNodes: true,
+    final callout = AppType.callout(t.ink2);
+    final acknowledge = onAcknowledge;
+    final ask = onAskCoach;
+    return TodayPromptCard(
+      key: const ValueKey('today-weekly-result'),
       label: l10n.weeklyCheckResultTitle,
-      child: Container(
-        key: const ValueKey('today-weekly-result'),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-        decoration: BoxDecoration(
-          color: t.surf,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.cardBorder),
+      title: l10n.weeklyCheckResultTitle,
+      icon: AppIcons.insights,
+      details: <Widget>[
+        const SizedBox(height: kSpace12),
+        Text(
+          l10n.weeklyCheckResultBurn(_tens(e.observedKcal)),
+          key: const ValueKey('today-weekly-result-burn'),
+          style: AppType.rowTitle(t.ink),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
+        const SizedBox(height: kSpace4),
+        Text(
+          e.withinNoise
+              ? l10n.weeklyCheckResultFits(e.currentGoalKcal)
+              : l10n.weeklyCheckResultHeld(e.currentGoalKcal),
+          key: const ValueKey('today-weekly-result-goal'),
+          style: callout,
+        ),
+        const SizedBox(height: kSpace4),
+        Text(
+          l10n.weeklyCheckResultRate(
+            paceLabelForWeeklyRateKg(e.weeklyRateKg, l10n),
+            paceLabelForWeeklyRateKg(e.planWeeklyRateKg, l10n),
+          ),
+          key: const ValueKey('today-weekly-result-rate'),
+          style: callout,
+        ),
+        const SizedBox(height: kSpace8),
+        Text(
+          l10n.todayEnergyCheckBasis(e.loggedDays, e.weighInDays),
+          style: AppType.subhead(t.ink3),
+        ),
+        TodayCardLink(
+          buttonKey: const ValueKey('today-weekly-result-more'),
+          icon: AppIcons.info,
+          label: l10n.weeklyCheckResultMore,
+          onTap: onExplain,
+        ),
+      ],
+      actionsGap: kSpace4,
+      // No lit answer and no full-width pills: the result changes nothing.
+      actions: <Widget>[
+        if (acknowledge != null || ask != null)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Wrap(
+              spacing: kSpace8,
+              runSpacing: kSpace8,
               children: <Widget>[
-                IconTile(icon: Icons.insights_rounded, color: t.accent),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l10n.weeklyCheckResultTitle,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
+                if (acknowledge != null)
+                  SoftPillButton(
+                    key: const ValueKey('today-weekly-result-seen'),
+                    icon: AppIcons.check,
+                    label: l10n.weeklyCheckResultSeen,
+                    onTap: acknowledge,
                   ),
-                ),
+                if (ask != null)
+                  SoftPillButton(
+                    key: const ValueKey('today-weekly-result-ask-coach'),
+                    icon: AppIcons.chatBubble,
+                    label: l10n.coachAskAction,
+                    tone: SoftPillTone.neutral,
+                    onTap: ask,
+                  ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              l10n.weeklyCheckResultBurn(_tens(e.observedKcal)),
-              key: const ValueKey('today-weekly-result-burn'),
-              style: AppType.ui(14.5, weight: FontWeight.w600, color: t.ink),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              e.withinNoise
-                  ? l10n.weeklyCheckResultFits(e.currentGoalKcal)
-                  : l10n.weeklyCheckResultHeld(e.currentGoalKcal),
-              key: const ValueKey('today-weekly-result-goal'),
-              style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              l10n.weeklyCheckResultRate(
-                paceLabelForWeeklyRateKg(e.weeklyRateKg, l10n),
-                paceLabelForWeeklyRateKg(e.planWeeklyRateKg, l10n),
-              ),
-              key: const ValueKey('today-weekly-result-rate'),
-              style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              l10n.todayEnergyCheckBasis(e.loggedDays, e.weighInDays),
-              style: AppType.ui(12, color: t.ink3),
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: <Widget>[
-                  if (onAcknowledge case final acknowledge?)
-                    SoftPillButton(
-                      key: const ValueKey('today-weekly-result-seen'),
-                      icon: Icons.check_rounded,
-                      label: l10n.weeklyCheckResultSeen,
-                      onTap: acknowledge,
-                    ),
-                  SoftPillButton(
-                    key: const ValueKey('today-weekly-result-more'),
-                    icon: Icons.info_outline_rounded,
-                    label: l10n.weeklyCheckResultMore,
-                    tone: SoftPillTone.neutral,
-                    onTap: onExplain,
-                  ),
-                  if (onAskCoach case final ask?)
-                    SoftPillButton(
-                      key: const ValueKey('today-weekly-result-ask-coach'),
-                      icon: Icons.chat_bubble_outline_rounded,
-                      label: l10n.coachAskAction,
-                      tone: SoftPillTone.neutral,
-                      onTap: ask,
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }

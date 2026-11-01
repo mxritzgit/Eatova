@@ -637,7 +637,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (!allowed) {
       _emitSnack(
         _l10n.healthWeightImportNoAccess(_healthSourceName),
-        icon: Icons.info_outline_rounded,
+        icon: AppIcons.info,
       );
       return;
     }
@@ -732,7 +732,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       if (batch.isNotEmpty && !announced && !_disposed) {
         _emitSnack(
           _l10n.healthWeightImported(batch.length, _healthSourceName),
-          icon: Icons.monitor_weight_outlined,
+          icon: AppIcons.monitorWeight,
         );
       }
     } catch (error, stack) {
@@ -1107,7 +1107,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       after.reachedTargetWeight && !before.reachedTargetWeight
           ? _l10n.targetReachedGoalSnack(after.dailyKcalGoal)
           : _l10n.commonDailyGoalReanchored(after.dailyKcalGoal),
-      icon: Icons.monitor_weight_outlined,
+      icon: AppIcons.monitorWeight,
     );
   }
 
@@ -1143,7 +1143,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (!_disposed) {
       _emitSnack(
         _l10n.targetReachedHoldSnack,
-        icon: Icons.monitor_weight_outlined,
+        icon: AppIcons.monitorWeight,
       );
     }
   }

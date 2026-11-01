@@ -1,15 +1,17 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
 import '../common/motion.dart';
 import 'controls.dart';
+import 'lists.dart';
+import 'spinner.dart';
 import 'surfaces.dart' show HeadingSemantics;
 
 // ---------------------------------------------------------------------------
@@ -99,7 +101,7 @@ Future<bool> confirmDiscardChanges(
   String? title,
   String? confirmLabel,
   String? keepLabel,
-  IconData icon = Icons.edit_off_rounded,
+  IconData icon = AppIcons.editOff,
   Key? dialogKey,
   Key? confirmKey,
   Key? keepKey,
@@ -332,7 +334,7 @@ class DecisionMedallion extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final tone = destructive ? t.danger : t.accentText;
-    final glyph = act && icon == Icons.logout_rounded
+    final glyph = act && icon == AppIcons.logout
         ? _ActingExitGlyph(size: 21, color: tone)
         : Icon(icon, size: 21, color: tone);
     return ExcludeSemantics(
@@ -467,7 +469,8 @@ class DecisionAccountCapsule extends StatelessWidget {
 
 /// One consequence of a decision: an 18 px glyph in its [color] (`success`
 /// kept safe, `accentText` waiting, `danger` lost, `ink2` unknown) beside
-/// the sentence in `ink2`. Stack them in [DecisionConsequences].
+/// the sentence in `ink2`, centred on its first line — one entry of a
+/// [BulletList.icons]. Stack them in [DecisionConsequences].
 class DecisionConsequence extends StatelessWidget {
   const DecisionConsequence({
     super.key,
@@ -481,29 +484,9 @@ class DecisionConsequence extends StatelessWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // Centres the glyph on the first line at any text scale.
-    final line = MediaQuery.textScalerOf(context).scale(14.5) * 1.45;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ExcludeSemantics(
-          child: Padding(
-            padding: EdgeInsets.only(top: math.max(0, (line - 18) / 2)),
-            child: Icon(icon, size: 18, color: color),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            text,
-            style: AppType.ui(14.5, color: t.ink2, height: 1.45),
-          ),
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => BulletList.icons(
+    entries: <IconBullet>[(icon: icon, color: color, text: text)],
+  );
 }
 
 /// A decision's message as one line per consequence, 12 px apart.
@@ -982,12 +965,11 @@ class _EatovaDialogActionState extends State<EatovaDialogAction> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     ExcludeSemantics(
-                      child: SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: foreground,
-                        ),
+                      child: AppSpinner(
+                        size: 18,
+                        strokeWidth: 2,
+                        color: foreground,
+                        trackColor: foreground.withValues(alpha: 0.2),
                       ),
                     ),
                     const SizedBox(width: 12),

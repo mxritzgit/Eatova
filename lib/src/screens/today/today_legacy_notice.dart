@@ -10,6 +10,7 @@ import '../../models/plan_status.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
 import '../settings/settings_controls.dart' show openLegalLink;
+import 'today_prompt_card.dart';
 
 /// Today's one-time notice for an account that still keeps the pre-Premium
 /// limits (docs/PREMIUM.md 1.2, 4.4): once the operator set `legacy_until`,
@@ -161,7 +162,6 @@ class TodayLegacyNoticeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     final date = DateFormat.yMMMd(l10n.localeName).format(until.toLocal());
     final body = switch ((premium, basePremium)) {
@@ -182,93 +182,43 @@ class TodayLegacyNoticeCard extends StatelessWidget {
       ),
       (true, null) => l10n.legacyNoticeBodyPremiumPlain(date),
     };
-    return Semantics(
-      container: true,
-      explicitChildNodes: true,
+    return TodayPromptCard(
+      key: const ValueKey('today-legacy-notice'),
       label: l10n.legacyNoticeTitle,
-      child: Container(
-        key: const ValueKey('today-legacy-notice'),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: t.surf,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.cardBorder),
+      title: l10n.legacyNoticeTitle,
+      icon: AppIcons.workspacePremium,
+      body: body,
+      bodyKey: const ValueKey('today-legacy-notice-body'),
+      details: <Widget>[
+        if (onOpenTerms case final openTerms?) ...<Widget>[
+          const SizedBox(height: kSpace4),
+          TodayCardLink(
+            buttonKey: const ValueKey('today-legacy-notice-terms'),
+            onTap: openTerms,
+            icon: AppIcons.openInNew,
+            label: l10n.legacyNoticeTerms,
+          ),
+        ],
+      ],
+      actionsGap: onOpenTerms == null ? kSpace16 : kSpace4,
+      actions: <Widget>[
+        PrimaryActionButton(
+          key: const ValueKey('today-legacy-notice-dismiss'),
+          label: l10n.legacyNoticeDismiss,
+          icon: AppIcons.check,
+          // The touch floor the other in-card primaries use.
+          height: kButtonMinHeight,
+          onTap: () => unawaited(onDismiss()),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                IconTile(icon: Icons.auto_awesome_rounded, color: t.accent),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l10n.legacyNoticeTitle,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              body,
-              key: const ValueKey('today-legacy-notice-body'),
-              style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-            ),
-            if (onOpenTerms case final openTerms?) ...<Widget>[
-              const SizedBox(height: 4),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                // The glyph lines up with the body text; the link's 12 px
-                // inset (its press capsule) reaches into the card padding.
-                child: Transform.translate(
-                  // Towards the start edge (x -1 in LTR, +1 in RTL).
-                  offset: Offset(
-                    12 *
-                        AlignmentDirectional.centerStart
-                            .resolve(Directionality.of(context))
-                            .x,
-                    0,
-                  ),
-                  child: EatovaTextAction(
-                    buttonKey: const ValueKey('today-legacy-notice-terms'),
-                    onTap: openTerms,
-                    icon: Icons.open_in_new_rounded,
-                    iconSize: 16,
-                    label: l10n.legacyNoticeTerms,
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 10),
-            PrimaryActionButton(
-              key: const ValueKey('today-legacy-notice-dismiss'),
-              label: l10n.legacyNoticeDismiss,
-              icon: Icons.check_rounded,
-              // The touch floor the other in-card primaries use.
-              height: kButtonMinHeight,
-              onTap: () => unawaited(onDismiss()),
-            ),
-            if (onUpgrade case final upgrade?) ...<Widget>[
-              const SizedBox(height: 8),
-              SoftPillButton(
-                key: const ValueKey('today-legacy-notice-upgrade'),
-                label: l10n.planLimitUpgrade,
-                icon: Icons.arrow_forward_rounded,
-                expand: true,
-                onTap: upgrade,
-              ),
-            ],
-          ],
-        ),
-      ),
+        if (onUpgrade case final upgrade?)
+          SoftPillButton(
+            key: const ValueKey('today-legacy-notice-upgrade'),
+            label: l10n.planLimitUpgrade,
+            icon: AppIcons.arrowForward,
+            expand: true,
+            onTap: upgrade,
+          ),
+      ],
     );
   }
 }

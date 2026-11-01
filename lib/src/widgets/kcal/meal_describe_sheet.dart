@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
@@ -15,6 +16,7 @@ import '../../models/number_input.dart';
 import '../../models/plan_limit_hit.dart';
 import '../../models/plan_status.dart';
 import '../../services/dictation_language.dart';
+import '../../services/kcal_format.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_describer.dart';
 import '../../services/meal_description_matcher.dart';
@@ -716,7 +718,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
       context,
       // The name as the line showed it, without the brand suffix.
       l10n.foodDescribeLineRemoved(_candidateName(line.selected, line).$1),
-      icon: Icons.delete_outline_rounded,
+      icon: AppIcons.delete,
       tone: SnackTone.neutral,
       action: SnackBarAction(
         label: l10n.commonUndo,
@@ -902,7 +904,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
                 if (largeText) ...[
                   Text(
                     _Header.subtitleFor(_step, context.l10n),
-                    style: AppType.ui(12.5, color: t.ink2, height: 1.4),
+                    style: AppType.subhead(t.ink2),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -1015,7 +1017,7 @@ class _MealDescribeSheetState extends State<MealDescribeSheet>
         PrimaryActionButton(
           key: const ValueKey('meal-describe-submit'),
           label: l10n.foodDescribeSubmit,
-          icon: Icons.auto_awesome_rounded,
+          icon: AppIcons.manageSearch,
           onTap: _canSubmit ? _submit : null,
         ),
       ],
@@ -1126,7 +1128,7 @@ class _Header extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: AppType.ui(12.5, color: t.ink2, height: 1.4),
+                    style: AppType.subhead(t.ink2),
                   ),
                 ],
               ],
@@ -1291,14 +1293,14 @@ class _VoiceCard extends StatelessWidget {
       children: [
         Text(
           listening ? l10n.foodDescribeMicListening : l10n.foodDescribeMicTitle,
-          style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
+          style: AppType.rowTitle(t.ink),
         ),
         const SizedBox(height: 2),
         Text(
           listening
               ? l10n.foodDescribeMicListeningHint
               : l10n.foodDescribeMicHint,
-          style: AppType.ui(12.5, color: t.ink2, height: 1.3),
+          style: AppType.subhead(t.ink2),
         ),
       ],
     );
@@ -1470,8 +1472,8 @@ class _MicDiscState extends State<_MicDisc>
         ],
       ),
       child: Icon(
-        listening ? Icons.stop_rounded : Icons.mic_none_rounded,
-        size: listening ? 24 : 26,
+        listening ? AppIcons.stop : AppIcons.mic,
+        size: AppIconSize.large,
         color: listening ? t.onAccentFill : t.accentText,
       ),
     );
@@ -1571,14 +1573,18 @@ class _LanguagePill extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.translate_rounded, size: 14, color: t.ink2),
-                    const SizedBox(width: 5),
+                    Icon(
+                      AppIcons.translate,
+                      size: AppIconSize.meta,
+                      color: t.ink2,
+                    ),
+                    const SizedBox(width: 4),
                     Text(
                       language == DictationLanguage.de
                           ? l10n.coachDictationLanguageDe
                           : l10n.coachDictationLanguageEn,
                       style: AppType.ui(
-                        12.5,
+                        12,
                         weight: FontWeight.w700,
                         color: t.accentText,
                       ),
@@ -1613,12 +1619,17 @@ class _InlineNotice extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.only(top: 1),
+              padding: EdgeInsets.only(
+                top: math.max(
+                  0,
+                  (MediaQuery.textScalerOf(context).scale(13) * 1.4 -
+                          AppIconSize.small) /
+                      2,
+                ),
+              ),
               child: Icon(
-                notice.error
-                    ? Icons.error_outline_rounded
-                    : Icons.info_outline_rounded,
-                size: 17,
+                notice.error ? AppIcons.error : AppIcons.info,
+                size: AppIconSize.small,
                 color: color,
               ),
             ),
@@ -1706,12 +1717,9 @@ class _WorkingCardState extends State<_WorkingCard>
             liveRegion: true,
             child: Row(
               children: [
-                IconTile(
-                  icon: understand
-                      ? Icons.auto_awesome_rounded
-                      : Icons.manage_search_rounded,
+                IconBadge(
+                  icon: understand ? AppIcons.notes : AppIcons.manageSearch,
                   color: t.accent,
-                  size: 38,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1732,11 +1740,7 @@ class _WorkingCardState extends State<_WorkingCard>
                       const SizedBox(height: 2),
                       Text(
                         l10n.foodLoadingStepOf(understand ? 1 : 2, 2),
-                        style: AppType.ui(
-                          11,
-                          weight: FontWeight.w500,
-                          color: t.ink2,
-                        ),
+                        style: AppType.caption(t.ink2),
                       ),
                     ],
                   ),
@@ -1809,11 +1813,7 @@ class _WorkingFooter extends StatelessWidget {
                   child: Text(
                     l10n.foodAnalysisSlowHint,
                     key: const ValueKey('meal-describe-slow-hint'),
-                    style: AppType.ui(
-                      12.5,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                    ),
+                    style: AppType.subhead(t.ink2),
                   ),
                 )
               : const SizedBox.shrink(),
@@ -1823,7 +1823,7 @@ class _WorkingFooter extends StatelessWidget {
           key: const ValueKey('meal-describe-cancel'),
           label: l10n.commonCancel,
           onTap: onCancel,
-          tone: SoftPillTone.neutral,
+          tone: SoftPillTone.quiet,
         ),
       ],
     );
@@ -1853,7 +1853,6 @@ class _ErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     if (limit case final limit?) {
       return AppCard(
@@ -1866,7 +1865,7 @@ class _ErrorCard extends StatelessWidget {
           secondary: SoftPillButton(
             key: const ValueKey('meal-describe-edit-text'),
             label: l10n.foodDescribeEditText,
-            icon: Icons.edit_outlined,
+            icon: AppIcons.edit,
             onTap: onEditText,
             tone: onUpgrade == null
                 ? SoftPillTone.accent
@@ -1876,64 +1875,31 @@ class _ErrorCard extends StatelessWidget {
         ),
       );
     }
-    return AppCard(
-      key: const ValueKey('meal-describe-error'),
-      radius: rCard,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              lifted
-                  ? Icon(
-                      Icons.auto_awesome_rounded,
-                      color: t.accentText,
-                      size: 20,
-                    )
-                  : Icon(
-                      Icons.error_outline_rounded,
-                      color: t.danger,
-                      size: 20,
-                    ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  lifted
-                      ? l10n.premiumSuccessTitle
-                      : l10n.foodAnalysisErrorTitle,
-                  style: AppType.ui(14, weight: FontWeight.w700, color: t.ink),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Semantics(
-            liveRegion: true,
-            child: Text(
-              message,
-              key: const ValueKey('meal-describe-error-message'),
-              style: AppType.ui(13, color: t.ink2, height: 1.4),
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (onRetry != null) ...[
-            PrimaryActionButton(
+    // The app's calm error card, announced when it appears: what happened,
+    // then retry (where it can help) and the way back to the text.
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      child: CalmState(
+        key: const ValueKey('meal-describe-error'),
+        card: true,
+        icon: lifted ? AppIcons.workspacePremium : AppIcons.error,
+        title: lifted ? l10n.premiumSuccessTitle : l10n.foodAnalysisErrorTitle,
+        text: message,
+        actions: [
+          if (onRetry != null)
+            SoftPillButton(
               key: const ValueKey('meal-describe-retry'),
               label: l10n.foodAnalysisRetryButton,
-              icon: Icons.refresh_rounded,
+              icon: AppIcons.refresh,
               onTap: onRetry,
-              height: 48,
             ),
-            const SizedBox(height: 8),
-          ],
           SoftPillButton(
             key: const ValueKey('meal-describe-edit-text'),
             label: l10n.foodDescribeEditText,
-            icon: Icons.edit_outlined,
+            icon: AppIcons.edit,
             onTap: onEditText,
             tone: onRetry == null ? SoftPillTone.accent : SoftPillTone.neutral,
-            expand: true,
           ),
         ],
       ),

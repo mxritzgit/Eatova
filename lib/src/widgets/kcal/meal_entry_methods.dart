@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
+import '../design/design.dart';
 import 'food_glyphs.dart';
 
 /// The add sheet's capture choices: the AI photo scan as the hero, with the
@@ -34,36 +35,42 @@ class MealEntryMethods extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    // The list anatomy of the app (ListRow): neutral badge, title, hint
+    // and the chevron, since each row opens a sheet.
     final rows = <Widget>[
-      _MethodRow(
-        actionKey: const ValueKey('analyse-gallery-button'),
-        glyph: const Icon(Icons.photo_library_outlined),
-        label: l10n.foodFromGalleryTooltip,
-        hint: l10n.foodGalleryEntryHint,
+      ListRow(
+        key: const ValueKey('analyse-gallery-button'),
+        icon: AppIcons.photoLibrary,
+        title: l10n.foodFromGalleryTooltip,
+        subtitle: l10n.foodGalleryEntryHint,
+        trailing: ListTrailing.chevron,
         onTap: onGallery,
       ),
       if (onDescribe != null)
-        _MethodRow(
-          actionKey: const ValueKey('describe-entry-button'),
-          glyph: const Icon(Icons.mic_none_rounded),
-          label: l10n.foodDescribeEntryTitle,
-          hint: l10n.foodDescribeEntryHint,
-          onTap: onDescribe!,
+        ListRow(
+          key: const ValueKey('describe-entry-button'),
+          icon: AppIcons.mic,
+          title: l10n.foodDescribeEntryTitle,
+          subtitle: l10n.foodDescribeEntryHint,
+          trailing: ListTrailing.chevron,
+          onTap: onDescribe,
         ),
-      _MethodRow(
-        actionKey: const ValueKey('analyse-barcode-button'),
-        glyph: const FoodGlyphIcon(FoodGlyph.barcode),
-        label: l10n.foodScanBarcodeTooltip,
-        hint: l10n.foodBarcodeEntryHint,
+      ListRow(
+        key: const ValueKey('analyse-barcode-button'),
+        leading: const IconBadge(child: FoodGlyphIcon(FoodGlyph.barcode)),
+        title: l10n.foodScanBarcodeTooltip,
+        subtitle: l10n.foodBarcodeEntryHint,
+        trailing: ListTrailing.chevron,
         onTap: onBarcode,
       ),
       if (onManual != null)
-        _MethodRow(
-          actionKey: const ValueKey('manual-entry-button'),
-          glyph: const Icon(Icons.edit_outlined),
-          label: l10n.foodManualEntryCta,
-          hint: l10n.foodManualEntryHint,
-          onTap: onManual!,
+        ListRow(
+          key: const ValueKey('manual-entry-button'),
+          icon: AppIcons.edit,
+          title: l10n.foodManualEntryCta,
+          subtitle: l10n.foodManualEntryHint,
+          trailing: ListTrailing.chevron,
+          onTap: onManual,
         ),
     ];
     return Column(
@@ -82,32 +89,8 @@ class MealEntryMethods extends StatelessWidget {
           ),
           child: const _HeroContent(),
         ),
-        const SizedBox(height: 10),
-        // One card, hairline dividers between the rows (Food diary card).
-        Material(
-          color: t.surf,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(rCard),
-            side: BorderSide(color: t.cardBorder),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < rows.length; i++) ...[
-                if (i > 0)
-                  Divider(
-                    height: 1,
-                    thickness: 1,
-                    indent: _MethodRow.textInset,
-                    endIndent: 16,
-                    color: t.line,
-                  ),
-                rows[i],
-              ],
-            ],
-          ),
-        ),
+        const SizedBox(height: kSpace12),
+        ListSection(spacing: 0, children: rows),
       ],
     );
   }
@@ -127,12 +110,7 @@ class _HeroContent extends StatelessWidget {
         Text(
           eyebrow.toUpperCase(),
           semanticsLabel: eyebrow,
-          style: AppType.ui(
-            11.5,
-            weight: FontWeight.w700,
-            color: t.accentText,
-            letterSpacing: 11.5 * 0.08,
-          ),
+          style: AppType.sectionEyebrow(t.accentText),
         ),
         const SizedBox(height: 6),
         Text(
@@ -142,7 +120,7 @@ class _HeroContent extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           l10n.foodPhotoEntryHint,
-          style: AppType.ui(13, color: t.ink2, height: 1.4),
+          style: AppType.subhead(t.ink2),
         ),
       ],
     );
@@ -180,80 +158,6 @@ class _HeroContent extends StatelessWidget {
                 mark,
               ],
             ),
-    );
-  }
-}
-
-/// Icon tile, title with a one-line hint, chevron — a Food diary row.
-class _MethodRow extends StatelessWidget {
-  const _MethodRow({
-    required this.actionKey,
-    required this.glyph,
-    required this.label,
-    required this.hint,
-    required this.onTap,
-  });
-
-  static const double _tile = 40;
-  static const double _pad = 16;
-
-  /// Where the title starts; the dividers begin there.
-  static const double textInset = _pad + _tile + 14;
-
-  final Key actionKey;
-  final Widget glyph;
-  final String label, hint;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return _Pressable(
-      actionKey: actionKey,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(_pad, 12, 12, 12),
-        child: Row(
-          children: [
-            ExcludeSemantics(
-              child: Container(
-                width: _tile,
-                height: _tile,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: t.tile,
-                  borderRadius: BorderRadius.circular(rChip),
-                ),
-                child: IconTheme(
-                  data: IconThemeData(color: t.accentText, size: 20),
-                  child: glyph,
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    hint,
-                    style: AppType.ui(12.5, color: t.ink2, height: 1.3),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            ExcludeSemantics(
-              child: Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

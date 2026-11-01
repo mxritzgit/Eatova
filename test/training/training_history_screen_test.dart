@@ -7,6 +7,7 @@ import 'package:eatova/src/models/training_log.dart';
 import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/screens/training/training_exercise_history_screen.dart';
 import 'package:eatova/src/screens/training/training_history_screen.dart';
+import 'package:eatova/src/screens/training/training_menu.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/training_session_controller.dart';
@@ -411,7 +412,7 @@ void main() {
       expect(find.byKey(const ValueKey('training-finish-sheet')), findsNothing);
       expect(
         tester
-            .widget<PopupMenuButton<String>>(
+            .widget<TrainingMenuButton<String>>(
               find.byKey(const ValueKey('training-timer-menu')),
             )
             .enabled,
@@ -820,8 +821,10 @@ void main() {
           ),
         );
         // Three sets were skipped, so the row also counts them.
-        expect(find.text('Sat, Oct 3'), findsOneWidget);
-        expect(find.text('1 of 4 sets completed'), findsOneWidget);
+        expect(
+          find.text('Sat, Oct 3\n1 of 4 sets completed'),
+          findsOneWidget,
+        );
         await _tap(tester, 'training-history-${entry.id}');
         expect(find.text('Logged'), findsNothing);
         expect(find.text('Strength & focus'), findsOneWidget);

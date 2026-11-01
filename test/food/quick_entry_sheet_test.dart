@@ -285,7 +285,7 @@ void main() {
               find.byKey(const ValueKey('edit-meal-summary-figure')),
             )
             .data,
-        '1150 kcal · 1 Portion',
+        '1.150 kcal · 1 Portion',
       );
 
       await tester.tap(find.byKey(const ValueKey('edit-meal-quick-values')));

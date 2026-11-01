@@ -5,8 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_request.dart';
 import '../../theme/app_tokens.dart';
-import '../design/controls.dart';
-import '../design/sheets.dart';
+import '../design/design.dart';
 
 /// A local preview. Nothing is uploaded until the user starts analysis.
 Future<MealAnalysisRequest?> showMealScanPreviewSheet(
@@ -278,7 +277,11 @@ class _ScanContext extends StatelessWidget {
             Text(
               '${hint.text.length}/${MealAnalysisRequest.maxHintLength}',
               key: const ValueKey('meal-scan-context-count'),
-              style: AppType.ui(11, color: valid ? t.ink2 : t.danger),
+              style: AppType.ui(
+                11,
+                color: valid ? t.ink2 : t.danger,
+                tabular: true,
+              ),
             ),
           ],
         ),
@@ -307,8 +310,8 @@ class _ScanContext extends StatelessWidget {
                 label: suggestion,
                 selected: _hasSuggestion(suggestion),
                 icon: _hasSuggestion(suggestion)
-                    ? Icons.check_rounded
-                    : Icons.add_rounded,
+                    ? AppIcons.check
+                    : AppIcons.add,
                 onTap: () => onSuggestion(suggestion),
               ),
           ],

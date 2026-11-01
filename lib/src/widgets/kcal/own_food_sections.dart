@@ -154,7 +154,7 @@ class _OwnFoodSectionsState extends State<OwnFoodSections> {
                 l10n.foodStillFitsLeft(remaining),
                 key: const ValueKey('own-food-fits-left'),
                 textAlign: TextAlign.end,
-                style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink3),
+                style: AppType.caption(t.ink2),
               ),
             ),
           ),
@@ -228,48 +228,35 @@ class _UsualMealRow extends StatelessWidget {
             key: const ValueKey('own-food-usual'),
             onTap: busy ? null : onTap,
             child: Container(
-              constraints: const BoxConstraints(minHeight: 64),
-              // The geometry of the favorites entry row: 16 inset, 40 tile.
-              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+              constraints: const BoxConstraints(minHeight: 68),
+              // The list row's geometry (ListRow): 18 inset, a 40 px badge,
+              // 14 to the text. An action: no chevron.
+              padding: const EdgeInsets.fromLTRB(
+                kCardInset,
+                14,
+                kCardInset,
+                14,
+              ),
               child: Row(
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: t.accentTint,
-                      borderRadius: BorderRadius.circular(rChip),
-                    ),
-                    child: Icon(
-                      Icons.replay_rounded,
-                      size: 20,
-                      color: t.accentText,
-                    ),
+                  const IconBadge(
+                    icon: AppIcons.replay,
+                    tone: IconBadgeTone.accent,
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: kRowLeadingGap),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          style: AppType.ui(
-                            15,
-                            weight: FontWeight.w600,
-                            color: t.accentText,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
+                        Text(title, style: AppType.rowTitle(t.accentText)),
+                        const SizedBox(height: 3),
                         Text(
                           names,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: AppType.ui(12.5, color: t.ink2, height: 1.3),
+                          style: AppType.subhead(t.ink2),
                         ),
-                        Text(
-                          meta,
-                          style: AppType.ui(12.5, color: t.ink3, height: 1.3),
-                        ),
+                        Text(meta, style: AppType.subhead(t.ink2)),
                       ],
                     ),
                   ),

@@ -520,7 +520,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// Turns the store's context-free snack request into [showAppSnack].
   void _emitSnack(
     String message, {
-    IconData icon = Icons.info_outline_rounded,
+    IconData icon = AppIcons.info,
     SnackTone tone = SnackTone.positive,
     Duration? duration,
     SnackBarAction? action,
@@ -1310,12 +1310,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           l10n.reminderTimeEnabledSnack(
             formatReminderTime(context, ownerStore.reminderTime),
           ),
-          icon: Icons.notifications_active_outlined,
+          icon: AppIcons.notificationsActive,
         );
       case ReminderState.blocked:
         _emitSnack(
           l10n.reminderTimeDeniedSnack,
-          icon: Icons.notifications_off_outlined,
+          icon: AppIcons.notificationsOff,
           tone: SnackTone.warning,
           action: SnackBarAction(
             label: l10n.reminderOpenSettingsAction,
@@ -2034,7 +2034,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         if (mounted && _isStoreSessionCurrent(ownerStore)) {
           _emitSnack(
             context.l10n.commonGenericRetryError,
-            icon: Icons.error_outline_rounded,
+            icon: AppIcons.error,
             tone: SnackTone.error,
           );
         }
@@ -2172,7 +2172,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         builder: (dialogContext) => EatovaConfirmDialog(
           title: l10n.trainingAdoptionDiscardAction,
           body: l10n.trainingAdoptionDiscardBody,
-          icon: Icons.delete_outline_rounded,
+          icon: AppIcons.delete,
           destructive: true,
           cancelLabel: l10n.trainingPageCancel,
           onCancel: () => Navigator.pop(dialogContext, false),
@@ -2406,7 +2406,7 @@ class _BootUnansweredScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Icon(
-                  storageConflict ? Icons.lock_outline_rounded : Icons.cloud_off_rounded,
+                  storageConflict ? AppIcons.lock : AppIcons.cloudOff,
                   size: 40,
                   color: t.ink2,
                 ),
@@ -2450,7 +2450,7 @@ class _BootUnansweredScreen extends StatelessWidget {
                       : PrimaryActionButton(
                           key: const ValueKey('boot-unanswered-retry'),
                           label: l10n.commonBootUnansweredRetry,
-                          icon: Icons.refresh_rounded,
+                          icon: AppIcons.refresh,
                           onTap: onRetry,
                         ),
                 ),

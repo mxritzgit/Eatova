@@ -173,7 +173,9 @@ void main() {
         isButton: true,
         hasEnabledState: true,
         isEnabled: true,
+        isFocusable: true,
         hasTapAction: true,
+        hasFocusAction: true,
       ),
     );
     final schedules = alerts.log.where((entry) => entry.$1 == 'schedule');

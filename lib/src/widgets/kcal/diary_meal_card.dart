@@ -442,24 +442,18 @@ class _RepeatRow extends StatelessWidget {
             onTap: busy ? null : onTap,
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 48),
+              // The text starts where the recipe pick's title does (56):
+              // a 32 px badge, 10 in and 14 to the text, as tall as the pick.
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(6, 6, 10, 6),
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
                 child: Row(
                   children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: t.accentTint,
-                        borderRadius: BorderRadius.circular(rChip),
-                      ),
-                      child: Icon(
-                        Icons.replay_rounded,
-                        size: 18,
-                        color: t.accentText,
-                      ),
+                    const IconBadge(
+                      icon: AppIcons.replay,
+                      size: IconBadgeSize.sm,
+                      tone: IconBadgeTone.accent,
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: kRowLeadingGap),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -624,7 +618,8 @@ String diaryAmountLabel(MealAnalysisResult result, AppLocalizations l10n) {
     MealResultSource.photoAi || MealResultSource.aiEstimate => true,
     _ => false,
   };
-  return estimate ? '~$grams g' : '$grams g';
+  final amount = formatThousands(grams, l10n.localeName);
+  return estimate ? '~$amount g' : '$amount g';
 }
 
 /// Share of the row width taken by the revealed delete action, and the window
@@ -783,7 +778,7 @@ class _DeleteMealAction extends StatelessWidget {
                 border: Border.all(color: t.danger.withValues(alpha: 0.25)),
               ),
               child: Icon(
-                Icons.delete_outline_rounded,
+                AppIcons.delete,
                 color: t.danger,
                 size: 20,
               ),

@@ -133,9 +133,11 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
                 SoftPillButton(
                   key: const ValueKey('food-date-today'),
                   onTap: _today,
-                  icon: Icons.today_rounded,
+                  icon: AppIcons.calendar,
                   label: l10n.foodCalendarToday,
                   tone: SoftPillTone.neutral,
+                  // Directly above the primary action: as tall as it.
+                  size: SoftPillSize.regular,
                   expand: true,
                 ),
                 const SizedBox(height: 10),
@@ -525,8 +527,8 @@ class _FoodMonthCalendarState extends State<FoodMonthCalendar> {
   }
 }
 
-/// A month header chevron: the sheets' 44 px ring (surf, lineStrong edge) in
-/// a 48 px target, dimmed where the range ends.
+/// A month header chevron: the app's neutral round icon button in a 48 px
+/// target, dimmed where the range ends.
 class _MonthArrow extends StatelessWidget {
   const _MonthArrow({
     required this.buttonKey,
@@ -541,25 +543,13 @@ class _MonthArrow extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return IconButton(
-      key: buttonKey,
-      onPressed: onTap,
-      tooltip: tooltip,
-      style: IconButton.styleFrom(
-        backgroundColor: t.surf,
-        foregroundColor: t.inkMuted,
-        disabledBackgroundColor: t.surf,
-        disabledForegroundColor: t.inkDisabled,
-        fixedSize: const Size.square(44),
-        minimumSize: const Size.square(44),
-        padding: EdgeInsets.zero,
-        shape: CircleBorder(side: BorderSide(color: t.lineStrong)),
-      ),
-      icon: FoodGlyphIcon(glyph, size: 20),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    key: buttonKey,
+    semanticLabel: tooltip,
+    target: 48,
+    onTap: onTap,
+    child: FoodGlyphIcon(glyph),
+  );
 }
 
 /// The weeks of one month: blank cells before the first day, then the days.

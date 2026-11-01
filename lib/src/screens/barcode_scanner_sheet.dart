@@ -477,13 +477,16 @@ class _TorchButton extends StatelessWidget {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: controller.toggleTorch,
+              // A press brightens the glass a step: no ripple, still a state.
+              highlightColor: context.t.onImage.withValues(alpha: 0.16),
               child: SizedBox(
                 width: 48,
                 height: 48,
                 child: Icon(
-                  on ? Icons.flash_on_rounded : Icons.flash_off_rounded,
-                  color: on ? Colors.black : Colors.white,
-                  size: 21,
+                  on ? AppIcons.flashOn : AppIcons.flashOff,
+                  // The lit torch keeps black on the fixed image accent.
+                  color: on ? Colors.black : context.t.onImage,
+                  size: AppIconSize.standard,
                 ),
               ),
             ),
@@ -502,7 +505,7 @@ class _ScannerLoadingLayer extends StatelessWidget {
     final t = context.t;
     return ColoredBox(
       color: t.bg,
-      child: const Center(child: AppSpinner(size: 26, strokeWidth: 2)),
+      child: const Center(child: AppSpinner()),
     );
   }
 }
@@ -534,7 +537,7 @@ class _ScannerFailedLayer extends StatelessWidget {
           // The app's calm state (glyph tile, guidance, soft pills), as in
           // the add sheet's search.
           child: CalmState(
-            icon: Icons.no_photography_outlined,
+            icon: AppIcons.noPhotography,
             text: permissionDenied
                 ? l10n.foodBarcodePermissionDeniedMessage
                 : l10n.foodCameraUnavailableMessage,
@@ -546,13 +549,13 @@ class _ScannerFailedLayer extends StatelessWidget {
                 SoftPillButton(
                   key: const ValueKey('barcode-open-settings'),
                   onTap: onOpenSettings,
-                  icon: Icons.settings_outlined,
+                  icon: AppIcons.settings,
                   label: l10n.foodOpenSettingsButton,
                 ),
               SoftPillButton(
                 key: const ValueKey('barcode-type-in'),
                 onTap: onTypeBarcode,
-                icon: Icons.keyboard_alt_outlined,
+                icon: AppIcons.keyboardAlt,
                 label: l10n.foodBarcodeTypeInButton,
                 tone: permissionDenied
                     ? SoftPillTone.neutral
@@ -621,9 +624,10 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
           children: [
             Text(
               l10n.foodBarcodeManualLabel.toUpperCase(),
-              style: AppType.eyebrow(t.ink2, size: 9.5),
+              semanticsLabel: l10n.foodBarcodeManualLabel,
+              style: AppType.sectionEyebrow(t.ink2),
             ),
-            const SizedBox(height: 7),
+            const SizedBox(height: kSpace8),
             // Capsule, fill states (rest/focus/error) and the error line come
             // from inputDecorationTheme — no decoration copy here.
             TextField(
@@ -654,7 +658,7 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
             PrimaryActionButton(
               key: const ValueKey('barcode-manual-submit'),
               label: l10n.foodBarcodeManualSubmit,
-              icon: Icons.search_rounded,
+              icon: AppIcons.search,
               onTap: _submit,
             ),
             const SizedBox(height: 10),
@@ -662,7 +666,8 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
               key: const ValueKey('barcode-manual-back'),
               onTap: widget.onBack,
               label: l10n.commonCancel,
-              tone: SoftPillTone.neutral,
+              tone: SoftPillTone.quiet,
+              size: SoftPillSize.regular,
               expand: true,
             ),
           ],
@@ -745,12 +750,12 @@ class _AnalyzerStalledLayer extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.refresh_rounded, size: 30, color: t.onImage),
+          Icon(AppIcons.refresh, size: AppIconSize.large, color: t.onImage),
           const SizedBox(height: 10),
           Text(
             l10n.foodDetectionStalledTitle,
             textAlign: TextAlign.center,
-            style: AppType.ui(14.5, weight: FontWeight.w800, color: t.onImage),
+            style: AppType.ui(15, weight: FontWeight.w800, color: t.onImage),
           ),
           const SizedBox(height: 6),
           Text(

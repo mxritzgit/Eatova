@@ -19,6 +19,7 @@ import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 import 'package:eatova/src/widgets/kcal/saved_meal_presentation.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -174,7 +175,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(MealFavoriteButton),
-          matching: find.byType(AnimatedSwitcher),
+          matching: find.byType(StateIcon),
         ),
         findsOneWidget,
       );

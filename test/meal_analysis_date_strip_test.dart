@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 import 'support/pinned_clock.dart';
@@ -72,10 +73,10 @@ void main() {
 
         final heute = startOfDay(clock.now());
         expect(find.text(foodHeaderDateLabel(heute, _de)), findsOneWidget);
-        final next = tester.widget<IconButton>(
+        final next = tester.widget<AppIconButton>(
           find.byKey(const ValueKey('food-date-next')),
         );
-        expect(next.onPressed, isNull);
+        expect(next.onTap, isNull);
         await tester.tap(find.byKey(const ValueKey('food-date-previous')));
         await tester.pumpAndSettle();
         expect(gewaehlt, isNotNull);

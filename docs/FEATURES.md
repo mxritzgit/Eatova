@@ -252,6 +252,19 @@ with one lit action, a quiet cancel and a red fill for destructive actions;
 floating surfaces separate by light and shadow instead of hairlines, and
 buttons press without ripples
 ([handoff](PROJECT_HANDOFF.md#decision-cards-buttons-paywall-and-one-account-per-mailbox-2026-10-25)).
+Since 2026-11-01 every screen speaks one component language
+([foundation](design/UI-FOUNDATION-2026-11-01.md),
+[brief](design/UI-POLISH-BRIEF-2026-11-01.md)): every glyph comes from
+`AppIcons` (Material outline for objects, rounded for lines, the filled form
+only for a state; no sparkles except next to the word "KI"), one button
+family with `AppIconButton` and `AppStepper` instead of stock and private
+buttons, one list anatomy (`ListSection`/`ListRow`, dividers at the text
+column, a chevron only for navigation), `BulletList` and `NumberedSteps` /
+`StepNumber` for lists and sequences, `StatusPill` for status, `IconBadge` in
+three sizes, empty and error states through `CalmState` and `SignalNote`,
+named type roles with an 11 px minimum, and "Not now" in the quiet tone. A
+toast with an action stays 4 s, and as long as a screen reader is on, until
+it is used or dismissed.
 
 The [design guide index](README.md#design-contracts-and-previews) links to the
 current contracts and actual Flutter previews.

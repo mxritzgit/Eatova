@@ -15,6 +15,7 @@ import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import 'training_menu.dart';
 import 'training_overview_widgets.dart';
 import 'training_plan_picker.dart';
 import 'training_studio_widgets.dart';
@@ -303,7 +304,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
       builder: (dialogContext) => EatovaConfirmDialog(
         title: l10n.trainingPageDeleteTitle,
         body: l10n.trainingPageDeleteBody,
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         destructive: true,
         cancelLabel: l10n.trainingPageCancel,
         onCancel: () => Navigator.pop(dialogContext, false),
@@ -320,7 +321,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
       showAppSnack(
         context,
         deliveryHint(l10n.trainingPageDeleted, delivery, l10n),
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         tone: SnackTone.error,
       );
     } catch (_) {
@@ -368,26 +369,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
     }
   }
 
-  /// A popup menu that opens under [anchor] (the tapped control), like every
-  /// [PopupMenuButton] (`PopupMenuPosition.under`); Material shifts it up to
-  /// stay on screen when the space below is too short.
-  Future<T?> _menu<T>(BuildContext anchor, List<PopupMenuEntry<T>> items) {
-    final box = anchor.findRenderObject()! as RenderBox;
-    final overlay =
-        Navigator.of(anchor).overlay!.context.findRenderObject()! as RenderBox;
-    final bottomLeft = box.localToGlobal(
-      box.size.bottomLeft(Offset.zero),
-      ancestor: overlay,
-    );
-    return showMenu<T>(
-      context: anchor,
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(bottomLeft.dx, bottomLeft.dy, box.size.width, 0),
-        Offset.zero & overlay.size,
-      ),
-      items: items,
-    );
-  }
+  Future<T?> _menu<T>(BuildContext anchor, List<PopupMenuEntry<T>> items) =>
+      showTrainingMenu<T>(anchor, items);
 
   /// "Choose workout": shows the picked workout on the card and scrolls the
   /// card (with its Start) into view. Starting stays an explicit tap.
@@ -410,7 +393,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 '${plan.workouts[i].title}',
             excludeSemantics: true,
             child: MenuRow(
-              icon: i == shown ? Icons.check_rounded : null,
+              icon: i == shown ? AppIcons.check : null,
               iconColor: t.accentText,
               label: plan.workouts[i].title,
             ),
@@ -447,12 +430,12 @@ class _TrainingScreenState extends State<TrainingScreen> {
     final action = await _menu<String>(anchor, [
       eatovaMenuItem(
         value: 'edit',
-        icon: Icons.edit_outlined,
+        icon: AppIcons.edit,
         label: l10n.trainingPageEdit,
       ),
       eatovaMenuItem(
         value: 'delete',
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         label: conflict
             ? l10n.trainingAdoptionDiscardAction
             : l10n.trainingPageDelete,
@@ -518,7 +501,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 _notice(
                   context,
                   l10n.trainingAdoptionReviewBody(conflict.title),
-                  icon: Icons.sync_problem_rounded,
+                  icon: AppIcons.syncProblem,
                   action: Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -548,7 +531,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 _notice(
                   context,
                   l10n.trainingPageInProgress,
-                  icon: Icons.pause_circle_outline_rounded,
+                  icon: AppIcons.pauseCircle,
                 ),
                 gap,
               ],
@@ -556,12 +539,12 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 CalmState(
                   key: const ValueKey('training-load-error'),
                   card: true,
-                  icon: Icons.cloud_off_rounded,
+                  icon: AppIcons.cloudOff,
                   text: l10n.trainingPageLoadError,
                   actions: [
                     SoftPillButton(
                       onTap: widget.onRetry,
-                      icon: Icons.refresh_rounded,
+                      icon: AppIcons.refresh,
                       label: l10n.trainingPageRetry,
                     ),
                   ],
@@ -572,14 +555,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 CalmState(
                   key: const ValueKey('training-history-load-error'),
                   card: true,
-                  icon: Icons.cloud_off_rounded,
+                  icon: AppIcons.cloudOff,
                   text: l10n.trainingHistoryRootLoadError,
                   actions: [
                     if (widget.onRetryHistory case final retry?)
                       SoftPillButton(
                         key: const ValueKey('training-history-retry'),
                         onTap: retry,
-                        icon: Icons.refresh_rounded,
+                        icon: AppIcons.refresh,
                         label: l10n.trainingPageRetry,
                       ),
                   ],
@@ -653,7 +636,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         ? TrainingStartButton(
             key: const ValueKey('training-review-adoption-primary'),
             label: l10n.trainingAdoptionReviewAction,
-            icon: Icons.sync_problem_rounded,
+            icon: AppIcons.syncProblem,
             onPressed: _reviewingAdoption
                 ? null
                 : () => _reviewAdoption(selectedConflict),
@@ -679,7 +662,12 @@ class _TrainingScreenState extends State<TrainingScreen> {
             Row(
               key: const ValueKey('training-done-today'),
               children: [
-                Icon(Icons.check_circle_rounded, size: 15, color: t.success),
+                StateIcon(
+                  AppIcons.checkCircle,
+                  on: true,
+                  size: AppIconSize.small,
+                  color: t.success,
+                ),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -730,11 +718,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
             runSpacing: 6,
             children: [
               TrainingMetaItem(
-                icon: Icons.sort_rounded,
+                icon: AppIcons.sort,
                 text: l10n.trainingPageExerciseCount(shown.exerciseCount),
               ),
               TrainingMetaItem(
-                icon: Icons.schedule_rounded,
+                icon: AppIcons.schedule,
                 text: l10n.trainingMinutesEstimate(shown.estimatedMinutes),
               ),
             ],
@@ -766,7 +754,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
               Builder(
                 builder: (anchor) => TrainingRoundButton(
                   key: const ValueKey('training-plan-menu'),
-                  icon: Icons.tune_rounded,
+                  icon: AppIcons.tune,
                   semanticLabel: l10n.trainingPageMore,
                   busy: _deleting,
                   onTap: _deleting ? null : () => _planMenu(anchor, plan),
@@ -782,7 +770,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
             EatovaTextAction(
               buttonKey: const ValueKey('training-log-done'),
               onTap: () => logPlanned(plan, shown.workoutIndex),
-              icon: Icons.task_alt_rounded,
+              icon: AppIcons.checkCircle,
               label: l10n.trainingLogAsDone,
             ),
           ],
@@ -828,7 +816,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
             if (log != null)
               TrainingQuickTile(
                 key: const ValueKey('training-quick-log'),
-                icon: const Icon(Icons.edit_note_rounded),
+                icon: const Icon(AppIcons.editNote),
                 label: l10n.trainingLogQuick,
                 semanticLabel: l10n.trainingLogTitle,
                 tint: t.accentTintStrong,
@@ -840,7 +828,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
               Builder(
                 builder: (anchor) => TrainingQuickTile(
                   key: const ValueKey('training-quick-workouts'),
-                  icon: const Icon(Icons.format_list_numbered_rounded),
+                  icon: const Icon(AppIcons.formatListNumbered),
                   label: l10n.trainingQuickWorkouts,
                   semanticLabel: l10n.trainingQuickChooseWorkout,
                   tint: t.activityTint,
@@ -850,7 +838,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
               ),
             TrainingQuickTile(
               key: const ValueKey('training-open-plans'),
-              icon: const Icon(Icons.menu_book_rounded),
+              icon: const Icon(AppIcons.menuBook),
               label: l10n.trainingStudioPlans,
               tint: t.carbsSurface,
               ink: t.carbsInk,
@@ -873,7 +861,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
             child: EatovaTextAction(
               buttonKey: const ValueKey('training-log-coach'),
               onTap: coachLog,
-              icon: Icons.mic_none_rounded,
+              icon: AppIcons.mic,
               label: l10n.trainingLogTellCoach,
             ),
           ),
@@ -899,16 +887,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!large) ...[
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: t.accentTint,
-                borderRadius: BorderRadius.circular(rChip),
-              ),
-              child: Icon(icon, size: 20, color: t.accentText),
-            ),
-            const SizedBox(width: 14),
+            IconBadge(icon: icon, tone: IconBadgeTone.accent),
+            const SizedBox(width: kRowLeadingGap),
           ],
           Expanded(
             child: Column(
@@ -1019,7 +999,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
           TrainingStartButton(
             key: const ValueKey('training-empty-coach'),
             label: l10n.trainingPageCoach,
-            icon: Icons.chat_bubble_outline_rounded,
+            icon: AppIcons.chatBubble,
             onPressed: widget.onOpenCoach,
           ),
           const SizedBox(height: 10),
@@ -1040,7 +1020,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
             EatovaTextAction(
               buttonKey: const ValueKey('training-empty-log'),
               onTap: log,
-              icon: Icons.edit_note_rounded,
+              icon: AppIcons.editNote,
               label: l10n.trainingLogTitle,
             ),
           ],
@@ -1049,7 +1029,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
             EatovaTextAction(
               buttonKey: const ValueKey('training-empty-log-coach'),
               onTap: coachLog,
-              icon: Icons.mic_none_rounded,
+              icon: AppIcons.mic,
               label: l10n.trainingLogTellCoach,
             ),
           ],
@@ -1108,7 +1088,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
           if (widget.onOpenHistory != null) ...[
             HeaderIconButton(
               key: const ValueKey('training-open-history'),
-              icon: Icons.history_rounded,
+              icon: AppIcons.history,
               semanticLabel: l10n.trainingHistoryTitle,
               onTap: widget.onOpenHistory,
             ),
@@ -1116,7 +1096,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
           ],
           HeaderIconButton(
             key: const ValueKey('training-create'),
-            icon: Icons.add_rounded,
+            icon: AppIcons.add,
             tone: HeaderIconTone.primary,
             semanticLabel: l10n.trainingPageCreateTitle,
             onTap: () => _edit(context),

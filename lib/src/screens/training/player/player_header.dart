@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/l10n.dart';
 import '../../../theme/app_tokens.dart';
-import '../../../widgets/common/lively.dart';
 import '../../../widgets/design/design.dart';
+import '../training_menu.dart';
 import 'player_format.dart';
 
 /// The player's header (spec A3): back, title, sets done/total, elapsed
@@ -46,43 +46,25 @@ class PlayerHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
-    // The soft accent pill ([SoftPillTone.accent]): its stronger tint, no
-    // ripple, the press rebound. Disabled while the workout saves, it dims
-    // in its own tint like that pill: the theme's disabled FilledButton is
-    // an accent wash that reads as selected. No vertical padding, so at
-    // large text the compact header stays as short.
-    final finish = PressScale(
-      enabled: enabled,
-      rebound: true,
-      child: FilledButton(
-        key: const ValueKey('training-timer-finish'),
-        onPressed: enabled ? onFinish : null,
-        style: FilledButton.styleFrom(
-          backgroundColor: t.accentTintStrong,
-          foregroundColor: t.accentText,
-          disabledBackgroundColor: t.accentTintStrong.withValues(
-            alpha: t.accentTintStrong.a * 0.6,
-          ),
-          disabledForegroundColor: t.accentText.withValues(alpha: 0.45),
-          minimumSize: const Size(64, 48),
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          shape: const StadiumBorder(),
-          splashFactory: NoSplash.splashFactory,
-        ),
-        child: Text(
-          l.trainingTimerFinishShort,
-          style: AppType.ui(14, weight: FontWeight.w800),
-        ),
-      ),
+    // The accent capsule of the app's text action: the set's ✓ is the
+    // view's one lit action. Disabled while the workout saves, it dims in
+    // its own tint. No vertical padding (unlike SoftPillButton), so at large
+    // text the compact header stays as short.
+    final finish = EatovaTextAction(
+      buttonKey: const ValueKey('training-timer-finish'),
+      label: l.trainingTimerFinishShort,
+      capsule: true,
+      onTap: enabled ? onFinish : null,
     );
-    // The app's overflow menu: MenuRow entries that open under the trigger.
-    // Discard only tints its glyph; the decision card that follows carries
-    // the red action.
-    final menu = PopupMenuButton<String>(
+    // The app's overflow menu: MenuRow entries that open under the trigger,
+    // a disc like the back button opposite. Discard only tints its glyph;
+    // the decision card that follows carries the red action.
+    final menu = TrainingMenuButton<String>(
       key: const ValueKey('training-timer-menu'),
-      tooltip: l.trainingTimerMenu,
+      semanticLabel: l.trainingTimerMenu,
       enabled: enabled,
-      icon: const Icon(Icons.more_horiz_rounded),
+      tone: IconButtonTone.neutral,
+      target: 48,
       onSelected: (value) => switch (value) {
         'pause' => onPause?.call(),
         'resume' => onResume?.call(),
@@ -93,20 +75,20 @@ class PlayerHeader extends StatelessWidget {
           eatovaMenuItem(
             key: const ValueKey('training-timer-pause'),
             value: 'pause',
-            icon: Icons.pause_rounded,
+            icon: AppIcons.pause,
             label: l.trainingTimerPause,
           ),
         if (onResume != null)
           eatovaMenuItem(
             key: const ValueKey('training-timer-resume'),
             value: 'resume',
-            icon: Icons.play_arrow_rounded,
+            icon: AppIcons.playArrow,
             label: l.trainingTimerResume,
           ),
         eatovaMenuItem(
           key: const ValueKey('training-timer-discard'),
           value: 'discard',
-          icon: Icons.delete_outline_rounded,
+          icon: AppIcons.delete,
           label: l.trainingTimerDiscard,
           destructive: true,
         ),
@@ -117,10 +99,7 @@ class PlayerHeader extends StatelessWidget {
       children: [
         HeadingSemantics(
           level: 1,
-          child: Text(
-            title,
-            style: AppType.ui(16, weight: FontWeight.w700, color: t.ink),
-          ),
+          child: Text(title, style: AppType.headline(t.ink)),
         ),
         const SizedBox(height: 2),
         Wrap(
@@ -157,14 +136,18 @@ class PlayerHeader extends StatelessWidget {
                     child: SheetCloseButton(
                       buttonKey: const ValueKey('training-timer-back'),
                       tooltip: l.trainingTimerBack,
-                      icon: Icons.chevron_left_rounded,
+                      icon: AppIcons.chevronLeft,
                       onTap: backEnabled ? onBack : null,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(child: heading),
                   if (!compact) ...[const SizedBox(width: 8), finish],
-                  menu,
+                  // Mirrors the back disc: 16 px from the edge.
+                  Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 2, end: 6),
+                    child: menu,
+                  ),
                 ],
               );
               if (!compact) return top;
@@ -173,7 +156,8 @@ class PlayerHeader extends StatelessWidget {
                 children: [
                   top,
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 4, 0),
+                    padding: const EdgeInsets.fromLTRB(12, 4, 8, 0),
+                    // The capsule's end lines up with the menu disc above.
                     child: Align(
                       alignment: AlignmentDirectional.centerEnd,
                       child: finish,
@@ -240,7 +224,12 @@ class _ElapsedState extends State<_Elapsed> {
       child: Text(
         formatClock(seconds),
         key: const ValueKey('training-timer-elapsed'),
-        style: AppType.ui(13, weight: FontWeight.w600, color: context.t.ink2),
+        style: AppType.ui(
+          13,
+          weight: FontWeight.w600,
+          color: context.t.ink2,
+          tabular: true,
+        ),
       ),
     );
   }

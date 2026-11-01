@@ -519,7 +519,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       builder: (context) => EatovaDialog(
         title: l.trainingTimerAlertsTitle,
         content: Text(l.trainingTimerAlertsBody),
-        icon: Icons.notifications_active_outlined,
+        icon: AppIcons.notificationsActive,
         actions: [
           EatovaDialogAction(
             buttonKey: const ValueKey('training-alerts-allow'),
@@ -754,7 +754,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             ? l.trainingTimerDiscardTitle
             : l.trainingTimerLeaveTitle,
         body: discard ? l.trainingTimerDiscardBody : l.trainingTimerLeaveBody,
-        icon: discard ? Icons.delete_outline_rounded : Icons.pause_rounded,
+        icon: discard ? AppIcons.delete : AppIcons.pause,
         destructive: discard,
         cancelLabel: l.trainingTimerStay,
         onCancel: () => Navigator.pop(context, false),
@@ -801,7 +801,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
               ? l.trainingTimerLeaveUnstoredBody
               : l.trainingTimerLeaveUnstoredBodyEmpty,
         ),
-        icon: Icons.cloud_off_rounded,
+        icon: AppIcons.cloudOff,
         actions: [
           if (canFinish)
             EatovaDialogAction(
@@ -1127,7 +1127,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             SignalNote(
               l.trainingActualMissing,
               tone: t.warning,
-              icon: Icons.warning_amber_rounded,
+              icon: AppIcons.warning,
               boxed: true,
             ),
             const SizedBox(height: 10),
@@ -1201,7 +1201,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                           l.trainingTimerSaveFailed,
                           key: const ValueKey('training-timer-save-error'),
                           tone: t.danger,
-                          icon: Icons.error_outline_rounded,
+                          icon: AppIcons.error,
                           boxed: true,
                           liveRegion: true,
                           action: SoftPillButton(
@@ -1209,7 +1209,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                             onTap: _pendingWrites > 0
                                 ? null
                                 : () => unawaited(_persist(_retryIntent)),
-                            icon: Icons.refresh_rounded,
+                            icon: AppIcons.refresh,
                             label: l.trainingTimerRetry,
                           ),
                         ),

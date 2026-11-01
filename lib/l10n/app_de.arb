@@ -167,6 +167,15 @@
   "commonSave": "Speichern",
   "commonCancel": "Abbrechen",
   "commonDelete": "Löschen",
+  "commonStepOf": "Schritt {current} von {total}",
+  "@commonStepOf": {
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "commonIncrease": "Erhöhen",
+  "commonDecrease": "Verringern",
   "foodDiscardChangesTitle": "Änderungen verwerfen?",
   "foodDiscardChangesBody": "Deine Änderungen an dieser Mahlzeit sind noch nicht gespeichert.",
   "foodDiscardChangesKeepEditing": "Weiter bearbeiten",

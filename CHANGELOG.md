@@ -17,6 +17,18 @@ the complete current product.
 
 ### November 2026
 
+- **UI/UX polish with ten agents** (2026-11-01,
+  [handoff](docs/PROJECT_HANDOFF.md#uiux-polish-with-ten-agents-2026-11-01),
+  [foundation](docs/design/UI-FOUNDATION-2026-11-01.md)):
+  - One icon layer (`AppIcons`) instead of three icon styles and 17 sizes;
+    sparkles only next to the word "KI".
+  - One button family with icon buttons and steppers instead of stock and
+    private buttons; loading inside the button; quiet "Not now".
+  - One list anatomy for settings, goals, pickers and every screen's rows;
+    bullet lists, numbered steps and status pills as shared widgets; an
+    11 px text minimum.
+  - Undo toasts stay 4 s and do not time out while a screen reader is on;
+    the recipe delete's undo window follows its toast.
 - **Review items built with ten agents** (2026-11-01,
   [handoff](docs/PROJECT_HANDOFF.md#review-items-built-with-ten-agents-2026-11-01),
   [review](docs/FEATURE-REVIEW-2026-11-01.md)):

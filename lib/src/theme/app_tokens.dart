@@ -98,6 +98,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.knob,
     required this.knobRing,
     required this.glowStrength,
+    required this.iconGrade,
   });
 
   /// Page ground (scaffold).
@@ -317,6 +318,12 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// light; lower in light, where the same tint reads as a lavender cloud.
   final double glowStrength;
 
+  /// Grade axis of a variable icon font such as Material Symbols (UI polish
+  /// 2026-11-01): -25 in dark, where a light glyph on a dark ground would
+  /// bloom, 0 in light. The theme's `iconTheme` reads it; a token, so no
+  /// brightness branch. The current Material Icons font ignores it.
+  final double iconGrade;
+
   /// The light palette (2026-10-04): every dark role mirrored on a soft
   /// off-white page with white cards. Same lavender family, same slot hues,
   /// same macro hue identity; the tones are deepened until they carry the
@@ -424,6 +431,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     knob: Color(0xFFFFFFFF),
     knobRing: Color(0xFF5C42D2),
     glowStrength: 0.45,
+    iconGrade: 0,
   );
 
   static const AppTokens dark = AppTokens(
@@ -514,6 +522,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     knob: Color(0xFFF5F3FA),
     knobRing: Color(0x00B9A5FF),
     glowStrength: 1,
+    iconGrade: -25,
   );
 
   /// Tokens of the nearest theme. Throws deliberately when the extension is
@@ -605,6 +614,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? knob,
     Color? knobRing,
     double? glowStrength,
+    double? iconGrade,
   }) {
     return AppTokens(
       bg: bg ?? this.bg,
@@ -679,6 +689,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       knob: knob ?? this.knob,
       knobRing: knobRing ?? this.knobRing,
       glowStrength: glowStrength ?? this.glowStrength,
+      iconGrade: iconGrade ?? this.iconGrade,
     );
   }
 
@@ -759,6 +770,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
       knob: c(knob, other.knob),
       knobRing: c(knobRing, other.knobRing),
       glowStrength: lerpDouble(glowStrength, other.glowStrength, t)!,
+      iconGrade: lerpDouble(iconGrade, other.iconGrade, t)!,
     );
   }
 }
@@ -801,6 +813,32 @@ const double kPrimaryButtonHeight = 54;
 
 /// Touch-target floor for themed Material buttons (Filled/Outlined).
 const double kButtonMinHeight = 48;
+
+// --- SPACE (polish 2026-11) --------------------------------------------------
+// New code takes only these values. Existing code moves to them only where a
+// widget is touched anyway; there is no global replace.
+const double kSpace4 = 4,
+    kSpace8 = 8,
+    kSpace12 = 12,
+    kSpace16 = 16,
+    kSpace20 = 20,
+    kSpace24 = 24,
+    kSpace32 = 32;
+
+/// Side margin of every tab and page.
+const double kPageGutter = 20;
+
+/// Inner margin of cards and list rows.
+const double kCardInset = 18;
+
+/// Leading element (badge, thumbnail) to the text column of a row.
+const double kRowLeadingGap = 14;
+
+/// Between the cards of one section.
+const double kCardGap = 14;
+
+/// Between two sections.
+const double kSectionGap = 28;
 
 /// Keyboard focus over a lit fill: white, so focus BRIGHTENS it in both
 /// palettes. The dark palette's label ink is near-black and darkened it.
@@ -994,13 +1032,15 @@ class AppType {
     );
   }
 
-  /// Body text, labels, buttons.
+  /// Body text, labels, buttons. [tabular] sets Figtree's tabular figures
+  /// (`tnum`) for numbers that change or line up in a column.
   static TextStyle ui(
     double size, {
     FontWeight weight = FontWeight.w400,
     Color? color,
     double? letterSpacing,
     double? height,
+    bool tabular = false,
   }) {
     return TextStyle(
       fontFamily: uiFamily,
@@ -1010,8 +1050,61 @@ class AppType {
       color: color,
       letterSpacing: letterSpacing,
       height: height,
+      fontFeatures: tabular
+          ? const <FontFeature>[FontFeature.tabularFigures()]
+          : null,
     );
   }
+
+  // --- Roles (UI polish 2026-11-01) -----------------------------------------
+  // Named text roles for new and touched code. Half sizes move to the nearest
+  // role when a widget is touched (10.5 -> 11, 11.5/12.5 -> 12, 13.5 -> 14,
+  // 14.5/15.5 -> 15). Nothing is set below [minSize].
+
+  /// The smallest text the app sets (Apple HIG: 11 pt).
+  static const double minSize = 11;
+
+  /// Card title, the title of a [CalmState] card: Display 19/700.
+  static TextStyle title2(Color color) =>
+      display(19, weight: FontWeight.w700, color: color, height: 1.2);
+
+  /// Section heading ([SectionHeading], [ListSection]): Display 17/700.
+  static TextStyle section(Color color) =>
+      display(17, weight: FontWeight.w700, color: color);
+
+  /// A prominent line title (option card, inline empty state): UI 16/700.
+  static TextStyle headline(Color color) =>
+      ui(16, weight: FontWeight.w700, color: color, letterSpacing: -0.2);
+
+  /// A list row's title: UI 15/600.
+  static TextStyle rowTitle(Color color) =>
+      ui(15, weight: FontWeight.w600, color: color);
+
+  /// Running text and steps: UI 15/400, line height 1.45.
+  static TextStyle body(Color color) => ui(15, color: color, height: 1.45);
+
+  /// Card and empty-state copy: UI 14/400, line height 1.4.
+  static TextStyle callout(Color color) => ui(14, color: color, height: 1.4);
+
+  /// Row subtitles and hints: UI 13/400, line height 1.35.
+  static TextStyle subhead(Color color) => ui(13, color: color, height: 1.35);
+
+  /// Meta lines: UI 12/600.
+  static TextStyle caption(Color color) =>
+      ui(12, weight: FontWeight.w600, color: color);
+
+  /// Nav labels and badges: UI 11/600, the floor.
+  static TextStyle micro(Color color) =>
+      ui(minSize, weight: FontWeight.w600, color: color);
+
+  /// Numbers in the display face (tabular figures, like [display]). For a
+  /// number inside Figtree text use `ui(..., tabular: true)`.
+  static TextStyle numeric(
+    double size, {
+    FontWeight weight = FontWeight.w700,
+    Color? color,
+    double? height,
+  }) => display(size, weight: weight, color: color, height: height);
 
   /// The shopping receipt's typewriter face. Figtree fills in glyphs DM Mono
   /// lacks, such as "½".
@@ -1048,8 +1141,9 @@ class AppType {
         letterSpacing: size * 0.07,
       );
 
-  /// Small all-caps caption above sections.
-  static TextStyle eyebrow(Color color, {double size = 10}) => TextStyle(
+  /// Small all-caps caption above sections; 11 by default, never less
+  /// ([minSize]).
+  static TextStyle eyebrow(Color color, {double size = minSize}) => TextStyle(
     fontFamily: uiFamily,
     fontFamilyFallback: uiFallback,
     fontSize: size,

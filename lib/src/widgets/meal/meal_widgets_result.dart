@@ -72,40 +72,30 @@ class _MealResultCardState extends State<MealResultCard> {
               ),
             ),
             // The app's round icon buttons (the Food header's calendar, the
-            // sheets' close ring), not bare Material glyphs.
+            // sheets' close ring), not bare Material glyphs. The heart is a
+            // toggle: filled while saved, its spoken name says the state.
             if (widget.onToggleFavorite != null) ...[
               const SizedBox(width: 8),
-              // The spoken name says the state, as the tooltip did before.
-              Tooltip(
-                message: widget.isFavorite
+              AppIconButton(
+                key: const ValueKey('analyse-favorite-button'),
+                selected: widget.isFavorite,
+                semanticLabel: widget.isFavorite
                     ? l10n.foodRemoveFavoriteTooltip
                     : l10n.foodAddFavoriteTooltip,
-                excludeFromSemantics: true,
-                child: HeaderIconButton.custom(
-                  key: const ValueKey('analyse-favorite-button'),
-                  semanticLabel: widget.isFavorite
-                      ? l10n.foodRemoveFavoriteTooltip
-                      : l10n.foodAddFavoriteTooltip,
-                  onTap: () => widget.onToggleFavorite!(result),
-                  child: Icon(
-                    widget.isFavorite
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_outline_rounded,
-                    color: widget.isFavorite ? t.accentText : null,
-                  ),
+                onTap: () => widget.onToggleFavorite!(result),
+                child: StateIcon(
+                  AppIcons.favorite,
+                  on: widget.isFavorite,
+                  color: widget.isFavorite ? t.accentText : null,
                 ),
               ),
             ],
             const SizedBox(width: 8),
-            Tooltip(
-              message: l10n.foodDetailsTooltip,
-              excludeFromSemantics: true,
-              child: HeaderIconButton(
-                key: const ValueKey('analyse-info-button'),
-                icon: Icons.info_outline_rounded,
-                semanticLabel: l10n.foodDetailsTooltip,
-                onTap: () => _showInfo(context),
-              ),
+            AppIconButton(
+              key: const ValueKey('analyse-info-button'),
+              icon: AppIcons.info,
+              semanticLabel: l10n.foodDetailsTooltip,
+              onTap: () => _showInfo(context),
             ),
           ],
         ),
@@ -598,15 +588,17 @@ class MealResultActions extends StatelessWidget {
         SoftPillButton(
           key: const ValueKey('analyse-adjust-button'),
           onTap: onAdjust,
-          icon: Icons.tune_rounded,
+          icon: AppIcons.tune,
           label: l10n.foodAdjustPortionButton,
+          // Directly above the primary action: as tall as it.
+          size: SoftPillSize.regular,
           expand: true,
         ),
         const SizedBox(height: 10),
         PrimaryActionButton(
           key: const ValueKey('analyse-add-daily-button'),
           onTap: added ? null : onAdd,
-          icon: added ? Icons.check_circle_rounded : Icons.add_rounded,
+          icon: added ? AppIcons.filled(AppIcons.checkCircle) : AppIcons.add,
           label: added ? l10n.foodAddedToDailyLabel : l10n.commonAdd,
         ),
       ],

@@ -161,7 +161,7 @@ class _PlanEditorState extends State<_PlanEditor> {
         result == SyncDelivery.delivered
             ? context.l10n.mealPlanSaved
             : context.l10n.mealPlanSavedOffline,
-        icon: Icons.check_circle_outline,
+        icon: AppIcons.checkCircle,
       );
       Navigator.pop(context);
     } catch (error) {
@@ -321,9 +321,9 @@ class _PlanEditorState extends State<_PlanEditor> {
                             ),
                           ),
                           Icon(
-                            Icons.chevron_right_rounded,
-                            color: t.ink2,
-                            size: 20,
+                            AppIcons.chevronRight,
+                            color: t.ink3,
+                            size: AppIconSize.standard,
                           ),
                         ],
                       ),
@@ -355,7 +355,7 @@ class _PlanEditorState extends State<_PlanEditor> {
                   child: SoftPillButton(
                     key: const ValueKey('meal-plan-editor-change'),
                     label: l.mealPlanEditorChange,
-                    icon: Icons.swap_horiz_rounded,
+                    icon: AppIcons.swapHoriz,
                     tone: SoftPillTone.neutral,
                     onTap: _saving ? null : () => _chooseRecipe(null),
                   ),
@@ -403,7 +403,8 @@ class _PlanEditorState extends State<_PlanEditor> {
                       for (final day in _followingDays)
                         FilterChipPill(
                           key: ValueKey('meal-plan-also-${localDayKey(day)}'),
-                          label: DateFormat.MEd(l.localeName).format(day),
+                          // As in the week strip; the full date is spoken.
+                          label: '${todayWeekdayShort(day, l)} ${day.day}',
                           semanticLabel: DateFormat.MMMMEEEEd(
                             l.localeName,
                           ).format(day),
@@ -420,23 +421,17 @@ class _PlanEditorState extends State<_PlanEditor> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  l.mealPlanCookAheadHint,
-                  style: AppType.ui(13, color: t.ink2, height: 1.45),
-                ),
+                const SizedBox(height: kSpace8),
+                Text(l.mealPlanCookAheadHint, style: AppType.subhead(t.ink2)),
               ],
-              const SizedBox(height: 10),
-              Text(
-                l.mealPlanSnapshotHint,
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
-              ),
+              const SizedBox(height: kSpace20),
+              Text(l.mealPlanSnapshotHint, style: AppType.subhead(t.ink3)),
               if (_error != null) ...[
                 const SizedBox(height: 12),
                 SignalNote(
                   _error!,
                   tone: t.danger,
-                  icon: Icons.error_outline_rounded,
+                  icon: AppIcons.error,
                   boxed: true,
                 ),
               ],
@@ -444,7 +439,7 @@ class _PlanEditorState extends State<_PlanEditor> {
               PrimaryActionButton(
                 key: const ValueKey('meal-plan-save'),
                 label: _saving ? l.mealPlanSaving : l.commonSave,
-                icon: Icons.check_rounded,
+                icon: AppIcons.check,
                 onTap: _saving || _amount == null ? null : _save,
               ),
             ],
@@ -464,7 +459,7 @@ String? _perServing(FitnessRecipe recipe, AppLocalizations l) {
   return l.recipesKcalProteinSummary(kcal.round(), protein.round());
 }
 
-/// The eyebrow above an editor field, in [SheetField]'s own label style.
+/// The eyebrow above an editor field: caps at the type floor (11 px).
 /// Silent for screen readers: the field below speaks its name itself.
 class _EditorLabel extends StatelessWidget {
   const _EditorLabel(this.text);
@@ -476,16 +471,16 @@ class _EditorLabel extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 7),
       child: Text(
         text.toUpperCase(),
-        style: AppType.eyebrow(context.t.ink2, size: 9.5),
+        style: AppType.eyebrow(context.t.ink2),
       ),
     ),
   );
 }
 
-/// Servings as the app's stepper: round minus and plus in a pill capsule,
-/// half a serving per step, with the typed value in the middle. The field
-/// stays free text, so 1.25 servings or a pasted value still work; the
-/// editor validates it as before.
+/// Servings as the app's stepper: the accent minus and plus of [AppStepper]
+/// in a pill capsule, half a serving per step, with the typed value in the
+/// middle in the stepper's numeric face. The field stays free text, so 1.25
+/// servings or a pasted value still work; the editor validates it as before.
 class _ServingsStepper extends StatefulWidget {
   const _ServingsStepper({
     required this.controller,
@@ -532,6 +527,7 @@ class _ServingsStepperState extends State<_ServingsStepper> {
   void _stepBy(int direction) {
     final next = _neighbour(direction);
     if (next == null) return;
+    HapticFeedback.selectionClick();
     widget.controller.text = formatDecimalInput(
       next,
       context.l10n,
@@ -545,14 +541,15 @@ class _ServingsStepperState extends State<_ServingsStepper> {
     final t = context.t;
     final l = context.l10n;
     final error = widget.errorText;
-    Widget button(int direction) => _ServingsStepButton(
-      actionKey: ValueKey(
+    Widget button(int direction) => AppIconButton(
+      buttonKey: ValueKey(
         'meal-plan-servings-${direction < 0 ? 'dec' : 'inc'}',
       ),
-      icon: direction < 0 ? Icons.remove_rounded : Icons.add_rounded,
+      icon: direction < 0 ? AppIcons.remove : AppIcons.add,
       semanticLabel: direction < 0
           ? l.onboardingStepDownSemanticLabel
           : l.onboardingStepUpSemanticLabel,
+      tone: IconButtonTone.accent,
       onTap: widget.enabled && _neighbour(direction) != null
           ? () => _stepBy(direction)
           : null,
@@ -584,13 +581,7 @@ class _ServingsStepperState extends State<_ServingsStepper> {
                     onChanged: (_) => widget.onChanged(),
                     cursorColor: t.accent,
                     cursorOpacityAnimates: false,
-                    style: AppType.ui(
-                      18,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                    ).copyWith(
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                    style: AppType.numeric(20, color: t.ink),
                     decoration: InputDecoration(
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -602,7 +593,11 @@ class _ServingsStepperState extends State<_ServingsStepper> {
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(vertical: 12),
                       hintText: formatDecimal(1.5, l),
-                      hintStyle: AppType.ui(18, color: t.ink2),
+                      hintStyle: AppType.numeric(
+                        20,
+                        weight: FontWeight.w400,
+                        color: t.ink2,
+                      ),
                     ),
                   ),
                 ),
@@ -615,56 +610,10 @@ class _ServingsStepperState extends State<_ServingsStepper> {
           const SizedBox(height: 6),
           Text(
             error,
-            style: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
+            style: AppType.ui(12, weight: FontWeight.w500, color: t.danger),
           ),
         ],
       ],
-    );
-  }
-}
-
-/// Round 44 px stepper button in the accent tint (the training brief's).
-class _ServingsStepButton extends StatelessWidget {
-  const _ServingsStepButton({
-    required this.actionKey,
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-  });
-
-  final Key actionKey;
-  final IconData icon;
-  final String semanticLabel;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final enabled = onTap != null;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: semanticLabel,
-      child: PressScale(
-        enabled: enabled,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.4,
-          child: Material(
-            color: t.accentTint,
-            shape: const CircleBorder(),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: actionKey,
-              onTap: onTap,
-              customBorder: const CircleBorder(),
-              child: SizedBox.square(
-                dimension: 44,
-                child: Icon(icon, size: 22, color: t.accentText),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -719,11 +668,11 @@ class _DayFieldState extends State<_DayField> {
                 child: Row(
                   children: [
                     Icon(
-                      Icons.calendar_month_rounded,
-                      size: 20,
-                      color: t.accent,
+                      AppIcons.calendar,
+                      size: AppIconSize.standard,
+                      color: t.accentText,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: kSpace12),
                     Expanded(
                       child: Text(
                         widget.text,
@@ -735,7 +684,11 @@ class _DayFieldState extends State<_DayField> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Icon(Icons.chevron_right_rounded, size: 20, color: t.ink2),
+                    Icon(
+                      AppIcons.chevronRight,
+                      size: AppIconSize.standard,
+                      color: t.ink3,
+                    ),
                   ],
                 ),
               ),

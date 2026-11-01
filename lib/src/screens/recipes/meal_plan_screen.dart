@@ -137,9 +137,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         removal
             ? (delivered ? l.mealPlanRemoved : l.mealPlanRemovedOffline)
             : (delivered ? l.mealPlanSaved : l.mealPlanSavedOffline),
-        icon: removal
-            ? Icons.delete_outline_rounded
-            : Icons.check_circle_outline_rounded,
+        icon: removal ? AppIcons.delete : AppIcons.checkCircle,
         tone: removal ? SnackTone.neutral : SnackTone.positive,
       );
     } catch (error) {
@@ -151,7 +149,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
           removal && error is! MealPlanAlreadyEaten
               ? context.l10n.mealPlanRemoveError
               : _mealPlanErrorText(error, context.l10n),
-          icon: Icons.error_outline_rounded,
+          icon: AppIcons.error,
           tone: SnackTone.error,
         );
       }
@@ -172,7 +170,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         key: const ValueKey('meal-plan-remove-dialog'),
         title: l.mealPlanRemoveTitle,
         body: l.mealPlanRemoveBody(title),
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         destructive: true,
         confirmKey: const ValueKey('meal-plan-remove-confirm'),
         confirmLabel: l.mealPlanRemoveConfirm,
@@ -200,7 +198,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         builder: (dialogContext) => EatovaDialog(
           key: const ValueKey('meal-plan-eat-day-dialog'),
           title: l.mealPlanEatDayTitle,
-          icon: Icons.event_available_outlined,
+          icon: AppIcons.eventAvailable,
           content: Text(
             l.mealPlanEatDayBody(
               plan.recipe.displayTitle(l),
@@ -430,26 +428,19 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                     ),
                   if (store.mealPlansLoadFailed)
                     Padding(
-                      padding: const EdgeInsets.only(top: 16),
-                      child: AppCard(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              l.mealPlanLoadError,
-                              style: AppType.ui(14, color: t.ink, height: 1.4),
-                            ),
-                            const SizedBox(height: 12),
-                            SoftPillButton(
-                              key: const ValueKey('meal-plan-retry'),
-                              label: l.mealPlanRetry,
-                              icon: Icons.refresh_rounded,
-                              onTap: store.mealPlansLoading
-                                  ? null
-                                  : store.retryMealPlans,
-                            ),
-                          ],
+                      padding: const EdgeInsets.only(top: kSpace16),
+                      // The cached plan stays below: a calm note, no red.
+                      child: SignalNote(
+                        l.mealPlanLoadError,
+                        icon: AppIcons.cloudOff,
+                        boxed: true,
+                        action: SoftPillButton(
+                          key: const ValueKey('meal-plan-retry'),
+                          label: l.mealPlanRetry,
+                          icon: AppIcons.refresh,
+                          onTap: store.mealPlansLoading
+                              ? null
+                              : store.retryMealPlans,
                         ),
                       ),
                     ),
@@ -469,7 +460,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                         child: SoftPillButton(
                           key: const ValueKey('meal-plan-suggest'),
                           label: l.mealPlanSuggestAction,
-                          icon: Icons.calendar_view_week_rounded,
+                          icon: AppIcons.eventNote,
                           onTap: () => showWeekPlanSuggestion(
                             context,
                             store: store,
@@ -535,13 +526,18 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             if (eaten > 0) TextSpan(text: ' · ${l.mealPlanEatenCount(eaten)}'),
           ],
         ),
-        style: AppType.ui(13.5, color: t.ink2, height: 1.35),
+        style: AppType.ui(14, color: t.ink2, height: 1.35, tabular: true),
       );
     } else if (showProgress) {
       summary = Row(
         children: [
           if (complete) ...[
-            Icon(Icons.check_circle_rounded, size: 16, color: t.success),
+            StateIcon(
+              AppIcons.checkCircle,
+              on: true,
+              size: AppIconSize.small,
+              color: t.success,
+            ),
             const SizedBox(width: 6),
           ],
           Flexible(
@@ -551,10 +547,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                   : l.mealPlanShoppingProgress(done, total),
               key: const ValueKey('shopping-progress-label'),
               style: AppType.ui(
-                13.5,
+                14,
                 weight: complete ? FontWeight.w700 : FontWeight.w600,
                 color: complete ? t.success : t.ink2,
                 height: 1.35,
+                tabular: true,
               ),
             ),
           ),
@@ -562,19 +559,17 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       );
     }
 
+    // The button dims itself at a window end.
     Widget arrow({
       required String key,
       required IconData icon,
       required String label,
       required VoidCallback? onTap,
-    }) => Opacity(
-      opacity: onTap == null ? 0.4 : 1,
-      child: HeaderIconButton(
-        key: ValueKey(key),
-        icon: icon,
-        semanticLabel: label,
-        onTap: onTap,
-      ),
+    }) => HeaderIconButton(
+      key: ValueKey(key),
+      icon: icon,
+      semanticLabel: label,
+      onTap: onTap,
     );
 
     final heading = Column(
@@ -591,12 +586,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             textScaler: MediaQuery.textScalerOf(
               context,
             ).clamp(maxScaleFactor: 1.6),
-            style: AppType.display(
-              19,
-              weight: FontWeight.w700,
-              color: t.ink,
-              height: 1.2,
-            ),
+            style: AppType.title2(t.ink),
           ),
         ),
         if (summary != null) ...[const SizedBox(height: 3), summary],
@@ -607,7 +597,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       children: [
         arrow(
           key: 'meal-plan-previous-week',
-          icon: Icons.chevron_left_rounded,
+          icon: AppIcons.chevronLeft,
           label: l.mealPlanPreviousWeek,
           onTap: _week.isAfter(_firstPlanDay(today))
               ? () => _showWeek(-7)
@@ -616,7 +606,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         const SizedBox(width: 6),
         arrow(
           key: 'meal-plan-next-week',
-          icon: Icons.chevron_right_rounded,
+          icon: AppIcons.chevronRight,
           label: l.mealPlanNextWeek,
           onTap: end.isBefore(_lastPlanDay(today)) ? () => _showWeek(7) : null,
         ),
@@ -717,9 +707,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               // below for an empty one.
               add: entries.isEmpty && !coldLoad
                   ? null
-                  : _RoundAddButton(
+                  : AppIconButton(
                       key: ValueKey('meal-plan-add-$key'),
-                      label: l.mealPlanAdd,
+                      icon: AppIcons.add,
+                      semanticLabel: l.mealPlanAdd,
+                      tone: IconButtonTone.accent,
+                      size: IconButtonSize.compact,
                       onTap: add,
                     ),
             ),
@@ -735,7 +728,9 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             else
               _GroupCard(
                 // Where the text starts: beside the photo, or under it.
-                dividerIndent: _largeText(context) ? 14 : 83,
+                dividerIndent: _largeText(context)
+                    ? kCardInset
+                    : kCardInset + _kMealThumb + kRowLeadingGap,
                 children: [
                   for (final plan in entries) _mealRow(context, day, plan),
                 ],
@@ -769,11 +764,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       recipe: recipe,
       slot: plan.slot,
       title: recipe.displayTitle(l),
+      // A dot never starts a line.
       meta: [
         plan.slot.label(l),
         l.mealPlanPortionCount(plan.servings),
         if (kcal != null) '${kcalThousands(kcal, l)} kcal',
-      ].map(_keepTogether).join(' · '),
+      ].map(_keepTogether).join('\u00A0· '),
       note: note,
       noteColor: plan.isEaten ? t.accentText : t.ink2,
       toggle: _EatToggle(
@@ -800,7 +796,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               enabled: !busy,
               position: PopupMenuPosition.under,
               style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
-              icon: Icon(Icons.more_horiz_rounded, color: t.ink2),
+              icon: Icon(AppIcons.moreHoriz, color: t.ink2),
               onSelected: (value) {
                 if (value == 'edit') {
                   _edit(day, plan: plan);
@@ -811,12 +807,12 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               itemBuilder: (_) => [
                 eatovaMenuItem(
                   value: 'edit',
-                  icon: Icons.edit_outlined,
+                  icon: AppIcons.edit,
                   label: l.mealPlanEdit,
                 ),
                 eatovaMenuItem(
                   value: 'delete',
-                  icon: Icons.delete_outline_rounded,
+                  icon: AppIcons.delete,
                   label: l.mealPlanRemoveAction,
                   destructive: true,
                 ),
@@ -841,9 +837,20 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       if (receipt.isEmpty && ready)
         Padding(
           padding: const EdgeInsets.only(top: 16),
-          child: _ShoppingEmpty(
+          child: CalmState(
             key: const ValueKey('shopping-summary'),
-            onPlan: () => _edit(_defaultPlanDay),
+            card: true,
+            icon: AppIcons.shoppingBasket,
+            title: l.mealPlanShoppingEmptyHeading,
+            text: l.mealPlanShoppingEmpty,
+            actions: [
+              SoftPillButton(
+                key: const ValueKey('shopping-empty-plan'),
+                label: l.mealPlanAdd,
+                icon: AppIcons.add,
+                onTap: () => _edit(_defaultPlanDay),
+              ),
+            ],
           ),
         ),
       if (!receipt.isEmpty) ...[
@@ -856,7 +863,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             builder: (button) => SoftPillButton(
               key: const ValueKey('shopping-share'),
               label: l.shareTextAction,
-              icon: Icons.ios_share_rounded,
+              icon: AppIcons.iosShare,
               tone: SoftPillTone.neutral,
               onTap: () =>
                   _shareShopping(receipt, checks, shareOriginOf(button)),
@@ -894,7 +901,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       origin: origin,
     );
     if (!mounted || outcome != TextShareOutcome.copied) return;
-    showAppSnack(context, l.shoppingCopied, icon: Icons.check_circle_rounded);
+    showAppSnack(context, l.shoppingCopied, icon: AppIcons.checkCircle);
   }
 
   /// Writes the one check a tap on [row] makes; a light tick confirms it
@@ -1013,7 +1020,7 @@ class _GroupCard extends StatelessWidget {
                 height: 1,
                 thickness: 1,
                 indent: dividerIndent,
-                endIndent: 14,
+                endIndent: kCardInset,
                 color: t.line,
               ),
             children[i],
@@ -1032,11 +1039,9 @@ class _Footnote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 4),
-    child: Text(
-      text,
-      style: AppType.ui(12.5, color: context.t.ink3, height: 1.45),
-    ),
+    // On the day headings' optical edge.
+    padding: const EdgeInsets.symmetric(horizontal: 2),
+    child: Text(text, style: AppType.subhead(context.t.ink3)),
   );
 }
 

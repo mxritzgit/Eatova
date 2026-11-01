@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/theme/app_icons.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/rows.dart';
 
@@ -13,7 +14,7 @@ void main() {
       await tester.pumpWidget(designHarness(
         PageHeader(title: 'Profil', backEnabled: false, onBack: () => backs++),
       ));
-      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
+      await tester.tap(find.byIcon(AppIcons.chevronLeft));
       expect(backs, 0);
     });
     testWidgets('der Zurueck-Knopf poppt die Route', (tester) async {
@@ -38,7 +39,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Profil'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
+      await tester.tap(find.byIcon(AppIcons.chevronLeft));
       await tester.pumpAndSettle();
       expect(find.text('Profil'), findsNothing);
     });
@@ -116,14 +117,89 @@ void main() {
         ),
       );
 
-      // Drawn in capitals like the tabs' eyebrows, read in its own case.
-      final label = tester.widget<Text>(find.text('KONTO'));
-      expect(label.semanticsLabel, 'Konto');
-      expect(find.text('Konto'), findsNothing);
+      // The section heading since 2026-11-01, no longer an all-caps caption.
+      expect(find.text('Konto'), findsOneWidget);
       expect(find.text('E-Mail'), findsOneWidget);
       expect(find.text('Abmelden'), findsOneWidget);
       // Dividers only BETWEEN rows.
       expect(find.byType(Divider), findsNWidgets(2));
+    });
+  });
+
+  group('ListRow', () {
+    testWidgets('ist ein Knoten; die Trenner beginnen an der Textspalte, auch '
+        'bei 320 px und 2,0x Text', (tester) async {
+      final handle = tester.ensureSemantics();
+      addTearDown(tester.view.reset);
+      Widget section() => ListSection(
+        title: 'Konto',
+        children: <Widget>[
+          ListRow(
+            key: const ValueKey('row-profile'),
+            icon: AppIcons.person,
+            title: 'Profil',
+            subtitle: 'Ziele und Koerperdaten',
+            value: '72 kg',
+            trailing: ListTrailing.chevron,
+            onTap: () {},
+          ),
+          const ListRow(
+            icon: AppIcons.translate,
+            title: 'Sprache',
+            value: 'Deutsch',
+            trailing: ListTrailing.value,
+          ),
+          ListRow(
+            key: const ValueKey('row-pick'),
+            title: 'Englisch',
+            trailing: ListTrailing.check,
+            selected: true,
+            onTap: () {},
+          ),
+        ],
+      );
+      for (final (width, scale) in <(double, double)>[(393, 1), (320, 2)]) {
+        final row = '$width px, ${scale}x';
+        tester.view.devicePixelRatio = 3;
+        tester.view.physicalSize = Size(width * 3, 2556);
+        await tester.pumpWidget(
+          designHarness(
+            section(),
+            textScaler: TextScaler.linear(scale),
+            scrollable: true,
+          ),
+        );
+        expect(tester.takeException(), isNull, reason: row);
+
+        final divider = find.byType(Divider).first;
+        final lineStart =
+            tester.getRect(divider).left + tester.widget<Divider>(divider).indent!;
+        expect(
+          lineStart,
+          moreOrLessEquals(tester.getRect(find.text('Sprache')).left),
+          reason: '$row: der Trenner beginnt an der Textspalte',
+        );
+
+        final node = tester.getSemantics(
+          find.byKey(const ValueKey('row-profile')),
+        );
+        expect(
+          node,
+          isSemantics(isButton: true, hasTapAction: true),
+          reason: row,
+        );
+        expect(
+          node.label,
+          allOf(contains('Profil'), contains('Ziele'), contains('72 kg')),
+          reason: '$row: Titel, Untertitel und Wert in einem Knoten',
+        );
+        expect(
+          tester.getSemantics(find.byKey(const ValueKey('row-pick'))),
+          isSemantics(isSelected: true, isInMutuallyExclusiveGroup: true),
+          reason: '$row: eine Haken-Zeile ist eine Wahl in einer Gruppe',
+        );
+      }
+      handle.dispose();
     });
   });
 
@@ -157,15 +233,13 @@ void main() {
       expect(find.text('Metrisch'), findsOneWidget);
       expect(find.byIcon(Icons.straighten), findsOneWidget);
       expect(find.byIcon(Icons.info_outline), findsOneWidget);
-      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
-    });
+      expect(find.byIcon(AppIcons.chevronRight), findsOneWidget);
 
-    testWidgets('chevron:false laesst den Pfeil weg', (tester) async {
+      // chevron: false drops the arrow.
       await tester.pumpWidget(
         designHarness(const SettingsRow(title: 'Nur Text', chevron: false)),
       );
-
-      expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
+      expect(find.byIcon(AppIcons.chevronRight), findsNothing);
     });
 
     testWidgets('titleColor uebersteuert die Tintenfarbe', (tester) async {

@@ -5,12 +5,16 @@
 ///
 /// These widgets read color via `context.t` ([AppTokens]) and type via
 /// [AppType]; none of them knows `app_colors.dart` or a hardcoded color.
+/// Icons come from [AppIcons] (exported here), sizes from [AppIconSize].
+/// The API overview for screens: docs/design/UI-FOUNDATION-2026-11-01.md.
 library;
 
+export '../../theme/app_icons.dart';
 export 'app_icon.dart';
 export 'controls.dart';
 export 'creation.dart';
 export 'dialogs.dart';
+export 'lists.dart';
 export 'menus.dart';
 export 'meters.dart';
 export 'option_card.dart';

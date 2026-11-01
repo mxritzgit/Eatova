@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import 'motion.dart';
 
@@ -13,9 +14,11 @@ import 'motion.dart';
 /// before anyone can read it — a behaviour bug, not an a11y fix.
 const Duration kSnackShort = Duration(milliseconds: 1600); // plain confirmation
 const Duration kSnackAction = Duration(
-  milliseconds: 2200,
+  milliseconds: 4000,
 ); // with action (undo)
-// — short enough to clearly self-dismiss, long enough to still hit the undo.
+// — long enough to read the toast and still reach the undo (owner decision
+// 2026-11-01; it was 2.2 s). With a screen reader it does not time out at
+// all ([_AutoDismiss]).
 const Duration kSnackError = Duration(milliseconds: 3000);
 
 /// Meaning instead of color: non-visual layers say WHAT a toast is, the theme
@@ -33,10 +36,10 @@ Color _toneColor(AppTokens t, SnackTone tone) => switch (tone) {
 /// The glyph a toast shows when its caller names none: every toast carries
 /// the tone disc, so feedback looks the same on every screen.
 IconData _toneIcon(SnackTone tone) => switch (tone) {
-  SnackTone.positive => Icons.check_circle_outline_rounded,
-  SnackTone.neutral => Icons.info_outline_rounded,
-  SnackTone.warning => Icons.warning_amber_rounded,
-  SnackTone.error => Icons.error_outline_rounded,
+  SnackTone.positive => AppIcons.checkCircle,
+  SnackTone.neutral => AppIcons.info,
+  SnackTone.warning => AppIcons.warning,
+  SnackTone.error => AppIcons.error,
 };
 
 /// Alpha of the disc behind the glyph. Glyph and disc share one color, so the
@@ -108,7 +111,8 @@ Color _legibleOnSnack(Color tone, Color ground, Color onGround) {
 /// Auto-dismiss: Flutter's built-in snackbar timer does NOT fire reliably when
 /// system animations are off ("reduce motion") — the entrance completes
 /// synchronously and the timer never starts. Hence an own dismiss timer on the
-/// content's lifecycle ([_AutoDismiss]), cancelled on dispose.
+/// content's lifecycle ([_AutoDismiss]), cancelled on dispose. A toast with
+/// an [action] stays while a screen reader is on, as Flutter's own does.
 void showAppSnack(
   BuildContext context,
   String message, {
@@ -117,6 +121,7 @@ void showAppSnack(
   Color? accent,
   SnackBarAction? action,
   Duration? duration,
+  ValueChanged<SnackBarClosedReason>? onClosed,
 }) {
   // A live sheet host wins over the caller's own messenger: the root one
   // paints UNDER a modal sheet's scrim, where an undo button looks alive but
@@ -142,6 +147,7 @@ void showAppSnack(
     actionOverflowThreshold: 1,
     content: _AutoDismiss(
       duration: effective,
+      holdForScreenReader: action != null,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -153,11 +159,10 @@ void showAppSnack(
     ),
     action: action,
   );
-  if (host != null) {
-    host._show(snackBar, message, hasIcon: true);
-  } else {
-    messenger.showSnackBar(snackBar);
-  }
+  final closed = host != null
+      ? host._show(snackBar, message, hasIcon: true)
+      : messenger.showSnackBar(snackBar).closed;
+  if (onClosed != null) closed?.then(onClosed);
 }
 
 /// Toast surface INSIDE a modal sheet that stays open after actions (add-meal,
@@ -260,9 +265,13 @@ class _SnackHostState extends State<SnackHost> {
 
   /// Presents [snackBar] and keeps the strip reserved until it has closed —
   /// the controller's `closed` future is the only lifecycle signal needed.
-  void _show(SnackBar snackBar, String message, {required bool hasIcon}) {
+  Future<SnackBarClosedReason>? _show(
+    SnackBar snackBar,
+    String message, {
+    required bool hasIcon,
+  }) {
     final messenger = _messenger;
-    if (messenger == null) return;
+    if (messenger == null) return null;
     setState(() {
       _visible = true;
       _message = message;
@@ -278,6 +287,7 @@ class _SnackHostState extends State<SnackHost> {
         _current = null;
       });
     });
+    return controller.closed;
   }
 
   /// Real fonts and large text can wrap past the old two-line estimate.
@@ -361,10 +371,20 @@ class _SnackHostState extends State<SnackHost> {
 /// the built-in auto-dismiss does not fire (animations off). Bound to the
 /// content's state, so dispose cancels it — no dangling timer in tests.
 class _AutoDismiss extends StatefulWidget {
-  const _AutoDismiss({required this.child, required this.duration});
+  const _AutoDismiss({
+    required this.child,
+    required this.duration,
+    this.holdForScreenReader = false,
+  });
 
   final Widget child;
   final Duration duration;
+
+  /// A toast with an action (undo) does not time out while TalkBack or
+  /// VoiceOver is on: swiping to the action takes longer than any dwell
+  /// time. Flutter's SnackBar keeps such a toast the same way; it leaves
+  /// with its action, a swipe, the screen reader's dismiss or the next toast.
+  final bool holdForScreenReader;
 
   @override
   State<_AutoDismiss> createState() => _AutoDismissState();
@@ -372,6 +392,7 @@ class _AutoDismiss extends StatefulWidget {
 
 class _AutoDismissState extends State<_AutoDismiss> {
   Timer? _timer;
+  bool _screenReader = false;
 
   @override
   void initState() {
@@ -379,13 +400,14 @@ class _AutoDismissState extends State<_AutoDismiss> {
     // Slightly after the snackbar duration: gives the built-in timer priority
     // but steps in when it does not fire.
     _timer = Timer(widget.duration + const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      // The setting as of the last build, so a change meanwhile counts.
+      if (widget.holdForScreenReader && _screenReader) return;
       // removeCurrentSnackBar (not hideCurrentSnackBar): removes IMMEDIATELY
       // without exit animation, so it is gone even with animations off.
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.removeCurrentSnackBar(reason: SnackBarClosedReason.timeout);
-      }
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.removeCurrentSnackBar(reason: SnackBarClosedReason.timeout);
     });
   }
 
@@ -396,7 +418,10 @@ class _AutoDismissState extends State<_AutoDismiss> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    _screenReader = MediaQuery.accessibleNavigationOf(context);
+    return widget.child;
+  }
 }
 
 /// Small icon that pops in on appearance (easeOutBack scale).
@@ -426,7 +451,7 @@ class _SnackIcon extends StatelessWidget {
           color: tone.withValues(alpha: _kSnackIconTint),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, size: 15, color: tone),
+        child: Icon(icon, size: AppIconSize.small, color: tone),
       ),
     );
   }

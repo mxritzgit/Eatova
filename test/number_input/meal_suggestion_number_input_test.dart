@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/widgets/design/controls.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 
 import '../support/harness.dart';
@@ -61,8 +62,8 @@ void main() {
             reason: eingabe,
           );
           expect(tester.widget<Text>(hinweis).data, erwartet, reason: eingabe);
-          expect(tester.widget<ButtonStyleButton>(hinzufuegen).onPressed,
-              isNull, reason: eingabe);
+          expect(tester.widget<AppIconButton>(hinzufuegen).onTap, isNull,
+              reason: eingabe);
         }
 
         // Five digits and a separator fit the five-digit budget.

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
+import 'today_prompt_card.dart';
 
 /// The health intro on Today (reviews 2026-10-19 and 2026-10-22): what the
 /// steps are for, before the permission prompt asks. Shown once the
@@ -71,7 +72,7 @@ class TodayWeightImportCard extends StatelessWidget {
         healthConnect ? 'Health Connect' : 'Apple Health',
       ),
       connectLabel: l10n.healthWeightImportAccept,
-      icon: Icons.monitor_weight_outlined,
+      icon: AppIcons.monitorWeight,
       onConnect: onAccept,
       onDismiss: onDismiss,
     );
@@ -106,87 +107,58 @@ class _HealthPromptCard extends StatefulWidget {
 }
 
 class _HealthPromptCardState extends State<_HealthPromptCard> {
-  bool _busy = false;
+  /// The answer in flight (true: the primary one); it shows busy.
+  bool? _pending;
 
   /// One answer at a time; the store removes the card once it is recorded.
-  Future<void> _answer(Future<void> Function() action) async {
-    if (_busy) return;
-    setState(() => _busy = true);
+  Future<void> _answer(bool primary, Future<void> Function() action) async {
+    if (_pending != null) return;
+    setState(() => _pending = primary);
     try {
       await action();
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _pending = null);
     }
   }
+
+  /// The tap of one answer's button: null while the other one runs.
+  VoidCallback? _tap(bool primary, Future<void> Function() action) =>
+      _pending == null || _pending == primary
+      ? () => _answer(primary, action)
+      : null;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Semantics(
-      container: true,
-      explicitChildNodes: true,
+    final steps = widget.icon == null;
+    return TodayPromptCard(
+      key: widget.cardKey,
       label: widget.title,
-      child: Container(
-        key: widget.cardKey,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: t.surf,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.cardBorder),
+      title: widget.title,
+      icon: widget.icon,
+      glyph: steps ? const StepsIcon() : null,
+      glyphColor: steps ? t.activity : null,
+      body: widget.body,
+      actions: <Widget>[
+        PrimaryActionButton(
+          key: widget.connectKey,
+          label: widget.connectLabel,
+          icon: steps ? AppIcons.link : AppIcons.check,
+          // The touch floor the other in-card primaries use.
+          height: kButtonMinHeight,
+          busy: _pending ?? false,
+          onTap: _tap(true, widget.onConnect),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                if (widget.icon case final icon?)
-                  IconTile(icon: icon, color: t.accent)
-                else
-                  IconTile.custom(color: t.activity, child: const StepsIcon()),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      widget.title,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              widget.body,
-              style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-            ),
-            const SizedBox(height: 14),
-            PrimaryActionButton(
-              key: widget.connectKey,
-              label: widget.connectLabel,
-              icon: widget.icon == null
-                  ? Icons.favorite_border_rounded
-                  : Icons.check_rounded,
-              // The touch floor the other in-card primaries use.
-              height: kButtonMinHeight,
-              onTap: _busy ? null : () => _answer(widget.onConnect),
-            ),
-            const SizedBox(height: 8),
-            SoftPillButton(
-              key: widget.dismissKey,
-              label: l10n.healthPromptDismiss,
-              onTap: _busy ? null : () => _answer(widget.onDismiss),
-              tone: SoftPillTone.neutral,
-              expand: true,
-            ),
-          ],
+        SoftPillButton(
+          key: widget.dismissKey,
+          label: l10n.healthPromptDismiss,
+          busy: _pending == false,
+          onTap: _tap(false, widget.onDismiss),
+          tone: SoftPillTone.quiet,
+          expand: true,
         ),
-      ),
+      ],
     );
   }
 }

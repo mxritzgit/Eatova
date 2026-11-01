@@ -4733,3 +4733,95 @@ commit once an app build with v2 briefs is released.
   import, calorie cycling, Premium `/woche`, menu scan, Sign in with Apple
   (paid Apple program). Unchanged owner decisions: portrait lock on
   Android tablets, reminder offer from day 1, cache per-row skip.
+
+**Delivery state (2026-11-01):** [PR #175](https://github.com/mxritzgit/Eatova/pull/175)
+squash-merged as `d4d22775` (all checks green, 753 test files, coverage
+96.53 %). The first attempt to go live failed because the Infisical CLI
+session had expired; after the owner's `infisical login` both went live on
+2026-11-01, in order:
+
+- Migration `20261101100000` (about 07:47 UTC): dry run in a transaction
+  aborted by a `raise` (v1 plan valid; target 3 valid; null, 0, 15, 2.5 and
+  "3" rejected; 0 stored plans or chat plans invalid under the new check),
+  then file and `schema_migrations` row in one transaction. 62 registered;
+  grants unchanged (anon no, authenticated and service_role yes).
+- coach-chat v62 → v63 (07:49 UTC) from an LF export of `d4d22775`,
+  following the deploy workflow's steps locally: plan, rollback guard,
+  migrations registered (62/62), live source before equal to main before
+  #175 (no drift; only `handler.ts`, `training_context.ts`,
+  `training_plan.ts` differ from the target), deploy, live source after
+  byte-identical, boot probe 204/401/401, record `success`.
+
+An app build with this code may now follow. `ROLLBACK_FLOORS['coach-chat']`
+stays at `27ee6c44` until a build with v2 briefs is released (see the
+rollout order above).
+
+## UI/UX polish with ten agents, 2026-11-01
+
+Owner request, same night: ten more agents to make the app "einfach schön"
+(no generic buttons, nice lists and enumerations, calm icons), research how
+good Flutter UI/UX is done, keep the design's basic principle.
+
+**How:** one research agent wrote the
+[brief](design/UI-POLISH-BRIEF-2026-11-01.md) (inventory with counts,
+principles with HIG/Material/NN/g sources, component specs, a screen plan
+with disjoint file ownership); one foundation agent built the shared layer
+([reference](design/UI-FOUNDATION-2026-11-01.md)) on
+`design/2026-11-01-foundation`; then eight screen agents in parallel (Today,
+Food and entry, Recipes with cooking mode, meal plan and shopping, Training,
+Coach, Profile/Settings/Premium, Onboarding/Auth/Trends/shared), each with
+before/after captures in dark and light plus 320 x 568 at 2.0x text,
+reviewed image by image. Merged into `design/ui-polish-2026-11-01`.
+
+**What changed:**
+- One icon layer: `AppIcons` (152 concepts) over Material Icons; the repo
+  rule now forbids `Icons.*` anywhere in `lib/` except `app_icons.dart`.
+  Before: 690 references, 178 glyphs in three styles, 17 sizes, four "edit"
+  glyphs. Sparkles only next to the word "KI"; Trends uses a chart glyph.
+- One button family: `AppIconButton` (five tones, three sizes) and
+  `AppStepper` replace 20 raw `IconButton`s, 8 private round buttons and
+  11 private steppers; loading states are `busy` inside the button; "Not
+  now" and "Cancel" are quiet.
+- One list anatomy: `ListSection`/`ListRow` replace the two settings row
+  systems; dividers start at the text column, a chevron only for navigation,
+  picker rows announce a choice in a group.
+- `BulletList`, `NumberedSteps`, `StepNumber` (one numbering style instead of
+  four), `StatusPill` instead of 18 private pills, `IconBadge` in three sizes
+  instead of seven tiles, `CalmState`/`SignalNote` for empty and error
+  states, named type roles with an 11 px minimum.
+- Behaviour: an undo toast stays 4 s instead of 2.2 s and does not time out
+  while TalkBack or VoiceOver is on; the recipe delete's undo window then
+  lasts as long as its toast (`showAppSnack(onClosed:)`), with a regression
+  test that fails on the old window.
+
+**Decisions taken overnight:**
+- Icons, option B: Material Symbols Rounded was measured and rejected.
+  With all 152 concepts referenced the tree-shaken font stayed at 444,760 B
+  (limit 250 kB; APK +232 kB; the FILL axis survived subsetting, checked
+  with fontTools). No new dependency; switching later changes only
+  `app_icons.dart`. A pre-instanced font (about 116 kB) would be the way to
+  get the Symbols look.
+- Sparkles only beside "KI"; form numbers stay as `StepNumber`; undo toast
+  4 s.
+
+**Open (owner, or follow-up for the base layer):**
+- Look at: two lit actions on Today day 0 (the next slot's "+" and the card
+  answers); Today card titles (19 px) against the hero's "Kalorien" label;
+  the lit "+" next to "Start" in the Training header; the sparkle painter
+  in the Coach day card eyebrow; unused ARB keys `coachBriefMinutesUnit`,
+  `goalsManualSemanticLabel`.
+- Already so before, seen in the captures: the paywall eyebrow cut at
+  320 px and 2.0x, macro tiles cut "/130 g" at 320 px and 2.0x, the undo
+  toast wraps by syllable at 2.0x, "Pause überspringen" wraps at 390 px in
+  German (the rest bar's 16 px constant against the button's 18 px since
+  #174).
+- Base-layer wishes from the screen agents: an editable or child value and
+  hold-to-repeat in `AppStepper`; a locked-on state, a glass tone, a 54 px
+  dock size and a semantic hint for `AppIconButton`; a dense
+  `SoftPillButton` that does not break words at 2.0x; a 44 px target and own
+  semantics node for `FilterChipPill(sm)`; a non-merging end action and a
+  shrinking end in `ListRow`; a child for `StatusPill`; wrapping in
+  `SectionHeading(action:)`; a live region in `CalmState`; a large-text toast
+  layout; a menu trigger in the library (Training has `training_menu.dart`).
+- Device checks for this round: the whole app in both themes, with a
+  screen reader (undo toasts, picker rows), and at the largest text size.

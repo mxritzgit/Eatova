@@ -274,10 +274,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         key: const ValueKey('settings-sync-status'),
         leading: SettingsRowTile(
           icon: blocked
-              ? Icons.cloud_off_outlined
+              ? AppIcons.cloudOff
               : pending
-                  ? Icons.cloud_sync_outlined
-                  : Icons.cloud_done_outlined,
+                  ? AppIcons.cloudSync
+                  : AppIcons.cloudDone,
           tone: blocked ? t.warning : (pending ? t.accent : null),
         ),
         title: widget.syncStatusReadable
@@ -297,7 +297,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: EatovaTextAction(
               buttonKey: const ValueKey('settings-sync-retry'),
               capsule: true,
-              icon: Icons.refresh_rounded,
+              icon: AppIcons.refresh,
               label: _syncing
                   ? l10n.settingsSyncRunning
                   : l10n.settingsSyncRetry,
@@ -334,7 +334,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (repo != null && repo.currentUser?.hasPassword != false)
         SettingsStudioRow(
           key: const ValueKey('settings-change-password'),
-          leading: const SettingsRowTile(icon: Icons.lock_outline_rounded),
+          leading: const SettingsRowTile(icon: AppIcons.lock),
           title: l10n.settingsChangePasswordTitle,
           subtitle: l10n.settingsChangePasswordSubtitle,
           onTap: () => _openPasswortAendern(repo, email),
@@ -344,7 +344,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (repo != null && email != null)
         SettingsStudioRow(
           key: const ValueKey('settings-change-email'),
-          leading: const SettingsRowTile(icon: Icons.alternate_email_rounded),
+          leading: const SettingsRowTile(icon: AppIcons.alternateEmail),
           title: l10n.settingsChangeEmailTitle,
           subtitle: l10n.settingsChangeEmailSubtitle,
           onTap: () => _openMailAendern(repo, email),
@@ -368,7 +368,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return SettingsStudioRow(
       key: const ValueKey('settings-subscription'),
       leading: SettingsRowTile(
-        icon: Icons.workspace_premium_outlined,
+        icon: AppIcons.workspacePremium,
         tone: premium ? t.accent : null,
       ),
       title: l10n.settingsSubscriptionRow,
@@ -382,7 +382,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ => l10n.subscriptionTierFree,
       },
       // Management leaves the app for the store.
-      endIcon: managed ? Icons.open_in_new_rounded : null,
+      external: managed,
       onTap: !managed
           ? widget.onOpenPremium
           : storeManaged
@@ -402,7 +402,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showAppSnack(
       context,
       l10n.settingsPasswordChangedSnack,
-      icon: Icons.lock_reset_rounded,
+      icon: AppIcons.lockReset,
     );
   }
 
@@ -419,7 +419,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showAppSnack(
       context,
       l10n.settingsEmailChangedSnack,
-      icon: Icons.mark_email_read_rounded,
+      icon: AppIcons.markEmailRead,
     );
   }
 
@@ -439,7 +439,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (widget.onOpenGoals != null)
         SettingsStudioRow(
           key: const ValueKey('settings-open-goals'),
-          leading: const SettingsRowTile(icon: Icons.tune_rounded),
+          leading: const SettingsRowTile(icon: AppIcons.tune),
           title: l10n.goalsPageTitle,
           subtitle: l10n.settingsOpenGoalsSubtitle,
           onTap: widget.onOpenGoals,
@@ -481,7 +481,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // Three states, not a toggle (DESIGN_REFACTOR §2: default is
           // ThemeMode.system), so the row is named after what it sets, not
           // after one of its values.
-          leading: const SettingsRowTile(icon: Icons.contrast_rounded),
+          leading: const SettingsRowTile(icon: AppIcons.contrast),
           title: l10n.settingsAppearanceTitle,
           subtitle: l10n.settingsAppearanceSubtitle,
           chevron: false,
@@ -494,7 +494,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       if (localeController != null)
         SettingsStudioRow(
-          leading: const SettingsRowTile(icon: Icons.translate_rounded),
+          leading: const SettingsRowTile(icon: AppIcons.translate),
           title: l10n.settingsLanguageTitle,
           subtitle: l10n.settingsLanguageSubtitle,
           chevron: false,
@@ -526,7 +526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (widget.onExportData != null)
         SettingsStudioRow(
           key: const ValueKey('settings-export'),
-          leading: const SettingsRowTile(icon: Icons.file_download_outlined),
+          leading: const SettingsRowTile(icon: AppIcons.fileDownload),
           title: l10n.settingsExportDataTitle,
           subtitle: l10n.settingsExportDataSubtitle,
           onTap: _openExport,
@@ -535,37 +535,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // [SettingsLegalLinks] (DESIGN_REFACTOR §6).
       _LegalRow(
         rowKey: const ValueKey('settings-privacy-link'),
-        icon: Icons.shield_outlined,
+        icon: AppIcons.shield,
         title: l10n.settingsLegalPrivacy,
         url: kPrivacyUrl,
       ),
       _LegalRow(
         rowKey: const ValueKey('settings-terms-link'),
-        icon: Icons.description_outlined,
+        icon: AppIcons.description,
         title: l10n.settingsLegalTerms,
         url: kTermsUrl,
       ),
       _LegalRow(
         rowKey: const ValueKey('settings-imprint-link'),
-        icon: Icons.storefront_outlined,
+        icon: AppIcons.storefront,
         title: l10n.settingsLegalImprint,
         url: kImprintUrl,
       ),
       // Mail with version and build in the subject; the body is the user's.
       SettingsStudioRow(
         key: const ValueKey('settings-support'),
-        leading: const SettingsRowTile(icon: Icons.mail_outline_rounded),
+        leading: const SettingsRowTile(icon: AppIcons.mail),
         title: l10n.settingsSupportTitle,
         subtitle: l10n.settingsSupportSubtitle,
         chevron: false,
-        endIcon: Icons.open_in_new_rounded,
+        external: true,
         onTap: () => unawaited(openSupportMail(context)),
       ),
       // Version, data provenance (ODbL attribution for OpenFoodFacts) and the
       // privacy link — in this group because the sheet is entirely about data.
       SettingsStudioRow(
         key: const ValueKey('settings-about'),
-        leading: const SettingsRowTile(icon: Icons.info_outline_rounded),
+        leading: const SettingsRowTile(icon: AppIcons.info),
         title: l10n.settingsAboutTitle,
         subtitle: l10n.settingsAboutSubtitle,
         onTap: () => showEatovaSheet<void>(context, const _AboutSheet()),
@@ -611,7 +611,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (widget.onSignOut != null)
           SettingsStudioRow(
             key: const ValueKey('settings-sign-out'),
-            leading: const SettingsRowTile(icon: Icons.logout_rounded),
+            leading: const SettingsRowTile(icon: AppIcons.logout),
             title: l10n.settingsSignOutTitle,
             chevron: false,
             onTap: _signOut,
@@ -629,11 +629,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ) {
     final explainer = AppType.ui(13, color: t.ink2, height: 1.45);
     final stacked = settingsTileStacked(context);
-    final tile = ExcludeSemantics(
-      child: SettingsRowTile(icon: Icons.delete_outline_rounded, tone: t.danger),
-    );
-    final chevron =
-        Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3);
+    final tile = SettingsRowTile(icon: AppIcons.delete, tone: t.danger);
     final texts = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -644,12 +640,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 3),
         Text(
           l10n.settingsDeleteAccountBlockSubtitle,
-          style: AppType.ui(13, color: t.ink2, height: 1.35),
+          style: AppType.subhead(t.ink2),
         ),
       ],
     );
     // A card of its own with a faint danger wash instead of a rim; the whole
-    // card is the target.
+    // card is the target. No chevron: it starts an action, it does not lead
+    // to a page (the sign-out row above follows the same rule).
     return Material(
       color: Color.alphaBlend(t.danger.withValues(alpha: 0.07), t.surf),
       shape: RoundedRectangleBorder(
@@ -670,7 +667,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               if (stacked) ...<Widget>[
-                Row(children: <Widget>[tile, const Spacer(), chevron]),
+                tile,
                 const SizedBox(height: 10),
                 texts,
               ] else
@@ -679,8 +676,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     tile,
                     const SizedBox(width: kSettingsTileGap),
                     Expanded(child: texts),
-                    const SizedBox(width: 10),
-                    chevron,
                   ],
                 ),
               const SizedBox(height: 14),
@@ -739,7 +734,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (dialogContext) => EatovaDialog(
         title: l10n.settingsSignOutConfirmTitle,
         // Without a known address the logout medallion stands instead.
-        icon: Icons.logout_rounded,
+        icon: AppIcons.logout,
         lead: email == null || email.isEmpty
             ? null
             : DecisionAccountCapsule(
@@ -790,25 +785,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return <Widget>[
       if (!widget.syncStatusReadable)
         DecisionConsequence(
-          icon: Icons.cloud_off_outlined,
+          icon: AppIcons.cloudOff,
           color: t.ink2,
           text: l10n.settingsSignOutPendingUnknown,
         )
       else if (pending > 0)
         DecisionConsequence(
-          icon: Icons.cloud_upload_outlined,
+          icon: AppIcons.cloudUpload,
           color: t.accentText,
           text: l10n.settingsSignOutPending(pending),
         ),
       if (photos > 0)
         DecisionConsequence(
-          icon: Icons.hide_image_outlined,
+          icon: AppIcons.hideImage,
           color: t.danger,
           text: l10n.settingsSignOutPhotos(photos),
         ),
       if (widget.syncStatusReadable && pending == 0 && photos == 0)
         DecisionConsequence(
-          icon: Icons.cloud_done_outlined,
+          icon: AppIcons.cloudDone,
           color: t.success,
           text: l10n.settingsSignOutSafe,
         ),
@@ -894,7 +889,7 @@ class _LegalRow extends StatelessWidget {
       leading: SettingsRowTile(icon: icon),
       title: title,
       chevron: false,
-      endIcon: Icons.open_in_new_rounded,
+      external: true,
       // [openLegalLink], not a bare `launchUrl`: a device without a browser
       // handler otherwise answers a legally required row with nothing (J2).
       onTap: () => openLegalLink(context, url),
@@ -943,7 +938,7 @@ class _AccountIdentityRow extends StatelessWidget {
       children: <Widget>[
         Text(
           l10n.settingsEmailLabel,
-          style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
+          style: AppType.caption(t.ink2),
         ),
         const SizedBox(height: 3),
         Text(
@@ -1035,146 +1030,49 @@ class _AboutSheet extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             l10n.settingsAboutDescription,
-            style: AppType.ui(14, color: t.ink2, height: 1.5),
+            style: AppType.callout(t.ink2),
           ),
           const SizedBox(height: 20),
-          // One card: the facts as label/value rows, the policy as its last
-          // row.
-          Material(
-            color: t.surf,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(rCard),
-              side: BorderSide(color: t.cardBorder),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                FutureBuilder<PackageInfo>(
-                  future: _packageInfo,
-                  builder: (context, snapshot) {
-                    final info = snapshot.data;
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        _AboutRow(
-                          label: l10n.settingsAboutVersionLabel,
-                          value: info?.version ?? '—',
-                        ),
-                        const _AboutDivider(),
-                        _AboutRow(
-                          label: l10n.settingsAboutBuildLabel,
-                          value: info?.buildNumber ?? '—',
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const _AboutDivider(),
-                _AboutRow(
-                  label: l10n.settingsAboutSourcesLabel,
-                  value: _sources(l10n),
-                ),
-                const _AboutDivider(),
-                // GDPR Art. 13 / app stores: privacy reachable after login too.
-                const _PrivacyLinkRow(),
-              ],
-            ),
+          // One list: the facts as title/value rows, the policy as its last
+          // row (it leaves the app, so it ends in the open-in-new mark).
+          FutureBuilder<PackageInfo>(
+            future: _packageInfo,
+            builder: (context, snapshot) {
+              final info = snapshot.data;
+              return ListSection(
+                inset: ListDividerInset.edge,
+                spacing: 0,
+                children: <Widget>[
+                  ListRow(
+                    title: l10n.settingsAboutVersionLabel,
+                    value: info?.version ?? '—',
+                    trailing: ListTrailing.value,
+                  ),
+                  ListRow(
+                    title: l10n.settingsAboutBuildLabel,
+                    value: info?.buildNumber ?? '—',
+                    trailing: ListTrailing.value,
+                  ),
+                  ListRow(
+                    title: l10n.settingsAboutSourcesLabel,
+                    value: _sources(l10n),
+                    trailing: ListTrailing.value,
+                  ),
+                  // GDPR Art. 13 / app stores: privacy reachable after login
+                  // too. The key stays `profile-privacy-link`
+                  // (DESIGN_REFACTOR §6); `settings-privacy-link` one level up
+                  // is a DIFFERENT control.
+                  ListRow(
+                    key: const ValueKey('profile-privacy-link'),
+                    title: l10n.settingsPrivacyPolicyLinkLabel,
+                    trailing: ListTrailing.external,
+                    onTap: () => openLegalLink(context, kPrivacyUrl),
+                  ),
+                ],
+              );
+            },
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _AboutDivider extends StatelessWidget {
-  const _AboutDivider();
-
-  @override
-  Widget build(BuildContext context) => Divider(
-        height: 1,
-        thickness: 1,
-        indent: kSettingsRowPad,
-        endIndent: kSettingsRowPad,
-        color: context.t.line,
-      );
-}
-
-/// Tappable privacy row in the [_AboutSheet]; opens the policy externally.
-///
-/// The key stays `profile-privacy-link` (DESIGN_REFACTOR §6);
-/// `settings-privacy-link` one level up is a DIFFERENT control.
-class _PrivacyLinkRow extends StatelessWidget {
-  const _PrivacyLinkRow();
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return InkWell(
-      key: const ValueKey('profile-privacy-link'),
-      onTap: () => openLegalLink(context, kPrivacyUrl),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 56),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: kSettingsRowPad,
-            vertical: 12,
-          ),
-          child: Row(
-            children: <Widget>[
-              const ExcludeSemantics(
-                child: SettingsRowTile(icon: Icons.shield_outlined),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  context.l10n.settingsPrivacyPolicyLinkLabel,
-                  style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Icon(Icons.open_in_new_rounded, color: t.ink3, size: 18),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Label left, value right — the fact rows of the [_AboutSheet].
-class _AboutRow extends StatelessWidget {
-  const _AboutRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 52),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: kSettingsRowPad,
-          vertical: 14,
-        ),
-        child: Row(
-          children: <Widget>[
-            Text(
-              label,
-              style: AppType.ui(14, weight: FontWeight.w500, color: t.ink2),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                value,
-                textAlign: TextAlign.right,
-                style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1394,7 +1292,7 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
           ? l10n.settingsDeleteAccountSheetSubtitle
           : l10n.settingsDeleteAccountCodeSentTo(widget.email),
       destructive: true,
-      icon: Icons.delete_outline_rounded,
+      icon: AppIcons.delete,
       actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
       actionEnabled: ersterSchritt ? !_busy && _scharf(wort) : !_busy,
       onAction: ersterSchritt
@@ -1406,14 +1304,14 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
             key: const ValueKey('settings-delete-subscription-warning'),
             l10n.settingsDeleteSubscriptionWarning(widget.billingStore!.wire),
             tone: context.t.warning,
-            icon: Icons.autorenew_rounded,
+            icon: AppIcons.autorenew,
             boxed: true,
             action: widget.onManageSubscription == null
                 ? null
                 : SoftPillButton(
                     key: const ValueKey('settings-delete-subscription-manage'),
                     label: l10n.premiumManage,
-                    icon: Icons.open_in_new_rounded,
+                    icon: AppIcons.openInNew,
                     onTap: widget.onManageSubscription,
                   ),
           ),
@@ -1443,7 +1341,7 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
             key: const ValueKey('settings-delete-error'),
             _fehler!,
             tone: context.t.danger,
-            icon: Icons.error_outline_rounded,
+            icon: AppIcons.error,
             boxed: true,
           ),
       ],

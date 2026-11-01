@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
 import '../../models/number_input.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
-import '../common/lively.dart';
 import '../common/motion.dart';
-import '../design/sheets.dart';
+import '../design/design.dart';
 import 'food_glyphs.dart';
 import 'saved_meal_presentation.dart';
 import 'product_search_presentation.dart';
@@ -250,7 +249,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
       if (widget.savedPresentation && widget.onEdit != null)
         _PanelAction(
           key: widget.editButtonKey,
-          icon: Icons.edit_outlined,
+          icon: AppIcons.edit,
           label: l10n.foodFavoriteEdit,
           onTap: widget.onEdit!,
         ),
@@ -260,18 +259,17 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
         _PanelAction(
           key: widget.favoriteButtonKey,
           icon: widget.isFavorite
-              ? Icons.favorite_rounded
-              : Icons.favorite_outline_rounded,
+              ? AppIcons.filled(AppIcons.favorite)
+              : AppIcons.favorite,
           label: widget.isFavorite
               ? l10n.foodRemoveFavoriteTooltip
               : l10n.foodAddFavoriteTooltip,
-          highlighted: widget.isFavorite,
           onTap: toggleFavorite,
         ),
       if (widget.savedPresentation && widget.onRemove != null)
         _PanelAction(
           key: widget.removeButtonKey,
-          icon: Icons.delete_outline_rounded,
+          icon: AppIcons.delete,
           label: l10n.foodRemoveTooltip,
           onTap: widget.onRemove!,
         ),
@@ -280,7 +278,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
           widget.onRemove != null)
         _PanelAction(
           key: widget.removeButtonKey,
-          icon: Icons.history_toggle_off_rounded,
+          icon: AppIcons.historyToggleOff,
           label: l10n.foodRemoveFromRecents,
           onTap: widget.onRemove!,
         ),
@@ -516,124 +514,49 @@ class _PortionPanel extends StatelessWidget {
   }
 }
 
-/// The one primary action: a round accent "+" that casts its light onto
-/// the tile and sinks into it while pressed. A FilledButton underneath, so
-/// the app's button theme, semantics and disabled state apply; only shape
-/// and size are local. The light fades in as the portion becomes valid.
+/// The one primary action of the open row: the lit round "+" (an
+/// [AppIconButton] in the primary tone), dimmed to "not yet" while the
+/// typed portion is implausible.
 class _AddButton extends StatelessWidget {
   const _AddButton({required this.buttonKey, required this.onAdd});
 
   final Key? buttonKey;
   final VoidCallback? onAdd;
 
-  static const double _size = 52;
-
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final enabled = onAdd != null;
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(end: enabled ? 1 : 0),
-      duration: motionDuration(context, kMotionLightUp),
-      curve: kMotionCurve,
-      builder: (context, strength, child) => PressScale(
-        enabled: enabled,
-        rebound: true,
-        builder: (context, press, child) => DecoratedBox(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            boxShadow: castLight(
-              t,
-              t.accentGlow,
-              strength: strength,
-              press: press,
-            ),
-          ),
-          child: child,
-        ),
-        child: child!,
-      ),
-      child: FilledButton(
-        key: buttonKey,
-        onPressed: enabled
-            ? () {
-                HapticFeedback.selectionClick();
-                onAdd!();
-              }
-            : null,
-        style: FilledButton.styleFrom(
-          shape: const CircleBorder(),
-          fixedSize: const Size.square(_size),
-          minimumSize: const Size.square(_size),
-          padding: EdgeInsets.zero,
-        ),
-        child: Semantics(
-          label: context.l10n.commonAdd,
-          child: const FoodGlyphIcon(FoodGlyph.plus, size: 24),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    key: buttonKey,
+    semanticLabel: context.l10n.commonAdd,
+    tone: IconButtonTone.primary,
+    size: IconButtonSize.large,
+    haptic: true,
+    onTap: onAdd,
+    child: const FoodGlyphIcon(FoodGlyph.plus),
+  );
 }
 
 /// Quiet secondary action in the open panel (pin a recent, remove a
-/// favorite): a small soft pill, never competing with the accent "+".
+/// favorite): a neutral soft pill, never competing with the lit "+". A set
+/// favorite says so with its filled heart.
 class _PanelAction extends StatelessWidget {
   const _PanelAction({
     super.key,
     required this.icon,
     required this.label,
     required this.onTap,
-    this.highlighted = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final bool highlighted;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      child: Material(
-        color: t.tile,
-        borderRadius: BorderRadius.circular(rPill),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 48),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    icon,
-                    size: 17,
-                    color: highlighted ? t.accent : t.ink2,
-                  ),
-                  const SizedBox(width: 7),
-                  Flexible(
-                    child: Text(
-                      label,
-                      style: AppType.ui(
-                        13,
-                        weight: FontWeight.w600,
-                        color: t.inkSoft,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SoftPillButton(
+    label: label,
+    icon: icon,
+    onTap: onTap,
+    tone: SoftPillTone.neutral,
+  );
 }
 
 /// One soft capsule: minus, the typed grams, plus. The whole capsule is the
@@ -681,9 +604,11 @@ class _PortionStepperState extends State<_PortionStepper> {
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Row(
         children: [
-          _StepperButton(
-            icon: Icons.remove_rounded,
+          AppIconButton(
+            icon: AppIcons.remove,
             semanticLabel: l10n.foodDecreaseAmountSemantics,
+            tone: IconButtonTone.accent,
+            target: 48,
             onTap: () => widget.onBump(-widget.step),
             onLongPress: () => widget.onBump(-widget.step * 5),
           ),
@@ -748,56 +673,15 @@ class _PortionStepperState extends State<_PortionStepper> {
               ],
             ),
           ),
-          _StepperButton(
-            icon: Icons.add_rounded,
+          AppIconButton(
+            icon: AppIcons.add,
             semanticLabel: l10n.foodIncreaseAmountSemantics,
+            tone: IconButtonTone.accent,
+            target: 48,
             onTap: () => widget.onBump(widget.step),
             onLongPress: () => widget.onBump(widget.step * 5),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// A 48 pt round button inside the capsule: the capsule carries the surface,
-/// the icon the accent. Long press steps five times.
-class _StepperButton extends StatelessWidget {
-  const _StepperButton({
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final IconData icon;
-
-  /// A11y: the +/- icon alone tells a screen reader nothing.
-  final String semanticLabel;
-
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: PressScale(
-        child: Material(
-          type: MaterialType.transparency,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            child: SizedBox.square(
-              dimension: 48,
-              child: Icon(icon, size: 22, color: t.accentText),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -822,7 +706,10 @@ class _LivePreview extends StatelessWidget {
           TextSpan(
             children: [
               TextSpan(
-                text: '${result.caloriesKcal}',
+                text: formatThousands(
+                  result.caloriesKcal,
+                  context.l10n.localeName,
+                ),
                 style: AppType.display(26, color: t.ink, height: 1.1),
               ),
               TextSpan(

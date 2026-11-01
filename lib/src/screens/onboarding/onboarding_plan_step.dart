@@ -168,20 +168,10 @@ class _PlanHero extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    ExcludeSemantics(
-                      child: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: t.accentTint,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.calculate_outlined,
-                          size: 17,
-                          color: t.accentText,
-                        ),
-                      ),
+                    const IconBadge(
+                      icon: AppIcons.calculate,
+                      size: IconBadgeSize.sm,
+                      tone: IconBadgeTone.accent,
                     ),
                   ],
                 ),
@@ -427,8 +417,8 @@ class _PathCard extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 1),
                 child: ExcludeSemantics(
                   child: Icon(
-                    directional ? Icons.flag_outlined : Icons.balance_rounded,
-                    size: 18,
+                    directional ? AppIcons.flag : AppIcons.balance,
+                    size: AppIconSize.button,
                     color: t.accentText,
                   ),
                 ),
@@ -490,7 +480,7 @@ class _Poles extends StatelessWidget {
       style: AppType.display(26, color: pole.accent ? t.accentText : t.ink),
     );
     final arrow = ExcludeSemantics(
-      child: Icon(Icons.arrow_forward_rounded, size: 22, color: t.ink3),
+      child: Icon(AppIcons.arrowForward, size: AppIconSize.tile, color: t.ink3),
     );
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -572,7 +562,11 @@ class _WarningNote extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(Icons.health_and_safety_outlined, size: 18, color: t.warning),
+          Icon(
+            AppIcons.healthAndSafety,
+            size: AppIconSize.button,
+            color: t.warning,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -758,14 +752,17 @@ class _Answers extends StatelessWidget {
                       endIndent: 18,
                       color: t.line,
                     ),
-                  SettingsRow(
+                  ListRow(
                     key: ValueKey('onboarding-edit-${item.step.name}'),
                     title: item.label,
                     subtitle: item.value,
-                    chevron: false,
                     dense: true,
-                    trailing: ExcludeSemantics(
-                      child: Icon(Icons.edit_outlined, size: 19, color: t.ink3),
+                    // The pencil, not a chevron: the row reopens a question
+                    // and Next brings the user straight back here.
+                    end: Icon(
+                      AppIcons.edit,
+                      size: AppIconSize.standard,
+                      color: t.ink3,
                     ),
                     onTap: () => onEdit(item.step),
                   ),

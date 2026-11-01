@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
-import '../common/lively.dart';
 import '../common/motion.dart';
-import '../design/text_scale.dart';
+import '../design/design.dart';
 import 'diary_meal_card.dart' show diaryAmountLabel;
 
 // The row language of the add-meal sheet (design polish 2026-10-02): every
@@ -14,9 +14,9 @@ import 'diary_meal_card.dart' show diaryAmountLabel;
 // with a small unit — and rows sit in ONE card with hairline dividers.
 
 /// Left inset of the hairline between rows: row margin and padding (6 + 10,
-/// so the tile sits 16 in like the entry-method rows) plus tile plus gap,
-/// so the line starts under the text like in the Food diary card.
-const double kMealRowDividerInset = 6 + 10 + kMealRowTileSize + 12;
+/// so the tile sits 16 in like the entry-method rows) plus tile plus the
+/// list gap, so the line starts under the text like in the Food diary card.
+const double kMealRowDividerInset = 6 + 10 + kMealRowTileSize + kRowLeadingGap;
 
 /// Side of the leading tile.
 const double kMealRowTileSize = 40;
@@ -25,7 +25,8 @@ const double kMealRowTileSize = 40;
 const double kSavedMealTileSize = 48;
 
 /// [kMealRowDividerInset] for rows with a [kSavedMealTileSize] tile.
-const double kSavedMealDividerInset = 6 + 10 + kSavedMealTileSize + 12;
+const double kSavedMealDividerInset =
+    6 + 10 + kSavedMealTileSize + kRowLeadingGap;
 
 /// One shared surface makes saved meals read as a collection, not search hits.
 class SavedMealCollection extends StatelessWidget {
@@ -143,12 +144,12 @@ class MealItemRow extends StatelessWidget {
           title,
           maxLines: stacked ? null : 2,
           overflow: stacked ? null : TextOverflow.ellipsis,
-          style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+          style: AppType.rowTitle(t.ink),
         ),
         if (secondary != null) ...[
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           DefaultTextStyle.merge(
-            style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3),
+            style: AppType.subhead(t.ink2),
             child: secondary!,
           ),
         ],
@@ -170,7 +171,7 @@ class MealItemRow extends StatelessWidget {
             child: Row(
               children: [
                 leading,
-                const SizedBox(width: 12),
+                const SizedBox(width: kRowLeadingGap),
                 Expanded(child: copy),
                 if (!stacked && value != null) ...[
                   const SizedBox(width: 10),
@@ -223,10 +224,15 @@ class MealKcalValue extends StatelessWidget {
 /// The kcal of a whole meal, or "Unknown" for the legacy 0 sentinel.
 Widget mealKcalOrUnknown(BuildContext context, MealAnalysisResult result) {
   final known = result.caloriesKcal > 0 || result.explicitZeroKcal;
-  if (known) return MealKcalValue(number: '${result.caloriesKcal}');
+  final l10n = context.l10n;
+  if (known) {
+    return MealKcalValue(
+      number: formatThousands(result.caloriesKcal, l10n.localeName),
+    );
+  }
   return Text(
-    context.l10n.ingredientUnknown,
-    style: AppType.ui(12.5, weight: FontWeight.w600, color: context.t.ink3),
+    l10n.ingredientUnknown,
+    style: AppType.caption(context.t.ink2),
   );
 }
 
@@ -301,7 +307,7 @@ class MealItemTile extends StatelessWidget {
         ),
         alignment: Alignment.center,
         child: Icon(
-          Icons.check_rounded,
+          AppIcons.check,
           size: side * 0.55,
           color: t.onAccentFill,
         ),
@@ -361,16 +367,20 @@ class SavedMealHeader extends StatelessWidget {
     final (title, brand) = mealTitleAndBrand(result, l10n);
     final portion = mealAmountLabel(result, l10n);
     final kcalKnown = result.caloriesKcal > 0 || result.explicitZeroKcal;
-    final muted = AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3);
+    final muted = AppType.subhead(t.ink2);
     final summary = Text.rich(
       TextSpan(
         children: [
           TextSpan(text: brand == null ? '$portion · ' : '$brand · $portion · '),
           if (kcalKnown) ...[
             TextSpan(
-              text: '${result.caloriesKcal}',
-              style: AppType.ui(13, weight: FontWeight.w700, color: t.ink)
-                  .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+              text: formatThousands(result.caloriesKcal, l10n.localeName),
+              style: AppType.ui(
+                13,
+                weight: FontWeight.w700,
+                color: t.ink,
+                tabular: true,
+              ),
             ),
             const TextSpan(text: ' kcal'),
           ] else
@@ -429,7 +439,9 @@ class SavedMealHeader extends StatelessWidget {
 }
 
 /// The round tinted "+" of a saved favorite: logs its saved portion at once.
-/// A 36 px disc in a 48 px target, with the press dip.
+/// A compact accent [AppIconButton] (36 px disc) in a 48 px target. Tinted,
+/// not lit: the open panel's lit "+" stays the primary add, a list of rows
+/// does not shout.
 class MealQuickAddButton extends StatelessWidget {
   const MealQuickAddButton({
     super.key,
@@ -441,50 +453,19 @@ class MealQuickAddButton extends StatelessWidget {
   final String semanticLabel;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      container: true,
-      button: true,
-      label: semanticLabel,
-      onTap: onPressed,
-      excludeSemantics: true,
-      // The whole 48 px square takes the tap; the disc is drawn with Ink so
-      // the ripple shows on top of it.
-      child: SizedBox.square(
-        dimension: 48,
-        child: PressScale(
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              onTap: onPressed,
-              customBorder: const CircleBorder(),
-              child: Center(
-                child: Ink(
-                  width: 36,
-                  height: 36,
-                  // Tinted, not filled: the open panel's filled "+" stays the
-                  // primary add, a list of rows does not shout.
-                  decoration: ShapeDecoration(
-                    color: t.accentTint,
-                    shape: const CircleBorder(),
-                  ),
-                  child: Icon(
-                    Icons.add_rounded,
-                    size: 22,
-                    color: t.accentText,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    icon: AppIcons.add,
+    semanticLabel: semanticLabel,
+    tone: IconButtonTone.accent,
+    size: IconButtonSize.compact,
+    target: 48,
+    haptic: true,
+    onTap: onPressed,
+  );
 }
 
-/// The heart: accent when pinned, muted outline when not. 48 pt target.
+/// The heart: a plain [AppIconButton] toggle, filled in the accent while
+/// pinned. 48 pt target.
 class MealFavoriteButton extends StatelessWidget {
   const MealFavoriteButton({
     super.key,
@@ -497,24 +478,19 @@ class MealFavoriteButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return IconButton(
-      onPressed: onPressed,
-      tooltip: isFavorite
+    return AppIconButton(
+      semanticLabel: isFavorite
           ? l10n.foodRemoveFavoriteTooltip
           : l10n.foodAddFavoriteTooltip,
-      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-      icon: AnimatedSwitcher(
-        duration: motionDuration(context, kMotionPressOut),
-        transitionBuilder: (child, animation) =>
-            ScaleTransition(scale: animation, child: child),
-        child: Icon(
-          isFavorite ? Icons.favorite_rounded : Icons.favorite_outline_rounded,
-          key: ValueKey(isFavorite),
-          size: 20,
-          color: isFavorite ? t.accent : t.ink3,
-        ),
+      tone: IconButtonTone.plain,
+      selected: isFavorite,
+      target: 48,
+      onTap: onPressed,
+      child: StateIcon(
+        AppIcons.favorite,
+        on: isFavorite,
+        color: isFavorite ? context.t.accent : null,
       ),
     );
   }
@@ -545,7 +521,7 @@ class SavedMealNutrients extends StatelessWidget {
         (t.fat, l10n.foodMacroFatShort(result.resolvedFat(l10n))),
     ];
     if (parts.isEmpty) return SizedBox.shrink(key: legendKey);
-    final label = AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2);
+    final label = AppType.caption(t.ink2);
     return Wrap(
       key: legendKey,
       spacing: 12,

@@ -142,7 +142,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
         showAppSnack(
           context,
           context.l10n.exportSheetCopyFailedSnack,
-          icon: Icons.error_outline_rounded,
+          icon: AppIcons.error,
           tone: SnackTone.error,
           duration: kSnackError,
         );
@@ -153,7 +153,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
     showAppSnack(
       context,
       context.l10n.exportSheetCopiedSnack,
-      icon: Icons.content_copy_rounded,
+      icon: AppIcons.copy,
     );
   }
 
@@ -176,7 +176,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
         showAppSnack(
           context,
           context.l10n.exportShareFailed,
-          icon: Icons.error_outline_rounded,
+          icon: AppIcons.error,
           tone: SnackTone.error,
           duration: kSnackError,
         );
@@ -246,8 +246,12 @@ class _DataExportSheetState extends State<DataExportSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.folder_copy_outlined, color: t.ink, size: 28),
-                      const SizedBox(height: 12),
+                      const IconBadge(
+                        icon: AppIcons.folderCopy,
+                        size: IconBadgeSize.lg,
+                        tone: IconBadgeTone.accent,
+                      ),
+                      const SizedBox(height: 14),
                       Text(
                         document == null
                             ? l10n.exportOverview
@@ -414,7 +418,7 @@ class _CopyButton extends StatelessWidget {
   Widget build(BuildContext context) => SoftPillButton(
     key: const ValueKey('profile-export-copy'),
     label: context.l10n.exportSheetCopyButton,
-    icon: Icons.copy_rounded,
+    icon: AppIcons.copy,
     onTap: enabled ? onCopy : null,
   );
 }
@@ -431,7 +435,7 @@ class _ShareFileButton extends StatelessWidget {
   Widget build(BuildContext context) => SoftPillButton(
     key: const ValueKey('profile-export-share'),
     label: context.l10n.exportShareFile,
-    icon: Icons.ios_share_rounded,
+    icon: AppIcons.iosShare,
     tone: SoftPillTone.neutral,
     onTap: enabled ? onShare : null,
   );

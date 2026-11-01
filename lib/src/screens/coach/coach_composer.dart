@@ -166,7 +166,7 @@ class _ComposerState extends State<_Composer> {
               child: Center(
                 child: SoftPillButton(
                   key: const ValueKey('coach-composer-upgrade'),
-                  icon: Icons.auto_awesome_rounded,
+                  icon: AppIcons.workspacePremium,
                   label: l10n.coachComposerUpgrade,
                   onTap: upgrade,
                 ),
@@ -198,11 +198,12 @@ class _ComposerState extends State<_Composer> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
-                  _ComposerIcon(
+                  // Plain: the capsule carries the fill.
+                  AppIconButton(
                     key: const ValueKey('coach-attach'),
-                    icon: Icons.add_rounded,
-                    enabled: widget.canSend,
-                    onTap: widget.onAttach,
+                    icon: AppIcons.add,
+                    tone: IconButtonTone.plain,
+                    onTap: widget.canSend ? widget.onAttach : null,
                     semanticLabel: l10n.coachAttachSemanticLabel,
                   ),
                   const SizedBox(width: 2),
@@ -351,9 +352,10 @@ class _QuotaHint extends StatelessWidget {
                       semanticsLabel:
                           l10n.coachQuotaCounterLabel(remaining, limit),
                       style: AppType.ui(
-                        11.5,
+                        12,
                         weight: FontWeight.w600,
                         color: t.ink2,
+                        tabular: true,
                       ),
                     ),
                   ),
@@ -400,9 +402,10 @@ class _LengthHint extends StatelessWidget {
                 : l10n.coachComposerLengthHint(used, kCoachMaxInputChars),
             key: const ValueKey('coach-length-hint'),
             style: AppType.ui(
-              11.5,
+              12,
               weight: FontWeight.w600,
               color: reached ? t.warning : t.ink2,
+              tabular: true,
             ),
           ),
         ),
@@ -411,59 +414,13 @@ class _LengthHint extends StatelessWidget {
   }
 }
 
-class _ComposerIcon extends StatelessWidget {
-  const _ComposerIcon({
-    super.key,
-    required this.icon,
-    required this.enabled,
-    required this.onTap,
-    required this.semanticLabel,
-  });
-
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  /// Required, not optional: the button shows only a glyph, so without a name
-  /// a screen reader announces just "button".
-  final String semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: semanticLabel,
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          customBorder: const CircleBorder(),
-          child: SizedBox.square(
-            dimension: 44,
-            child: Center(
-              // Plain glyph without a chip — the capsule carries the fill.
-              child: Icon(
-                icon,
-                color: enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5),
-                size: 20,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Mic button in the composer. While [listening] a soft accent ring pulses
-/// behind the icon (static under "reduce motion").
+/// Mic button in the composer: a plain glyph like the attach button, and
+/// while [listening] an accent toggle with the filled mic and a soft ring
+/// pulsing behind it (static under "reduce motion").
 ///
-/// The listening state uses [AppTokens.accent], NOT `lime`: as a stroke on the
+/// The listening state uses the accent tones, NOT `lime`: as a stroke on the
 /// light composer capsule `lime` reaches only ~1.2:1, so the mic would look
-/// idle while recording. `accent` carries in both modes.
+/// idle while recording.
 class _MicButton extends StatefulWidget {
   const _MicButton({
     required this.enabled,
@@ -519,58 +476,41 @@ class _MicButtonState extends State<_MicButton>
     final t = context.t;
     final l10n = context.l10n;
     final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    final color = widget.listening
-        ? t.accent
-        : (widget.enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5));
-    return Semantics(
+    return AppIconButton(
       key: const ValueKey('coach-mic'),
-      button: true,
-      enabled: widget.enabled,
-      // The button is a toggle: the state belongs in the name, otherwise a
-      // screen reader user never learns that recording is running.
-      label: widget.listening
+      // A toggle: the state is also in the name, so a screen reader user
+      // learns that recording is running.
+      semanticLabel: widget.listening
           ? l10n.coachMicLabelListening
           : l10n.coachMicLabelIdle,
-      child: Material(
-        // Fill also via `accent`: `forest` at 18 % sits practically on `surf`
-        // in dark mode and was invisible there.
-        color: widget.listening
-            ? t.accent.withValues(alpha: 0.16)
-            : Colors.transparent,
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: widget.enabled ? widget.onTap : null,
-          customBorder: const CircleBorder(),
-          child: SizedBox.square(
-            dimension: 44,
-            child: Stack(
-              alignment: Alignment.center,
-              children: <Widget>[
-                if (widget.listening && !reduce)
-                  RepaintBoundary(
-                    child: AnimatedBuilder(
-                      animation: _pulse,
-                      builder: (_, __) {
-                        final v = _pulse.value;
-                        return Container(
-                          width: 24 + 14 * v,
-                          height: 24 + 14 * v,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: t.accent.withValues(alpha: 0.5 * (1 - v)),
-                              width: 1.5,
-                            ),
-                          ),
-                        );
-                      },
+      tone: widget.listening ? IconButtonTone.accent : IconButtonTone.plain,
+      selected: widget.listening,
+      onTap: widget.enabled ? widget.onTap : null,
+      child: Stack(
+        alignment: Alignment.center,
+        children: <Widget>[
+          if (widget.listening && !reduce)
+            RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _pulse,
+                builder: (_, __) {
+                  final v = _pulse.value;
+                  return Container(
+                    width: 24 + 14 * v,
+                    height: 24 + 14 * v,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: t.accent.withValues(alpha: 0.5 * (1 - v)),
+                        width: 1.5,
+                      ),
                     ),
-                  ),
-                Icon(Icons.mic_none_rounded, color: color, size: 20),
-              ],
+                  );
+                },
+              ),
             ),
-          ),
-        ),
+          StateIcon(AppIcons.mic, on: widget.listening),
+        ],
       ),
     );
   }
@@ -620,7 +560,7 @@ class _DictationLanguagePill extends StatelessWidget {
                       ? l10n.coachDictationLanguageDe
                       : l10n.coachDictationLanguageEn,
                   style: AppType.ui(
-                    12.5,
+                    12,
                     weight: FontWeight.w700,
                     color: t.accentText,
                   ),
@@ -634,9 +574,10 @@ class _DictationLanguagePill extends StatelessWidget {
   }
 }
 
-/// Send button: the design's round accent button with an up arrow once a
-/// draft can go out; a faint accent circle while it cannot (empty field,
-/// request in flight, quota used up), so it never looks live when dead.
+/// Send button: lit (the view's one primary action) with an up arrow once
+/// there is a draft; a faint accent disc while there is none, so it never
+/// looks live when dead. A draft that cannot go out (request in flight,
+/// over the cap) shows the lit button's "not yet" tint.
 class _SendButton extends StatelessWidget {
   const _SendButton({
     required this.active,
@@ -655,91 +596,20 @@ class _SendButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    final scharf = active && enabled;
-    // A bare GestureDetector carries no semantics at all, so the button was
-    // neither named nor recognisable as a button. `enabled` is part of it so
-    // the locked state is announced instead of sounding like a dead button.
     final l10n = context.l10n;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: finishesDictation
-          ? l10n.coachDictationSendLabel
-          : l10n.coachSendLabel,
-      hint: finishesDictation ? l10n.coachDictationSendHint : null,
-      child: GestureDetector(
-        key: const ValueKey('coach-send'),
-        onTap: enabled ? onTap : null,
-        behavior: HitTestBehavior.opaque,
-        // 44 px target around the design's 42 px circle.
-        child: SizedBox.square(
-          dimension: 44,
-          child: Center(
-            child: AnimatedContainer(
-              duration: motionDuration(
-                context,
-                const Duration(milliseconds: 200),
-              ),
-              curve: Curves.easeOutCubic,
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: scharf ? t.accentFill : t.accentTint,
-              ),
-              child: Icon(
-                Icons.arrow_upward_rounded,
-                color: scharf
-                    ? t.onAccentFill
-                    : t.accentText.withValues(alpha: 0.5),
-                size: 20,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Row in the attach sheet: icon tile + label.
-class _AttachTile extends StatelessWidget {
-  const _AttachTile({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(rCard),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rCard),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-          child: Row(
-            children: <Widget>[
-              IconTile(icon: icon, size: 36),
-              const SizedBox(width: 12),
-              Flexible(
-                child: Text(
-                  label,
-                  style:
-                      AppType.ui(15, weight: FontWeight.w600, color: t.ink),
-                ),
-              ),
-            ],
-          ),
+    // While dictating the button finishes it; the hint says that nothing is
+    // sent yet. MergeSemantics joins the hint into the button's own node.
+    return MergeSemantics(
+      child: Semantics(
+        hint: finishesDictation ? l10n.coachDictationSendHint : null,
+        child: AppIconButton(
+          key: const ValueKey('coach-send'),
+          icon: AppIcons.arrowUpward,
+          semanticLabel: finishesDictation
+              ? l10n.coachDictationSendLabel
+              : l10n.coachSendLabel,
+          tone: active ? IconButtonTone.primary : IconButtonTone.accent,
+          onTap: enabled ? onTap : null,
         ),
       ),
     );
@@ -787,43 +657,14 @@ class _CoachInfoSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              // No own drag handle: showEatovaSheet sets showDragHandle.
-              SheetTitle(l10n.coachTitle),
-              const SizedBox(height: 6),
-              Text(
-                l10n.coachInfoIntro,
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 18),
-              _InfoLabel(l10n.coachInfoDataLabel),
-              const SizedBox(height: 8),
-              _InfoBullet(l10n.coachInfoBulletWeight),
-              _InfoBullet(l10n.coachInfoBulletMacros),
-              _InfoBullet(l10n.coachInfoBulletMeals),
-              _InfoBullet(l10n.coachInfoBulletPlan),
-              _InfoBullet(l10n.foodPrefsCoachInfoBullet),
-              const SizedBox(height: 12),
-              Text(
-                l10n.coachInfoProvider,
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                l10n.coachReportHint,
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 20),
-              Container(height: 1, color: t.line),
-              const SizedBox(height: 18),
-              _InfoLabel(l10n.coachInfoLimitLabel),
-              const SizedBox(height: 6),
+              ..._coachInfoDisclosure(context),
               Text(
                 l10n.coachInfoLimitBody(
                   remaining,
                   dailyLimit,
                   coachQuotaResetLabel(l10n.localeName),
                 ),
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
+                style: AppType.callout(t.ink2),
               ),
               const SizedBox(height: 14),
               _QuotaBar(remaining: remaining, total: dailyLimit),
@@ -858,13 +699,13 @@ class _InfoPremium extends StatelessWidget {
           Text(
             l10n.coachInfoPremiumLine(limit),
             key: const ValueKey('coach-info-premium'),
-            style: AppType.ui(13, color: t.ink2, height: 1.45),
+            style: AppType.callout(t.ink2),
           ),
           if (upgrade != null) ...<Widget>[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             SoftPillButton(
               key: const ValueKey('coach-info-upgrade'),
-              icon: Icons.auto_awesome_rounded,
+              icon: AppIcons.workspacePremium,
               label: l10n.planLimitUpgrade,
               onTap: () {
                 Navigator.of(context).pop();
@@ -878,56 +719,42 @@ class _InfoPremium extends StatelessWidget {
   }
 }
 
-/// Section heading in the info sheet, announced as a level-2 heading under
-/// the sheet's title.
-class _InfoLabel extends StatelessWidget {
-  const _InfoLabel(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return HeadingSemantics(
-      level: 2,
-      child: Text(
-        text,
-        style: AppType.ui(13.5, weight: FontWeight.w700, color: t.ink),
-      ),
-    );
-  }
-}
-
-/// Bullet row in the info sheet (lime dot + text).
-class _InfoBullet extends StatelessWidget {
-  const _InfoBullet(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Container(
-            width: 5,
-            height: 5,
-            margin: const EdgeInsets.only(top: 7, right: 9),
-            decoration: BoxDecoration(color: t.lime, shape: BoxShape.circle),
-          ),
-          Expanded(
-            child: Text(
-              text,
-              style: AppType.ui(13, color: t.ink, height: 1.45),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+/// The C8 disclosure both info sheets open with, in this order: title,
+/// intro, what every question sends (a level-2 section with a bullet list),
+/// provider, report hint, then the limit section's heading. The callers add
+/// the limit line itself (with or without numbers).
+List<Widget> _coachInfoDisclosure(BuildContext context) {
+  final t = context.t;
+  final l10n = context.l10n;
+  return <Widget>[
+    // No own drag handle: showEatovaSheet sets showDragHandle.
+    SheetTitle(l10n.coachTitle),
+    const SizedBox(height: kSpace8),
+    Text(l10n.coachInfoIntro, style: AppType.callout(t.ink2)),
+    const SizedBox(height: kSpace24),
+    SectionHeading(title: l10n.coachInfoDataLabel),
+    const SizedBox(height: kSpace12),
+    BulletList(
+      items: <String>[
+        l10n.coachInfoBulletWeight,
+        l10n.coachInfoBulletMacros,
+        l10n.coachInfoBulletMeals,
+        l10n.coachInfoBulletPlan,
+        l10n.foodPrefsCoachInfoBullet,
+      ],
+      style: AppType.callout(t.ink),
+      gap: 10,
+    ),
+    const SizedBox(height: kSpace16),
+    Text(l10n.coachInfoProvider, style: AppType.callout(t.ink2)),
+    const SizedBox(height: kSpace12),
+    Text(l10n.coachReportHint, style: AppType.callout(t.ink2)),
+    const SizedBox(height: kSpace20),
+    Container(height: 1, color: t.line),
+    const SizedBox(height: kSpace20),
+    SectionHeading(title: l10n.coachInfoLimitLabel),
+    const SizedBox(height: kSpace8),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -959,12 +786,8 @@ class _QuotaBar extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          '$remaining / $total',
-          style:
-              AppType.display(12.5, weight: FontWeight.w600, color: t.ink),
-        ),
+        const SizedBox(height: kSpace8),
+        Text('$remaining / $total', style: AppType.numeric(14, color: t.ink)),
       ],
     );
   }

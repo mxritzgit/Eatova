@@ -10,6 +10,7 @@ import '../../../services/training_session_controller.dart';
 import '../../../theme/app_tokens.dart';
 import '../../../widgets/design/design.dart';
 import '../training_actual_fields.dart' show formatTrainingWeight;
+import '../training_menu.dart';
 import 'player_format.dart';
 import 'player_set_row.dart';
 
@@ -110,14 +111,7 @@ class PlayerExerciseCard extends StatelessWidget {
             children: [
               HeadingSemantics(
                 level: 2,
-                child: Text(
-                  exercise.name,
-                  style: AppType.display(
-                    17,
-                    weight: FontWeight.w700,
-                    color: t.ink,
-                  ),
-                ),
+                child: Text(exercise.name, style: AppType.section(t.ink)),
               ),
               const SizedBox(height: 4),
               Text(
@@ -125,25 +119,29 @@ class PlayerExerciseCard extends StatelessWidget {
                     ? doneSummary(exercise, completed, l)
                     : planSummary(exercise, l),
                 key: ValueKey('training-exercise-summary-$exerciseIndex'),
-                style: AppType.ui(13, color: t.ink2),
+                style: AppType.subhead(t.ink2),
               ),
             ],
           ),
         ),
+        // The card's actions: plain discs that show only under a finger;
+        // open notes keep the accent tint.
         if (exercise.notes.isNotEmpty)
-          IconButton(
+          AppIconButton(
             key: ValueKey('training-exercise-notes-$exerciseIndex'),
-            tooltip: l.trainingTimerShowNotes,
-            isSelected: notesOpen,
-            onPressed: onToggleNotes,
-            icon: const Icon(Icons.notes_rounded),
+            icon: AppIcons.notes,
+            semanticLabel: l.trainingTimerShowNotes,
+            tone: notesOpen ? IconButtonTone.accent : IconButtonTone.plain,
+            selected: notesOpen,
+            target: 48,
+            onTap: onToggleNotes,
           ),
         if (active)
-          PopupMenuButton<String>(
+          TrainingMenuButton<String>(
             key: ValueKey('training-exercise-menu-$exerciseIndex'),
-            tooltip: l.trainingTimerExerciseOptions(exercise.name),
+            semanticLabel: l.trainingTimerExerciseOptions(exercise.name),
             enabled: enabled,
-            icon: const Icon(Icons.more_horiz_rounded),
+            target: 48,
             onSelected: (value) => switch (value) {
               'skip-set' => actions.skipSet(),
               'complete-remaining' => actions.completeRemaining(),
@@ -153,13 +151,13 @@ class PlayerExerciseCard extends StatelessWidget {
               eatovaMenuItem(
                 key: const ValueKey('training-timer-skip-set'),
                 value: 'skip-set',
-                icon: Icons.skip_next_rounded,
+                icon: AppIcons.skipNext,
                 label: l.trainingTimerNextSet,
               ),
               eatovaMenuItem(
                 key: const ValueKey('training-timer-complete-remaining'),
                 value: 'complete-remaining',
-                icon: Icons.done_all_rounded,
+                icon: AppIcons.doneAll,
                 label: l.trainingTimerCompleteRemaining(remaining),
                 // As for ✓: the active row's invalid field would log its
                 // last valid value instead.
@@ -168,21 +166,21 @@ class PlayerExerciseCard extends StatelessWidget {
               eatovaMenuItem(
                 key: const ValueKey('training-timer-skip-exercise'),
                 value: 'skip-exercise',
-                icon: Icons.redo_rounded,
+                icon: AppIcons.redo,
                 label: l.trainingTimerSkipExercise,
               ),
             ],
           )
         else if (done && !resting)
-          IconButton(
+          AppIconButton(
             key: ValueKey('training-exercise-expand-$exerciseIndex'),
-            tooltip: expanded
+            icon: expanded ? AppIcons.expandLess : AppIcons.expandMore,
+            semanticLabel: expanded
                 ? l.trainingTimerHideSets
                 : l.trainingTimerShowSets,
-            onPressed: onToggleExpanded,
-            icon: Icon(
-              expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-            ),
+            tone: IconButtonTone.plain,
+            target: 48,
+            onTap: onToggleExpanded,
           ),
       ],
     );
@@ -275,6 +273,8 @@ class PlayerExerciseCard extends StatelessWidget {
         lastTime: _lastTimeFor(ref.setIndex),
         enabled: enabled,
         replaceRevision: isActive ? copyRevision : null,
+        // A running rest lights its Skip; the ✓ waits in the accent tint.
+        buttonLit: session.phase != TrainingSessionPhase.rest,
         buttonEnabled:
             !gettingReady &&
             (kind != PlayerSetButtonKind.complete || activeValid),
@@ -317,8 +317,8 @@ class PlayerExerciseCard extends StatelessWidget {
             _ => l.trainingProgressionLighter(value),
           },
           icon: hint.kind == TrainingProgressionKind.increase
-              ? Icons.trending_up_rounded
-              : Icons.trending_down_rounded,
+              ? AppIcons.trendingUp
+              : AppIcons.trendingDown,
           selected: taken,
           onTap: enabled ? () => apply(hint) : null,
         ),
@@ -398,7 +398,7 @@ class PlayerExerciseCard extends StatelessWidget {
               EatovaTextAction(
                 buttonKey: const ValueKey('training-timer-done-early'),
                 onTap: enabled && activeValid ? actions.complete : null,
-                icon: Icons.check_rounded,
+                icon: AppIcons.check,
                 label: l.trainingTimerDoneEarly,
                 color: t.onForest,
               ),
@@ -440,16 +440,17 @@ class _IndexBadge extends StatelessWidget {
               : t.tile,
           shape: BoxShape.circle,
         ),
+        // The digit in [StepNumber]'s display face, so the order reads in
+        // the app's one number style; the fill carries the state.
         child: done && !active
-            ? Icon(Icons.check_rounded, size: 18, color: t.accentText)
+            ? Icon(AppIcons.check, size: AppIconSize.button, color: t.accentText)
             : FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
                   '$number',
                   maxLines: 1,
-                  style: AppType.ui(
-                    14,
-                    weight: FontWeight.w800,
+                  style: AppType.display(
+                    32 * 0.46,
                     color: active ? t.onAccentFill : t.ink2,
                   ),
                 ),
@@ -468,7 +469,7 @@ class _ColumnHeads extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final style = AppType.eyebrow(context.t.ink2, size: 10.5);
+    final style = AppType.eyebrow(context.t.ink2);
     Widget head(String text, {int flex = 1}) => Expanded(
       flex: flex,
       child: Text(

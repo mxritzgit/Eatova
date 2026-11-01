@@ -173,7 +173,11 @@ class PlanLimitNotice extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.schedule_rounded, color: t.accentText, size: 20),
+            Icon(
+              AppIcons.schedule,
+              color: t.accentText,
+              size: AppIconSize.standard,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -202,7 +206,7 @@ class PlanLimitNotice extends StatelessWidget {
           PrimaryActionButton(
             key: const ValueKey('plan-limit-upgrade'),
             label: l10n.planLimitUpgrade,
-            icon: Icons.arrow_forward_rounded,
+            icon: AppIcons.workspacePremium,
             onTap: onUpgrade,
             height: 48,
           ),
@@ -250,12 +254,13 @@ class PlanRemainingAnalysesHint extends StatelessWidget {
           mainAxisSize: capsule ? MainAxisSize.min : MainAxisSize.max,
           mainAxisAlignment: alignment,
           children: [
-            Icon(Icons.auto_awesome_rounded, size: 15, color: t.accentText),
+            // The AI origin mark beside "KI-Analysen".
+            Icon(AppIcons.aiMark, size: AppIconSize.meta, color: t.accentText),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 context.l10n.planRemainingAnalyses(left),
-                style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
+                style: AppType.caption(t.ink2),
               ),
             ),
           ],

@@ -3,8 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
-import 'controls.dart' show IconTile;
+import 'controls.dart' show IconBadge, IconBadgeSize, IconBadgeTone;
 import 'surfaces.dart' show AppCard, HeadingSemantics;
 
 // ---------------------------------------------------------------------------
@@ -26,14 +27,14 @@ import 'surfaces.dart' show AppCard, HeadingSemantics;
 ///
 /// Without [boxed] it is a plain row (a settings group child); with [boxed]
 /// it carries its own tinted surface — the app's error/warning banner. Errors
-/// pass `tone: t.danger` and [Icons.error_outline_rounded], warnings
-/// `t.warning`.
+/// pass `tone: t.danger` and [AppIcons.error], warnings `t.warning` and
+/// [AppIcons.warning].
 class SignalNote extends StatelessWidget {
   const SignalNote(
     this.text, {
     super.key,
     this.tone,
-    this.icon = Icons.info_outline_rounded,
+    this.icon = AppIcons.info,
     this.boxed = false,
     this.action,
     this.liveRegion = false,
@@ -70,11 +71,18 @@ class SignalNote extends StatelessWidget {
     // (warning 4.76:1 on bg, 5.38:1 on surf), and the tone IS the signal
     // there.
     final textFarbe = boxed ? t.ink : ton;
+    // The glyph centres on the text's FIRST line at any text scale.
+    final line = MediaQuery.textScalerOf(context).scale(13) * 1.4;
 
     Widget zeile = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Icon(icon, size: 17, color: ton),
+        Padding(
+          padding: EdgeInsets.only(
+            top: math.max(0, (line - AppIconSize.small) / 2),
+          ),
+          child: Icon(icon, size: AppIconSize.small, color: ton),
+        ),
         const SizedBox(width: 10),
         Expanded(
           child: Semantics(
@@ -99,9 +107,11 @@ class SignalNote extends StatelessWidget {
         children: <Widget>[
           zeile,
           const SizedBox(height: 10),
-          // Glyph (17) plus gap (10): the pill starts under the text.
+          // Glyph (16) plus gap (10): the pill starts under the text.
           Padding(
-            padding: const EdgeInsetsDirectional.only(start: 27),
+            padding: const EdgeInsetsDirectional.only(
+              start: AppIconSize.small + 10,
+            ),
             child: action,
           ),
         ],
@@ -136,12 +146,14 @@ class SignalNote extends StatelessWidget {
 /// which pills do. A single action is placed as is and may size itself.
 ///
 /// Inline (default) it sits centred in a sheet's flow, as in the add-meal
-/// search. With [card] it is its own card on a page — left-aligned, a 44 px
-/// accent tile and a display title that screen readers can jump to (the
-/// shopping list's empty state).
+/// search: a neutral [IconBadge] `lg`, a `headline` title, `callout` text.
+/// With [card] it is its own card on a page — left-aligned, an accent
+/// [IconBadge] `lg` and a `title2` heading that screen readers can jump to
+/// (the shopping list's empty state).
 ///
-/// Never red: an error says what happened and offers the retry; the tone of
-/// the page stays calm.
+/// Copy says what is and how to go on. At most two [actions], soft pills;
+/// never a lit action — the page has its own. Never red: an error says what
+/// happened and offers the retry; the tone of the page stays calm.
 class CalmState extends StatelessWidget {
   const CalmState({
     super.key,
@@ -171,9 +183,11 @@ class CalmState extends StatelessWidget {
   Widget build(BuildContext context) =>
       card ? _buildCard(context) : _buildInline(context);
 
-  Widget _glyph(Color ink) => IconTheme(
-    data: IconThemeData(color: ink, size: 22),
-    child: glyph ?? Icon(icon),
+  Widget _badge(IconBadgeTone tone) => IconBadge(
+    icon: glyph == null ? icon : null,
+    size: IconBadgeSize.lg,
+    tone: tone,
+    child: glyph,
   );
 
   Widget _actionBar({required bool centered}) => actions.length == 1
@@ -186,20 +200,20 @@ class CalmState extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
       child: Column(
         children: [
-          IconTile.custom(size: 48, child: _glyph(t.ink2)),
+          _badge(IconBadgeTone.neutral),
           const SizedBox(height: 14),
           if (title != null) ...[
             Text(
               title!,
               textAlign: TextAlign.center,
-              style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
+              style: AppType.headline(t.ink),
             ),
             const SizedBox(height: 4),
           ],
           Text(
             text,
             textAlign: TextAlign.center,
-            style: AppType.ui(13.5, color: t.ink2, height: 1.4),
+            style: AppType.callout(t.ink2),
           ),
           if (actions.isNotEmpty) ...[
             const SizedBox(height: 16),
@@ -217,31 +231,16 @@ class CalmState extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: t.accentTint,
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: Center(child: _glyph(t.accentText)),
-          ),
+          _badge(IconBadgeTone.accent),
           const SizedBox(height: 14),
           if (title != null) ...[
             HeadingSemantics(
               level: 2,
-              child: Text(
-                title!,
-                style: AppType.display(
-                  19,
-                  weight: FontWeight.w700,
-                  color: t.ink,
-                ),
-              ),
+              child: Text(title!, style: AppType.title2(t.ink)),
             ),
             const SizedBox(height: 6),
           ],
-          Text(text, style: AppType.ui(14, color: t.ink2, height: 1.45)),
+          Text(text, style: AppType.callout(t.ink2)),
           if (actions.isNotEmpty) ...[
             const SizedBox(height: 16),
             _actionBar(centered: false),

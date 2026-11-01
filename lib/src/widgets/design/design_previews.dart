@@ -75,13 +75,165 @@ Widget primaryActionPreview() => Builder(
     children: [
       PrimaryActionButton(
         label: context.l10n.commonSave,
-        icon: Icons.check_rounded,
+        icon: AppIcons.check,
         onTap: () {},
       ),
       const SizedBox(height: 12),
-      PrimaryActionButton(label: context.l10n.commonSave),
+      SoftPillButton(
+        label: context.l10n.commonCancel,
+        onTap: () {},
+        tone: SoftPillTone.neutral,
+        size: SoftPillSize.regular,
+        expand: true,
+      ),
     ],
   ),
+);
+
+@EatovaPreview(name: 'Icon-Buttons und Stepper', size: Size(360, 170))
+Widget iconButtonsPreview() => Builder(
+  builder: (context) {
+    final l10n = context.l10n;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: kSpace12,
+          runSpacing: kSpace12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final tone in IconButtonTone.values)
+              AppIconButton(
+                icon: AppIcons.edit,
+                semanticLabel: tone.name,
+                tone: tone,
+                onTap: () {},
+              ),
+            AppIconButton(
+              icon: AppIcons.favorite,
+              semanticLabel: l10n.commonSave,
+              selected: true,
+              onTap: () {},
+            ),
+            AppIconButton(
+              icon: AppIcons.check,
+              semanticLabel: l10n.commonSave,
+              tone: IconButtonTone.primary,
+              size: IconButtonSize.large,
+              onTap: () {},
+            ),
+          ],
+        ),
+        const SizedBox(height: kSpace16),
+        AppStepper(
+          value: '250',
+          unit: 'g',
+          increasedValue: '260 g',
+          decreasedValue: '240 g',
+          semanticLabel: l10n.commonSave,
+          onDecrement: () {},
+          onIncrement: () {},
+        ),
+      ],
+    );
+  },
+);
+
+@EatovaPreview(name: 'Liste', size: Size(360, 330))
+Widget listSectionPreview() => Builder(
+  builder: (context) {
+    final l10n = context.l10n;
+    return ListSection(
+      title: l10n.settingsLanguageTitle,
+      footnote: l10n.settingsLanguageSubtitle,
+      spacing: 0,
+      children: [
+        ListRow(
+          icon: AppIcons.translate,
+          title: l10n.settingsLanguageTitle,
+          value: 'Deutsch',
+          trailing: ListTrailing.chevron,
+          onTap: () {},
+        ),
+        ListRow(
+          icon: AppIcons.notifications,
+          title: l10n.commonSave,
+          trailing: ListTrailing.toggle,
+          toggled: true,
+          onToggle: (_) {},
+        ),
+        ListRow(
+          icon: AppIcons.logout,
+          title: l10n.commonDelete,
+          destructive: true,
+          onTap: () {},
+        ),
+      ],
+    );
+  },
+);
+
+@EatovaPreview(name: 'Aufzaehlungen', size: Size(360, 260))
+Widget enumerationsPreview() => Builder(
+  builder: (context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const BulletList(items: <String>['200 g Haferflocken', '1 Banane']),
+      const SizedBox(height: kSpace16),
+      const NumberedSteps(
+        steps: <String>[
+          'Haferflocken mit Milch aufkochen.',
+          'Banane in Scheiben schneiden und unterheben.',
+        ],
+      ),
+      const SizedBox(height: kSpace16),
+      BulletList.icons(
+        entries: <IconBullet>[
+          (
+            icon: AppIcons.checkCircle,
+            color: context.t.success,
+            text: context.l10n.commonSave,
+          ),
+        ],
+      ),
+    ],
+  ),
+);
+
+@EatovaPreview(name: 'Status, Badges, Leerzustand', size: Size(360, 330))
+Widget statesPreview() => Builder(
+  builder: (context) {
+    final l10n = context.l10n;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: kSpace8,
+          runSpacing: kSpace8,
+          children: [
+            StatusPill(label: l10n.commonSave, dot: true, tone: StatusTone.success),
+            StatusPill(
+              label: l10n.commonSave,
+              icon: AppIcons.aiMark,
+              tone: StatusTone.accent,
+            ),
+            for (final size in IconBadgeSize.values)
+              IconBadge(icon: AppIcons.flame, size: size),
+          ],
+        ),
+        const SizedBox(height: kSpace16),
+        CalmState(
+          card: true,
+          icon: AppIcons.shoppingBasket,
+          title: l10n.commonSave,
+          text: l10n.settingsLanguageSubtitle,
+        ),
+      ],
+    );
+  },
 );
 
 @EatovaPreview(name: 'Navigation', size: Size(390, 112))

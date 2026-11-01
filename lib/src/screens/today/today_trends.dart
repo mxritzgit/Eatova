@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
+import '../../widgets/design/design.dart';
 import 'today_sections.dart' show TodayTapTarget;
 import 'today_texts.dart';
 
@@ -75,7 +76,14 @@ class TodayTrendsCard extends StatelessWidget {
               key: const ValueKey('today-trends'),
               onTap: onOpen,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 12, 16),
+                // The cards' inset; the chevron ends where a list row's
+                // does.
+                padding: const EdgeInsets.fromLTRB(
+                  kCardInset,
+                  16,
+                  kCardInset,
+                  kCardInset,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -109,10 +117,11 @@ class TodayTrendsCard extends StatelessWidget {
                             ],
                           ),
                         ),
+                        const SizedBox(width: 6),
                         Icon(
-                          Icons.chevron_right_rounded,
-                          size: 24,
-                          color: t.ink2,
+                          AppIcons.chevronRight,
+                          size: AppIconSize.standard,
+                          color: t.ink3,
                         ),
                       ],
                     ),
@@ -143,7 +152,7 @@ class TodayTrendsCard extends StatelessWidget {
                                 Text(
                                   label,
                                   style: AppType.ui(
-                                    11.5,
+                                    12,
                                     weight: FontWeight.w500,
                                     color: t.ink2,
                                   ),

@@ -310,7 +310,7 @@ void main() {
       isSemantics(
         isButton: true,
         hasTapAction: true,
-        label: 'Favoriten, 5 gespeichert',
+        label: 'Favoriten\n5 gespeichert',
       ),
       reason: 'excludeSemantics verschluckt die Tap-Action des InkWell; '
           'Semantics(onTap:) muss sie neu deklarieren (Review B)',

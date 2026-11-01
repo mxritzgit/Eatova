@@ -215,12 +215,10 @@ class _BootErrorApp extends StatelessWidget {
           // body.
           final message = Column(
             children: [
-              IconTile(
-                icon: Icons.cloud_off_rounded,
+              IconBadge(
+                icon: AppIcons.cloudOff,
+                size: IconBadgeSize.lg,
                 color: t.danger,
-                size: 44,
-                glyphSize: 22,
-                radius: rControl,
               ),
               const SizedBox(height: 18),
               HeadingSemantics(

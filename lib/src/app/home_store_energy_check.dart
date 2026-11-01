@@ -263,7 +263,7 @@ mixin _HomeStoreEnergyCheckPart
         !_disposed) {
       _emitSnack(
         _l10n.commonEnergyCheckApplied(next.dailyKcalGoal),
-        icon: Icons.tune_rounded,
+        icon: AppIcons.tune,
       );
     }
   }

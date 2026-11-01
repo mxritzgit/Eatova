@@ -79,7 +79,9 @@ class _WorkoutLogProposalCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _ProposalEyebrow(
-          icon: added ? Icons.check_circle_rounded : _CoachCommand.log.icon,
+          icon: added
+              ? AppIcons.filled(AppIcons.checkCircle)
+              : _CoachCommand.log.icon,
           label: added
               ? l10n.coachWorkoutLogAddedLabel
               : l10n.coachWorkoutLogCardEyebrow,
@@ -150,13 +152,18 @@ class _WorkoutLogProposalCard extends StatelessWidget {
         return Semantics(
           liveRegion: true,
           child: onOpenTraining == null
-              ? Icon(Icons.check_circle_rounded, color: t.accent, size: 22)
+              ? StateIcon(
+                  AppIcons.checkCircle,
+                  on: true,
+                  color: t.accent,
+                  size: AppIconSize.tile,
+                )
               : Align(
                   alignment: AlignmentDirectional.centerStart,
                   child: SoftPillButton(
                     key: const ValueKey('coach-workout-log-open-training'),
                     onTap: onOpenTraining,
-                    icon: Icons.check_circle_outline_rounded,
+                    icon: AppIcons.checkCircle,
                     label: l10n.coachWorkoutLogOpenTraining,
                   ),
                 ),
@@ -168,8 +175,8 @@ class _WorkoutLogProposalCard extends StatelessWidget {
           child: Row(
             children: <Widget>[
               Icon(
-                Icons.remove_circle_outline_rounded,
-                size: 18,
+                AppIcons.removeCircle,
+                size: AppIconSize.standard,
                 color: t.ink2,
               ),
               const SizedBox(width: 8),
@@ -187,7 +194,7 @@ class _WorkoutLogProposalCard extends StatelessWidget {
         return PrimaryActionButton(
           key: const ValueKey('coach-workout-log-add'),
           label: l10n.coachWorkoutLogAddButton,
-          icon: Icons.arrow_forward_rounded,
+          icon: AppIcons.arrowForward,
           onTap: status == _WorkoutLogCardStatus.open && enabled ? onAdd : null,
         );
     }

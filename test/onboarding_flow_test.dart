@@ -368,7 +368,7 @@ void main() {
       );
       await goToOnboarding(tester, 'summary');
       String subtitle(String step) => tester
-          .widget<SettingsRow>(_key('onboarding-edit-$step'))
+          .widget<ListRow>(_key('onboarding-edit-$step'))
           .subtitle!;
       expect(subtitle('goal'), 'Abnehmen');
       expect(subtitle('target'), '68 kg');

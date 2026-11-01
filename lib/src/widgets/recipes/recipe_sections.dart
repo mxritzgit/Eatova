@@ -6,17 +6,15 @@ import '../design/design.dart';
 
 // ---------------------------------------------------------------------------
 // A recipe's text sections — portion, ingredients, preparation — as the
-// import preview designed them: a calm card with an icon-tile heading, accent
-// bullet dots and round numbered steps. Shared by the import preview, the
-// recipe detail and the coach's "Add recipe" sheet, so one recipe reads the
-// same wherever it is shown.
+// import preview designed them: a calm card with an icon-badge heading,
+// accent bullet dots and round numbered steps. Shared by the import preview,
+// the recipe detail and the coach's "Add recipe" sheet, so one recipe reads
+// the same wherever it is shown. The lists themselves are the design
+// library's [BulletList] and [NumberedSteps] (UI polish 2026-11-01).
 // ---------------------------------------------------------------------------
 
-const double _bodySize = 15;
-const double _bodyHeight = 1.5;
-
 TextStyle _bodyStyle(AppTokens t, {bool muted = false}) =>
-    AppType.ui(_bodySize, color: muted ? t.ink2 : t.ink, height: _bodyHeight);
+    AppType.body(muted ? t.ink2 : t.ink);
 
 /// Non-empty, trimmed lines of a free text.
 List<String> _lines(String text) => [
@@ -24,8 +22,9 @@ List<String> _lines(String text) => [
     if (line.trim().isNotEmpty) line.trim(),
 ];
 
-/// A recipe section: small icon tile, a level-2 title, the content below on a
-/// calm card. [highlight] puts it on the brand surface (the pro tip).
+/// A recipe section: a small accent [IconBadge], a level-2 title, the content
+/// below on a calm card. [highlight] puts it on the brand surface (the pro
+/// tip).
 class RecipeSectionCard extends StatelessWidget {
   const RecipeSectionCard({
     super.key,
@@ -52,19 +51,19 @@ class RecipeSectionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              ExcludeSemantics(
-                child: IconTile(icon: icon, color: t.accent, size: 30),
+              IconBadge(
+                icon: icon,
+                size: IconBadgeSize.sm,
+                tone: IconBadgeTone.accent,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: kSpace12),
               Expanded(
                 child: HeadingSemantics(
                   level: 2,
                   child: Text(
                     title,
-                    style: AppType.display(
-                      16,
-                      weight: FontWeight.w700,
-                      color: highlight ? t.onBrandSurface : t.ink,
+                    style: AppType.section(
+                      highlight ? t.onBrandSurface : t.ink,
                     ),
                   ),
                 ),
@@ -87,11 +86,8 @@ class _SectionHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: Text(
-      text,
-      style: AppType.ui(13, color: context.t.ink2, height: 1.45),
-    ),
+    padding: const EdgeInsets.only(bottom: kSpace12),
+    child: Text(text, style: AppType.subhead(context.t.ink2)),
   );
 }
 
@@ -122,29 +118,22 @@ class RecipeParagraph extends StatelessWidget {
 }
 
 /// Ingredients as bullet lines (accent dot + text) under an optional
-/// quantity [hint]. A list marker the text already carries ("- ", "•", "*")
-/// gives way to the dot.
+/// quantity [hint]: a [BulletList] over the non-empty lines of [text]. A
+/// list marker the text already carries ("- ", "•", "*") gives way to the
+/// dot.
 class RecipeIngredientLines extends StatelessWidget {
   const RecipeIngredientLines({super.key, required this.text, this.hint = ''});
 
   final String text;
   final String hint;
 
-  // A leading list marker from the caption; the dot replaces it.
-  static final RegExp _marker = RegExp(r'^(?:[•*·–]\s*|-\s+)');
-
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final lines = [
       for (final line in _lines(text))
-        if (line.replaceFirst(_marker, '').isNotEmpty)
-          line.replaceFirst(_marker, ''),
+        if (BulletList.stripMarker(line).isNotEmpty) line,
     ];
-    // Centre the dot on the first line at any text scale.
-    final dotTop =
-        (MediaQuery.textScalerOf(context).scale(_bodySize) * _bodyHeight - 6) /
-        2;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -153,28 +142,9 @@ class RecipeIngredientLines extends StatelessWidget {
           Text(
             context.l10n.recipesNoDataProvided,
             style: _bodyStyle(t, muted: true),
-          ),
-        for (final (i, line) in lines.indexed) ...[
-          if (i > 0) const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: EdgeInsets.only(top: dotTop),
-                child: Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: t.accent,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Text(line, style: _bodyStyle(t))),
-            ],
-          ),
-        ],
+          )
+        else
+          BulletList(items: lines, style: _bodyStyle(t)),
       ],
     );
   }
@@ -184,14 +154,13 @@ class RecipeIngredientLines extends StatelessWidget {
 /// one per non-empty line. Fewer than two read as one paragraph there.
 List<String> recipePreparationSteps(String text) => [
   for (final line in _lines(text))
-    if (line.replaceFirst(RecipePreparationSteps._marker, '') case final step
-        when step.isNotEmpty)
+    if (NumberedSteps.stripMarker(line) case final step when step.isNotEmpty)
       step,
 ];
 
-/// Preparation as numbered steps when the text has several lines; a single
+/// Preparation as [NumberedSteps] when the text has several lines; a single
 /// paragraph stays a paragraph, an empty one shows [empty]. Numbers the
-/// steps already carry ("1.", "2)") give way to the badge.
+/// steps already carry ("1.", "2)") give way to the [StepNumber].
 class RecipePreparationSteps extends StatelessWidget {
   const RecipePreparationSteps({
     super.key,
@@ -206,52 +175,12 @@ class RecipePreparationSteps extends StatelessWidget {
   /// Muted line above the steps.
   final String hint;
 
-  // "1." / "2)" or a list marker the caption already numbered with; not the
-  // "1" of "1.5 l".
-  static final RegExp _marker = RegExp(r'^(?:\d+[.)](?!\d)|[•*·–]|-(?=\s))\s*');
-
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final steps = _lines(text);
-    final Widget body;
-    if (steps.length < 2) {
-      body = RecipeParagraph(text: text, empty: empty);
-    } else {
-      const badge = 26.0;
-      // Badge and first text line share one centre at any text scale.
-      final line =
-          MediaQuery.textScalerOf(context).scale(_bodySize) * _bodyHeight;
-      final badgeTop = line > badge ? (line - badge) / 2 : 0.0;
-      final textTop = line < badge ? (badge - line) / 2 : 0.0;
-      body = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final (i, step) in steps.indexed) ...[
-            if (i > 0) const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(top: badgeTop),
-                  child: RecipeStepBadge(number: i + 1, size: badge),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: textTop),
-                    child: Text(
-                      step.replaceFirst(_marker, ''),
-                      style: _bodyStyle(t),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      );
-    }
+    final Widget body = steps.length < 2
+        ? RecipeParagraph(text: text, empty: empty)
+        : NumberedSteps(steps: steps, style: _bodyStyle(context.t));
     if (hint.isEmpty) return body;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -260,9 +189,7 @@ class RecipePreparationSteps extends StatelessWidget {
   }
 }
 
-/// Accent-tinted round number (a candidate's position, a preparation step).
-/// The digit follows text scale only up to 1.3x, so it never bursts the
-/// circle.
+/// A round step number under its older name: a [StepNumber].
 class RecipeStepBadge extends StatelessWidget {
   const RecipeStepBadge({super.key, required this.number, required this.size});
 
@@ -270,20 +197,5 @@ class RecipeStepBadge extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: t.accentTint, shape: BoxShape.circle),
-      child: Text(
-        '$number',
-        textScaler: MediaQuery.textScalerOf(
-          context,
-        ).clamp(maxScaleFactor: 1.3),
-        style: AppType.display(size * 0.46, color: t.accentText),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => StepNumber(number, size: size);
 }

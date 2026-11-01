@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/l10n.dart';
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
 import '../common/motion.dart';
@@ -14,7 +16,7 @@ import 'readable_width.dart';
 import 'spinner.dart';
 
 // ---------------------------------------------------------------------------
-// CONTROLS — icon buttons, icon tile, toggle, segmented pill, filter chip,
+// CONTROLS — icon buttons, stepper, icon badges, toggle, filter chip,
 // primary action, floating nav bar.
 //
 // Material carries behavior and semantics, the tokens carry the pixels.
@@ -44,8 +46,648 @@ extension SelectionTone on AppTokens {
   Color get onSelected => onAccentFill;
 }
 
-/// Square 34 px soft-filled button — back, close, menu. No outline: the
-/// `softFill` tone carries the edge on page and card (2026-10-25).
+// ---------------------------------------------------------------------------
+// ICON BUTTONS, STEPPER AND BADGES (UI polish 2026-11-01)
+//
+// One icon-only action ([AppIconButton]), one stepper ([AppStepper]) and one
+// glyph container ([IconBadge]) for the whole app. The older names below
+// ([SquareIconButton], [HeaderIconButton], [IconTile]) are thin wrappers so
+// keys, finders and callers keep working.
+// ---------------------------------------------------------------------------
+
+/// Emphasis of an [AppIconButton]. The shape is always a circle.
+enum IconButtonTone {
+  /// A [AppTokens.softFill] disc with an [AppTokens.inkMuted] glyph: back,
+  /// close, calendar, history.
+  neutral,
+
+  /// Accent tint with an accent glyph: "do something here" (add to a slot,
+  /// the stepper's buttons, the mic).
+  accent,
+
+  /// Lit: the accent fill casting its own light ([castLight]). The ONE
+  /// primary action of a view, never two side by side.
+  primary,
+
+  /// No fill at rest, an [AppTokens.ink2] glyph; the disc appears only under
+  /// a finger or keyboard focus. For actions inside a row: delete, clear a
+  /// field, open a menu.
+  plain,
+
+  /// Danger tint with a danger glyph: a destructive shortcut. The red FILL
+  /// belongs to the confirming action of the decision card only.
+  danger,
+}
+
+/// Size of an [AppIconButton]: the drawn disc, the tap target around it and
+/// the glyph.
+enum IconButtonSize {
+  /// A 36 px disc in a 44 px target, 18 px glyph: inside dense rows.
+  compact(36, 44, AppIconSize.button),
+
+  /// A 44 px disc and target, 20 px glyph: headers and the default.
+  regular(44, 44, AppIconSize.standard),
+
+  /// A 56 px disc and target, 24 px glyph: the player's set check, a dock.
+  large(56, 56, AppIconSize.large);
+
+  const IconButtonSize(this.disc, this.target, this.glyph);
+
+  /// Diameter of the drawn disc.
+  final double disc;
+
+  /// Edge of the square tap target (at least 44, the HIG floor).
+  final double target;
+
+  /// Glyph size ([AppIconSize]).
+  final double glyph;
+}
+
+/// Opacity of the label and fill of a disabled icon button or stepper.
+const double kDisabledAlpha = 0.45;
+
+/// A glyph that carries a state: the concept's contour when [on] is false,
+/// its filled form ([AppIcons.filled]) when true. Only an "on" is filled
+/// (favourite set, saved, eaten or done, listening), never decoration.
+///
+/// With a variable icon font the fill axis animates over [kMotionLightUp]
+/// (instant under reduced motion); the SDK's Material Icons ignore the axis
+/// and swap the glyph.
+class StateIcon extends StatelessWidget {
+  const StateIcon(
+    this.icon, {
+    super.key,
+    required this.on,
+    this.size,
+    this.color,
+    this.semanticLabel,
+  });
+
+  final IconData icon;
+  final bool on;
+
+  /// Null takes the surrounding [IconTheme].
+  final double? size;
+  final Color? color;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween<double>(end: on ? 1 : 0),
+    duration: motionDuration(context, kMotionLightUp),
+    curve: kMotionCurve,
+    builder: (context, fill, _) => Icon(
+      on ? AppIcons.filled(icon) : icon,
+      size: size,
+      color: color,
+      fill: fill,
+      semanticLabel: semanticLabel,
+    ),
+  );
+}
+
+/// Every icon-only action of the app: a circle in one of five [tone]s and
+/// three [size]s, see the enums.
+///
+/// States, the same for every button: a press sinks the disc and deepens its
+/// fill (no ripple); keyboard focus lays its tone over it (a lit one lifts
+/// its light), never a ring; `onTap: null` dims label and fill to
+/// [kDisabledAlpha] and reports it disabled (a lit one turns into the
+/// "not yet" tint of [PrimaryActionButton]); [busy] puts an [AppSpinner] in
+/// place of the glyph and ignores taps. [selected] makes it a toggle: the
+/// glyph fills ([StateIcon]) and the node is announced `toggled`.
+///
+/// [semanticLabel] is the spoken name and the long-press tooltip. [key] sits
+/// on this widget (so `tester.widget<AppIconButton>(byKey).onTap` works),
+/// [buttonKey] on the inner [InkWell].
+class AppIconButton extends StatefulWidget {
+  const AppIconButton({
+    super.key,
+    this.icon,
+    this.child,
+    required this.semanticLabel,
+    this.onTap,
+    this.onLongPress,
+    this.tone = IconButtonTone.neutral,
+    this.size = IconButtonSize.regular,
+    this.busy = false,
+    this.selected,
+    this.haptic = false,
+    this.buttonKey,
+    this.target,
+  }) : assert(
+         icon != null || child != null,
+         'An icon button needs an icon or a child',
+       );
+
+  /// The glyph, usually an [AppIcons] constant.
+  final IconData? icon;
+
+  /// A custom glyph instead of [icon] (an [AppIcon], [StepsIcon]); it takes
+  /// size and colour from the surrounding [IconTheme].
+  final Widget? child;
+
+  final String semanticLabel;
+  final VoidCallback? onTap;
+
+  /// Disables the tooltip, which would otherwise take the long press.
+  final VoidCallback? onLongPress;
+
+  final IconButtonTone tone;
+  final IconButtonSize size;
+  final bool busy;
+
+  /// Toggle state; null for a plain action.
+  final bool? selected;
+
+  /// A light haptic on tap (confirm, add). Off by default: most icon
+  /// buttons navigate.
+  final bool haptic;
+
+  final Key? buttonKey;
+
+  /// A larger square tap target than [size] gives (e.g. 48 next to a dense
+  /// row); never smaller.
+  final double? target;
+
+  @override
+  State<AppIconButton> createState() => _AppIconButtonState();
+}
+
+class _AppIconButtonState extends State<AppIconButton> {
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    FocusManager.instance.addHighlightModeListener(_focusModeChanged);
+  }
+
+  @override
+  void dispose() {
+    FocusManager.instance.removeHighlightModeListener(_focusModeChanged);
+    super.dispose();
+  }
+
+  void _focusModeChanged(FocusHighlightMode mode) {
+    if (_focused) setState(() {});
+  }
+
+  void _tap() {
+    if (widget.haptic) unawaited(HapticFeedback.lightImpact());
+    widget.onTap?.call();
+  }
+
+  (Color, Color) _rest(AppTokens t) => switch (widget.tone) {
+    IconButtonTone.neutral => (t.softFill, t.inkMuted),
+    IconButtonTone.accent => (t.accentTintStrong, t.accentText),
+    IconButtonTone.primary => (t.accentFill, t.onAccentFill),
+    IconButtonTone.plain => (t.softFill.withValues(alpha: 0), t.ink2),
+    IconButtonTone.danger => (t.danger.withValues(alpha: 0.12), t.danger),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final size = widget.size;
+    final enabled = widget.onTap != null && !widget.busy;
+    final lit = widget.tone == IconButtonTone.primary;
+    final plain = widget.tone == IconButtonTone.plain;
+    final (restFill, restInk) = _rest(t);
+    final Color fill;
+    final Color ink;
+    if (enabled || widget.busy) {
+      fill = restFill;
+      ink = restInk;
+    } else if (lit) {
+      fill = t.accentFill.withValues(alpha: kLockedFillAlpha);
+      ink = t.accentText.withValues(alpha: kLockedLabelAlpha);
+    } else {
+      fill = restFill.withValues(alpha: restFill.a * kDisabledAlpha);
+      ink = restInk.withValues(alpha: kDisabledAlpha);
+    }
+    final keyboard =
+        _focused &&
+        FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+
+    final Widget glyph = widget.busy
+        ? ExcludeSemantics(
+            child: AppSpinner(
+              size: size == IconButtonSize.large ? 22 : 18,
+              strokeWidth: 2,
+              color: ink,
+              trackColor: ink.withValues(alpha: 0.2),
+            ),
+          )
+        : IconTheme.merge(
+            data: IconThemeData(
+              color: ink,
+              size: size.glyph,
+              opticalSize: size.glyph >= AppIconSize.large ? 24 : 20,
+            ),
+            child:
+                widget.child ??
+                StateIcon(widget.icon!, on: widget.selected ?? false),
+          );
+
+    Widget disc = Material(
+      color: fill,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: widget.buttonKey,
+        onTap: enabled ? _tap : null,
+        onLongPress: enabled ? widget.onLongPress : null,
+        onFocusChange: (focused) => setState(() => _focused = focused),
+        customBorder: const CircleBorder(),
+        splashFactory: NoSplash.splashFactory,
+        // The plain button shows its disc only while touched or focused.
+        highlightColor: plain ? t.softFill : ink.withValues(alpha: 0.10),
+        focusColor: lit
+            ? kLitFocusOverlay
+            : (plain ? t.softFill : ink.withValues(alpha: 0.16)),
+        hoverColor: plain
+            ? t.softFill.withValues(alpha: 0.6)
+            : ink.withValues(alpha: 0.05),
+        child: SizedBox.square(
+          dimension: size.disc,
+          child: Center(child: glyph),
+        ),
+      ),
+    );
+    disc = PressScale(
+      enabled: enabled,
+      rebound: lit,
+      builder: lit
+          ? (context, press, child) => DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: castLight(
+                  t,
+                  t.accentGlow,
+                  strength: (enabled || widget.busy ? 1.0 : 0.0) *
+                      (keyboard ? 1.4 : 1.0),
+                  press: press,
+                ),
+              ),
+              child: child,
+            )
+          : null,
+      child: disc,
+    );
+
+    final target = math.max(size.target, widget.target ?? 0);
+    Widget button = _TapTarget(minSize: Size.square(target), child: disc);
+    // The tooltip owns the long press; a long-press action keeps it.
+    if (widget.onLongPress == null &&
+        widget.semanticLabel.isNotEmpty &&
+        Overlay.maybeOf(context) != null) {
+      button = Tooltip(
+        message: widget.semanticLabel,
+        excludeFromSemantics: true,
+        child: button,
+      );
+    }
+    // One node over the whole target: the InkWell's tap and focus merge in,
+    // and the node's rect is the full 44 px, not the drawn disc.
+    return Semantics(
+      container: true,
+      button: true,
+      enabled: enabled,
+      toggled: widget.selected,
+      label: widget.semanticLabel,
+      child: button,
+    );
+  }
+}
+
+/// Grows [child] to [minSize] and sends taps on the margin to the child's
+/// centre — Material's input padding, so a 36 px disc keeps a 44 px target.
+class _TapTarget extends SingleChildRenderObjectWidget {
+  const _TapTarget({required this.minSize, required super.child});
+
+  final Size minSize;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderTapTarget(minSize);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderTapTarget renderObject) {
+    renderObject.minSize = minSize;
+  }
+}
+
+class _RenderTapTarget extends RenderShiftedBox {
+  _RenderTapTarget(this._minSize) : super(null);
+
+  Size _minSize;
+  set minSize(Size value) {
+    if (value == _minSize) return;
+    _minSize = value;
+    markNeedsLayout();
+  }
+
+  Size _sizeFor(BoxConstraints constraints, Size childSize) =>
+      constraints.constrain(
+        Size(
+          math.max(childSize.width, _minSize.width),
+          math.max(childSize.height, _minSize.height),
+        ),
+      );
+
+  @override
+  double computeMinIntrinsicWidth(double height) =>
+      math.max(child?.getMinIntrinsicWidth(height) ?? 0, _minSize.width);
+
+  @override
+  double computeMaxIntrinsicWidth(double height) =>
+      math.max(child?.getMaxIntrinsicWidth(height) ?? 0, _minSize.width);
+
+  @override
+  double computeMinIntrinsicHeight(double width) =>
+      math.max(child?.getMinIntrinsicHeight(width) ?? 0, _minSize.height);
+
+  @override
+  double computeMaxIntrinsicHeight(double width) =>
+      math.max(child?.getMaxIntrinsicHeight(width) ?? 0, _minSize.height);
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) {
+    final child = this.child;
+    if (child == null) return constraints.constrain(_minSize);
+    return _sizeFor(constraints, child.getDryLayout(constraints.loosen()));
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.constrain(_minSize);
+      return;
+    }
+    child.layout(constraints.loosen(), parentUsesSize: true);
+    size = _sizeFor(constraints, child.size);
+    (child.parentData! as BoxParentData).offset = Alignment.center.alongOffset(
+      size - child.size as Offset,
+    );
+  }
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (super.hitTest(result, position: position)) return true;
+    final child = this.child;
+    if (child == null || !size.contains(position)) return false;
+    final center = child.size.center(Offset.zero);
+    return result.addWithRawTransform(
+      transform: MatrixUtils.forceToPoint(center),
+      position: center,
+      hitTest: (result, _) => child.hitTest(result, position: center),
+    );
+  }
+}
+
+/// The app's one stepper: `(−)  250 g  (+)`.
+///
+/// The buttons are accent [AppIconButton]s ([size] `regular`, or `compact`
+/// in a dense row); the value sits between them in the display face with
+/// tabular figures, at least 56 px wide, the [unit] after it in `subhead`.
+/// A null [onDecrement]/[onIncrement] is a reached limit: that button dims
+/// and is reported disabled. Every step clicks ([HapticFeedback.
+/// selectionClick]).
+///
+/// Semantics: the whole stepper is ONE adjustable node ([semanticLabel],
+/// [semanticValue], [increasedValue]/[decreasedValue]); VoiceOver and
+/// TalkBack step it with a swipe up or down. The buttons keep their own
+/// labels for exploration by touch ([decrementLabel]/[incrementLabel],
+/// defaulting to `commonDecrease`/`commonIncrease`). The keys go on the
+/// buttons, so existing tests keep tapping them.
+class AppStepper extends StatelessWidget {
+  const AppStepper({
+    super.key,
+    required this.value,
+    required this.semanticLabel,
+    required this.onDecrement,
+    required this.onIncrement,
+    required this.increasedValue,
+    required this.decreasedValue,
+    this.unit,
+    this.semanticValue,
+    this.onLongPressDecrement,
+    this.onLongPressIncrement,
+    this.decrementLabel,
+    this.incrementLabel,
+    this.decrementKey,
+    this.incrementKey,
+    this.size = IconButtonSize.regular,
+  });
+
+  /// The shown value, already formatted ("250", "1,5").
+  final String value;
+
+  /// Short unit after the value ("g", "Portionen").
+  final String? unit;
+
+  /// What the stepper sets ("Menge", "Portionen").
+  final String semanticLabel;
+
+  /// The spoken value; defaults to "[value] [unit]".
+  final String? semanticValue;
+
+  /// The spoken value after one step up / down. Required: an adjustable node
+  /// says where a swipe leads (Flutter asserts value and both neighbours
+  /// together).
+  final String increasedValue;
+  final String decreasedValue;
+
+  final VoidCallback? onDecrement;
+  final VoidCallback? onIncrement;
+  final VoidCallback? onLongPressDecrement;
+  final VoidCallback? onLongPressIncrement;
+  final String? decrementLabel;
+  final String? incrementLabel;
+  final Key? decrementKey;
+  final Key? incrementKey;
+  final IconButtonSize size;
+
+  static VoidCallback? _clicking(VoidCallback? step) => step == null
+      ? null
+      : () {
+          unawaited(HapticFeedback.selectionClick());
+          step();
+        };
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final down = _clicking(onDecrement);
+    final up = _clicking(onIncrement);
+    final spoken = semanticValue ?? (unit == null ? value : '$value $unit');
+    return Semantics(
+      container: true,
+      label: semanticLabel,
+      value: spoken,
+      increasedValue: onIncrement == null ? null : increasedValue,
+      decreasedValue: onDecrement == null ? null : decreasedValue,
+      onIncrease: up,
+      onDecrease: down,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          AppIconButton(
+            key: decrementKey,
+            icon: AppIcons.remove,
+            semanticLabel: decrementLabel ?? l10n.commonDecrease,
+            tone: IconButtonTone.accent,
+            size: size,
+            onTap: down,
+            onLongPress: onDecrement == null ? null : onLongPressDecrement,
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 56),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: kSpace8),
+              child: ExcludeSemantics(
+                child: Text.rich(
+                  TextSpan(
+                    text: value,
+                    style: AppType.numeric(20, color: t.ink),
+                    children: <InlineSpan>[
+                      if (unit != null)
+                        TextSpan(text: ' $unit', style: AppType.subhead(t.ink2)),
+                    ],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+          AppIconButton(
+            key: incrementKey,
+            icon: AppIcons.add,
+            semanticLabel: incrementLabel ?? l10n.commonIncrease,
+            tone: IconButtonTone.accent,
+            size: size,
+            onTap: up,
+            onLongPress: onIncrement == null ? null : onLongPressIncrement,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The three edges of an [IconBadge].
+enum IconBadgeSize {
+  /// 32 px, 16 px glyph, [rChip]: dense rows, plan, sessions.
+  sm(32, AppIconSize.small, rChip),
+
+  /// 40 px, 20 px glyph, [rChip]: the standard list row.
+  md(40, AppIconSize.standard, rChip),
+
+  /// 44 px, 22 px glyph, [rControl]: tab roots, empty states, option cards.
+  lg(44, AppIconSize.tile, rControl);
+
+  const IconBadgeSize(this.edge, this.glyph, this.radius);
+
+  final double edge;
+  final double glyph;
+  final double radius;
+
+  /// The stage nearest to an older free edge length (30–48 px).
+  static IconBadgeSize nearest(double edge) =>
+      edge < 36 ? sm : (edge <= 42 ? md : lg);
+}
+
+/// Fill of an [IconBadge] when no [IconBadge.color] is given.
+enum IconBadgeTone {
+  /// `tile` fill, `inkMuted` glyph.
+  neutral,
+
+  /// `accentTint` fill, `accentText` glyph.
+  accent,
+
+  /// `accentFill` with an `onAccentFill` glyph. Rare, and never next to a
+  /// lit action.
+  solid,
+}
+
+/// The one glyph container: a rounded square in three [size]s. With [color]
+/// it is tinted by that colour (macro, slot, warning, success, danger) at
+/// 15 % with a glyph in [AppTokens.readableOnTint]; otherwise [tone] picks
+/// the fill.
+///
+/// Always decorative ([ExcludeSemantics]): the row or card next to it says
+/// what it means. [child] takes a custom glyph ([StepsIcon], an [AppIcon])
+/// and hands it size and colour through [IconTheme].
+class IconBadge extends StatelessWidget {
+  const IconBadge({
+    super.key,
+    this.icon,
+    this.child,
+    this.size = IconBadgeSize.md,
+    this.tone = IconBadgeTone.neutral,
+    this.color,
+  }) : _glyph = null,
+       _radius = null,
+       assert(icon != null || child != null, 'A badge needs a glyph');
+
+  /// [IconTile]'s legacy overrides.
+  const IconBadge._legacy({
+    this.icon,
+    this.child,
+    required this.size,
+    this.color,
+    double? glyph,
+    double? radius,
+  }) : tone = IconBadgeTone.neutral,
+       _glyph = glyph,
+       _radius = radius;
+
+  final IconData? icon;
+  final Widget? child;
+  final IconBadgeSize size;
+  final IconBadgeTone tone;
+  final Color? color;
+  final double? _glyph;
+  final double? _radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final tint = color;
+    final (fill, ink) = tint != null
+        ? (tint.withValues(alpha: 0.15), t.readableOnTint(tint))
+        : switch (tone) {
+            IconBadgeTone.neutral => (t.tile, t.inkMuted),
+            IconBadgeTone.accent => (t.accentTint, t.accentText),
+            IconBadgeTone.solid => (t.accentFill, t.onAccentFill),
+          };
+    final glyphSize = _glyph ?? size.glyph;
+    final edge = size.edge;
+    return ExcludeSemantics(
+      child: Container(
+        width: edge,
+        height: edge,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(_radius ?? size.radius),
+        ),
+        child: child == null
+            ? Icon(icon, size: glyphSize, color: ink)
+            : IconTheme.merge(
+                data: IconThemeData(size: glyphSize, color: ink),
+                child: child!,
+              ),
+      ),
+    );
+  }
+}
+
+/// Back, close and menu inside a dense row: since 2026-11-01 a compact
+/// [AppIconButton] (a round 36 px disc in a 44 px target).
 class SquareIconButton extends StatelessWidget {
   const SquareIconButton({
     super.key,
@@ -59,41 +701,12 @@ class SquareIconButton extends StatelessWidget {
   final String? semanticLabel;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // 34 px visible, 44 px tappable — the extra hit area is transparent and
-    // sits outside the drawn surface.
-    return Semantics(
-      button: true,
-      enabled: onTap != null,
-      label: semanticLabel,
-      child: PressScale(
-        enabled: onTap != null,
-      child: SizedBox(
-        width: 44,
-        height: 44,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(rChip),
-            child: Center(
-              child: Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: t.softFill,
-                  borderRadius: BorderRadius.circular(rChip),
-                ),
-                child: Icon(icon, size: 17, color: t.ink2),
-              ),
-            ),
-          ),
-        ),
-      ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    icon: icon,
+    onTap: onTap,
+    semanticLabel: semanticLabel ?? '',
+    size: IconButtonSize.compact,
+  );
 }
 
 /// Emphasis of a [HeaderIconButton].
@@ -101,15 +714,12 @@ enum HeaderIconTone {
   /// A soft neutral disc: calendar, history, info.
   neutral,
 
-  /// Accent fill: the one primary action of a header (e.g. "add").
+  /// The lit accent disc: the one primary action of a header (e.g. "add").
   primary,
 }
 
-/// Round 44 px icon button for tab headers (dark redesign, 2026-09-28).
-///
-/// Neutral = a [AppTokens.softFill] disc with no outline (2026-10-25), icon
-/// in [AppTokens.inkMuted]; primary = accent fill with an on-accent icon.
-/// The whole circle is the tap target.
+/// Round 44 px icon button for headers: a regular [AppIconButton] in the
+/// neutral or lit tone. Kept as a name for keys and finders.
 class HeaderIconButton extends StatelessWidget {
   const HeaderIconButton({
     super.key,
@@ -140,52 +750,30 @@ class HeaderIconButton extends StatelessWidget {
   final HeaderIconTone tone;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final primary = tone == HeaderIconTone.primary;
-    final ink = primary ? t.onAccentFill : t.inkMuted;
-    // No excludeSemantics: it would drop the InkWell's tap action; the glyph
-    // itself carries no label, so nothing is read twice.
-    return Semantics(
-      button: true,
-      enabled: onTap != null,
-      label: semanticLabel,
-      child: PressScale(
-        enabled: onTap != null,
-      child: Material(
-        color: primary ? t.accentFill : t.softFill,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: SizedBox.square(
-            dimension: size,
-            child: IconTheme(
-              data: IconThemeData(size: 20, color: ink),
-              child: Center(child: _child ?? Icon(icon)),
-            ),
-          ),
-        ),
-      ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    icon: icon,
+    semanticLabel: semanticLabel,
+    onTap: onTap,
+    tone: tone == HeaderIconTone.primary
+        ? IconButtonTone.primary
+        : IconButtonTone.neutral,
+    child: _child,
+  );
 }
 
-/// Faintly tinted tile behind an icon (list rows, stats).
+/// Faintly tinted tile behind an icon: since 2026-11-01 an [IconBadge] at
+/// the stage nearest to [size] (default `sm`). New code uses [IconBadge].
 ///
-/// [glyphSize] and [radius] default to the list-row tile (16 px glyph,
-/// [rChip]); header tiles such as the decision card's use 22 px and
-/// [rControl].
+/// [glyphSize] and [radius] stay as overrides for older callers; without
+/// them the badge stage decides.
 class IconTile extends StatelessWidget {
   const IconTile({
     super.key,
     required this.icon,
     this.color,
     this.size = 34,
-    this.glyphSize = 16,
-    this.radius = rChip,
+    this.glyphSize,
+    this.radius,
   }) : _child = null;
 
   const IconTile.custom({
@@ -193,8 +781,8 @@ class IconTile extends StatelessWidget {
     required Widget child,
     this.color,
     this.size = 34,
-    this.glyphSize = 16,
-    this.radius = rChip,
+    this.glyphSize,
+    this.radius,
   }) : icon = null,
        _child = child;
 
@@ -202,39 +790,18 @@ class IconTile extends StatelessWidget {
   final Widget? _child;
   final Color? color;
   final double size;
-  final double glyphSize;
-  final double radius;
+  final double? glyphSize;
+  final double? radius;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: color == null ? t.tile : color!.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      // Not the full category color: the glyph would sit on its OWN 15 % tint
-      // at ~2.2:1 in light mode — that is what [AppTokens.readableOnTint] is
-      // for. Without a color the glyph sits on `tile` and stays `ink`.
-      child: _child == null
-          ? Icon(
-              icon,
-              size: glyphSize,
-              color: color == null ? t.ink : t.readableOnTint(color!),
-            )
-          : Center(
-              child: IconTheme(
-                data: IconThemeData(
-                  size: glyphSize,
-                  color: color == null ? t.ink : t.readableOnTint(color!),
-                ),
-                child: _child,
-              ),
-            ),
-    );
-  }
+  Widget build(BuildContext context) => IconBadge._legacy(
+    icon: icon,
+    size: IconBadgeSize.nearest(size),
+    color: color,
+    glyph: glyphSize,
+    radius: radius,
+    child: _child,
+  );
 }
 
 /// The app's toggle: capsule with a travelling knob.
@@ -448,7 +1015,11 @@ class FilterChipPill extends StatelessWidget {
                   SizedBox(width: small ? 6 : 8),
                 ],
                 if (icon != null) ...<Widget>[
-                  Icon(icon, size: small ? 13 : 15, color: fg),
+                  Icon(
+                    icon,
+                    size: small ? AppIconSize.meta : AppIconSize.small,
+                    color: fg,
+                  ),
                   SizedBox(width: small ? 4 : 6),
                 ],
                 Flexible(

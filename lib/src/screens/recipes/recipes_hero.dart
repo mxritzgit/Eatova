@@ -170,19 +170,20 @@ class _RecipeHeroCard extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _MetaChip(
+                    StatusPill(
                       key: const ValueKey('recipe-hero-kcal'),
-                      number: _nutritionNumber(model.kcal?.toDouble(), l10n),
-                      unit: 'kcal',
-                      gap: 4,
+                      label:
+                          '${_nutritionNumber(model.kcal?.toDouble(), l10n)} '
+                          'kcal',
                     ),
-                    _MetaChip(
+                    // The protein hue on the mark only, the label in text ink.
+                    StatusPill(
                       key: const ValueKey('recipe-hero-protein'),
-                      number:
-                          '${_nutritionNumber(model.proteinG?.toDouble(), l10n)} g',
-                      unit: l10n.recipesHeroProteinUnit,
-                      dot: t.protein,
-                      gap: 6,
+                      label:
+                          '${_nutritionNumber(model.proteinG?.toDouble(), l10n)} '
+                          'g ${l10n.recipesHeroProteinUnit}',
+                      dot: true,
+                      color: t.protein,
                     ),
                   ],
                 ),
@@ -259,65 +260,6 @@ class _FitsBadge extends StatelessWidget {
               context.l10n.recipesHeroFitsDay,
               style: AppType.ui(13, weight: FontWeight.w700, color: t.success),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Number-and-unit chip under the hero title ("610 kcal", "● 58 g protein").
-/// A [Wrap], so at large text the unit moves under the number instead of
-/// overflowing the chip.
-class _MetaChip extends StatelessWidget {
-  const _MetaChip({
-    super.key,
-    required this.number,
-    required this.unit,
-    required this.gap,
-    this.dot,
-  });
-
-  final String number, unit;
-  final double gap;
-
-  /// The macro dot in front of the number.
-  final Color? dot;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 30),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: t.surf2,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
-      child: Wrap(
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: gap,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (dot != null) ...[
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                number,
-                style: AppType.ui(13, weight: FontWeight.w700, color: t.ink),
-              ),
-            ],
-          ),
-          Text(
-            unit,
-            style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
           ),
         ],
       ),

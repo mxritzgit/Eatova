@@ -13,6 +13,7 @@ import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'support/harness.dart';
 
 final _today = DateTime(2026, 9, 14);
@@ -378,7 +379,7 @@ void main() {
         await tester.enterText(find.byType(TextField), '0');
         await tester.pumpAndSettle();
         expect(
-          tester.widget<FilledButton>(_key('product-add')).onPressed,
+          tester.widget<AppIconButton>(_key('product-add')).onTap,
           isNull,
         );
         await tester.enterText(find.byType(TextField), '250');

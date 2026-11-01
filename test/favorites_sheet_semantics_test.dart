@@ -89,7 +89,7 @@ void main() {
         hasEnabledState: true,
         isEnabled: true,
         hasTapAction: true,
-        tooltip: 'Aus Favoriten entfernen',
+        label: 'Aus Favoriten entfernen',
       ),
     );
     handle.dispose();
@@ -146,7 +146,7 @@ void main() {
         hasEnabledState: true,
         isEnabled: true,
         hasTapAction: true,
-        tooltip: 'Suche leeren',
+        label: 'Suche leeren',
       ),
     );
 

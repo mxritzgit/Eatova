@@ -247,7 +247,7 @@ void main() {
           final hintText = find.text(l10n.profileHealthDeniedHint);
           final tile = find.descendant(
             of: find.ancestor(of: hintText, matching: find.byType(AppCard)),
-            matching: find.byType(IconTile),
+            matching: find.byType(IconBadge),
           );
           expect(
             tester.getRect(hintText).left,

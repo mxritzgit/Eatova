@@ -279,7 +279,7 @@ mixin _HomeStoreMealsPart
         : _l10n.mealUpdated;
     _emitSnack(
       message,
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
       tone: SnackTone.positive,
       action: SnackBarAction(
         label: _l10n.commonUndo,
@@ -730,7 +730,7 @@ mixin _HomeStoreMealsPart
     Future<void>? undo;
     _emitSnack(
       message,
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
       tone: SnackTone.positive,
       action: SnackBarAction(
         label: _l10n.commonUndo,
