@@ -13,9 +13,12 @@
 // The core of the file are the DART-TO-MANIFEST dependencies, which turn red
 // when only the Dart side changes — exactly how D1 happened:
 //
-//   * `NotificationDetails.actions` / `dismissIsolate`  ->  ActionBroadcastReceiver
-//   * `startForegroundService`                          ->  ForegroundService
-//   * `AndroidScheduleMode.exact*` / `.alarmClock`      ->  SCHEDULE_EXACT_ALARM
+//   * a background action / `dismissIsolate`         ->  ActionBroadcastReceiver
+//   * `startForegroundService`                        ->  ForegroundService
+//   * `AndroidScheduleMode.exact*` / `.alarmClock`    ->  SCHEDULE_EXACT_ALARM
+//
+// An action with `showsUserInterface: true` opens the activity instead and
+// needs no receiver (FlutterLocalNotificationsPlugin.java:330-359).
 
 import 'dart:io';
 
@@ -161,6 +164,25 @@ List<String> _notificationQuellen() {
 bool _irgendwo(List<String> quellen, Pattern muster) =>
     quellen.any((q) => q.contains(muster));
 
+/// Every call of [name] in [quellen], with its argument list.
+List<String> _aufrufe(List<String> quellen, String name) {
+  final aufrufe = <String>[];
+  for (final q in quellen) {
+    var start = q.indexOf('$name(');
+    while (start >= 0) {
+      var tiefe = 0;
+      var ende = start + name.length;
+      for (; ende < q.length; ende++) {
+        if (q[ende] == '(') tiefe++;
+        if (q[ende] == ')' && --tiefe == 0) break;
+      }
+      aufrufe.add(q.substring(start, ende < q.length ? ende + 1 : q.length));
+      start = q.indexOf('$name(', ende);
+    }
+  }
+  return aufrufe;
+}
+
 void main() {
   late String manifest;
   late _Element application;
@@ -242,15 +264,20 @@ void main() {
     // the Dart side changes, which is exactly how D1 happened.
 
     test(
-        'wer Notification-Actions oder dismissIsolate nachruestet, MUSS '
+        'wer Hintergrund-Actions oder dismissIsolate nachruestet, MUSS '
         'ActionBroadcastReceiver deklarieren', () {
-      final nutztActions = _irgendwo(notificationQuellen, 'actions:') ||
+      final aktionen =
+          _aufrufe(notificationQuellen, 'AndroidNotificationAction');
+      final hintergrund = aktionen.where(
+          (a) => !a.contains(RegExp(r'showsUserInterface:\s*true')));
+      final nutztActions = hintergrund.isNotEmpty ||
           _irgendwo(notificationQuellen, 'dismissIsolate');
       final deklariert = _mitNamen(receivers, _receiverAction) != null;
 
       expect(!nutztActions || deklariert, isTrue,
-          reason: 'Der Dart-Code steuert jetzt Notification-Actions bzw. '
-              'dismissIsolate an (FlutterLocalNotificationsPlugin.java:303/333). '
+          reason: 'Der Dart-Code steuert jetzt eine Action ohne '
+              'showsUserInterface: true bzw. dismissIsolate an '
+              '(FlutterLocalNotificationsPlugin.java:303/333). '
               'Ohne <receiver android:name="$_receiverAction" '
               'android:exported="false" /> im <application>-Block schlaegt das '
               'genauso still fehl wie D1: der Tap auf die Action tut nichts.');

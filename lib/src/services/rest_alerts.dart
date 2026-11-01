@@ -161,7 +161,8 @@ abstract class RestAlertExplainerMemory {
   Future<void> markExplainerShown();
 }
 
-/// Taps on this app's notifications, as their payloads.
+/// Taps on this app's notifications, as their payloads. A tapped button
+/// under one reports its own id (an `AppEntry` id) instead.
 abstract class NotificationTapSource {
   /// Payloads of notifications tapped while the app is running.
   Stream<String> get taps;

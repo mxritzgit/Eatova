@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/reminder_time.dart';
 import 'package:eatova/src/services/app_entry.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/services/streak_reminder_planner.dart';
@@ -95,12 +96,37 @@ void main() {
     });
   });
 
-  test('ein Tipp auf jede Erinnerung oeffnet das Eintragen', () {
-    final specs = planStreakReminders(
-      wedMorning,
-      statsWithStreak(lastTracked: DateTime(2026, 7, 14)),
-    );
-    expect(specs.map((s) => s.payload).toSet(), {AppEntry.logMeal.id});
+  test('ein Tipp auf jede Erinnerung oeffnet das Eintragen, ihre Knoepfe '
+      'Foto, Barcode und Beschreiben', () {
+    for (final (name, specs) in [
+      (
+        'Serie',
+        planStreakReminders(
+          wedMorning,
+          statsWithStreak(lastTracked: DateTime(2026, 7, 14)),
+        ),
+      ),
+      (
+        'halber Tag',
+        planStreakReminders(
+          wedMorning,
+          statsWithStreak(lastTracked: DateTime(2026, 7, 15)),
+          null,
+          ReminderTime.standard,
+          (kcal: 400, goalKcal: 2000),
+        ),
+      ),
+    ]) {
+      expect(specs.map((s) => s.payload).toSet(), {AppEntry.logMeal.id},
+          reason: name);
+      for (final spec in specs) {
+        expect(spec.actions?.entries, [
+          AppEntry.photo,
+          AppEntry.barcode,
+          AppEntry.describe,
+        ], reason: name);
+      }
+    }
   });
 
   group('planStreakReminders — IDs', () {
