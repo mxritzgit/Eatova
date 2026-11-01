@@ -581,6 +581,8 @@ class _EditMealSheetState extends State<EditMealSheet> {
                           ? '${l10n.foodCopyAction} ${l10n.foodCopySaveFirst}'
                           : null,
                       tone: SoftPillTone.neutral,
+                      // Under the primary action: as tall as it.
+                      size: SoftPillSize.regular,
                       expand: true,
                     ),
                     if (_dirty) ...[
@@ -603,6 +605,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       icon: AppIcons.delete,
                       label: l10n.foodDeleteMealButton,
                       tone: SoftPillTone.danger,
+                      size: SoftPillSize.regular,
                       expand: true,
                     ),
                   ],
@@ -773,7 +776,8 @@ class _ServingsStepper extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(18, stacked ? 12 : 4, 4, 4),
       child: stacked
           ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              // Stretched: the capsule keeps the sheet's full width.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [name, const SizedBox(height: kSpace4), stepper],
             )
           : Row(children: [Expanded(child: name), stepper]),

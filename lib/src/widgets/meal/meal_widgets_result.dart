@@ -590,6 +590,8 @@ class MealResultActions extends StatelessWidget {
           onTap: onAdjust,
           icon: AppIcons.tune,
           label: l10n.foodAdjustPortionButton,
+          // Directly above the primary action: as tall as it.
+          size: SoftPillSize.regular,
           expand: true,
         ),
         const SizedBox(height: 10),

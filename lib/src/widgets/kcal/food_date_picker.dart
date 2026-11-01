@@ -136,6 +136,8 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
                   icon: AppIcons.calendar,
                   label: l10n.foodCalendarToday,
                   tone: SoftPillTone.neutral,
+                  // Directly above the primary action: as tall as it.
+                  size: SoftPillSize.regular,
                   expand: true,
                 ),
                 const SizedBox(height: 10),

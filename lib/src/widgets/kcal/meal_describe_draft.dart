@@ -632,6 +632,8 @@ class _DraftLineEditorState extends State<_DraftLineEditor> {
             label: l10n.foodRemoveTooltip,
             icon: AppIcons.delete,
             tone: SoftPillTone.danger,
+            // Under the primary action: as tall as it.
+            size: SoftPillSize.regular,
             expand: true,
             onTap: () => Navigator.of(context).pop(const _LineEdit.remove()),
           ),

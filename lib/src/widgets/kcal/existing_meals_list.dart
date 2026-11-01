@@ -175,22 +175,23 @@ class _ExistingMealRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // The row roles of the sheet's other lists (ListRow).
                   Text(
                     meal.result.resolvedMealName(l10n),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                    style: AppType.rowTitle(t.ink),
                   ),
-                  const SizedBox(height: 1),
+                  const SizedBox(height: 3),
                   Text(
                     diaryAmountLabel(meal.result, l10n),
-                    style: AppType.ui(12, color: t.ink3),
+                    style: AppType.subhead(t.ink2),
                   ),
                   if (hasMacros)
                     Text(
                       macroSummaryLine(l10n, macros),
                       key: ValueKey('analyse-existing-macros-${meal.id}'),
-                      style: AppType.ui(12, color: t.ink3),
+                      style: AppType.ui(12, color: t.ink2),
                     ),
                 ],
               ),
