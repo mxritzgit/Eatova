@@ -25,6 +25,14 @@ import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 
+/// Edge of a suggestion's photo.
+const double _kThumb = 52;
+
+/// From about 1.5x text the side-by-side row leaves the title a few
+/// characters per line; it then moves under the photo and the actions.
+bool _largeText(BuildContext context) =>
+    MediaQuery.textScalerOf(context).scale(15) > 22;
+
 /// Opens the suggestion for [days] of the week starting on [week] (its
 /// Monday); the week's other days only count towards repeats.
 Future<void> showWeekPlanSuggestion(
@@ -144,7 +152,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
             : result.delivery == SyncDelivery.delivered
             ? l.mealPlanSuggestApplied(result.added)
             : l.mealPlanSuggestAppliedOffline(result.added),
-        icon: Icons.check_circle_outline_rounded,
+        icon: AppIcons.checkCircle,
         tone: result.added == 0 ? SnackTone.neutral : SnackTone.positive,
       );
       Navigator.pop(context);
@@ -183,7 +191,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
                 label: _saving
                     ? l.mealPlanSaving
                     : l.mealPlanSuggestApply(count),
-                icon: Icons.check_rounded,
+                icon: AppIcons.check,
                 busy: _saving,
                 onTap: count == 0 ? null : _apply,
               ),
@@ -210,7 +218,6 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: SheetTitle(l.mealPlanSuggestTitle)),
               const SizedBox(width: 8),
@@ -242,7 +249,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
           ExcludeSemantics(
             child: Text(
               l.mealPlanSuggestSlots.toUpperCase(),
-              style: AppType.eyebrow(t.ink2, size: 9.5),
+              style: AppType.eyebrow(t.ink2),
             ),
           ),
           const SizedBox(height: 8),
@@ -267,7 +274,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
             child: SoftPillButton(
               key: const ValueKey('meal-plan-suggest-shuffle'),
               label: l.mealPlanSuggestShuffle,
-              icon: Icons.shuffle_rounded,
+              icon: AppIcons.autorenew,
               tone: SoftPillTone.neutral,
               onTap: _saving ? null : _shuffle,
             ),
@@ -302,7 +309,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
             SignalNote(
               _error!,
               tone: t.danger,
-              icon: Icons.error_outline_rounded,
+              icon: AppIcons.error,
               boxed: true,
               liveRegion: true,
             ),
@@ -321,7 +328,7 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
     final kcal = [
       l.mealPlanDayKcal(plan.kcalOn(day), plan.dailyKcalGoal),
       if (existing > 0) l.mealPlanSuggestAlreadyPlanned(existing),
-    ].join(' · ');
+    ].join('\u00A0· ');
     final meals = [
       for (final meal in plan.meals)
         if (meal.day == day) meal,
@@ -336,30 +343,32 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
             level: 2,
             child: Text(
               DateFormat.MMMMEEEEd(l.localeName).format(date),
-              style: AppType.display(17, weight: FontWeight.w700, color: t.ink),
+              style: AppType.section(t.ink),
             ),
           ),
           const SizedBox(height: 2),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Flexible(
-                child: Text(
-                  kcal,
-                  key: ValueKey('meal-plan-suggest-day-kcal-$day'),
-                  style: AppType.ui(13, color: t.ink2, height: 1.35),
-                ),
-              ),
-              if (plan.fitsGoal(day)) ...[
-                const SizedBox(width: 6),
-                Icon(
-                  Icons.check_circle_rounded,
-                  size: 16,
-                  color: t.success,
-                  semanticLabel: l.mealPlanSuggestInBand,
-                ),
+          // The check follows the last word, also when the line wraps.
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: kcal),
+                if (plan.fitsGoal(day)) ...[
+                  const TextSpan(text: '\u00A0'),
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: StateIcon(
+                      AppIcons.checkCircle,
+                      on: true,
+                      size: AppIconSize.small,
+                      color: t.success,
+                      semanticLabel: l.mealPlanSuggestInBand,
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
+            key: ValueKey('meal-plan-suggest-day-kcal-$day'),
+            style: AppType.ui(13, color: t.ink2, height: 1.35, tabular: true),
           ),
           const SizedBox(height: 8),
           Material(
@@ -377,8 +386,11 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
                     Divider(
                       height: 1,
                       thickness: 1,
-                      indent: 14,
-                      endIndent: 14,
+                      // Where the text starts: beside the photo, or under it.
+                      indent: _largeText(context)
+                          ? kCardInset
+                          : kCardInset + _kThumb + kRowLeadingGap,
+                      endIndent: kCardInset,
                       color: t.line,
                     ),
                   _row(context, meals[i]),
@@ -401,24 +413,17 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: AppType.ui(
-              15,
-              weight: FontWeight.w700,
-              color: t.ink,
-              height: 1.25,
-            ),
-          ),
+          Text(title, style: AppType.rowTitle(t.ink).copyWith(height: 1.25)),
           const SizedBox(height: 3),
           Text(
             [
               meal.slot.label(l),
               l.mealPlanPortionCount(meal.servings),
               '${formatThousands(meal.kcal, l.localeName)} kcal',
-              // "494 kcal" or "1,5 Portionen" never break inside.
-            ].map((part) => part.replaceAll(' ', ' ')).join(' · '),
-            style: AppType.ui(13, color: t.ink2, height: 1.3),
+              // "494 kcal" or "1,5 Portionen" never break inside, and a dot
+              // never starts a line.
+            ].map((part) => part.replaceAll(' ', ' ')).join('\u00A0· '),
+            style: AppType.ui(13, color: t.ink2, height: 1.35, tabular: true),
           ),
         ],
       ),
@@ -426,39 +431,42 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
     final actions = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
+        AppIconButton(
           key: ValueKey('meal-plan-suggest-swap-$id'),
-          tooltip: l.mealPlanSuggestSwap(title),
-          onPressed: _saving || swapped == null
+          icon: AppIcons.swapHoriz,
+          semanticLabel: l.mealPlanSuggestSwap(title),
+          tone: IconButtonTone.plain,
+          size: IconButtonSize.compact,
+          onTap: _saving || swapped == null
               ? null
               : () => setState(() => _plan = swapped),
-          icon: Icon(Icons.swap_horiz_rounded, color: t.ink2),
         ),
-        IconButton(
+        AppIconButton(
           key: ValueKey('meal-plan-suggest-remove-$id'),
-          tooltip: l.mealPlanSuggestRemove(title),
-          onPressed: _saving
+          icon: AppIcons.close,
+          semanticLabel: l.mealPlanSuggestRemove(title),
+          tone: IconButtonTone.plain,
+          size: IconButtonSize.compact,
+          onTap: _saving
               ? null
               : () => setState(() => _plan = _plan.without(meal)),
-          icon: Icon(Icons.close_rounded, color: t.ink2),
         ),
       ],
     );
     final thumb = _Thumb(recipe: meal.recipe, slot: meal.slot);
-    // From about 1.5x text the side-by-side row leaves the title a few
-    // characters per line; it then moves under the photo and the actions.
-    final large = MediaQuery.textScalerOf(context).scale(15) > 22;
     return Padding(
       key: ValueKey('meal-plan-suggest-row-$id'),
-      padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
-      child: large
+      // The last 44 px target ends 6 px before the edge: its glyph sits
+      // about on the card inset, as on the plan's own rows.
+      padding: const EdgeInsets.fromLTRB(kCardInset, kSpace12, 6, kSpace12),
+      child: _largeText(context)
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(children: [thumb, const Spacer(), actions]),
-                const SizedBox(height: 8),
+                const SizedBox(height: kSpace12),
                 Padding(
-                  padding: const EdgeInsets.only(right: 10),
+                  padding: const EdgeInsets.only(right: kSpace12),
                   child: texts,
                 ),
               ],
@@ -466,8 +474,9 @@ class _WeekSuggestSheetState extends State<_WeekSuggestSheet> {
           : Row(
               children: [
                 thumb,
-                const SizedBox(width: 12),
+                const SizedBox(width: kRowLeadingGap),
                 Expanded(child: texts),
+                const SizedBox(width: kSpace4),
                 actions,
               ],
             ),
@@ -520,7 +529,7 @@ class _Thumb extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return SizedBox.square(
-      dimension: 52,
+      dimension: _kThumb,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
