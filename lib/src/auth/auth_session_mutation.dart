@@ -7,6 +7,7 @@ import 'package:postgrest/postgrest.dart' as postgrest;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../services/deadline_http_client.dart';
 import '../services/stale_auth_retry.dart' show StaleAuthRetry;
 import '../services/sync_error_messages.dart' show isStaleAuthError;
 
@@ -247,7 +248,7 @@ Future<void> _mutate(
     headers: Map<String, String>.of(client.auth.headers),
     // GoTrue sets no timeout: a stalled socket kept sign-in spinning forever.
     // Bound each exchange, not a native account chooser in between.
-    httpClient: _DeadlineClient(
+    httpClient: DeadlineHttpClient(
       transport,
       client.rest.requestTimeout ??
           EatovaSupabaseConfig.postgrestOptions.requestTimeout!,
@@ -316,30 +317,6 @@ Future<void> _mutate(
     await subscription.cancel();
     scoped.dispose();
     if (httpClient == null) transport.close();
-  }
-}
-
-/// Fails one request with [TimeoutException] when its response headers or
-/// body stall past [_deadline]; GoTrue reports that as a network error.
-class _DeadlineClient extends http.BaseClient {
-  _DeadlineClient(this._inner, this._deadline);
-
-  final http.Client _inner;
-  final Duration _deadline;
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    final response = await _inner.send(request).timeout(_deadline);
-    return http.StreamedResponse(
-      response.stream.timeout(_deadline),
-      response.statusCode,
-      contentLength: response.contentLength,
-      request: response.request,
-      headers: response.headers,
-      isRedirect: response.isRedirect,
-      persistentConnection: response.persistentConnection,
-      reasonPhrase: response.reasonPhrase,
-    );
   }
 }
 
