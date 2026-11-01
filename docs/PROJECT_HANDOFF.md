@@ -4736,13 +4736,25 @@ commit once an app build with v2 briefs is released.
 
 **Delivery state (2026-11-01):** [PR #175](https://github.com/mxritzgit/Eatova/pull/175)
 squash-merged as `d4d22775` (all checks green, 753 test files, coverage
-96.53 %). **Not live:** migration `20261101100000` and the coach-chat deploy.
-`infisical run` failed ("unable to parse email and password", the CLI
-session has expired), so no management token was available; nothing was
-applied or deployed. **Before any device build** with this code: the owner
-runs `infisical login`, then the migration (dry run first) and the
-coach-chat deploy, in that order; otherwise Coach `/plan` answers 400 to the
-new brief.
+96.53 %). The first attempt to go live failed because the Infisical CLI
+session had expired; after the owner's `infisical login` both went live on
+2026-11-01, in order:
+
+- Migration `20261101100000` (about 07:47 UTC): dry run in a transaction
+  aborted by a `raise` (v1 plan valid; target 3 valid; null, 0, 15, 2.5 and
+  "3" rejected; 0 stored plans or chat plans invalid under the new check),
+  then file and `schema_migrations` row in one transaction. 62 registered;
+  grants unchanged (anon no, authenticated and service_role yes).
+- coach-chat v62 → v63 (07:49 UTC) from an LF export of `d4d22775`,
+  following the deploy workflow's steps locally: plan, rollback guard,
+  migrations registered (62/62), live source before equal to main before
+  #175 (no drift; only `handler.ts`, `training_context.ts`,
+  `training_plan.ts` differ from the target), deploy, live source after
+  byte-identical, boot probe 204/401/401, record `success`.
+
+An app build with this code may now follow. `ROLLBACK_FLOORS['coach-chat']`
+stays at `27ee6c44` until a build with v2 briefs is released (see the
+rollout order above).
 
 ## UI/UX polish with ten agents, 2026-11-01
 
