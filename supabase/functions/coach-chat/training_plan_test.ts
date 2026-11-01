@@ -6,6 +6,7 @@ import {
   TRAINING_PLAN_OUTPUT_SCHEMA,
   trainingPlanSummary,
   trainingPlanSystemPrompt,
+  withWeeklyTarget,
 } from "./training_plan.ts";
 
 function assert(value: unknown, message: string): asserts value {
@@ -147,6 +148,19 @@ Deno.test("training plan: array dimensions, schema version and malformed envelop
   for (const raw of ["```json" + "\n".repeat(250000) + "broken", "```json\n" + JSON.stringify(plan), "```javascript\n" + JSON.stringify(plan) + "\n```", "```" + JSON.stringify(plan) + "```", "```json\n{}\n```\nextra"]) {
     assert(parseTrainingPlanDraft(raw) === null, "malformed fences reject without backtracking");
   }
+});
+
+Deno.test("training plan: the optional weekly target is an integer 1..14 that stays absent unless set", () => {
+  for (const [value, valid] of [[1, true], [14, true], [4.0, true], [0, false], [15, false], [2.5, false],
+    ["3", false], [null, false], [true, false], [NaN, false]] as const) {
+    const parsed = parseTrainingPlan({ ...fixture(), sessions_per_week: value });
+    assert((parsed !== null) === valid, `sessions_per_week=${String(value)}`);
+    if (parsed) assert(parsed.sessions_per_week === value, "kept as given");
+  }
+  const plain = parseTrainingPlan(fixture());
+  assert(plain && !Object.hasOwn(plain, "sessions_per_week"), "absent stays absent for v1 readers");
+  assert(withWeeklyTarget(plain, 4).sessions_per_week === 4, "set");
+  assert(!Object.hasOwn(withWeeklyTarget({ ...plain, sessions_per_week: 9 }, null), "sessions_per_week"), "cleared");
 });
 
 Deno.test("training plan: refusal has its own bounded shape and proposals remain explicit drafts", () => {

@@ -490,6 +490,27 @@ Deno.test("brief handler: classifier and draft both receive selected plan as dat
   } finally { stub.restore(); }
 });
 
+Deno.test("brief handler: the weekly target comes from a v2 brief only, never from the model", async () => {
+  // The model sneaks in its own target; older builds would reject the key.
+  const draft = JSON.stringify({ ...PLAN, sessions_per_week: 9 });
+  for (const [label, payload, expected] of [
+    ["v2 brief", { training_context: { ...trainingBrief(), schema_version: 2 } }, 2],
+    ["v1 brief", { training_context: trainingBrief() }, null],
+    ["no brief", {}, null],
+  ] as const) {
+    const stub = stubNetwork(draft);
+    try {
+      const res = await handleRequest(request(payload));
+      equal(res.status, 200, `${label}: status`);
+      const plan = (await res.json()).training_plan;
+      const stored = stub.callsTo("chat_messages").find((call) => call.body.training_plan !== undefined)?.body.training_plan;
+      const want = expected === null ? PLAN : { ...PLAN, sessions_per_week: expected };
+      equal(plan, want, `${label}: answer`);
+      equal(stored, want, `${label}: history`);
+    } finally { stub.restore(); }
+  }
+});
+
 Deno.test("brief handler: selected plan discussion returns ordinary text with no generated draft", async () => {
   const stub = stubNetwork(PLAN_JSON);
   try {

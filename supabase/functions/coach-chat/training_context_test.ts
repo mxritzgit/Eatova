@@ -1,4 +1,4 @@
-import { parseTrainingContext, trainingContextRefusal, trainingContextMessage } from "./training_context.ts";
+import { briefWeeklyTarget, parseTrainingContext, trainingContextRefusal, trainingContextMessage } from "./training_context.ts";
 
 const PLAN = { schema_version: 1, title: "Saved plan", description: "", goal: "Strength", workouts: [
   { title: "A", description: "", exercises: [
@@ -25,8 +25,19 @@ Deno.test("training brief: validates modes and frames only an intentional snapsh
   assert(parseTrainingContext(brief({ goal: "Strength 💪" })), "valid unicode");
 });
 
+Deno.test("training brief: only a v2 brief hands its sessions per week to the proposal", () => {
+  const v1 = parseTrainingContext(brief({ sessions_per_week: 4 }));
+  const v2 = parseTrainingContext(brief({ schema_version: 2, sessions_per_week: 4 }));
+  assert(v1 && v2, "both versions parse");
+  assert(briefWeeklyTarget(v1) === null && briefWeeklyTarget(undefined) === null, "older builds get no key");
+  assert(briefWeeklyTarget(v2) === 4, "v2 target");
+  const weekly = { ...PLAN, sessions_per_week: 3 };
+  assert(parseTrainingContext(brief({ schema_version: 2, intent: "adapt", selected_plan: weekly })), "a saved plan with a target");
+});
+
 Deno.test("training brief: rejects unknown, nested, nonfinite, excessive and control input", () => {
   const invalid: unknown[] = [null, [], "brief", brief({ owner: "other" }), brief({ intent: "system" }),
+    brief({ schema_version: 3 }), brief({ schema_version: "2" }),
     brief({ intent: "adapt" }), brief({ selected_plan: PLAN }), brief({ selected_plan: {} }),
     brief({ goal: { instruction: "hello" } }), brief({ goal: "x".repeat(201) }), brief({ goal: "\u0085" }),
     brief({ goal: "before\u0000after" }), brief({ goal: "before\u007fafter" }), brief({ goal: "\ud800" }),
