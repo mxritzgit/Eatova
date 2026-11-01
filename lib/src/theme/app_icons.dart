@@ -216,7 +216,9 @@ abstract final class AppIcons {
   static const IconData fitnessCenter = Icons.fitness_center_rounded;
   static const IconData trophy = Icons.emoji_events_outlined;
   static const IconData speed = Icons.speed_rounded;
-  static const IconData insights = Icons.insights_rounded;
+  /// Trends and the weekly check. Not Material's `insights`: its sparkles
+  /// read as the AI mark, which stays next to the word "KI" only.
+  static const IconData insights = Icons.query_stats_rounded;
   static const IconData queryStats = Icons.query_stats_rounded;
   static const IconData showChart = Icons.show_chart_rounded;
   static const IconData donutSmall = Icons.donut_small_outlined;
