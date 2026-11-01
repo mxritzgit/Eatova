@@ -185,7 +185,7 @@ final class WeekPlanSuggestion {
 ///     for that day stays empty ([WeekPlanSuggestion.unfilled]).
 ///  4. **The day's kcal.** Among those, the day that comes closest to
 ///     [weekPlanKcalBand] around the daily goal wins: one serving where
-///     that fits, otherwise the fewest servings off one
+///     that fits, otherwise servings as close to one as the band allows
 ///     ([weekPlanServingSteps]).
 ///  5. **Deterministic.** Ties go by a hash of [seed], the week and the
 ///     recipe slug: the same input gives the same plan, another [seed]
@@ -410,8 +410,9 @@ typedef _Choice = ({_Candidate candidate, int step});
 }
 
 /// The servings steps for [chosen] that bring [base] plus their kcal
-/// closest to the band around [goal]: band distance, steps off one, their
-/// distance from one, then distance from [goal].
+/// closest to the band around [goal]: band distance, then the largest step
+/// away from one (two meals at 1.5 rather than one at 2), steps off one,
+/// their total distance from one, then distance from [goal].
 ({List<int> steps, List<int> score}) _bestServings(
   List<_Candidate> chosen,
   int base,
@@ -421,19 +422,28 @@ typedef _Choice = ({_Candidate candidate, int step});
   // One serving each, inside the band: nothing scores better.
   final plain = chosen.fold(base, (sum, c) => sum + c.kcal.first!);
   if (_miss(plain, goal) == 0) {
-    return (steps: bestSteps, score: [0, 0, 0, (plain - goal).abs()]);
+    return (steps: bestSteps, score: [0, 0, 0, 0, (plain - goal).abs()]);
   }
   List<int>? bestScore;
   final steps = List.filled(chosen.length, 0);
 
   void visit(int i, int total) {
     if (i == chosen.length) {
-      var off = 0, deviation = 0;
+      var widest = 0, off = 0, deviation = 0;
       for (final step in steps) {
-        if (step != 0) off++;
-        deviation += ((weekPlanServingSteps[step] - 1).abs() * 2).round();
+        // In half servings, so the score stays integral.
+        final away = ((weekPlanServingSteps[step] - 1).abs() * 2).round();
+        if (away > widest) widest = away;
+        if (away > 0) off++;
+        deviation += away;
       }
-      final score = [_miss(total, goal), off, deviation, (total - goal).abs()];
+      final score = [
+        _miss(total, goal),
+        widest,
+        off,
+        deviation,
+        (total - goal).abs(),
+      ];
       if (bestScore == null || _compare(score, bestScore!) < 0) {
         bestScore = score;
         bestSteps = List.of(steps);
