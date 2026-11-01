@@ -657,6 +657,8 @@ class SyncOp {
     if (kind == null) return null;
     final entityId = json['entity_id'];
     if (entityId is! String || entityId.isEmpty) return null;
+    final predecessorId = json['predecessor_id'];
+    if (predecessorId != null && predecessorId is! String) return null;
     final rawPayload = json['payload'];
     final payload = rawPayload is Map
         ? rawPayload.cast<String, dynamic>()
@@ -686,7 +688,7 @@ class SyncOp {
       deliveryStarted: json['delivery_started'] == true,
       wirePayload: wire as Map<String, dynamic>?,
       wireSchema: schema as int?,
-      predecessorId: json['predecessor_id'] as String?,
+      predecessorId: predecessorId as String?,
       blockedReason: SyncBlockedReason.values
           .where((reason) => reason.name == json['blocked_reason'])
           .firstOrNull,
