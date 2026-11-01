@@ -46,6 +46,7 @@ import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_pick_actions.dart';
 import '../../widgets/recipes/recipe_sections.dart';
 
+import 'recipe_cooking_mode.dart';
 import 'recipe_history_screen.dart';
 
 part 'recipes_header.dart';

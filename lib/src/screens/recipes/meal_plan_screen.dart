@@ -240,6 +240,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
 
   /// The planned recipe, read-only, with its ingredients for the planned
   /// servings: it is eaten here, through the plan, never from the detail.
+  /// Its cooking mode ends with the same [_eat].
   void _openRecipe(PlannedMeal plan) => Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => RecipeDetailScreen(
@@ -248,6 +249,18 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         showAddAction: false,
         onAddMeal: (_, _) {},
         avoidances: store.profile.foodAvoidances,
+        onEatPlanned: plan.isEaten || _plannedKcal(plan, context.l10n) == null
+            ? null
+            : () async {
+                PlannedMeal? current() => store.plannedMeals
+                    .where((p) => p.id == plan.id)
+                    .firstOrNull;
+                // The entry as it is now: edited or eaten while cooking.
+                final entry = current();
+                if (!mounted || entry == null) return false;
+                if (!entry.isEaten) await _eat(entry);
+                return current()?.isEaten ?? false;
+              },
       ),
     ),
   );
