@@ -194,10 +194,14 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('meal-camera-shutter')));
       // Recompression runs in a real isolate via compute(), which needs the
-      // real event loop; pump()'s fake time is not enough.
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(seconds: 2)),
-      );
+      // real event loop; pump()'s fake time is not enough. Polled until the
+      // sheet returns, not one fixed wait that a slow runner can overrun.
+      for (var i = 0; i < 100 && captured == null; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       await tester.pumpAndSettle();
 
       expect(camera.takeCalls, 1, reason: 'der Ausloeser muss ausgeloest haben');
