@@ -3,6 +3,9 @@ part of 'meal_plan_screen.dart';
 // The week view: day headers, the day strip, meal rows with their eaten
 // toggle, and the "Plan a meal" row of an empty day.
 
+/// Edge of a meal row's photo.
+const double _kMealThumb = 56;
+
 /// A day's heading: weekday, short date and the Today badge, with the
 /// day's add button on the right once it has meals, and under it the
 /// planned kcal against the day's goal.
@@ -49,11 +52,7 @@ class _DayHeader extends StatelessWidget {
                             children: [
                               TextSpan(
                                 text: DateFormat.EEEE(l.localeName).format(day),
-                                style: AppType.display(
-                                  19,
-                                  weight: FontWeight.w700,
-                                  color: t.ink,
-                                ),
+                                style: AppType.title2(t.ink),
                               ),
                               TextSpan(
                                 text:
@@ -72,23 +71,9 @@ class _DayHeader extends StatelessWidget {
                         ),
                       ),
                       if (isToday)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: t.accentTint,
-                            borderRadius: BorderRadius.circular(rPill),
-                          ),
-                          child: Text(
-                            l.mealPlanToday,
-                            style: AppType.ui(
-                              12,
-                              weight: FontWeight.w700,
-                              color: t.accentText,
-                            ),
-                          ),
+                        StatusPill(
+                          label: l.mealPlanToday,
+                          tone: StatusTone.accent,
                         ),
                     ],
                   ),
@@ -97,7 +82,12 @@ class _DayHeader extends StatelessWidget {
                     Text(
                       kcal,
                       key: ValueKey('meal-plan-day-kcal-${localDayKey(day)}'),
-                      style: AppType.ui(13, color: t.ink2, height: 1.35),
+                      style: AppType.ui(
+                        13,
+                        color: t.ink2,
+                        height: 1.35,
+                        tabular: true,
+                      ),
                     ),
                   ],
                 ],
@@ -211,10 +201,10 @@ class _StripDay extends StatelessWidget {
   }
 }
 
-/// A planned meal: photo with its slot tile, name, "slot · servings · kcal",
-/// then the eaten toggle and the menu. At large text the actions move up
-/// beside the photo and the text gets the full width. A tap on the row
-/// outside its actions opens the recipe ([onOpen]).
+/// A planned meal in the list-row geometry: photo with its slot tile, name,
+/// "slot · servings · kcal", then the eaten toggle and the menu. At large
+/// text the actions move up beside the photo and the text gets the full
+/// width. A tap on the row outside its actions opens the recipe ([onOpen]).
 class _MealRow extends StatelessWidget {
   const _MealRow({
     super.key,
@@ -262,15 +252,17 @@ class _MealRow extends StatelessWidget {
       onTap: onOpen,
       excludeFromSemantics: true,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+        // The last target ends 6 px before the edge: its glyph sits about
+        // on the card inset, like a list row's trailing mark.
+        padding: const EdgeInsets.fromLTRB(kCardInset, 14, 6, 14),
         child: _largeText(context)
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(children: [thumb, const Spacer(), actions]),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: kSpace12),
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.only(right: kSpace12),
                     child: texts,
                   ),
                 ],
@@ -278,9 +270,9 @@ class _MealRow extends StatelessWidget {
             : Row(
                 children: [
                   thumb,
-                  const SizedBox(width: 13),
+                  const SizedBox(width: kRowLeadingGap),
                   Expanded(child: texts),
-                  const SizedBox(width: 2),
+                  const SizedBox(width: kSpace4),
                   actions,
                 ],
               ),
@@ -292,28 +284,15 @@ class _MealRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: AppType.ui(
-            15.5,
-            weight: FontWeight.w700,
-            color: t.ink,
-            height: 1.25,
-          ),
-        ),
+        Text(title, style: AppType.rowTitle(t.ink).copyWith(height: 1.25)),
         const SizedBox(height: 3),
-        Text(meta, style: AppType.ui(13, color: t.ink2, height: 1.3)),
+        Text(
+          meta,
+          style: AppType.ui(13, color: t.ink2, height: 1.35, tabular: true),
+        ),
         if (note != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            note!,
-            style: AppType.ui(
-              12.5,
-              weight: FontWeight.w600,
-              color: noteColor,
-              height: 1.35,
-            ),
-          ),
+          const SizedBox(height: kSpace4),
+          Text(note!, style: AppType.caption(noteColor).copyWith(height: 1.35)),
         ],
       ],
     );
@@ -332,7 +311,7 @@ class _MealThumb extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return SizedBox.square(
-      dimension: 56,
+      dimension: _kMealThumb,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -360,9 +339,11 @@ class _MealThumb extends StatelessWidget {
   }
 }
 
-/// "Eaten today" as a compact toggle: a tinted disc with a fork while the
-/// meal is open, the accent fill with a check once it is in the diary. An
-/// eaten meal cannot be unticked (the diary entry is real).
+/// "Eaten today" as the row's accent icon button: the fork while the meal is
+/// open, the filled check circle once it is in the diary. An eaten meal
+/// cannot be unticked (the diary entry is real): it stays a full-strength
+/// "done" that its own button never sees a touch on (a tap there is the
+/// row's), and is read as a checked, disabled checkbox.
 class _EatToggle extends StatelessWidget {
   const _EatToggle({
     super.key,
@@ -375,113 +356,35 @@ class _EatToggle extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
 
+  static void _done() {}
+
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    final enabled = onTap != null;
-    final motion = motionDuration(context, kMotionEnter);
+    final button = AppIconButton(
+      icon: eaten ? AppIcons.checkCircle : AppIcons.restaurant,
+      semanticLabel: label,
+      tone: IconButtonTone.accent,
+      size: IconButtonSize.compact,
+      selected: eaten,
+      // Not dimmed like an unavailable action; it never gets the pointer.
+      onTap: eaten ? _done : onTap,
+    );
     return Semantics(
       container: true,
       button: !eaten,
       checked: eaten,
-      enabled: enabled,
+      enabled: onTap != null,
       label: label,
       onTap: onTap,
       excludeSemantics: true,
-      child: Tooltip(
-        message: label,
-        excludeFromSemantics: true,
-        child: Opacity(
-          opacity: enabled || eaten ? 1 : 0.45,
-          child: PressScale(
-            enabled: enabled,
-            child: SizedBox.square(
-              dimension: 44,
-              child: Material(
-                type: MaterialType.transparency,
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: onTap,
-                  child: Center(
-                    child: AnimatedContainer(
-                      duration: motion,
-                      curve: kMotionCurve,
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: eaten ? t.selectedFill : t.accentTint,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        eaten ? Icons.check_rounded : Icons.restaurant_rounded,
-                        size: eaten ? 20 : 17,
-                        color: eaten ? t.onSelected : t.accentText,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      child: eaten ? AbsorbPointer(child: button) : button,
     );
   }
 }
 
-/// The add button beside a planned day's heading: a 34 px tinted disc in a
-/// 44 px target, as on the Today tab.
-class _RoundAddButton extends StatelessWidget {
-  const _RoundAddButton({super.key, required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final enabled = onTap != null;
-    return Semantics(
-      container: true,
-      button: true,
-      enabled: enabled,
-      label: label,
-      onTap: onTap,
-      excludeSemantics: true,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.45,
-        child: PressScale(
-          enabled: enabled,
-          child: SizedBox.square(
-            dimension: 44,
-            child: Material(
-              type: MaterialType.transparency,
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onTap,
-                child: Center(
-                  child: Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: t.accentTint,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.add_rounded, size: 20, color: t.accentText),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// An empty day's "Plan a meal": one soft row with a dashed edge, an open
-/// slot to fill, that opens the editor. Outside the planning window it
-/// stays, dimmed and disabled.
+/// An empty day's "Plan a meal": one row with a dashed edge, an open slot to
+/// fill, that opens the editor; the list-row geometry with a small accent
+/// badge. Outside the planning window it stays, dimmed and disabled.
 class _PlanMealRow extends StatelessWidget {
   const _PlanMealRow({super.key, required this.label, required this.onTap});
 
@@ -517,34 +420,24 @@ class _PlanMealRow extends StatelessWidget {
                 onTap: onTap,
                 customBorder: shape,
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 52),
+                  constraints: const BoxConstraints(minHeight: 56),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 16, 8),
+                    padding: const EdgeInsets.fromLTRB(
+                      kCardInset,
+                      kSpace12,
+                      kCardInset,
+                      kSpace12,
+                    ),
                     child: Row(
                       children: [
-                        Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            color: t.accentTint,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.add_rounded,
-                            size: 18,
-                            color: t.accentText,
-                          ),
+                        const IconBadge(
+                          icon: AppIcons.add,
+                          size: IconBadgeSize.sm,
+                          tone: IconBadgeTone.accent,
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: kRowLeadingGap),
                         Expanded(
-                          child: Text(
-                            label,
-                            style: AppType.ui(
-                              14.5,
-                              weight: FontWeight.w600,
-                              color: t.ink2,
-                            ),
-                          ),
+                          child: Text(label, style: AppType.rowTitle(t.ink2)),
                         ),
                       ],
                     ),

@@ -260,7 +260,7 @@ void main() {
         'Lunch',
         '2 servings',
         '${NumberFormat.decimalPattern('en').format(kcal)} kcal',
-      ].map((part) => part.replaceAll(' ', '\u00A0')).join(' · ');
+      ].map((part) => part.replaceAll(' ', '\u00A0')).join('\u00A0· ');
       expect(find.text(meta), findsOneWidget);
       expect(find.text('1 meal planned'), findsOneWidget);
 
