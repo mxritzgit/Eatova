@@ -19,6 +19,18 @@ mixin _HomeStoreMealPlanPart
     }
   }
 
+  /// Open plans the limit counts: not removed, not eaten, in the 35-day window.
+  int _openPlannedMealCount() {
+    final activeSince = localDayKey(
+      clock.now().subtract(const Duration(days: 35)),
+    );
+    return _plannedMeals
+        .where(
+          (p) => !p.removed && !p.isEaten && p.day.compareTo(activeSince) >= 0,
+        )
+        .length;
+  }
+
   Future<SyncDelivery> savePlannedMeal(PlannedMeal plan) =>
       savePlannedMeals([plan]);
 
@@ -43,20 +55,7 @@ mixin _HomeStoreMealPlanPart
       }
       if (existing == null) added++;
     }
-    final activeSince = localDayKey(
-      clock.now().subtract(const Duration(days: 35)),
-    );
-    if (added > 0 &&
-        _plannedMeals
-                    .where(
-                      (p) =>
-                          !p.removed &&
-                          !p.isEaten &&
-                          p.day.compareTo(activeSince) >= 0,
-                    )
-                    .length +
-                added >
-            kMaxOpenPlannedMeals) {
+    if (added > 0 && _openPlannedMealCount() + added > kMaxOpenPlannedMeals) {
       throw const MealPlanLimitReached();
     }
     return _commitSyncIntents(
@@ -93,15 +92,7 @@ mixin _HomeStoreMealPlanPart
       if (taken.add((validated.day, validated.slot))) fresh.add(validated);
     }
     if (fresh.isEmpty) return (delivery: SyncDelivery.delivered, added: 0);
-    final activeSince = localDayKey(
-      clock.now().subtract(const Duration(days: 35)),
-    );
-    final open = _plannedMeals
-        .where(
-          (p) => !p.removed && !p.isEaten && p.day.compareTo(activeSince) >= 0,
-        )
-        .length;
-    if (open + fresh.length > kMaxOpenPlannedMeals) {
+    if (_openPlannedMealCount() + fresh.length > kMaxOpenPlannedMeals) {
       throw const MealPlanLimitReached();
     }
     final delivery = await _commitSyncIntents(
