@@ -450,6 +450,34 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('the progression chip changes nothing until tapped; without '
+        'history there is none', (tester) async {
+      await withClock(Clock.fixed(DateTime(2026, 10, 20, 18)), () async {
+        final plan = _strength();
+        final host = await _open(
+          tester,
+          plan: plan,
+          history: [_squatHistory(plan)],
+        );
+        String weight(String id) => tester
+            .widget<TextField>(_key('training-set-weight-$id'))
+            .controller!
+            .text;
+        // Last time 60/70/80 kg × 8 made every planned set: 80 + 2.5.
+        expect(find.text('Step up: 82.5 kg'), findsOneWidget);
+        expect(weight('0-0'), '60', reason: 'the prefill stays until a tap');
+        await _tap(tester, 'training-progression-0');
+        expect(weight('0-0'), '82.5');
+        await _tap(tester, 'training-set-check-0-0');
+        expect(host.writes.last!.actualSets.single.weightKg, 82.5);
+        expect(weight('0-1'), '82.5', reason: 'carried like any changed weight');
+        await tester.pumpWidget(const SizedBox());
+      });
+      await _open(tester, plan: _strength());
+      expect(_key('training-progression-0'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('a weight corrected during its rest carries to the next set', (
       tester,
     ) async {

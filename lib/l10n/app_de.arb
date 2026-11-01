@@ -2392,6 +2392,39 @@
       }
     }
   },
+  "trainingProgressionUp": "Steigern: {value}",
+  "@trainingProgressionUp": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionLighter": "Leichter: {value}",
+  "@trainingProgressionLighter": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionAfterBreak": "Nach Pause: {value}",
+  "@trainingProgressionAfterBreak": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionReps": "{reps} Wdh.",
+  "@trainingProgressionReps": {
+    "placeholders": {
+      "reps": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingTimerDoneEarly": "Früher fertig",
   "trainingTimerGetReady": "Bereit machen · {seconds}",
   "@trainingTimerGetReady": {

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
@@ -86,6 +87,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     with WidgetsBindingObserver {
   late final TrainingSessionController _session;
   late final List<List<TrainingSetActual>> _lastTime;
+  late final List<TrainingProgression?> _progression;
   late final int _alertId;
   late final int _followUpId;
   late final int _cueId;
@@ -162,6 +164,16 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     ];
     double? lastWeight(int exercise, int set) =>
         lastTimeWeightForSet(weighted[exercise], set);
+    final now = clock.now();
+    _progression = [
+      for (final exercise in exercises)
+        trainingProgressionFor(
+          widget.history,
+          planId: plan.id,
+          exercise: exercise,
+          now: now,
+        ),
+    ];
     _session = snapshot == null
         ? TrainingSessionController(
             plan: plan,
@@ -982,6 +994,19 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     },
   );
 
+  /// The progression chip's tap: the suggestion becomes the active draft,
+  /// like Copy last time; nothing changes without it (T3).
+  void _applySuggestion(TrainingProgression suggestion) {
+    if (!_enabled) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    _session.setCurrentActual(
+      reps: suggestion.reps ?? _session.actualReps,
+      weightKg: suggestion.weightKg ?? _session.actualWeightKg,
+    );
+    setState(() => _copyRevision++);
+    _persistSoon();
+  }
+
   bool get _activeValid {
     final active = _session.activeSet;
     return active == null || !_invalid.any((cell) => cell.$1 == active);
@@ -1076,6 +1101,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
               session: _session,
               exerciseIndex: e,
               lastTime: e < _lastTime.length ? _lastTime[e] : const [],
+              progression: e < _progression.length ? _progression[e] : null,
+              onApplyProgression: _applySuggestion,
               actions: _actions,
               expanded: _expanded.contains(e),
               onToggleExpanded: () => setState(

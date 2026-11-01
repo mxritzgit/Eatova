@@ -6,6 +6,8 @@
 /// history timestamps are UTC and are converted with `toLocal()` first.
 library;
 
+import 'dart:math' as math;
+
 import '../services/day_math.dart';
 import '../services/local_day.dart';
 import 'training_history.dart';
@@ -144,6 +146,176 @@ double? lastTimeWeightForSet(List<TrainingSetActual> sets, int setIndex) {
     if (set.reference.setIndex == setIndex) return set.weightKg;
   }
   return sets.last.weightKg;
+}
+
+// ---------------------------------------------------------------------------
+// Progression hint (T3)
+// ---------------------------------------------------------------------------
+
+/// Why [TrainingProgression] suggests its value.
+enum TrainingProgressionKind {
+  /// Every planned set reached its reps last time: one step up.
+  increase,
+
+  /// Missed once or twice in a row: stay.
+  hold,
+
+  /// Missed three times in a row: about 10 % lighter.
+  lighter,
+
+  /// More than [trainingProgressionPauseDays] since last time: 10 % lighter.
+  afterBreak,
+}
+
+/// Days without the exercise after which the hint restarts lighter.
+const int trainingProgressionPauseDays = 14;
+
+/// The player's suggestion for an exercise's next working value. Only a
+/// suggestion: the player applies it on tap, never on its own (automatic
+/// progression was deferred, FEATURE-REVIEW-2026-09-10).
+final class TrainingProgression {
+  const TrainingProgression({required this.kind, this.weightKg, this.reps});
+
+  final TrainingProgressionKind kind;
+
+  /// The suggested weight; null for an exercise done without weight.
+  final double? weightKg;
+
+  /// The suggested reps of an exercise done without weight; else null.
+  final int? reps;
+}
+
+/// One earlier session of an exercise: what it planned and what was done.
+typedef _Performance = ({
+  DateTime finishedAt,
+  TrainingExercise planned,
+  List<TrainingSetActual> sets,
+});
+
+/// The sessions with performed sets of the first repetition exercise that
+/// [matches], newest first.
+List<_Performance> _performances(
+  List<TrainingHistoryEntry> history,
+  bool Function(TrainingHistoryEntry entry, TrainingExercise candidate) matches,
+) {
+  final rows = <(TrainingHistoryEntry, _Performance)>[];
+  for (final entry in history) {
+    final exercises = entry.snapshot.workout.exercises;
+    final index = exercises.indexWhere((e) => !e.isTimed && matches(entry, e));
+    if (index < 0) continue;
+    final sets = [
+      for (final set in entry.snapshot.actualSets)
+        if (set.reference.exerciseIndex == index) set,
+    ];
+    if (sets.isEmpty) continue;
+    rows.add((
+      entry,
+      (finishedAt: entry.finishedAt, planned: exercises[index], sets: sets),
+    ));
+  }
+  rows.sort((a, b) => _newestFirst(a.$1, b.$1));
+  return [for (final (_, performance) in rows) performance];
+}
+
+/// Every planned set of that session reached its planned reps.
+bool _madeIt(_Performance p) {
+  for (var s = 0; s < p.planned.sets; s++) {
+    final reps = p.sets
+        .where((set) => set.reference.setIndex == s)
+        .firstOrNull
+        ?.reps;
+    if (reps == null || reps < p.planned.reps!) return false;
+  }
+  return true;
+}
+
+/// [exercise]'s progression hint from [history], or null without one
+/// (timed exercise, no earlier session, or an implausible last value).
+///
+/// The sessions are those "Last time" reads ([lastTrainingPerformanceFor]):
+/// this plan's by exercise identity, else the same name elsewhere. Once any
+/// of them carried a weight, only weighted ones count, as for the prefill.
+/// From the newest session:
+///  * every planned set made its reps: +2.5 kg on the heaviest set, or +1
+///    rep on what every set reached when done without weight;
+///  * one or two misses in a row: hold;
+///  * three misses in a row, or more than [trainingProgressionPauseDays]
+///    local days since: 10 % lighter (weight rounded down to 0.5 kg).
+/// A last value more than 30 % away from the median of the newest five
+/// sessions gives no hint: a typo such as 800 kg stays in the immutable
+/// history.
+TrainingProgression? trainingProgressionFor(
+  List<TrainingHistoryEntry> history, {
+  required String planId,
+  required TrainingExercise exercise,
+  required DateTime now,
+}) {
+  if (exercise.isTimed) return null;
+  final id = exercise.id;
+  final name = normalizeExerciseName(exercise.name);
+  var found = id == null
+      ? const <_Performance>[]
+      : _performances(
+          history,
+          (entry, e) => entry.snapshot.plan.id == planId && e.id == id,
+        );
+  if (found.isEmpty) {
+    found = _performances(
+      history,
+      (entry, e) =>
+          entry.snapshot.plan.id != planId &&
+          normalizeExerciseName(e.name) == name,
+    );
+  }
+  if (found.isEmpty) return null;
+  final lastAt = found.first.finishedAt;
+  final weighted = [
+    for (final p in found)
+      if (p.sets.any((set) => (set.weightKg ?? 0) > 0)) p,
+  ];
+  final withWeight = weighted.isNotEmpty;
+  if (withWeight) found = weighted;
+
+  double load(_Performance p) => withWeight
+      ? p.sets.map((set) => set.weightKg ?? 0.0).reduce(math.max)
+      : p.sets.map((set) => set.reps ?? 0).reduce(math.min).toDouble();
+  final recent = [for (final p in found.take(5)) load(p)]..sort();
+  final middle = recent.length ~/ 2;
+  final median = recent.length.isOdd
+      ? recent[middle]
+      : (recent[middle - 1] + recent[middle]) / 2;
+  final base = load(found.first);
+  if (median <= 0 || (base - median).abs() > median * 0.3) return null;
+
+  final misses = found.takeWhile((p) => !_madeIt(p)).length;
+  final kind =
+      daysBetween(now.toLocal(), lastAt.toLocal()) >
+          trainingProgressionPauseDays
+      ? TrainingProgressionKind.afterBreak
+      : misses == 0
+      ? TrainingProgressionKind.increase
+      : misses < 3
+      ? TrainingProgressionKind.hold
+      : TrainingProgressionKind.lighter;
+  // The epsilon keeps 0.9 × 70 from flooring to 62.5.
+  int tenPercentOff(double value) => (value * 0.9 + 1e-9).floor();
+  if (withWeight) {
+    final weight = switch (kind) {
+      TrainingProgressionKind.increase => base + 2.5,
+      TrainingProgressionKind.hold => base,
+      _ => tenPercentOff(base * 2) / 2,
+    };
+    return weight <= 0 || weight > 2000
+        ? null
+        : TrainingProgression(kind: kind, weightKg: weight);
+  }
+  final reps = math.max(base.toInt(), exercise.reps!);
+  final next = switch (kind) {
+    TrainingProgressionKind.increase => reps + 1,
+    TrainingProgressionKind.hold => reps,
+    _ => math.max(1, tenPercentOff(reps.toDouble())),
+  };
+  return next > 1000 ? null : TrainingProgression(kind: kind, reps: next);
 }
 
 /// The selected plan's workout for today. The Today activity card shows

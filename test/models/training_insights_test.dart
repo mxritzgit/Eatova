@@ -819,4 +819,54 @@ void main() {
       expect(recentTrainingWorkouts([s1], limit: 0), isEmpty);
     });
   });
+
+  group('progression hint (T3)', () {
+    test('steps up after a clean session, holds after misses, eases off '
+        'after three misses or a break, and ignores a typo', () {
+      final now = DateTime(2026, 10, 20, 18);
+      final lift = _volumePlan.workouts.single.exercises.single; // 1 × 8
+      const up = TrainingProgressionKind.increase;
+      const hold = TrainingProgressionKind.hold;
+      // Sessions as (days ago, kg, reps), oldest first.
+      for (final (label, sessions, kind, value)
+          in <(String, List<(int, double?, int)>, TrainingProgressionKind?, num?)>[
+            ('no history', [], null, null),
+            ('made it', [(2, 60, 8)], up, 62.5),
+            ('one miss', [(4, 60, 8), (2, 60, 7)], hold, 60),
+            ('two misses', [(6, 60, 8), (4, 60, 7), (2, 60, 6)], hold, 60),
+            (
+              'three misses',
+              [(6, 60, 7), (4, 60, 7), (2, 60, 6)],
+              TrainingProgressionKind.lighter,
+              54,
+            ),
+            ('15 days off', [(15, 60, 8)], TrainingProgressionKind.afterBreak, 54),
+            ('14 days off', [(14, 60, 8)], up, 62.5),
+            ('typo last time', [(6, 60, 8), (4, 60, 8), (2, 800, 8)], null, null),
+            ('after the typo', [(6, 60, 8), (4, 800, 8), (2, 62.5, 8)], up, 65),
+            ('no weight last time', [(4, 60, 8), (2, null, 8)], up, 62.5),
+            ('bodyweight', [(2, null, 10)], up, 11),
+          ]) {
+        final history = [
+          for (final (days, kg, reps) in sessions)
+            _session(
+              _volumePlan,
+              0,
+              start: DateTime(2026, 10, 20 - days, 17),
+              sets: {
+                'lift': [(kg, reps)],
+              },
+            ),
+        ];
+        final hint = trainingProgressionFor(
+          history,
+          planId: _volumePlan.id,
+          exercise: lift,
+          now: now,
+        );
+        expect(hint?.kind, kind, reason: label);
+        expect(hint?.weightKg ?? hint?.reps, value, reason: label);
+      }
+    });
+  });
 }

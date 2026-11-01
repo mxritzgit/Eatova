@@ -2334,6 +2334,39 @@
       }
     }
   },
+  "trainingProgressionUp": "Step up: {value}",
+  "@trainingProgressionUp": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionLighter": "Go lighter: {value}",
+  "@trainingProgressionLighter": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionAfterBreak": "After a break: {value}",
+  "@trainingProgressionAfterBreak": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingProgressionReps": "{reps, plural, =1{1 rep} other{{reps} reps}}",
+  "@trainingProgressionReps": {
+    "placeholders": {
+      "reps": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingTimerDoneEarly": "Done early",
   "trainingTimerGetReady": "Get ready · {seconds}",
   "@trainingTimerGetReady": {
