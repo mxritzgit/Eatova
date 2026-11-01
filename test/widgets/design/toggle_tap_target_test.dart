@@ -50,7 +50,7 @@ Future<void> _openGoals(
 /// Taps the LEFT half of the row holding [inZeile], i.e. next to the toggle,
 /// where nothing happened before the fix.
 Future<void> _tippeNebenDenSchalter(WidgetTester tester, Finder inZeile) async {
-  final zeile = find.ancestor(of: inZeile, matching: find.byType(SettingsRow));
+  final zeile = find.ancestor(of: inZeile, matching: find.byType(ListRow));
   expect(zeile, findsOneWidget);
   final rect = tester.getRect(zeile);
   await tester.tapAt(Offset(rect.left + 24, rect.center.dy));
