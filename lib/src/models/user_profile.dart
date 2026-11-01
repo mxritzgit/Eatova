@@ -448,6 +448,11 @@ class UserProfile {
     this.energyAdjustmentKcal = 0,
     this.energyCheckedOn,
     this.targetHold,
+    this.unknownSex,
+    this.unknownActivityLevel,
+    this.unknownWeightGoal,
+    this.unknownDiet,
+    this.unknownFoodAvoidances = const <String>[],
   });
 
   final int weightKg;
@@ -516,6 +521,28 @@ class UserProfile {
   /// that changes direction or target weight no longer matches it.
   final TargetHold? targetHold;
 
+  /// A stored value this build does not know, such as one a newer migration
+  /// added to the column's CHECK; null for a known value. The matching field
+  /// holds its fallback, which the UI shows, while the wire format writes this
+  /// value back, so neither a cache roundtrip nor a save replaces it.
+  /// [copyWith] drops it once the field gets a different value: a deliberate
+  /// choice wins.
+  final String? unknownSex;
+
+  /// See [unknownSex].
+  final String? unknownActivityLevel;
+
+  /// See [unknownSex].
+  final String? unknownWeightGoal;
+
+  /// See [unknownSex].
+  final String? unknownDiet;
+
+  /// Avoidance codes this build does not know, in stored order and without
+  /// duplicates. Saved after [foodAvoidances]; editing the known codes keeps
+  /// them, since the user never saw them.
+  final List<String> unknownFoodAvoidances;
+
   UserProfile copyWith({
     int? weightKg,
     int? heightCm,
@@ -570,6 +597,16 @@ class UserProfile {
       targetHold: identical(targetHold, _keepTargetHold)
           ? this.targetHold
           : targetHold as TargetHold?,
+      unknownSex: sex == null || sex == this.sex ? unknownSex : null,
+      unknownActivityLevel:
+          activityLevel == null || activityLevel == this.activityLevel
+          ? unknownActivityLevel
+          : null,
+      unknownWeightGoal: weightGoal == null || weightGoal == this.weightGoal
+          ? unknownWeightGoal
+          : null,
+      unknownDiet: diet == null || diet == this.diet ? unknownDiet : null,
+      unknownFoodAvoidances: unknownFoodAvoidances,
     );
   }
 }

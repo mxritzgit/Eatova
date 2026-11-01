@@ -152,16 +152,25 @@ void main() {
           .allMatches(klassenRumpf)
           .map((m) => m.group(1)!)
           .toList();
-      expect(felder, hasLength(22),
+      expect(felder, hasLength(27),
           reason: 'Feldliste aus lib/src/models/user_profile.dart gelesen');
 
       // Field name -> cache key: camelCase -> snake_case, with `diet` the one
       // exception (server-side it is `diet_preference`). The target hold is
-      // derived from the weight log and never persisted (2026-10-22).
+      // derived from the weight log and never persisted (2026-10-22); an
+      // unknown stored value is written under its field's key (2026-11-01).
       const aliase = <String, String>{'diet': 'diet_preference'};
       const abgeleitet = <String>{'targetHold'};
+      const unterFeldSchluessel = <String>{
+        'unknownSex',
+        'unknownActivityLevel',
+        'unknownWeightGoal',
+        'unknownDiet',
+        'unknownFoodAvoidances',
+      };
       final erwarteteSchluessel = felder
           .where((f) => !abgeleitet.contains(f))
+          .where((f) => !unterFeldSchluessel.contains(f))
           .map((f) => aliase[f] ?? _snake(f))
           .toSet();
 
@@ -220,22 +229,44 @@ void main() {
       expect(await _cache(store).readProfile(), isNull);
     });
 
-    test('unbekannte enum-Strings fallen auf Defaults (kein Crash)', () async {
+    test('unbekannte enum-Strings fallen auf Defaults und gehen roh zurueck in '
+        'den Blob; ein Legacy-Alias nie', () async {
+      // A newer migration's values: shown as the default, but written back
+      // unchanged, or the next profile op would overwrite them on the server.
+      const neu = <String, String>{
+        'sex': 'divers',
+        'activity_level': 'couch',
+        'weight_goal': 'hyperbulk',
+      };
       final store = InMemoryKeyValueStore({
         'eatova.v1.profile.user-1': jsonEncode(_zahlenVollstaendig()
-          ..['sex'] = 'divers'
-          ..['activity_level'] = 'couch'
-          ..['weight_goal'] = 'hyperbulk'),
+          ..addAll(neu)
+          ..['food_avoidances'] = <String>['insects', 'nuts', 'insects']),
       });
       final back = await _cache(store).readProfile();
       expect(back, isNotNull);
       expect(back!.sex, BiologicalSex.neutral);
       expect(back.activityLevel, ActivityLevel.sedentary);
       expect(back.weightGoal, WeightGoal.maintain);
+      expect(back.foodAvoidances, {FoodAvoidance.nuts});
       // The numbers come from the blob: invented measurements no longer count
       // as a hydration source.
       expect(back.weightKg, 82);
       expect(back.heightCm, 181);
+
+      final blob = userProfileToJson(back);
+      for (final MapEntry(:key, :value) in neu.entries) {
+        expect(blob[key], value, reason: key);
+      }
+      expect(blob['food_avoidances'], <String>['nuts', 'insects']);
+
+      // A legacy pace name maps onto its current value; kept raw, the
+      // weight_goal CHECK would reject the whole profile op.
+      final legacy = userProfileFromJson(
+        _zahlenVollstaendig()..['weight_goal'] = 'loseFast',
+      )!;
+      expect(legacy.weightGoal, WeightGoal.lose05kg);
+      expect(userProfileToJson(legacy)['weight_goal'], 'lose05kg');
     });
   });
 
