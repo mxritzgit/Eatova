@@ -109,7 +109,7 @@ DateTime trainingTimestamp(Object? value, {bool allowOffset = false}) {
 /// interval is recorded only as its wall-clock deadline ([phaseEndsAt]).
 final class TrainingSessionSnapshot {
   TrainingSessionSnapshot({
-    required this.plan,
+    required TrainingPlan plan,
     String? sessionId,
     DateTime? startedAt,
     List<TrainingSetActual> actualSets = const [],
@@ -126,7 +126,8 @@ final class TrainingSessionSnapshot {
     required this.remainingMilliseconds,
     List<TrainingSetReference> completedSets = const [],
     List<TrainingSetReference> skippedSets = const [],
-  }) : sessionId = sessionId ?? uuidV4(),
+  }) : plan = _frozen(plan),
+       sessionId = sessionId ?? uuidV4(),
        startedAt = (startedAt ?? clock.now()).toUtc(),
        phaseEndsAt = phaseEndsAt?.toUtc(),
        actualSets = List.unmodifiable(actualSets),
@@ -234,6 +235,13 @@ final class TrainingSessionSnapshot {
       throw const FormatException('Invalid training session review');
     }
   }
+
+  /// The frozen plan copy drops the weekly target: no workout needs it, and
+  /// history rows are immutable while builds before 2026-11 reject the key.
+  static TrainingPlan _frozen(TrainingPlan plan) =>
+      plan.sessionsPerWeek == null
+      ? plan
+      : plan.copyWith(proposal: plan.proposal.withSessionsPerWeek(null));
 
   /// Local-only receipt recovery; excluded from the immutable server snapshot.
   final String? recoveryNote;

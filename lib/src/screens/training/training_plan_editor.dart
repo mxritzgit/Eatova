@@ -61,6 +61,9 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
   late final _PlanText _title;
   late final _PlanText _description;
   late final _PlanText _goal;
+
+  /// Empty means no weekly target.
+  late final _PlanText _sessions;
   late final List<_WorkoutFields> _workouts;
   late bool _editing;
   bool _dirty = false;
@@ -84,6 +87,12 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       TrainingLimits.descriptionMaxLength,
     );
     _goal = _PlanText(draft?.goal ?? '', TrainingLimits.goalMaxLength);
+    _sessions = _PlanText(
+      '${draft?.sessionsPerWeek ?? ''}',
+      TrainingLimits.sessionsPerWeekMax,
+      min: 1,
+      optional: true,
+    );
     _workouts =
         draft?.workouts.map(_WorkoutFields.new).toList() ??
         [_WorkoutFields(null)];
@@ -92,7 +101,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
   @override
   void dispose() {
     _scroll.dispose();
-    for (final value in [_title, _description, _goal]) {
+    for (final value in [_title, _description, _goal, _sessions]) {
       value.dispose();
     }
     for (final workout in _workouts) {
@@ -102,7 +111,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
   }
 
   Iterable<_PlanText> get _values sync* {
-    yield* [_title, _description, _goal];
+    yield* [_title, _description, _goal, _sessions];
     for (final workout in _workouts) {
       yield* workout.values;
     }
@@ -156,6 +165,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
         description: _description.controller.text,
         goal: _goal.controller.text,
         workouts: _workouts.map((workout) => workout.build()).toList(),
+        sessionsPerWeek: _sessions.optionalNumber,
       );
     } on FormatException {
       setState(() => _error = l10n.trainingPageContentLimit);
@@ -379,6 +389,14 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
           style: AppType.ui(14, color: t.accent, weight: FontWeight.w600),
         ),
       ],
+      if (draft.sessionsPerWeek case final sessions?) ...[
+        const SizedBox(height: 6),
+        Text(
+          l10n.trainingPageSessionsPerWeekValue(sessions),
+          key: const ValueKey('training-editor-review-sessions'),
+          style: AppType.ui(14, color: t.ink2, weight: FontWeight.w600),
+        ),
+      ],
       const SizedBox(height: 14),
       SoftPillButton(
         key: const ValueKey('training-editor-edit'),
@@ -489,6 +507,12 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
         l10n.trainingPageGoal,
         'training-editor-goal',
         hint: l10n.trainingPageNotesHint,
+      ),
+      _field(
+        _sessions,
+        l10n.trainingPageSessionsPerWeek,
+        'training-editor-sessions',
+        hint: l10n.trainingPageSessionsPerWeekHint,
       ),
       const SizedBox(height: 8),
       for (var i = 0; i < _workouts.length; i++) _workoutFields(context, i),

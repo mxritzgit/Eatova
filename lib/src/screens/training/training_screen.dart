@@ -590,6 +590,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 TrainingWeekCard(
                   key: const ValueKey('training-week'),
                   week: week,
+                  target: plan?.sessionsPerWeek,
                 ),
                 gap,
               ],

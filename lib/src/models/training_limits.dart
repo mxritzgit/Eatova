@@ -16,6 +16,9 @@ abstract final class TrainingLimits {
   static const int idMaxLength = 100;
   static const int combinedTextMaxLength = 12000;
 
+  /// Optional weekly target of a plan (migration 20261101100000).
+  static const int sessionsPerWeekMax = 14;
+
   /// Display estimate only: repetition sets advance on user confirmation.
   static const int estimatedSecondsPerRep = 3;
 }

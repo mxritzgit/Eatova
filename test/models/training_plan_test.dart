@@ -106,6 +106,40 @@ void main() {
       );
     });
 
+    test('an optional weekly target of 1 to 14 survives the saved plan and '
+        'stays absent without one', () {
+      expect(
+        _draft().toJson().containsKey('sessions_per_week'),
+        isFalse,
+        reason: 'builds before the key accept only the five fields',
+      );
+      for (final (value, valid) in <(Object?, bool)>[
+        (1, true),
+        (14, true),
+        (4.0, true),
+        (0, false),
+        (15, false),
+        (2.5, false),
+        ('3', false),
+        (null, false),
+        (true, false),
+      ]) {
+        final draft = CoachTrainingProposal.fromJson(
+          _proposal()..['sessions_per_week'] = value,
+        );
+        expect(draft != null, valid, reason: '$value');
+        expect(draft?.toJson()['sessions_per_week'], valid ? value : null);
+      }
+      // Cache and outbox rows, and an edit of another field, keep it.
+      final plan = TrainingPlan(
+        id: 'weekly',
+        proposal: _draft().withSessionsPerWeek(4),
+      );
+      expect(TrainingPlan.fromJson(plan.toJson()).sessionsPerWeek, 4);
+      expect(plan.proposal.copyWith(title: 'Renamed').sessionsPerWeek, 4);
+      expect(plan.proposal.withSessionsPerWeek(null).toJson(), _proposal());
+    });
+
     test('requires exactly schema version one', () {
       for (final version in [0, 2, 1.1, '1', true, null, double.nan]) {
         expect(
