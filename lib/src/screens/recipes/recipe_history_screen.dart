@@ -8,6 +8,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/recipes/recipe_sections.dart';
 
 typedef RecipeHistoryLoader =
     Future<RecipeHistoryPage> Function({String? slug, int? beforeRevision});
@@ -106,7 +107,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
           body: l10n.recipeHistoryRestoreConfirm(
             version.recipe.displayTitle(l10n),
           ),
-          icon: Icons.restore_rounded,
+          icon: AppIcons.restore,
           confirmLabel: l10n.recipeHistoryRestore,
           cancelLabel: l10n.commonCancel,
           confirmKey: const ValueKey('recipe-history-confirm'),
@@ -184,9 +185,9 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SkeletonCard(rows: 1, tileSize: 36),
+                        SkeletonCard(rows: 1),
                         SizedBox(height: 12),
-                        SkeletonCard(rows: 1, tileSize: 36),
+                        SkeletonCard(rows: 1),
                       ],
                     ),
                   ),
@@ -195,7 +196,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 CalmState(
                   key: const ValueKey('recipe-history-empty'),
                   card: true,
-                  icon: Icons.history_rounded,
+                  icon: AppIcons.history,
                   title: l10n.recipeHistoryEmptyTitle,
                   text: l10n.recipeHistoryEmptyBody,
                 ),
@@ -204,13 +205,13 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 CalmState(
                   key: const ValueKey('recipe-history-error'),
                   card: true,
-                  icon: Icons.cloud_off_rounded,
+                  icon: AppIcons.cloudOff,
                   text: directSyncErrorMessage(_error!, l10n),
                   actions: [
                     SoftPillButton(
                       key: const ValueKey('recipe-history-retry'),
                       label: l10n.commonBootUnansweredRetry,
-                      icon: Icons.refresh_rounded,
+                      icon: AppIcons.refresh,
                       onTap: _load,
                     ),
                   ],
@@ -222,7 +223,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                     child: SoftPillButton(
                       key: const ValueKey('recipe-history-load-more'),
                       label: l10n.recipeHistoryLoadMore,
-                      icon: Icons.expand_more_rounded,
+                      icon: AppIcons.expandMore,
                       tone: SoftPillTone.neutral,
                       onTap: _load,
                     ),
@@ -289,9 +290,12 @@ class _VersionCardState extends State<_VersionCard> {
     final meta = [
       material.formatFullDate(when),
       material.formatTimeOfDay(TimeOfDay.fromDateTime(when)),
-      l10n.recipeHistoryVersion(version.revision),
+      // "Version 4" never parts at its space.
+      l10n.recipeHistoryVersion(version.revision).replaceAll(' ', ' '),
       if (version.deleted) l10n.recipeHistoryDeleted,
     ].join(' · ');
+    final ingredients = recipe.displayIngredients(l10n).trim();
+    final preparation = recipe.displayPreparation(l10n).trim();
     // From 1.5x text the title gets the tile's width.
     final large = MediaQuery.textScalerOf(context).scale(16) > 24;
     final header = Semantics(
@@ -305,14 +309,12 @@ class _VersionCardState extends State<_VersionCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (!large) ...[
-                IconTile(
-                  icon: version.deleted
-                      ? Icons.delete_outline_rounded
-                      : Icons.history_rounded,
-                  color: version.deleted ? t.danger : t.accent,
-                  size: 36,
+                IconBadge(
+                  icon: version.deleted ? AppIcons.delete : AppIcons.history,
+                  tone: IconBadgeTone.accent,
+                  color: version.deleted ? t.danger : null,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: kRowLeadingGap),
               ],
               Expanded(
                 child: Column(
@@ -337,7 +339,11 @@ class _VersionCardState extends State<_VersionCard> {
                 turns: _expanded ? 0.5 : 0,
                 duration: motionDuration(context, kMotionEnter),
                 curve: kMotionCurve,
-                child: Icon(Icons.expand_more_rounded, color: t.ink2),
+                child: Icon(
+                  AppIcons.expandMore,
+                  size: AppIconSize.standard,
+                  color: t.ink2,
+                ),
               ),
             ],
           ),
@@ -350,23 +356,26 @@ class _VersionCardState extends State<_VersionCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (version.hasRecipeContent) ...[
-            if (recipe.hasImportedIngredientContext) ...[
-              Text(
-                recipe.ingredientQuantityHint(l10n),
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
+            // The version reads like the recipe detail: ingredients as a
+            // bullet list, preparation as numbered steps.
+            if (ingredients.isNotEmpty) ...[
+              _VersionSection(l10n.recipesSectionIngredients),
+              RecipeIngredientLines(
+                text: ingredients,
+                hint: recipe.hasImportedIngredientContext
+                    ? recipe.ingredientQuantityHint(l10n)
+                    : '',
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: kSpace16),
             ],
-            Text(
-              recipe.displayIngredients(l10n),
-              style: AppType.ui(14, color: t.ink, height: 1.5),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              recipe.displayPreparation(l10n),
-              style: AppType.ui(14, color: t.ink2, height: 1.5),
-            ),
-            const SizedBox(height: 16),
+            if (preparation.isNotEmpty) ...[
+              _VersionSection(l10n.recipesSectionPreparation),
+              RecipePreparationSteps(
+                text: preparation,
+                empty: l10n.recipesNoDataProvided,
+              ),
+              const SizedBox(height: kSpace16),
+            ],
             SoftPillButton(
               key: ValueKey('recipe-history-restore-${version.revision}'),
               label: widget.restoring
@@ -374,7 +383,7 @@ class _VersionCardState extends State<_VersionCard> {
                   : widget.checking
                   ? l10n.recipeHistoryChecking
                   : l10n.recipeHistoryRestore,
-              icon: Icons.restore_rounded,
+              icon: AppIcons.restore,
               onTap: widget.restoreEnabled ? widget.onRestore : null,
             ),
           ] else
@@ -404,4 +413,17 @@ class _VersionCardState extends State<_VersionCard> {
       ),
     );
   }
+}
+
+/// A quiet label over one part of an opened version ("Zutaten").
+class _VersionSection extends StatelessWidget {
+  const _VersionSection(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: kSpace8),
+    child: Text(label, style: AppType.caption(context.t.ink2)),
+  );
 }
