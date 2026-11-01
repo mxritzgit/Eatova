@@ -140,7 +140,7 @@ always `quiet`, never `neutral`. ARB texts stay word for word.
 ```dart
 PrimaryActionButton(label: l10n.commonSave, onTap: save, busy: saving),
 const SizedBox(height: kSpace8),
-SoftPillButton(label: l10n.commonNotNow, onTap: later,
+SoftPillButton(label: l10n.healthPromptDismiss, onTap: later,
     tone: SoftPillTone.quiet, size: SoftPillSize.regular, expand: true),
 ```
 
@@ -171,11 +171,11 @@ on its margin counts. `onLongPress` is available (it disables the tooltip).
 
 ```dart
 AppStepper(
-  value: '$grams', unit: 'g',
-  semanticLabel: l10n.foodAmount,
-  increasedValue: '${grams + 10} g', decreasedValue: '${grams - 10} g',
-  onDecrement: grams > 10 ? () => setGrams(grams - 10) : null, // null = limit
-  onIncrement: () => setGrams(grams + 10),
+  value: '$servings',
+  semanticLabel: l10n.mealPlanServings,
+  increasedValue: '${servings + 1}', decreasedValue: '${servings - 1}',
+  onDecrement: servings > 1 ? () => setServings(servings - 1) : null, // null = limit
+  onIncrement: () => setServings(servings + 1),
   onLongPressIncrement: fastForward,           // optional
   decrementKey: const ValueKey('…-minus'),     // go on the buttons
   incrementKey: const ValueKey('…-plus'),
@@ -214,9 +214,9 @@ IconBadge(child: const StepsIcon(), color: t.activity)
 
 ```dart
 ListSection(
-  title: l10n.settingsAccount,             // SectionHeading 17/700, level 2
-  action: EatovaTextAction(label: l10n.commonAll, onTap: openAll), // optional
-  footnote: l10n.settingsAccountNote,      // subhead under the card
+  title: l10n.settingsStudioAccount,       // SectionHeading 17/700, level 2
+  action: EatovaTextAction(label: l10n.recipesFilterAll, onTap: openAll), // optional
+  footnote: note,                          // subhead under the card
   inset: ListDividerInset.text,            // text 72 | textLg 76 | edge 18
   children: [
     ListRow(icon: AppIcons.person, title: …, subtitle: …,
@@ -258,7 +258,7 @@ edge.
 BulletList(items: ingredients)                 // accent dot, body text, gap 6
 BulletList(items: lines, gap: 12, markerColor: t.onBrandSurface)
 BulletList.icons(entries: [(icon: AppIcons.checkCircle, color: t.success, text: …)])
-NumberedSteps(steps: steps, hint: l10n.recipesStepsHint)   // StepNumber 26, "Schritt 2 von 5. …"
+NumberedSteps(steps: steps, hint: hint)  // StepNumber 26, "Schritt 2 von 5. …"
 NumberedSteps(steps: steps, numberSize: 32, style: AppType.body(t.ink).copyWith(fontSize: 17)) // cooking mode
 StepNumber(3)            // 26 inline
 StepNumber(3, size: 32)  // leading a row or form section
@@ -280,8 +280,8 @@ Wrappers: `RecipeIngredientLines`, `RecipePreparationSteps`,
 `StatusPill` is a status or meta note that is **not** tappable:
 
 ```dart
-StatusPill(label: l10n.todayStreakDays(n), dot: true, tone: StatusTone.success)
-StatusPill(label: l10n.foodAiEstimate, icon: AppIcons.aiMark, tone: StatusTone.accent)
+StatusPill(label: streakLabel, dot: true, tone: StatusTone.success)
+StatusPill(label: aiEstimateLabel, icon: AppIcons.aiMark, tone: StatusTone.accent)
 StatusPill(label: '3 g', color: t.protein, dot: true) // a macro hue on the mark only
 ```
 
