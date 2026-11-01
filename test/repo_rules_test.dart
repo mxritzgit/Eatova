@@ -318,10 +318,7 @@ const List<String> _iconBasis = <String>[
 
 /// Base-layer files that may still name Material `Icons.*`, each with its
 /// reason. An entry goes when its file is migrated.
-const Map<String, String> _materialIconsErlaubt = <String, String>{
-  'lib/src/widgets/common/app_snack.dart':
-      'owned by the snackbar round (UI agent 10), which moves its tone glyphs to AppIcons',
-};
+const Map<String, String> _materialIconsErlaubt = <String, String>{};
 
 /// The one file that names font glyphs (`Icons.*`, or `Symbols.*` should
 /// the family switch).
