@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 import 'package:eatova/src/widgets/kcal/food_glyphs.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import '../../support/harness.dart';
 
@@ -131,7 +132,7 @@ void main() {
       firstDate: DateTime(2026, 8, 20),
     );
     expect(
-      tester.widget<IconButton>(_key('food-date-month-next')).onPressed,
+      tester.widget<AppIconButton>(_key('food-date-month-next')).onTap,
       isNull,
       reason: 'lastDate is in this month',
     );
@@ -146,7 +147,7 @@ void main() {
     await tester.tap(_key('food-date-month-previous'));
     await tester.pumpAndSettle();
     expect(
-      tester.widget<IconButton>(_key('food-date-month-previous')).onPressed,
+      tester.widget<AppIconButton>(_key('food-date-month-previous')).onTap,
       isNull,
       reason: 'firstDate is in August',
     );
@@ -164,7 +165,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(_title(tester), 'October 2026');
     expect(
-      tester.widget<IconButton>(_key('food-date-month-next')).onPressed,
+      tester.widget<AppIconButton>(_key('food-date-month-next')).onTap,
       isNull,
     );
   });
