@@ -45,30 +45,6 @@ class TodayTapTarget extends StatelessWidget {
         );
 }
 
-/// Glyph on a 44 px tinted tile (radius 14), as in the design's rows.
-class _GlyphTile extends StatelessWidget {
-  const _GlyphTile({
-    required this.glyph,
-    required this.tint,
-    required this.ink,
-  });
-
-  final TodayGlyph glyph;
-  final Color tint, ink;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 44,
-    height: 44,
-    alignment: Alignment.center,
-    decoration: BoxDecoration(
-      color: tint,
-      borderRadius: BorderRadius.circular(rControl),
-    ),
-    child: TodayGlyphIcon(glyph, color: ink),
-  );
-}
-
 /// "Tonight's pick": the recipe for today's next open main meal
 /// (`HomeStore.nextMealPick`), opening that recipe. The line under the
 /// numbers says what the day has left after it; a planned meal that does not
@@ -192,87 +168,110 @@ class TodayPickRow extends StatelessWidget {
   }
 }
 
-/// "Meals" with the "Open food log" link to the Food tab. The row is at
-/// least 44 px high so the link is a full touch target.
+/// "Meals" with the "Open food log" link to the Food tab, the shared
+/// [EatovaTextAction] with its 48 px target.
+///
+/// The link's label ends flush with the cards; its press capsule reaches
+/// into the gutter. With large text it moves under the heading, its label
+/// flush with the heading's start.
 class TodayMealsHeader extends StatelessWidget {
   const TodayMealsHeader({super.key, this.onOpenFoodLog});
 
   final VoidCallback? onOpenFoodLog;
 
+  /// [EatovaTextAction]'s horizontal padding without a capsule.
+  static const double _linkInset = 12;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    final style = AppType.display(
+      22,
+      weight: FontWeight.w700,
+      color: t.ink,
+      letterSpacing: -0.22,
+      height: todayLineHeight,
+    );
+    final heading = HeadingSemantics(
+      level: 2,
+      child: Text(l10n.todayMealsTitle, style: style),
+    );
+    final open = onOpenFoodLog;
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 44),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
-        // Heading left, link right; with large text the link wraps under
-        // the heading instead of overflowing.
-        child: Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 8,
-          children: <Widget>[
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 44),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                widthFactor: 1,
-                heightFactor: 1,
-                child: HeadingSemantics(
-                  level: 2,
-                  child: Text(
-                    l10n.todayMealsTitle,
-                    style: AppType.display(
-                      22,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                      letterSpacing: -0.22,
-                      height: todayLineHeight,
-                    ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (open == null) {
+              return Align(alignment: Alignment.centerLeft, child: heading);
+            }
+            final link = EatovaTextAction(
+              buttonKey: const ValueKey('today-open-food-log'),
+              label: l10n.todayOpenFoodLog,
+              onTap: open,
+            );
+            final scaler = MediaQuery.textScalerOf(context);
+            final beside =
+                _widthOf(l10n.todayMealsTitle, style, scaler) +
+                    kSpace8 +
+                    _widthOf(
+                      l10n.todayOpenFoodLog,
+                      AppType.ui(14, weight: FontWeight.w700),
+                      scaler,
+                    ) +
+                    2 * _linkInset <=
+                constraints.maxWidth;
+            // Towards the end edge beside the heading, the start under it.
+            final end = Directionality.of(context) == TextDirection.rtl
+                ? -1.0
+                : 1.0;
+            if (beside) {
+              return Row(
+                children: <Widget>[
+                  Expanded(child: heading),
+                  const SizedBox(width: kSpace8),
+                  Transform.translate(
+                    offset: Offset(_linkInset * end, 0),
+                    child: link,
                   ),
+                ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                heading,
+                Transform.translate(
+                  offset: Offset(-_linkInset * end, 0),
+                  child: link,
                 ),
-              ),
-            ),
-            if (onOpenFoodLog != null)
-              Semantics(
-                button: true,
-                child: InkWell(
-                  key: const ValueKey('today-open-food-log'),
-                  borderRadius: BorderRadius.circular(rChip),
-                  onTap: onOpenFoodLog,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      minHeight: 44,
-                      minWidth: 44,
-                    ),
-                    child: Center(
-                      widthFactor: 1,
-                      child: Text(
-                        l10n.todayOpenFoodLog,
-                        style: AppType.ui(
-                          14,
-                          weight: FontWeight.w700,
-                          color: t.accentText,
-                          height: todayLineHeight,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
+  }
+
+  static double _widthOf(String text, TextStyle style, TextScaler scaler) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
   }
 }
 
 /// The four slots in one card. A filled slot lists its items and kcal; an
 /// empty one on today suggests a kcal band from the day's budget. Each slot's
 /// add button opens the Food tab's add flow for THAT slot on the shown day;
-/// the next open main meal's button is accent-filled.
+/// the next open main meal's button is lit, the others are tinted.
 class TodayMealsCard extends StatelessWidget {
   const TodayMealsCard({
     super.key,
@@ -294,9 +293,14 @@ class TodayMealsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    // The "+" disc sits as far from the edge as the tiles: its compact
+    // target reaches past the disc by this much on either side.
+    final margin = onAdd == null
+        ? 0.0
+        : (IconButtonSize.compact.target - IconButtonSize.compact.disc) / 2;
     return Container(
       key: const ValueKey('today-meals-card'),
-      padding: const EdgeInsets.fromLTRB(14, 2, 8, 2),
+      padding: EdgeInsets.fromLTRB(kCardInset, 0, kCardInset - margin, 0),
       decoration: BoxDecoration(
         color: t.surf,
         borderRadius: BorderRadius.circular(rCard),
@@ -305,7 +309,15 @@ class TodayMealsCard extends StatelessWidget {
       child: Column(
         children: <Widget>[
           for (var i = 0; i < slots.length; i++) ...<Widget>[
-            if (i > 0) Container(height: 1, color: t.line),
+            // Hairlines start at the text column, as in a ListSection.
+            if (i > 0)
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: IconBadgeSize.lg.edge + kRowLeadingGap,
+                endIndent: margin,
+                color: t.line,
+              ),
             TodayMealRow(
               slot: slots[i],
               subtitle: _subtitle(slots[i], l10n),
@@ -361,7 +373,8 @@ class TodayMealRow extends StatelessWidget {
       weight: FontWeight.w700,
       color: t.inkMuted,
       height: todayLineHeight,
-    ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+      tabular: true,
+    );
     final kcalText = '${kcalThousands(slot.kcal, l10n)} kcal';
     final kcal = slot.isEmpty
         ? null
@@ -392,12 +405,16 @@ class TodayMealRow extends StatelessWidget {
     );
     return Padding(
       key: ValueKey<String>('today-meal-row-$name'),
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      // 44 px tile + 2 x 12: the 68 px of a list row with a badge.
+      padding: const EdgeInsets.symmetric(vertical: kSpace12),
       child: LayoutBuilder(
         builder: (context, constraints) {
           // Tile, add button and gaps are fixed; the kcal moves under the
           // subtitle when the name would otherwise get less than ~72 px.
-          final fixed = 44 + 12 + (onAdd == null ? 0 : 12 + 44);
+          final fixed =
+              44 +
+              kRowLeadingGap +
+              (onAdd == null ? 0 : 12 + IconButtonSize.compact.target);
           final kcalWidth = kcal == null
               ? 0.0
               : _widthOf(kcalText, kcalStyle, context) + 12;
@@ -405,7 +422,7 @@ class TodayMealRow extends StatelessWidget {
           return Row(
             children: <Widget>[
               SlotIconTile(slot: slot.slot),
-              const SizedBox(width: 12),
+              const SizedBox(width: kRowLeadingGap),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -430,11 +447,14 @@ class TodayMealRow extends StatelessWidget {
               ],
               if (onAdd != null) ...<Widget>[
                 const SizedBox(width: 12),
-                _AddButton(
+                // The next open main meal's "+" is the page's lit action.
+                AppIconButton(
                   key: ValueKey<String>('today-meal-add-$name'),
-                  accent: accent,
-                  label: l10n.foodSlotAddLabel(slot.slot.label(l10n)),
-                  onTap: onAdd!,
+                  semanticLabel: l10n.foodSlotAddLabel(slot.slot.label(l10n)),
+                  onTap: onAdd,
+                  tone: accent ? IconButtonTone.primary : IconButtonTone.accent,
+                  size: IconButtonSize.compact,
+                  child: const TodayGlyphIcon(TodayGlyph.plus),
                 ),
               ],
             ],
@@ -454,58 +474,6 @@ class TodayMealRow extends StatelessWidget {
     final width = painter.width;
     painter.dispose();
     return width;
-  }
-}
-
-/// 34 px round "+" in a 44 px target: accent fill for the next open main
-/// meal, the accent tint otherwise.
-class _AddButton extends StatelessWidget {
-  const _AddButton({
-    super.key,
-    required this.accent,
-    required this.label,
-    required this.onTap,
-  });
-
-  final bool accent;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: label,
-      child: PressScale(
-        child: SizedBox.square(
-          dimension: 44,
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onTap,
-              child: Center(
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: accent ? t.accentFill : t.accentTint,
-                    shape: BoxShape.circle,
-                  ),
-                  child: TodayGlyphIcon(
-                    TodayGlyph.plus,
-                    size: 18,
-                    color: accent ? t.onAccentFill : t.accentText,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -556,7 +524,7 @@ class TodayActivityCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final count = steps;
-    final top = count != null
+    final Widget? top = count != null
         ? TodayStepsRow(steps: count, goal: stepsGoal, burnedKcal: burnedKcal)
         : healthConnectMissing
         ? _HealthMissingRow(onReview: onReviewHealth)
@@ -578,28 +546,33 @@ class TodayActivityCard extends StatelessWidget {
             onTap: onOpenTraining,
           )
         : null;
+    // A list card: rows with the list row's insets, the hairline at the
+    // text column.
     return Semantics(
       container: true,
       explicitChildNodes: true,
       label: l10n.todayStatActivityLabel,
-      child: Container(
+      child: Material(
         key: const ValueKey('today-activity-card'),
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
-        decoration: BoxDecoration(
-          color: t.surf,
+        color: t.surf,
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.cardBorder),
+          side: BorderSide(color: t.cardBorder),
         ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            ?top,
+            if (top != null) _ActivityRowPadding(child: top),
             if (row != null) ...<Widget>[
-              if (top != null) ...<Widget>[
-                const SizedBox(height: 14),
-                Container(height: 1, color: t.line),
-                const SizedBox(height: 14),
-              ],
+              if (top != null)
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  indent: ListDividerInset.textLg.indent,
+                  endIndent: kCardInset,
+                  color: t.line,
+                ),
               row,
             ],
           ],
@@ -654,6 +627,7 @@ class TodayStepsRow extends StatelessWidget {
               weight: FontWeight.w700,
               color: t.activityInk,
               height: todayLineHeight,
+              tabular: true,
             ),
           )
         : null;
@@ -664,12 +638,8 @@ class TodayStepsRow extends StatelessWidget {
     return Row(
       key: const ValueKey('today-steps-card'),
       children: <Widget>[
-        _GlyphTile(
-          glyph: TodayGlyph.pulse,
-          tint: t.activityTint,
-          ink: t.activityInk,
-        ),
-        const SizedBox(width: 12),
+        _ActivityBadge(glyph: TodayGlyph.pulse, color: t.activity),
+        const SizedBox(width: kRowLeadingGap),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -754,6 +724,35 @@ class TodayStepsRow extends StatelessWidget {
   }
 }
 
+/// The activity card's insets: a list row's 18 px sides and 14 px rhythm.
+class _ActivityRowPadding extends StatelessWidget {
+  const _ActivityRowPadding({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: kCardInset, vertical: 14),
+    child: child,
+  );
+}
+
+/// A Today line glyph on a large badge: tinted by [color], or the accent.
+class _ActivityBadge extends StatelessWidget {
+  const _ActivityBadge({required this.glyph, this.color});
+
+  final TodayGlyph glyph;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) => IconBadge(
+    size: IconBadgeSize.lg,
+    tone: IconBadgeTone.accent,
+    color: color,
+    child: TodayGlyphIcon(glyph),
+  );
+}
+
 class _HealthMissingRow extends StatelessWidget {
   const _HealthMissingRow({this.onReview});
   final VoidCallback? onReview;
@@ -766,32 +765,20 @@ class _HealthMissingRow extends StatelessWidget {
       key: const ValueKey('today-health-connect-missing'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _GlyphTile(
-          glyph: TodayGlyph.pulse,
-          tint: t.activityTint,
-          ink: t.activityInk,
-        ),
-        const SizedBox(width: 12),
+        _ActivityBadge(glyph: TodayGlyph.pulse, color: t.activity),
+        const SizedBox(width: kRowLeadingGap),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                l10n.healthConnectMissingTitle,
-                style: AppType.ui(
-                  15,
-                  weight: FontWeight.w700,
-                  color: t.ink,
-                  height: todayLineHeight,
-                ),
-              ),
-              const SizedBox(height: 4),
+              Text(l10n.healthConnectMissingTitle, style: AppType.rowTitle(t.ink)),
+              const SizedBox(height: 3),
               Text(
                 l10n.healthConnectMissingHint,
-                style: AppType.ui(13, color: t.ink2, height: 1.35),
+                style: AppType.subhead(t.ink2),
               ),
               if (onReview != null) ...<Widget>[
-                const SizedBox(height: 10),
+                const SizedBox(height: kSpace12),
                 SoftPillButton(
                   label: l10n.healthConnectReview,
                   onTap: onReview,
@@ -806,7 +793,8 @@ class _HealthMissingRow extends StatelessWidget {
 }
 
 /// The selected plan's next workout (a rotation, not a schedule), leading
-/// to the Training tab, or the workout in progress, resuming it.
+/// to the Training tab, or the workout in progress, resuming it. A list
+/// row: the whole width presses, the chevron only when it leads somewhere.
 class _WorkoutRow extends StatelessWidget {
   const _WorkoutRow({required this.title, required this.subtitle, this.onTap});
 
@@ -822,50 +810,45 @@ class _WorkoutRow extends StatelessWidget {
         button: onTap != null,
         child: TodayTapTarget(
           key: const ValueKey('today-workout-row'),
-          borderRadius: BorderRadius.circular(rControl),
           onTap: onTap,
-          child: Row(
-            children: <Widget>[
-              _GlyphTile(
-                glyph: TodayGlyph.dumbbell,
-                tint: t.accentTintStrong,
-                ink: t.accentText,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      key: const ValueKey('today-workout-title'),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                        height: todayLineHeight,
+          child: _ActivityRowPadding(
+            child: Row(
+              children: <Widget>[
+                const _ActivityBadge(glyph: TodayGlyph.dumbbell),
+                const SizedBox(width: kRowLeadingGap),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        key: const ValueKey('today-workout-title'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.rowTitle(t.ink),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      key: const ValueKey('today-workout-sub'),
-                      style: AppType.ui(
-                        13,
-                        color: t.ink3,
-                        height: todayLineHeight,
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        key: const ValueKey('today-workout-sub'),
+                        // The meal rows' subtitle tone on the same page.
+                        style: AppType.subhead(t.ink3),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              if (onTap != null) ...<Widget>[
-                const SizedBox(width: 8),
-                TodayGlyphIcon(TodayGlyph.chevron, size: 18, color: t.ink3),
+                if (onTap != null) ...<Widget>[
+                  const SizedBox(width: 6),
+                  ExcludeSemantics(
+                    child: Icon(
+                      AppIcons.chevronRight,
+                      size: AppIconSize.standard,
+                      color: t.ink3,
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

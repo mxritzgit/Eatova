@@ -10,24 +10,26 @@ import 'package:flutter/material.dart';
 enum TodayGlyph { flame, pulse, dumbbell, plus, chevron }
 
 class TodayGlyphIcon extends StatelessWidget {
-  const TodayGlyphIcon(
-    this.glyph, {
-    super.key,
-    required this.color,
-    this.size = 22,
-  });
+  const TodayGlyphIcon(this.glyph, {super.key, this.color, this.size});
 
   final TodayGlyph glyph;
-  final Color color;
-  final double size;
+
+  /// Null takes colour and size from the surrounding [IconTheme], so the
+  /// glyph fits an `IconBadge` or `AppIconButton` like any icon.
+  final Color? color;
+  final double? size;
 
   @override
-  Widget build(BuildContext context) => ExcludeSemantics(
-    child: CustomPaint(
-      size: Size.square(size),
-      painter: _GlyphPainter(glyph, color),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final theme = IconTheme.of(context);
+    final edge = size ?? theme.size ?? 22;
+    return ExcludeSemantics(
+      child: CustomPaint(
+        size: Size.square(edge),
+        painter: _GlyphPainter(glyph, color ?? theme.color!),
+      ),
+    );
+  }
 }
 
 /// Stroke width per glyph as in the design's SVGs; null = filled (the flame).
