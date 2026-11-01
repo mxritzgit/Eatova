@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (61)
+## Migrationen (62)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -95,6 +95,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 59. `20261025100000_premium_subscriptions.sql`
 60. `20261026100000_free_ai_pool.sql`
 61. `20261027100000_email_alias_guard.sql`
+62. `20261101100000_training_plan_sessions_per_week.sql`
 
 ## Tabellen in `public` (31)
 
@@ -252,7 +253,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `is_valid_planned_meal` | Aufrufers | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
 | `is_valid_training_exercise_ids` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
 | `is_valid_training_history` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260920100500_training_plan_incarnations.sql` |
-| `is_valid_training_plan` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260908130000_training_plans.sql` |
+| `is_valid_training_plan` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20261101100000_training_plan_sessions_per_week.sql` |
 | `list_chat_sessions` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `load_meal_plan` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
 | `load_recipe_history` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260920100000_offline_sync_versions.sql` |
