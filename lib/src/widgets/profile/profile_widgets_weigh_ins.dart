@@ -99,7 +99,7 @@ class _WeighInHistorySheet extends StatelessWidget {
                   child: Text(
                     l10n.weightLogHistoryEmpty,
                     key: const ValueKey('weigh-in-history-empty'),
-                    style: AppType.ui(13.5, color: t.ink2, height: 1.45),
+                    style: AppType.callout(t.ink2),
                   ),
                 );
               }
@@ -200,7 +200,7 @@ class _WeighInRow extends StatelessWidget {
                   ),
                   if (onTap != null) ...<Widget>[
                     const SizedBox(width: 6),
-                    Icon(Icons.chevron_right_rounded, size: 20, color: t.ink3),
+                    Icon(AppIcons.chevronRight, size: 20, color: t.ink3),
                   ],
                 ],
               ),
@@ -311,7 +311,7 @@ class _WeighInWhen extends StatelessWidget {
           child: SoftPillButton(
             key: const ValueKey('weigh-in-time'),
             label: timeLabel,
-            icon: Icons.schedule_rounded,
+            icon: AppIcons.schedule,
             tone: SoftPillTone.neutral,
             semanticLabel: l10n.weighInTimeSemantics(timeLabel),
             onTap: () => _pickTime(context),

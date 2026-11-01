@@ -50,7 +50,7 @@ String formatShortDate(DateTime d, AppLocalizations l10n) {
   return DateFormat.Md(l10n.localeName).format(d);
 }
 
-/// A section label of the profile page: the display heading the settings
+/// A section label of the profile page: the [SectionHeading] the settings
 /// and goals pages use for their groups, with the gap to the card below.
 class ProfileSectionLabel extends StatelessWidget {
   const ProfileSectionLabel(this.title, {super.key});
@@ -59,14 +59,8 @@ class ProfileSectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(left: 2, bottom: 12),
-    child: HeadingSemantics(
-      level: 2,
-      child: Text(
-        title,
-        style: AppType.display(19, weight: FontWeight.w700, color: context.t.ink),
-      ),
-    ),
+    padding: const EdgeInsets.only(bottom: kSpace12),
+    child: SectionHeading(title: title),
   );
 }
 

@@ -3,6 +3,7 @@ import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,10 +14,10 @@ import '../support/today_summary.dart';
 void main() {
   testWidgets('profile goals distinguish missing steps from measured zero', (tester) async {
     await pumpLocalized(tester, const GoalsCard(profile: UserProfile(), dailyKcal: 0, dailySteps: null));
-    expect(find.text('–/8000'), findsOneWidget);
-    expect(find.text('0/8000'), findsNothing);
+    expect(find.text('–/8.000'), findsOneWidget);
+    expect(find.text('0/8.000'), findsNothing);
     await pumpLocalized(tester, const GoalsCard(profile: UserProfile(), dailyKcal: 0, dailySteps: 0));
-    expect(find.text('0/8000'), findsOneWidget);
+    expect(find.text('0/8.000'), findsOneWidget);
   });
   for (final locale in [const Locale('de'), const Locale('en')]) {
     for (final state in [
@@ -103,18 +104,18 @@ void main() {
     await pumpLocalized(tester, card(HealthAuthState.noData, syncing: true));
     expect(
       tester
-          .widget<TextButton>(
+          .widget<SoftPillButton>(
             find.byKey(const ValueKey('profile-health-refresh')),
           )
-          .onPressed,
+          .onTap,
       isNull,
     );
     expect(
       tester
-          .widget<TextButton>(
+          .widget<SoftPillButton>(
             find.byKey(const ValueKey('profile-health-settings')),
           )
-          .onPressed,
+          .onTap,
       isNull,
     );
     expect(find.byType(LinearProgressIndicator), findsOneWidget);

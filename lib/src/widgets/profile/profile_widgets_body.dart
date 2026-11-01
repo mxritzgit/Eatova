@@ -45,7 +45,7 @@ class WeightCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              _profileTile(Icons.monitor_weight_outlined, t.carbs),
+              _profileTile(AppIcons.monitorWeight, t.carbs),
               const SizedBox(width: 12),
               // At large text the count moves under the title.
               Expanded(
@@ -64,7 +64,7 @@ class WeightCard extends StatelessWidget {
                         : '–',
                     textAlign: TextAlign.right,
                     style: AppType.ui(
-                      12.5,
+                      12,
                       weight: FontWeight.w500,
                       color: t.ink2,
                     ),
@@ -120,7 +120,7 @@ class WeightCard extends StatelessWidget {
             Text(
               l10n.profileWeightTrend(formatKgDe(_planWeight!, l10n)),
               key: const ValueKey('profile-weight-trend'),
-              style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
+              style: AppType.caption(t.ink2),
             ),
           ],
           const SizedBox(height: 16),
@@ -151,8 +151,8 @@ class WeightCard extends StatelessWidget {
                     child: Row(
                       children: <Widget>[
                         Icon(
-                          Icons.show_chart_rounded,
-                          size: 18,
+                          AppIcons.showChart,
+                          size: AppIconSize.small,
                           color: t.accentText,
                         ),
                         const SizedBox(width: 10),
@@ -160,7 +160,7 @@ class WeightCard extends StatelessWidget {
                           child: Text(
                             l10n.profileWeightHistoryEmptyHint,
                             style: AppType.ui(
-                              12.5,
+                              13,
                               color: t.ink2,
                               height: 1.4,
                             ),
@@ -187,7 +187,7 @@ class WeightCard extends StatelessWidget {
           PrimaryActionButton(
             key: const ValueKey('profile-log-weight'),
             label: l10n.profileLogWeightCta,
-            icon: Icons.add_rounded,
+            icon: AppIcons.add,
             height: 48,
             onTap: () => _promptWeight(context),
           ),
@@ -196,7 +196,7 @@ class WeightCard extends StatelessWidget {
             SoftPillButton(
               key: const ValueKey('weigh-in-history-open'),
               label: l10n.weightLogHistoryOpen,
-              icon: Icons.history_rounded,
+              icon: AppIcons.history,
               tone: SoftPillTone.neutral,
               expand: true,
               onTap: () => showWeighInHistorySheet(context, weighIns!),
@@ -242,7 +242,7 @@ class WeightCard extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                Icon(Icons.flag_rounded, size: 15, color: t.accentText),
+                Icon(AppIcons.flag, size: AppIconSize.small, color: t.accentText),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -338,13 +338,13 @@ class BmiCard extends StatelessWidget {
     final bmiColor = BmiZones.colorFor(t, bmi);
 
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 8, 18),
+      padding: const EdgeInsets.fromLTRB(18, 16, 14, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Row(
             children: <Widget>[
-              _profileTile(Icons.accessibility_new_rounded, t.protein),
+              _profileTile(AppIcons.accessibilityNew, t.protein),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -353,14 +353,14 @@ class BmiCard extends StatelessWidget {
                 ),
               ),
               _CardActionButton(
-                icon: Icons.info_outline_rounded,
+                icon: AppIcons.info,
                 onTap: () => _showBmiInfoSheet(context, bmi),
                 tooltip: l10n.profileBmiInfoTooltip,
               ),
             ],
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 10),
+            padding: const EdgeInsets.only(right: 4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -535,7 +535,7 @@ class _BmiInfoSheet extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   l10n.profileBmiInfoSheetBody,
-                  style: AppType.ui(13.5, color: t.ink2, height: 1.45),
+                  style: AppType.callout(t.ink2),
                 ),
                 const SizedBox(height: 18),
                 AppCard(
@@ -900,7 +900,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
               child: PrimaryActionButton(
                 key: const ValueKey('profile-weight-save'),
                 label: l10n.commonSave,
-                icon: Icons.check_rounded,
+                icon: AppIcons.check,
                 height: 50,
                 onTap: gesperrt ? null : _save,
               ),
@@ -910,7 +910,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
               SoftPillButton(
                 key: const ValueKey('weigh-in-history-link'),
                 label: l10n.weighInHistoryLink,
-                icon: Icons.history_rounded,
+                icon: AppIcons.history,
                 tone: SoftPillTone.neutral,
                 expand: true,
                 onTap: _saving
@@ -924,7 +924,7 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
               SoftPillButton(
                 key: const ValueKey('weigh-in-delete'),
                 label: l10n.weighInDelete,
-                icon: Icons.delete_outline_rounded,
+                icon: AppIcons.delete,
                 tone: SoftPillTone.danger,
                 expand: true,
                 onTap: _saving ? null : _delete,
@@ -937,9 +937,8 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
   }
 }
 
-/// The change since the first measurement, as the redesign's tinted pill
-/// (accent tint with accent text, like "58% eaten"). The flat state stays
-/// quiet on `tile`.
+/// The change since the first measurement as a [StatusPill]: accent for a
+/// move (like "58% eaten"), neutral when flat.
 class _DeltaPill extends StatelessWidget {
   const _DeltaPill({required this.delta});
 
@@ -947,35 +946,19 @@ class _DeltaPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     final isFlat = delta.abs() < 0.05;
     final icon = isFlat
-        ? Icons.remove_rounded
-        : (delta > 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded);
+        ? AppIcons.remove
+        : (delta > 0 ? AppIcons.trendingUp : AppIcons.trendingDown);
     // U+2212 as minus, as everywhere else in the app (paceLabel).
     final label = isFlat
         ? l10n.profileStable
         : '${delta > 0 ? '+' : '−'}${formatKgDe(delta.abs(), l10n)} kg';
-    final fg = isFlat ? t.ink2 : t.accentText;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 28),
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-      decoration: BoxDecoration(
-        color: isFlat ? t.tile : t.accentTint,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(icon, color: fg, size: 15),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: AppType.ui(13, weight: FontWeight.w700, color: fg),
-          ),
-        ],
-      ),
+    return StatusPill(
+      label: label,
+      icon: icon,
+      tone: isFlat ? StatusTone.neutral : StatusTone.accent,
     );
   }
 }
@@ -1098,7 +1081,8 @@ class _WeightAreaPainter extends CustomPainter {
       old.grid != grid || old.fill != fill || !listEquals(old.values, values);
 }
 
-/// The BMI zone as a tinted capsule with its dot.
+/// The BMI zone as a [StatusPill]: the zone's colour on the dot only, so the
+/// label keeps its contrast in every zone.
 class _ZonePill extends StatelessWidget {
   const _ZonePill({required this.label, required this.color});
 
@@ -1106,38 +1090,8 @@ class _ZonePill extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 28),
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 7),
-          Flexible(
-            child: Text(
-              label,
-              style: AppType.ui(
-                13,
-                weight: FontWeight.w700,
-                color: t.readableOnTint(color),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      StatusPill(label: label, dot: true, color: color);
 }
 
 /// The four BMI zones as one segmented track (15–35) with a marker at the
@@ -1321,8 +1275,8 @@ class _Caption extends StatelessWidget {
 }
 
 /// The one header action of a profile card (edit the goal, the BMI guide,
-/// sync Apple Health): a quiet 28 px [AppTokens.tile] chip in a 44 px
-/// target, the glyph in [AppTokens.ink2] or, for an edit, the accent.
+/// sync Apple Health): a compact [AppIconButton] (36 px disc, 44 px target),
+/// neutral, or accent for an edit of what the card shows.
 class _CardActionButton extends StatelessWidget {
   const _CardActionButton({
     super.key,
@@ -1342,38 +1296,11 @@ class _CardActionButton extends StatelessWidget {
   final bool accent;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // A11y: 44x44 hit target; chip and glyph stay visually 28/15.
-    return Semantics(
-      button: true,
-      child: Tooltip(
-        message: tooltip,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(rControl),
-            child: Center(
-              child: Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: t.tile,
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: Icon(
-                  icon,
-                  color: accent ? t.accentText : t.ink2,
-                  size: 15,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    icon: icon,
+    semanticLabel: tooltip,
+    onTap: onTap,
+    size: IconButtonSize.compact,
+    tone: accent ? IconButtonTone.accent : IconButtonTone.neutral,
+  );
 }

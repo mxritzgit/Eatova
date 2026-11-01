@@ -141,8 +141,8 @@ void main() {
     // Findable without scrolling: the screen builds eagerly
     // (SingleChildScrollView, not ListView), which
     // profile_route_refresh_test relies on.
-    expect(find.text('1000/8000'), findsOneWidget);
-    expect(find.text('1000 / 8000'), findsNothing);
+    expect(find.text('1.000/8.000'), findsOneWidget);
+    expect(find.text('1.000 / 8.000'), findsNothing);
     // The calories row beside it uses the same notation, with the kcal
     // thousands separator of the rest of the app.
     expect(find.text('900/2.200'), findsOneWidget);

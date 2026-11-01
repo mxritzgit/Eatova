@@ -84,7 +84,11 @@ class ProfileStatTile extends StatelessWidget {
         ? texts
         : Row(
             children: <Widget>[
-              _profileTile(icon!, tone ?? t.accent, size: large ? 44 : 36),
+              _profileTile(
+                icon!,
+                tone ?? t.accent,
+                size: large ? IconBadgeSize.lg : IconBadgeSize.md,
+              ),
               SizedBox(width: large ? 12 : 10),
               Expanded(child: texts),
             ],
@@ -102,17 +106,14 @@ class ProfileStatTile extends StatelessWidget {
   }
 }
 
-/// The page's icon tile: [icon] on a rounded tile tinted by [tone], the glyph
-/// in the tone's readable ink ([IconTile]); neutral without a tone.
-/// Decorative: every tile stands next to its own label.
-Widget _profileTile(IconData icon, Color? tone, {double size = 40}) =>
-    ExcludeSemantics(
-      child: IconTile.custom(
-        color: tone,
-        size: size,
-        child: Icon(icon, size: size * 0.5),
-      ),
-    );
+/// The page's icon badge: [icon] on an [IconBadge] tinted by [tone], the
+/// glyph in the tone's readable ink; neutral without a tone. Decorative:
+/// every badge stands next to its own label.
+Widget _profileTile(
+  IconData icon,
+  Color? tone, {
+  IconBadgeSize size = IconBadgeSize.md,
+}) => IconBadge(icon: icon, color: tone, size: size);
 
 /// Equal-height tiles side by side, stacking when larger text needs room.
 ///

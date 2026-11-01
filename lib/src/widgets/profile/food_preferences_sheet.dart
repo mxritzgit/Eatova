@@ -44,108 +44,103 @@ class FoodPreferencesCard extends StatelessWidget {
       preferences.avoidances,
     ).map((a) => a.label(l10n)).join(', ');
     final save = onSave;
+    final rows = <Widget>[
+      _PreferenceRow(
+        icon: AppIcons.restaurantMenu,
+        tone: t.protein,
+        label: l10n.foodPrefsDietLabel,
+        value: preferences.diet.label(l10n),
+      ),
+      _PreferenceRow(
+        icon: AppIcons.noFood,
+        tone: t.carbs,
+        label: l10n.foodPrefsAvoidLabel,
+        value: avoided.isEmpty ? l10n.foodPrefsCardNothing : avoided,
+        list: true,
+      ),
+      if (preferences.dislikes.isNotEmpty)
+        _PreferenceRow(
+          icon: AppIcons.thumbDownAlt,
+          tone: t.fat,
+          label: l10n.foodPrefsDislikesLabel,
+          value: preferences.dislikes,
+          list: true,
+        ),
+    ];
+    // Hairlines start at the text column, at the card margin once the
+    // badges stack above the text.
+    final indent = listRowStacked(context)
+        ? ListDividerInset.edge.indent
+        : ListDividerInset.text.indent;
     return AppCard(
       key: const ValueKey('profile-food-prefs'),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      clip: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _PreferenceRow(
-            icon: Icons.restaurant_menu_rounded,
-            tone: t.protein,
-            label: l10n.foodPrefsDietLabel,
-            value: preferences.diet.label(l10n),
-          ),
-          const SizedBox(height: 14),
-          _PreferenceRow(
-            icon: Icons.no_food_outlined,
-            tone: t.carbs,
-            label: l10n.foodPrefsAvoidLabel,
-            value: avoided.isEmpty ? l10n.foodPrefsCardNothing : avoided,
-          ),
-          if (preferences.dislikes.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 14),
-            _PreferenceRow(
-              icon: Icons.thumb_down_alt_outlined,
-              tone: t.fat,
-              label: l10n.foodPrefsDislikesLabel,
-              value: preferences.dislikes,
-            ),
+          for (var i = 0; i < rows.length; i++) ...<Widget>[
+            if (i > 0)
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: indent,
+                endIndent: kCardInset,
+                color: t.line,
+              ),
+            rows[i],
           ],
-          if (save != null) ...<Widget>[
-            const SizedBox(height: 16),
-            SoftPillButton(
-              key: const ValueKey('profile-edit-food-prefs'),
-              label: l10n.foodPrefsEditCta,
-              icon: Icons.tune_rounded,
-              expand: true,
-              onTap: () => showFoodPreferencesSheet(
-                context,
-                initial: preferences,
-                onSave: save,
+          if (save != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                kCardInset,
+                kSpace4,
+                kCardInset,
+                kCardInset,
+              ),
+              child: SoftPillButton(
+                key: const ValueKey('profile-edit-food-prefs'),
+                label: l10n.foodPrefsEditCta,
+                icon: AppIcons.tune,
+                expand: true,
+                onTap: () => showFoodPreferencesSheet(
+                  context,
+                  initial: preferences,
+                  onSave: save,
+                ),
               ),
             ),
-          ],
         ],
       ),
     );
   }
 }
 
-/// Label above value, read as one node ("Diet type, Vegan").
+/// One preference as a [ListRow], read as one node ("Diet type, Vegan"):
+/// a single choice sits at the row's end, a free list ([list]: the avoided
+/// foods, the dislikes) runs under the field name, where it can wrap.
 class _PreferenceRow extends StatelessWidget {
   const _PreferenceRow({
     required this.icon,
     required this.tone,
     required this.label,
     required this.value,
+    this.list = false,
   });
 
   final IconData icon;
   final Color tone;
   final String label;
   final String value;
+  final bool list;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        ExcludeSemantics(
-          child: IconTile.custom(
-            color: tone,
-            size: 40,
-            glyphSize: 20,
-            child: Icon(icon),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: MergeSemantics(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  label,
-                  style: AppType.ui(
-                    12.5,
-                    weight: FontWeight.w600,
-                    color: t.ink2,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => ListRow(
+    leading: IconBadge(icon: icon, color: tone),
+    title: label,
+    subtitle: list ? value : null,
+    value: list ? null : value,
+    trailing: ListTrailing.value,
+  );
 }
 
 /// The editor itself. Public for widget tests; open it through
@@ -201,10 +196,10 @@ class _FoodPreferencesSheetState extends State<FoodPreferencesSheet> {
   }
 
   static IconData _dietIcon(DietPreference diet) => switch (diet) {
-    DietPreference.none => Icons.restaurant_rounded,
-    DietPreference.vegetarian => Icons.spa_outlined,
-    DietPreference.vegan => Icons.eco_outlined,
-    DietPreference.pescetarian => Icons.set_meal_outlined,
+    DietPreference.none => AppIcons.restaurant,
+    DietPreference.vegetarian => AppIcons.spa,
+    DietPreference.vegan => AppIcons.eco,
+    DietPreference.pescetarian => AppIcons.setMeal,
   };
 
   Future<void> _save() async {
@@ -329,21 +324,21 @@ class _FoodPreferencesSheetState extends State<FoodPreferencesSheet> {
                   ),
                   Text(
                     l10n.foodPrefsDislikesLimit(kFoodDislikesMaxChars),
-                    style: AppType.ui(11.5, color: t.ink2),
+                    style: AppType.ui(12, color: t.ink2),
                   ),
                   const SizedBox(height: 18),
                   SignalNote(
                     l10n.foodPrefsCoachNotice,
                     key: const ValueKey('food-prefs-notice'),
                     tone: t.warning,
-                    icon: Icons.health_and_safety_outlined,
+                    icon: AppIcons.healthAndSafety,
                     boxed: true,
                   ),
                   const SizedBox(height: 18),
                   PrimaryActionButton(
                     key: const ValueKey('food-prefs-save'),
                     label: l10n.commonSave,
-                    icon: Icons.check_rounded,
+                    icon: AppIcons.check,
                     busy: _saving,
                     onTap: _saving ? null : _save,
                   ),
@@ -368,7 +363,7 @@ class _GroupHeading extends StatelessWidget {
     padding: const EdgeInsets.only(bottom: 10),
     child: HeadingSemantics(
       level: 2,
-      child: Text(text, style: AppType.display(19, color: context.t.ink)),
+      child: Text(text, style: AppType.section(context.t.ink)),
     ),
   );
 }

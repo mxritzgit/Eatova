@@ -121,7 +121,7 @@ void main() {
 
     // Default steps goal is 8000; the goals card's steps row shows the boot
     // state 1000/8000.
-    expect(find.text('1000/8000'), findsOneWidget);
+    expect(find.text('1.000/8.000'), findsOneWidget);
 
     // Switch the health store mid-route and trigger _refreshHealthSteps from
     // the open screen. That is a HomePage setState UNDER the open route, so
@@ -136,10 +136,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // Proof: the open ProfileScreen now shows the fresh steps value.
-    expect(find.text('12345/8000'), findsOneWidget,
+    expect(find.text('12.345/8.000'), findsOneWidget,
         reason: 'mid-route Health-Refresh muss auf der offenen ProfileScreen '
             'ankommen (_profileRouteOpen-gegated _profileRefresh-Bump)');
-    expect(find.text('1000/8000'), findsNothing);
+    expect(find.text('1.000/8.000'), findsNothing);
   });
 
   testWidgets(
