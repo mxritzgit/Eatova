@@ -2629,6 +2629,102 @@
       "count": { "type": "int" }
     }
   },
+  "mealPlanSuggestAction": "Woche vorschlagen",
+  "mealPlanSuggestTitle": "Wochenvorschlag",
+  "mealPlanSuggestIntro": "Aus deinen Rezepten und dem Katalog, abgestimmt auf dein Tagesziel. Tausche oder entferne, was nicht passt. Eingeplant wird erst mit „Übernehmen“.",
+  "mealPlanSuggestProfile": "Passend zu: {filter}",
+  "@mealPlanSuggestProfile": {
+    "description": "The profile filters behind the suggestion, e.g. \"Vegan · ohne Nüsse\".",
+    "placeholders": {
+      "filter": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestWithout": "ohne {foods}",
+  "@mealPlanSuggestWithout": {
+    "description": "Avoided foods in the profile filter; foods: comma-separated.",
+    "placeholders": {
+      "foods": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestSlots": "Mahlzeiten",
+  "mealPlanSuggestShuffle": "Neu mischen",
+  "mealPlanSuggestThinFor": "Für „{filter}“ gibt es nur {dishes} – einige wiederholen sich.",
+  "@mealPlanSuggestThinFor": {
+    "description": "dishes: mealPlanSuggestBreakfasts, mealPlanSuggestMains or mealPlanSuggestSnacks.",
+    "placeholders": {
+      "filter": { "type": "String" },
+      "dishes": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestThin": "Es gibt nur {dishes} – einige wiederholen sich.",
+  "@mealPlanSuggestThin": {
+    "placeholders": {
+      "dishes": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestBreakfasts": "{count, plural, =1{ein Frühstück} other{{count} Frühstücke}}",
+  "@mealPlanSuggestBreakfasts": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestMains": "{count, plural, =1{ein Hauptgericht} other{{count} Hauptgerichte}}",
+  "@mealPlanSuggestMains": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestSnacks": "{count, plural, =1{einen Snack} other{{count} Snacks}}",
+  "@mealPlanSuggestSnacks": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestUnfilled": "{count, plural, =1{Für 1 Mahlzeit passt kein Rezept – sie bleibt leer.} other{Für {count} Mahlzeiten passt kein Rezept – sie bleiben leer.}}",
+  "@mealPlanSuggestUnfilled": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestAlreadyPlanned": "{count, plural, =1{1 Mahlzeit schon geplant} other{{count} Mahlzeiten schon geplant}}",
+  "@mealPlanSuggestAlreadyPlanned": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestInBand": "Im Zielbereich",
+  "mealPlanSuggestNothing": "In dieser Woche ist nichts mehr frei: Jede gewählte Mahlzeit ist schon geplant oder vorbei.",
+  "mealPlanSuggestSwap": "„{recipe}“ tauschen",
+  "@mealPlanSuggestSwap": {
+    "placeholders": {
+      "recipe": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestRemove": "„{recipe}“ entfernen",
+  "@mealPlanSuggestRemove": {
+    "placeholders": {
+      "recipe": { "type": "String" }
+    }
+  },
+  "mealPlanSuggestApply": "{count, plural, =1{1 Mahlzeit übernehmen} other{{count} Mahlzeiten übernehmen}}",
+  "@mealPlanSuggestApply": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestApplied": "{count, plural, =1{1 Mahlzeit eingeplant.} other{{count} Mahlzeiten eingeplant.}}",
+  "@mealPlanSuggestApplied": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestAppliedOffline": "{count, plural, =1{1 Mahlzeit auf diesem Gerät eingeplant. Wird später synchronisiert.} other{{count} Mahlzeiten auf diesem Gerät eingeplant. Wird später synchronisiert.}}",
+  "@mealPlanSuggestAppliedOffline": {
+    "placeholders": {
+      "count": { "type": "int", "format": "decimalPattern" }
+    }
+  },
+  "mealPlanSuggestNoneAdded": "Nichts eingeplant: Diese Mahlzeiten sind inzwischen schon belegt.",
   "mealPlanEatToday": "Als heute gegessen abhaken",
   "mealPlanEatenOn": "Am {date} eingetragen",
   "@mealPlanEatenOn": {

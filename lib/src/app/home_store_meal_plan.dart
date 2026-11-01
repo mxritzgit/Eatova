@@ -69,6 +69,49 @@ mixin _HomeStoreMealPlanPart
   Future<SyncDelivery> removePlannedMeal(PlannedMeal plan) =>
       savePlannedMeal(plan.copyWith(removed: true));
 
+  /// Adds [plans] as new entries in one local commit, all or none: the week
+  /// suggestion's "Übernehmen". A plan for a day and slot that holds an
+  /// entry by now (another device, an edit meanwhile) is left out, so
+  /// nothing planned is overwritten or doubled. Resolves to the delivery and
+  /// the number of entries written.
+  Future<({SyncDelivery delivery, int added})> addPlannedMeals(
+    List<PlannedMeal> plans,
+  ) => _serializeMealPlan(() async {
+    _ensureMealPlanActive();
+    final taken = {
+      for (final p in _plannedMeals)
+        if (!p.removed) (p.day, p.slot),
+    };
+    final fresh = <PlannedMeal>[];
+    for (final plan in plans) {
+      final validated = PlannedMeal.fromJson(plan.toJson());
+      if (validated.isEaten ||
+          validated.removed ||
+          _plannedMeals.any((p) => p.id == validated.id)) {
+        throw ArgumentError.value(plan.id, 'plans', 'Not a new plan');
+      }
+      if (taken.add((validated.day, validated.slot))) fresh.add(validated);
+    }
+    if (fresh.isEmpty) return (delivery: SyncDelivery.delivered, added: 0);
+    final activeSince = localDayKey(
+      clock.now().subtract(const Duration(days: 35)),
+    );
+    final open = _plannedMeals
+        .where(
+          (p) => !p.removed && !p.isEaten && p.day.compareTo(activeSince) >= 0,
+        )
+        .length;
+    if (open + fresh.length > kMaxOpenPlannedMeals) {
+      throw const MealPlanLimitReached();
+    }
+    final delivery = await _commitSyncIntents(
+      [for (final plan in fresh) SyncOp.mealPlanUpsert(plan)],
+      notifyQueued: false,
+      publish: () => fresh.forEach(_putPlannedMeal),
+    );
+    return (delivery: delivery, added: fresh.length);
+  });
+
   /// A tick reads no plan state, so it skips the plan queue, and it returns
   /// once committed: the receipt shows no delivery feedback, and waiting for
   /// one tick's delivery would hold back the next one.
