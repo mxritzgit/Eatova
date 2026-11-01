@@ -29,6 +29,7 @@ import '../../services/meal_photo_input.dart';
 import '../../services/meal_scan_identity.dart';
 import '../../services/meals_sync.dart';
 import '../../services/open_food_facts_product_service.dart';
+import '../../services/own_food_suggestions.dart' show UsualSlotMeal;
 import '../../services/own_products.dart';
 import '../../services/screen_awake.dart';
 import '../../services/speech_input.dart';
@@ -45,11 +46,13 @@ import 'food_history_results.dart';
 import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
+import 'meal_copy_sheet.dart' show CopyMeals;
 import 'meal_describe_sheet.dart';
 import 'meal_entry_methods.dart';
 import 'meal_scan_preview_sheet.dart';
 import 'meal_slot_picker.dart';
 import 'meal_suggestion_item.dart';
+import 'own_food_sections.dart';
 import 'saved_meal_presentation.dart';
 import '../shared/ai_consent_sheet.dart';
 import '../shared/plan_limit_notice.dart';
@@ -87,6 +90,7 @@ class FoodStoreScope extends InheritedWidget {
     this.favoriteUseCounts,
     this.diaryMeals,
     this.ownRecipes,
+    this.remainingKcalForDay,
     required super.child,
   });
 
@@ -114,6 +118,10 @@ class FoodStoreScope extends InheritedWidget {
   /// window, for the search's "From you" section (E3); read per rebuild.
   final List<LoggedMeal> Function()? diaryMeals;
   final List<FitnessRecipe> Function()? ownRecipes;
+
+  /// kcal still open on a day (budget incl. activity credit minus eaten),
+  /// for "What still fits?"; read per rebuild.
+  final int Function(DateTime day)? remainingKcalForDay;
 
   /// Deliberately without dependency registration (like [MealEditScope]): the
   /// lookup happens in the sheet opener, outside build.
@@ -160,6 +168,10 @@ Future<void> showAddMealSheet(
   final updateFavorite = MealEditScope.maybeOf(context)?.onUpdateFavorite;
   // Same reason, same moment: the live source of both lists (P8-01/-05).
   final live = FoodStoreScope.maybeOf(context);
+  // The usual meal's copy shows up only through the live day list.
+  final copyMeals = live == null
+      ? null
+      : MealEditScope.maybeOf(context)?.onCopyMeals;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -192,6 +204,10 @@ Future<void> showAddMealSheet(
           favoriteUseCounts: live?.favoriteUseCounts,
           diaryMeals: live?.diaryMeals,
           ownRecipes: live?.ownRecipes,
+          remainingKcal: live?.remainingKcalForDay?.call(
+            foodDate ?? clock.now(),
+          ),
+          onCopyMeals: copyMeals,
           describer: describer,
           describeMatcher: describeMatcher,
           speechInput: speechInput,
@@ -299,6 +315,8 @@ class AddMealSheet extends StatefulWidget {
     this.favoriteUseCounts,
     this.diaryMeals,
     this.ownRecipes,
+    this.remainingKcal,
+    this.onCopyMeals,
     this.describer = const EdgeFunctionMealDescriber(),
     this.describeMatcher,
     this.speechInput = const SpeechInput(),
@@ -361,6 +379,14 @@ class AddMealSheet extends StatefulWidget {
   /// recipes.
   final List<LoggedMeal> Function()? diaryMeals;
   final List<FitnessRecipe> Function()? ownRecipes;
+
+  /// kcal still open on [foodDate]; null hides "What still fits?".
+  final int? remainingKcal;
+
+  /// Copies logged meals (the store's "Copy to…", with undo) for "Your
+  /// usual breakfast"; null hides the row. Needs the live day list
+  /// ([FoodStoreScope]) to see the copies arrive.
+  final CopyMeals? onCopyMeals;
 
   /// Describe-a-meal path (docs/MEAL-DESCRIBE.md): `analyze-meal` in
   /// describe mode, then the match against favorites and [productService]
@@ -1445,26 +1471,67 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   /// One own food: the favorites sheet's row, whose "+" adds the shown
   /// portion in one tap through the same [_handleAdd] as every row here.
-  Widget _historyItem(FoodHistoryHit hit, int index) {
-    final key = foodHistoryItemKey(hit);
+  Widget _historyItem(FoodHistoryHit hit, int index) => _ownFoodRow(
+    hit,
+    itemKey: foodHistoryItemKey(hit),
+    keyPrefix: 'food-history-hit',
+    index: index,
+  );
+
+  /// A suggested own food above the recents. "What still fits?" has no
+  /// one-tap "+": its row opens the portion panel, whose add confirms.
+  Widget _ownFoodItem(OwnFoodSection section, FoodHistoryHit hit, int index) =>
+      _ownFoodRow(
+        hit,
+        itemKey: ownFoodItemKey(section, hit),
+        keyPrefix: 'own-food-${section.name}',
+        index: index,
+        quickAdd: section == OwnFoodSection.frequent,
+      );
+
+  Widget _ownFoodRow(
+    FoodHistoryHit hit, {
+    required String itemKey,
+    required String keyPrefix,
+    required int index,
+    bool quickAdd = true,
+  }) {
     final id = FavoriteMeal.keyFor(_favorites, hit.result);
     return MealSuggestionItem(
-      key: ValueKey('food-history-hit-$index'),
+      key: ValueKey('$keyPrefix-$index'),
       savedPresentation: true,
       result: hit.result,
-      expanded: _expandedItemKey == key,
-      justAdded: _justAddedKeys.contains(key),
-      onTap: () => _toggleExpanded(key),
-      onAdd: (result) => _handleAdd(key, result),
-      addButtonKey: ValueKey('food-history-hit-add-$index'),
+      expanded: _expandedItemKey == itemKey,
+      justAdded: _justAddedKeys.contains(itemKey),
+      onTap: () => _toggleExpanded(itemKey),
+      onAdd: (result) => _handleAdd(itemKey, result),
+      addButtonKey: ValueKey('$keyPrefix-add-$index'),
       isFavorite: _favorites.any((f) => f.pinned && f.id == id),
       onToggleFavorite: widget.onToggleFavorite == null
           ? null
           : (result) => _handleToggleFavorite(result),
-      favoriteButtonKey: ValueKey('food-history-hit-fav-$index'),
-      quickAddSlotLabel: _selectedSlot.label(context.l10n),
-      quickAddKey: ValueKey('food-history-hit-quick-$index'),
+      favoriteButtonKey: ValueKey('$keyPrefix-fav-$index'),
+      quickAddSlotLabel: quickAdd ? _selectedSlot.label(context.l10n) : null,
+      quickAddKey: quickAdd ? ValueKey('$keyPrefix-quick-$index') : null,
     );
+  }
+
+  /// "Your usual breakfast": the store copies the entries into the selected
+  /// slot of the sheet's day and offers the undo; the re-fed day list then
+  /// shows them as already added, and the rows below stay in place.
+  Future<void> _takeUsual(UsualSlotMeal usual) async {
+    final copy = widget.onCopyMeals;
+    if (copy == null) return;
+    final rowsTop = _belowAddedTop();
+    final saved = await tryPersistChange(
+      context,
+      () => copy(
+        [for (final meal in usual.meals) meal.id],
+        day: widget.foodDate ?? clock.now(),
+        slot: _selectedSlot,
+      ),
+    );
+    if (saved && mounted) _keepRowsInPlace(rowsTop);
   }
 
   Widget _buildProductResults() {
@@ -1644,6 +1711,21 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // 2026-11-01: own-food suggestions; empty without enough data.
+        OwnFoodSections(
+          slot: _selectedSlot,
+          day: widget.foodDate ?? clock.now(),
+          diary: widget.diaryMeals?.call() ?? _existing,
+          favorites: _favorites,
+          dayMeals: _existing,
+          remainingKcal: widget.remainingKcal,
+          onTakeUsual: widget.onCopyMeals == null ? null : _takeUsual,
+          expandedKey: _expandedItemKey,
+          labelBuilder: (text, trailing) =>
+              _SectionLabel(text, trailing: trailing),
+          itemBuilder: _ownFoodItem,
+          gap: _kSectionGap,
+        ),
         if (pinnedCount > 0) ...[
           _FavoritesEntryRow(count: pinnedCount, onTap: _openFavoritesSheet),
           if (recents.isNotEmpty) const SizedBox(height: _kSectionGap),
