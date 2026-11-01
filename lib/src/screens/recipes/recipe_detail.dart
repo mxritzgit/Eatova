@@ -84,7 +84,7 @@ bool _isCatalogText(FitnessRecipe recipe) =>
           '${_nutritionNumber(i.grams * factor, l10n)} g ${i.displayName(l10n)}',
         if (recipe.ingredients.isNotEmpty) recipe.ingredients,
       ].join('\n'),
-      hint: l10n.recipeIngredientsForServings(count),
+      hint: l10n.recipeIngredientsForServings(servings),
     );
   }
   if (recipe.hasImportedIngredientContext) {
@@ -105,7 +105,7 @@ bool _isCatalogText(FitnessRecipe recipe) =>
     if (projection.isScaled) {
       return (
         text: projection.text,
-        hint: l10n.recipeIngredientsForServings(count),
+        hint: l10n.recipeIngredientsForServings(servings),
       );
     }
   }

@@ -593,21 +593,17 @@ class FitnessRecipe {
 
   String ingredientQuantityHint(AppLocalizations l10n, {double servings = 1}) {
     if (ingredientProjectionForServings(servings).isScaled) {
-      return l10n.recipeIngredientsForServings(_servingNumber(servings, l10n));
+      return l10n.recipeIngredientsForServings(servings);
     }
     return sourceIngredientQuantityHint(l10n);
   }
 
   String sourceIngredientQuantityHint(AppLocalizations l10n) =>
       switch (ingredientsBasis) {
-        RecipeIngredientsBasis.perRecipe => l10n.recipeIngredientsOriginalBatch(_servingNumber(batchServings, l10n)),
+        RecipeIngredientsBasis.perRecipe => l10n.recipeIngredientsOriginalBatch(batchServings),
         RecipeIngredientsBasis.perServing => l10n.recipeIngredientsOriginalServing,
         RecipeIngredientsBasis.unspecified => l10n.recipeIngredientsOriginalUnknown,
       };
-
-  static String _servingNumber(double value, AppLocalizations l10n) =>
-      (value == value.roundToDouble() ? '${value.round()}' : '$value')
-          .replaceAll('.', l10n.localeName == 'de' ? ',' : '.');
 
   /// Display value of [preparation]. No form field, so for [userCreated] this
   /// is always a placeholder.
