@@ -14,6 +14,7 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/widgets/design/design.dart' show AppIconButton;
 
 import '../support/harness.dart';
 
@@ -247,7 +248,7 @@ String _feldText(WidgetTester tester) => tester
 
 bool _sendenAktiv(WidgetTester tester) =>
     tester
-        .widget<GestureDetector>(find.byKey(const ValueKey('coach-send')))
+        .widget<AppIconButton>(find.byKey(const ValueKey('coach-send')))
         .onTap !=
     null;
 

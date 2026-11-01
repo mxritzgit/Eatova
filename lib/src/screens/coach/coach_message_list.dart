@@ -386,15 +386,15 @@ class _MessageView extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           Icon(
-                            Icons.info_outline_rounded,
-                            size: 12,
+                            AppIcons.info,
+                            size: AppIconSize.meta,
                             color: t.warning,
                           ),
-                          const SizedBox(width: 5),
+                          const SizedBox(width: 6),
                           Text(
                             context.l10n.coachRefusalLabel,
                             style: AppType.ui(
-                              10.5,
+                              AppType.minSize,
                               weight: FontWeight.w700,
                               color: t.warning,
                               letterSpacing: 0.3,
@@ -605,6 +605,9 @@ class _ThinkingRowState extends State<_ThinkingRow>
 }
 
 // ---------------------------------------------------------------------------
+/// The coach's one banner (the shared [SignalNote], boxed): a failed load or
+/// send, the daily limit, a speech error. Warning, not danger: nothing is
+/// lost, the copy says what happened and the way on.
 class _ErrorBanner extends StatelessWidget {
   const _ErrorBanner({required this.text, this.onRetry, this.action});
   final String text;
@@ -619,53 +622,32 @@ class _ErrorBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final retry = onRetry;
-    final extra = action;
+    final actions = <Widget>[
+      if (retry != null)
+        SoftPillButton(
+          key: const ValueKey('coach-load-retry'),
+          icon: AppIcons.refresh,
+          label: context.l10n.coachLoadRetry,
+          tone: SoftPillTone.neutral,
+          onTap: retry,
+        ),
+      ?action,
+    ];
     // Live region: a failed send, the quota or a speech error appears without
     // focus moving, so a screen reader would otherwise stay silent.
-    return Semantics(
-      container: true,
-      liveRegion: true,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(0, 8, 0, 0),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        decoration: BoxDecoration(
-          color: t.warning.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.warning.withValues(alpha: 0.35)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Icon(Icons.error_outline_rounded, size: 16, color: t.warning),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    text,
-                    style: AppType.ui(12.5, color: t.ink, height: 1.45),
-                  ),
-                  if (retry != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: SoftPillButton(
-                        key: const ValueKey('coach-load-retry'),
-                        icon: Icons.refresh_rounded,
-                        label: context.l10n.coachLoadRetry,
-                        tone: SoftPillTone.neutral,
-                        onTap: retry,
-                      ),
-                    ),
-                  if (extra != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: extra,
-                    ),
-                ],
-              ),
-            ),
-          ],
+    return Padding(
+      padding: const EdgeInsets.only(top: kSpace8),
+      child: Semantics(
+        container: true,
+        liveRegion: true,
+        child: SignalNote(
+          text,
+          tone: t.warning,
+          icon: AppIcons.error,
+          boxed: true,
+          action: actions.isEmpty
+              ? null
+              : Wrap(spacing: kSpace8, runSpacing: kSpace8, children: actions),
         ),
       ),
     );

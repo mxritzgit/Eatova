@@ -42,39 +42,38 @@ class _SessionsSheet extends StatelessWidget {
                     const SizedBox(width: 10),
                     SoftPillButton(
                       key: const ValueKey('coach-sessions-new'),
-                      icon: Icons.add_rounded,
+                      icon: AppIcons.add,
                       label: l10n.coachSessionsNewLabel,
                       onTap: onNew,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: kSpace16),
               Flexible(
-                child: sessions.isEmpty
-                    ? SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                        child: CalmState(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: sessions.isEmpty
+                      ? CalmState(
                           key: const ValueKey('coach-sessions-empty'),
-                          icon: Icons.chat_bubble_outline_rounded,
+                          icon: AppIcons.chatBubble,
                           text: l10n.coachSessionsEmpty,
+                        )
+                      // One grouped card; the hairlines start at the text
+                      // column behind the 40 px badges.
+                      : ListSection(
+                          spacing: 0,
+                          children: <Widget>[
+                            for (final s in sessions)
+                              _SessionTile(
+                                session: s,
+                                isActive: s.id == activeSessionId,
+                                onTap: () => onSelect(s.id),
+                                onDelete: () => _confirmDelete(context, s),
+                              ),
+                          ],
                         ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                        shrinkWrap: true,
-                        itemCount: sessions.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 6),
-                        itemBuilder: (context, i) {
-                          final s = sessions[i];
-                          return _SessionTile(
-                            session: s,
-                            isActive: s.id == activeSessionId,
-                            onTap: () => onSelect(s.id),
-                            onDelete: () => _confirmDelete(context, s),
-                          );
-                        },
-                      ),
+                ),
               ),
             ],
           ),
@@ -90,7 +89,7 @@ class _SessionsSheet extends StatelessWidget {
       builder: (ctx) => EatovaConfirmDialog(
         title: l10n.coachSessionDeleteTitle,
         body: l10n.coachSessionDeleteBody(_sessionTitle(s, l10n)),
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         destructive: true,
         cancelLabel: l10n.commonCancel,
         onCancel: () => Navigator.of(ctx).pop(),
@@ -121,28 +120,29 @@ class _SessionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // The open conversation is marked by fill and icon colour only; a screen
-    // reader learns it from the selected state.
+    // The list row's anatomy (ListRow cannot hold a second action): badge,
+    // title and time, and the delete button at the end. The open
+    // conversation shows the accent badge with the filled glyph ("on"); a
+    // screen reader learns it from the selected state.
     return Semantics(
       key: ValueKey('coach-session-${session.id}'),
       container: true,
       selected: isActive,
-      child: Material(
-        color: isActive ? t.surf : Colors.transparent,
-        borderRadius: BorderRadius.circular(rCard),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rCard),
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 68),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            padding: const EdgeInsets.fromLTRB(kCardInset, 10, 6, 10),
             child: Row(
               children: <Widget>[
-                IconTile(
-                  icon: Icons.chat_bubble_outline_rounded,
-                  color: isActive ? t.accent : null,
-                  size: 32,
+                IconBadge(
+                  icon: isActive
+                      ? AppIcons.filled(AppIcons.chatBubble)
+                      : AppIcons.chatBubble,
+                  tone: isActive ? IconBadgeTone.accent : IconBadgeTone.neutral,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: kRowLeadingGap),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -152,28 +152,24 @@ class _SessionTile extends StatelessWidget {
                         _sessionTitle(session, l10n),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppType.ui(
-                          14,
-                          weight: FontWeight.w600,
-                          color: t.ink,
-                        ),
+                        style: AppType.rowTitle(t.ink),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
                         _humanizeTimestamp(session.lastMessageAt, l10n),
-                        style: AppType.ui(11.5, color: t.ink2),
+                        style: AppType.subhead(t.ink2),
                       ),
                     ],
                   ),
                 ),
-                // Default density: compact shrank the target to 40 dp, below
-                // the 48 dp minimum for a destructive action.
-                IconButton(
-                  tooltip: l10n.commonDelete,
-                  onPressed: onDelete,
-                  icon: Icon(Icons.delete_outline_rounded,
-                      size: 18, color: t.ink2),
-                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                const SizedBox(width: kSpace4),
+                // 48 px target: the floor for a destructive action.
+                AppIconButton(
+                  icon: AppIcons.delete,
+                  semanticLabel: l10n.commonDelete,
+                  tone: IconButtonTone.plain,
+                  target: 48,
+                  onTap: onDelete,
                 ),
               ],
             ),

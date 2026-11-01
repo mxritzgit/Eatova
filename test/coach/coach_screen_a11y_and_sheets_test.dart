@@ -29,6 +29,8 @@ import 'package:eatova/src/services/dictation_language.dart';
 import 'package:eatova/src/services/screen_awake.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
+import 'package:eatova/src/widgets/design/design.dart'
+    show AppIconButton, AppIcons;
 
 import '../support/harness.dart';
 
@@ -1045,8 +1047,8 @@ void main() {
 
       final delete = find
           .ancestor(
-            of: find.byIcon(Icons.delete_outline_rounded),
-            matching: find.byType(IconButton),
+            of: find.byIcon(AppIcons.delete),
+            matching: find.byType(AppIconButton),
           )
           .first;
       final size = tester.getSize(delete);

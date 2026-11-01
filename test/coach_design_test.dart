@@ -16,6 +16,7 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/design.dart' show AppIcons;
 
 // Coach design: what the dark redesign (2026-09-28) must keep for the user:
 // the AI named for screen readers, readable bubble pairs, the borderless
@@ -352,8 +353,9 @@ void main() {
     // tearDown: the binding checks foundation vars before tearDowns run.
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     try {
-      // The listening state takes `accent` and idle takes `ink2`; the check
-      // below keeps the two apart in both palettes.
+      // The listening state takes the filled mic in `accentText` and idle the
+      // contour in `ink2`; the check below keeps the two apart in both
+      // palettes.
       for (final (brightness, tokens) in <(Brightness, AppTokens)>[
         (Brightness.dark, AppTokens.dark),
         (Brightness.light, AppTokens.light),
@@ -366,17 +368,16 @@ void main() {
         );
 
         final mic = find.byKey(const ValueKey('coach-mic'));
-        final glyph = find.descendant(
-          of: mic,
-          matching: find.byIcon(Icons.mic_none_rounded),
-        );
-        expect(tester.widget<Icon>(glyph).color, tokens.ink2,
+        Color? glyph(IconData icon) => IconTheme.of(
+          tester.element(find.descendant(of: mic, matching: find.byIcon(icon))),
+        ).color;
+        expect(glyph(AppIcons.mic), tokens.ink2,
             reason: 'im Ruhezustand bleibt das Mikro eine stille Beschriftung');
 
         await tester.tap(mic);
         await tester.pumpAndSettle();
 
-        expect(tester.widget<Icon>(glyph).color, tokens.accent);
+        expect(glyph(AppIcons.filled(AppIcons.mic)), tokens.accentText);
         expect(find.text('Ich höre zu…'), findsOneWidget);
       }
     } finally {

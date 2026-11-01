@@ -18,6 +18,7 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/dictation_language.dart';
 import 'package:eatova/src/services/screen_awake.dart';
+import 'package:eatova/src/widgets/design/design.dart' show AppIconButton;
 
 import 'support/harness.dart';
 
@@ -247,9 +248,8 @@ Future<void> _type(WidgetTester tester, String text) async {
 
 bool _micListening(WidgetTester tester) =>
     tester
-        .widget<Semantics>(find.byKey(const ValueKey('coach-mic')))
-        .properties
-        .label ==
+        .widget<AppIconButton>(find.byKey(const ValueKey('coach-mic')))
+        .semanticLabel ==
     deL10n.coachMicLabelListening;
 
 void main() {
