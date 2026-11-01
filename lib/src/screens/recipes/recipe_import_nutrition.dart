@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/recipe_import_result.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 
 class RecipeImportNutrition extends StatelessWidget {
@@ -79,7 +80,7 @@ class RecipeImportNutrition extends StatelessWidget {
                             value == null
                                 ? '—'
                                 : [
-                                    value.toString(),
+                                    formatThousands(value, l10n.localeName),
                                     if (unit.isNotEmpty) unit,
                                   ].join(' '),
                             style: AppType.display(24, color: t.ink),
