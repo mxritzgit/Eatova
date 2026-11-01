@@ -343,6 +343,12 @@ void main() {
       ) {
         expect(isRestAlertId(id), isFalse);
       }
+      // Cooking timers have a range of their own, next to the rests.
+      for (var i = 0; i < 2000; i++) {
+        final id = cookingTimerIdFor('visit-${i ~/ 7}', i % 7);
+        expect(isCookingTimerId(id), isTrue, reason: '$i');
+        expect(isRestAlertId(id), isFalse, reason: '$i');
+      }
     });
 
     test(
@@ -396,6 +402,26 @@ void main() {
           gateway.channels.map((c) => c.id),
           containsAll(<String>['eatova_nudges', 'eatova_training']),
         );
+      }),
+    );
+
+    test(
+      'Koch-Timer: gleicher Weg und Kanal, aber ohne Payload, damit ein Tipp '
+      'kein Training oeffnet',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..setLocalizations(enL10n);
+        final id = cookingTimerIdFor('0b7c9f0e-cooking-visit', 0);
+
+        await _scheduleRest(service, id);
+        await service.cueRestAlert(id: id, title: 'Timer done', body: 'Step 2');
+
+        final scheduled = gateway.pending[id]!;
+        expect(scheduled.payload, isNull);
+        expect(scheduled.details.android!.channelId, 'eatova_training');
+        expect(gateway.shown[id]!.payload, isNull);
+        await service.cancelRestAlert(id);
+        expect(gateway.pending, isEmpty);
       }),
     );
 
@@ -581,7 +607,7 @@ void main() {
           last(gateway, 'eatova_nudges').description,
           enL10n.notifChannelDescription,
         );
-        expect(last(gateway, 'eatova_training').name, 'Workout timer');
+        expect(last(gateway, 'eatova_training').name, 'Workout and cooking timers');
         expect(
           last(gateway, 'eatova_training').description,
           enL10n.trainingRestChannelDescription,
@@ -633,10 +659,10 @@ void main() {
 
         expect(
           gateway.channels.map((c) => c.name),
-          everyElement(isIn(['Eatova reminders', 'Workout timer'])),
+          everyElement(isIn(['Eatova reminders', 'Workout and cooking timers'])),
         );
         expect(last(gateway, 'eatova_nudges').name, 'Eatova reminders');
-        expect(last(gateway, 'eatova_training').name, 'Workout timer');
+        expect(last(gateway, 'eatova_training').name, 'Workout and cooking timers');
       }),
     );
   });

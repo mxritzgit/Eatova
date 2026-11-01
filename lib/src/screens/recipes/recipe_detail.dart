@@ -134,6 +134,7 @@ class RecipeDetailScreen extends StatefulWidget {
     this.avoidances = const <FoodAvoidance>{},
     this.onPlan,
     this.servings = 1,
+    this.onEatPlanned,
   });
 
   /// The portions the ingredients are shown for: a planned meal's servings
@@ -165,6 +166,11 @@ class RecipeDetailScreen extends StatefulWidget {
   /// A planned meal from the Recipes hero is logged through the meal plan
   /// (planned servings, plan marked eaten), never through this generic path.
   final bool showAddAction;
+
+  /// A planned meal opened from the meal plan: the cooking mode ends with
+  /// "Log as eaten" through the plan, true once eaten. Null ends it with
+  /// "Done".
+  final Future<bool> Function()? onEatPlanned;
 
   @override
   State<RecipeDetailScreen> createState() => _RecipeDetailScreenState();
@@ -285,6 +291,24 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
     showAppSnack(context, l10n.recipesCopied, icon: Icons.check_circle_rounded);
   }
 
+  /// The cooking mode for [steps], with the ingredients as this detail shows
+  /// them. Eaten from the plan, the detail returns to the plan as well.
+  Future<void> _cook(
+    List<String> steps,
+    ({String text, String hint}) ingredients,
+  ) async {
+    if (widget.isSessionCurrent?.call() == false) return;
+    final eaten = await openCookingMode(
+      context,
+      steps: steps,
+      ingredients: ingredients.text,
+      ingredientsHint: ingredients.hint,
+      onEat: widget.onEatPlanned,
+      isSessionCurrent: widget.isSessionCurrent,
+    );
+    if (eaten && mounted) Navigator.of(context).pop();
+  }
+
   Future<bool> _confirmNutritionBasis() async {
     if (_editing || widget.onEdit == null || !_canUseRecipe) return false;
     _editing = true;
@@ -399,6 +423,21 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
     final planned = widget.servings == 1
         ? null
         : _plannedIngredients(recipe, widget.servings, l10n);
+    // One source for the ingredients card and the cooking mode.
+    final ingredients = (
+      hint:
+          planned?.hint ??
+          (recipe.hasImportedIngredientContext &&
+                  !recipe.hasStructuredIngredients
+              ? recipe.ingredientQuantityHint(l10n)
+              : l10n.recipeDetailIngredientsHint),
+      text:
+          planned?.text ??
+          (recipe.hasStructuredIngredients
+              ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n${recipe.ingredients}'}'
+              : recipe.displayIngredients(l10n)),
+    );
+    final steps = recipePreparationSteps(recipe.displayPreparation(l10n));
     return Scaffold(
       backgroundColor: t.bg,
       bottomNavigationBar: pinAction && widget.showAddAction
@@ -560,6 +599,14 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    // Cooking mode: one step per page, so only from two.
+                    if (steps.length >= 2)
+                      SoftPillButton(
+                        key: const ValueKey('recipe-detail-cook'),
+                        onTap: () => _cook(steps, ingredients),
+                        icon: Icons.soup_kitchen_outlined,
+                        label: l10n.cookingModeStart,
+                      ),
                     if (widget.onEdit != null && recipe.userCreated)
                       SoftPillButton(
                         key: const ValueKey('recipe-detail-edit'),
@@ -652,17 +699,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   icon: Icons.shopping_basket_outlined,
                   title: l10n.recipesSectionIngredients,
                   child: RecipeIngredientLines(
-                    hint:
-                        planned?.hint ??
-                        (recipe.hasImportedIngredientContext &&
-                                !recipe.hasStructuredIngredients
-                            ? recipe.ingredientQuantityHint(l10n)
-                            : l10n.recipeDetailIngredientsHint),
-                    text:
-                        planned?.text ??
-                        (recipe.hasStructuredIngredients
-                            ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n${recipe.ingredients}'}'
-                            : recipe.displayIngredients(l10n)),
+                    hint: ingredients.hint,
+                    text: ingredients.text,
                   ),
                 ),
                 const SizedBox(height: 12),
