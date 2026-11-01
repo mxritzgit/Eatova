@@ -2904,6 +2904,16 @@
   "@streakYesterdayHint": {
     "description": "Quiet Today line before the first entry of the day when yesterday is empty and an entry for yesterday would save the streak; opens the add flow on yesterday."
   },
+  "todayFirstEntryTitle": "Was hast du zuletzt gegessen?",
+  "@todayFirstEntryTitle": {
+    "description": "Today card shown until the account's very first entry; above three ways to log it."
+  },
+  "todayFirstEntrySearch": "Suchen oder scannen",
+  "@todayFirstEntrySearch": {
+    "description": "First-entry card: opens the add sheet with food search and barcode scan, the way without AI."
+  },
+  "todayFirstEntryDescribe": "Beschreiben",
+  "todayFirstEntryPhoto": "Foto",
   "todayProfileAndSettings": "Profil und Einstellungen",
   "todayCaloriesTitle": "Kalorien",
   "todayEatenPercent": "{percent} % gegessen",
