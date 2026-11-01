@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import '../design/design.dart';
 import 'diary_meal_card.dart' show diaryAmountLabel, macroSummaryLine;
@@ -121,7 +122,7 @@ class _SlotTotalLine extends StatelessWidget {
               style: AppType.ui(13, weight: FontWeight.w500, color: t.ink3),
             ),
             Text(
-              '${totals.kcal} kcal',
+              '${formatThousands(totals.kcal, l10n.localeName)} kcal',
               key: const ValueKey('analyse-existing-total-kcal'),
               style: AppType.ui(15, weight: FontWeight.w700, color: t.ink)
                   .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
@@ -159,6 +160,10 @@ class _ExistingMealRow extends StatelessWidget {
     // ([macroSummaryLine]).
     final hasMacros =
         macros.proteinG > 0 || macros.carbsG > 0 || macros.fatG > 0;
+    final kcalNumber = formatThousands(
+      meal.result.caloriesKcal,
+      l10n.localeName,
+    );
     final row = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 56),
       child: Padding(
@@ -192,9 +197,9 @@ class _ExistingMealRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             Text(
-              '${meal.result.caloriesKcal}',
+              kcalNumber,
               // The unit is implicit on screen only.
-              semanticsLabel: '${meal.result.caloriesKcal} kcal',
+              semanticsLabel: '$kcalNumber kcal',
               style: AppType.ui(14, weight: FontWeight.w600, color: t.ink2)
                   .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
             ),

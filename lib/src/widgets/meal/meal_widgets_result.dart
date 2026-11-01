@@ -411,13 +411,14 @@ class _AnimatedKcal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final localeName = context.l10n.localeName;
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: from.toDouble(), end: to.toDouble()),
       duration: motionDuration(context, const Duration(milliseconds: 520)),
       curve: Curves.easeOutCubic,
       builder: (context, value, _) {
         return Text(
-          '${value.round()} kcal',
+          '${formatThousands(value.round(), localeName)} kcal',
           key: const ValueKey('analyse-kcal-range'),
           style: AppType.display(42, color: t.ink, height: 1.1),
         );
@@ -466,6 +467,7 @@ class _ItemBreakdownRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final localeName = context.l10n.localeName;
     return Container(
       key: ValueKey('analyse-item-row-$index'),
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -484,9 +486,12 @@ class _ItemBreakdownRow extends StatelessWidget {
             spacing: 12,
             runSpacing: 4,
             children: [
-              Text(item.gramsLabel, style: AppType.ui(12, color: t.ink2)),
               Text(
-                item.caloriesLabel,
+                '${formatThousands(item.grams, localeName)} g',
+                style: AppType.ui(12, color: t.ink2),
+              ),
+              Text(
+                '${formatThousands(item.caloriesKcal, localeName)} kcal',
                 style: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
               ),
             ],
