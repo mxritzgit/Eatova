@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
+import 'lists.dart';
+import 'soft_actions.dart';
 import 'surfaces.dart';
 
-/// A quiet section marker for long creation forms, without nested cards.
+/// A quiet section marker for long creation forms, without nested cards:
+/// the form's sections are a sequence, so they lead with a [StepNumber]
+/// (32), the app's one number style (UI polish 2026-11-01).
 class CreationSectionHeading extends StatelessWidget {
   const CreationSectionHeading({
     super.key,
@@ -24,46 +29,39 @@ class CreationSectionHeading extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ExcludeSemantics(
-            child: Container(
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: t.surf2,
-                borderRadius: BorderRadius.circular(rChip),
-              ),
-              child: Text(
-                number.toString().padLeft(2, '0'),
-                textAlign: TextAlign.center,
-                style: AppType.display(14, color: t.accent),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
+          StepNumber(number, size: 32),
+          const SizedBox(width: kSpace12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                HeadingSemantics(
-                  level: 2,
-                  child: Text(title, style: AppType.display(19, color: t.ink)),
-                ),
-                if (note != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    note!,
-                    style: AppType.ui(13, color: t.ink2, height: 1.4),
+            child: Padding(
+              // The title's first line centres on the number.
+              padding: EdgeInsets.only(
+                top: _titleTop(MediaQuery.textScalerOf(context)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  HeadingSemantics(
+                    level: 2,
+                    child: Text(title, style: AppType.title2(t.ink)),
                   ),
+                  if (note != null) ...[
+                    const SizedBox(height: kSpace4),
+                    Text(note!, style: AppType.subhead(t.ink2)),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ],
       ),
     );
   }
-}
 
+  static double _titleTop(TextScaler scaler) {
+    final line = scaler.scale(19) * 1.2;
+    return line < 32 ? (32 - line) / 2 : 0;
+  }
+}
 /// Related values share a row only while each field remains comfortably wide.
 class CreationFieldGrid extends StatelessWidget {
   const CreationFieldGrid({super.key, required this.children});
@@ -89,8 +87,8 @@ class CreationFieldGrid extends StatelessWidget {
   }
 }
 
-/// A full-width insertion point, secondary to the sheet's Save action: an
-/// accent-tinted capsule, flush in its ground (2026-10-25).
+/// A full-width insertion point, secondary to the sheet's Save action: the
+/// accent [SoftPillButton] with the add glyph, flush in its ground.
 class CreationAddButton extends StatelessWidget {
   const CreationAddButton({super.key, required this.label, this.onPressed});
 
@@ -98,20 +96,10 @@ class CreationAddButton extends StatelessWidget {
   final VoidCallback? onPressed;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: double.infinity,
-    child: TextButton.icon(
-      onPressed: onPressed,
-      style: TextButton.styleFrom(
-        foregroundColor: context.t.accentText,
-        backgroundColor: context.t.accentTint,
-        minimumSize: const Size(0, kButtonMinHeight),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        shape: const StadiumBorder(),
-        splashFactory: NoSplash.splashFactory,
-      ),
-      icon: const Icon(Icons.add_rounded, size: 20),
-      label: Text(label, style: AppType.ui(14, weight: FontWeight.w600)),
-    ),
+  Widget build(BuildContext context) => SoftPillButton(
+    label: label,
+    icon: AppIcons.add,
+    onTap: onPressed,
+    expand: true,
   );
 }

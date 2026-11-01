@@ -830,7 +830,7 @@ void main() {
       );
       expect(find.text('Discard changes?'), findsOneWidget);
       expect(find.text('Body text'), findsOneWidget);
-      expect(find.byIcon(Icons.edit_off_rounded), findsOneWidget);
+      expect(find.byIcon(AppIcons.editOff), findsOneWidget);
       final keep = find.byKey(const ValueKey('discard-changes-cancel'));
       expect(Focus.of(tester.element(find.text('Keep editing'))).hasFocus,
           isTrue);
