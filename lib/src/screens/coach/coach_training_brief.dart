@@ -8,7 +8,6 @@ import '../../l10n/l10n.dart';
 import '../../models/coach_training_context.dart';
 import '../../models/training_plan.dart';
 import '../../theme/app_tokens.dart';
-import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/common/text_length_limit.dart';
 import '../../widgets/design/design.dart';
@@ -231,19 +230,21 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
     });
   }
 
-  void _choose(VoidCallback change) {
-    HapticFeedback.selectionClick();
+  void _choose(VoidCallback change, {bool click = true}) {
+    if (click) HapticFeedback.selectionClick();
     setState(() {
       change();
       _error = null;
     });
   }
 
+  // The steppers click themselves (AppStepper).
   void _stepSessions(int delta) => _choose(
+    click: false,
     () => _sessions = (_sessions + delta).clamp(_sessionsMin, _sessionsMax),
   );
 
-  void _stepMinutes(int delta) => _choose(() {
+  void _stepMinutes(int delta) => _choose(click: false, () {
     final index = (_minuteSteps.indexOf(_minutes) + delta).clamp(
       0,
       _minuteSteps.length - 1,
@@ -358,7 +359,7 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
           onTap: () => _choose(() => _intent = CoachTrainingIntent.adapt),
           title: l10n.coachBriefAdapt,
           subtitle: l10n.coachBriefAdaptHint,
-          leading: const OptionGlyphTile(icon: Icons.tune_rounded),
+          leading: const OptionGlyphTile(icon: AppIcons.tune),
         ),
         const SizedBox(height: 10),
         OptionCard(
@@ -367,7 +368,7 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
           onTap: () => _choose(() => _intent = CoachTrainingIntent.discuss),
           title: l10n.coachBriefDiscuss,
           subtitle: l10n.coachBriefDiscussHint,
-          leading: const OptionGlyphTile(icon: Icons.forum_outlined),
+          leading: const OptionGlyphTile(icon: AppIcons.forum),
         ),
       ],
       _section(context, l10n.coachBriefGoal),
@@ -395,11 +396,11 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
         iconOf: (v, color) => Icon(
           switch (v) {
             CoachTrainingEquipment.bodyweight =>
-              Icons.accessibility_new_rounded,
-            CoachTrainingEquipment.dumbbells => Icons.fitness_center_rounded,
-            CoachTrainingEquipment.gym => Icons.warehouse_rounded,
+              AppIcons.accessibilityNew,
+            CoachTrainingEquipment.dumbbells => AppIcons.fitnessCenter,
+            CoachTrainingEquipment.gym => AppIcons.warehouse,
           },
-          size: 20,
+          size: AppIconSize.standard,
           color: color,
         ),
       ),
@@ -408,12 +409,12 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
         padding: EdgeInsets.zero,
         child: Column(
           children: [
+            // Plain numbers: the labels name the unit, and the two readings
+            // keep one width, so the buttons of both rows line up.
             _StepperRow(
               keyPrefix: 'coach-brief-sessions',
               label: l10n.coachBriefSessions,
-              number: '$_sessions',
-              unit: '×',
-              unitAsNumber: true,
+              shown: '$_sessions',
               spoken: l10n.coachBriefSessionsValue,
               value: _sessions,
               canDecrease: _sessions > _sessionsMin,
@@ -423,15 +424,14 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
             Divider(
               height: 1,
               thickness: 1,
-              indent: 16,
-              endIndent: 16,
+              indent: kCardInset,
+              endIndent: kCardInset,
               color: t.line,
             ),
             _StepperRow(
               keyPrefix: 'coach-brief-minutes',
               label: l10n.coachBriefMinutes,
-              number: '$_minutes',
-              unit: ' ${l10n.coachBriefMinutesUnit}',
+              shown: '$_minutes',
               spoken: l10n.coachBriefMinutesValue,
               value: _minutes,
               nextUp: _minuteSteps.firstWhere(
@@ -497,7 +497,7 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
             FilterChipPill(
               key: const ValueKey('coach-brief-goal-own'),
               label: l10n.coachBriefGoalOwn,
-              icon: Icons.edit_rounded,
+              icon: AppIcons.edit,
               selected: ownGoal,
               onTap: _pickOwnGoal,
             ),
@@ -629,7 +629,7 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
                   child: SignalNote(
                     _error!,
                     tone: t.danger,
-                    icon: Icons.error_outline_rounded,
+                    icon: AppIcons.error,
                     boxed: true,
                   ),
                 ),
@@ -644,9 +644,10 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
                     key: const ValueKey('coach-brief-summary'),
                     textAlign: TextAlign.center,
                     style: AppType.ui(
-                      13.5,
+                      14,
                       weight: FontWeight.w600,
                       color: t.inkMuted,
+                      tabular: true,
                     ),
                   ),
                 ),
@@ -698,7 +699,7 @@ class _SharedNote extends StatelessWidget {
         children: [
           Padding(
             padding: EdgeInsets.only(top: math.max(0, (firstLine - 16) / 2)),
-            child: Icon(Icons.lock_outline_rounded, size: 16, color: t.ink2),
+            child: Icon(AppIcons.lock, size: AppIconSize.small, color: t.ink2),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -883,36 +884,29 @@ class _LevelMark extends StatelessWidget {
   }
 }
 
-/// A labelled number with round minus and plus buttons. Screen readers get
-/// one adjustable node (label, value, swipe up and down) besides the
-/// buttons.
+/// A labelled [AppStepper]: the label on the left, the stepper on the right,
+/// stacked once the label would keep less than ~110 px of 1.0 text. The
+/// stepper is ONE adjustable node for screen readers (label, value, swipe
+/// up and down); its buttons keep their own names.
 class _StepperRow extends StatelessWidget {
   const _StepperRow({
     required this.keyPrefix,
     required this.label,
-    required this.number,
-    required this.unit,
+    required this.shown,
     required this.spoken,
     required this.value,
     required this.canDecrease,
     required this.canIncrease,
     required this.onStep,
-    this.unitAsNumber = false,
     this.nextUp,
     this.nextDown,
   });
 
-  /// Width of the reading between the buttons, at 1.0 text: "90 min" fits,
-  /// and both rows' buttons line up.
-  static const double _readingWidth = 80;
-
   final String keyPrefix;
   final String label;
-  final String number;
-  final String unit;
 
-  /// Draws [unit] at the number's size ("4×"), not as a small suffix.
-  final bool unitAsNumber;
+  /// The shown number; the label names its unit.
+  final String shown;
 
   /// Spoken form of a value ("3× a week").
   final String Function(int) spoken;
@@ -929,145 +923,60 @@ class _StepperRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final span = TextSpan(
-      children: [
-        TextSpan(
-          text: number,
-          style: AppType.display(22, color: t.ink, height: 1.1),
-        ),
-        TextSpan(
-          text: unit,
-          style: unitAsNumber
-              ? AppType.display(22, color: t.ink2, height: 1.1)
-              : AppType.display(15, weight: FontWeight.w700, color: t.ink2),
-        ),
-      ],
-    );
     final scaler = MediaQuery.textScalerOf(context);
+    // The stepper's width: two 44 px buttons around the reading (at least
+    // 56 px, 8 px inset on each side), measured in AppStepper's own style.
     final measure = TextPainter(
-      text: span,
+      text: TextSpan(text: shown, style: AppType.numeric(20)),
       textDirection: Directionality.of(context),
       textScaler: scaler,
       maxLines: 1,
     )..layout();
-    final readingWidth = math.max(scaler.scale(_readingWidth), measure.width);
+    final stepperWidth =
+        2 * IconButtonSize.regular.target +
+        math.max(56.0, measure.width + 2 * kSpace8);
     measure.dispose();
-    final reading = ExcludeSemantics(
-      child: Text.rich(
-        span,
-        key: ValueKey('$keyPrefix-value'),
-        textAlign: TextAlign.center,
-        maxLines: 1,
-      ),
-    );
-    Widget button(int step) => _StepButton(
-      actionKey: ValueKey('$keyPrefix-${step < 0 ? 'dec' : 'inc'}'),
-      icon: step < 0 ? Icons.remove_rounded : Icons.add_rounded,
-      semanticLabel: step < 0
-          ? l10n.onboardingStepDownSemanticLabel
-          : l10n.onboardingStepUpSemanticLabel,
-      onTap: (step < 0 ? canDecrease : canIncrease) ? () => onStep(step) : null,
+    final stepper = AppStepper(
+      value: shown,
+      semanticLabel: label,
+      semanticValue: spoken(value),
+      increasedValue: spoken(nextUp ?? value + 1),
+      decreasedValue: spoken(nextDown ?? value - 1),
+      onDecrement: canDecrease ? () => onStep(-1) : null,
+      onIncrement: canIncrease ? () => onStep(1) : null,
+      decrementLabel: l10n.onboardingStepDownSemanticLabel,
+      incrementLabel: l10n.onboardingStepUpSemanticLabel,
+      decrementKey: ValueKey('$keyPrefix-dec'),
+      incrementKey: ValueKey('$keyPrefix-inc'),
     );
     final title = ExcludeSemantics(
-      child: Text(
-        label,
-        style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
-      ),
+      child: Text(label, style: AppType.rowTitle(t.ink)),
     );
-    return Semantics(
-      container: true,
-      label: label,
-      value: spoken(value),
-      increasedValue: canIncrease ? spoken(nextUp ?? value + 1) : null,
-      decreasedValue: canDecrease ? spoken(nextDown ?? value - 1) : null,
-      onIncrease: canIncrease ? () => onStep(1) : null,
-      onDecrease: canDecrease ? () => onStep(-1) : null,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // Side by side while the label keeps ~110 px of 1.0 text;
-            // stacked, the reading takes the row and only it may shrink.
-            final stacked =
-                constraints.maxWidth - 2 * _StepButton.size - readingWidth <
-                scaler.scale(110);
-            if (stacked) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  title,
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      button(-1),
-                      Expanded(
-                        child: FittedBox(fit: BoxFit.scaleDown, child: reading),
-                      ),
-                      button(1),
-                    ],
-                  ),
-                ],
-              );
-            }
-            return Row(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(kCardInset, 10, 12, 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked =
+              constraints.maxWidth - stepperWidth < scaler.scale(110);
+          if (stacked) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: title),
-                const SizedBox(width: 8),
-                button(-1),
-                SizedBox(width: readingWidth, child: reading),
-                button(1),
+                title,
+                const SizedBox(height: kSpace8),
+                // Under the label, like a row's control on its own line.
+                Align(alignment: Alignment.centerLeft, child: stepper),
               ],
             );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-/// Round 44 px stepper button in the accent tint.
-class _StepButton extends StatelessWidget {
-  const _StepButton({
-    required this.actionKey,
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-  });
-
-  static const double size = 44;
-
-  final Key actionKey;
-  final IconData icon;
-  final String semanticLabel;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final enabled = onTap != null;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: semanticLabel,
-      child: PressScale(
-        enabled: enabled,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.4,
-          child: Material(
-            color: t.accentTint,
-            shape: const CircleBorder(),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: actionKey,
-              onTap: onTap,
-              customBorder: const CircleBorder(),
-              child: SizedBox.square(
-                dimension: size,
-                child: Icon(icon, size: 22, color: t.accentText),
-              ),
-            ),
-          ),
-        ),
+          }
+          return Row(
+            children: [
+              Expanded(child: title),
+              const SizedBox(width: kSpace8),
+              stepper,
+            ],
+          );
+        },
       ),
     );
   }
@@ -1104,17 +1013,16 @@ class _PlanPreviewCardState extends State<_PlanPreviewCard> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 56),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
               child: Row(
                 children: [
-                  // From 1.5x text the tile gives its width to the title.
+                  // From 1.5x text the badge gives its width to the title.
                   if (MediaQuery.textScalerOf(context).scale(16) <= 24) ...[
-                    IconTile.custom(
-                      color: t.accent,
-                      size: 36,
-                      child: const AppIcon(AppSymbol.training, size: 18),
+                    const IconBadge(
+                      tone: IconBadgeTone.accent,
+                      child: AppIcon(AppSymbol.training),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: kRowLeadingGap),
                   ],
                   Expanded(
                     child: Column(
@@ -1142,9 +1050,9 @@ class _PlanPreviewCardState extends State<_PlanPreviewCard> {
                     duration: motionDuration(context, motion),
                     curve: kMotionCurve,
                     child: Icon(
-                      Icons.expand_more_rounded,
-                      size: 22,
-                      color: t.ink2,
+                      AppIcons.expandMore,
+                      size: AppIconSize.standard,
+                      color: t.ink3,
                     ),
                   ),
                 ],
