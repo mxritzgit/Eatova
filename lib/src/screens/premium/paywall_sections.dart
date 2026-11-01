@@ -590,7 +590,7 @@ Widget _value(
   final included = premium ? line.premiumIncluded : line.freeIncluded;
   return included == true
       ? Icon(
-          Icons.check_rounded,
+          AppIcons.check,
           size: premium ? 24 : 20,
           color: premium ? t.accentText : t.ink2,
         )
@@ -627,7 +627,7 @@ class PaywallLegacyNote extends StatelessWidget {
     return SignalNote(
       text,
       key: const ValueKey('paywall-legacy-note'),
-      icon: Icons.history_rounded,
+      icon: AppIcons.history,
       boxed: true,
     );
   }
@@ -663,9 +663,9 @@ class PaywallBenefits extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        line(Icons.phone_android_rounded, l10n.premiumBenefitPicture),
+        line(AppIcons.phoneAndroid, l10n.premiumBenefitPicture),
         const SizedBox(height: 10),
-        line(Icons.bookmark_added_outlined, l10n.premiumBenefitKeep),
+        line(AppIcons.bookmarkAdded, l10n.premiumBenefitKeep),
       ],
     );
   }
@@ -948,7 +948,7 @@ class _PlanPip extends StatelessWidget {
                 duration: duration,
                 opacity: selected ? 1 : 0,
                 child: Icon(
-                  Icons.check_rounded,
+                  AppIcons.check,
                   size: 15,
                   color: t.onAccentFill,
                 ),
@@ -1343,7 +1343,7 @@ class PaywallFinePrint extends StatelessWidget {
                         scale: fit.scale,
                         key: const ValueKey('paywall-restore'),
                         label: l10n.premiumRestore,
-                        icon: Icons.restore_rounded,
+                        icon: AppIcons.restore,
                         tone: EatovaTextTone.neutral,
                         onTap: restoring ? null : restore,
                       ),
@@ -1463,13 +1463,13 @@ class PaywallStoreUnavailable extends StatelessWidget {
       key: const ValueKey('paywall-store-unavailable'),
       liveRegion: true,
       child: _QuietState(
-        icon: Icons.storefront_outlined,
+        icon: AppIcons.storefront,
         title: l10n.premiumStoreUnavailableTitle,
         text: l10n.premiumStoreUnavailableBody,
         action: SoftPillButton(
           key: const ValueKey('paywall-retry'),
           label: l10n.premiumRetry,
-          icon: Icons.refresh_rounded,
+          icon: AppIcons.refresh,
           onTap: onRetry,
         ),
       ),
@@ -1487,7 +1487,7 @@ class PaywallOwnedByOtherNote extends StatelessWidget {
     key: const ValueKey('paywall-owned-by-other'),
     liveRegion: true,
     child: _QuietState(
-      icon: Icons.manage_accounts_outlined,
+      icon: AppIcons.manageAccounts,
       tone: context.t.warning,
       text: context.l10n.premiumOwnedByOther,
     ),
@@ -1505,7 +1505,7 @@ class PaywallPendingNote extends StatelessWidget {
       key: const ValueKey('paywall-pending'),
       liveRegion: true,
       child: _QuietState(
-        icon: Icons.hourglass_top_rounded,
+        icon: AppIcons.hourglassTop,
         tone: context.t.warning,
         title: l10n.premiumPendingTitle,
         text: l10n.premiumPendingBody(paywallStoreKey(context)),
@@ -1683,7 +1683,7 @@ class PaywallStatusCard extends StatelessWidget {
             SoftPillButton(
               key: const ValueKey('paywall-manage'),
               label: l10n.premiumManage,
-              icon: Icons.open_in_new_rounded,
+              icon: AppIcons.openInNew,
               onTap: onManage,
             ),
           ],

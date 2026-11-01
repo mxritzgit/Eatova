@@ -260,7 +260,7 @@ class _SubscriptionCardState extends State<SubscriptionCard> {
             _CardNote(
               key: const ValueKey('profile-subscription-legacy'),
               text: legacyNote,
-              icon: Icons.history_rounded,
+              icon: AppIcons.history,
             ),
             const SizedBox(height: 16),
           ],
@@ -276,7 +276,7 @@ class _SubscriptionCardState extends State<SubscriptionCard> {
             PrimaryActionButton(
               key: const ValueKey('profile-subscription-upgrade'),
               label: l10n.planLimitUpgrade,
-              icon: Icons.arrow_forward_rounded,
+              icon: AppIcons.arrowForward,
               height: 50,
               onTap: upgrade,
             ),
@@ -284,7 +284,7 @@ class _SubscriptionCardState extends State<SubscriptionCard> {
             SoftPillButton(
               key: const ValueKey('profile-subscription-manage'),
               label: l10n.premiumManage,
-              icon: Icons.open_in_new_rounded,
+              icon: AppIcons.openInNew,
               expand: true,
               onTap: manage,
             )
@@ -292,7 +292,7 @@ class _SubscriptionCardState extends State<SubscriptionCard> {
             _CardNote(
               key: const ValueKey('profile-subscription-elsewhere'),
               text: l10n.subscriptionManagedElsewhere(elsewhere.wire),
-              icon: Icons.info_outline_rounded,
+              icon: AppIcons.info,
             ),
           if (restore != null) ...<Widget>[
             if (upgrade != null || manage != null || elsewhere != null)
@@ -303,7 +303,7 @@ class _SubscriptionCardState extends State<SubscriptionCard> {
               child: SoftPillButton(
                 key: const ValueKey('profile-subscription-restore'),
                 label: l10n.premiumRestore,
-                icon: Icons.restore_rounded,
+                icon: AppIcons.restore,
                 tone: SoftPillTone.quiet,
                 onTap: _restoring ? null : () => _restore(restore),
               ),
@@ -381,7 +381,7 @@ class _TestPurchaseBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.science_outlined, size: 14, color: t.warning),
+          Icon(AppIcons.science, size: 14, color: t.warning),
           const SizedBox(width: 5),
           Flexible(
             child: Text(
