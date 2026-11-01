@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
@@ -393,5 +395,73 @@ void main() {
 
     expect(b.store.profile.diet, DietPreference.vegan);
     expect(b.server.profileRow!['diet_preference'], 'vegan');
+  });
+
+  test('unbekannte Werte einer neueren Migration ueberleben Laden, Cache und '
+      'jeden Save; erst eine bewusste Wahl ersetzt sie', () async {
+    // This build shows the defaults, but the full-row upsert has no "missing
+    // key keeps" rule for these columns: a default in the payload would
+    // overwrite the newer value for good.
+    const neu = <String, String>{
+      'sex': 'diverse',
+      'activity_level': 'extreme',
+      'weight_goal': 'lose15kg',
+      'diet_preference': 'keto',
+    };
+    Map<String, dynamic> letzteProfilZeile(FakeServer server) {
+      final ops = server.operations('profileUpsert');
+      expect(ops, isNotEmpty, reason: 'kein Profil-Write');
+      final body = jsonDecode(ops.last.body) as Map<String, dynamic>;
+      return (body['p_payload'] as Map<String, dynamic>)['row']
+          as Map<String, dynamic>;
+    }
+
+    void erwarteRoh(Map<String, dynamic> zeile, String wann) {
+      for (final MapEntry(:key, :value) in neu.entries) {
+        expect(zeile[key], value, reason: '$wann: $key');
+      }
+      expect(zeile['food_avoidances'], ['nuts', 'insects'], reason: wann);
+    }
+
+    final kv = InMemoryKeyValueStore();
+    final a = setup(kv: kv);
+    a.server.profileRow = serverProfileRow(testProfile())
+      ..addAll(neu)
+      ..['food_avoidances'] = <String>['nuts', 'insects'];
+    await boot(a.store);
+
+    expect(a.store.profile.diet, DietPreference.none, reason: 'UI-Standard');
+    expect(a.store.profile.foodAvoidances, {FoodAvoidance.nuts});
+    // The fixture's 2200 kcal is a stale live row, so the boot already wrote
+    // the healed full row back (F7-01).
+    erwarteRoh(letzteProfilZeile(a.server), 'Heal-Save');
+
+    // Restart offline: only the cache hydrates, and a goals save still
+    // carries the raw values.
+    a.server.offline = true;
+    final b = setup(kv: kv, geteilterServer: a.server);
+    await boot(b.store);
+    await b.store.applySettings(
+      newProfile: b.store.profile.copyWith(weightKg: 79),
+      notificationsEnabled: false,
+    );
+    await settle();
+    a.server.offline = false;
+    await b.store.syncPendingWrites();
+    await settle();
+    expect(letzteProfilZeile(a.server)['weight_kg'], 79);
+    erwarteRoh(letzteProfilZeile(a.server), 'Save aus dem Cache');
+
+    await b.store.updateFoodPreferences(
+      const FoodPreferences(
+        diet: DietPreference.vegan,
+        avoidances: <FoodAvoidance>{FoodAvoidance.lactose},
+      ),
+    );
+    await settle();
+    final gewaehlt = letzteProfilZeile(a.server);
+    expect(gewaehlt['diet_preference'], 'vegan', reason: 'die Wahl gilt');
+    expect(gewaehlt['sex'], 'diverse', reason: 'unberuehrt bleibt roh');
+    expect(gewaehlt['food_avoidances'], ['lactose', 'insects']);
   });
 }

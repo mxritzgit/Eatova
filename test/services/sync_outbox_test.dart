@@ -186,6 +186,15 @@ void main() {
         isNull,
         reason: 'ohne entity_id ist die Op nicht zuordenbar',
       );
+      // A broken order link used to throw a TypeError, which readOutbox does
+      // not catch: one op took the whole queue down.
+      expect(
+        SyncOp.tryFromJson({
+          ...SyncOp.recipeDelete('user_123').toJson(),
+          'predecessor_id': 7,
+        }),
+        isNull,
+      );
       // Broken payload: the op stays readable, meal is null, and the replay
       // lets such an op expire silently.
       final op = SyncOp.tryFromJson(const {

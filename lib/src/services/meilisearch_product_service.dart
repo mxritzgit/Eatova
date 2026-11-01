@@ -138,8 +138,8 @@ class MeilisearchProductService implements ProductLookupService {
       throw HttpException('Mirror search failed: ${response.statusCode}');
     }
 
-    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-    final hits = decoded['hits'];
+    final decoded = jsonDecode(response.body);
+    final hits = decoded is Map ? decoded['hits'] : null;
     if (hits is! List) {
       // A 2xx without a `hits` list (proxy error page, schema change) is a
       // broken mirror, not an empty search — an empty search returns

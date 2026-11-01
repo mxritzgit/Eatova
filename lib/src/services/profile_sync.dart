@@ -58,6 +58,20 @@ DietPreference parseDietPreference(String? raw) {
   );
 }
 
+/// [raw] when [parse] (one of the parsers above) does not know it, else null.
+/// The profile keeps such a value and the wire format writes it back, so a
+/// value a newer migration added to the column's CHECK survives this build.
+/// Legacy aliases count as known: they map onto a current value, and the
+/// CHECK would reject them.
+String? unknownProfileValue<T extends Enum>(
+  Object? raw,
+  T Function(String?) parse,
+) {
+  if (raw is! String || raw.isEmpty) return null;
+  final fallback = parse(null);
+  return parse(raw) == fallback && raw != fallback.name ? raw : null;
+}
+
 /// Reads and writes UserProfile against public.profiles on Supabase.
 /// Save uses UPSERT(.select().single()) so schema/auth/RLS errors surface as a
 /// PostgrestException instead of a silent no-op. One instance per auth user id.
@@ -144,6 +158,24 @@ class ProfileSync {
         foodDislikes: row['food_dislikes'] is String
             ? normalizeFoodDislikes(row['food_dislikes'] as String)
             : '',
+        // Values a newer migration added: kept raw, so the next save writes
+        // them back instead of the fallback above.
+        unknownSex: unknownProfileValue(row['sex'], parseProfileSex),
+        unknownActivityLevel: unknownProfileValue(
+          row['activity_level'],
+          parseProfileActivity,
+        ),
+        unknownWeightGoal: unknownProfileValue(
+          row['weight_goal'],
+          parseProfileGoal,
+        ),
+        unknownDiet: unknownProfileValue(
+          row['diet_preference'],
+          parseDietPreference,
+        ),
+        unknownFoodAvoidances: unknownFoodAvoidanceCodes(
+          row['food_avoidances'],
+        ),
         onboardingCompleted: row['onboarding_completed'] == true,
         // Missing (older row, pre-migration) counts as live — the default the
         // column carries too. Never reconstructed by comparing numbers.
