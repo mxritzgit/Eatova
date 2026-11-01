@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:camera/camera.dart';
 import 'package:camera_platform_interface/camera_platform_interface.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -385,16 +386,25 @@ void main() {
   });
 
   testWidgets(
-    'KI-Scan-Kamera lockt die Capture-Orientierung auf portraitUp, '
-    'damit die Vorschau bei Geraete-Rotation nicht mitdreht',
+    'nur iOS lockt die Capture-Orientierung auf portraitUp; Android folgt '
+    'der UI, sonst kaemen auf Tablets seitliche Fotos',
     (tester) async {
       final fake = _FakeCameraPlatform();
       CameraPlatform.instance = fake;
 
       await _pumpSheet(tester);
 
-      expect(fake.lockCalls, const [DeviceOrientation.portraitUp]);
+      expect(
+        fake.lockCalls,
+        defaultTargetPlatform == TargetPlatform.iOS
+            ? const [DeviceOrientation.portraitUp]
+            : isEmpty,
+      );
     },
+    variant: const TargetPlatformVariant(<TargetPlatform>{
+      TargetPlatform.iOS,
+      TargetPlatform.android,
+    }),
   );
 
   // Review I-2: capture and gallery errors toast while the sheet stays open,
