@@ -136,14 +136,14 @@ class PlayerExerciseCard extends StatelessWidget {
             tooltip: l.trainingTimerShowNotes,
             isSelected: notesOpen,
             onPressed: onToggleNotes,
-            icon: const Icon(Icons.notes_rounded),
+            icon: const Icon(AppIcons.notes),
           ),
         if (active)
           PopupMenuButton<String>(
             key: ValueKey('training-exercise-menu-$exerciseIndex'),
             tooltip: l.trainingTimerExerciseOptions(exercise.name),
             enabled: enabled,
-            icon: const Icon(Icons.more_horiz_rounded),
+            icon: const Icon(AppIcons.moreHoriz),
             onSelected: (value) => switch (value) {
               'skip-set' => actions.skipSet(),
               'complete-remaining' => actions.completeRemaining(),
@@ -153,13 +153,13 @@ class PlayerExerciseCard extends StatelessWidget {
               eatovaMenuItem(
                 key: const ValueKey('training-timer-skip-set'),
                 value: 'skip-set',
-                icon: Icons.skip_next_rounded,
+                icon: AppIcons.skipNext,
                 label: l.trainingTimerNextSet,
               ),
               eatovaMenuItem(
                 key: const ValueKey('training-timer-complete-remaining'),
                 value: 'complete-remaining',
-                icon: Icons.done_all_rounded,
+                icon: AppIcons.doneAll,
                 label: l.trainingTimerCompleteRemaining(remaining),
                 // As for ✓: the active row's invalid field would log its
                 // last valid value instead.
@@ -168,7 +168,7 @@ class PlayerExerciseCard extends StatelessWidget {
               eatovaMenuItem(
                 key: const ValueKey('training-timer-skip-exercise'),
                 value: 'skip-exercise',
-                icon: Icons.redo_rounded,
+                icon: AppIcons.redo,
                 label: l.trainingTimerSkipExercise,
               ),
             ],
@@ -181,7 +181,7 @@ class PlayerExerciseCard extends StatelessWidget {
                 : l.trainingTimerShowSets,
             onPressed: onToggleExpanded,
             icon: Icon(
-              expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+              expanded ? AppIcons.expandLess : AppIcons.expandMore,
             ),
           ),
       ],
@@ -317,8 +317,8 @@ class PlayerExerciseCard extends StatelessWidget {
             _ => l.trainingProgressionLighter(value),
           },
           icon: hint.kind == TrainingProgressionKind.increase
-              ? Icons.trending_up_rounded
-              : Icons.trending_down_rounded,
+              ? AppIcons.trendingUp
+              : AppIcons.trendingDown,
           selected: taken,
           onTap: enabled ? () => apply(hint) : null,
         ),
@@ -398,7 +398,7 @@ class PlayerExerciseCard extends StatelessWidget {
               EatovaTextAction(
                 buttonKey: const ValueKey('training-timer-done-early'),
                 onTap: enabled && activeValid ? actions.complete : null,
-                icon: Icons.check_rounded,
+                icon: AppIcons.check,
                 label: l.trainingTimerDoneEarly,
                 color: t.onForest,
               ),
@@ -441,7 +441,7 @@ class _IndexBadge extends StatelessWidget {
           shape: BoxShape.circle,
         ),
         child: done && !active
-            ? Icon(Icons.check_rounded, size: 18, color: t.accentText)
+            ? Icon(AppIcons.check, size: 18, color: t.accentText)
             : FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(

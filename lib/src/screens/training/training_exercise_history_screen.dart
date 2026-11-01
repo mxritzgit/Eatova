@@ -133,7 +133,7 @@ class _ProgressRow extends StatelessWidget {
                 if (row.isRecord) ...[
                   const SizedBox(width: 8),
                   Icon(
-                    Icons.emoji_events_outlined,
+                    AppIcons.trophy,
                     key: ValueKey(
                       'training-exercise-history-record-${row.entry.id}',
                     ),

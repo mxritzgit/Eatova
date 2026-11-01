@@ -281,7 +281,7 @@ class PlayerRestControls extends StatelessWidget {
           id: 'rest-resume',
           text: l.trainingTimerResume,
           label: null,
-          icon: Icons.play_arrow_rounded,
+          icon: AppIcons.playArrow,
           onTap: live(rest.onResume),
         ),
     ];
@@ -301,7 +301,7 @@ class PlayerRestControls extends StatelessWidget {
     final skip = PrimaryActionButton(
       key: const ValueKey('training-timer-skip-rest'),
       label: l.trainingTimerSkipRest,
-      icon: Icons.skip_next_rounded,
+      icon: AppIcons.skipNext,
       height: kButtonMinHeight,
       onTap: live(rest.onSkip),
     );
@@ -434,7 +434,7 @@ class _AlertsOffChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.notifications_off_outlined, size: 16, color: t.ink2),
+              Icon(AppIcons.notificationsOff, size: 16, color: t.ink2),
               const SizedBox(width: 6),
               Text(
                 l.trainingTimerAlertsOff,

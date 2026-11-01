@@ -89,12 +89,12 @@ class TrainingHistoryScreen extends StatelessWidget {
                 CalmState(
                   key: const ValueKey('training-history-error'),
                   card: true,
-                  icon: Icons.cloud_off_rounded,
+                  icon: AppIcons.cloudOff,
                   text: l.trainingHistoryLoadError,
                   actions: [
                     SoftPillButton(
                       onTap: onRetry,
-                      icon: Icons.refresh_rounded,
+                      icon: AppIcons.refresh,
                       label: l.trainingPageRetry,
                     ),
                   ],
@@ -114,7 +114,7 @@ class TrainingHistoryScreen extends StatelessWidget {
                       SoftPillButton(
                         key: const ValueKey('training-history-empty-log'),
                         onTap: log,
-                        icon: Icons.edit_note_rounded,
+                        icon: AppIcons.editNote,
                         label: l.trainingLogTitle,
                       ),
                   ],
@@ -216,7 +216,7 @@ class _HistoryRow extends StatelessWidget {
         if (!large && record != null)
           record
         else
-          Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
+          Icon(AppIcons.chevronRight, size: 22, color: t.ink3),
       ],
     );
     return Semantics(
@@ -314,7 +314,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
         body: isLoggedTrainingEntry(widget.entry)
             ? l.trainingHistoryDeleteLogBody
             : l.trainingHistoryDeleteBody,
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         destructive: true,
         cancelLabel: l.trainingPageCancel,
         onCancel: () => Navigator.pop(dialogContext, false),
@@ -333,7 +333,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
       showAppSnack(
         context,
         deliveryHint(l.trainingHistoryDeleted, delivery, l),
-        icon: Icons.delete_outline_rounded,
+        icon: AppIcons.delete,
         tone: SnackTone.error,
       );
       Navigator.pop(context);
@@ -421,7 +421,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
                 SignalNote(
                   _error!,
                   tone: t.danger,
-                  icon: Icons.error_outline_rounded,
+                  icon: AppIcons.error,
                   boxed: true,
                 ),
                 const SizedBox(height: 12),
@@ -431,7 +431,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
                 tone: SoftPillTone.danger,
                 expand: true,
                 onTap: _busy ? null : _delete,
-                icon: Icons.delete_outline_rounded,
+                icon: AppIcons.delete,
                 label: _busy
                     ? l.trainingHistoryDeleting
                     : l.trainingHistoryDeleteAction,
@@ -536,7 +536,7 @@ class _SummaryCard extends StatelessWidget {
                 excludeSemantics: true,
                 child: TrainingMetaItem(
                   key: const ValueKey('training-history-detail-day'),
-                  icon: Icons.calendar_today_rounded,
+                  icon: AppIcons.calendar,
                   text: day,
                 ),
               ),
@@ -552,7 +552,7 @@ class _SummaryCard extends StatelessWidget {
                   excludeSemantics: true,
                   child: TrainingMetaItem(
                     key: const ValueKey('training-history-detail-time'),
-                    icon: Icons.schedule_rounded,
+                    icon: AppIcons.schedule,
                     text: '$span · $minutes',
                   ),
                 ),
@@ -632,7 +632,7 @@ class _ExerciseCard extends StatelessWidget {
                 child: SoftPillButton(
                   key: ValueKey('training-history-progress-$index'),
                   tone: SoftPillTone.neutral,
-                  icon: Icons.show_chart_rounded,
+                  icon: AppIcons.showChart,
                   label: l.trainingExerciseHistoryOpen,
                   semanticLabel: l.trainingExerciseHistoryOpenLabel(
                     exercise.name,
@@ -747,7 +747,7 @@ class _NoteCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.notes_rounded, size: 18, color: t.ink2),
+              Icon(AppIcons.notes, size: 18, color: t.ink2),
               const SizedBox(width: 8),
               Expanded(
                 child: HeadingSemantics(

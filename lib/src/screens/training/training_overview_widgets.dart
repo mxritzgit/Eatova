@@ -1248,7 +1248,7 @@ class _RecentRow extends StatelessWidget {
                 if (badgeWidget != null && !badgeBelow)
                   badgeWidget
                 else
-                  Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
+                  Icon(AppIcons.chevronRight, size: 22, color: t.ink3),
               ],
             ),
           ),
@@ -1342,7 +1342,7 @@ class TrainingRecordList extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.emoji_events_outlined, size: 18, color: t.fatInk),
+              Icon(AppIcons.trophy, size: 18, color: t.fatInk),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1396,7 +1396,7 @@ class TrainingRecordBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.emoji_events_outlined, size: 14, color: t.fatInk),
+          Icon(AppIcons.trophy, size: 14, color: t.fatInk),
           const SizedBox(width: 5),
           Flexible(
             child: Text(

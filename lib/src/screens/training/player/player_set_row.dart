@@ -5,6 +5,7 @@ import '../../../models/training_plan.dart';
 import '../../../models/training_session.dart';
 import '../../../theme/app_tokens.dart';
 import '../../../widgets/common/motion.dart';
+import '../../../widgets/design/design.dart';
 import '../training_actual_fields.dart';
 import 'player_format.dart';
 
@@ -362,37 +363,37 @@ class PlayerSetButton extends StatelessWidget {
     final size = large ? 56.0 : 48.0;
     final (icon, fill, ink, label) = switch (kind) {
       PlayerSetButtonKind.complete => (
-        Icons.check_rounded,
+        AppIcons.check,
         t.accentFill,
         t.onAccentFill,
         l.trainingTimerCompleteSetLabel(setNumber),
       ),
       PlayerSetButtonKind.start => (
-        Icons.play_arrow_rounded,
+        AppIcons.playArrow,
         t.accentFill,
         t.onAccentFill,
         l.trainingTimerStartSetLabel(setNumber),
       ),
       PlayerSetButtonKind.undo => (
-        Icons.check_rounded,
+        AppIcons.check,
         t.accentTintStrong,
         t.accentText,
         l.trainingTimerUndoSetLabel(setNumber),
       ),
       PlayerSetButtonKind.done => (
-        Icons.check_rounded,
+        AppIcons.check,
         t.accentTint,
         t.accentText,
         l.trainingTimerSetDoneLabel(setNumber),
       ),
       PlayerSetButtonKind.locked => (
-        Icons.check_rounded,
+        AppIcons.check,
         t.tile,
         t.inkDisabled,
         l.trainingTimerSetLocked(setNumber),
       ),
       PlayerSetButtonKind.skipped => (
-        Icons.remove_rounded,
+        AppIcons.remove,
         t.tile,
         t.ink3,
         l.trainingTimerSkippedSet,

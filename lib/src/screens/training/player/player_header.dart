@@ -82,7 +82,7 @@ class PlayerHeader extends StatelessWidget {
       key: const ValueKey('training-timer-menu'),
       tooltip: l.trainingTimerMenu,
       enabled: enabled,
-      icon: const Icon(Icons.more_horiz_rounded),
+      icon: const Icon(AppIcons.moreHoriz),
       onSelected: (value) => switch (value) {
         'pause' => onPause?.call(),
         'resume' => onResume?.call(),
@@ -93,20 +93,20 @@ class PlayerHeader extends StatelessWidget {
           eatovaMenuItem(
             key: const ValueKey('training-timer-pause'),
             value: 'pause',
-            icon: Icons.pause_rounded,
+            icon: AppIcons.pause,
             label: l.trainingTimerPause,
           ),
         if (onResume != null)
           eatovaMenuItem(
             key: const ValueKey('training-timer-resume'),
             value: 'resume',
-            icon: Icons.play_arrow_rounded,
+            icon: AppIcons.playArrow,
             label: l.trainingTimerResume,
           ),
         eatovaMenuItem(
           key: const ValueKey('training-timer-discard'),
           value: 'discard',
-          icon: Icons.delete_outline_rounded,
+          icon: AppIcons.delete,
           label: l.trainingTimerDiscard,
           destructive: true,
         ),
@@ -157,7 +157,7 @@ class PlayerHeader extends StatelessWidget {
                     child: SheetCloseButton(
                       buttonKey: const ValueKey('training-timer-back'),
                       tooltip: l.trainingTimerBack,
-                      icon: Icons.chevron_left_rounded,
+                      icon: AppIcons.chevronLeft,
                       onTap: backEnabled ? onBack : null,
                     ),
                   ),

@@ -157,7 +157,7 @@ class _FinishSheet extends StatelessWidget {
                 SignalNote(
                   l.trainingActualMissing,
                   tone: t.warning,
-                  icon: Icons.warning_amber_rounded,
+                  icon: AppIcons.warning,
                   boxed: true,
                 ),
                 const SizedBox(height: 12),
@@ -167,7 +167,7 @@ class _FinishSheet extends StatelessWidget {
                 label: open == 0
                     ? l.trainingTimerSaveWorkout
                     : l.trainingTimerSaveSets(completed),
-                icon: Icons.check_rounded,
+                icon: AppIcons.check,
                 onTap: valuesValid
                     ? () => choose(PlayerFinishChoice.save)
                     : null,
@@ -182,7 +182,7 @@ class _FinishSheet extends StatelessWidget {
                     l.trainingTimerLogRestInvalid,
                     key: const ValueKey('training-finish-log-rest-invalid'),
                     tone: t.warning,
-                    icon: Icons.warning_amber_rounded,
+                    icon: AppIcons.warning,
                     boxed: true,
                   ),
                   const SizedBox(height: 8),

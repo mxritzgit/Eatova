@@ -218,7 +218,7 @@ class _SuggestionPill extends StatelessWidget {
         opacity: onTap == null ? 0.45 : 1,
         child: SourcePill(
           key: pillKey,
-          icon: Icons.history_rounded,
+          icon: AppIcons.history,
           label: label,
           onTap: onTap,
         ),
@@ -260,7 +260,7 @@ class _DoneToggle extends StatelessWidget {
           child: SizedBox.square(
             dimension: 48,
             child: Icon(
-              Icons.check_rounded,
+              AppIcons.check,
               size: 22,
               color: done ? t.onLime : t.inkFaint,
             ),

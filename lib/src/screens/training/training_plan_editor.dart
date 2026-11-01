@@ -272,7 +272,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
                             child: SignalNote(
                               _error!,
                               tone: t.danger,
-                              icon: Icons.error_outline_rounded,
+                              icon: AppIcons.error,
                               boxed: true,
                               liveRegion: true,
                             ),
@@ -401,7 +401,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       SoftPillButton(
         key: const ValueKey('training-editor-edit'),
         onTap: _busy ? null : _beginEditing,
-        icon: Icons.edit_outlined,
+        icon: AppIcons.edit,
         label: l10n.trainingPageEdit,
       ),
       for (var i = 0; i < draft.workouts.length; i++) ...[
@@ -719,7 +719,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       key: ValueKey('$keyPrefix-menu'),
       tooltip: l10n.trainingPageItemOptions(title),
       enabled: !_busy,
-      icon: const Icon(Icons.more_horiz_rounded),
+      icon: const Icon(AppIcons.moreHoriz),
       iconColor: context.t.ink2,
       onSelected: (value) {
         if (_busy) return;
@@ -737,20 +737,20 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
           eatovaMenuItem(
             key: ValueKey('$keyPrefix-up'),
             value: 'up',
-            icon: Icons.arrow_upward_rounded,
+            icon: AppIcons.arrowUpward,
             label: l10n.trainingPageMoveUp,
           ),
         if (index < count - 1)
           eatovaMenuItem(
             key: ValueKey('$keyPrefix-down'),
             value: 'down',
-            icon: Icons.arrow_downward_rounded,
+            icon: AppIcons.arrowDownward,
             label: l10n.trainingPageMoveDown,
           ),
         eatovaMenuItem(
           key: ValueKey('$keyPrefix-remove'),
           value: 'remove',
-          icon: Icons.delete_outline_rounded,
+          icon: AppIcons.delete,
           label: removeLabel,
           destructive: true,
         ),
@@ -832,7 +832,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                     duration: motionDuration(context, motion),
                     curve: kMotionCurve,
                     child: Icon(
-                      Icons.expand_more_rounded,
+                      AppIcons.expandMore,
                       size: 22,
                       color: t.ink2,
                     ),

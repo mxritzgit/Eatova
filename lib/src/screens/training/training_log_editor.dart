@@ -692,7 +692,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
                 child: SignalNote(
                   error,
                   tone: t.danger,
-                  icon: Icons.error_outline_rounded,
+                  icon: AppIcons.error,
                   boxed: true,
                   liveRegion: true,
                 ),
@@ -874,7 +874,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
           label: other
               ? DateFormat.MMMEd(l10n.localeName).format(day)
               : l10n.trainingLogOtherDay,
-          icon: Icons.calendar_today_rounded,
+          icon: AppIcons.calendar,
           selected: other,
           onTap: _pickDay,
         ),
@@ -955,7 +955,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
                       _exercises.removeAt(e).dispose();
                       _changed();
                     },
-              icon: const Icon(Icons.delete_outline_rounded),
+              icon: const Icon(AppIcons.delete),
             )
           else
             const SizedBox(height: 48),
@@ -1060,7 +1060,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
                   );
                   _changed();
                 },
-          icon: Icons.add_rounded,
+          icon: AppIcons.add,
           label: l10n.trainingLogAddSet,
         ),
       ),
@@ -1123,7 +1123,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
                       exercise.sets.removeAt(s).dispose();
                       _changed();
                     },
-              icon: const Icon(Icons.close_rounded),
+              icon: const Icon(AppIcons.close),
             )
           else
             const SizedBox(width: 48),
