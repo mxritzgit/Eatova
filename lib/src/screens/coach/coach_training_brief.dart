@@ -75,7 +75,11 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
       : CoachTrainingIntent.discuss;
   var _experience = CoachTrainingExperience.beginner;
   var _equipment = CoachTrainingEquipment.bodyweight;
-  var _sessions = 3;
+  // A selected plan's weekly target is the natural start.
+  late var _sessions = (widget.selectedPlan?.sessionsPerWeek ?? 3).clamp(
+    _sessionsMin,
+    _sessionsMax,
+  );
   var _minutes = 30;
   String? _error;
   bool _initialized = false;

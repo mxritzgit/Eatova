@@ -441,6 +441,31 @@ void main() {
     expect(writes, 1);
   });
 
+  testWidgets('the weekly target is optional: empty saves none, 15 is refused', (
+    tester,
+  ) async {
+    for (final (input, expected) in [('', null), ('4', 4)]) {
+      CoachTrainingProposal? saved;
+      await _openEditor(
+        tester,
+        initialDraft: _draft().withSessionsPerWeek(3),
+        save: (draft) async {
+          saved = draft;
+          return SyncDelivery.delivered;
+        },
+      );
+      expect(find.text('3× a week'), findsOneWidget, reason: 'review');
+      await _tap(tester, 'training-editor-edit');
+      await _enter(tester, 'training-editor-sessions', '15');
+      await _tap(tester, 'training-editor-save');
+      expect(saved, isNull);
+      expect(find.text('Enter 1–14.'), findsOneWidget);
+      await _enter(tester, 'training-editor-sessions', input);
+      await _tap(tester, 'training-editor-save');
+      expect(saved!.sessionsPerWeek, expected, reason: '"$input"');
+    }
+  });
+
   testWidgets('add, remove and reorder preserve the edited exercise values', (
     tester,
   ) async {

@@ -1957,6 +1957,17 @@
   "foodFavoritesEmptySearchAction": "Search food",
   "foodFavoritesNoMatchHint": "No favorite matches your search.",
   "trainingPageGoal": "Training goal",
+  "trainingPageSessionsPerWeek": "Sessions per week",
+  "trainingPageSessionsPerWeekHint": "Optional, e.g. 3",
+  "trainingPageSessionsPerWeekValue": "{count}× a week",
+  "@trainingPageSessionsPerWeekValue": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingPageContentLimit": "Your plan contains too much text. Shorten the descriptions and notes.",
   "trainingPageInvalidCharacters": "Remove invisible control characters.",
   "trainingPageTitle": "Training",
@@ -3147,6 +3158,15 @@
   },
   "trainingWeekTitle": "This week",
   "trainingWeekDone": "done",
+  "trainingWeekOfTarget": "of {target}",
+  "@trainingWeekOfTarget": {
+    "placeholders": {
+      "target": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingWeekDayToday": "today",
   "trainingWeekDayDone": "workout done",
   "trainingWeekDayOpen": "no workout",

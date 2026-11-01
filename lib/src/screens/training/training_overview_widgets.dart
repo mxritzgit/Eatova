@@ -105,12 +105,16 @@ class _InkCard extends StatelessWidget {
 }
 
 /// "This week": the finished workouts per local day (Monday to Sunday), the
-/// today highlight and the done count. Plans carry no weekday schedule and
-/// no sessions per week, so a day never claims a planned type or a rest day.
+/// today highlight and the done count, "2 of 4" with the selected plan's
+/// optional weekly [target]. Plans carry no weekday schedule, so a day never
+/// claims a planned type or a rest day.
 class TrainingWeekCard extends StatelessWidget {
-  const TrainingWeekCard({super.key, required this.week});
+  const TrainingWeekCard({super.key, required this.week, this.target});
 
   final TrainingWeek week;
+
+  /// The plan's planned sessions per week; null shows the count alone.
+  final int? target;
 
   @override
   Widget build(BuildContext context) {
@@ -155,6 +159,8 @@ class TrainingWeekCard extends StatelessWidget {
                           color: t.ink,
                         ),
                       ),
+                      if (target case final target?)
+                        TextSpan(text: ' ${l10n.trainingWeekOfTarget(target)}'),
                       TextSpan(text: ' ${l10n.trainingWeekDone} · $range'),
                     ],
                   ),

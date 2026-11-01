@@ -2016,6 +2016,17 @@
   "foodFavoritesEmptySearchAction": "Lebensmittel suchen",
   "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche.",
   "trainingPageGoal": "Trainingsziel",
+  "trainingPageSessionsPerWeek": "Einheiten pro Woche",
+  "trainingPageSessionsPerWeekHint": "Optional, z. B. 3",
+  "trainingPageSessionsPerWeekValue": "{count}× pro Woche",
+  "@trainingPageSessionsPerWeekValue": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingPageContentLimit": "Dein Plan enthält zu viel Text. Kürze die Beschreibungen und Hinweise.",
   "trainingPageInvalidCharacters": "Entferne unsichtbare Steuerzeichen.",
   "trainingPageTitle": "Training",
@@ -3221,6 +3232,15 @@
   },
   "trainingWeekTitle": "Diese Woche",
   "trainingWeekDone": "erledigt",
+  "trainingWeekOfTarget": "von {target}",
+  "@trainingWeekOfTarget": {
+    "placeholders": {
+      "target": {
+        "type": "int",
+        "format": "decimalPattern"
+      }
+    }
+  },
   "trainingWeekDayToday": "heute",
   "trainingWeekDayDone": "Training erledigt",
   "trainingWeekDayOpen": "kein Training",

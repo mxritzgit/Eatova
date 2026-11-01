@@ -289,9 +289,9 @@ final class TrainingWeek {
   /// Exactly seven days, Monday first.
   final List<TrainingWeekDay> days;
 
-  /// Completed sessions this week, any plan ("4 done"). No planned count:
-  /// plans store no sessions per week, and their workouts rotate (the Coach
-  /// builds 2-3 workouts for 4-5 weekly sessions).
+  /// Completed sessions this week, any plan ("4 done"). The planned count is
+  /// the plan's optional `sessionsPerWeek`, never its workout count: workouts
+  /// rotate (the Coach builds 2-3 workouts for 4-5 weekly sessions).
   int get doneSessions =>
       days.fold(0, (count, day) => count + day.sessions.length);
 
