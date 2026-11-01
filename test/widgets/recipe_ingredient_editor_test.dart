@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/recipe_ingredient.dart';
+import 'package:eatova/src/services/fallback_product_service.dart';
+import 'package:eatova/src/services/meilisearch_product_service.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/recipes/recipe_ingredient_editor.dart';
 import 'package:eatova/src/widgets/recipes/recipe_portion_selector.dart';
@@ -129,6 +131,23 @@ void main() {
       },
     );
   }
+
+  test('without an injected service it searches like the Food tab', () {
+    // No caller up to main.dart injects one, so this default is production.
+    final service = RecipeIngredientEditor(
+      ingredients: const [],
+      onChanged: (_) {},
+    ).productService;
+    expect(service, same(defaultProductLookupService()));
+    expect(
+      service,
+      isA<FallbackProductService>().having(
+        (s) => s.primary,
+        'primary',
+        isA<MeilisearchProductService>(),
+      ),
+    );
+  });
 
   testWidgets(
     'product search preserves original precision and supports safe editing',

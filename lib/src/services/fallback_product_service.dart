@@ -1,10 +1,26 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../config/search_config.dart';
 import '../models/meal_analysis_result.dart';
 import 'crash_reporter.dart';
 import 'eatova_http.dart';
+import 'meilisearch_product_service.dart';
 import 'open_food_facts_product_service.dart';
+
+/// The app's product search: own search index (Meilisearch) with live OFF as
+/// fallback for new products, barcode lookups and mirror outages. Shared by
+/// the Food tab, the Coach's /meal path and the recipe editor.
+///
+/// Runs on EVERY rebuild, so it stays strictly synchronous and
+/// allocation-free: no `await`, no SharedPreferences, no `Supabase.instance`.
+/// Credentials are decided by the search request itself; only the hard local
+/// kill switch `--dart-define=OFF_MIRROR_URL=` lives here.
+ProductLookupService defaultProductLookupService() {
+  const off = OpenFoodFactsProductService();
+  if (SearchConfig.mirrorHardDisabled) return off;
+  return const FallbackProductService(MeilisearchProductService(), off);
+}
 
 /// Tries [primary] (our own search index) first, falling back to live
 /// OpenFoodFacts on error or empty result. OFF stays the safety net for

@@ -24,6 +24,8 @@ import '../services/day_math.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/billing/purchase_flow.dart';
 import '../services/eatova_sync.dart';
+import '../services/fallback_product_service.dart'
+    show defaultProductLookupService;
 import '../services/favorites_view.dart' show favoriteUseCounts;
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
@@ -1827,8 +1829,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     return describeMealFromCoach(
       context,
       text: text,
-      productService:
-          widget.productService ?? MealAnalysisScreen.defaultProductService(),
+      productService: widget.productService ?? defaultProductLookupService(),
       favorites: () => ownerStore.favorites,
       onAdd: (result, slot) async {
         if (!_isStoreSessionCurrent(ownerStore)) {

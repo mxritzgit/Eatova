@@ -16,7 +16,6 @@ import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/recipe_pick.dart';
 import '../models/user_profile.dart';
-import '../config/search_config.dart';
 import '../services/day_math.dart';
 import '../services/fallback_product_service.dart';
 import '../services/meal_analyzer.dart';
@@ -24,7 +23,6 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/meal_scan_identity.dart';
 import '../services/meal_totals.dart';
-import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../services/own_products.dart';
 import '../services/trend_service.dart';
@@ -92,7 +90,7 @@ class MealAnalysisScreen extends StatelessWidget {
     this.previousDayMeals = const <LoggedMeal>[],
     this.onRepeatSlot,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
-       productService = productService ?? defaultProductService(),
+       productService = productService ?? defaultProductLookupService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
        cameraLauncher = cameraLauncher ?? const InAppMealCameraLauncher(),
        selectedDate = DateUtils.dateOnly(selectedDate ?? clock.now()),
@@ -101,20 +99,6 @@ class MealAnalysisScreen extends StatelessWidget {
        onUpdateMeal = onUpdateMeal ?? _noopUpdate,
        onRemoveFavorite = onRemoveFavorite ?? _noopString,
        onRemoveMeal = onRemoveMeal ?? _noopString;
-
-  // Own search index (Meilisearch) with live OFF as fallback for new products,
-  // barcode lookups and mirror outages.
-  //
-  // Runs on EVERY rebuild, so it stays strictly synchronous and
-  // allocation-free: no `await`, no SharedPreferences, no `Supabase.instance`.
-  // Credentials are decided by the search request itself; only the hard local
-  // kill switch `--dart-define=OFF_MIRROR_URL=` lives here. Public for the
-  // Coach's /meal path, which searches the same way.
-  static ProductLookupService defaultProductService() {
-    const off = OpenFoodFactsProductService();
-    if (SearchConfig.mirrorHardDisabled) return off;
-    return const FallbackProductService(MeilisearchProductService(), off);
-  }
 
   // Default onAddMeal returns an empty id (preview/test without persistence);
   // a later re-portioning then hits the no-op update.
