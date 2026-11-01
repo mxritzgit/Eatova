@@ -114,9 +114,30 @@ class FoodHistoryIndex {
   _Group _groupFor(MealAnalysisResult result) {
     final name = _fold(result.mealName.trim());
     final brand = _fold(result.brand?.trim() ?? '');
-    final key = '${name.ae}|${brand.ae}|${_densityKey(result)}';
+    final key = _groupKey(name, brand, result);
     return _groups[key] ??= _Group(key, _Fields(name, brand));
   }
+
+  /// The [FoodHistoryHit.key] [result] belongs to, or null when it cannot
+  /// be logged. Adds nothing to the index.
+  String? keyOf(MealAnalysisResult result) => _loggable(result)
+      ? _groupKey(
+          _fold(result.mealName.trim()),
+          _fold(result.brand?.trim() ?? ''),
+          result,
+        )
+      : null;
+
+  /// Every own food once, recipes not included, in the order first seen.
+  List<FoodHistoryHit> get foods => <FoodHistoryHit>[
+    for (final group in _groups.values)
+      FoodHistoryHit(
+        key: group.key,
+        result: group.result!,
+        uses: group.uses,
+        lastUsed: group.lastUsed,
+      ),
+  ];
 
   void _add(
     MealAnalysisResult result,
@@ -176,6 +197,10 @@ class FoodHistoryIndex {
     ];
   }
 }
+
+/// Dedupe key of one own food: folded name, folded brand and density.
+String _groupKey(_Folded name, _Folded brand, MealAnalysisResult result) =>
+    '${name.ae}|${brand.ae}|${_densityKey(result)}';
 
 /// kcal per 100 g, rounded: the same meal keeps its density across
 /// portions (`adjustedToGrams` carries it), so 250 g and 300 g of it merge.
@@ -237,7 +262,7 @@ class _PendingRecipe {
     if (result == null || !FoodHistoryIndex._loggable(result)) return null;
     final name = index._fold(result.mealName.trim());
     final brand = index._fold(result.brand?.trim() ?? '');
-    final key = '${name.ae}|${brand.ae}|${_densityKey(result)}';
+    final key = _groupKey(name, brand, result);
     if (index._groups.containsKey(key) ||
         index._recipeGroups.containsKey(key)) {
       return null;
