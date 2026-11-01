@@ -373,7 +373,9 @@ void main() {
     expect(recipe.slug, _slug,
         reason: 'deterministischer Slug aus der Message-Id');
     expect(recipe.userCreated, isTrue);
-    expect(recipe.categories, const <String>['Eigene']);
+    expect(recipe.displayCategories, const <String>['Eigene']);
+    expect(recipe.ingredientsBasisServings, 1,
+        reason: 'Coach-Rezepte gelten für eine Portion');
     expect(recipe.caloriesKcal, _proposal.caloriesKcal);
     // The card locks itself while the recipe exists.
     expect(find.byKey(const ValueKey('coach-recipe-add')), findsNothing);
