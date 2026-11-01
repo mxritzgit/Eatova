@@ -192,8 +192,8 @@
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<!-- Portrait-only. Die Layouts sind Telefon-Layouts und nicht fuer
-	     Querformat ausgelegt; app-seitig zieht main.dart:28 zusaetzlich
-	     setPreferredOrientations(portraitUp) nach.
+	     Querformat ausgelegt; app-seitig zieht main() in lib/main.dart
+	     zusaetzlich setPreferredOrientations(portraitUp) nach.
 
 	     F7: Das Target ist seit der pbxproj-Aenderung reines iPhone
 	     (TARGETED_DEVICE_FAMILY = "1" in allen drei Runner-Configs). Damit

@@ -33,10 +33,12 @@ Future<void> main() async {
   // errors visible in the dart:developer log. With Sentry they are chained,
   // not replaced (capture first, then our log).
   _installGlobalErrorHandlers();
-  // Layouts are portrait-only. This is a request, not a guarantee:
+  // Layouts are designed for portrait. This is a request, not a guarantee:
   //  * Android: from targetSdk 36 on, Android 16 ignores orientation limits on
   //    displays with smallestWidth >= 600dp, so tablets and unfolded foldables
-  //    still rotate (Review E6). No crash, just an untested layout.
+  //    still rotate (Review E6). Pages then keep a readable column
+  //    (ReadableWidth); test/responsive/app_layout_sweep_test.dart walks
+  //    tablet and landscape windows.
   //  * iOS: the portrait-only set in ios/Runner/Info.plist holds because
   //    TARGETED_DEVICE_FAMILY = "1" makes this an iPhone-only bundle.
   //    Re-enabling iPad means bringing back the ~ipad keys.
