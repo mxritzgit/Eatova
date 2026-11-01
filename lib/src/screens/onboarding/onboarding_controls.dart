@@ -180,17 +180,12 @@ class _ChoiceTile extends StatelessWidget {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: <Widget>[
-                          ExcludeSemantics(
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: t.tile,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(icon, size: 22, color: t.accentText),
-                            ),
+                          // The option cards' badge, so the tiles and their
+                          // stacked form at large text read as one control.
+                          IconBadge(
+                            icon: icon,
+                            size: IconBadgeSize.lg,
+                            tone: IconBadgeTone.accent,
                           ),
                           const SizedBox(height: 10),
                           Text(
@@ -320,7 +315,7 @@ class _OnboardingNumberPickerState extends State<OnboardingNumberPicker> {
               children: <Widget>[
                 _StepperButton(
                   actionKey: ValueKey('onboarding-$field-dec'),
-                  icon: Icons.remove_rounded,
+                  icon: AppIcons.remove,
                   semanticLabel: l10n.onboardingStepDownSemanticLabel,
                   enabled: value > min,
                   onStep: () => _set(_value - 1),
@@ -363,7 +358,7 @@ class _OnboardingNumberPickerState extends State<OnboardingNumberPicker> {
                 const SizedBox(width: 12),
                 _StepperButton(
                   actionKey: ValueKey('onboarding-$field-inc'),
-                  icon: Icons.add_rounded,
+                  icon: AppIcons.add,
                   semanticLabel: l10n.onboardingStepUpSemanticLabel,
                   enabled: value < max,
                   onStep: () => _set(_value + 1),
@@ -430,7 +425,9 @@ class _OnboardingNumberPickerState extends State<OnboardingNumberPicker> {
   }
 }
 
-/// Round stepper: a tap moves one unit, holding repeats.
+/// One button of the number picker: the stepper's accent [AppIconButton]
+/// (as in [AppStepper], whose value slot cannot hold the picker's big
+/// number); a tap moves one unit, holding repeats.
 class _StepperButton extends StatefulWidget {
   const _StepperButton({
     required this.actionKey,
@@ -489,39 +486,19 @@ class _StepperButtonState extends State<_StepperButton> {
     super.dispose();
   }
 
+  // The long press starts the repeat; lifting the finger ends it. A Listener
+  // takes no part in the gesture arena, so the button keeps its tap.
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final enabled = widget.enabled;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: widget.semanticLabel,
-      child: GestureDetector(
-        onLongPressStart: (_) => _startRepeat(),
-        onLongPressEnd: (_) => _stopRepeat(),
-        onLongPressCancel: _stopRepeat,
-        child: PressScale(
-          enabled: enabled,
-          child: Opacity(
-            opacity: enabled ? 1 : 0.4,
-            child: Material(
-              color: t.accentTint,
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                key: widget.actionKey,
-                onTap: enabled ? widget.onStep : null,
-                customBorder: const CircleBorder(),
-                child: SizedBox.square(
-                  dimension: 48,
-                  child: Icon(widget.icon, size: 24, color: t.accentText),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Listener(
+    onPointerUp: (_) => _stopRepeat(),
+    onPointerCancel: (_) => _stopRepeat(),
+    child: AppIconButton(
+      buttonKey: widget.actionKey,
+      icon: widget.icon,
+      semanticLabel: widget.semanticLabel,
+      tone: IconButtonTone.accent,
+      onTap: widget.enabled ? widget.onStep : null,
+      onLongPress: _startRepeat,
+    ),
+  );
 }

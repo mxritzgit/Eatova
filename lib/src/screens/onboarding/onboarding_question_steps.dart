@@ -41,9 +41,9 @@ class OnboardingGoalStep extends StatelessWidget {
   final ValueChanged<OnboardingDirection> onChanged;
 
   static IconData _icon(OnboardingDirection direction) => switch (direction) {
-    OnboardingDirection.lose => Icons.trending_down_rounded,
-    OnboardingDirection.maintain => Icons.trending_flat_rounded,
-    OnboardingDirection.gain => Icons.trending_up_rounded,
+    OnboardingDirection.lose => AppIcons.trendingDown,
+    OnboardingDirection.maintain => AppIcons.trendingFlat,
+    OnboardingDirection.gain => AppIcons.trendingUp,
   };
 
   @override
@@ -87,9 +87,9 @@ class OnboardingBasicsStep extends StatelessWidget {
   final ValueChanged<int> onAge;
 
   static IconData _icon(BiologicalSex sex) => switch (sex) {
-    BiologicalSex.male => Icons.male_rounded,
-    BiologicalSex.female => Icons.female_rounded,
-    BiologicalSex.neutral => Icons.person_outline_rounded,
+    BiologicalSex.male => AppIcons.male,
+    BiologicalSex.female => AppIcons.female,
+    BiologicalSex.neutral => AppIcons.person,
   };
 
   @override
@@ -343,8 +343,8 @@ class OnboardingPaceStep extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 1),
                     child: Icon(
-                      Icons.flag_outlined,
-                      size: 18,
+                      AppIcons.flag,
+                      size: AppIconSize.button,
                       color: t.accentText,
                     ),
                   ),
@@ -388,10 +388,10 @@ class OnboardingDietStep extends StatelessWidget {
   final ValueChanged<FoodAvoidance> onToggleAvoidance;
 
   static IconData _icon(DietPreference diet) => switch (diet) {
-    DietPreference.none => Icons.restaurant_rounded,
-    DietPreference.vegetarian => Icons.spa_outlined,
-    DietPreference.vegan => Icons.eco_outlined,
-    DietPreference.pescetarian => Icons.set_meal_outlined,
+    DietPreference.none => AppIcons.restaurant,
+    DietPreference.vegetarian => AppIcons.spa,
+    DietPreference.vegan => AppIcons.eco,
+    DietPreference.pescetarian => AppIcons.setMeal,
   };
 
   @override
@@ -438,7 +438,7 @@ class OnboardingDietStep extends StatelessWidget {
               l10n.foodPrefsCoachNotice,
               key: const ValueKey('onboarding-avoid-notice'),
               tone: context.t.warning,
-              icon: Icons.health_and_safety_outlined,
+              icon: AppIcons.healthAndSafety,
               boxed: true,
             ),
           ],

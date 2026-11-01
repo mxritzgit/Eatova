@@ -412,7 +412,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         key: const ValueKey('onboarding-sign-out-dialog'),
         title: l10n.onboardingSignOutConfirmTitle,
         body: l10n.onboardingSignOutConfirmBody,
-        icon: Icons.logout_rounded,
+        icon: AppIcons.logout,
         confirmKey: const ValueKey('onboarding-sign-out-confirm'),
         confirmLabel: l10n.onboardingSignOutConfirm,
         cancelKey: const ValueKey('onboarding-sign-out-cancel'),
