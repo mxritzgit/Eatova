@@ -252,9 +252,9 @@ class PlayerRestControls extends StatelessWidget {
   static const double _gap = 8;
 
   /// What a pill adds to its label: [SoftPillButton]'s 20 px sides or
-  /// [PrimaryActionButton]'s 18 px ones, and an 18 px icon with its gap.
+  /// [PrimaryActionButton]'s 16 px ones, and an 18 px icon with its gap.
   static const double _softSides = 40;
-  static const double _primarySides = 36;
+  static const double _primarySides = 32;
   static const double _iconRoom = 26;
 
   @override

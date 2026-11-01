@@ -273,6 +273,8 @@ class PlayerExerciseCard extends StatelessWidget {
         lastTime: _lastTimeFor(ref.setIndex),
         enabled: enabled,
         replaceRevision: isActive ? copyRevision : null,
+        // A running rest lights its Skip; the ✓ waits in the accent tint.
+        buttonLit: session.phase != TrainingSessionPhase.rest,
         buttonEnabled:
             !gettingReady &&
             (kind != PlayerSetButtonKind.complete || activeValid),

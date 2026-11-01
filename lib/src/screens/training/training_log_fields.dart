@@ -227,8 +227,9 @@ class _SuggestionPill extends StatelessWidget {
   );
 }
 
-/// A set's done/skipped switch: the app's toggle disc, its check circle
-/// filled while the set counts as done.
+/// A set's done/skipped switch: the app's toggle disc in the player's done
+/// language, the accent tint with its check while the set counts, the
+/// neutral disc while it is skipped.
 class _DoneToggle extends StatelessWidget {
   const _DoneToggle({
     super.key,
@@ -243,9 +244,9 @@ class _DoneToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AppIconButton(
-    icon: AppIcons.checkCircle,
+    icon: AppIcons.check,
     semanticLabel: label,
-    tone: IconButtonTone.accent,
+    tone: done ? IconButtonTone.accent : IconButtonTone.neutral,
     selected: done,
     target: 48,
     onTap: onTap,

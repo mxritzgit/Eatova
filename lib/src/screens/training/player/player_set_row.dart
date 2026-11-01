@@ -72,6 +72,7 @@ class PlayerSetRow extends StatelessWidget {
     this.buttonEnabled = true,
     this.onConfirmLegacy,
     this.replaceRevision,
+    this.buttonLit = true,
   });
 
   final TrainingSetReference reference;
@@ -93,6 +94,9 @@ class PlayerSetRow extends StatelessWidget {
   /// Bumped by Copy last time on the active row; see
   /// [TrainingSetValueField.replaceRevision].
   final int? replaceRevision;
+
+  /// See [PlayerSetButton.lit].
+  final bool buttonLit;
 
   String get _id => '${reference.exerciseIndex}-${reference.setIndex}';
   int get _number => reference.setIndex + 1;
@@ -222,6 +226,7 @@ class PlayerSetRow extends StatelessWidget {
           kind: button,
           setNumber: _number,
           large: active,
+          lit: buttonLit,
           onPressed: !enabled || !buttonEnabled
               ? null
               : switch (button) {
@@ -338,7 +343,8 @@ class _LastTimeCell extends StatelessWidget {
 
 /// ✓ / ▶ of a row, in the app's icon-button family (spec A1: sequential
 /// order this round). The active set's ✓ is the view's one lit action, a
-/// large disc (56 dp) that waits in the "not yet" tint during the get-ready;
+/// large disc (56 dp) that waits in the "not yet" tint during the get-ready
+/// and in the accent tint while a rest runs (Skip in the rest bar is lit);
 /// the most recent done set undoes in the accent tint; upcoming sets show a
 /// visibly disabled ✓. Done and skipped sets are marks, not buttons: the
 /// same 44 px disc without the dimming.
@@ -349,12 +355,16 @@ class PlayerSetButton extends StatelessWidget {
     required this.setNumber,
     required this.large,
     required this.onPressed,
+    this.lit = true,
   });
 
   final PlayerSetButtonKind kind;
   final int setNumber;
   final bool large;
   final VoidCallback? onPressed;
+
+  /// False while another action of the view carries the light (a rest).
+  final bool lit;
 
   @override
   Widget build(BuildContext context) {
@@ -372,7 +382,7 @@ class PlayerSetButton extends StatelessWidget {
           semanticLabel: kind == PlayerSetButtonKind.start
               ? l.trainingTimerStartSetLabel(setNumber)
               : l.trainingTimerCompleteSetLabel(setNumber),
-          tone: IconButtonTone.primary,
+          tone: lit ? IconButtonTone.primary : IconButtonTone.accent,
           size: size,
           target: target,
           onTap: onPressed,
