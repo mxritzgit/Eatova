@@ -30,8 +30,8 @@ import 'support/recipe_navigation.dart';
 // `logged_meals` bounds apply on logging (FitnessRecipe.toMealResult), so a
 // 50,000 kcal recipe could be created and then never used.
 
-/// All input fields of the sheet. A ninth one turns the "sheet has exactly as
-/// many fields as this list" test red, which also proves the discard guard
+/// All input fields of the sheet. An eleventh one turns the "sheet has exactly
+/// as many fields as this list" test red, which also proves the discard guard
 /// covers the new field.
 const List<String> alleFeldKeys = <String>[
   'recipe-create-name',
@@ -42,6 +42,7 @@ const List<String> alleFeldKeys = <String>[
   'recipe-create-carbs',
   'recipe-create-fat',
   'recipe-create-ingredients',
+  'recipe-create-basis',
   'recipe-create-preparation',
 ];
 
@@ -501,6 +502,28 @@ void main() {
     );
     expect(find.byKey(const ValueKey('ingredient-add')), findsOneWidget);
     semantics.dispose();
+  });
+
+  // Without a stated basis the plan and the shopping list cannot convert an
+  // own recipe's amounts (2026-11-01).
+  testWidgetsRobust('„Zutaten für wie viele Portionen?" wird die Grundmenge, '
+      'leer bleibt das Rezept wie bisher', (tester) async {
+    for (final (typed, categories, batch) in [
+      ('4', ['Eigene', '${recipeIngredientsBasisPrefix}per_recipe'], 4.0),
+      ('', ['Eigene'], 1.0),
+    ]) {
+      final capture = _CreateCapture();
+      await _openSheet(tester, capture);
+      await _tippe(tester, 'recipe-create-name', 'Chili');
+      await _tippe(tester, 'recipe-create-kcal', '520');
+      await _tippe(tester, 'recipe-create-ingredients', '400 g Bohnen');
+      if (typed.isNotEmpty) await _tippe(tester, 'recipe-create-basis', typed);
+      await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
+      await tester.pumpAndSettle();
+      final saved = capture.created.single;
+      expect(saved.categories, categories, reason: typed);
+      expect(saved.batchServings, batch, reason: typed);
+    }
   });
 
   group('Live-Vorschau oben im Sheet', () {

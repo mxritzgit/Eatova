@@ -202,6 +202,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   late final TextEditingController _ingredients;
   late final TextEditingController _preparation;
   late final TextEditingController _description;
+
+  /// "Zutaten für N Portionen" of an own free-text recipe; empty is unset.
+  late final TextEditingController _basis;
   late List<RecipeIngredient> _structuredIngredients;
   late bool _structured;
   late double? _batchServings;
@@ -237,9 +240,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     _ingredients = _feld(recipe?.ingredients ?? '');
     _preparation = _feld(recipe?.preparation ?? '');
     _description = _feld(recipe?.description ?? '');
+    _basis = _feld();
   }
 
-  /// Applies the l10n-dependent portion default exactly once: not in
+  /// Applies the l10n-dependent portion default (and the ingredients basis,
+  /// which needs the locale's decimal separator) exactly once: not in
   /// [initState] (no localized BuildContext yet), and not on every
   /// [didChangeDependencies] (a locale switch must not overwrite typed text).
   /// [_RecipeField.start] moves with it, or the fresh field counts as changed.
@@ -250,6 +255,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     super.didChangeDependencies();
     if (_defaultsVorbelegt) return;
     _defaultsVorbelegt = true;
+    if (_initialBasis case final basis?) {
+      final text = formatDecimalInput(basis, context.l10n, maxFractionDigits: 3);
+      _basis.text = text;
+      _felder.firstWhere((feld) => feld.controller == _basis).start = text;
+    }
     if (widget.initialRecipe != null) return;
     final fallbackPortion = context.l10n.foodPortionFallback;
     _portion.text = fallbackPortion;
@@ -380,13 +390,34 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
 
   String? get _kcalFehler => _zahlFehler(
     _kcal,
-    min: widget.initialRecipe?.hasImportedIngredientContext == true ? 0 : _kcalMin,
+    min: widget.initialRecipe?.isImport == true ? 0 : _kcalMin,
     max: _kcalMax,
     bereichstext: context.l10n.recipesRangeErrorKcal,
   );
 
   bool get _mayOmitGrams => widget.initialRecipe?.hasPendingNutrition == true ||
-      widget.initialRecipe?.hasImportedIngredientContext == true;
+      widget.initialRecipe?.isImport == true;
+
+  /// The basis an own free-text recipe starts with. An import keeps its
+  /// source's basis and shows no field; a structured recipe has its batch.
+  double? get _initialBasis {
+    final recipe = widget.initialRecipe;
+    return recipe == null || recipe.isImport || recipe.hasStructuredIngredients
+        ? null
+        : recipe.ingredientsBasisServings;
+  }
+
+  bool get _showsBasis =>
+      !_structured && !widget.nutritionOnly &&
+      !(widget.initialRecipe?.isImport ?? false);
+
+  /// Empty is "not stated"; anything else must be 0.1 to 100 servings.
+  String? get _basisFehler {
+    if (!_showsBasis || _basis.text.trim().isEmpty) return null;
+    if (parseRecipeServings(_basis.text) != null) return null;
+    return numberInputHint(NumberInput.parse(_basis.text), context.l10n) ??
+        context.l10n.recipeCalcServingsError;
+  }
 
   String? get _gramsFehler => _zahlFehler(
     _grams,
@@ -438,7 +469,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
           _textFehler(_portion, _portionMaxCodePoints) == null &&
           _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
           _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
-          _textFehler(_description, 4000) == null;
+          _textFehler(_description, 4000) == null &&
+          _basisFehler == null;
     }
     if ((widget.initialRecipe?.hasPendingNutrition ?? false) &&
         [_protein, _carbs, _fat].any((field) => field.text.trim().isEmpty)) {
@@ -458,6 +490,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
         _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
         _textFehler(_description, 4000) == null &&
+        _basisFehler == null &&
         _kcalFehler == null &&
         _gramsFehler == null &&
         _makroFehler(_protein) == null &&
@@ -534,6 +567,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final ingredientContextChanged = original != null &&
         (ingredients != original.ingredients || portion != original.portion ||
             _structured != original.hasStructuredIngredients);
+    // An import's basis comes from its source and lapses with an edited
+    // ingredient context; an own recipe states it in the basis field.
+    final imported = original?.isImport ?? false;
+    final basis = _showsBasis ? parseRecipeServings(_basis.text) : null;
+    final basisChanged =
+        !imported && !widget.nutritionOnly && basis != _initialBasis;
     // Kept choices stay where they were (each taken out of this set once,
     // deselected ones drop), so an untouched edit stores the same list; new
     // ones follow in the picker's order.
@@ -571,7 +610,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       });
       return;
     }
-    final recipe = FitnessRecipe(
+    final drafted = FitnessRecipe(
       slug: slug,
       title: name,
       description: description,
@@ -587,7 +626,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       estimatedGrams: estimatedGrams,
       categories: [
         for (final category in original?.categories ?? const <String>['Eigene'])
-          if ((!category.startsWith(recipeIngredientsBasisPrefix) || !ingredientContextChanged) &&
+          if ((!category.startsWith(recipeIngredientsBasisPrefix) || !imported || !ingredientContextChanged) &&
               (!isRecipeNutritionMetadata(category) ||
               _pendingNutritionUnchanged ||
               (category == recipeNutritionPendingCategory && _structured && !(_calculation?.isComplete ?? false))) &&
@@ -596,7 +635,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
             category,
         for (final category in ownRecipeCategoryChoices)
           if (pickedCategories.contains(category)) category,
-        if (ingredientContextChanged && original.hasImportedIngredientContext)
+        if (ingredientContextChanged && imported)
           '${recipeIngredientsBasisPrefix}unspecified',
       ],
       userCreated: true,
@@ -605,6 +644,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       structuredIngredients: structuredIngredients,
       batchServings: batchServings,
     );
+    final recipe = basisChanged
+        ? drafted.withIngredientsBasis(basis)
+        : drafted;
     SyncDelivery? delivery;
     if (widget.onSave != null) {
       setState(() {
@@ -990,24 +1032,47 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   const SizedBox(height: 24),
                   _SheetGroup(
                     number: 3,
-                    label: widget.initialRecipe?.hasImportedIngredientContext == true
+                    label: widget.initialRecipe?.isImport == true
                         ? widget.initialRecipe!.sourceIngredientQuantityHint(l10n)
                         : l10n.recipesSectionIngredients,
                     trailing: l10n.recipesOptionalLabel,
-                    child: _RecipeSheetField(
-                      fieldKey: const ValueKey('recipe-create-ingredients'),
-                      controller: _ingredients,
-                      label: l10n.recipesSectionIngredients,
-                      hint: l10n.recipesIngredientsHint,
-                      maxLines: 3,
-                      maxChars: _ingredientsMaxChars,
-                      errorText: _textFehler(
-                        _ingredients,
-                        _ingredientsMaxCodePoints,
-                      ),
-                      // The group header already carries the label; a second one
-                      // would duplicate it. Screen-reader label stays (Semantics).
-                      showLabel: false,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _RecipeSheetField(
+                          fieldKey: const ValueKey('recipe-create-ingredients'),
+                          controller: _ingredients,
+                          label: l10n.recipesSectionIngredients,
+                          hint: l10n.recipesIngredientsHint,
+                          maxLines: 3,
+                          maxChars: _ingredientsMaxChars,
+                          errorText: _textFehler(
+                            _ingredients,
+                            _ingredientsMaxCodePoints,
+                          ),
+                          // The group header already carries the label; a
+                          // second one would duplicate it. Screen-reader
+                          // label stays (Semantics).
+                          showLabel: false,
+                        ),
+                        if (_showsBasis) ...[
+                          const SizedBox(height: 12),
+                          _RecipeSheetField(
+                            fieldKey: const ValueKey('recipe-create-basis'),
+                            controller: _basis,
+                            label: l10n.recipeIngredientsBasisLabel,
+                            hint: l10n.recipeIngredientsBasisPlaceholder,
+                            numeric: true,
+                            maxChars: 12,
+                            errorText: _basisFehler,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            l10n.recipeIngredientsBasisHint,
+                            style: AppType.ui(12, color: t.ink2, height: 1.4),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   const SizedBox(height: 24),
