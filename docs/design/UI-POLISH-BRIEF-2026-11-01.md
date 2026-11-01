@@ -1,5 +1,14 @@
 # UI-Polish-Brief Eatova, 2026-11-01
 
+> **Umsetzungsstand:** Die Icon-Empfehlung A wurde gemessen und verworfen.
+> Mit allen 152 Konzepten blieb Material Symbols Rounded nach dem
+> Tree-Shaking bei 444.760 B (Ziel ≤ 250 kB; APK +232 kB, FILL-Achse
+> erhalten). Umgesetzt ist deshalb Fallback B über `AppIcons`, ohne neue
+> Abhängigkeit ([Basis-Referenz](UI-FOUNDATION-2026-11-01.md)). Weitere
+> Entscheidungen der Nacht: KI-Sterne nur neben dem Wort „KI", Formular-Nummern
+> über `StepNumber`, Toasts mit Aktion 4 s und ohne Auto-Schließen bei
+> Screenreader.
+
 Stand: `main` @ `138f0046` (#174). Flutter 3.47.2 lokal und in CI. Autor: UI-Agent 1 (Recherche und Brief, ohne Code-Änderung).
 Leser: Agent 2 (Basis-Schicht) und die Agents 3 bis 10 (Screens). Wer hier etwas anderes liest als im eigenen Auftrag, folgt diesem Brief. Fehlt etwas, steht es in eurem Bericht. Erfindet nichts.
 
