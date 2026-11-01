@@ -103,9 +103,24 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     splashFactory: NoSplash.splashFactory,
     splashColor: Colors.transparent,
     highlightColor: t.ink.withValues(alpha: 0.06),
+    // Keyboard focus and hover of rows and other plain InkWells: a fill
+    // change in the ink tone, never a ring (B12, UI polish 2026-11-01).
+    focusColor: t.ink.withValues(alpha: 0.10),
+    hoverColor: t.ink.withValues(alpha: 0.04),
     dividerColor: t.line,
     dividerTheme: DividerThemeData(color: t.line, thickness: 1, space: 1),
-    iconTheme: IconThemeData(color: t.ink2, size: 20),
+    // Variable icon axes for a family such as Material Symbols (see
+    // lib/src/theme/app_icons.dart): an open contour at regular weight, a
+    // lower grade on the dark ground; a 24 px glyph sets `opticalSize: 24`.
+    // The current Material Icons font ignores them.
+    iconTheme: IconThemeData(
+      color: t.ink2,
+      size: 20,
+      fill: 0,
+      weight: 400,
+      grade: t.iconGrade,
+      opticalSize: 20,
+    ),
     cardTheme: CardThemeData(
       color: t.surf,
       elevation: 0,
