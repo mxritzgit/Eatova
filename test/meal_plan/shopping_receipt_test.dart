@@ -849,6 +849,16 @@ void main() {
     receipt = _receipt([_plan(_own('100 g Reis'), 1, servings: 2)]);
     expect(_row(receipt, 'rice').total, isEmpty);
     expect(_row(receipt, 'rice').uses.single.scale, ShoppingScale.unknown);
+    // "Zutaten für 4 Portionen" stated in the sheet: two of four servings.
+    receipt = _receipt([
+      _plan(
+        _own('400 g Reis\n2 Eier').withIngredientsBasis(4),
+        1,
+        servings: 2,
+      ),
+    ]);
+    expect(_row(receipt, 'rice').total, [_a(ShoppingUnit.mass, 200)]);
+    expect(_row(receipt, 'egg').total, [_a(ShoppingUnit.piece, 1)]);
 
     // Computed amounts carry the locale's separator: "1,125" is a decimal.
     for (final separator in [',', '.']) {

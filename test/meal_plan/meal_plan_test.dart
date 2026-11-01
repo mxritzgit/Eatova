@@ -128,6 +128,24 @@ class _BrokenStorage extends InMemoryKeyValueStore {
   }
 }
 
+/// Records the planned-meal ids in every outbox write.
+class _OutboxLog extends InMemoryKeyValueStore {
+  final writes = <List<String>>[];
+
+  @override
+  Future<KeyValueCommit> writeBatch(Map<String, String?> changes,
+      {Map<String, int> expectedVersions = const {}}) {
+    final raw = changes['eatova.v1.outbox.A'];
+    if (raw != null) {
+      writes.add([
+        for (final op in (jsonDecode(raw) as Map)['items'] as List)
+          if (op['kind'] == 'mealPlanUpsert') op['entity_id'] as String,
+      ]);
+    }
+    return super.writeBatch(changes, expectedVersions: expectedVersions);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('snapshot preserves original recipe and rejects malformed plans', () {
@@ -375,6 +393,24 @@ void main() {
     expect(f.store.pendingOutbox, isEmpty);
   });
 
+  test('cooking ahead writes every day in one outbox commit', () async {
+    final raw = _OutboxLog();
+    final f = _Fixture(raw: raw);
+    await f.boot();
+    final days = [
+      for (var day = 12; day <= 14; day++)
+        plan().copyWith(day: DateTime(2026, 9, day)),
+    ];
+    raw.writes.clear();
+    await f.store.savePlannedMeals(days);
+    expect(raw.writes.first, unorderedEquals([for (final p in days) p.id]));
+    expect([for (final p in f.store.plannedMeals) p.day]..sort(), [
+      '2026-09-12',
+      '2026-09-13',
+      '2026-09-14',
+    ]);
+  });
+
   test(
     'historical cached plans do not exhaust the active planning limit',
     () async {
@@ -409,9 +445,16 @@ void main() {
         emitSnack: h.SnackCapture().call,
       );
       addTearDown(store.dispose);
-      for (var i = 0; i < kMaxOpenPlannedMeals; i++) {
+      for (var i = 0; i < kMaxOpenPlannedMeals - 1; i++) {
         await store.savePlannedMeal(plan());
       }
+      // Cooking ahead counts every new day: two do not fit into one place.
+      await expectLater(
+        store.savePlannedMeals([plan(), plan()]),
+        throwsA(isA<MealPlanLimitReached>()),
+      );
+      expect(store.plannedMeals, hasLength(kMaxOpenPlannedMeals - 1));
+      await store.savePlannedMeal(plan());
       await expectLater(
         store.savePlannedMeal(plan()),
         throwsA(isA<MealPlanLimitReached>()),
