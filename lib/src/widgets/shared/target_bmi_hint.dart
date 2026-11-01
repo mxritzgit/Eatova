@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../l10n/l10n.dart';
-import '../../theme/app_tokens.dart';
+import '../design/design.dart';
 
 // ---------------------------------------------------------------------------
 // Soft BMI hint for the target weight: a non-blocking note when the target
@@ -70,35 +70,11 @@ class TargetBmiHint extends StatelessWidget {
     );
     if (text == null) return const SizedBox.shrink();
 
-    final t = context.t;
-    return Container(
+    // The app's quiet boxed note: a hint, not a warning.
+    return Padding(
       key: const ValueKey('target-bmi-hint'),
-      width: double.infinity,
-      margin: margin,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: t.surf2,
-        borderRadius: BorderRadius.circular(rControl),
-        border: Border.all(color: t.line),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline_rounded, size: 15, color: t.ink2),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Text(
-              text,
-              style: AppType.ui(
-                12,
-                weight: FontWeight.w500,
-                color: t.ink2,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
+      padding: margin,
+      child: SignalNote(text, boxed: true),
     );
   }
 }

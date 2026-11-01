@@ -26,7 +26,7 @@ Future<void> reportAiOutput(
     showAppSnack(
       context,
       l10n.coachReportFailed,
-      icon: Icons.error_outline_rounded,
+      icon: AppIcons.error,
       tone: SnackTone.error,
       duration: kSnackError,
     );
@@ -50,7 +50,7 @@ Future<void> reportAiOutput(
     target == AiReportTarget.recipeImage
         ? l10n.coachReportImageDone
         : l10n.coachReportDone,
-    icon: Icons.flag_outlined,
+    icon: AppIcons.flag,
   );
 }
 
@@ -150,13 +150,13 @@ class _AiReportSheetState extends State<AiReportSheet> {
                     const SizedBox(height: 10),
                   ],
                   if (_failed)
-                    Semantics(
+                    SignalNote(
+                      l10n.coachReportFailed,
+                      key: const ValueKey('ai-report-error'),
+                      tone: t.danger,
+                      icon: AppIcons.error,
+                      boxed: true,
                       liveRegion: true,
-                      child: Text(
-                        l10n.coachReportFailed,
-                        key: const ValueKey('ai-report-error'),
-                        style: AppType.ui(13, color: t.danger, height: 1.4),
-                      ),
                     ),
                 ],
               ),
@@ -169,7 +169,7 @@ class _AiReportSheetState extends State<AiReportSheet> {
               label: _sending
                   ? l10n.coachReportSending
                   : l10n.coachReportSubmit,
-              icon: Icons.flag_outlined,
+              icon: AppIcons.flag,
               busy: _sending,
               onTap: _reason == null ? null : _submit,
             ),

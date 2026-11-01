@@ -6,6 +6,7 @@ import '../../models/fitness_recipe.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/persisted_labels.dart';
 import '../../theme/app_tokens.dart';
+import '../common/motion.dart';
 import '../design/design.dart';
 
 /// Readable value of one export field for the text report and the preview.
@@ -265,31 +266,38 @@ class _ExportSectionViewState extends State<ExportSectionView>
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.table_rows_outlined, color: t.accent, size: 22),
-                    const SizedBox(width: 12),
+                    const IconBadge(
+                      icon: AppIcons.tableRows,
+                      size: IconBadgeSize.sm,
+                      tone: IconBadgeTone.accent,
+                    ),
+                    const SizedBox(width: kRowLeadingGap),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             exportLabel(section.key, l10n),
-                            style: AppType.ui(
-                              15,
-                              weight: FontWeight.w700,
-                              color: t.ink,
-                            ),
+                            style: AppType.rowTitle(t.ink),
                           ),
                           const SizedBox(height: 3),
                           Text(
                             l10n.exportRecordCount(section.count),
-                            style: AppType.ui(12, color: t.ink2),
+                            style: AppType.subhead(t.ink2),
                           ),
                         ],
                       ),
                     ),
-                    Icon(
-                      _expanded ? Icons.expand_less : Icons.expand_more,
-                      color: t.ink2,
+                    // The disclosure turns rather than swaps its glyph.
+                    AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: motionDuration(context, kMotionValue),
+                      curve: kMotionCurve,
+                      child: Icon(
+                        AppIcons.expandMore,
+                        size: AppIconSize.standard,
+                        color: t.ink3,
+                      ),
                     ),
                   ],
                 ),
@@ -311,7 +319,7 @@ class _ExportSectionViewState extends State<ExportSectionView>
                         exportReadableValue(fields, path, value, l10n),
                   ),
                 ),
-                icon: Icons.copy_outlined,
+                icon: AppIcons.copy,
                 label: l10n.exportCopySection,
               ),
               SoftPillButton(
@@ -319,7 +327,7 @@ class _ExportSectionViewState extends State<ExportSectionView>
                 onTap: section.count == 0
                     ? null
                     : () => widget.onCopy(section.csv),
-                icon: Icons.grid_on_outlined,
+                icon: AppIcons.gridOn,
                 label: l10n.exportCopyCsv,
                 tone: SoftPillTone.neutral,
               ),
@@ -345,19 +353,22 @@ class _ExportSectionViewState extends State<ExportSectionView>
                     style: AppType.ui(12, color: t.ink2),
                   ),
                 ),
-                IconButton(
+                AppIconButton(
                   key: ValueKey('export-prev-${section.key}'),
-                  tooltip: l10n.exportPrevious,
-                  onPressed: _page == 0 ? null : () => setState(() => _page--),
-                  icon: const Icon(Icons.chevron_left),
+                  icon: AppIcons.chevronLeft,
+                  semanticLabel: l10n.exportPrevious,
+                  tone: IconButtonTone.plain,
+                  onTap: _page == 0 ? null : () => setState(() => _page--),
                 ),
-                IconButton(
+                const SizedBox(width: kSpace4),
+                AppIconButton(
                   key: ValueKey('export-next-${section.key}'),
-                  tooltip: l10n.exportNext,
-                  onPressed: end >= section.count
+                  icon: AppIcons.chevronRight,
+                  semanticLabel: l10n.exportNext,
+                  tone: IconButtonTone.plain,
+                  onTap: end >= section.count
                       ? null
                       : () => setState(() => _page++),
-                  icon: const Icon(Icons.chevron_right),
                 ),
               ],
             ),
