@@ -515,7 +515,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       showAppSnack(
         context,
         l10n.coachErrorNewSessionFailed,
-        icon: Icons.error_outline_rounded,
+        icon: AppIcons.error,
         tone: SnackTone.error,
         duration: kSnackError,
       );
@@ -530,7 +530,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     showAppSnack(
       context,
       context.l10n.coachErrorDeleteFailed,
-      icon: Icons.error_outline_rounded,
+      icon: AppIcons.error,
       tone: SnackTone.error,
       duration: kSnackError,
     );
@@ -1172,7 +1172,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           adopted.delivery,
           context.l10n,
         ),
-        icon: Icons.bookmark_added_rounded,
+        icon: AppIcons.filled(AppIcons.bookmarkAdded),
         action: openRecipe == null
             ? null
             : SnackBarAction(
@@ -1557,29 +1557,36 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         builder: (sheetContext) => SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                _AttachTile(
-                  key: const ValueKey('coach-camera'),
-                  icon: Icons.photo_camera_outlined,
-                  label: sheetContext.l10n.coachAttachCamera,
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _pickAndSendImage(ImageSource.camera);
-                  },
-                ),
-                const SizedBox(height: 6),
-                _AttachTile(
-                  key: const ValueKey('coach-gallery'),
-                  icon: Icons.photo_outlined,
-                  label: sheetContext.l10n.coachAttachGallery,
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _pickAndSendImage(ImageSource.gallery);
-                  },
+                SheetTitle(sheetContext.l10n.coachAttachSemanticLabel),
+                const SizedBox(height: kSpace16),
+                // Two actions: no chevron (ListTrailing.none).
+                ListSection(
+                  spacing: 0,
+                  children: <Widget>[
+                    ListRow(
+                      key: const ValueKey('coach-camera'),
+                      icon: AppIcons.photoCamera,
+                      title: sheetContext.l10n.coachAttachCamera,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _pickAndSendImage(ImageSource.camera);
+                      },
+                    ),
+                    ListRow(
+                      key: const ValueKey('coach-gallery'),
+                      icon: AppIcons.photoLibrary,
+                      title: sheetContext.l10n.coachAttachGallery,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _pickAndSendImage(ImageSource.gallery);
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1766,7 +1773,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                                       key: const ValueKey(
                                         'coach-limit-upgrade',
                                       ),
-                                      icon: Icons.auto_awesome_rounded,
+                                      icon: AppIcons.workspacePremium,
                                       label: context.l10n.planLimitUpgrade,
                                       onTap: () =>
                                           _openPremium(PremiumSource.coach),
@@ -2076,13 +2083,12 @@ class _UnsentNotice extends StatelessWidget {
       child: Wrap(
         alignment: WrapAlignment.end,
         crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 6,
         children: <Widget>[
           Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(Icons.error_outline_rounded, size: 13, color: t.warning),
-              const SizedBox(width: 5),
+              Icon(AppIcons.error, size: AppIconSize.meta, color: t.warning),
+              const SizedBox(width: 6),
               Flexible(
                 // Appears without focus moving: a live region, so a screen
                 // reader learns the question did not go out.
@@ -2091,51 +2097,24 @@ class _UnsentNotice extends StatelessWidget {
                   liveRegion: true,
                   child: Text(
                     l10n.coachMessageNotSent,
-                    style: AppType.ui(
-                      11.5,
-                      weight: FontWeight.w600,
-                      color: t.warning,
-                    ),
+                    style: AppType.caption(t.warning),
                   ),
                 ),
               ),
             ],
           ),
           if (canRetry)
-            Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(rPill),
-              child: InkWell(
-                key: const ValueKey('coach-unsent-retry'),
+            // The label ends on the bubbles' edge; the 48 px target reaches
+            // into the gutter (as in SectionHeading).
+            Transform.translate(
+              offset: const Offset(12, 0),
+              child: EatovaTextAction(
+                buttonKey: const ValueKey('coach-unsent-retry'),
+                label: l10n.coachMessageRetry,
+                icon: AppIcons.refresh,
+                iconSize: AppIconSize.meta,
+                textStyle: AppType.ui(12, weight: FontWeight.w700),
                 onTap: onRetry,
-                borderRadius: BorderRadius.circular(rPill),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(
-                        Icons.refresh_rounded,
-                        size: 14,
-                        color: t.accentText,
-                      ),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(
-                          l10n.coachMessageRetry,
-                          style: AppType.ui(
-                            11.5,
-                            weight: FontWeight.w700,
-                            color: t.accentText,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
             ),
         ],
@@ -2152,11 +2131,11 @@ class _UnsentNotice extends StatelessWidget {
 /// nothing. Hence a number-free line and NO bar: an empty bar reads as spent,
 /// a full one as free, and both would be a claim.
 ///
-/// The C8 disclosure part is deliberately identical to the twin and uses the
-/// same l10n keys. Merging them needs a nullable snapshot in
-/// [_CoachInfoSheet]'s signature (a change in `coach_composer.dart`) and is
-/// still open. Until then `test/coach_ai_disclosure_test.dart` checks BOTH
-/// versions against the same key list, so an unmirrored edit turns red.
+/// The C8 disclosure part is shared with the twin ([_coachInfoDisclosure]).
+/// Merging the sheets themselves needs a nullable snapshot in
+/// [_CoachInfoSheet]'s signature and is still open; until then
+/// `test/coach_ai_disclosure_test.dart` checks BOTH versions against the same
+/// key list.
 class _CoachInfoSheetUnbekannt extends StatelessWidget {
   const _CoachInfoSheetUnbekannt({this.premiumLimit, this.onUpgrade});
 
@@ -2181,41 +2160,13 @@ class _CoachInfoSheetUnbekannt extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              SheetTitle(l10n.coachTitle),
-              const SizedBox(height: 6),
-              Text(
-                l10n.coachInfoIntro,
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 18),
-              _InfoLabel(l10n.coachInfoDataLabel),
-              const SizedBox(height: 8),
-              _InfoBullet(l10n.coachInfoBulletWeight),
-              _InfoBullet(l10n.coachInfoBulletMacros),
-              _InfoBullet(l10n.coachInfoBulletMeals),
-              _InfoBullet(l10n.coachInfoBulletPlan),
-              _InfoBullet(l10n.foodPrefsCoachInfoBullet),
-              const SizedBox(height: 12),
-              Text(
-                l10n.coachInfoProvider,
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                l10n.coachReportHint,
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 20),
-              Container(height: 1, color: t.line),
-              const SizedBox(height: 18),
-              _InfoLabel(l10n.coachInfoLimitLabel),
-              const SizedBox(height: 6),
+              ..._coachInfoDisclosure(context),
               Text(
                 l10n.coachInfoLimitUnknown(
                   coachQuotaResetLabel(l10n.localeName),
                 ),
                 key: const ValueKey('coach-info-limit-unbekannt'),
-                style: AppType.ui(13, color: t.ink2, height: 1.45),
+                style: AppType.callout(t.ink2),
               ),
               if (premiumLimit case final limit?)
                 _InfoPremium(limit: limit, onUpgrade: onUpgrade),

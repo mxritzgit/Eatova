@@ -52,7 +52,7 @@ class _RecipeProposalCard extends StatelessWidget {
         if (bytes == null && pictureLocked)
           SoftPillButton(
             key: const ValueKey('coach-recipe-picture-locked'),
-            icon: Icons.image_outlined,
+            icon: AppIcons.image,
             label: l10n.coachRecipePictureLocked,
             tone: SoftPillTone.neutral,
             expand: true,
@@ -121,7 +121,7 @@ class _RecipeProposalCard extends StatelessWidget {
           PrimaryActionButton(
             key: const ValueKey('coach-recipe-add'),
             label: l10n.coachRecipeAddButton,
-            icon: Icons.bookmark_add_outlined,
+            icon: AppIcons.bookmarkAdd,
             onTap: enabled ? onAdd : null,
           ),
       ],
@@ -174,7 +174,7 @@ class _ProposalEyebrow extends StatelessWidget {
   final IconData icon;
   final String label;
 
-  static const double _glyph = 16;
+  static const double _glyph = AppIconSize.small;
   static const double _lineHeight = 1.25;
 
   @override
@@ -229,7 +229,12 @@ class _ProposalDone extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.check_circle_rounded, size: 20, color: t.accentText),
+          StateIcon(
+            AppIcons.checkCircle,
+            on: true,
+            size: AppIconSize.standard,
+            color: t.accentText,
+          ),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
@@ -287,11 +292,8 @@ class _AiImageBadgeOverlay extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(
-                Icons.image_outlined,
-                size: 12,
-                color: t.onForest,
-              ),
+              // The AI origin mark, right next to the word "KI"/"AI".
+              Icon(AppIcons.aiMark, size: AppIconSize.meta, color: t.onForest),
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
@@ -410,7 +412,7 @@ class _RecipeAddSheet extends StatelessWidget {
                       if (proposal.portion.trim().isNotEmpty) ...<Widget>[
                         const SizedBox(height: 12),
                         RecipeSectionCard(
-                          icon: Icons.restaurant_rounded,
+                          icon: AppIcons.restaurant,
                           title: l10n.recipesSectionPortion,
                           child: RecipeParagraph(
                             text: proposal.portion,
@@ -421,7 +423,7 @@ class _RecipeAddSheet extends StatelessWidget {
                       if (proposal.ingredients.trim().isNotEmpty) ...<Widget>[
                         const SizedBox(height: 12),
                         RecipeSectionCard(
-                          icon: Icons.shopping_basket_outlined,
+                          icon: AppIcons.shoppingBasket,
                           title: l10n.recipesSectionIngredients,
                           child: RecipeIngredientLines(
                             text: proposal.ingredients,
@@ -431,7 +433,7 @@ class _RecipeAddSheet extends StatelessWidget {
                       if (proposal.preparation.trim().isNotEmpty) ...<Widget>[
                         const SizedBox(height: 12),
                         RecipeSectionCard(
-                          icon: Icons.soup_kitchen_outlined,
+                          icon: AppIcons.soupKitchen,
                           title: l10n.recipesSectionPreparation,
                           child: RecipePreparationSteps(
                             text: proposal.preparation,
@@ -447,14 +449,16 @@ class _RecipeAddSheet extends StatelessWidget {
               PrimaryActionButton(
                 key: const ValueKey('coach-recipe-sheet-confirm'),
                 label: l10n.coachRecipeSheetConfirm,
-                icon: Icons.bookmark_add_outlined,
+                icon: AppIcons.bookmarkAdd,
                 onTap: () => Navigator.of(context).pop(true),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: kSpace8),
+              // A dismissal under the lit action: quiet, as tall and wide.
               SoftPillButton(
                 label: l10n.commonCancel,
                 onTap: () => Navigator.of(context).pop(false),
-                tone: SoftPillTone.neutral,
+                tone: SoftPillTone.quiet,
+                size: SoftPillSize.regular,
                 expand: true,
               ),
             ],
@@ -491,12 +495,12 @@ String coachRecipeTargetLine(CoachDayBrief brief, AppLocalizations l10n) {
 /// menu, its visibility check and the hero chips read. The tokens are English
 /// in both app languages.
 enum _CoachCommand {
-  recipe('/recipe', Icons.restaurant_rounded),
-  plan('/plan', Icons.fitness_center_rounded),
-  log('/log', Icons.playlist_add_check_rounded),
+  recipe('/recipe', AppIcons.restaurant),
+  plan('/plan', AppIcons.fitnessCenter),
+  log('/log', AppIcons.playlistAddCheck),
 
   /// Opens the describe sheet instead of asking the coach (2026-10-22).
-  meal('/meal', Icons.edit_note_rounded);
+  meal('/meal', AppIcons.editNote);
 
   const _CoachCommand(this.token, this.icon);
 
@@ -613,7 +617,7 @@ class _CommandSuggestion extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Icon(icon, size: 20, color: t.accentText),
+                Icon(icon, size: AppIconSize.standard, color: t.accentText),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -625,7 +629,7 @@ class _CommandSuggestion extends StatelessWidget {
                             ? '$command, $description'
                             : null,
                         style: AppType.ui(
-                          13.5,
+                          14,
                           weight: FontWeight.w700,
                           color: t.accentText,
                         ),

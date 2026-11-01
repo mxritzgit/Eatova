@@ -192,24 +192,28 @@ class _DayLogCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           // Wrap: two pills do not fit side by side in German or at large
-          // text sizes; the second one moves to its own line.
+          // text sizes; the second one moves to its own line. The main
+          // question is the start state's one lit action (the card's compact
+          // primary, hugging its label); the other one is a quiet alternative.
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: kSpace8,
+            runSpacing: kSpace8,
             children: <Widget>[
-              _CardPill(
-                key: const ValueKey('coach-log-primary'),
-                label: _label(brief.primaryAction, l10n),
-                primary: true,
-                onTap: enabled
-                    ? () => onAsk(_prompt(brief.primaryAction, l10n))
-                    : null,
+              IntrinsicWidth(
+                child: PrimaryActionButton(
+                  key: const ValueKey('coach-log-primary'),
+                  label: _label(brief.primaryAction, l10n),
+                  height: kButtonMinHeight,
+                  onTap: enabled
+                      ? () => onAsk(_prompt(brief.primaryAction, l10n))
+                      : null,
+                ),
               ),
               if (secondary != null)
-                _CardPill(
+                SoftPillButton(
                   key: const ValueKey('coach-log-secondary'),
                   label: _label(secondary, l10n),
-                  primary: false,
+                  tone: SoftPillTone.neutral,
                   onTap: enabled ? () => onAsk(_prompt(secondary, l10n)) : null,
                 ),
             ],
@@ -315,73 +319,10 @@ TextSpan _emphasized(String text, List<String> strong, TextStyle strongStyle) {
   return TextSpan(children: parts);
 }
 
-/// The card's pill: accent fill for the main question, a tonal pill for the
-/// other one. 44 px tall like the design; disabled pills fade out.
-class _CardPill extends StatelessWidget {
-  const _CardPill({
-    super.key,
-    required this.label,
-    required this.primary,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool primary;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(rPill),
-    );
-    return Semantics(
-      button: true,
-      enabled: onTap != null,
-      child: Opacity(
-        opacity: onTap == null ? 0.45 : 1,
-        child: Material(
-          color: primary ? t.accentFill : t.surf2,
-          shape: shape,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            customBorder: shape,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 44),
-              // Shrink-wrapped, but centred in the 44 px minimum.
-              child: Align(
-                widthFactor: 1,
-                heightFactor: 1,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: AppType.ui(
-                      14,
-                      weight: primary ? FontWeight.w800 : FontWeight.w700,
-                      color: primary ? t.onAccentFill : t.ink,
-                      height: 1.2,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// "Try asking": the coach's commands as chips, so they are discoverable
-/// without typing "/". `/recipe` and `/log` prepare the composer, `/plan`
-/// opens the training brief and `/meal` the describe sheet — exactly what
-/// the command menu does.
+/// "Try asking": the coach's commands as suggestion chips (never selected),
+/// so they are discoverable without typing "/".
+/// `/recipe` and `/log` prepare the composer, `/plan` opens the training
+/// brief and `/meal` the describe sheet — exactly what the command menu does.
 class _TryAsking extends StatelessWidget {
   const _TryAsking({required this.enabled, required this.onCommand});
 
@@ -421,68 +362,23 @@ class _TryAsking extends StatelessWidget {
           child: Row(
             children: <Widget>[
               for (final command in _CoachCommand.values) ...<Widget>[
-                if (command.index > 0) const SizedBox(width: 8),
-                _TryChip(
-                  key: ValueKey('coach-try-${command.name}'),
-                  label: command.tryLabel(l10n),
-                  onTap: enabled ? () => onCommand(command.token) : null,
+                if (command.index > 0) const SizedBox(width: kSpace8),
+                // Its own node: a disabled chip has no action and would
+                // otherwise melt into the row's scroll node.
+                Semantics(
+                  container: true,
+                  child: FilterChipPill(
+                    key: ValueKey('coach-try-${command.name}'),
+                    label: command.tryLabel(l10n),
+                    selected: false,
+                    onTap: enabled ? () => onCommand(command.token) : null,
+                  ),
                 ),
               ],
             ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _TryChip extends StatelessWidget {
-  const _TryChip({super.key, required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final shape = StadiumBorder(side: BorderSide(color: t.lineStrong));
-    return Semantics(
-      button: true,
-      enabled: onTap != null,
-      child: Opacity(
-        opacity: onTap == null ? 0.45 : 1,
-        child: Material(
-          color: t.surf,
-          shape: shape,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            customBorder: shape,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 44),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      label,
-                      style: AppType.ui(
-                        13,
-                        weight: FontWeight.w600,
-                        color: t.inkSoft,
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Icon(Icons.north_east_rounded, size: 14, color: t.ink3),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

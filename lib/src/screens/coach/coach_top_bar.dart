@@ -57,14 +57,14 @@ class _CoachTopBar extends StatelessWidget {
     final buttons = <Widget>[
       HeaderIconButton(
         key: const ValueKey('coach-sessions-open'),
-        icon: Icons.history_rounded,
+        icon: AppIcons.history,
         onTap: onSessionsTap,
         semanticLabel: l10n.coachSessionsSemanticLabel,
       ),
       const SizedBox(width: 8),
       HeaderIconButton(
         key: const ValueKey('coach-info'),
-        icon: Icons.info_outline_rounded,
+        icon: AppIcons.info,
         onTap: onInfoTap,
         semanticLabel: l10n.coachInfoSemanticLabel,
       ),

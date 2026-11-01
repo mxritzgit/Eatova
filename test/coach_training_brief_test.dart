@@ -263,7 +263,7 @@ void main() {
     ) async {
       final outcome = await _open(tester);
       bool enabled(String key) =>
-          tester.widget<InkWell>(_key(key)).onTap != null;
+          tester.widget<AppIconButton>(_key(key)).onTap != null;
       for (var i = 0; i < 6; i++) {
         await _tap(tester, 'coach-brief-sessions-inc');
       }
@@ -285,11 +285,11 @@ void main() {
         await _tap(tester, 'coach-brief-minutes-dec');
       }
       expect(
-        tester.widget<InkWell>(_key('coach-brief-sessions-dec')).onTap,
+        tester.widget<AppIconButton>(_key('coach-brief-sessions-dec')).onTap,
         isNull,
       );
       expect(
-        tester.widget<InkWell>(_key('coach-brief-minutes-dec')).onTap,
+        tester.widget<AppIconButton>(_key('coach-brief-minutes-dec')).onTap,
         isNull,
       );
       final sent = await _send(tester, outcome);
