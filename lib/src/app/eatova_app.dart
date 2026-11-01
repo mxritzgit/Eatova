@@ -32,6 +32,7 @@ import 'ai_trust.dart';
 import 'auth_gate.dart';
 import 'eatova_home_page.dart';
 import 'locale_controller.dart';
+import 'platform_route_guard.dart';
 import 'subscription.dart';
 
 class EatovaApp extends StatefulWidget {
@@ -106,7 +107,7 @@ class EatovaApp extends StatefulWidget {
   State<EatovaApp> createState() => _EatovaAppState();
 }
 
-class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
+class _EatovaAppState extends State<EatovaApp> {
   late final ThemeModeController _themeMode;
   late final bool _eigenerController;
   late final LocaleController _locale;
@@ -124,10 +125,6 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
     super.initState();
     _recipeInbox = RecipeImportInbox(widget.recipeShareReceiver ?? RecipeShareReceiver());
     unawaited(_recipeInbox.start());
-    // Deeplink route guard (Audit 2026-08-14): must register here, above the
-    // MaterialApp — the observer order is the whole trick, see
-    // [didPushRouteInformation].
-    WidgetsBinding.instance.addObserver(this);
     _eigenerController = widget.themeModeController == null;
     _themeMode = widget.themeModeController ?? ThemeModeController();
     if (_eigenerController) {
@@ -146,32 +143,22 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _recipeInbox.dispose();
     if (_eigenerController) _themeMode.dispose();
     if (_eigenerLocale) _locale.dispose();
     super.dispose();
   }
 
-  /// Swallows every platform route push (Audit 2026-08-14).
-  ///
-  /// The BROWSABLE intent filter lets any app send `eatova://…`, which Android
-  /// also replays as a route name. This app has no named routes, so the failed
-  /// `pushNamed` would let an attacker flood Sentry remotely. `onUnknownRoute`
-  /// can only redirect a push, not cancel it, so the guard sits above the
-  /// Navigator: observers are asked in registration order and `true` ends
-  /// delivery. The real OAuth return runs over `app_links` and is unaffected.
-  @override
-  Future<bool> didPushRouteInformation(RouteInformation routeInformation) =>
-      Future<bool>.value(true);
-
   @override
   Widget build(BuildContext context) {
     final repository = widget.authRepository ?? defaultAuthRepository();
 
-    final app = ListenableBuilder(
-      listenable: Listenable.merge([_themeMode, _locale]),
-      builder: (context, _) => _buildApp(context, repository),
+    // Deeplink route guard (Audit 2026-08-14), above the MaterialApp.
+    final app = PlatformRouteGuard(
+      child: ListenableBuilder(
+        listenable: Listenable.merge([_themeMode, _locale]),
+        builder: (context, _) => _buildApp(context, repository),
+      ),
     );
     // Above the MaterialApp: the AI entry points open sheets and routes on
     // the root Navigator, which must reach the account's consent too.

@@ -8,6 +8,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'src/app/eatova_app.dart';
 import 'src/app/locale_controller.dart';
+import 'src/app/platform_route_guard.dart';
 import 'src/config/supabase_config.dart';
 import 'src/l10n/l10n.dart';
 import 'src/services/app_shortcuts.dart';
@@ -169,8 +170,13 @@ class _BootErrorApp extends StatelessWidget {
   /// The error itself is already reported via CrashReporter.capture.
   final bool showDetails;
 
+  // Same deeplink route guard as the app: without it every `eatova://` link
+  // throws "Could not find a generator for route" on this screen.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PlatformRouteGuard(child: _buildApp(context));
+
+  Widget _buildApp(BuildContext context) {
     // Theme tokens instead of hardcoded colors, so this screen follows the
     // device's light or dark mode. The stored mode is not read here: boot
     // failed before anything else could be trusted. Safe: `buildEatovaTheme`

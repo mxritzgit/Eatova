@@ -9,21 +9,24 @@
 // find a generator for route", which reaches Sentry via the global handlers.
 // No data loss, but an attacker could flood the error budget remotely.
 //
-// Checked on two levels:
+// Checked on three levels:
 //
 //   1. Counter-check: the same route still throws on a bare `MaterialApp`.
 //      Otherwise the test could stay green because the route is no longer
 //      delivered at all, guarding nothing.
 //   2. `EatovaApp` swallows it silently: no exception, no navigator entry,
 //      no lost visible state.
+//   3. So does the boot error screen, its own `MaterialApp`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:eatova/main.dart' show buildBootErrorApp;
 import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 
 /// The route name Android builds from the attack deeplink: `onNewIntent`
 /// passes path + query + fragment to the navigation channel.
@@ -146,6 +149,25 @@ void main() {
         reason: 'Nichts wurde auf den Navigationsstapel gelegt — und nichts '
             'davon genommen.',
       );
+    },
+  );
+
+  testWidgets(
+    'Auch der Startfehler-Bildschirm schluckt die Deeplink-Route',
+    (tester) async {
+      // Shown before the app shell exists; a link arriving now must not
+      // reach Sentry either.
+      await tester.pumpWidget(
+        buildBootErrorApp(StateError('boot'), showDetails: false),
+      );
+      await tester.pumpAndSettle();
+
+      final uebernommen = await _plattformSchicktRoute(tester, _angriffsRoute);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(uebernommen, isTrue);
+      expect(find.text(enL10n.bootErrorTitle), findsOneWidget);
     },
   );
 
