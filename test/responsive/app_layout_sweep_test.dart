@@ -12,9 +12,10 @@
 // German and English, light and dark — plus tablet and landscape windows,
 // where pages must stay in a readable column (see ReadableWidth).
 //
-// Export and camera/barcode flows need sync or hardware and are covered by
-// their own suites (export_analysis_design_test.dart, meal_camera_sheet_test
-// .dart, barcode_* tests).
+// Export, recipe history and camera/barcode flows need sync or hardware and
+// are covered by their own suites (export_analysis_design_test.dart,
+// recipe_history_screen_test.dart, meal_camera_sheet_test.dart, barcode_*
+// tests).
 
 import 'dart:async';
 
