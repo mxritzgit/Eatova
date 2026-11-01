@@ -39,7 +39,7 @@ class _RecipeListTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              if (!stacked) ...[photo, const SizedBox(width: 14)],
+              if (!stacked) ...[photo, const SizedBox(width: kRowLeadingGap)],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -61,8 +61,14 @@ class _RecipeListTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded, size: 20, color: t.ink2),
+              const SizedBox(width: kSpace8),
+              // The list rows' disclosure: 20 px in `ink3`, quieter than the
+              // figures beside it.
+              Icon(
+                AppIcons.chevronRight,
+                size: AppIconSize.standard,
+                color: t.ink3,
+              ),
             ],
           ),
         ),
@@ -86,7 +92,7 @@ class _RecipeOwnEmptyState extends StatelessWidget {
     return CalmState(
       key: const ValueKey('recipes-own-empty'),
       card: true,
-      icon: Icons.menu_book_rounded,
+      icon: AppIcons.menuBook,
       title: l.recipesOwnEmptyTitle,
       text: l.recipesOwnEmptyBody,
       actions: [actions],
@@ -109,7 +115,7 @@ class _RecipeNoResultState extends StatelessWidget {
     return CalmState(
       key: const ValueKey('recipes-no-result'),
       card: true,
-      icon: Icons.search_off_rounded,
+      icon: AppIcons.searchOff,
       title: l.recipesNoResultTitle,
       text: l.recipesNoResultBody,
       actions: [
@@ -120,8 +126,8 @@ class _RecipeNoResultState extends StatelessWidget {
                 ? l.recipesSearchClearTooltip
                 : l.recipesNoResultShowAll,
             icon: hasQuery
-                ? Icons.close_rounded
-                : Icons.restaurant_menu_rounded,
+                ? AppIcons.close
+                : AppIcons.restaurantMenu,
             onTap: reset,
           ),
       ],

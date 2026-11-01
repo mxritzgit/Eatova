@@ -273,7 +273,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
         result.delivery ?? SyncDelivery.delivered,
         context.l10n,
       ),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
     return true;
   }
@@ -288,7 +288,11 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
       origin: origin,
     );
     if (!mounted || outcome != TextShareOutcome.copied) return;
-    showAppSnack(context, l10n.recipesCopied, icon: Icons.check_circle_rounded);
+    showAppSnack(
+      context,
+      l10n.recipesCopied,
+      icon: AppIcons.filled(AppIcons.checkCircle),
+    );
   }
 
   /// The cooking mode for [steps], with the ingredients as this detail shows
@@ -408,7 +412,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
     return true;
   }
@@ -449,6 +453,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   child: _AddToMealCard(
                     recipe: recipe,
                     onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
+                    floating: true,
                   ),
                 ),
               ),
@@ -471,11 +476,13 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   backKey: const ValueKey('recipe-detail-back'),
                   onBack: () => Navigator.of(context).pop(),
                   trailing: onDelete == null
-                      // Counterweight to the back button, so the title centres.
-                      ? const SizedBox(width: 34)
-                      : SquareIconButton(
+                      // Counterweight to the back button: the title keeps
+                      // the same width with or without delete.
+                      ? const SizedBox(width: HeaderIconButton.size)
+                      // Round and as large as the back button.
+                      : AppIconButton(
                           key: const ValueKey('recipe-detail-delete'),
-                          icon: Icons.delete_outline_rounded,
+                          icon: AppIcons.delete,
                           semanticLabel: l10n.recipesDeleteSemantics,
                           onTap: !_canUseRecipe
                               ? null
@@ -502,7 +509,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     SoftPillButton(
                       key: const ValueKey('recipe-edit-refresh-result'),
                       onTap: () => _saveHandle?.refresh(),
-                      icon: Icons.refresh_rounded,
+                      icon: AppIcons.refresh,
                       label: l10n.commonBootUnansweredRetry,
                     ),
                   ],
@@ -577,24 +584,29 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     ],
                   ),
                 ),
-                if (recipe.avoidedFoods(widget.avoidances).isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  RecipeAvoidHint(recipe: recipe, avoided: widget.avoidances),
-                ],
-                if (recipe.displayCategories.length > 1) ...[
+                // The status notes under the hero, one row: what the recipe
+                // contains that the user avoids, then its further categories.
+                if (recipe.avoidedFoods(widget.avoidances).isNotEmpty ||
+                    recipe.displayCategories.length > 1) ...[
                   const SizedBox(height: 14),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
+                      if (recipe.avoidedFoods(widget.avoidances).isNotEmpty)
+                        RecipeAvoidHint(
+                          recipe: recipe,
+                          avoided: widget.avoidances,
+                        ),
                       for (final category in recipe.displayCategories.skip(1))
-                        _CategoryPill(label: recipeCategoryLabel(category, l10n)),
+                        StatusPill(label: recipeCategoryLabel(category, l10n)),
                     ],
                   ),
                 ],
                 const SizedBox(height: 14),
                 // One row of soft pills; at large text they wrap. Copying
-                // is always there, so the row is too.
+                // is always there, so the row is too. Cooking is the one
+                // tonal accent; the others are quiet alternatives.
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -604,15 +616,16 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                       SoftPillButton(
                         key: const ValueKey('recipe-detail-cook'),
                         onTap: () => _cook(steps, ingredients),
-                        icon: Icons.soup_kitchen_outlined,
+                        icon: AppIcons.soupKitchen,
                         label: l10n.cookingModeStart,
                       ),
                     if (widget.onEdit != null && recipe.userCreated)
                       SoftPillButton(
                         key: const ValueKey('recipe-detail-edit'),
                         onTap: _canUseRecipe ? _edit : null,
-                        icon: Icons.edit_outlined,
+                        icon: AppIcons.edit,
                         label: l10n.recipeEditTitle,
+                        tone: SoftPillTone.neutral,
                       ),
                     if (widget.onPlan case final plan?)
                       SoftPillButton(
@@ -621,14 +634,15 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                                 widget.isSessionCurrent?.call() != false
                             ? () => plan(context, recipe)
                             : null,
-                        icon: Icons.event_note_outlined,
+                        icon: AppIcons.eventNote,
                         label: l10n.mealPlanAddRecipe,
+                        tone: SoftPillTone.neutral,
                       ),
                     Builder(
                       builder: (button) => SoftPillButton(
                         key: const ValueKey('recipe-detail-share'),
                         onTap: () => _share(shareOriginOf(button)),
-                        icon: Icons.ios_share_rounded,
+                        icon: AppIcons.iosShare,
                         label: l10n.shareTextAction,
                         tone: SoftPillTone.neutral,
                       ),
@@ -648,7 +662,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                                   Navigator.pop(context);
                                 }
                               },
-                        icon: Icons.history_rounded,
+                        icon: AppIcons.history,
                         label: l10n.recipeHistoryTitle,
                       ),
                   ],
@@ -684,7 +698,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                 // same before and after it is saved.
                 RecipeSectionCard(
                   key: const ValueKey('recipe-detail-portion'),
-                  icon: Icons.restaurant_rounded,
+                  icon: AppIcons.restaurant,
                   title: l10n.recipesSectionPortion,
                   child: RecipeParagraph(
                     text: recipe.hasStructuredIngredients
@@ -696,7 +710,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                 const SizedBox(height: 12),
                 RecipeSectionCard(
                   key: const ValueKey('recipe-detail-ingredients'),
-                  icon: Icons.shopping_basket_outlined,
+                  icon: AppIcons.shoppingBasket,
                   title: l10n.recipesSectionIngredients,
                   child: RecipeIngredientLines(
                     hint: ingredients.hint,
@@ -706,7 +720,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                 const SizedBox(height: 12),
                 RecipeSectionCard(
                   key: const ValueKey('recipe-detail-preparation'),
-                  icon: Icons.soup_kitchen_outlined,
+                  icon: AppIcons.soupKitchen,
                   title: l10n.recipesSectionPreparation,
                   child: RecipePreparationSteps(
                     hint: l10n.recipeDetailPreparationHint,
@@ -717,7 +731,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                 const SizedBox(height: 12),
                 RecipeSectionCard(
                   key: const ValueKey('recipe-detail-pro-hint'),
-                  icon: Icons.lightbulb_outline_rounded,
+                  icon: AppIcons.lightbulb,
                   title: l10n.recipesSectionProHint,
                   highlight: true,
                   child: RecipeParagraph(
@@ -735,57 +749,76 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
 }
 
 class _AddToMealCard extends StatelessWidget {
-  const _AddToMealCard({required this.recipe, required this.onTap});
+  const _AddToMealCard({
+    required this.recipe,
+    required this.onTap,
+    this.floating = false,
+  });
   final FitnessRecipe recipe;
   final VoidCallback? onTap;
+
+  /// Pinned over the scrolling recipe: a lit surface lifted by its shadow,
+  /// not a hairline card of the flow (depth and light).
+  final bool floating;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l = context.l10n;
+    const key = ValueKey('recipe-add-card');
+    const padding = EdgeInsets.all(16);
     // A calm card: the accent lives on the one primary action only.
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          _recipeSummary(recipe, l),
+          style: AppType.ui(13, color: t.ink2),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        PrimaryActionButton(
+          key: const ValueKey('recipe-add-button'),
+          onTap: onTap,
+          icon: recipe.hasPendingNutrition
+              ? AppIcons.factCheck
+              : AppIcons.add,
+          label: recipe.hasPendingNutrition
+              ? recipe.hasMissingNutrition
+                  ? recipe.nutritionConflicts.isNotEmpty ? l.recipeNutritionCorrect : l.recipeNutritionComplete
+                  : l.recipeNutritionBasisCheck
+              : l.recipesAddToTrackerTitle,
+        ),
+        const SizedBox(height: 10),
+        Text(
+          recipe.hasPendingNutrition
+              ? recipe.hasMissingNutrition
+                  ? recipe.nutritionReviewHint(l)
+                  : l.recipeNutritionBasisBeforeLog
+              : l.recipesAddToTrackerHint,
+          textAlign: TextAlign.center,
+          style: AppType.ui(12, color: t.ink2, height: 1.4),
+        ),
+      ],
+    );
+    if (floating) {
+      return LitSurface(
+        key: key,
+        radius: rCard,
+        padding: padding,
+        child: content,
+      );
+    }
     return Container(
-      key: const ValueKey('recipe-add-card'),
-      padding: const EdgeInsets.all(16),
+      key: key,
+      padding: padding,
       decoration: BoxDecoration(
         color: t.surf,
         borderRadius: BorderRadius.circular(rCard),
         border: Border.all(color: t.cardBorder),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            _recipeSummary(recipe, l),
-            style: AppType.ui(13, color: t.ink2),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          PrimaryActionButton(
-            key: const ValueKey('recipe-add-button'),
-            onTap: onTap,
-            icon: recipe.hasPendingNutrition
-                ? Icons.fact_check_outlined
-                : Icons.add_rounded,
-            label: recipe.hasPendingNutrition
-                ? recipe.hasMissingNutrition
-                    ? recipe.nutritionConflicts.isNotEmpty ? l.recipeNutritionCorrect : l.recipeNutritionComplete
-                    : l.recipeNutritionBasisCheck
-                : l.recipesAddToTrackerTitle,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            recipe.hasPendingNutrition
-                ? recipe.hasMissingNutrition
-                    ? recipe.nutritionReviewHint(l)
-                    : l.recipeNutritionBasisBeforeLog
-                : l.recipesAddToTrackerHint,
-            textAlign: TextAlign.center,
-            style: AppType.ui(12, color: t.ink2, height: 1.4),
-          ),
-        ],
-      ),
+      child: content,
     );
   }
 }
@@ -893,7 +926,7 @@ class _NutritionTile extends StatelessWidget {
       AppType.display(22, weight: FontWeight.w700, color: t.ink);
 
   static TextStyle labelStyle(AppTokens t) =>
-      AppType.eyebrow(t.ink, size: 10.5);
+      AppType.eyebrow(t.ink);
 
   @override
   Widget build(BuildContext context) {

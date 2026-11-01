@@ -867,7 +867,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(kcal, pick.slot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
       // Only a suggestion has an inverse; the plan conversion has none.
       action: added == null || undo == null || id == null
           ? null
@@ -909,7 +909,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
     return true;
   }
@@ -1016,7 +1016,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     showAppSnack(
       context,
       deliveryHint(context.l10n.recipeHistoryRestored, delivery, context.l10n),
-      icon: Icons.restore_rounded,
+      icon: AppIcons.restore,
     );
     return true;
   }
@@ -1066,7 +1066,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
       l10n.commonDeliverySuccess(
         l10n.recipesDeletedSuccess(recipe.displayTitle(l10n)),
       ),
-      icon: Icons.delete_outline_rounded,
+      icon: AppIcons.delete,
       tone: SnackTone.error,
       action: SnackBarAction(
         label: l10n.commonUndo,
@@ -1120,7 +1120,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ausgang,
         context.l10n,
       ),
-      icon: Icons.delete_outline_rounded,
+      icon: AppIcons.delete,
       tone: SnackTone.error,
     );
   }
@@ -1177,7 +1177,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
         ausgang,
         context.l10n,
       ),
-      icon: Icons.bookmark_added_rounded,
+      icon: AppIcons.filled(AppIcons.bookmarkAdded),
     );
   }
 
@@ -1317,7 +1317,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                 child: SoftPillButton(
                   key: const ValueKey('recipe-history-open'),
                   onTap: () => _openHistory(),
-                  icon: Icons.history_rounded,
+                  icon: AppIcons.history,
                   label: l10n.recipeHistoryTitle,
                   tone: SoftPillTone.neutral,
                 ),

@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../models/number_input.dart';
 import '../../models/recipe_ingredient.dart';
 import '../../services/fallback_product_service.dart';
+import '../../services/kcal_format.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
@@ -76,7 +77,7 @@ class RecipeIngredientEditor extends StatelessWidget {
         SoftPillButton(
           key: const ValueKey('ingredient-add'),
           label: t.ingredientAdd,
-          icon: Icons.add_rounded,
+          icon: AppIcons.add,
           expand: true,
           onTap: ingredients.length < RecipeIngredient.maxIngredients
               ? () => _edit(context)
@@ -122,11 +123,13 @@ class _IngredientRow extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(
-                  text: '$kcal',
-                  style: AppType.ui(15, weight: FontWeight.w700, color: t.ink)
-                      .copyWith(
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                  text: formatThousands(kcal, l10n.localeName),
+                  style: AppType.ui(
+                    15,
+                    weight: FontWeight.w700,
+                    color: t.ink,
+                    tabular: true,
+                  ),
                 ),
                 TextSpan(
                   text: ' kcal',
@@ -156,7 +159,7 @@ class _IngredientRow extends StatelessWidget {
                 Text(
                   '${_numberText(ingredient.grams, l10n)} g',
                   style: AppType.ui(
-                    12.5,
+                    13,
                     weight: FontWeight.w500,
                     color: t.ink3,
                   ),
@@ -184,49 +187,23 @@ class _IngredientRow extends StatelessWidget {
             value,
           ],
           const SizedBox(width: 6),
-          _RoundIconButton(
+          // Actions inside a row: plain discs that fill only under a finger.
+          AppIconButton(
             buttonKey: editKey,
-            tooltip: l10n.ingredientEdit,
-            icon: Icons.edit_rounded,
-            onPressed: onEdit,
+            semanticLabel: l10n.ingredientEdit,
+            icon: AppIcons.edit,
+            tone: IconButtonTone.plain,
+            onTap: onEdit,
           ),
-          _RoundIconButton(
+          AppIconButton(
             buttonKey: removeKey,
-            tooltip: l10n.ingredientRemove,
-            icon: Icons.close_rounded,
-            onPressed: onRemove,
+            semanticLabel: l10n.ingredientRemove,
+            icon: AppIcons.close,
+            tone: IconButtonTone.plain,
+            onTap: onRemove,
           ),
         ],
       ),
-    );
-  }
-}
-
-/// Round edit/remove button of an ingredient row: the quiet [softFill] disc
-/// (the neutral soft pill's fill), which holds on the white light-mode card
-/// where `surf2` faded to 1.05:1.
-class _RoundIconButton extends StatelessWidget {
-  const _RoundIconButton({
-    required this.buttonKey,
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final Key buttonKey;
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return IconButton(
-      key: buttonKey,
-      tooltip: tooltip,
-      onPressed: onPressed,
-      style: IconButton.styleFrom(backgroundColor: t.softFill),
-      icon: Icon(icon, size: 18, color: t.inkMuted),
     );
   }
 }
@@ -260,7 +237,7 @@ class _ProductResultRow extends StatelessWidget {
     final value = kcal == null
         ? Text(
             l10n.ingredientUnknown,
-            style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink3),
+            style: AppType.ui(13, weight: FontWeight.w600, color: t.ink3),
           )
         : Column(
             crossAxisAlignment: stacked
@@ -268,10 +245,12 @@ class _ProductResultRow extends StatelessWidget {
                 : CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
             children: [
-              MealKcalValue(number: '${kcal.round()}'),
+              MealKcalValue(
+                number: formatThousands(kcal.round(), l10n.localeName),
+              ),
               Text(
                 l10n.foodManualPer100GSuffix,
-                style: AppType.ui(11.5, color: t.ink3),
+                style: AppType.ui(12, color: t.ink3),
               ),
             ],
           );
@@ -311,7 +290,7 @@ class _ProductResultRow extends StatelessWidget {
                         Text(
                           brand,
                           style: AppType.ui(
-                            12.5,
+                            13,
                             weight: FontWeight.w500,
                             color: t.ink3,
                           ),
@@ -538,7 +517,7 @@ class _IngredientSheetState extends State<_IngredientSheet> {
   }) => SoftPillButton(
     key: const ValueKey('ingredient-manual'),
     label: context.l10n.ingredientManual,
-    icon: Icons.edit_rounded,
+    icon: AppIcons.edit,
     tone: tone,
     expand: expand,
     onTap: _enterManually,
@@ -559,8 +538,8 @@ class _IngredientSheetState extends State<_IngredientSheet> {
       child: Row(
         children: [
           Icon(
-            Icons.search_rounded,
-            size: scaledWidth(context, 20),
+            AppIcons.search,
+            size: scaledWidth(context, AppIconSize.standard),
             color: _queryFocus.hasFocus ? t.accentText : t.ink2,
           ),
           const SizedBox(width: 12),
@@ -598,20 +577,12 @@ class _IngredientSheetState extends State<_IngredientSheet> {
               ),
             ),
           ),
-          IconButton(
-            key: const ValueKey('ingredient-search-submit'),
-            tooltip: l10n.ingredientSearch,
-            onPressed: canSearch ? _search : null,
-            style: IconButton.styleFrom(
-              backgroundColor: t.accentTint,
-              disabledBackgroundColor: t.accentTint,
-              foregroundColor: t.accentText,
-              disabledForegroundColor: t.accentText.withValues(alpha: 0.45),
-              fixedSize: const Size.square(40),
-              minimumSize: const Size.square(40),
-              padding: EdgeInsets.zero,
-            ),
-            icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+          AppIconButton(
+            buttonKey: const ValueKey('ingredient-search-submit'),
+            semanticLabel: l10n.ingredientSearch,
+            icon: AppIcons.arrowForward,
+            tone: IconButtonTone.accent,
+            onTap: canSearch ? _search : null,
           ),
         ],
       ),
@@ -664,12 +635,12 @@ class _IngredientSheetState extends State<_IngredientSheet> {
       return [
         CalmState(
           key: const ValueKey('ingredient-search-error'),
-          icon: Icons.cloud_off_rounded,
+          icon: AppIcons.cloudOff,
           text: l10n.ingredientSearchError,
           actions: [
             SoftPillButton(
               key: const ValueKey('ingredient-search-retry'),
-              icon: Icons.refresh_rounded,
+              icon: AppIcons.refresh,
               label: l10n.foodAnalysisRetryButton,
               onTap: _query.text.trim().length >= 2 ? _search : null,
             ),
@@ -682,7 +653,7 @@ class _IngredientSheetState extends State<_IngredientSheet> {
       return [
         CalmState(
           key: const ValueKey('ingredient-search-empty'),
-          icon: Icons.search_off_rounded,
+          icon: AppIcons.searchOff,
           text: l10n.ingredientNoResults,
           actions: [_manualPill(tone: SoftPillTone.accent)],
         ),
@@ -776,7 +747,7 @@ class _IngredientSheetState extends State<_IngredientSheet> {
         const SizedBox(height: 12),
         SoftPillButton(
           label: t.commonCancel,
-          tone: SoftPillTone.neutral,
+          tone: SoftPillTone.quiet,
           expand: true,
           onTap: () => Navigator.of(context).pop(),
         ),

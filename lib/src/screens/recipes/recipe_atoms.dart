@@ -58,7 +58,7 @@ class _CalculatedNutrition extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(top: 2),
-            child: Icon(icon, size: 16, color: color),
+            child: Icon(icon, size: AppIconSize.small, color: color),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -130,14 +130,14 @@ class _CalculatedNutrition extends StatelessWidget {
             note(
               l10n.recipeEditIncompleteNutrition,
               t.ink2,
-              Icons.info_outline_rounded,
+              AppIcons.info,
               key: const ValueKey('recipe-nutrition-incomplete'),
             ),
           if (!calculation.fitsStorageLimits)
             note(
               l10n.recipeEditNutritionTooLarge,
               t.danger,
-              Icons.error_outline_rounded,
+              AppIcons.error,
             ),
         ],
       ),
@@ -175,28 +175,4 @@ String recipeCategoryLabel(String category, AppLocalizations l10n) {
     recipeNutritionBasisPendingCategory => l10n.recipeNutritionBasisCheck,
     _ => category,
   };
-}
-
-/// Compact category pill of the detail view. Always [AppTokens.accent]:
-/// macro colors are reserved for nutrient values by the token contract.
-class _CategoryPill extends StatelessWidget {
-  const _CategoryPill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: t.tile,
-        borderRadius: BorderRadius.circular(rChip),
-      ),
-      child: Text(
-        label,
-        style: AppType.ui(10.5, weight: FontWeight.w600, color: t.accent),
-      ),
-    );
-  }
 }

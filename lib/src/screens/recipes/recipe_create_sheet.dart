@@ -337,7 +337,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     showAppSnack(
       context,
       text,
-      icon: Icons.error_outline_rounded,
+      icon: AppIcons.error,
       tone: SnackTone.error,
     );
   }
@@ -800,22 +800,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 children: [
                   if (!compact &&
                       MediaQuery.textScalerOf(context).scale(14) <= 18) ...[
-                    ExcludeSemantics(
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: t.accentTint,
-                          borderRadius: BorderRadius.circular(rChip),
-                        ),
-                        child: Icon(
-                          Icons.menu_book_rounded,
-                          color: t.accentText,
-                          size: 21,
-                        ),
-                      ),
+                    const IconBadge(
+                      icon: AppIcons.menuBook,
+                      size: IconBadgeSize.lg,
+                      tone: IconBadgeTone.accent,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: kSpace12),
                   ],
                   Expanded(
                     child: HeadingSemantics(
@@ -1123,7 +1113,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                       _saveError!,
                       key: const ValueKey('recipe-edit-save-error'),
                       tone: t.danger,
-                      icon: Icons.error_outline_rounded,
+                      icon: AppIcons.error,
                       boxed: true,
                     ),
                     const SizedBox(height: 10),
@@ -1138,35 +1128,16 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   ],
                   // `onTap == null` is the disabled signal the tests read
                   // (recipe_create_sheet_test casts to PrimaryActionButton).
-                  // While the photo or the recipe is written, a spinner sits
-                  // at the button's end instead of the check.
-                  Stack(
-                    alignment: Alignment.centerRight,
-                    children: [
-                      PrimaryActionButton(
-                        key: const ValueKey('recipe-create-save'),
-                        onTap: _isValid && !_saving && !_photoBusy
-                            ? _save
-                            : null,
-                        icon: _saving ? null : Icons.check_rounded,
-                        label: widget.nutritionOnly ? l10n.recipeNutritionApplyDraft : widget.initialRecipe != null
-                            ? l10n.recipeEditSave
-                            : l10n.recipesSaveButtonLabel,
-                      ),
-                      if (_saving)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 20),
-                          child: IgnorePointer(
-                            child: SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: t.onAccentFill.withValues(alpha: 0.8),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+                  // While the recipe is written the button stays lit with
+                  // its spinner in place of the check.
+                  PrimaryActionButton(
+                    key: const ValueKey('recipe-create-save'),
+                    onTap: _isValid && !_saving && !_photoBusy ? _save : null,
+                    busy: _saving,
+                    icon: AppIcons.check,
+                    label: widget.nutritionOnly ? l10n.recipeNutritionApplyDraft : widget.initialRecipe != null
+                        ? l10n.recipeEditSave
+                        : l10n.recipesSaveButtonLabel,
                   ),
                 ],
               ),
@@ -1323,11 +1294,15 @@ class _RecipePreviewCard extends StatelessWidget {
         Text.rich(
           TextSpan(
             children: [
-              TextSpan(text: kcal == null ? '–' : '$kcal'),
+              TextSpan(
+                text: kcal == null
+                    ? '–'
+                    : formatThousands(kcal!, l10n.localeName),
+              ),
               TextSpan(
                 text: ' kcal · ${l10n.recipesPerPortion}',
                 style: AppType.ui(
-                  12.5,
+                  12,
                   weight: FontWeight.w500,
                   color: t.ink3,
                 ),
@@ -1420,7 +1395,7 @@ class _PreviewMacro extends StatelessWidget {
 
   static TextStyle labelStyle(BuildContext context, {required bool known}) =>
       AppType.ui(
-        12.5,
+        12,
         weight: FontWeight.w600,
         color: known ? context.t.ink2 : context.t.ink3,
         height: 1.35,
@@ -1504,9 +1479,10 @@ class _RecipeCategoryPicker extends StatelessWidget {
   }
 }
 
-/// A switch as a soft card row: title, optional explanation and the app's
-/// [AppToggle]. The whole card toggles; [MergeSemantics] makes it one node
-/// that announces the title and the toggled state, like a SwitchListTile.
+/// A switch on its own card: the app's toggle [ListRow] (title, optional
+/// explanation, [AppToggle]) in a one-row [ListSection]. The whole row
+/// toggles and is one node that announces the title and the toggled state,
+/// like a SwitchListTile.
 class _SheetToggleRow extends StatelessWidget {
   const _SheetToggleRow({
     required this.rowKey,
@@ -1523,59 +1499,20 @@ class _SheetToggleRow extends StatelessWidget {
   final ValueChanged<bool> onChanged;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return MergeSemantics(
-      child: Material(
-        color: t.surf,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rTile),
-          side: BorderSide(color: t.cardBorder),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: rowKey,
-          onTap: () => onChanged(!value),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 64),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          style: AppType.ui(
-                            15,
-                            weight: FontWeight.w600,
-                            color: t.ink,
-                            height: 1.35,
-                          ),
-                        ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            subtitle!,
-                            style: AppType.ui(13, color: t.ink2, height: 1.4),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  AppToggle(value: value, onChanged: onChanged),
-                ],
-              ),
-            ),
-          ),
-        ),
+  Widget build(BuildContext context) => ListSection(
+    spacing: 0,
+    inset: ListDividerInset.edge,
+    children: [
+      ListRow(
+        key: rowKey,
+        title: title,
+        subtitle: subtitle,
+        trailing: ListTrailing.toggle,
+        toggled: value,
+        onToggle: onChanged,
       ),
-    );
-  }
+    ],
+  );
 }
 
 /// Photo group: preview and explanation side by side, Camera and Gallery as
@@ -1701,7 +1638,7 @@ class _RecipePhotoPicker extends StatelessWidget {
             children: [
               SoftPillButton(
                 key: const ValueKey('recipe-create-photo-camera'),
-                icon: Icons.photo_camera_outlined,
+                icon: AppIcons.photoCamera,
                 label: l10n.recipesCameraAction,
                 tone: SoftPillTone.neutral,
                 expand: true,
@@ -1709,7 +1646,7 @@ class _RecipePhotoPicker extends StatelessWidget {
               ),
               SoftPillButton(
                 key: const ValueKey('recipe-create-photo-gallery'),
-                icon: Icons.photo_library_outlined,
+                icon: AppIcons.photoLibrary,
                 label: l10n.recipesGalleryAction,
                 tone: SoftPillTone.neutral,
                 expand: true,
@@ -1739,13 +1676,10 @@ class _AddPhotoTile extends StatelessWidget {
         key: const ValueKey('recipe-create-photo-empty'),
         // softFill, not surfWell: the well vanished on the white light card.
         color: t.softFill,
-        child: Center(
-          child: IconTile(
-            icon: Icons.add_a_photo_outlined,
-            color: t.accent,
-            size: 36,
-            glyphSize: 18,
-            radius: rChip,
+        child: const Center(
+          child: IconBadge(
+            icon: AppIcons.addAPhoto,
+            tone: IconBadgeTone.accent,
           ),
         ),
       ),
@@ -1801,8 +1735,8 @@ class _PhotoRemoveBadge extends StatelessWidget {
                       boxShadow: softShadow(t),
                     ),
                     child: Icon(
-                      Icons.close_rounded,
-                      size: 14,
+                      AppIcons.close,
+                      size: AppIconSize.meta,
                       color: enabled ? t.ink2 : t.inkDisabled,
                     ),
                   ),
@@ -2019,7 +1953,7 @@ class _RecipeSheetField extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             errorText!,
-            style: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
+            style: AppType.ui(12, weight: FontWeight.w500, color: t.danger),
           ),
         ],
       ],

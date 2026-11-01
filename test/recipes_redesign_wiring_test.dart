@@ -358,14 +358,14 @@ void main() {
         expect(
           find.descendant(
             of: _key('recipe-hero-kcal'),
-            matching: find.text('${pick.kcal}'),
+            matching: find.text('${pick.kcal} kcal'),
           ),
           findsOneWidget,
         );
         expect(
           find.descendant(
             of: _key('recipe-hero-protein'),
-            matching: find.text('${pick.proteinG} g'),
+            matching: find.text('${pick.proteinG} g protein'),
           ),
           findsOneWidget,
         );
@@ -528,7 +528,7 @@ void main() {
         expect(
           find.descendant(
             of: _key('recipe-hero-kcal'),
-            matching: find.text('${pick.kcal}'),
+            matching: find.text('${pick.kcal} kcal'),
           ),
           findsOneWidget,
         );
@@ -576,7 +576,7 @@ void main() {
         expect(
           find.descendant(
             of: _key('recipe-hero-kcal'),
-            matching: find.text('—'),
+            matching: find.text('— kcal'),
           ),
           findsOneWidget,
         );
@@ -639,7 +639,7 @@ void main() {
         expect(
           find.descendant(
             of: _key('recipe-hero-kcal'),
-            matching: find.text('${pick.kcal}'),
+            matching: find.text('${pick.kcal} kcal'),
           ),
           findsOneWidget,
         );
@@ -1103,7 +1103,7 @@ void main() {
       expect(
         find.descendant(
           of: _key('recipe-hero-kcal'),
-          matching: find.text('${best.caloriesKcal}'),
+          matching: find.text('${best.caloriesKcal} kcal'),
         ),
         findsOneWidget,
       );

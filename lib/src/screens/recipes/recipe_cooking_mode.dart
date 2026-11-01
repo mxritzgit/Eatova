@@ -416,7 +416,7 @@ class _CookingModeScreenState extends State<CookingModeScreen>
         key: const ValueKey('cooking-leave-dialog'),
         title: l.cookingModeLeaveTitle(_running),
         body: l.cookingModeLeaveBody,
-        icon: Icons.timer_outlined,
+        icon: AppIcons.timer,
         confirmKey: const ValueKey('cooking-leave-confirm'),
         confirmLabel: l.cookingModeLeave,
         cancelKey: const ValueKey('cooking-leave-stay'),
@@ -493,16 +493,22 @@ class _CookingModeScreenState extends State<CookingModeScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  padding: const EdgeInsets.fromLTRB(
+                    kPageGutter,
+                    kSpace8,
+                    kPageGutter,
+                    0,
+                  ),
                   child: Row(
                     children: [
-                      SquareIconButton(
+                      // The pushed pages' round 44 px header buttons.
+                      AppIconButton(
                         key: const ValueKey('cooking-close'),
-                        icon: Icons.close_rounded,
+                        icon: AppIcons.close,
                         semanticLabel: l.cookingModeLeave,
                         onTap: () => Navigator.of(context).maybePop(),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: kSpace8),
                       Expanded(
                         child: HeadingSemantics(
                           level: 1,
@@ -510,17 +516,21 @@ class _CookingModeScreenState extends State<CookingModeScreen>
                             l.cookingModeStepOf(_page + 1, count),
                             key: const ValueKey('cooking-step-title'),
                             textAlign: TextAlign.center,
+                            // Never larger than the step it names.
+                            textScaler: MediaQuery.textScalerOf(
+                              context,
+                            ).clamp(maxScaleFactor: _stepMaxScale),
                             style: AppType.display(20, color: t.ink),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: kSpace8),
                       if (widget.ingredients.trim().isEmpty)
-                        const SizedBox(width: 44)
+                        const SizedBox(width: HeaderIconButton.size)
                       else
-                        SquareIconButton(
+                        AppIconButton(
                           key: const ValueKey('cooking-ingredients'),
-                          icon: Icons.shopping_basket_outlined,
+                          icon: AppIcons.shoppingBasket,
                           semanticLabel: l.cookingModeShowIngredients,
                           onTap: _showIngredients,
                         ),
@@ -543,8 +553,8 @@ class _CookingModeScreenState extends State<CookingModeScreen>
                           SoftPillButton(
                             key: ValueKey('cooking-timer-elsewhere-$slot'),
                             icon: timer.up
-                                ? Icons.alarm_on_rounded
-                                : Icons.timer_outlined,
+                                ? AppIcons.notificationsActive
+                                : AppIcons.timer,
                             label: l.cookingTimerOtherStep(
                               timer.step + 1,
                               timer.up ? l.cookingTimerUp : _clockOf(timer),
@@ -581,28 +591,57 @@ class _CookingModeScreenState extends State<CookingModeScreen>
   Widget _stepPage(BuildContext context, int step) {
     final t = context.t;
     final l = context.l10n;
+    // 24 px is large text already: at 1.5x it outgrows body text at the
+    // app's 2x cap and still leaves a few words per line.
+    final scaler = MediaQuery.textScalerOf(
+      context,
+    ).clamp(maxScaleFactor: _stepMaxScale);
+    final style = AppType.ui(
+      24,
+      weight: FontWeight.w500,
+      color: t.ink,
+      height: 1.45,
+    );
+    final text = Text(widget.steps[step], textScaler: scaler, style: style);
+    // The detail's step number, so the page reads as that step enlarged.
+    // Beside the first line while the text is at most 1.25x; above it
+    // beyond, where every word of width counts.
+    const number = 32.0;
+    final line = scaler.scale(24) * style.height!;
+    final Widget body = scaler.scale(24) <= 30
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: (line - number) / 2),
+                child: StepNumber(step + 1, size: number),
+              ),
+              const SizedBox(width: kSpace12),
+              Expanded(child: text),
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              StepNumber(step + 1, size: number),
+              const SizedBox(height: kSpace12),
+              text,
+            ],
+          );
     return SingleChildScrollView(
       key: ValueKey('cooking-step-$step'),
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+      padding: const EdgeInsets.fromLTRB(
+        kPageGutter,
+        kSpace24,
+        kPageGutter,
+        kSpace24,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.steps[step],
-            // 24 px is large text already: at 1.5x it outgrows body text at
-            // the app's 2x cap and still leaves a few words per line.
-            textScaler: MediaQuery.textScalerOf(
-              context,
-            ).clamp(maxScaleFactor: _stepMaxScale),
-            style: AppType.ui(
-              24,
-              weight: FontWeight.w500,
-              color: t.ink,
-              height: 1.45,
-            ),
-          ),
+          body,
           for (final (index, length) in _stepTimers[step].indexed) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: kSpace16),
             if (_timers[_slot(step, index)] case final timer?)
               _TimerCard(
                 key: ValueKey('cooking-timer-${_slot(step, index)}'),
@@ -618,7 +657,7 @@ class _CookingModeScreenState extends State<CookingModeScreen>
             else
               SoftPillButton(
                 key: ValueKey('cooking-timer-start-${_slot(step, index)}'),
-                icon: Icons.timer_outlined,
+                icon: AppIcons.timer,
                 label: cookingDurationText(length, l),
                 semanticLabel: l.cookingTimerStartLabel(
                   cookingDurationText(length, l),
@@ -634,12 +673,13 @@ class _CookingModeScreenState extends State<CookingModeScreen>
   Widget _footer(BuildContext context) {
     final l = context.l10n;
     final last = _page == widget.steps.length - 1;
-    final back = SoftPillButton(
+    // Back is the way out of the flow, not its action: a large round button
+    // beside the one lit step forward, which takes the width.
+    final back = AppIconButton(
       key: const ValueKey('cooking-back'),
-      icon: Icons.chevron_left_rounded,
-      label: l.cookingModeBack,
-      tone: SoftPillTone.neutral,
-      expand: true,
+      icon: AppIcons.chevronLeft,
+      semanticLabel: l.cookingModeBack,
+      size: IconButtonSize.large,
       onTap: _page == 0 ? null : () => _go(_page - 1),
     );
     final forward = !last
@@ -651,30 +691,24 @@ class _CookingModeScreenState extends State<CookingModeScreen>
         : widget.onEat != null
         ? PrimaryActionButton(
             key: const ValueKey('cooking-eat'),
-            icon: Icons.check_rounded,
+            icon: AppIcons.check,
             label: l.cookingModeEat,
             busy: _eating,
             onTap: _eat,
           )
         : PrimaryActionButton(
             key: const ValueKey('cooking-done'),
-            icon: Icons.check_rounded,
+            icon: AppIcons.check,
             label: l.cookingModeDone,
             onTap: () => Navigator.of(context).maybePop(),
           );
-    // Large text stacks the two, so neither label breaks inside a word.
-    if (MediaQuery.textScalerOf(context).scale(15) > 22) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [forward, const SizedBox(height: 8), back],
-      );
-    }
+    // The label wraps between words at large text; the round button keeps
+    // its size, so the pair never has to stack.
     return Row(
       children: [
-        Expanded(flex: 2, child: back),
-        const SizedBox(width: 12),
-        Expanded(flex: 3, child: forward),
+        back,
+        const SizedBox(width: kSpace12),
+        Expanded(child: forward),
       ],
     );
   }
@@ -741,9 +775,14 @@ class _TimerCard extends StatelessWidget {
     final t = context.t;
     final l = context.l10n;
     final ink = up ? t.accentText : t.ink;
+    // Glyph plus gap: the lines under the countdown start where it does.
+    const textColumn = AppIconSize.tile + kSpace12;
+    // A text action pads its label by 12; pulled in by that, the label
+    // lines up with the note's text.
+    const actionInset = AppIconSize.small + kSpace8 - 12;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(kSpace16),
       decoration: BoxDecoration(
         color: up ? t.accentTint : t.surf,
         borderRadius: BorderRadius.circular(rTile),
@@ -755,48 +794,71 @@ class _TimerCard extends StatelessWidget {
           Row(
             children: [
               Icon(
-                up ? Icons.alarm_on_rounded : Icons.timer_outlined,
-                size: 22,
+                up ? AppIcons.notificationsActive : AppIcons.timer,
+                size: AppIconSize.tile,
                 color: ink,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: kSpace12),
               Flexible(
                 child: Text(
                   up ? l.cookingTimerUp : clock,
-                  style: AppType.display(30, color: ink),
+                  style: AppType.numeric(
+                    30,
+                    weight: FontWeight.w800,
+                    color: ink,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(length, style: AppType.ui(14, color: t.ink2)),
-          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(
+              start: textColumn,
+              top: 2,
+            ),
+            child: Text(length, style: AppType.callout(t.ink2)),
+          ),
+          const SizedBox(height: kSpace16),
           SoftPillButton(
             key: const ValueKey('cooking-timer-clear'),
-            icon: up ? Icons.check_rounded : Icons.stop_rounded,
+            icon: up ? AppIcons.check : AppIcons.stop,
             label: up ? l.cookingTimerDismiss : l.cookingTimerStop,
             semanticLabel: up ? null : l.cookingTimerStopLabel(length),
             tone: up ? SoftPillTone.accent : SoftPillTone.neutral,
             onTap: onClear,
           ),
           if (onAlertsOff case final turnOn? when !up) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: kSpace16),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.notifications_off_outlined, size: 16, color: t.ink2),
-                const SizedBox(width: 8),
+                Padding(
+                  // Centred on the note's first line (13 px at 1.35).
+                  padding: const EdgeInsets.only(top: 1),
+                  child: Icon(
+                    AppIcons.notificationsOff,
+                    size: AppIconSize.small,
+                    color: t.ink2,
+                  ),
+                ),
+                const SizedBox(width: kSpace8),
                 Expanded(
                   child: Text(
                     l.cookingAlertsOff,
-                    style: AppType.ui(13, color: t.ink2),
+                    style: AppType.subhead(t.ink2),
                   ),
                 ),
               ],
             ),
-            EatovaTextAction(
-              buttonKey: const ValueKey('cooking-alerts-on'),
-              label: askAlerts ? l.cookingAlertsTurnOn : l.cookingAlertsSettings,
-              onTap: turnOn,
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: actionInset),
+              child: EatovaTextAction(
+                buttonKey: const ValueKey('cooking-alerts-on'),
+                label: askAlerts
+                    ? l.cookingAlertsTurnOn
+                    : l.cookingAlertsSettings,
+                onTap: turnOn,
+              ),
             ),
           ],
         ],
