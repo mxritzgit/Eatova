@@ -3,61 +3,7 @@ part of 'meal_plan_screen.dart';
 // The shopping list as a receipt: a paper slip with torn edges, dashed
 // rules, one row per ingredient for the whole week with its own check and
 // the days behind it, spices and staples in a collapsed section, totals, a
-// stamp once everything is bought, and the empty state.
-
-/// The shopping list before anything is planned for the week.
-class _ShoppingEmpty extends StatelessWidget {
-  const _ShoppingEmpty({super.key, required this.onPlan});
-
-  final VoidCallback onPlan;
-
-  @override
-  Widget build(BuildContext context) {
-    final l = context.l10n;
-    final t = context.t;
-    return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: t.accentTint,
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: Icon(
-              Icons.shopping_basket_outlined,
-              size: 22,
-              color: t.accentText,
-            ),
-          ),
-          const SizedBox(height: 14),
-          HeadingSemantics(
-            level: 2,
-            child: Text(
-              l.mealPlanShoppingEmptyHeading,
-              style: AppType.display(19, weight: FontWeight.w700, color: t.ink),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            l.mealPlanShoppingEmpty,
-            style: AppType.ui(14, color: t.ink2, height: 1.45),
-          ),
-          const SizedBox(height: 16),
-          SoftPillButton(
-            key: const ValueKey('shopping-empty-plan'),
-            label: l.mealPlanAdd,
-            icon: Icons.add_rounded,
-            onTap: onPlan,
-          ),
-        ],
-      ),
-    );
-  }
-}
+// stamp once everything is bought, and the note on recipes without a list.
 
 /// Side inset of everything printed on the receipt.
 const double _kReceiptInset = 20;
@@ -315,7 +261,7 @@ class _ReceiptCheck extends StatelessWidget {
         ),
       ),
       child: checked
-          ? Icon(Icons.check_rounded, size: size * .75, color: t.onSelected)
+          ? Icon(AppIcons.check, size: size * .75, color: t.onSelected)
           : null,
     );
   }
@@ -669,7 +615,7 @@ class _PantryToggle extends StatelessWidget {
                         duration: motionDuration(context, kMotionEnter),
                         curve: kMotionCurve,
                         child: Icon(
-                          Icons.expand_more_rounded,
+                          AppIcons.expandMore,
                           size: math.min(
                             MediaQuery.textScalerOf(context).scale(20),
                             30,
@@ -696,7 +642,8 @@ class _PantryToggle extends StatelessWidget {
 }
 
 /// Planned recipes without an ingredient list, named once under the rows
-/// with their weekday; a screen reader hears the full weekday.
+/// with their weekday: the app's own note on the paper, not a printed line.
+/// A screen reader hears the full weekday.
 class _EmptyRecipesNote extends StatelessWidget {
   const _EmptyRecipesNote({
     super.key,
@@ -719,23 +666,21 @@ class _EmptyRecipesNote extends StatelessWidget {
     // A node of its own, so a screen reader stops on the note.
     return Semantics(
       container: true,
+      label: l.mealPlanNoIngredientsNote(recipes.length, names(full.format)),
+      excludeSemantics: true,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
           _kReceiptInset,
-          spaced ? 10 : 0,
+          spaced ? kSpace12 : 0,
           _kReceiptInset,
           0,
         ),
-        child: Text(
+        child: SignalNote(
           l.mealPlanNoIngredientsNote(
             recipes.length,
             names((day) => todayWeekdayShort(day, l)),
           ),
-          semanticsLabel: l.mealPlanNoIngredientsNote(
-            recipes.length,
-            names(full.format),
-          ),
-          style: AppType.ui(13.5, color: context.t.ink2, height: 1.4),
+          boxed: true,
         ),
       ),
     );
@@ -743,7 +688,8 @@ class _EmptyRecipesNote extends StatelessWidget {
 }
 
 /// Under [_EmptyRecipesNote]: one link per recipe to its read-only detail,
-/// where the missing list can be checked.
+/// where the missing list can be checked; a recipe glyph on a tonal capsule
+/// flush with the note's edge.
 class _EmptyRecipeLink extends StatelessWidget {
   const _EmptyRecipeLink({
     super.key,
@@ -757,9 +703,7 @@ class _EmptyRecipeLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final t = context.t;
     final day = DateTime.parse(recipe.day);
-    final label = '${recipe.title} (${todayWeekdayShort(day, l)})';
     return Semantics(
       container: true,
       button: true,
@@ -767,44 +711,21 @@ class _EmptyRecipeLink extends StatelessWidget {
       hint: l.mealPlanOpenRecipe,
       onTap: onTap,
       excludeSemantics: true,
-      child: InkWell(
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: _kReceiptInset,
-              vertical: 8,
-            ),
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
-              widthFactor: 1,
-              // The chevron follows the last word, also when it wraps.
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(text: '$label '),
-                    WidgetSpan(
-                      alignment: PlaceholderAlignment.middle,
-                      child: Icon(
-                        Icons.chevron_right_rounded,
-                        size: math.min(
-                          MediaQuery.textScalerOf(context).scale(18),
-                          28,
-                        ),
-                        color: t.accentText,
-                      ),
-                    ),
-                  ],
-                ),
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w600,
-                  color: t.accentText,
-                  height: 1.4,
-                ),
-              ),
-            ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          _kReceiptInset,
+          kSpace8,
+          _kReceiptInset,
+          0,
+        ),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          widthFactor: 1,
+          child: EatovaTextAction(
+            label: '${recipe.title} (${todayWeekdayShort(day, l)})',
+            icon: AppIcons.menuBook,
+            capsule: true,
+            onTap: onTap,
           ),
         ),
       ),
@@ -858,10 +779,7 @@ class _ReceiptHeading extends StatelessWidget {
                   ],
                   if (note != null) ...[
                     const SizedBox(height: 4),
-                    Text(
-                      note!,
-                      style: AppType.ui(12.5, color: t.ink3, height: 1.4),
-                    ),
+                    Text(note!, style: AppType.subhead(t.ink3)),
                   ],
                 ],
               ),
@@ -1021,7 +939,7 @@ class _ReceiptStamp extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.check_rounded, size: 18, color: t.success),
+          Icon(AppIcons.check, size: AppIconSize.button, color: t.success),
           const SizedBox(width: 6),
           Text(
             text.toUpperCase(),
