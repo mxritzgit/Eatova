@@ -2595,6 +2595,8 @@
   },
   "mealPlanServings": "Portionen",
   "mealPlanServingsError": "Gib 0,1 bis 100 Portionen ein.",
+  "mealPlanCookAheadLabel": "Vorkochen: auch an diesen Tagen",
+  "mealPlanCookAheadHint": "Jeder gewählte Tag bekommt einen eigenen Eintrag mit diesen Portionen.",
   "mealPlanSaved": "Gespeichert.",
   "mealPlanSavedOffline": "Auf diesem Gerät gespeichert. Wird später synchronisiert.",
   "mealPlanSaveError": "Nicht gespeichert. Prüfe deine Verbindung oder den Gerätespeicher und versuche es erneut.",

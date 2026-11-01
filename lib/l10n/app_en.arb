@@ -2536,6 +2536,8 @@
   },
   "mealPlanServings": "Servings",
   "mealPlanServingsError": "Enter 0.1 to 100 servings.",
+  "mealPlanCookAheadLabel": "Cook ahead: also on these days",
+  "mealPlanCookAheadHint": "Each chosen day gets its own entry with these servings.",
   "mealPlanSaved": "Saved.",
   "mealPlanSavedOffline": "Saved on this device. Will sync later.",
   "mealPlanSaveError": "Not saved. Check your connection or device storage and try again.",

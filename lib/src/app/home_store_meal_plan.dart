@@ -19,36 +19,52 @@ mixin _HomeStoreMealPlanPart
     }
   }
 
-  Future<SyncDelivery> savePlannedMeal(PlannedMeal plan) => _serializeMealPlan(
-    () async {
-      _ensureMealPlanActive();
-      final validated = PlannedMeal.fromJson(plan.toJson());
+  Future<SyncDelivery> savePlannedMeal(PlannedMeal plan) =>
+      savePlannedMeals([plan]);
+
+  /// Saves [plans] in one local commit, all or none, e.g. one recipe cooked
+  /// ahead for several days. The open-plan limit counts every new plan.
+  Future<SyncDelivery> savePlannedMeals(
+    List<PlannedMeal> plans,
+  ) => _serializeMealPlan(() async {
+    _ensureMealPlanActive();
+    final validated = [
+      for (final plan in plans) PlannedMeal.fromJson(plan.toJson()),
+    ];
+    if (validated.isEmpty ||
+        {for (final plan in validated) plan.id}.length != validated.length) {
+      throw ArgumentError.value(plans, 'plans', 'Empty or repeated ids');
+    }
+    var added = 0;
+    for (final plan in validated) {
       final existing = _plannedMeals.where((p) => p.id == plan.id).firstOrNull;
-      if (validated.isEaten || existing?.isEaten == true) {
+      if (plan.isEaten || existing?.isEaten == true) {
         throw const MealPlanAlreadyEaten();
       }
-      final activeSince = localDayKey(
-        clock.now().subtract(const Duration(days: 35)),
-      );
-      if (existing == null &&
-          _plannedMeals
-                  .where(
-                    (p) =>
-                        !p.removed &&
-                        !p.isEaten &&
-                        p.day.compareTo(activeSince) >= 0,
-                  )
-                  .length >=
-              kMaxOpenPlannedMeals) {
-        throw const MealPlanLimitReached();
-      }
-      return _commitSyncIntents(
-        [SyncOp.mealPlanUpsert(validated)],
-        notifyQueued: false,
-        publish: () => _putPlannedMeal(validated),
-      );
-    },
-  );
+      if (existing == null) added++;
+    }
+    final activeSince = localDayKey(
+      clock.now().subtract(const Duration(days: 35)),
+    );
+    if (added > 0 &&
+        _plannedMeals
+                    .where(
+                      (p) =>
+                          !p.removed &&
+                          !p.isEaten &&
+                          p.day.compareTo(activeSince) >= 0,
+                    )
+                    .length +
+                added >
+            kMaxOpenPlannedMeals) {
+      throw const MealPlanLimitReached();
+    }
+    return _commitSyncIntents(
+      [for (final plan in validated) SyncOp.mealPlanUpsert(plan)],
+      notifyQueued: false,
+      publish: () => validated.forEach(_putPlannedMeal),
+    );
+  });
 
   Future<SyncDelivery> removePlannedMeal(PlannedMeal plan) =>
       savePlannedMeal(plan.copyWith(removed: true));
