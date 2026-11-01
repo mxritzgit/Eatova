@@ -243,6 +243,22 @@ The dispatcher cannot give those old endpoints universal idempotency or delete
 protection. Legacy counter receipts that had already expired before this rollout
 cannot be reconstructed retrospectively.
 
+Profile values a build does not know (a value a newer migration added to the
+CHECK of `sex`, `activity_level`, `weight_goal`, `diet_preference`, or a new
+`food_avoidances` code) survive unchanged since 2026-11-01: the UI shows the
+default, while the cache blob and every profile operation, including the boot
+heal-save, write the stored value back under the same key. Picking a different
+value in that field replaces it. Legacy pace names map onto their current
+values and are never stored raw. Leaving the keys out instead is not an
+option: `apply_sync_operation` keeps a missing key only for the `energy_*` and
+`food_*` columns.
+
+A training plan with `sessions_per_week` (migration `20261101100000`) is
+unreadable for builds before 2026-11-01: their strict key check fails the
+plan load, the cached list stays, and editing the old copy drops the target.
+Only plans with a target carry the key; Coach proposals to older briefs and
+history snapshots never do.
+
 Local slots written by older builds are upgraded on read:
 - Weight rows are stored as UTC instants. A legacy row without an offset is read
   as wall-clock time in the current zone, unless it belongs to a queued weigh-in;
