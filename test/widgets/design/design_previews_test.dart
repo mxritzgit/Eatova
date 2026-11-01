@@ -11,6 +11,10 @@ import '../../support/harness.dart';
 
 final Map<String, Widget Function()> _previews = <String, Widget Function()>{
   'Primäre Aktion': primaryActionPreview,
+  'Icon-Buttons und Stepper': iconButtonsPreview,
+  'Liste': listSectionPreview,
+  'Aufzaehlungen': enumerationsPreview,
+  'Status, Badges, Leerzustand': statesPreview,
   'Navigation': navBarPreview,
   'Lesbare Spalte (Tablet)': readableWidthPreview,
 };
@@ -31,23 +35,27 @@ void main() {
     }
   });
 
-  for (final entry in _previews.entries) {
-    for (final preview in EatovaPreview(name: entry.key).previews) {
-      testWidgets('${preview.name} baut ohne Fehler', (tester) async {
-        const size = Size(1024, 400);
+  // One table over every preview and both palettes.
+  testWidgets('jede Vorschau baut ohne Fehler', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1024, 400);
+    addTearDown(tester.view.reset);
+    for (final entry in _previews.entries) {
+      for (final preview in EatovaPreview(name: entry.key).previews) {
         final overflows = await collectOverflows(() async {
-          tester.view.devicePixelRatio = 1;
-          tester.view.physicalSize = size;
-          addTearDown(tester.view.reset);
           await tester.pumpWidget(
             MaterialApp(home: preview.wrapper!(entry.value())),
           );
           await tester.pump();
         });
-        expect(overflows, isEmpty, reason: describeOverflows(overflows));
-        expect(tester.takeException(), isNull);
-        expect(find.byType(Material), findsWidgets);
-      });
+        expect(
+          overflows,
+          isEmpty,
+          reason: '${preview.name}: ${describeOverflows(overflows)}',
+        );
+        expect(tester.takeException(), isNull, reason: preview.name);
+        expect(find.byType(Material), findsWidgets, reason: preview.name);
+      }
     }
-  }
+  });
 }

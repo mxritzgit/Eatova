@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
 import '../common/motion.dart';
@@ -24,13 +25,17 @@ import 'surfaces.dart';
 /// keyboard focus deepens the fill (2026-10-25).
 ///
 /// A null [onTap] renders the disabled state (e.g. while saving).
+///
+/// It draws exactly a neutral, regular [AppIconButton] but stays on
+/// Material's [IconButton]: tests across the app read that button's
+/// `onPressed` through [buttonKey].
 class SheetCloseButton extends StatelessWidget {
   const SheetCloseButton({
     super.key,
     required this.onTap,
     this.buttonKey,
     this.tooltip,
-    this.icon = Icons.close_rounded,
+    this.icon = AppIcons.close,
   });
 
   /// Visible diameter; the touch target is Material's 48 px.
@@ -69,7 +74,7 @@ class SheetCloseButton extends StatelessWidget {
           highlightColor: t.inkMuted.withValues(alpha: 0.12),
           focusColor: t.inkMuted.withValues(alpha: 0.16),
         ),
-        icon: Icon(icon, size: 20),
+        icon: Icon(icon, size: AppIconSize.standard),
       ),
     );
   }

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
 import '../common/motion.dart';
-import 'controls.dart' show SelectionTone;
+import 'controls.dart'
+    show IconBadge, IconBadgeSize, IconBadgeTone, SelectionTone;
 
 // ---------------------------------------------------------------------------
 // Single-choice option cards, shared by the onboarding and the Coach brief.
@@ -53,33 +55,25 @@ class OptionRadio extends StatelessWidget {
           ),
         ),
         child: selected
-            ? Icon(Icons.check_rounded, size: size * 0.66, color: t.onSelected)
+            ? Icon(AppIcons.check, size: size * 0.66, color: t.onSelected)
             : null,
       ),
     );
   }
 }
 
-/// A rounded tile behind a glyph, leading an option card.
+/// The glyph leading an option card: an accent [IconBadge] `lg`.
 class OptionGlyphTile extends StatelessWidget {
   const OptionGlyphTile({super.key, required this.icon});
 
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      width: 44,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: t.tile,
-        borderRadius: BorderRadius.circular(rControl),
-      ),
-      child: Icon(icon, size: 22, color: t.accentText),
-    );
-  }
+  Widget build(BuildContext context) => IconBadge(
+    icon: icon,
+    size: IconBadgeSize.lg,
+    tone: IconBadgeTone.accent,
+  );
 }
 
 /// One answer of a single-choice question: a full-width card with an

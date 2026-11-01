@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import '../common/lively.dart';
+import 'spinner.dart';
 
 // Secondary actions of the dark redesign (2026-10-03): what used to be a
 // default TextButton, an outlined button with a hairline or a small red text
@@ -28,10 +30,22 @@ enum SoftPillTone {
   quiet,
 }
 
+/// Height of a [SoftPillButton].
+enum SoftPillSize {
+  /// 48 px: the default, a pill on its own or beside others.
+  compact,
+
+  /// 54 px, as tall as [PrimaryActionButton]: a secondary action directly
+  /// under the primary one (with `expand: true`). Style, not size, carries
+  /// the hierarchy.
+  regular,
+}
+
 /// A secondary action: a soft tinted capsule with an optional leading icon,
-/// 48 px tall, with the press dip. [expand] stretches it to the full width
-/// (a sheet's second action under its primary one). Null [onTap] renders the
-/// disabled state.
+/// 48 px tall ([size] `regular`: 54), with the press dip. [expand] stretches
+/// it to the full width (a sheet's second action under its primary one).
+/// Null [onTap] renders the disabled state; [busy] puts a 16 px spinner in
+/// the label tone where the icon sits and ignores taps.
 ///
 /// Depth and light (2026-10-25): secondary actions sit flush in their ground
 /// (tone only, no shadow) under the lit primary one. No ripple: a press
@@ -46,6 +60,8 @@ class SoftPillButton extends StatelessWidget {
     this.tone = SoftPillTone.accent,
     this.expand = false,
     this.semanticLabel,
+    this.size = SoftPillSize.compact,
+    this.busy = false,
   });
 
   final String label;
@@ -56,6 +72,11 @@ class SoftPillButton extends StatelessWidget {
 
   /// Spoken instead of [label] when the visible text needs context.
   final String? semanticLabel;
+
+  final SoftPillSize size;
+
+  /// Work in flight: the fill stays, taps are ignored.
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -69,24 +90,26 @@ class SoftPillButton extends StatelessWidget {
       SoftPillTone.quiet => (t.softFill.withValues(alpha: 0), t.inkSoft),
     };
     final quiet = tone == SoftPillTone.quiet;
-    final enabled = onTap != null;
-    final fg = enabled ? ink : ink.withValues(alpha: 0.45);
+    final enabled = onTap != null && !busy;
+    // Busy keeps the tone: working, not locked.
+    final fg = enabled || busy ? ink : ink.withValues(alpha: 0.45);
+    final rest = enabled || busy ? fill : fill.withValues(alpha: fill.a * 0.6);
     return Semantics(
       container: true,
       button: true,
       enabled: enabled,
       label: semanticLabel ?? label,
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       excludeSemantics: true,
       child: PressScale(
         enabled: enabled,
         rebound: true,
         child: Material(
-          color: enabled ? fill : fill.withValues(alpha: fill.a * 0.6),
+          color: rest,
           shape: const StadiumBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: onTap,
+            onTap: enabled ? onTap : null,
             splashFactory: NoSplash.splashFactory,
             // The quiet pill shows its capsule only while touched.
             highlightColor: quiet ? t.softFill : fg.withValues(alpha: 0.10),
@@ -95,7 +118,11 @@ class SoftPillButton extends StatelessWidget {
                 ? t.softFill.withValues(alpha: 0.6)
                 : fg.withValues(alpha: 0.05),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 48),
+              constraints: BoxConstraints(
+                minHeight: size == SoftPillSize.regular
+                    ? kPrimaryButtonHeight
+                    : kButtonMinHeight,
+              ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
@@ -105,8 +132,16 @@ class SoftPillButton extends StatelessWidget {
                   mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (icon != null) ...[
-                      Icon(icon, size: 18, color: fg),
+                    if (busy) ...[
+                      AppSpinner(
+                        size: AppIconSize.small,
+                        strokeWidth: 2,
+                        color: fg,
+                        trackColor: fg.withValues(alpha: 0.2),
+                      ),
+                      const SizedBox(width: 8),
+                    ] else if (icon != null) ...[
+                      Icon(icon, size: AppIconSize.button, color: fg),
                       const SizedBox(width: 8),
                     ],
                     Flexible(
@@ -252,13 +287,114 @@ class EatovaTextAction extends StatelessWidget {
   }
 }
 
+/// Tone of a [StatusPill].
+enum StatusTone {
+  /// `tile` fill, no mark colour of its own.
+  neutral,
+
+  /// Accent tint with an accent label: "on", "new", the AI estimate.
+  accent,
+
+  /// `tile` fill, the mark in [AppTokens.success].
+  success,
+
+  /// `tile` fill, the mark in [AppTokens.warning].
+  warning,
+
+  /// `tile` fill, the mark in [AppTokens.danger].
+  danger,
+}
+
+/// A status or meta note that is NOT tappable ("3 Tage", "Neu", "KI
+/// geschätzt"). Something to choose is a [FilterChipPill], something to do
+/// a [SoftPillButton], so nobody has to guess whether a capsule is a button.
+///
+/// A capsule at least 28 px tall, padding 10/5, a 14 px [icon] or an 8 px
+/// [dot] in the tone colour before a 12/700 label in `inkSoft` (`accentText`
+/// for [StatusTone.accent]). Colour never carries the meaning alone: the
+/// label says it. Success, warning and danger tint only the mark, on the
+/// neutral fill, so the label keeps its contrast. [color] overrides the mark
+/// colour (a macro or slot hue).
+class StatusPill extends StatelessWidget {
+  const StatusPill({
+    super.key,
+    required this.label,
+    this.icon,
+    this.dot = false,
+    this.tone = StatusTone.neutral,
+    this.color,
+    this.semanticLabel,
+  });
+
+  final String label;
+  final IconData? icon;
+
+  /// An 8 px dot instead of an [icon].
+  final bool dot;
+
+  final StatusTone tone;
+  final Color? color;
+
+  /// Spoken instead of [label] when the visible text is an abbreviation.
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final accent = tone == StatusTone.accent;
+    final fill = accent ? t.accentTint : t.tile;
+    final ink = accent ? t.accentText : t.inkSoft;
+    final mark =
+        color ??
+        switch (tone) {
+          StatusTone.neutral => t.ink2,
+          StatusTone.accent => t.accentText,
+          StatusTone.success => t.success,
+          StatusTone.warning => t.warning,
+          StatusTone.danger => t.danger,
+        };
+    return Semantics(
+      container: true,
+      label: semanticLabel ?? label,
+      excludeSemantics: true,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 28),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: ShapeDecoration(color: fill, shape: const StadiumBorder()),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: AppIconSize.meta, color: mark),
+              const SizedBox(width: 6),
+            ] else if (dot) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: mark, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                style: AppType.ui(12, weight: FontWeight.w700, color: ink),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Where something came from ("tiktok.com"): a quiet capsule with a glyph.
 /// With [onTap] it is a 44 px button (e.g. to show the full source text).
 class SourcePill extends StatelessWidget {
   const SourcePill({
     super.key,
     required this.label,
-    this.icon = Icons.link_rounded,
+    this.icon = AppIcons.link,
     this.onTap,
     this.semanticLabel,
     this.expanded,
@@ -289,18 +425,14 @@ class SourcePill extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 15, color: t.ink2),
+                Icon(icon, size: AppIconSize.meta, color: t.ink2),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppType.ui(
-                      12.5,
-                      weight: FontWeight.w600,
-                      color: t.ink2,
-                    ),
+                    style: AppType.caption(t.ink2),
                   ),
                 ),
               ],
