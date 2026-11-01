@@ -20,7 +20,10 @@ file records the data and interaction contract behind it.
    ([WEIGHT-TREND.md](WEIGHT-TREND.md#progress-on-today-2026-10-18)).
 5. Recipe pick for today's next open main meal (`HomeStore.nextMealPick`),
    opening the recipe's detail page. Hidden without a pick, on archive days
-   and while a day loads.
+   and while a day loads. Until the account's first entry
+   (`HomeStore.firstEntryPending`, 2026-11-01) the first-entry card takes
+   its place: "What did you eat last?" with "Search or scan" (no AI, first),
+   "Describe" and "Photo", the shell's `AppEntry` ways in.
 6. "Meals" with "Open food log" (switches to the Food tab), and the four slot
    rows. Each row's "+" opens the Food tab's add flow for that slot on the
    shown day; the next open main meal's "+" is accent-filled.
