@@ -140,28 +140,37 @@ void main() {
         () async {
       // The case the alarm was built for: the mirror answers 200 but the body
       // is no search response (proxy error page, changed index schema).
-      // Previously an HttpException and thus a silent "expected" network error.
-      final stub = await _MirrorStub.start(status: 200, body: '{"ok":true}');
-      addTearDown(stub.close);
-      final creds = _FakeCredentials(
-        SearchCredentials(
-          baseUrl: stub.baseUrl,
-          searchKey: 'search-key',
-          source: SearchCredentialsOrigin.cache,
-        ),
-      );
+      // Previously an HttpException and thus a silent "expected" network error;
+      // a JSON array or string was a TypeError.
+      for (final body in ['{"ok":true}', '[]', '"wartung"']) {
+        gemeldet.clear();
+        kontexte.clear();
+        final stub = await _MirrorStub.start(status: 200, body: body);
+        addTearDown(stub.close);
+        final creds = _FakeCredentials(
+          SearchCredentials(
+            baseUrl: stub.baseUrl,
+            searchKey: 'search-key',
+            source: SearchCredentialsOrigin.cache,
+          ),
+        );
 
-      final treffer = await FallbackProductService(
-        MeilisearchProductService(credentials: creds),
-        _FakeProduktService(searchResults: [_hit('OFF')]),
-      ).searchProducts('salami');
-      await pumpe();
+        final treffer = await FallbackProductService(
+          MeilisearchProductService(credentials: creds),
+          _FakeProduktService(searchResults: [_hit('OFF')]),
+        ).searchProducts('salami');
+        await pumpe();
 
-      expect(treffer.single.title, 'OFF', reason: 'Fallback laeuft weiter');
-      expect(gemeldet, hasLength(1));
-      expect('${gemeldet.single}', contains('MirrorSchemaException'));
-      expect(kontexte.single, 'product.search.primary');
-      expect(creds.invalidateCalls, 0, reason: 'kein Rotations-Signal');
+        expect(treffer.single.title, 'OFF', reason: body);
+        expect(gemeldet, hasLength(1), reason: body);
+        expect(
+          '${gemeldet.single}',
+          contains('MirrorSchemaException'),
+          reason: body,
+        );
+        expect(kontexte.single, 'product.search.primary', reason: body);
+        expect(creds.invalidateCalls, 0, reason: 'kein Rotations-Signal');
+      }
     });
 
     // A mirror 5xx is an HttpException (meilisearch_key_rotation_test.dart),

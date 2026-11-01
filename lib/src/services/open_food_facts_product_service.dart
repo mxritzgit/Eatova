@@ -309,8 +309,8 @@ class OpenFoodFactsProductService implements ProductLookupService {
       );
     }
 
-    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-    final products = decoded['products'];
+    final decoded = jsonDecode(response.body);
+    final products = decoded is Map ? decoded['products'] : null;
     if (products is! List) {
       // An empty search answers `products: []`, so a 2xx without that list is
       // a proxy error page or a schema change. [FormatException], like the
