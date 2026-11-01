@@ -5,6 +5,7 @@ import '../../services/energy_check.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
+import 'today_prompt_card.dart';
 
 /// The weekly energy check on Today (docs/WEIGHT-TREND.md, stage 2): what
 /// the last three weeks imply, the proposed goal, and the two answers. The
@@ -26,15 +27,22 @@ class TodayEnergyCheckCard extends StatefulWidget {
 }
 
 class _TodayEnergyCheckCardState extends State<TodayEnergyCheckCard> {
-  bool _busy = false;
+  /// The answer in flight (true: "Adjust"); it shows busy.
+  bool? _pending;
 
   /// One answer at a time; a failed save keeps the card and names the error.
-  Future<void> _answer(Future<void> Function() action) async {
-    if (_busy) return;
-    setState(() => _busy = true);
+  Future<void> _answer(bool accept, Future<void> Function() action) async {
+    if (_pending != null) return;
+    setState(() => _pending = accept);
     await tryPersistChange(context, action);
-    if (mounted) setState(() => _busy = false);
+    if (mounted) setState(() => _pending = null);
   }
+
+  /// The tap of one answer's button: null while the other one runs.
+  VoidCallback? _tap(bool accept, Future<void> Function() action) =>
+      _pending == null || _pending == accept
+      ? () => _answer(accept, action)
+      : null;
 
   /// Rounded to 10: the estimate is not precise to the calorie.
   static int _tens(double kcal) => (kcal / 10).round() * 10;
@@ -50,73 +58,40 @@ class _TodayEnergyCheckCardState extends State<TodayEnergyCheckCard> {
         ? l10n.todayEnergyCheckBurnMore(observed, difference)
         : l10n.todayEnergyCheckBurnLess(observed, difference);
 
-    return Semantics(
-      container: true,
-      explicitChildNodes: true,
+    return TodayPromptCard(
+      key: const ValueKey('today-energy-check'),
       label: l10n.todayEnergyCheckTitle,
-      child: Container(
-        key: const ValueKey('today-energy-check'),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-        decoration: BoxDecoration(
-          color: t.surf,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.cardBorder),
+      title: l10n.todayEnergyCheckTitle,
+      icon: AppIcons.insights,
+      body: body,
+      details: <Widget>[
+        const SizedBox(height: kSpace12),
+        Text(
+          l10n.todayEnergyCheckQuestion(p.currentGoalKcal, p.newGoalKcal),
+          key: const ValueKey('today-energy-check-question'),
+          style: AppType.rowTitle(t.ink),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                IconTile(icon: Icons.insights_rounded, color: t.accent),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l10n.todayEnergyCheckTitle,
-                      style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              body,
-              style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              l10n.todayEnergyCheckQuestion(p.currentGoalKcal, p.newGoalKcal),
-              key: const ValueKey('today-energy-check-question'),
-              style: AppType.ui(14.5, weight: FontWeight.w600, color: t.ink),
-            ),
-            const SizedBox(height: 14),
-            PrimaryActionButton(
-              key: const ValueKey('today-energy-check-accept'),
-              label: l10n.todayEnergyCheckAccept,
-              icon: Icons.check_rounded,
-              // The touch floor the other in-card primaries use.
-              height: kButtonMinHeight,
-              onTap: _busy ? null : () => _answer(widget.onAccept),
-            ),
-            const SizedBox(height: 8),
-            SoftPillButton(
-              key: const ValueKey('today-energy-check-dismiss'),
-              label: l10n.todayEnergyCheckDismiss,
-              onTap: _busy ? null : () => _answer(widget.onDismiss),
-              tone: SoftPillTone.neutral,
-              expand: true,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              l10n.todayEnergyCheckBasis(p.loggedDays, p.weighInDays),
-              textAlign: TextAlign.center,
-              style: AppType.ui(12, color: t.ink3),
-            ),
-          ],
+      ],
+      actions: <Widget>[
+        PrimaryActionButton(
+          key: const ValueKey('today-energy-check-accept'),
+          label: l10n.todayEnergyCheckAccept,
+          icon: AppIcons.check,
+          // The touch floor the other in-card primaries use.
+          height: kButtonMinHeight,
+          busy: _pending ?? false,
+          onTap: _tap(true, widget.onAccept),
         ),
-      ),
+        SoftPillButton(
+          key: const ValueKey('today-energy-check-dismiss'),
+          label: l10n.todayEnergyCheckDismiss,
+          busy: _pending == false,
+          onTap: _tap(false, widget.onDismiss),
+          tone: SoftPillTone.quiet,
+          expand: true,
+        ),
+      ],
+      footnote: l10n.todayEnergyCheckBasis(p.loggedDays, p.weighInDays),
     );
   }
 }

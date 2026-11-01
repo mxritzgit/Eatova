@@ -25,8 +25,8 @@ import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/screens/today/today_macros.dart';
 import 'package:eatova/src/screens/today/today_progress.dart';
-import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/services/kcal_format.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 import '../support/today_design_fixture.dart';
@@ -122,22 +122,16 @@ void _expectDayNumbers(WidgetTester tester, HomeStore store, DateTime day) {
   }
 }
 
-/// Which slot's "+" carries the accent fill; null when none does.
+/// Which slot's "+" is lit; null when none is.
 MealSlot? _accentSlot(WidgetTester tester) {
   MealSlot? accent;
   for (final slot in MealSlot.values) {
-    final circle = find.descendant(
-      of: find.byKey(ValueKey<String>('today-meal-add-${slot.name}')),
-      matching: find.byWidgetPredicate(
-        (w) =>
-            w is Container &&
-            w.decoration is BoxDecoration &&
-            (w.decoration! as BoxDecoration).shape == BoxShape.circle,
-      ),
-    );
-    final fill =
-        (tester.widget<Container>(circle).decoration! as BoxDecoration).color;
-    if (fill == AppTokens.dark.accentFill) {
+    final tone = tester
+        .widget<AppIconButton>(
+          find.byKey(ValueKey<String>('today-meal-add-${slot.name}')),
+        )
+        .tone;
+    if (tone == IconButtonTone.primary) {
       expect(accent, isNull, reason: 'one accent at most');
       accent = slot;
     }

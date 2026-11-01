@@ -25,6 +25,7 @@ import 'package:eatova/src/screens/today/today_progress.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import '../../support/harness.dart';
 import '../../support/today_summary.dart';
@@ -275,20 +276,12 @@ Future<void> _tap(WidgetTester tester, String key) async {
   await tester.pumpAndSettle();
 }
 
-/// Fill of the 34 px circle inside a slot's add button.
-Color _addFill(WidgetTester tester, MealSlot slot) {
-  final circle = find.descendant(
-    of: find.byKey(ValueKey<String>('today-meal-add-${slot.name}')),
-    matching: find.byWidgetPredicate(
-      (w) =>
-          w is Container &&
-          w.decoration is BoxDecoration &&
-          (w.decoration! as BoxDecoration).shape == BoxShape.circle,
-    ),
-  );
-  return ((tester.widget<Container>(circle).decoration!) as BoxDecoration)
-      .color!;
-}
+/// Tone of a slot's add button.
+IconButtonTone _addTone(WidgetTester tester, MealSlot slot) => tester
+    .widget<AppIconButton>(
+      find.byKey(ValueKey<String>('today-meal-add-${slot.name}')),
+    )
+    .tone;
 
 void main() {
   group('Kalorien-Karte', () {
@@ -618,7 +611,6 @@ void main() {
     ) async {
       // The shell passes `HomeStore.nextOpenMainSlot()`; the rule itself is
       // pinned in today_wiring_flow_test.dart and recipe_pick_test.dart.
-      const t = AppTokens.dark;
       for (final accent in [MealSlot.breakfast, MealSlot.lunch]) {
         await withClock(Clock.fixed(_jetzt), () async {
           await _pump(
@@ -632,8 +624,8 @@ void main() {
         );
         for (final slot in MealSlot.values) {
           expect(
-            _addFill(tester, slot),
-            slot == accent ? t.accentFill : t.accentTint,
+            _addTone(tester, slot),
+            slot == accent ? IconButtonTone.primary : IconButtonTone.accent,
             reason: '$accent: ${slot.name}',
           );
         }
@@ -643,7 +635,6 @@ void main() {
     testWidgets('ohne naechsten Hauptslot und auf Archivtagen kein Akzent', (
       tester,
     ) async {
-      const t = AppTokens.dark;
       for (final (accent, day) in <(MealSlot?, DateTime?)>[
         (null, null),
         // A stale slot must not light up a past day.
@@ -664,7 +655,11 @@ void main() {
           find.byKey(const ValueKey('today-meal-add-snack')),
         );
         for (final slot in MealSlot.values) {
-          expect(_addFill(tester, slot), t.accentTint, reason: '$day $slot');
+          expect(
+            _addTone(tester, slot),
+            IconButtonTone.accent,
+            reason: '$day $slot',
+          );
         }
       }
     });

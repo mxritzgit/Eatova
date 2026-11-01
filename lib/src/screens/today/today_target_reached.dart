@@ -6,6 +6,7 @@ import '../../models/user_profile.dart' show targetHoldBandKg;
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
+import 'today_prompt_card.dart';
 
 /// The reached target on Today (2026-10-22), once the weight trend got there
 /// (`HomeStore.targetReachedPrompt`): the plan holds the weight now,
@@ -45,71 +46,36 @@ class _TodayTargetReachedCardState extends State<TodayTargetReachedCard> {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     final band = NumberFormat('0.#', l10n.localeName).format(targetHoldBandKg);
-    return Semantics(
-      container: true,
-      explicitChildNodes: true,
+    return TodayPromptCard(
+      key: const ValueKey('today-target-reached'),
       label: l10n.todayTargetReachedTitle,
-      child: Container(
-        key: const ValueKey('today-target-reached'),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: t.surf,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.cardBorder),
+      title: l10n.todayTargetReachedTitle,
+      icon: AppIcons.flag,
+      body: widget.gain
+          ? l10n.todayTargetReachedBodyGain(widget.targetKg, band)
+          : l10n.todayTargetReachedBodyLose(widget.targetKg, band),
+      actions: <Widget>[
+        PrimaryActionButton(
+          key: const ValueKey('today-target-reached-hold'),
+          label: l10n.todayTargetReachedHold,
+          icon: AppIcons.check,
+          // The touch floor the other in-card primaries use.
+          height: kButtonMinHeight,
+          busy: _busy,
+          onTap: _hold,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                IconTile(icon: Icons.flag_rounded, color: t.accent),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l10n.todayTargetReachedTitle,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              widget.gain
-                  ? l10n.todayTargetReachedBodyGain(widget.targetKg, band)
-                  : l10n.todayTargetReachedBodyLose(widget.targetKg, band),
-              style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-            ),
-            const SizedBox(height: 14),
-            PrimaryActionButton(
-              key: const ValueKey('today-target-reached-hold'),
-              label: l10n.todayTargetReachedHold,
-              icon: Icons.check_rounded,
-              // The touch floor the other in-card primaries use.
-              height: kButtonMinHeight,
-              onTap: _busy ? null : _hold,
-            ),
-            const SizedBox(height: 8),
-            SoftPillButton(
-              key: const ValueKey('today-target-reached-new-goal'),
-              label: l10n.todayTargetReachedNewGoal,
-              icon: Icons.tune_rounded,
-              onTap: _busy ? null : widget.onNewGoal,
-              tone: SoftPillTone.neutral,
-              expand: true,
-            ),
-          ],
+        // An alternative, not a dismissal: it opens the goals page.
+        SoftPillButton(
+          key: const ValueKey('today-target-reached-new-goal'),
+          label: l10n.todayTargetReachedNewGoal,
+          icon: AppIcons.tune,
+          onTap: _busy ? null : widget.onNewGoal,
+          tone: SoftPillTone.neutral,
+          expand: true,
         ),
-      ),
+      ],
     );
   }
 }

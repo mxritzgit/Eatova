@@ -5,6 +5,7 @@ import '../../models/reminder_time.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/shared/reminder_time_picker.dart';
+import 'today_prompt_card.dart';
 
 /// Today's one-time offer of the daily reminder (C4).
 ///
@@ -34,18 +35,27 @@ class TodayReminderPromptCard extends StatefulWidget {
 }
 
 class _TodayReminderPromptCardState extends State<TodayReminderPromptCard> {
-  bool _busy = false;
+  /// The answer in flight (true: "Yes"); it shows busy.
+  bool? _pending;
+
+  bool get _busy => _pending != null;
 
   /// One answer at a time; the store removes the card once it is recorded.
-  Future<void> _answer(Future<void> Function() action) async {
+  Future<void> _answer(bool accept, Future<void> Function() action) async {
     if (_busy) return;
-    setState(() => _busy = true);
+    setState(() => _pending = accept);
     try {
       await action();
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _pending = null);
     }
   }
+
+  /// The tap of one answer's button: null while the other one runs.
+  VoidCallback? _tap(bool accept, Future<void> Function() action) =>
+      _pending == null || _pending == accept
+      ? () => _answer(accept, action)
+      : null;
 
   Future<void> _changeTime(ValueChanged<ReminderTime> onChange) async {
     final picked = await pickReminderTime(context, widget.time);
@@ -55,88 +65,52 @@ class _TodayReminderPromptCardState extends State<TodayReminderPromptCard> {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     final time = formatReminderTime(context, widget.time);
     final onChangeTime = widget.onChangeTime;
 
-    return Semantics(
-      container: true,
-      explicitChildNodes: true,
+    return TodayPromptCard(
+      key: const ValueKey('today-reminder-prompt'),
       label: l10n.reminderTimePromptTitle,
-      child: Container(
-        key: const ValueKey('today-reminder-prompt'),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-        decoration: BoxDecoration(
-          color: t.surf,
-          borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: t.cardBorder),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                IconTile(
-                  icon: Icons.notifications_none_rounded,
-                  color: t.accent,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l10n.reminderTimePromptTitle,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              l10n.reminderTimePromptBody(time),
-              key: const ValueKey('today-reminder-prompt-body'),
-              style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-            ),
-            if (onChangeTime != null) ...<Widget>[
-              const SizedBox(height: 10),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: SoftPillButton(
-                  key: const ValueKey('today-reminder-prompt-time'),
-                  label: l10n.reminderTimePromptChangeTime,
-                  icon: Icons.schedule_rounded,
-                  tone: SoftPillTone.neutral,
-                  semanticLabel: l10n.reminderTimeChangeSemantics(time),
-                  onTap: _busy ? null : () => _changeTime(onChangeTime),
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            PrimaryActionButton(
-              key: const ValueKey('today-reminder-prompt-accept'),
-              label: l10n.reminderTimePromptAccept,
-              icon: Icons.notifications_active_outlined,
-              // The touch floor the other in-card primaries use.
-              height: kButtonMinHeight,
-              onTap: _busy ? null : () => _answer(widget.onAccept),
-            ),
-            const SizedBox(height: 8),
-            SoftPillButton(
-              key: const ValueKey('today-reminder-prompt-dismiss'),
-              label: l10n.reminderTimePromptDismiss,
-              onTap: _busy ? null : () => _answer(widget.onDismiss),
+      title: l10n.reminderTimePromptTitle,
+      icon: AppIcons.notifications,
+      body: l10n.reminderTimePromptBody(time),
+      bodyKey: const ValueKey('today-reminder-prompt-body'),
+      details: <Widget>[
+        if (onChangeTime != null) ...<Widget>[
+          const SizedBox(height: kSpace12),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SoftPillButton(
+              key: const ValueKey('today-reminder-prompt-time'),
+              label: l10n.reminderTimePromptChangeTime,
+              icon: AppIcons.schedule,
               tone: SoftPillTone.neutral,
-              expand: true,
+              semanticLabel: l10n.reminderTimeChangeSemantics(time),
+              onTap: _busy ? null : () => _changeTime(onChangeTime),
             ),
-          ],
+          ),
+        ],
+      ],
+      actions: <Widget>[
+        PrimaryActionButton(
+          key: const ValueKey('today-reminder-prompt-accept'),
+          label: l10n.reminderTimePromptAccept,
+          icon: AppIcons.notificationsActive,
+          // The touch floor the other in-card primaries use.
+          height: kButtonMinHeight,
+          busy: _pending ?? false,
+          onTap: _tap(true, widget.onAccept),
         ),
-      ),
+        SoftPillButton(
+          key: const ValueKey('today-reminder-prompt-dismiss'),
+          label: l10n.reminderTimePromptDismiss,
+          busy: _pending == false,
+          onTap: _tap(false, widget.onDismiss),
+          tone: SoftPillTone.quiet,
+          expand: true,
+        ),
+      ],
     );
   }
 }
