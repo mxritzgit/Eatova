@@ -229,7 +229,7 @@ class _SuggestionPill extends StatelessWidget {
 
 /// A set's done/skipped switch: the app's toggle disc in the player's done
 /// language, the accent tint with its check while the set counts, the
-/// neutral disc while it is skipped.
+/// neutral disc with a faint check while it is skipped.
 class _DoneToggle extends StatelessWidget {
   const _DoneToggle({
     super.key,
@@ -244,11 +244,12 @@ class _DoneToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AppIconButton(
-    icon: AppIcons.check,
     semanticLabel: label,
     tone: done ? IconButtonTone.accent : IconButtonTone.neutral,
     selected: done,
     target: 48,
     onTap: onTap,
+    // Off, the check only hints where to tap; null takes the tone's ink.
+    child: Icon(AppIcons.check, color: done ? null : context.t.inkFaint),
   );
 }
