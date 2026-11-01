@@ -15,6 +15,7 @@ import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import 'training_menu.dart';
 import 'training_overview_widgets.dart';
 import 'training_plan_picker.dart';
 import 'training_studio_widgets.dart';
@@ -368,26 +369,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
     }
   }
 
-  /// A popup menu that opens under [anchor] (the tapped control), like every
-  /// [PopupMenuButton] (`PopupMenuPosition.under`); Material shifts it up to
-  /// stay on screen when the space below is too short.
-  Future<T?> _menu<T>(BuildContext anchor, List<PopupMenuEntry<T>> items) {
-    final box = anchor.findRenderObject()! as RenderBox;
-    final overlay =
-        Navigator.of(anchor).overlay!.context.findRenderObject()! as RenderBox;
-    final bottomLeft = box.localToGlobal(
-      box.size.bottomLeft(Offset.zero),
-      ancestor: overlay,
-    );
-    return showMenu<T>(
-      context: anchor,
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(bottomLeft.dx, bottomLeft.dy, box.size.width, 0),
-        Offset.zero & overlay.size,
-      ),
-      items: items,
-    );
-  }
+  Future<T?> _menu<T>(BuildContext anchor, List<PopupMenuEntry<T>> items) =>
+      showTrainingMenu<T>(anchor, items);
 
   /// "Choose workout": shows the picked workout on the card and scrolls the
   /// card (with its Start) into view. Starting stays an explicit tap.
@@ -904,16 +887,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!large) ...[
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: t.accentTint,
-                borderRadius: BorderRadius.circular(rChip),
-              ),
-              child: Icon(icon, size: 20, color: t.accentText),
-            ),
-            const SizedBox(width: 14),
+            IconBadge(icon: icon, tone: IconBadgeTone.accent),
+            const SizedBox(width: kRowLeadingGap),
           ],
           Expanded(
             child: Column(

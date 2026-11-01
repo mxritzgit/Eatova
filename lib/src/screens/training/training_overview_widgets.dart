@@ -82,28 +82,6 @@ class TrainingHeroCard extends StatelessWidget {
   }
 }
 
-/// A calm list card (1 px border) that ripples its rows.
-class _InkCard extends StatelessWidget {
-  const _InkCard({required this.child, required this.padding});
-
-  final Widget child;
-  final EdgeInsets padding;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Material(
-      color: t.surf,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rCard),
-        side: BorderSide(color: t.cardBorder),
-      ),
-      child: Padding(padding: padding, child: child),
-    );
-  }
-}
-
 /// "This week": the finished workouts per local day (Monday to Sunday), the
 /// today highlight and the done count, "2 of 4" with the selected plan's
 /// optional weekly [target]. Plans carry no weekday schedule, so a day never
@@ -148,6 +126,8 @@ class TrainingWeekCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                // "1 of 4" reads as one figure in ink; "done" and the range
+                // stay muted.
                 Text.rich(
                   key: const ValueKey('training-week-summary'),
                   TextSpan(
@@ -160,11 +140,22 @@ class TrainingWeekCard extends StatelessWidget {
                         ),
                       ),
                       if (target case final target?)
-                        TextSpan(text: ' ${l10n.trainingWeekOfTarget(target)}'),
+                        TextSpan(
+                          text: ' ${l10n.trainingWeekOfTarget(target)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: t.ink,
+                          ),
+                        ),
                       TextSpan(text: ' ${l10n.trainingWeekDone} · $range'),
                     ],
                   ),
-                  style: AppType.ui(13, color: t.ink2, height: kTrainingLine),
+                  style: AppType.ui(
+                    13,
+                    color: t.ink2,
+                    height: kTrainingLine,
+                    tabular: true,
+                  ),
                 ),
               ],
             ),
@@ -324,8 +315,8 @@ class TrainingMetaItem extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 15, color: t.ink2),
-        const SizedBox(width: 5),
+        Icon(icon, size: AppIconSize.small, color: t.ink2),
+        const SizedBox(width: 6),
         Flexible(
           child: Text(
             text,
@@ -570,7 +561,8 @@ class _TrainingExerciseRowsState extends State<TrainingExerciseRows> {
   }
 }
 
-/// The round secondary action next to "Start workout" (54 px).
+/// The round secondary action next to "Start workout": the app's large
+/// neutral [AppIconButton] under its older name.
 class TrainingRoundButton extends StatelessWidget {
   const TrainingRoundButton({
     super.key,
@@ -588,40 +580,13 @@ class TrainingRoundButton extends StatelessWidget {
   final bool busy;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      enabled: onTap != null,
-      label: semanticLabel,
-      child: PressScale(
-        enabled: onTap != null,
-        child: Material(
-          color: t.surf2,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: SizedBox.square(
-              dimension: 54,
-              child: Center(
-                child: busy
-                    ? SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: t.accent,
-                        ),
-                      )
-                    : Icon(icon, size: 20, color: t.inkMuted),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    icon: icon,
+    semanticLabel: semanticLabel,
+    size: IconButtonSize.large,
+    busy: busy,
+    onTap: onTap,
+  );
 }
 
 /// One tile of the "Quick start" grid: icon tile plus label, 64 px high.
@@ -1116,6 +1081,7 @@ class TrainingRecentSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    final open = onOpen;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1156,103 +1122,87 @@ class TrainingRecentSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 2),
-        _InkCard(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < workouts.length; i++) ...[
-                if (i > 0)
-                  Divider(height: 1, thickness: 1, color: t.cardBorder),
-                _RecentRow(summary: workouts[i], onOpen: onOpen),
-              ],
-            ],
-          ),
+        // The app's grouped list: hairlines start at the text column.
+        ListSection(
+          inset: ListDividerInset.textLg,
+          spacing: 0,
+          children: [
+            for (final summary in workouts)
+              TrainingWorkoutRow(
+                key: ValueKey('training-recent-${summary.entry.id}'),
+                entry: summary.entry,
+                title: summary.title,
+                records: summary.personalRecords,
+                recordKey: ValueKey('training-recent-pr-${summary.entry.id}'),
+                onTap: open == null ? null : () => open(summary.entry),
+              ),
+          ],
         ),
       ],
     );
   }
 }
 
-class _RecentRow extends StatelessWidget {
-  const _RecentRow({required this.summary, this.onOpen});
+/// A finished workout as a [ListRow]: the workout's glyph tile, its title,
+/// the day with the duration (and an optional [detail] line), the record
+/// pill and the chevron to its page. The Recent card and the history share
+/// it. One spoken node, "title, day · duration, 2 PRs".
+class TrainingWorkoutRow extends StatelessWidget {
+  const TrainingWorkoutRow({
+    super.key,
+    required this.entry,
+    required this.title,
+    required this.records,
+    required this.recordKey,
+    this.detail,
+    this.onTap,
+  });
 
-  final TrainingWorkoutSummary summary;
-  final ValueChanged<TrainingHistoryEntry>? onOpen;
+  final TrainingHistoryEntry entry;
+  final String title;
+  final int records;
+  final Key recordKey;
+
+  /// A second muted line, e.g. "1 of 4 sets completed".
+  final String? detail;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    final meta = trainingWorkoutMeta(l10n, summary.entry);
-    final records = summary.personalRecords;
+    final meta = trainingWorkoutMeta(l10n, entry);
     final badge = records > 0 ? l10n.trainingRecentPrs(records) : null;
-    final open = onOpen;
-    // At large text the badge takes half the row and cut the title to
-    // "Lowe|r Bo…"; it moves under the date there.
-    final badgeBelow = badge != null && trainingLargeText(context);
-    final badgeWidget = badge == null
+    final pill = badge == null
         ? null
-        : TrainingRecordBadge(
-            key: ValueKey('training-recent-pr-${summary.entry.id}'),
-            count: records,
-          );
+        : TrainingRecordBadge(key: recordKey, count: records);
+    // From 1.5x text the pill leaves the row's end (and the stacked glyph
+    // line, which cannot shrink it) and sits under the text instead.
+    final stacked = trainingLargeText(context);
     return Semantics(
       container: true,
-      button: open != null,
-      label: [summary.title, meta, ?badge].join(', '),
-      child: InkWell(
-        key: ValueKey('training-recent-${summary.entry.id}'),
-        onTap: open == null ? null : () => open(summary.entry),
-        child: ExcludeSemantics(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Row(
-              children: [
-                TrainingWorkoutGlyph(
-                  workoutIndex: summary.entry.snapshot.workoutIndex,
+      button: onTap != null,
+      label: [title, meta, ?detail, ?badge].join(', '),
+      onTap: onTap,
+      excludeSemantics: true,
+      child: ListRow(
+        leading: TrainingWorkoutGlyph(workoutIndex: entry.snapshot.workoutIndex),
+        title: title,
+        subtitle: [meta, ?detail].join('\n'),
+        end: stacked ? null : pill,
+        below: stacked && pill != null
+            ? Padding(
+                // Under the title: past the glyph until the row stacks.
+                padding: EdgeInsetsDirectional.only(
+                  start: listRowStacked(context) ? 0 : 44 + kRowLeadingGap,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        summary.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.ui(
-                          16,
-                          weight: FontWeight.w700,
-                          color: t.ink,
-                          height: kTrainingLine,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        meta,
-                        style: AppType.ui(
-                          13,
-                          color: t.ink3,
-                          height: kTrainingLine,
-                        ),
-                      ),
-                      if (badgeBelow) ...[
-                        const SizedBox(height: 6),
-                        badgeWidget!,
-                      ],
-                    ],
-                  ),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: pill,
                 ),
-                const SizedBox(width: 8),
-                if (badgeWidget != null && !badgeBelow)
-                  badgeWidget
-                else
-                  Icon(AppIcons.chevronRight, size: 22, color: t.ink3),
-              ],
-            ),
-          ),
-        ),
+              )
+            : null,
+        trailing: ListTrailing.chevron,
+        onTap: onTap,
       ),
     );
   }
@@ -1342,7 +1292,7 @@ class TrainingRecordList extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(AppIcons.trophy, size: 18, color: t.fatInk),
+              Icon(AppIcons.trophy, size: AppIconSize.small, color: t.fatInk),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1371,48 +1321,27 @@ class TrainingRecordList extends StatelessWidget {
   }
 }
 
-/// "2 PRs": the personal records a workout set, on the fat hue.
+/// "2 PRs": the personal records a workout set, as the app's [StatusPill]
+/// with the trophy on the fat hue.
 class TrainingRecordBadge extends StatelessWidget {
   const TrainingRecordBadge({super.key, required this.count});
 
   final int count;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      // The cap keeps a trailing badge from taking the row; from 1.5x text
-      // the rows put it under the title, where the cap only split
-      // "2 Rekor|de".
-      constraints: BoxConstraints(
-        minHeight: 28,
-        maxWidth: trainingLargeText(context) ? double.infinity : 120,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: t.fatSurface,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(AppIcons.trophy, size: 14, color: t.fatInk),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              context.l10n.trainingRecentPrs(count),
-              style: AppType.ui(
-                12,
-                weight: FontWeight.w800,
-                color: t.fatInk,
-                height: kTrainingLine,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ConstrainedBox(
+    // The cap keeps a trailing badge from taking the row; from 1.5x text
+    // the rows put it under the text, where the cap only split
+    // "2 Rekor|de".
+    constraints: BoxConstraints(
+      maxWidth: trainingLargeText(context) ? double.infinity : 120,
+    ),
+    child: StatusPill(
+      label: context.l10n.trainingRecentPrs(count),
+      icon: AppIcons.trophy,
+      color: context.t.fatInk,
+    ),
+  );
 }
 
 /// An exercise's number on a quiet 28 px tile, as in the workout card's

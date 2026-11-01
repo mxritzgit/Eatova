@@ -154,14 +154,10 @@ class PlayerSetRow extends StatelessWidget {
 
     Widget repsCell() {
       if (onConfirmLegacy != null) {
-        return TextButton(
-          key: ValueKey('training-set-confirm-$_id'),
-          onPressed: onConfirmLegacy,
-          style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
-          child: Text(
-            l.trainingActualConfirmLegacyTimed,
-            textAlign: TextAlign.center,
-          ),
+        return EatovaTextAction(
+          buttonKey: ValueKey('training-set-confirm-$_id'),
+          onTap: onConfirmLegacy,
+          label: l.trainingActualConfirmLegacyTimed,
         );
       }
       if (exercise.isTimed) {
@@ -340,8 +336,12 @@ class _LastTimeCell extends StatelessWidget {
   }
 }
 
-/// ✓ / ▶ of a row. The active one is 56 dp; locked rows show a visibly
-/// disabled ✓ (spec A1: sequential order this round).
+/// ✓ / ▶ of a row, in the app's icon-button family (spec A1: sequential
+/// order this round). The active set's ✓ is the view's one lit action, a
+/// large disc (56 dp) that waits in the "not yet" tint during the get-ready;
+/// the most recent done set undoes in the accent tint; upcoming sets show a
+/// visibly disabled ✓. Done and skipped sets are marks, not buttons: the
+/// same 44 px disc without the dimming.
 class PlayerSetButton extends StatelessWidget {
   const PlayerSetButton({
     super.key,
@@ -360,70 +360,69 @@ class PlayerSetButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
-    final size = large ? 56.0 : 48.0;
-    final (icon, fill, ink, label) = switch (kind) {
-      PlayerSetButtonKind.complete => (
-        AppIcons.check,
-        t.accentFill,
-        t.onAccentFill,
-        l.trainingTimerCompleteSetLabel(setNumber),
-      ),
-      PlayerSetButtonKind.start => (
-        AppIcons.playArrow,
-        t.accentFill,
-        t.onAccentFill,
-        l.trainingTimerStartSetLabel(setNumber),
-      ),
-      PlayerSetButtonKind.undo => (
-        AppIcons.check,
-        t.accentTintStrong,
-        t.accentText,
-        l.trainingTimerUndoSetLabel(setNumber),
-      ),
-      PlayerSetButtonKind.done => (
-        AppIcons.check,
-        t.accentTint,
-        t.accentText,
-        l.trainingTimerSetDoneLabel(setNumber),
-      ),
-      PlayerSetButtonKind.locked => (
-        AppIcons.check,
-        t.tile,
-        t.inkDisabled,
-        l.trainingTimerSetLocked(setNumber),
-      ),
-      PlayerSetButtonKind.skipped => (
-        AppIcons.remove,
-        t.tile,
-        t.ink3,
-        l.trainingTimerSkippedSet,
-      ),
-    };
-    final enabled = onPressed != null;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: label,
-      excludeSemantics: true,
-      onTap: onPressed,
-      child: SizedBox.square(
-        dimension: size,
-        child: Material(
-          color:
-              enabled ||
-                  kind == PlayerSetButtonKind.done ||
-                  kind == PlayerSetButtonKind.locked ||
-                  kind == PlayerSetButtonKind.skipped
-              ? fill
-              : fill.withValues(alpha: 0.38),
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onPressed,
-            child: Icon(icon, color: ink, size: large ? 30 : 24),
+    final size = large ? IconButtonSize.large : IconButtonSize.regular;
+    final target = large ? null : 48.0;
+    switch (kind) {
+      case PlayerSetButtonKind.complete:
+      case PlayerSetButtonKind.start:
+        return AppIconButton(
+          icon: kind == PlayerSetButtonKind.start
+              ? AppIcons.playArrow
+              : AppIcons.check,
+          semanticLabel: kind == PlayerSetButtonKind.start
+              ? l.trainingTimerStartSetLabel(setNumber)
+              : l.trainingTimerCompleteSetLabel(setNumber),
+          tone: IconButtonTone.primary,
+          size: size,
+          target: target,
+          onTap: onPressed,
+        );
+      case PlayerSetButtonKind.undo:
+        return AppIconButton(
+          icon: AppIcons.check,
+          semanticLabel: l.trainingTimerUndoSetLabel(setNumber),
+          tone: IconButtonTone.accent,
+          size: size,
+          target: target,
+          onTap: onPressed,
+        );
+      case PlayerSetButtonKind.locked:
+        return AppIconButton(
+          icon: AppIcons.check,
+          semanticLabel: l.trainingTimerSetLocked(setNumber),
+          size: size,
+          target: target,
+          onTap: null,
+        );
+      case PlayerSetButtonKind.done:
+      case PlayerSetButtonKind.skipped:
+        final done = kind == PlayerSetButtonKind.done;
+        return Semantics(
+          button: true,
+          enabled: false,
+          label: done
+              ? l.trainingTimerSetDoneLabel(setNumber)
+              : l.trainingTimerSkippedSet,
+          excludeSemantics: true,
+          child: SizedBox.square(
+            dimension: target ?? size.target,
+            child: Center(
+              child: Container(
+                width: size.disc,
+                height: size.disc,
+                decoration: BoxDecoration(
+                  color: done ? t.accentTint : t.tile,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  done ? AppIcons.check : AppIcons.remove,
+                  size: size.glyph,
+                  color: done ? t.accentText : t.ink3,
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-    );
+        );
+    }
   }
 }

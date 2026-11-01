@@ -190,9 +190,10 @@ List<_KnownExercise> _knownExercises(List<TrainingHistoryEntry> history) {
   ];
 }
 
-/// A known exercise name to reuse: a quiet capsule, not a third mode next
-/// to the type chips. While saving it dims and keeps its 44 px, and it is
-/// still announced as a button, a disabled one.
+/// A known exercise name to reuse: the app's small suggestion chip, one size
+/// below the type chips so it never reads as a third mode beside them, on
+/// the 44 px touch floor. While saving it dims and is still announced as a
+/// button, a disabled one.
 class _SuggestionPill extends StatelessWidget {
   const _SuggestionPill({
     required this.pillKey,
@@ -206,6 +207,7 @@ class _SuggestionPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
+    key: pillKey,
     container: true,
     button: true,
     enabled: onTap != null,
@@ -214,20 +216,19 @@ class _SuggestionPill extends StatelessWidget {
     excludeSemantics: true,
     child: ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 44),
-      child: Opacity(
-        opacity: onTap == null ? 0.45 : 1,
-        child: SourcePill(
-          key: pillKey,
-          icon: AppIcons.history,
-          label: label,
-          onTap: onTap,
-        ),
+      child: FilterChipPill(
+        label: label,
+        icon: AppIcons.history,
+        size: FilterChipSize.sm,
+        selected: false,
+        onTap: onTap,
       ),
     ),
   );
 }
 
-/// A set's done/skipped switch: lime with a check when done.
+/// A set's done/skipped switch: the app's toggle disc, its check circle
+/// filled while the set counts as done.
 class _DoneToggle extends StatelessWidget {
   const _DoneToggle({
     super.key,
@@ -241,32 +242,12 @@ class _DoneToggle extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      container: true,
-      checked: done,
-      enabled: onTap != null,
-      label: label,
-      onTap: onTap,
-      excludeSemantics: true,
-      child: Material(
-        color: done ? t.lime : t.field,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: SizedBox.square(
-            dimension: 48,
-            child: Icon(
-              AppIcons.check,
-              size: 22,
-              color: done ? t.onLime : t.inkFaint,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => AppIconButton(
+    icon: AppIcons.checkCircle,
+    semanticLabel: label,
+    tone: IconButtonTone.accent,
+    selected: done,
+    target: 48,
+    onTap: onTap,
+  );
 }

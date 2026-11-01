@@ -893,7 +893,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     Widget caption(String text) => Expanded(
       child: Text(
         text.toUpperCase(),
-        style: AppType.eyebrow(context.t.ink2, size: 9.5),
+        style: AppType.eyebrow(context.t.ink2),
       ),
     );
     return ExcludeSemantics(
@@ -942,20 +942,22 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
           Expanded(
             child: Text(
               l10n.trainingPageExerciseNumber(e + 1),
-              style: AppType.ui(15, color: t.ink, weight: FontWeight.w600),
+              style: AppType.rowTitle(t.ink),
             ),
           ),
           if (_exercises.length > 1)
-            IconButton(
+            AppIconButton(
               key: ValueKey('$prefix-remove'),
-              tooltip: l10n.trainingPageRemoveExercise,
-              onPressed: _busy
+              icon: AppIcons.delete,
+              semanticLabel: l10n.trainingPageRemoveExercise,
+              tone: IconButtonTone.plain,
+              target: 48,
+              onTap: _busy
                   ? null
                   : () {
                       _exercises.removeAt(e).dispose();
                       _changed();
                     },
-              icon: const Icon(AppIcons.delete),
             )
           else
             const SizedBox(height: 48),
@@ -1114,16 +1116,18 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
             ),
           ),
           if (exercise.sets.length > 1)
-            IconButton(
+            AppIconButton(
               key: ValueKey('$prefix-remove'),
-              tooltip: l10n.trainingLogRemoveSet(s + 1),
-              onPressed: _busy
+              icon: AppIcons.close,
+              semanticLabel: l10n.trainingLogRemoveSet(s + 1),
+              tone: IconButtonTone.plain,
+              target: 48,
+              onTap: _busy
                   ? null
                   : () {
                       exercise.sets.removeAt(s).dispose();
                       _changed();
                     },
-              icon: const Icon(AppIcons.close),
             )
           else
             const SizedBox(width: 48),
@@ -1146,10 +1150,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
           runSpacing: 2,
           crossAxisAlignment: WrapCrossAlignment.end,
           children: [
-            Text(
-              exercise.name,
-              style: AppType.ui(15, color: t.ink, weight: FontWeight.w700),
-            ),
+            Text(exercise.name, style: AppType.rowTitle(t.ink)),
             Text(
               timed
                   ? l10n.trainingPageSetsTime(
@@ -1157,7 +1158,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
                       exercise.durationSeconds!,
                     )
                   : l10n.trainingPageSetsReps(exercise.sets, exercise.reps!),
-              style: AppType.ui(13, color: t.ink2),
+              style: AppType.subhead(t.ink2),
             ),
           ],
         ),

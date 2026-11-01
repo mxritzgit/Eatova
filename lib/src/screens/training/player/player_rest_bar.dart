@@ -252,9 +252,9 @@ class PlayerRestControls extends StatelessWidget {
   static const double _gap = 8;
 
   /// What a pill adds to its label: [SoftPillButton]'s 20 px sides or
-  /// [PrimaryActionButton]'s 16 px ones, and an 18 px icon with its gap.
+  /// [PrimaryActionButton]'s 18 px ones, and an 18 px icon with its gap.
   static const double _softSides = 40;
-  static const double _primarySides = 32;
+  static const double _primarySides = 36;
   static const double _iconRoom = 26;
 
   @override
@@ -414,36 +414,19 @@ class _AlertsOffChip extends StatelessWidget {
 
   final PlayerRestState rest;
 
+  /// Still tappable (it asks or opens the settings): the quiet neutral pill.
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: rest.alertsAsk
+    return SoftPillButton(
+      key: const ValueKey('training-timer-alerts-off'),
+      label: l.trainingTimerAlertsOff,
+      semanticLabel: rest.alertsAsk
           ? l.trainingTimerAlertsOffAskLabel
           : l.trainingTimerAlertsOffLabel,
-      excludeSemantics: true,
+      icon: AppIcons.notificationsOff,
+      tone: SoftPillTone.neutral,
       onTap: rest.onAlertsOff,
-      child: InkWell(
-        key: const ValueKey('training-timer-alerts-off'),
-        onTap: rest.onAlertsOff,
-        borderRadius: BorderRadius.circular(rPill),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 48),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(AppIcons.notificationsOff, size: 16, color: t.ink2),
-              const SizedBox(width: 6),
-              Text(
-                l.trainingTimerAlertsOff,
-                style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

@@ -12,6 +12,8 @@ import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'training_exercise_list.dart';
+import 'training_menu.dart';
+import 'training_overview_widgets.dart' show TrainingMetaItem;
 
 part 'training_plan_fields.dart';
 
@@ -382,22 +384,25 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
           style: AppType.ui(14, color: t.ink2, height: 1.45),
         ),
       ],
-      if (draft.goal.isNotEmpty) ...[
-        const SizedBox(height: 10),
-        Text(
-          draft.goal,
-          style: AppType.ui(14, color: t.accent, weight: FontWeight.w600),
+      // Goal and weekly sessions as the workout card's meta line.
+      if (draft.goal.isNotEmpty || draft.sessionsPerWeek != null) ...[
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 14,
+          runSpacing: 6,
+          children: [
+            if (draft.goal.isNotEmpty)
+              TrainingMetaItem(icon: AppIcons.flag, text: draft.goal),
+            if (draft.sessionsPerWeek case final sessions?)
+              TrainingMetaItem(
+                key: const ValueKey('training-editor-review-sessions'),
+                icon: AppIcons.calendar,
+                text: l10n.trainingPageSessionsPerWeekValue(sessions),
+              ),
+          ],
         ),
       ],
-      if (draft.sessionsPerWeek case final sessions?) ...[
-        const SizedBox(height: 6),
-        Text(
-          l10n.trainingPageSessionsPerWeekValue(sessions),
-          key: const ValueKey('training-editor-review-sessions'),
-          style: AppType.ui(14, color: t.ink2, weight: FontWeight.w600),
-        ),
-      ],
-      const SizedBox(height: 14),
+      const SizedBox(height: 16),
       SoftPillButton(
         key: const ValueKey('training-editor-edit'),
         onTap: _busy ? null : _beginEditing,
@@ -715,12 +720,11 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
     required VoidCallback remove,
   }) {
     final l10n = context.l10n;
-    return PopupMenuButton<String>(
+    return TrainingMenuButton<String>(
       key: ValueKey('$keyPrefix-menu'),
-      tooltip: l10n.trainingPageItemOptions(title),
+      semanticLabel: l10n.trainingPageItemOptions(title),
       enabled: !_busy,
-      icon: const Icon(AppIcons.moreHoriz),
-      iconColor: context.t.ink2,
+      target: 48,
       onSelected: (value) {
         if (_busy) return;
         switch (value) {
@@ -782,7 +786,7 @@ class _ExerciseCard extends StatefulWidget {
   static const double _menuSlot = 48;
 
   /// The header's end padding plus the chevron, i.e. where the slot ends.
-  static const double _menuEnd = 12 + 22;
+  static const double _menuEnd = 12 + AppIconSize.standard;
 
   @override
   State<_ExerciseCard> createState() => _ExerciseCardState();
@@ -809,20 +813,11 @@ class _ExerciseCardState extends State<_ExerciseCard> {
               padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
               child: Row(
                 children: [
-                  Text(
-                    widget.number.toString().padLeft(2, '0'),
-                    style: AppType.display(18, color: t.accentText),
-                  ),
-                  const SizedBox(width: 14),
+                  // The exercise order in the app's one number style.
+                  StepNumber(widget.number, size: 32),
+                  const SizedBox(width: kRowLeadingGap),
                   Expanded(
-                    child: Text(
-                      widget.title,
-                      style: AppType.ui(
-                        15,
-                        color: t.ink,
-                        weight: FontWeight.w600,
-                      ),
-                    ),
+                    child: Text(widget.title, style: AppType.rowTitle(t.ink)),
                   ),
                   const SizedBox(width: 8),
                   if (widget.menu != null)
@@ -833,7 +828,7 @@ class _ExerciseCardState extends State<_ExerciseCard> {
                     curve: kMotionCurve,
                     child: Icon(
                       AppIcons.expandMore,
-                      size: 22,
+                      size: AppIconSize.standard,
                       color: t.ink2,
                     ),
                   ),
