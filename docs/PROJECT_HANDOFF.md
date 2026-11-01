@@ -4669,7 +4669,12 @@ into `feat/review-build-2026-11-01`):
 Integration: one shared open-plan count for the two batch saves (prep ahead
 and the week suggestion came from parallel branches); the Coach recipe flow
 test reads display categories now that Coach recipes carry the basis
-marker.
+marker; the hour-boundary shell test starts from an account that has logged.
+The Android job's strict OSV scan failed on GHSA-xxph-c9ww-hj94 (Guava
+before 33.7.2, published 2026-10-27, so `main` fails too); a constraint in
+`android/app/build.gradle.kts` resolves `33.7.2-android` (from 33.5.0 and
+31.1), checked with `:app:dependencies --configuration
+releaseRuntimeClasspath` and the CI debug and release builds.
 
 **Decisions taken overnight** (each easy to revert; the owner can
 override):
