@@ -289,7 +289,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
                 alignment: AlignmentDirectional.centerStart,
                 child: SoftPillButton(
                   key: const ValueKey('trends-ask-coach-weight'),
-                  icon: Icons.chat_bubble_outline_rounded,
+                  icon: AppIcons.chatBubble,
                   label: context.l10n.coachAskWeightStall,
                   tone: SoftPillTone.neutral,
                   onTap: () {
@@ -962,7 +962,7 @@ class _MacroAveragesCard extends StatelessWidget {
                     )
                   : l10n.trendsProteinGoalDays(days.hit, days.tracked),
               key: const ValueKey('trends-protein-goal-days'),
-              style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
             ),
           ],
         ],
@@ -1075,7 +1075,7 @@ class _Fact extends StatelessWidget {
     padding: const EdgeInsets.only(top: 6),
     child: Text(
       text,
-      style: AppType.ui(11.5, weight: FontWeight.w500, color: context.t.ink2),
+      style: AppType.ui(12, weight: FontWeight.w500, color: context.t.ink2),
     ),
   );
 }
@@ -1535,7 +1535,7 @@ class _EmptyCard extends StatelessWidget {
     return CalmState(
       key: const ValueKey('trends-empty'),
       card: true,
-      icon: Icons.query_stats_rounded,
+      icon: AppIcons.queryStats,
       title: l10n.trendsEmptyTitle,
       text: l10n.trendsEmptyBody,
     );
@@ -1543,7 +1543,8 @@ class _EmptyCard extends StatelessWidget {
 }
 
 /// Offline over a range the device holds: the numbers below come from this
-/// device's days, which may miss another device's entries.
+/// device's days, which may miss another device's entries. The app's quiet
+/// banner, with the retry under its text.
 class _OfflineNote extends StatelessWidget {
   const _OfflineNote({required this.onRetry});
 
@@ -1551,41 +1552,18 @@ class _OfflineNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return AppCard(
+    return SignalNote(
+      l10n.trendsOfflineNote,
       key: const ValueKey('trends-offline'),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.cloud_off_rounded, size: 20, color: t.ink2),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  l10n.trendsOfflineNote,
-                  style: AppType.ui(
-                    12.5,
-                    weight: FontWeight.w500,
-                    color: t.ink2,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SoftPillButton(
-            key: const ValueKey('trends-offline-retry'),
-            label: l10n.trendsRetryCta,
-            icon: Icons.refresh_rounded,
-            tone: SoftPillTone.neutral,
-            onTap: onRetry,
-          ),
-        ],
+      icon: AppIcons.cloudOff,
+      boxed: true,
+      action: SoftPillButton(
+        key: const ValueKey('trends-offline-retry'),
+        label: l10n.trendsRetryCta,
+        icon: AppIcons.refresh,
+        tone: SoftPillTone.neutral,
+        onTap: onRetry,
       ),
     );
   }
@@ -1602,14 +1580,14 @@ class _ErrorCard extends StatelessWidget {
     return CalmState(
       key: const ValueKey('trends-error'),
       card: true,
-      icon: Icons.cloud_off_rounded,
+      icon: AppIcons.cloudOff,
       title: l10n.trendsErrorTitle,
       text: l10n.trendsErrorBody,
       actions: [
         SoftPillButton(
           key: const ValueKey('trends-retry'),
           label: l10n.trendsRetryCta,
-          icon: Icons.refresh_rounded,
+          icon: AppIcons.refresh,
           onTap: onRetry,
         ),
       ],
