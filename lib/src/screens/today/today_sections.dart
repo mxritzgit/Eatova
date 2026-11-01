@@ -569,7 +569,9 @@ class TodayActivityCard extends StatelessWidget {
                 Divider(
                   height: 1,
                   thickness: 1,
-                  indent: ListDividerInset.textLg.indent,
+                  indent: listRowStacked(context)
+                      ? kCardInset
+                      : ListDividerInset.textLg.indent,
                   endIndent: kCardInset,
                   color: t.line,
                 ),
@@ -635,90 +637,133 @@ class TodayStepsRow extends StatelessWidget {
       formatThousands(count, l10n.localeName),
       formatThousands(target, l10n.localeName),
     );
-    return Row(
+    return _ActivityLead(
       key: const ValueKey('today-steps-card'),
-      children: <Widget>[
-        _ActivityBadge(glyph: TodayGlyph.pulse, color: t.activity),
-        const SizedBox(width: kRowLeadingGap),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final line = Wrap(
-                    spacing: 4,
-                    runSpacing: 2,
-                    crossAxisAlignment: WrapCrossAlignment.end,
-                    children: <Widget>[value, unit],
-                  );
-                  if (credit == null) return line;
-                  final scaler = MediaQuery.textScalerOf(context);
-                  double width(Text text) {
-                    final painter = TextPainter(
-                      text: TextSpan(text: text.data, style: text.style),
-                      textDirection: TextDirection.ltr,
-                      textScaler: scaler,
-                      maxLines: 1,
-                    )..layout();
-                    final w = painter.width;
-                    painter.dispose();
-                    return w;
-                  }
+      badge: _ActivityBadge(glyph: TodayGlyph.pulse, color: t.activity),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final line = Wrap(
+                spacing: 4,
+                runSpacing: 2,
+                crossAxisAlignment: WrapCrossAlignment.end,
+                children: <Widget>[value, unit],
+              );
+              if (credit == null) return line;
+              final scaler = MediaQuery.textScalerOf(context);
+              double width(Text text) {
+                final painter = TextPainter(
+                  text: TextSpan(text: text.data, style: text.style),
+                  textDirection: TextDirection.ltr,
+                  textScaler: scaler,
+                  maxLines: 1,
+                )..layout();
+                final w = painter.width;
+                painter.dispose();
+                return w;
+              }
 
-                  final side =
-                      width(value) + 4 + width(unit) + 8 + width(credit) <=
-                      constraints.maxWidth;
-                  return side
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: <Widget>[
-                            value,
-                            const SizedBox(width: 4),
-                            Expanded(child: unit),
-                            const SizedBox(width: 8),
-                            credit,
-                          ],
-                        )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            line,
-                            const SizedBox(height: 2),
-                            credit,
-                          ],
-                        );
-                },
-              ),
-              const SizedBox(height: 8),
-              Semantics(
-                label: l10n.todaySemanticsStepsProgress,
-                value: reached
-                    ? '$semanticValue, ${l10n.todayStepsGoalReached}'
-                    : semanticValue,
-                child: ExcludeSemantics(
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: progress),
-                    duration: motionDuration(context, kMotionValue),
-                    curve: kMotionCurve,
-                    builder: (context, value, _) => ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: LinearProgressIndicator(
-                        key: const ValueKey('today-steps-bar'),
-                        value: value,
-                        minHeight: 6,
-                        borderRadius: BorderRadius.circular(3),
-                        backgroundColor: t.tile,
-                        valueColor: AlwaysStoppedAnimation(t.activity),
-                      ),
-                    ),
+              final side =
+                  width(value) + 4 + width(unit) + 8 + width(credit) <=
+                  constraints.maxWidth;
+              return side
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: <Widget>[
+                        value,
+                        const SizedBox(width: 4),
+                        Expanded(child: unit),
+                        const SizedBox(width: 8),
+                        credit,
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        line,
+                        const SizedBox(height: 2),
+                        credit,
+                      ],
+                    );
+            },
+          ),
+          const SizedBox(height: 8),
+          Semantics(
+            label: l10n.todaySemanticsStepsProgress,
+            value: reached
+                ? '$semanticValue, ${l10n.todayStepsGoalReached}'
+                : semanticValue,
+            child: ExcludeSemantics(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: progress),
+                duration: motionDuration(context, kMotionValue),
+                curve: kMotionCurve,
+                builder: (context, value, _) => ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    key: const ValueKey('today-steps-bar'),
+                    value: value,
+                    minHeight: 6,
+                    borderRadius: BorderRadius.circular(3),
+                    backgroundColor: t.tile,
+                    valueColor: AlwaysStoppedAnimation(t.activity),
                   ),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A row's badge and its content side by side; from about 1.6x text the
+/// badge stands above the content, which keeps the full width, as in a
+/// [ListRow] ([listRowStacked]). [trailing] (a chevron) ends the badge's
+/// line then.
+class _ActivityLead extends StatelessWidget {
+  const _ActivityLead({
+    super.key,
+    required this.badge,
+    required this.child,
+    this.trailing,
+    this.alignTop = false,
+  });
+
+  final Widget badge, child;
+  final Widget? trailing;
+
+  /// The badge at the content's top rather than its centre.
+  final bool alignTop;
+
+  @override
+  Widget build(BuildContext context) {
+    if (listRowStacked(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(children: <Widget>[badge, const Spacer(), ?trailing]),
+          const SizedBox(height: 10),
+          child,
+        ],
+      );
+    }
+    return Row(
+      crossAxisAlignment: alignTop
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
+      children: <Widget>[
+        badge,
+        const SizedBox(width: kRowLeadingGap),
+        Expanded(child: child),
+        if (trailing case final trailing?) ...<Widget>[
+          const SizedBox(width: 6),
+          trailing,
+        ],
       ],
     );
   }
@@ -761,33 +806,22 @@ class _HealthMissingRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Row(
+    return _ActivityLead(
       key: const ValueKey('today-health-connect-missing'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _ActivityBadge(glyph: TodayGlyph.pulse, color: t.activity),
-        const SizedBox(width: kRowLeadingGap),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(l10n.healthConnectMissingTitle, style: AppType.rowTitle(t.ink)),
-              const SizedBox(height: 3),
-              Text(
-                l10n.healthConnectMissingHint,
-                style: AppType.subhead(t.ink2),
-              ),
-              if (onReview != null) ...<Widget>[
-                const SizedBox(height: kSpace12),
-                SoftPillButton(
-                  label: l10n.healthConnectReview,
-                  onTap: onReview,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
+      alignTop: true,
+      badge: _ActivityBadge(glyph: TodayGlyph.pulse, color: t.activity),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(l10n.healthConnectMissingTitle, style: AppType.rowTitle(t.ink)),
+          const SizedBox(height: 3),
+          Text(l10n.healthConnectMissingHint, style: AppType.subhead(t.ink2)),
+          if (onReview != null) ...<Widget>[
+            const SizedBox(height: kSpace12),
+            SoftPillButton(label: l10n.healthConnectReview, onTap: onReview),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -812,42 +846,36 @@ class _WorkoutRow extends StatelessWidget {
           key: const ValueKey('today-workout-row'),
           onTap: onTap,
           child: _ActivityRowPadding(
-            child: Row(
-              children: <Widget>[
-                const _ActivityBadge(glyph: TodayGlyph.dumbbell),
-                const SizedBox(width: kRowLeadingGap),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        title,
-                        key: const ValueKey('today-workout-title'),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.rowTitle(t.ink),
+            child: _ActivityLead(
+              badge: const _ActivityBadge(glyph: TodayGlyph.dumbbell),
+              trailing: onTap == null
+                  ? null
+                  : ExcludeSemantics(
+                      child: Icon(
+                        AppIcons.chevronRight,
+                        size: AppIconSize.standard,
+                        color: t.ink3,
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        subtitle,
-                        key: const ValueKey('today-workout-sub'),
-                        // The meal rows' subtitle tone on the same page.
-                        style: AppType.subhead(t.ink3),
-                      ),
-                    ],
-                  ),
-                ),
-                if (onTap != null) ...<Widget>[
-                  const SizedBox(width: 6),
-                  ExcludeSemantics(
-                    child: Icon(
-                      AppIcons.chevronRight,
-                      size: AppIconSize.standard,
-                      color: t.ink3,
                     ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    key: const ValueKey('today-workout-title'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.rowTitle(t.ink),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    key: const ValueKey('today-workout-sub'),
+                    // The meal rows' subtitle tone on the same page.
+                    style: AppType.subhead(t.ink3),
                   ),
                 ],
-              ],
+              ),
             ),
           ),
         ),
