@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
+import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
 import 'saved_meal_presentation.dart';
 
@@ -36,7 +37,10 @@ class ProductSearchHeader extends StatelessWidget {
         ? 0
         : result.adjustedToGrams(100).caloriesKcal;
     final hasDensity = density > 0 || result.explicitZeroKcal;
-    final portion = hasDensity ? null : '${result.estimatedGrams} g';
+    final locale = context.l10n.localeName;
+    final portion = hasDensity
+        ? null
+        : '${formatThousands(result.estimatedGrams, locale)} g';
     final secondary = [?brand, ?portion].join(' · ');
     return MealItemRow(
       leading: MealItemTile(
@@ -51,14 +55,16 @@ class ProductSearchHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
               children: [
-                MealKcalValue(number: '$density'),
+                MealKcalValue(number: formatThousands(density, locale)),
                 Text(
                   context.l10n.foodManualPer100GSuffix,
-                  style: AppType.ui(11.5, color: context.t.ink3),
+                  style: AppType.micro(context.t.ink2),
                 ),
               ],
             )
-          : MealKcalValue(number: '${result.caloriesKcal}'),
+          : MealKcalValue(
+              number: formatThousands(result.caloriesKcal, locale),
+            ),
       onTap: onTap,
       expanded: expanded,
       actions: [

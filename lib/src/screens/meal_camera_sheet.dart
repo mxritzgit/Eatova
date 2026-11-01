@@ -16,10 +16,7 @@ import '../services/meal_photo_temp_file.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
-import '../widgets/design/sheets.dart';
-import '../widgets/design/spinner.dart';
-import '../widgets/design/soft_actions.dart';
-import '../widgets/design/states.dart';
+import '../widgets/design/design.dart';
 import '../widgets/kcal/meal_slot_picker.dart';
 
 /// In-app camera as an animated bottom panel. Pops a [MealCameraCapture], or
@@ -324,7 +321,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   void _showError(String message) => showAppSnack(
         context,
         message,
-        icon: Icons.error_outline_rounded,
+        icon: AppIcons.error,
         tone: SnackTone.error,
       );
 
@@ -502,7 +499,7 @@ class _CameraLoadingLayer extends StatelessWidget {
     // EXACTLY ONE spinner: meal_camera_sheet_test pins the count per state.
     return ColoredBox(
       color: t.bg,
-      child: const Center(child: AppSpinner(size: 26, strokeWidth: 2)),
+      child: const Center(child: AppSpinner()),
     );
   }
 }
@@ -533,7 +530,7 @@ class _CameraFailedLayer extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: CalmState(
-            icon: Icons.no_photography_outlined,
+            icon: AppIcons.noPhotography,
             text: denied
                 ? l10n.foodCameraPermissionDeniedMessage
                 : l10n.foodCameraUnavailableGalleryMessage,
@@ -543,7 +540,7 @@ class _CameraFailedLayer extends StatelessWidget {
                 SoftPillButton(
                   key: const ValueKey('meal-camera-open-settings'),
                   onTap: onOpenSettings,
-                  icon: Icons.settings_outlined,
+                  icon: AppIcons.settings,
                   label: l10n.foodOpenSettingsButton,
                 ),
             ],
@@ -621,8 +618,8 @@ class _ViewfinderGuide extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.auto_awesome_rounded,
-                    size: 14,
+                    AppIcons.photoCamera,
+                    size: AppIconSize.meta,
                     color: t.imageAccent,
                   ),
                   const SizedBox(width: 6),
@@ -631,7 +628,7 @@ class _ViewfinderGuide extends StatelessWidget {
                       context.l10n.foodScanMealHint,
                       textAlign: TextAlign.center,
                       style: AppType.ui(
-                        11.5,
+                        12,
                         weight: FontWeight.w700,
                         color: t.onImage,
                         letterSpacing: -0.1,
@@ -724,12 +721,7 @@ class _HeaderRow extends StatelessWidget {
       eyebrow: Text(
         eyebrow.toUpperCase(),
         semanticsLabel: eyebrow,
-        style: AppType.ui(
-          11.5,
-          weight: FontWeight.w700,
-          color: context.t.accentText,
-          letterSpacing: 11.5 * 0.08,
-        ),
+        style: AppType.sectionEyebrow(context.t.accentText),
       ),
       compact: true,
       onClose: onClose,
@@ -768,7 +760,7 @@ class _CaptureBar extends StatelessWidget {
       children: [
         _RoundButton(
           keyValue: const ValueKey('meal-camera-gallery'),
-          icon: Icons.photo_library_outlined,
+          icon: AppIcons.photoLibrary,
           label: context.l10n.foodFromGalleryTooltip,
           onTap: busy ? null : onGallery,
         ),
@@ -778,7 +770,7 @@ class _CaptureBar extends StatelessWidget {
         else
           _RoundButton(
             keyValue: const ValueKey('meal-camera-torch'),
-            icon: torchOn ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+            icon: torchOn ? AppIcons.flashOn : AppIcons.flashOff,
             label: context.l10n.foodTorchLabel,
             toggled: torchOn,
             onTap: busy ? null : onTorch,
@@ -825,13 +817,16 @@ class _RoundButton extends StatelessWidget {
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onTap,
+          // A press brightens the glass a step: no ripple, still a state.
+          highlightColor: context.t.onImage.withValues(alpha: 0.16),
           child: SizedBox(
             width: 48,
             height: 48,
             child: Icon(
               icon,
-              color: on ? Colors.black : Colors.white,
-              size: 21,
+              // The lit torch keeps black on the fixed image accent.
+              color: on ? Colors.black : context.t.onImage,
+              size: AppIconSize.standard,
             ),
           ),
         ),
@@ -863,7 +858,7 @@ class _Shutter extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             border: Border.all(
-              color: Colors.white.withValues(alpha: enabled ? 0.95 : 0.4),
+              color: context.t.onImage.withValues(alpha: enabled ? 0.95 : 0.4),
               width: 4,
             ),
           ),
@@ -874,14 +869,16 @@ class _Shutter extends StatelessWidget {
                 shape: BoxShape.circle,
                 color: enabled
                     ? context.t.imageAccent
-                    : Colors.white.withValues(alpha: 0.4),
+                    : context.t.onImage.withValues(alpha: 0.4),
               ),
               child: busy
-                  ? const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: CircularProgressIndicator(
+                  ? Center(
+                      child: AppSpinner(
+                        size: AppIconSize.large,
                         strokeWidth: 2.5,
+                        // Black on the fixed image accent, like the torch.
                         color: Colors.black,
+                        trackColor: Colors.black.withValues(alpha: 0.2),
                       ),
                     )
                   : null,

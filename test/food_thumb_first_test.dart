@@ -7,6 +7,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/food_page_chrome.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -382,8 +383,8 @@ void main() {
       );
       expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('food-date-next')))
-            .onPressed,
+            .widget<AppIconButton>(find.byKey(const ValueKey('food-date-next')))
+            .onTap,
         isNull,
       );
       await tester.tap(find.byKey(const ValueKey('food-date-previous')));

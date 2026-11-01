@@ -467,7 +467,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
               Text(
                 _quick ? l10n.foodQuickSubtitle : l10n.foodManualEntrySubtitle,
                 key: const ValueKey('manual-meal-subtitle'),
-                style: AppType.ui(12.5, color: t.ink2, height: 1.4),
+                style: AppType.subhead(t.ink2),
               ),
               const SizedBox(height: 12),
               _ModeChips(
@@ -672,7 +672,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
               PrimaryActionButton(
                 key: const ValueKey('manual-meal-save'),
                 onTap: _isValid && !_saving ? _save : null,
-                icon: Icons.check_rounded,
+                icon: AppIcons.check,
                 label: l10n.commonSave,
               ),
             ],
@@ -820,7 +820,7 @@ class _BarcodeNote extends StatelessWidget {
         Expanded(
           child: Text(
             context.l10n.foodOwnProductBarcodeNote(code),
-            style: AppType.ui(12.5, color: t.ink2, height: 1.4),
+            style: AppType.subhead(t.ink2),
           ),
         ),
       ],
@@ -1048,7 +1048,7 @@ class _ManualFieldState extends State<_ManualField> {
           const SizedBox(height: 6),
           Text(
             errorText,
-            style: AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
+            style: AppType.ui(12, weight: FontWeight.w500, color: t.danger),
           ),
         ],
       ],

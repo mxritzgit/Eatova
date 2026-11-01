@@ -26,7 +26,7 @@ Future<List<MealComponent>?> showWeightAdjustmentSheet(
               ? context.l10n.foodQuickNoWeightHint
               : context.l10n.recipeCalcNoCookedWeight,
         ),
-        icon: Icons.info_outline_rounded,
+        icon: AppIcons.info,
         actions: [
           EatovaDialogAction(
             label: context.l10n.commonClose,
@@ -441,7 +441,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                       SoftPillButton(
                         key: const ValueKey('analyse-item-add-button'),
                         onTap: _addItemDialog,
-                        icon: Icons.add_rounded,
+                        icon: AppIcons.add,
                         label: l10n.foodAddItemTitle,
                       ),
                       const SizedBox(height: 14),
@@ -452,9 +452,9 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                         child: Row(
                           children: [
                             Icon(
-                              Icons.calculate_outlined,
+                              AppIcons.calculate,
                               color: t.accent,
-                              size: 18,
+                              size: AppIconSize.button,
                             ),
                             const SizedBox(width: 10),
                             // The count moves under the total when both do
@@ -529,7 +529,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                         onTap: canSave
                             ? () => Navigator.pop(context, adjustedItems)
                             : null,
-                        icon: Icons.check_rounded,
+                        icon: AppIcons.check,
                         label: l10n.foodApplyButton,
                       ),
                     ],
@@ -614,16 +614,13 @@ class _ItemEditCard extends StatelessWidget {
                   style: AppType.ui(14, weight: FontWeight.w700, color: t.ink),
                 ),
               ),
-              IconButton(
+              AppIconButton(
                 key: ValueKey('analyse-item-remove-$index'),
-                onPressed: onRemove,
-                tooltip: l10n.foodRemoveTooltip,
-                visualDensity: VisualDensity.compact,
-                icon: Icon(
-                  Icons.close_rounded,
-                  size: 18,
-                  color: t.ink2,
-                ),
+                icon: AppIcons.close,
+                semanticLabel: l10n.foodRemoveTooltip,
+                tone: IconButtonTone.plain,
+                size: IconButtonSize.compact,
+                onTap: onRemove,
               ),
             ],
           ),
@@ -632,9 +629,10 @@ class _ItemEditCard extends StatelessWidget {
             padding: const EdgeInsets.only(right: 6),
             child: Row(
               children: [
-                _ItemStepperButton(
-                  icon: Icons.remove_rounded,
+                AppIconButton(
+                  icon: AppIcons.remove,
                   semanticLabel: l10n.foodDecreaseItemSemantics(name),
+                  tone: IconButtonTone.accent,
                   onTap: () => _bump(-10),
                   onLongPress: () => _bump(-50),
                 ),
@@ -704,9 +702,10 @@ class _ItemEditCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                _ItemStepperButton(
-                  icon: Icons.add_rounded,
+                AppIconButton(
+                  icon: AppIcons.add,
                   semanticLabel: l10n.foodIncreaseItemSemantics(name),
+                  tone: IconButtonTone.accent,
                   onTap: () => _bump(10),
                   onLongPress: () => _bump(50),
                 ),
@@ -762,8 +761,8 @@ class _ItemEditCard extends StatelessWidget {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(
-                  Icons.local_fire_department_outlined,
-                  size: 14,
+                  AppIcons.flame,
+                  size: AppIconSize.meta,
                   color: t.accent,
                 ),
                 Text(
@@ -789,43 +788,6 @@ class _ItemEditCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Round -/+ soft capsule of the component row, tinted [AppTokens.accent].
-class _ItemStepperButton extends StatelessWidget {
-  const _ItemStepperButton({
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final IconData icon;
-  final String semanticLabel;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: t.surf2,
-            borderRadius: BorderRadius.circular(rPill),
-          ),
-          child: Icon(icon, size: 20, color: t.accent),
-        ),
       ),
     );
   }
@@ -864,7 +826,7 @@ class _RemovedItemCard extends StatelessWidget {
             ),
             SoftPillButton(
               onTap: onUndo,
-              icon: Icons.undo_rounded,
+              icon: AppIcons.undo,
               label: context.l10n.foodUndoRemoveButton,
             ),
           ],
@@ -1239,8 +1201,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 onTap: () => setState(() => _makrosOffen = !_makrosOffen),
                 // Accent: a neutral capsule read as one more input field.
                 icon: _makrosOffen
-                    ? Icons.expand_less_rounded
-                    : Icons.expand_more_rounded,
+                    ? AppIcons.expandLess
+                    : AppIcons.expandMore,
                 label: l10n.foodAddItemMacrosToggle,
               ),
             ),

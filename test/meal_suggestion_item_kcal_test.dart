@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -48,8 +49,9 @@ int vorschauKcal(WidgetTester tester) {
   final vorschau = find.byKey(const ValueKey('live-preview-kcal'));
   expect(vorschau, findsOneWidget, reason: 'genau eine Live-Vorschau erwartet');
   final text = tester.widget<Text>(vorschau).textSpan!.toPlainText();
-  expect(text, matches(RegExp(r'^\d+ kcal$')));
-  return int.parse(text.split(' ').first);
+  // With the active language's thousands separator ("2.797 kcal").
+  expect(text, matches(RegExp(r'^\d{1,3}([.,]\d{3})* kcal$')));
+  return int.parse(text.split(' ').first.replaceAll(RegExp('[.,]'), ''));
 }
 
 Future<List<MealAnalysisResult>> pumpItem(
@@ -149,8 +151,8 @@ void main() {
       reason: 'unplausible Eingabe muss sichtbar zurückgewiesen werden',
     );
     expect(
-      tester.widget<FilledButton>(find.byKey(_addKey)).enabled,
-      isFalse,
+      tester.widget<AppIconButton>(find.byKey(_addKey)).onTap,
+      isNull,
       reason: 'mit ungültiger Portion darf nichts loggbar sein',
     );
 

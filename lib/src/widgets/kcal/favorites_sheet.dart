@@ -160,7 +160,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       showAppSnack(
         context,
         context.l10n.foodSuggestionWithoutCaloriesMessage,
-        icon: Icons.error_outline_rounded,
+        icon: AppIcons.error,
         tone: SnackTone.error,
         duration: kSnackError,
       );
@@ -177,7 +177,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, widget.slot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
     setState(() {
       _expandedItemKey = null;
@@ -211,7 +211,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     showAppSnack(
       context,
       context.l10n.commonFavoriteRemoved,
-      icon: Icons.favorite_outline_rounded,
+      icon: AppIcons.favorite,
       tone: SnackTone.neutral,
       action: onRepin == null
           ? null
@@ -268,7 +268,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     showAppSnack(
       context,
       context.l10n.foodFavoriteSaved,
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
       action: SnackBarAction(
         label: context.l10n.commonUndo,
         onPressed: () => unawaited(_undoEdit(rowId, before)),
@@ -440,13 +440,13 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       return CalmState(
         key: const ValueKey('favorites-sheet-empty'),
         card: true,
-        icon: Icons.favorite_outline_rounded,
+        icon: AppIcons.favorite,
         text: l10n.foodFavoritesEmptyHint,
         actions: [
           SoftPillButton(
             key: const ValueKey('favorites-sheet-empty-search'),
             label: l10n.foodFavoritesEmptySearchAction,
-            icon: Icons.search_rounded,
+            icon: AppIcons.search,
             onTap: () => Navigator.of(context).maybePop(true),
           ),
         ],
@@ -456,13 +456,13 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       return CalmState(
         key: const ValueKey('favorites-sheet-no-match'),
         card: true,
-        icon: Icons.search_off_rounded,
+        icon: AppIcons.searchOff,
         text: l10n.foodFavoritesNoMatchHint,
         actions: [
           SoftPillButton(
             key: const ValueKey('favorites-sheet-no-match-clear'),
             label: l10n.recipesSearchClearTooltip,
-            icon: Icons.close_rounded,
+            icon: AppIcons.close,
             onTap: _clearQuery,
           ),
         ],
@@ -587,20 +587,19 @@ class _SearchFieldState extends State<_SearchField> {
             ),
           ),
           if (widget.hasQuery)
-            IconButton(
-              key: const ValueKey('favorites-sheet-search-clear'),
-              // Not the Material "Delete" tooltip: next to a favorites list it
-              // reads as "remove favorite". The recipes search key already
-              // says exactly what this does.
-              tooltip: context.l10n.recipesSearchClearTooltip,
-              onPressed: widget.onClear,
-              // 44 pt tap floor; compact density would shrink it to 40.
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-              style: IconButton.styleFrom(
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            Padding(
+              padding: const EdgeInsets.only(right: 5),
+              child: AppIconButton(
+                key: const ValueKey('favorites-sheet-search-clear'),
+                icon: AppIcons.close,
+                // Not "Delete": next to a favorites list it reads as "remove
+                // favorite". The recipes search key says exactly what this
+                // does.
+                semanticLabel: context.l10n.recipesSearchClearTooltip,
+                tone: IconButtonTone.plain,
+                size: IconButtonSize.compact,
+                onTap: widget.onClear,
               ),
-              icon: Icon(Icons.close_rounded, size: 18, color: t.ink2),
             )
           else
             const SizedBox(width: 18),

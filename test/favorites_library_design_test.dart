@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/widgets/design/soft_actions.dart';
 import 'package:eatova/src/widgets/kcal/favorites_sheet.dart';
 import 'package:eatova/src/widgets/kcal/saved_meal_presentation.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'support/harness.dart';
 
 const _meal = MealAnalysisResult(
@@ -94,7 +94,7 @@ void main() {
       await tester.enterText(grams, '12000');
       await tester.pumpAndSettle();
       final add = _key('favorites-sheet-add-0');
-      expect(tester.widget<FilledButton>(add).onPressed, isNull);
+      expect(tester.widget<AppIconButton>(add).onTap, isNull);
       expect(logged, isEmpty);
       await tester.enterText(grams, '600');
       await tester.pumpAndSettle();

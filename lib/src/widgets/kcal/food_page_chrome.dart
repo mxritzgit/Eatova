@@ -62,7 +62,7 @@ class FoodPageHeader extends StatelessWidget {
           const SizedBox(width: 12),
           HeaderIconButton(
             key: const ValueKey('food-trends'),
-            icon: Icons.insights_rounded,
+            icon: AppIcons.insights,
             semanticLabel: l10n.foodTrendsButtonSemantics,
             onTap: open,
           ),
@@ -102,20 +102,15 @@ class FoodDayNavigation extends StatelessWidget {
     final l10n = context.l10n;
     final today = DateUtils.dateOnly(clock.now());
     final first = DateTime(today.year - 2, today.month, today.day);
+    // The app's plain icon button: no disc at rest inside the pill, 44 px
+    // (the design's target), dimmed where the range ends.
     Widget arrow(String key, FoodGlyph glyph, String tooltip, DateTime? to) =>
-        IconButton(
+        AppIconButton(
           key: ValueKey(key),
-          style: IconButton.styleFrom(
-            minimumSize: const Size.square(44),
-            fixedSize: const Size.square(44),
-            // 44 px is the design's target; no extra 48 px padding.
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            foregroundColor: t.inkMuted,
-            disabledForegroundColor: t.inkDisabled,
-          ),
-          tooltip: tooltip,
-          onPressed: to == null ? null : () => onSelected(to),
-          icon: FoodGlyphIcon(glyph, size: 20),
+          semanticLabel: tooltip,
+          tone: IconButtonTone.plain,
+          onTap: to == null ? null : () => onSelected(to),
+          child: FoodGlyphIcon(glyph),
         );
     return Container(
       key: const ValueKey('food-date-strip'),

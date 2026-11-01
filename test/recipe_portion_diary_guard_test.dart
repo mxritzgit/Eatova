@@ -3,7 +3,8 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
+import 'package:eatova/src/widgets/design/design.dart'
+    show AppIconButton, PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
@@ -157,7 +158,7 @@ void main() {
             .widget<Text>(find.byKey(const ValueKey('edit-meal-summary-figure')))
             .data!;
         bool enabled(Finder button) =>
-            tester.widget<InkWell>(button).onTap != null;
+            tester.widget<AppIconButton>(button).onTap != null;
 
         expect(figure(), '175 kcal · 0.5 portions');
         expect(enabled(less), isFalse, reason: 'half a serving is the floor');

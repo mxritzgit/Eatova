@@ -132,7 +132,7 @@ class _SlotTotalLine extends StatelessWidget {
         Text(
           macroSummaryLine(l10n, totals),
           key: const ValueKey('analyse-existing-total-macros'),
-          style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3),
+          style: AppType.ui(12, weight: FontWeight.w500, color: t.ink3),
         ),
       ],
     );
@@ -175,22 +175,23 @@ class _ExistingMealRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // The row roles of the sheet's other lists (ListRow).
                   Text(
                     meal.result.resolvedMealName(l10n),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                    style: AppType.rowTitle(t.ink),
                   ),
-                  const SizedBox(height: 1),
+                  const SizedBox(height: 3),
                   Text(
                     diaryAmountLabel(meal.result, l10n),
-                    style: AppType.ui(12, color: t.ink3),
+                    style: AppType.subhead(t.ink2),
                   ),
                   if (hasMacros)
                     Text(
                       macroSummaryLine(l10n, macros),
                       key: ValueKey('analyse-existing-macros-${meal.id}'),
-                      style: AppType.ui(12, color: t.ink3),
+                      style: AppType.ui(12, color: t.ink2),
                     ),
                 ],
               ),
@@ -203,14 +204,18 @@ class _ExistingMealRow extends StatelessWidget {
               style: AppType.ui(14, weight: FontWeight.w600, color: t.ink2)
                   .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
             ),
-            if (onRemove != null)
-              IconButton(
+            if (onRemove != null) ...[
+              const SizedBox(width: kSpace4),
+              AppIconButton(
                 key: ValueKey('analyse-existing-remove-${meal.id}'),
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-                onPressed: () => onRemove!(meal.id),
-                icon: Icon(Icons.close_rounded, size: 18, color: t.ink3),
-                tooltip: l10n.foodRemoveTooltip,
+                icon: AppIcons.close,
+                semanticLabel: l10n.foodRemoveTooltip,
+                tone: IconButtonTone.plain,
+                size: IconButtonSize.compact,
+                target: 48,
+                onTap: () => onRemove!(meal.id),
               ),
+            ],
           ],
         ),
       ),

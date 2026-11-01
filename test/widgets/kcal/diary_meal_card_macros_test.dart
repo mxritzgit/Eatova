@@ -172,7 +172,7 @@ void main() {
       // The amount line stays its own Text widget; an AI estimate keeps
       // its "~".
       expect(find.text('~250 g'), findsOneWidget);
-      expect(find.text('~1200 g'), findsOneWidget);
+      expect(find.text('~1.200 g'), findsOneWidget);
     });
 
     testWidgets('eine leere Karte zeigt keine Makro-Zeile', (tester) async {
@@ -279,7 +279,7 @@ void main() {
           }
           // The amount line must not be clipped by its neighbour either.
           final slotZeile = tester.renderObject<RenderParagraph>(
-            find.text('~1200 g'),
+            find.text('~1.200 g'),
           );
           expect(slotZeile.didExceedMaxLines, isFalse);
         },

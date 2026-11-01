@@ -483,7 +483,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       showAppSnack(
         context,
         context.l10n.foodMealWithoutCaloriesMessage,
-        icon: Icons.error_outline_rounded,
+        icon: AppIcons.error,
         tone: SnackTone.error,
         duration: kSnackError,
       );
@@ -506,7 +506,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, widget.slot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
   }
 
@@ -552,7 +552,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
           ? l10n.foodPortionAdjustedItemsUpdated(grams)
           : l10n.foodPortionAdjustedItems(grams);
     }
-    showAppSnack(context, message, icon: Icons.tune_rounded);
+    showAppSnack(context, message, icon: AppIcons.tune);
   }
 
   @override
@@ -655,7 +655,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
                     SoftPillButton(
                       key: const ValueKey('analyse-edit-values'),
                       label: context.l10n.foodQuickEditValues,
-                      icon: Icons.edit_outlined,
+                      icon: AppIcons.edit,
                       onTap: _saving ? null : _manualEntry,
                       tone: SoftPillTone.neutral,
                       expand: true,
@@ -736,7 +736,6 @@ class _AnalysisErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
     if (limit case final limit?) {
       return AppCard(
@@ -749,7 +748,7 @@ class _AnalysisErrorCard extends StatelessWidget {
           secondary: SoftPillButton(
             key: const ValueKey('analyse-manual-entry'),
             label: l10n.foodAnalysisManualEntryButton,
-            icon: Icons.edit_outlined,
+            icon: AppIcons.edit,
             onTap: onManualEntry,
             tone: onUpgrade == null
                 ? SoftPillTone.accent
@@ -759,65 +758,31 @@ class _AnalysisErrorCard extends StatelessWidget {
         ),
       );
     }
-    return AppCard(
+    // The app's calm error card: what happened, then the ways on as soft
+    // pills (retry first). The tone stays calm, no red.
+    return CalmState(
       key: const ValueKey('analyse-error'),
-      radius: rCard,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              lifted
-                  ? Icon(
-                      Icons.auto_awesome_rounded,
-                      color: t.accentText,
-                      size: 20,
-                    )
-                  : Icon(
-                      Icons.error_outline_rounded,
-                      color: t.danger,
-                      size: 20,
-                    ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  lifted
-                      ? l10n.premiumSuccessTitle
-                      : l10n.foodAnalysisErrorTitle,
-                  style: AppType.ui(14, weight: FontWeight.w700, color: t.ink),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            message,
-            key: const ValueKey('analyse-error-message'),
-            style: AppType.ui(13, color: t.ink2, height: 1.4),
-          ),
-          const SizedBox(height: 14),
-          if (onRetry != null) ...[
-            PrimaryActionButton(
-              key: const ValueKey('analyse-retry'),
-              label: l10n.foodAnalysisRetryButton,
-              icon: Icons.refresh_rounded,
-              onTap: onRetry,
-              height: 48,
-            ),
-            const SizedBox(height: 8),
-          ],
+      card: true,
+      icon: lifted ? AppIcons.workspacePremium : AppIcons.error,
+      title: lifted ? l10n.premiumSuccessTitle : l10n.foodAnalysisErrorTitle,
+      text: message,
+      actions: [
+        if (onRetry != null)
           SoftPillButton(
-            key: const ValueKey('analyse-manual-entry'),
-            label: l10n.foodAnalysisManualEntryButton,
-            icon: Icons.edit_outlined,
-            onTap: onManualEntry,
-            // Without a retry it is the card's only way on.
-            tone: onRetry == null ? SoftPillTone.accent : SoftPillTone.neutral,
-            expand: true,
+            key: const ValueKey('analyse-retry'),
+            label: l10n.foodAnalysisRetryButton,
+            icon: AppIcons.refresh,
+            onTap: onRetry,
           ),
-        ],
-      ),
+        SoftPillButton(
+          key: const ValueKey('analyse-manual-entry'),
+          label: l10n.foodAnalysisManualEntryButton,
+          icon: AppIcons.edit,
+          onTap: onManualEntry,
+          // Without a retry it is the card's only way on.
+          tone: onRetry == null ? SoftPillTone.accent : SoftPillTone.neutral,
+        ),
+      ],
     );
   }
 }
@@ -838,7 +803,7 @@ class _SlowHint extends StatelessWidget {
         Expanded(
           child: Text(
             l10n.foodAnalysisSlowHint,
-            style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink2),
+            style: AppType.subhead(t.ink2),
           ),
         ),
         const SizedBox(width: 12),
@@ -846,7 +811,7 @@ class _SlowHint extends StatelessWidget {
           key: const ValueKey('analyse-cancel'),
           label: l10n.commonCancel,
           onTap: onCancel,
-          tone: SoftPillTone.neutral,
+          tone: SoftPillTone.quiet,
         ),
       ],
     );

@@ -60,11 +60,12 @@ class _DraftView extends StatelessWidget {
           children: [
             Expanded(child: _DescriptionText(text: description)),
             const SizedBox(width: 4),
-            IconButton(
+            AppIconButton(
               key: const ValueKey('meal-describe-edit-description'),
-              tooltip: l10n.foodDescribeEditText,
-              onPressed: onEditText,
-              icon: Icon(Icons.edit_outlined, color: t.accentText, size: 20),
+              icon: AppIcons.edit,
+              semanticLabel: l10n.foodDescribeEditText,
+              tone: IconButtonTone.plain,
+              onTap: onEditText,
             ),
           ],
         ),
@@ -117,9 +118,14 @@ class _DraftLineRow extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final (title, brand) = _candidateName(item.selected, item);
-    final detail = _withBrand(brand, '${item.grams} g');
+    final detail = _withBrand(
+      brand,
+      '${formatThousands(item.grams, l10n.localeName)} g',
+    );
     final stacked = MediaQuery.textScalerOf(context).scale(14) > 21;
-    final kcal = MealKcalValue(number: '${item.caloriesKcal}');
+    final kcal = MealKcalValue(
+      number: formatThousands(item.caloriesKcal, l10n.localeName),
+    );
     return Semantics(
       button: true,
       label: l10n.foodDescribeLineSemantics(
@@ -140,7 +146,7 @@ class _DraftLineRow extends StatelessWidget {
             child: Row(
               children: [
                 MealItemTile(name: title, justAdded: false),
-                const SizedBox(width: 12),
+                const SizedBox(width: kRowLeadingGap),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -163,14 +169,7 @@ class _DraftLineRow extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           _OriginBadge(origin: item.selected.origin),
-                          Text(
-                            detail,
-                            style: AppType.ui(
-                              12.5,
-                              weight: FontWeight.w500,
-                              color: t.ink3,
-                            ),
-                          ),
+                          Text(detail, style: AppType.subhead(t.ink2)),
                         ],
                       ),
                       if (stacked) ...[const SizedBox(height: 6), kcal],
@@ -179,7 +178,11 @@ class _DraftLineRow extends StatelessWidget {
                 ),
                 if (!stacked) ...[const SizedBox(width: 10), kcal],
                 const SizedBox(width: 2),
-                Icon(Icons.chevron_right_rounded, size: 20, color: t.ink3),
+                Icon(
+                  AppIcons.chevronRight,
+                  size: AppIconSize.standard,
+                  color: t.ink3,
+                ),
               ],
             ),
           ),
@@ -189,9 +192,9 @@ class _DraftLineRow extends StatelessWidget {
   }
 }
 
-/// Where a line's numbers come from, said plainly and quietly: a small tag
-/// with a dot (violet for a favorite, green for the database, amber for the
-/// AI's estimate).
+/// Where a line's numbers come from, said plainly and quietly: a status
+/// pill with a dot (violet for a favorite, green for the database, amber for
+/// the AI's estimate).
 class _OriginBadge extends StatelessWidget {
   const _OriginBadge({required this.origin});
 
@@ -200,39 +203,20 @@ class _OriginBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final dot = switch (origin) {
-      DraftItemOrigin.favorite => t.accent,
-      DraftItemOrigin.product => t.success,
-      DraftItemOrigin.estimate => t.warning,
-    };
-    return Container(
-      padding: const EdgeInsets.fromLTRB(7, 2, 8, 2),
-      decoration: BoxDecoration(
-        color: t.tile,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              _originLabel(origin, context.l10n),
-              style: AppType.ui(11.5, weight: FontWeight.w600, color: t.ink2),
-            ),
-          ),
-        ],
-      ),
+    return StatusPill(
+      label: _originLabel(origin, context.l10n),
+      dot: true,
+      color: switch (origin) {
+        DraftItemOrigin.favorite => t.accent,
+        DraftItemOrigin.product => t.success,
+        DraftItemOrigin.estimate => t.warning,
+      },
     );
   }
 }
 
-/// Every line removed: the way back to the text.
+/// Every line removed: the app's calm empty card, with the way back to the
+/// text.
 class _EmptyDraft extends StatelessWidget {
   const _EmptyDraft({required this.onEditText});
 
@@ -240,30 +224,19 @@ class _EmptyDraft extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return AppCard(
+    return CalmState(
       key: const ValueKey('meal-describe-empty'),
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Icon(Icons.playlist_remove_rounded, size: 26, color: t.ink3),
-          const SizedBox(height: 10),
-          Text(
-            l10n.foodDescribeEmpty,
-            textAlign: TextAlign.center,
-            style: AppType.ui(13.5, color: t.ink2, height: 1.4),
-          ),
-          const SizedBox(height: 14),
-          SoftPillButton(
-            label: l10n.foodDescribeEditText,
-            icon: Icons.edit_outlined,
-            onTap: onEditText,
-            expand: true,
-          ),
-        ],
-      ),
+      card: true,
+      icon: AppIcons.playlistRemove,
+      text: l10n.foodDescribeEmpty,
+      actions: [
+        SoftPillButton(
+          label: l10n.foodDescribeEditText,
+          icon: AppIcons.edit,
+          onTap: onEditText,
+        ),
+      ],
     );
   }
 }
@@ -297,7 +270,10 @@ class _DraftFooter extends StatelessWidget {
       TextSpan(
         children: [
           TextSpan(
-            text: '${empty ? 0 : result.caloriesKcal}',
+            text: formatThousands(
+              empty ? 0 : result.caloriesKcal,
+              l10n.localeName,
+            ),
             style: AppType.display(28, color: t.onBrandSurface, height: 1.1),
           ),
           TextSpan(
@@ -347,7 +323,7 @@ class _DraftFooter extends StatelessWidget {
     final edit = SoftPillButton(
       key: const ValueKey('meal-describe-edit'),
       label: l10n.foodDescribeEdit,
-      icon: Icons.tune_rounded,
+      icon: AppIcons.tune,
       onTap: empty || adding ? null : onEdit,
       expand: large,
     );
@@ -356,7 +332,7 @@ class _DraftFooter extends StatelessWidget {
       child: PrimaryActionButton(
         key: const ValueKey('meal-describe-add'),
         label: l10n.commonAdd,
-        icon: Icons.add_rounded,
+        icon: AppIcons.add,
         onTap: loggable && !adding ? onAdd : null,
       ),
     );
@@ -372,7 +348,7 @@ class _DraftFooter extends StatelessWidget {
             zeroHint,
             key: const ValueKey('meal-describe-zero-hint'),
             style: AppType.ui(
-              12.5,
+              12,
               weight: FontWeight.w600,
               color: t.warning,
               height: 1.4,
@@ -539,10 +515,7 @@ class _DraftLineEditorState extends State<_DraftLineEditor> {
                     ),
                     if (subtitle.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: AppType.ui(12.5, color: t.ink2, height: 1.4),
-                      ),
+                      Text(subtitle, style: AppType.subhead(t.ink2)),
                     ],
                   ],
                 ),
@@ -602,7 +575,10 @@ class _DraftLineEditorState extends State<_DraftLineEditor> {
                   TextSpan(
                     children: [
                       TextSpan(
-                        text: '${item.caloriesKcal}',
+                        text: formatThousands(
+                          item.caloriesKcal,
+                          l10n.localeName,
+                        ),
                         style: AppType.display(36, color: t.onBrandSurface),
                       ),
                       TextSpan(
@@ -645,7 +621,7 @@ class _DraftLineEditorState extends State<_DraftLineEditor> {
           PrimaryActionButton(
             key: const ValueKey('describe-line-apply'),
             label: l10n.foodApplyButton,
-            icon: Icons.check_rounded,
+            icon: AppIcons.check,
             onTap: _gramsInvalid
                 ? null
                 : () => Navigator.of(context).pop(_LineEdit.update(_item)),
@@ -654,8 +630,10 @@ class _DraftLineEditorState extends State<_DraftLineEditor> {
           SoftPillButton(
             key: const ValueKey('describe-line-remove'),
             label: l10n.foodRemoveTooltip,
-            icon: Icons.delete_outline_rounded,
+            icon: AppIcons.delete,
             tone: SoftPillTone.danger,
+            // Under the primary action: as tall as it.
+            size: SoftPillSize.regular,
             expand: true,
             onTap: () => Navigator.of(context).pop(const _LineEdit.remove()),
           ),
@@ -729,12 +707,12 @@ class _CandidateRow extends StatelessWidget {
                         children: [
                           _OriginBadge(origin: candidate.origin),
                           Text(
-                            _withBrand(brand, '$kcal100 kcal / 100 g'),
-                            style: AppType.ui(
-                              12.5,
-                              weight: FontWeight.w500,
-                              color: t.ink3,
+                            _withBrand(
+                              brand,
+                              '${formatThousands(kcal100, l10n.localeName)} '
+                              'kcal / 100 g',
                             ),
+                            style: AppType.subhead(t.ink2),
                           ),
                         ],
                       ),
@@ -796,10 +774,12 @@ class _GramStepperState extends State<_GramStepper> {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
         children: [
-          _StepButton(
+          AppIconButton(
             key: const ValueKey('describe-grams-minus'),
-            icon: Icons.remove_rounded,
+            icon: AppIcons.remove,
             semanticLabel: l10n.foodDecreaseAmountSemantics,
+            tone: IconButtonTone.accent,
+            target: 48,
             onTap: () => widget.onBump(-widget.step),
             onLongPress: () => widget.onBump(-widget.step * 5),
           ),
@@ -847,53 +827,16 @@ class _GramStepperState extends State<_GramStepper> {
               ],
             ),
           ),
-          _StepButton(
+          AppIconButton(
             key: const ValueKey('describe-grams-plus'),
-            icon: Icons.add_rounded,
+            icon: AppIcons.add,
             semanticLabel: l10n.foodIncreaseAmountSemantics,
+            tone: IconButtonTone.accent,
+            target: 48,
             onTap: () => widget.onBump(widget.step),
             onLongPress: () => widget.onBump(widget.step * 5),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StepButton extends StatelessWidget {
-  const _StepButton({
-    super.key,
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final IconData icon;
-  final String semanticLabel;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: PressScale(
-        child: Material(
-          type: MaterialType.transparency,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            child: SizedBox.square(
-              dimension: 48,
-              child: Icon(icon, size: 22, color: t.accentText),
-            ),
-          ),
-        ),
       ),
     );
   }

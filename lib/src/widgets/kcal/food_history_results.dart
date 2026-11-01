@@ -9,6 +9,7 @@ import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../services/food_history_search.dart';
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import 'saved_meal_presentation.dart';
 
@@ -253,7 +254,7 @@ class FoodHistoryShowAllToggle extends StatelessWidget {
                         child: Text(
                           label,
                           style: AppType.ui(
-                            13.5,
+                            14,
                             weight: FontWeight.w600,
                             color: t.accentText,
                           ),
@@ -263,9 +264,9 @@ class FoodHistoryShowAllToggle extends StatelessWidget {
                       ExcludeSemantics(
                         child: Icon(
                           expanded
-                              ? Icons.expand_less_rounded
-                              : Icons.expand_more_rounded,
-                          size: 20,
+                              ? AppIcons.expandLess
+                              : AppIcons.expandMore,
+                          size: AppIconSize.standard,
                           color: t.accentText,
                         ),
                       ),

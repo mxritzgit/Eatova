@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' show NumberFormat;
 
-import '../common/lively.dart' show PressScale;
 import '../common/persistence_action.dart';
 
 import '../../l10n/l10n.dart';
@@ -12,6 +12,7 @@ import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
 import '../../models/number_input.dart';
 import '../../services/day_math.dart';
+import '../../services/kcal_format.dart';
 import '../../services/local_day.dart';
 import '../../theme/app_tokens.dart';
 import '../../screens/today/today_day_strip.dart';
@@ -484,7 +485,9 @@ class _EditMealSheetState extends State<EditMealSheet> {
                   // servings) the amount is servings, in half steps.
                   if (_result.hasNoPortionWeight) ...[
                     _ServingsStepper(
-                      label: _result.servingsLabel(l10n),
+                      servings: _result.effectiveServings,
+                      less: _servingsNeighbour(-1),
+                      more: _servingsNeighbour(1),
                       onLess: _saving || _servingsNeighbour(-1) == null
                           ? null
                           : () => _stepServings(-1),
@@ -496,13 +499,13 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     Text(
                       l10n.foodServingsNoWeightHint,
                       key: const ValueKey('edit-meal-servings-hint'),
-                      style: AppType.ui(13.5, color: t.ink2, height: 1.4),
+                      style: AppType.callout(t.ink2),
                     ),
                   ] else
                     SoftPillButton(
                       key: const ValueKey('edit-meal-adjust-button'),
                       onTap: _adjustPortion,
-                      icon: Icons.tune_rounded,
+                      icon: AppIcons.tune,
                       label: l10n.foodAdjustPortionButton,
                       expand: true,
                     ),
@@ -511,7 +514,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     SoftPillButton(
                       key: const ValueKey('edit-meal-quick-values'),
                       onTap: _saving ? null : _editValues,
-                      icon: Icons.edit_outlined,
+                      icon: AppIcons.edit,
                       label: l10n.foodQuickEditValues,
                       expand: true,
                     ),
@@ -521,7 +524,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     SoftPillButton(
                       key: const ValueKey('edit-meal-rename'),
                       onTap: _saving ? null : _rename,
-                      icon: Icons.drive_file_rename_outline_rounded,
+                      icon: AppIcons.edit,
                       label: l10n.foodRenameAction,
                       expand: true,
                     ),
@@ -553,7 +556,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     child: SoftPillButton(
                       key: const ValueKey('edit-day-calendar'),
                       onTap: _pickOtherDay,
-                      icon: Icons.calendar_month_rounded,
+                      icon: AppIcons.calendar,
                       label:
                           '${l10n.foodOtherDateLine1} ${l10n.foodOtherDateLine2}',
                       semanticLabel: l10n.foodOtherDateCalendarSemantics,
@@ -564,7 +567,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                   PrimaryActionButton(
                     key: const ValueKey('edit-meal-save-button'),
                     onTap: _dirty && !_saving ? _save : null,
-                    icon: Icons.check_rounded,
+                    icon: AppIcons.check,
                     label: l10n.commonSave,
                   ),
                   if (widget.onCopyMeals != null) ...[
@@ -572,12 +575,14 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     SoftPillButton(
                       key: const ValueKey('edit-meal-copy-button'),
                       onTap: _dirty || _saving ? null : _copy,
-                      icon: Icons.content_copy_rounded,
+                      icon: AppIcons.copy,
                       label: l10n.foodCopyAction,
                       semanticLabel: _dirty
                           ? '${l10n.foodCopyAction} ${l10n.foodCopySaveFirst}'
                           : null,
                       tone: SoftPillTone.neutral,
+                      // Under the primary action: as tall as it.
+                      size: SoftPillSize.regular,
                       expand: true,
                     ),
                     if (_dirty) ...[
@@ -587,7 +592,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                           l10n.foodCopySaveFirst,
                           key: const ValueKey('edit-meal-copy-save-first'),
                           textAlign: TextAlign.center,
-                          style: AppType.ui(12.5, color: t.ink2, height: 1.4),
+                          style: AppType.caption(t.ink2),
                         ),
                       ),
                     ],
@@ -597,9 +602,10 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     SoftPillButton(
                       key: const ValueKey('edit-meal-delete-button'),
                       onTap: _saving ? null : _delete,
-                      icon: Icons.delete_outline_rounded,
+                      icon: AppIcons.delete,
                       label: l10n.foodDeleteMealButton,
                       tone: SoftPillTone.danger,
+                      size: SoftPillSize.regular,
                       expand: true,
                     ),
                   ],
@@ -649,9 +655,12 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
+    final kcal = formatThousands(result.caloriesKcal, l10n.localeName);
+    final grams = formatThousands(result.estimatedGrams, l10n.localeName);
     final row = Row(
         children: [
-          Icon(Icons.local_fire_department_outlined, color: t.accent, size: 18),
+          Icon(AppIcons.flame, color: t.accent, size: AppIconSize.button),
           const SizedBox(width: 10),
           // The source sits at the right edge while both fit one line and
           // moves under the figure otherwise, so large text does not squeeze
@@ -667,8 +676,8 @@ class _SummaryCard extends StatelessWidget {
                 // figure breaks after the "·" only.
                 Text(
                   result.hasNoPortionWeight
-                      ? '${result.caloriesKcal}\u00a0kcal · ${result.servingsLabel(context.l10n)}'
-                      : '${result.caloriesKcal}\u00a0kcal · ${result.estimatedGrams}\u00a0g',
+                      ? '$kcal\u00a0kcal · ${result.servingsLabel(l10n)}'
+                      : '$kcal\u00a0kcal · $grams\u00a0g',
                   key: const ValueKey('edit-meal-summary-figure'),
                   style: AppType.display(16, color: t.ink),
                 ),
@@ -677,11 +686,7 @@ class _SummaryCard extends StatelessWidget {
                       ? context.l10n.foodAdjustedLabel
                       : result.resolvedSourceLabel(context.l10n),
                   key: const ValueKey('edit-meal-summary-source'),
-                  style: AppType.ui(
-                    11,
-                    weight: FontWeight.w600,
-                    color: adjusted ? t.ink : t.ink2,
-                  ),
+                  style: AppType.micro(adjusted ? t.ink : t.ink2),
                 ),
               ],
             ),
@@ -716,21 +721,29 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
-      style: AppType.eyebrow(context.t.ink2, size: 11),
+      semanticsLabel: text,
+      style: AppType.sectionEyebrow(context.t.ink2),
     );
   }
 }
 
-/// Servings of an entry without a weight: round minus and plus around the
-/// count in a pill, half a serving per step (the meal plan's stepper).
+/// Servings of an entry without a weight, half a serving per step: the
+/// section's name beside the app's stepper in a field capsule. At large text
+/// the stepper moves under the name instead of squeezing it.
 class _ServingsStepper extends StatelessWidget {
   const _ServingsStepper({
-    required this.label,
+    required this.servings,
+    required this.less,
+    required this.more,
     required this.onLess,
     required this.onMore,
   });
 
-  final String label;
+  final double servings;
+
+  /// The neighbours one step down and up; null at a limit.
+  final double? less;
+  final double? more;
   final VoidCallback? onLess;
   final VoidCallback? onMore;
 
@@ -738,92 +751,36 @@ class _ServingsStepper extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Semantics(
-      container: true,
-      label: l10n.foodServingsSection,
-      child: FieldCapsule(
-        key: const ValueKey('edit-meal-servings'),
-        focused: false,
-        shape: SheetFieldShape.pill,
-        padding: const EdgeInsets.all(4),
-        child: Row(
-          children: [
-            _StepButton(
-              actionKey: const ValueKey('edit-meal-servings-less'),
-              icon: Icons.remove_rounded,
-              semanticLabel: l10n.onboardingStepDownSemanticLabel,
-              onTap: onLess,
-            ),
-            Expanded(
-              child: Semantics(
-                liveRegion: true,
-                child: Text(
-                  label,
-                  key: const ValueKey('edit-meal-servings-value'),
-                  textAlign: TextAlign.center,
-                  style: AppType.ui(
-                    17,
-                    weight: FontWeight.w700,
-                    color: t.ink,
-                  ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
-                ),
-              ),
-            ),
-            _StepButton(
-              actionKey: const ValueKey('edit-meal-servings-more'),
-              icon: Icons.add_rounded,
-              semanticLabel: l10n.onboardingStepUpSemanticLabel,
-              onTap: onMore,
-            ),
-          ],
-        ),
-      ),
+    final format = NumberFormat('0.##', l10n.localeName);
+    String spoken(double count) =>
+        l10n.foodServingsCount(count, format.format(count));
+    final stacked = listRowStacked(context);
+    final name = Text(l10n.foodServingsSection, style: AppType.rowTitle(t.ink));
+    final stepper = AppStepper(
+      value: format.format(servings),
+      semanticLabel: l10n.foodServingsSection,
+      semanticValue: spoken(servings),
+      increasedValue: spoken(more ?? servings),
+      decreasedValue: spoken(less ?? servings),
+      onDecrement: onLess,
+      onIncrement: onMore,
+      decrementLabel: l10n.onboardingStepDownSemanticLabel,
+      incrementLabel: l10n.onboardingStepUpSemanticLabel,
+      decrementKey: const ValueKey('edit-meal-servings-less'),
+      incrementKey: const ValueKey('edit-meal-servings-more'),
     );
-  }
-}
-
-/// Round 44 px stepper button in the accent tint.
-class _StepButton extends StatelessWidget {
-  const _StepButton({
-    required this.actionKey,
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-  });
-
-  final Key actionKey;
-  final IconData icon;
-  final String semanticLabel;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final enabled = onTap != null;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: semanticLabel,
-      child: PressScale(
-        enabled: enabled,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.4,
-          child: Material(
-            color: t.accentTint,
-            shape: const CircleBorder(),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: actionKey,
-              onTap: onTap,
-              customBorder: const CircleBorder(),
-              child: SizedBox.square(
-                dimension: 44,
-                child: Icon(icon, size: 22, color: t.accentText),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return FieldCapsule(
+      key: const ValueKey('edit-meal-servings'),
+      focused: false,
+      shape: stacked ? SheetFieldShape.capsule : SheetFieldShape.pill,
+      padding: EdgeInsets.fromLTRB(18, stacked ? 12 : 4, 4, 4),
+      child: stacked
+          ? Column(
+              // Stretched: the capsule keeps the sheet's full width.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [name, const SizedBox(height: kSpace4), stepper],
+            )
+          : Row(children: [Expanded(child: name), stepper]),
     );
   }
 }
@@ -922,7 +879,7 @@ class _RenameSheetState extends State<_RenameSheet> {
           PrimaryActionButton(
             key: const ValueKey('meal-rename-save'),
             onTap: _valid ? _save : null,
-            icon: Icons.check_rounded,
+            icon: AppIcons.check,
             label: l10n.commonSave,
           ),
         ],

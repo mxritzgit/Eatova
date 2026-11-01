@@ -36,7 +36,6 @@ import '../../services/speech_input.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
-import '../common/lively.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
 import 'edit_meal_sheet.dart';
@@ -1031,7 +1030,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         showAppSnack(
           context,
           context.l10n.foodGalleryPermissionError,
-          icon: Icons.error_outline_rounded,
+          icon: AppIcons.error,
           tone: SnackTone.error,
           duration: kSnackError,
         );
@@ -1171,7 +1170,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         result.caloriesKcal,
         slot.label(context.l10n),
       ),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
   }
 
@@ -1218,7 +1217,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, outcome.slot.label(l10n)),
-      icon: Icons.check_circle_rounded,
+      icon: AppIcons.filled(AppIcons.checkCircle),
     );
   }
 
@@ -1241,7 +1240,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       showAppSnack(
         context,
         context.l10n.foodSuggestionWithoutCaloriesMessage,
-        icon: Icons.error_outline_rounded,
+        icon: AppIcons.error,
         tone: SnackTone.error,
         duration: kSnackError,
       );
@@ -1261,7 +1260,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       showAppSnack(
         context,
         l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
-        icon: Icons.check_circle_rounded,
+        icon: AppIcons.filled(AppIcons.checkCircle),
       );
     }
     setState(() {
@@ -1364,13 +1363,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
                   if (!searchActive) ...[
                     // Manual entry joins the entry-method card; the search
                     // mode has no method card, so it keeps its own row.
-                    // A button to a screen reader, like the method rows it
-                    // stands in for: the InkWell carries the tap, not the role.
                     if (widget.searchMode)
-                      Semantics(
-                        button: true,
-                        child: _ManualEntryRow(onTap: () => _openManualEntry()),
-                      )
+                      _ManualEntryRow(onTap: () => _openManualEntry())
                     else ...[
                       MealEntryMethods(
                         onCamera: _scanWithCamera,
@@ -1570,12 +1564,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
           _openManualEntry(initialName: _searchController.text.trim());
       return CalmState(
         icon: _searchCameUpEmpty
-            ? Icons.search_off_rounded
+            ? AppIcons.searchOff
             : _searchGaveUp
-            ? Icons.hourglass_empty_rounded
+            ? AppIcons.hourglassEmpty
             : message == l10n.foodSearchMinCharsHint
-            ? Icons.keyboard_rounded
-            : Icons.cloud_off_rounded,
+            ? AppIcons.keyboard
+            : AppIcons.cloudOff,
         text: message,
         actions: [
           if (_offerManualEntry) ...[
@@ -1584,14 +1578,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
             // description, or straight into the form with it as the name.
             SoftPillButton(
               key: const ValueKey('search-describe-cta'),
-              icon: Icons.mic_none_rounded,
+              icon: AppIcons.mic,
               label: l10n.foodDescribeEntryTitle,
               onTap: () =>
                   _openDescribe(initialText: _searchController.text.trim()),
             ),
             SoftPillButton(
               key: const ValueKey('manual-entry-cta'),
-              icon: Icons.edit_rounded,
+              icon: AppIcons.edit,
               label: l10n.foodManualEntryCta,
               tone: SoftPillTone.neutral,
               onTap: manual,
@@ -1599,14 +1593,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
           ] else if (failed) ...[
             SoftPillButton(
               key: const ValueKey('product-search-retry'),
-              icon: Icons.refresh_rounded,
+              icon: AppIcons.refresh,
               label: l10n.foodAnalysisRetryButton,
               // A throttled service only gets worse from an instant retry.
               onTap: throttled && _retryCoolingDown ? null : _searchProducts,
             ),
             SoftPillButton(
               key: const ValueKey('product-search-error-manual'),
-              icon: Icons.edit_rounded,
+              icon: AppIcons.edit,
               label: l10n.foodManualEntryCta,
               tone: SoftPillTone.neutral,
               onTap: manual,
@@ -2169,7 +2163,9 @@ class _SearchBarState extends State<_SearchBar> {
         // Minimum, not fixed: at large system text the hint needs more than
         // the dock's 54 px and would hang out of a fixed capsule (F3-05).
         constraints: const BoxConstraints(minHeight: 54),
-        padding: const EdgeInsets.only(left: 18, right: 7),
+        // The search disc sits 5 px in on every side: concentric with the
+        // 54 px capsule.
+        padding: const EdgeInsets.only(left: 18, right: 5),
         child: Row(
           children: [
             FoodGlyphIcon(
@@ -2213,29 +2209,24 @@ class _SearchBarState extends State<_SearchBar> {
               valueListenable: widget.controller,
               builder: (context, value, _) => value.text.isEmpty
                   ? const SizedBox.shrink()
-                  : IconButton(
+                  : AppIconButton(
                       key: const ValueKey('kcal-product-search-clear'),
-                      tooltip: l10n.foodSearchClear,
-                      onPressed: widget.onClear,
-                      icon: Icon(Icons.close_rounded, color: t.ink2, size: 19),
+                      icon: AppIcons.close,
+                      semanticLabel: l10n.foodSearchClear,
+                      tone: IconButtonTone.plain,
+                      size: IconButtonSize.compact,
+                      onTap: widget.onClear,
                     ),
             ),
-            IconButton(
+            const SizedBox(width: 2),
+            // While a search runs the button rests dimmed; the one spinner
+            // sits in the results zone, next to "Searching products…".
+            AppIconButton(
               key: const ValueKey('kcal-product-search-button'),
-              tooltip: l10n.foodSearchButtonTooltip,
-              onPressed: widget.isSearching ? null : widget.onSearchPressed,
-              style: IconButton.styleFrom(
-                backgroundColor: t.accentTint,
-                disabledBackgroundColor: t.accentTint,
-                foregroundColor: t.accentText,
-                disabledForegroundColor: t.accentText.withValues(alpha: 0.45),
-                fixedSize: const Size.square(40),
-                minimumSize: const Size.square(40),
-                padding: EdgeInsets.zero,
-              ),
-              // While a search runs the button rests dimmed; the one spinner
-              // sits in the results zone, next to "Searching products…".
-              icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+              icon: AppIcons.arrowForward,
+              semanticLabel: l10n.foodSearchButtonTooltip,
+              tone: IconButtonTone.accent,
+              onTap: widget.isSearching ? null : widget.onSearchPressed,
             ),
           ],
         ),
@@ -2279,11 +2270,9 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// "All (N)" link on the favorites section head (feature 2026-08-27). Bare
-/// accent text plus chevron, no capsule: it sits beside an eyebrow label and
-/// must not compete with the rows. The 48 px minimum keeps the tap target.
-/// The way into the favorites menu (2026-10-03): a row in the entry-method
-/// style with a heart tile, "Favorites" and how many are saved.
+/// The way into the favorites menu (2026-10-03): one row card in the list
+/// anatomy, the filled heart of the saved collection, "Favorites" and how
+/// many are saved.
 class _FavoritesEntryRow extends StatelessWidget {
   const _FavoritesEntryRow({required this.count, required this.onTap});
 
@@ -2292,78 +2281,22 @@ class _FavoritesEntryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    final title = l10n.foodSectionFavorites;
-    final subtitle = l10n.foodFavoritesEntryCount(count);
-    return Semantics(
-      container: true,
-      button: true,
-      label: '$title, $subtitle',
-      // excludeSemantics drops InkWell's own tap action, so a screen reader
-      // needs it re-declared here (review B, 2026-08-27).
-      onTap: onTap,
-      excludeSemantics: true,
-      child: PressScale(
-        scale: kPressScaleCard,
-        child: Material(
-          color: t.surf,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(rCard),
-            side: BorderSide(color: t.cardBorder),
+    return ListSection(
+      spacing: 0,
+      children: [
+        ListRow(
+          key: const ValueKey('add-meal-favorites-all'),
+          leading: IconBadge(
+            icon: AppIcons.filled(AppIcons.favorite),
+            tone: IconBadgeTone.accent,
           ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: const ValueKey('add-meal-favorites-all'),
-            onTap: onTap,
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 64),
-              // The geometry of the entry-method rows: 16 inset, 40 tile.
-              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: t.accentTint,
-                      borderRadius: BorderRadius.circular(rChip),
-                    ),
-                    child: Icon(
-                      Icons.favorite_rounded,
-                      size: 20,
-                      color: t.accentText,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: AppType.ui(
-                            15,
-                            weight: FontWeight.w600,
-                            color: t.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: AppType.ui(12.5, color: t.ink2, height: 1.3),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
-                ],
-              ),
-            ),
-          ),
+          title: l10n.foodSectionFavorites,
+          subtitle: l10n.foodFavoritesEntryCount(count),
+          trailing: ListTrailing.chevron,
+          onTap: onTap,
         ),
-      ),
+      ],
     );
   }
 }
@@ -2389,8 +2322,8 @@ class _SkeletonGroup extends StatelessWidget {
   }
 }
 
-/// A quiet, labeled alternative to photo and product lookup: one row card
-/// with the accent icon tile, the label and what the form does.
+/// A quiet, labeled alternative to photo and product lookup in search mode:
+/// the manual row of the entry-method card, as a card of its own.
 class _ManualEntryRow extends StatelessWidget {
   const _ManualEntryRow({required this.onTap});
 
@@ -2398,77 +2331,19 @@ class _ManualEntryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
-    return PressScale(
-      scale: kPressScaleCard,
-      child: Material(
-        color: t.surf,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rCard),
-          side: BorderSide(color: t.cardBorder),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
+    return ListSection(
+      spacing: 0,
+      children: [
+        ListRow(
           key: const ValueKey('manual-entry-button'),
+          icon: AppIcons.edit,
+          title: l10n.foodManualEntryCta,
+          subtitle: l10n.foodManualEntryHint,
+          trailing: ListTrailing.chevron,
           onTap: onTap,
-          child: Container(
-            // Grows with the label at large system text (review F3-05).
-            constraints: const BoxConstraints(minHeight: 64),
-            // The row geometry of the entry-method rows right above it
-            // (`meal_entry_methods.dart`): 16 inset, 40 tile, 14 gap.
-            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-            child: Row(
-              children: [
-                ExcludeSemantics(
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: t.tile,
-                      borderRadius: BorderRadius.circular(rChip),
-                    ),
-                    child: Icon(
-                      Icons.edit_rounded,
-                      size: 20,
-                      color: t.accentText,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.foodManualEntryCta,
-                        style: AppType.ui(
-                          15,
-                          weight: FontWeight.w600,
-                          color: t.ink,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        l10n.foodManualEntryHint,
-                        style: AppType.ui(12.5, color: t.ink2, height: 1.3),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ExcludeSemantics(
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    size: 22,
-                    color: t.ink3,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -2481,7 +2356,7 @@ class _ManualEntryRow extends StatelessWidget {
 /// Deliberately the same ARB key as `_SlowHint` in `meal_analysis_sheet.dart`:
 /// one wording for "this is taking a while", so the photo scan and the
 /// product search speak with one voice — and the same shape: the line, then
-/// a quiet neutral pill. Its own widget rather than a shared one — the
+/// a quiet pill. Its own widget rather than a shared one — the
 /// analysis sheet's version sits under a loading CARD and carries that
 /// card's insets.
 class _SearchSlowHint extends StatelessWidget {
@@ -2500,7 +2375,7 @@ class _SearchSlowHint extends StatelessWidget {
         Expanded(
           child: Text(
             l10n.foodAnalysisSlowHint,
-            style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
+            style: AppType.subhead(t.ink2),
           ),
         ),
         const SizedBox(width: 12),
@@ -2508,7 +2383,7 @@ class _SearchSlowHint extends StatelessWidget {
           key: const ValueKey('product-search-cancel'),
           label: l10n.commonCancel,
           onTap: onCancel,
-          tone: SoftPillTone.neutral,
+          tone: SoftPillTone.quiet,
         ),
       ],
     );
@@ -2525,7 +2400,7 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     return CalmState(
-      icon: Icons.history_rounded,
+      icon: AppIcons.history,
       title: l10n.foodEntryEmptyTitle,
       text: l10n.foodEntryEmptyHint,
     );

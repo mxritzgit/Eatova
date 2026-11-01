@@ -33,6 +33,7 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/design_capture.dart';
 import '../support/food_design_fixture.dart';
@@ -239,9 +240,10 @@ void main() {
     ) async {
       await withClock(Clock.fixed(foodDesignNow), () async {
         final store = await _pumpFood(tester);
-        IconButton arrow(String key) => tester.widget<IconButton>(_key(key));
-        expect(arrow('food-date-next').onPressed, isNull);
-        expect(arrow('food-date-previous').onPressed, isNotNull);
+        AppIconButton arrow(String key) =>
+            tester.widget<AppIconButton>(_key(key));
+        expect(arrow('food-date-next').onTap, isNull);
+        expect(arrow('food-date-previous').onTap, isNotNull);
 
         await tester.tap(_key('food-date-previous'));
         await tester.pumpAndSettle();
@@ -249,7 +251,7 @@ void main() {
         expect(_text(tester, 'food-date-headline'), 'Yesterday');
         expect(_text(tester, 'food-date-selected-label'), 'Sunday, Sep 27');
         expect(_text(tester, 'food-day-total'), '0');
-        expect(arrow('food-date-next').onPressed, isNotNull);
+        expect(arrow('food-date-next').onTap, isNotNull);
 
         await tester.tap(_key('food-date-next'));
         await tester.pumpAndSettle();
