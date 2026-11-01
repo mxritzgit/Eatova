@@ -1430,6 +1430,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // The search's "From you" (E3): local only, no network.
         diaryMeals: () => _store.loggedMeals,
         ownRecipes: () => _store.visibleUserRecipes,
+        // "What still fits?": the same budget as the day card.
+        remainingKcalForDay: (day) =>
+            _store.nutritionSummaryForFoodDate(day).remainingKcal,
         child: MealEditScope(
           onUpdateMeal: _store.updateLoggedMealDetails,
           onRemoveMeal: _store.removeLoggedMeal,
