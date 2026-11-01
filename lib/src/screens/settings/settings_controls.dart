@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/legal_links.dart';
 import '../../l10n/l10n.dart';
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
@@ -131,7 +132,7 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
     final stacked = scaler.scale(15) > 24;
     final label = Text(
       widget.label,
-      style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+      style: AppType.rowTitle(t.ink),
     );
     // The whole capsule focuses the field, not just the digits.
     final capsule = GestureDetector(
@@ -192,7 +193,9 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
     return Padding(
       // 12 px top and bottom: with a 44 px capsule the row is as tall as a
       // settings row with its 40 px tile, so mixed groups keep one rhythm.
-      padding: const EdgeInsets.fromLTRB(18, 12, 14, 12),
+      // The capsule ends on the card's inner margin, like a row's value and
+      // chevron.
+      padding: const EdgeInsets.symmetric(horizontal: kCardInset, vertical: 12),
       child: MergeSemantics(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,18 +209,20 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
                 children: <Widget>[
                   if (leading != null) ...<Widget>[
                     leading,
-                    const SizedBox(width: 14),
+                    const SizedBox(width: kRowLeadingGap),
                   ],
                   Expanded(child: label),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: kSpace12),
                   capsule,
                 ],
               ),
             if (hatFehler) ...<Widget>[
               const SizedBox(height: 6),
               Padding(
-                // Under the label, not under the tile.
-                padding: EdgeInsets.only(left: leading == null ? 0 : 54),
+                // Under the label, not under the badge.
+                padding: EdgeInsets.only(
+                  left: leading == null ? 0 : 40 + kRowLeadingGap,
+                ),
                 child: Text(
                   widget.errorText!,
                   style: AppType.ui(
@@ -235,44 +240,21 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
   }
 }
 
-/// The icon tile that leads a goals row or a picker option: the settings
-/// rows' 40 px tile, neutral or tinted by [tone], with any glyph as [child]
-/// (an [Icon], the steps mark, a macro dot, a level meter). The glyph takes
-/// size and colour from the tile's [IconTheme]. Decorative: the row's title
-/// names it.
+/// The badge that leads a goals row or a picker option: an [IconBadge] `md`,
+/// neutral or tinted by [tone], with any glyph as [child] (an [Icon], the
+/// steps mark, a macro dot, a level meter). The glyph takes size and colour
+/// from the badge's [IconTheme]. Decorative: the row's title names it.
 class SettingsGlyphTile extends StatelessWidget {
   const SettingsGlyphTile({super.key, required this.child, this.tone});
 
-  /// Edge length; the settings rows' tile.
+  /// Edge length; the settings rows' badge.
   static const double size = 40;
 
   final Widget child;
   final Color? tone;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final ton = tone;
-    return ExcludeSemantics(
-      child: Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: ton == null ? t.tile : ton.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(rChip),
-        ),
-        // On a tint the glyph needs [AppTokens.readableOnTint] to hold 3:1.
-        child: IconTheme(
-          data: IconThemeData(
-            size: 20,
-            color: ton == null ? t.inkMuted : t.readableOnTint(ton),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => IconBadge(color: tone, child: child);
 }
 
 /// Explanatory row with an icon. Without [boxed] a plain child of a settings
@@ -480,7 +462,7 @@ Future<void> openLegalLink(BuildContext context, String url) async {
   showAppSnack(
     context,
     context.l10n.authLegalLinkFailed(url),
-    icon: Icons.link_off_rounded,
+    icon: AppIcons.linkOff,
     tone: SnackTone.warning,
   );
 }

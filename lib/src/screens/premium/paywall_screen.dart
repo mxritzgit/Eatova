@@ -113,22 +113,22 @@ class _PaywallScreenState extends State<PaywallScreen> {
       PurchaseState.failed => (
         l10n.premiumPurchaseFailed,
         SnackTone.error,
-        Icons.error_outline_rounded,
+        AppIcons.error,
       ),
       PurchaseState.verifyDeferred => (
         l10n.premiumVerifyLater,
         SnackTone.neutral,
-        Icons.schedule_rounded,
+        AppIcons.schedule,
       ),
       PurchaseState.restored => (
         l10n.premiumRestoreDone,
         SnackTone.positive,
-        Icons.check_circle_outline_rounded,
+        AppIcons.checkCircle,
       ),
       PurchaseState.restoredNothing => (
         l10n.premiumRestoreNothing,
         SnackTone.neutral,
-        Icons.info_outline_rounded,
+        AppIcons.info,
       ),
       _ => null,
     };

@@ -54,14 +54,14 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('today-profile')));
       await tester.pumpAndSettle();
-      expect(find.text('12000/8000'), findsOneWidget);
+      expect(find.text('12.000/8.000'), findsOneWidget);
 
       health.snapshot = null;
       now = DateTime(2026, 9, 19, 0, 10);
       store.maybeRollOverToToday();
       await tester.pumpAndSettle();
-      expect(find.text('12000/8000'), findsNothing);
-      expect(find.text('–/8000'), findsOneWidget);
+      expect(find.text('12.000/8.000'), findsNothing);
+      expect(find.text('–/8.000'), findsOneWidget);
       expect(store.stepsForFoodDate(yesterday), 12000);
 
       await tester.tap(find.byKey(const ValueKey('profile-close')));
@@ -102,7 +102,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('today-profile')));
       await tester.pumpAndSettle();
-      expect(find.text('0/8000'), findsOneWidget);
+      expect(find.text('0/8.000'), findsOneWidget);
     });
   });
 }

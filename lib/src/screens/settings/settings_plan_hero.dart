@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../services/kcal_format.dart';
+import '../../theme/app_icons.dart';
 import '../../theme/app_tokens.dart';
 import 'settings_controls.dart';
 
@@ -141,8 +142,8 @@ class SettingsPlanHero extends StatelessWidget {
                             ),
                             child: Icon(
                               manual
-                                  ? Icons.edit_rounded
-                                  : Icons.calculate_outlined,
+                                  ? AppIcons.edit
+                                  : AppIcons.calculate,
                               size: 20,
                               color: t.accentText,
                             ),
@@ -222,7 +223,7 @@ class SettingsPlanHero extends StatelessWidget {
             warnung,
             key: const ValueKey('settings-pace-warning'),
             tone: t.warning,
-            icon: Icons.health_and_safety_outlined,
+            icon: AppIcons.healthAndSafety,
             boxed: true,
           ),
         ],

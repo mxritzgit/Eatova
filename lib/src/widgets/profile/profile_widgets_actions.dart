@@ -83,38 +83,36 @@ class HealthConnectionCard extends StatelessWidget {
     final action = isGranted
         ? _CardActionButton(
             key: const ValueKey('profile-health-refresh'),
-            icon: Icons.sync_rounded,
+            icon: AppIcons.sync,
             tooltip: l10n.profileHealthRefreshSemantics,
             onTap: onRefresh,
           )
         : isUnsupported
         ? null
-        : _CompactButton(
-            buttonKey: const ValueKey('profile-health-connect'),
+        // The card's own action, quieter than the page's lit "Log weight".
+        : SoftPillButton(
+            key: const ValueKey('profile-health-connect'),
             label: actionLabel,
+            expand: true,
             onTap: onConnect,
           );
     // Short states sit as a status line under the name; the two repair
     // hints are sentences and get the full card width below.
     final longHint = needsAttention;
-    // The card-action chip ends 16 px from the edge, as on the plan and
-    // body cards; the text below keeps its 16 px.
+    // The header action's disc ends on the card's 18 px content edge, as on
+    // the plan and body cards; its 44 px target reaches 4 px past it.
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
+      padding: const EdgeInsets.fromLTRB(18, 16, 14, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              IconTile.custom(
+              // Filled while connected: the heart carries the state.
+              IconBadge(
                 color: color,
-                size: 44,
-                child: Icon(
-                  isGranted
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  size: 22,
-                ),
+                size: IconBadgeSize.lg,
+                child: StateIcon(AppIcons.favorite, on: isGranted),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -145,7 +143,7 @@ class HealthConnectionCard extends StatelessWidget {
           if (longHint) ...[
             const SizedBox(height: 12),
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: 4),
               child: Text(
                 subtitle,
                 style: AppType.ui(
@@ -158,12 +156,12 @@ class HealthConnectionCard extends StatelessWidget {
           ],
           if (!isGranted && action != null) ...[
             const SizedBox(height: 14),
-            Padding(padding: const EdgeInsets.only(right: 8), child: action),
+            Padding(padding: const EdgeInsets.only(right: 4), child: action),
           ],
           if (weightImportRow != null) ...[
             const SizedBox(height: 12),
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: 4),
               child: weightImportRow,
             ),
           ],
@@ -182,40 +180,6 @@ class HealthConnectionCard extends StatelessWidget {
     if (diff.inHours < 24) return l10n.profileHealthTimeHoursAgo(diff.inHours);
     return formatShortDate(d, l10n);
   }
-}
-
-/// Tinted capsule for the Health Connect actions; [quiet] for the secondary
-/// one, which shows its `softFill` capsule only under a finger or keyboard
-/// focus. No ripple: a press deepens the fill. 48 px tall like every touch
-/// target on the page.
-ButtonStyle _pillStyle(AppTokens t, {bool quiet = false}) {
-  final fg = quiet ? t.inkSoft : t.accentText;
-  return TextButton.styleFrom(
-    backgroundColor: quiet ? Colors.transparent : t.accentTintStrong,
-    foregroundColor: fg,
-    disabledBackgroundColor: quiet ? Colors.transparent : t.tile,
-    disabledForegroundColor: t.inkDisabled,
-    minimumSize: const Size(0, 48),
-    padding: const EdgeInsets.symmetric(horizontal: 18),
-    shape: const StadiumBorder(),
-    textStyle: AppType.ui(14, weight: FontWeight.w700),
-    splashFactory: NoSplash.splashFactory,
-  ).copyWith(
-    overlayColor: WidgetStateProperty.resolveWith((states) {
-      if (states.contains(WidgetState.pressed)) {
-        return quiet ? t.softFill : fg.withValues(alpha: 0.10);
-      }
-      if (states.contains(WidgetState.focused)) {
-        return quiet ? t.softFill : fg.withValues(alpha: 0.14);
-      }
-      if (states.contains(WidgetState.hovered)) {
-        return quiet
-            ? t.softFill.withValues(alpha: t.softFill.a * 0.6)
-            : fg.withValues(alpha: 0.05);
-      }
-      return null;
-    }),
-  );
 }
 
 class _HealthConnectCard extends StatelessWidget {
@@ -262,16 +226,17 @@ class _HealthConnectCard extends StatelessWidget {
       _ => l10n.healthConnectSetup,
     };
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              IconTile.custom(
+              // Steps are the app's footprint, not a walking figure.
+              IconBadge(
                 color: connected ? t.accent : t.ink2,
-                size: 44,
-                child: const Icon(Icons.directions_walk_rounded, size: 22),
+                size: IconBadgeSize.lg,
+                child: const StepsIcon(),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -299,7 +264,7 @@ class _HealthConnectCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             l10n.healthConnectStepsAndWeight,
-            style: AppType.ui(12.5, color: t.ink2, height: 1.45),
+            style: AppType.subhead(t.ink2),
           ),
           if (syncing) ...[
             const SizedBox(height: 12),
@@ -318,42 +283,32 @@ class _HealthConnectCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                // The soft pills' press dip and rebound.
-                PressScale(
-                  enabled: !syncing,
-                  rebound: true,
-                  child: TextButton(
-                    key: ValueKey(
-                      connected
-                          ? 'profile-health-refresh'
-                          : 'profile-health-connect',
-                    ),
-                    style: _pillStyle(t),
-                    onPressed: syncing
-                        ? null
-                        : connected
-                        ? onRefresh
-                        : onConnect,
-                    child: Text(
-                      connected
-                          ? l10n.healthConnectRefresh
-                          : state == HealthAuthState.updateRequired
-                          ? l10n.healthConnectInstall
-                          : l10n.healthConnectConnect,
-                    ),
+                // The card's action as the secondary capsule; the settings
+                // way out in the quiet tone beside it.
+                SoftPillButton(
+                  key: ValueKey(
+                    connected
+                        ? 'profile-health-refresh'
+                        : 'profile-health-connect',
                   ),
+                  label: connected
+                      ? l10n.healthConnectRefresh
+                      : state == HealthAuthState.updateRequired
+                      ? l10n.healthConnectInstall
+                      : l10n.healthConnectConnect,
+                  onTap: syncing
+                      ? null
+                      : connected
+                      ? onRefresh
+                      : onConnect,
                 ),
                 if (onSettings != null &&
                     state != HealthAuthState.updateRequired)
-                  PressScale(
-                    enabled: !syncing,
-                    rebound: true,
-                    child: TextButton(
-                      key: const ValueKey('profile-health-settings'),
-                      style: _pillStyle(t, quiet: true),
-                      onPressed: syncing ? null : onSettings,
-                      child: Text(l10n.healthConnectSettings),
-                    ),
+                  SoftPillButton(
+                    key: const ValueKey('profile-health-settings'),
+                    label: l10n.healthConnectSettings,
+                    tone: SoftPillTone.quiet,
+                    onTap: syncing ? null : onSettings,
                   ),
               ],
             ),
@@ -409,62 +364,6 @@ class _WeightImportRow extends StatelessWidget {
   }
 }
 
-/// The connect/check action inside the health card: a full-width tinted
-/// capsule, quieter than the page's primary "Log weight".
-///
-/// [buttonKey] sits on the outermost Material so a tap in the middle hits the
-/// InkWell.
-class _CompactButton extends StatelessWidget {
-  const _CompactButton({
-    required this.buttonKey,
-    required this.label,
-    required this.onTap,
-  });
-
-  final Key buttonKey;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      child: PressScale(
-        child: Material(
-          key: buttonKey,
-          color: t.accentTint,
-          borderRadius: BorderRadius.circular(rButton),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(rButton),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 48),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                child: Center(
-                  child: Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: AppType.ui(
-                      14,
-                      weight: FontWeight.w700,
-                      color: t.accentText,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// A status dot and its line ("Synced · 12 min ago").
 class _StatusLine extends StatelessWidget {
   const _StatusLine({required this.text, required this.color});
@@ -474,10 +373,10 @@ class _StatusLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = AppType.ui(12.5, weight: FontWeight.w500, color: color);
+    final style = AppType.ui(13, weight: FontWeight.w500, color: color);
     // The dot sits on the first line's centre, also when the status wraps
     // at large text; the text stays its own Text widget.
-    final lineHeight = MediaQuery.textScalerOf(context).scale(12.5) * 1.25;
+    final lineHeight = MediaQuery.textScalerOf(context).scale(13) * 1.25;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

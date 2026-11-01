@@ -65,7 +65,7 @@ class SettingsReminderRow extends StatelessWidget {
         : null;
     return _ReminderSwitchRow(
       keyPrefix: 'settings-reminder',
-      icon: Icons.notifications_none_rounded,
+      icon: AppIcons.notifications,
       title: l10n.reminderTimeSettingsTitle,
       status: reminderStatusText(l10n, state, timeLabel),
       activeSemantics: l10n.goalsReminderActiveSemantics,
@@ -75,7 +75,7 @@ class SettingsReminderRow extends StatelessWidget {
         SoftPillButton(
           key: const ValueKey('settings-reminder-time'),
           label: timeLabel,
-          icon: Icons.schedule_rounded,
+          icon: AppIcons.schedule,
           tone: SoftPillTone.neutral,
           semanticLabel: l10n.reminderTimeChangeSemantics(timeLabel),
           onTap: () => _pickTime(context),
@@ -117,7 +117,7 @@ class SettingsWeighInReminderRow extends StatelessWidget {
         : null;
     return _ReminderSwitchRow(
       keyPrefix: 'settings-weigh-in-reminder',
-      icon: Icons.monitor_weight_outlined,
+      icon: AppIcons.monitorWeight,
       title: l10n.weighInReminderSettingsTitle,
       status: switch (state) {
         ReminderState.off => l10n.weighInReminderTextOff(time),
@@ -171,7 +171,7 @@ class _ReminderSwitchRow extends StatelessWidget {
 
     final tile = ExcludeSemantics(
       child: SettingsRowTile(
-        icon: blocked ? Icons.notifications_off_outlined : icon,
+        icon: blocked ? AppIcons.notificationsOff : icon,
         tone: blocked ? t.warning : (active ? t.accent : null),
       ),
     );
@@ -262,7 +262,7 @@ class _OpenSystemSettingsButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SoftPillButton(
     label: context.l10n.goalsOpenSystemSettings,
-    icon: Icons.settings_outlined,
+    icon: AppIcons.settings,
     onTap: onTap,
   );
 }

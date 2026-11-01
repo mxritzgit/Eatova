@@ -53,12 +53,14 @@ class IdentityCard extends StatelessWidget {
       runSpacing: 8,
       children: <Widget>[
         _IdentityPill(
-          icon: Icons.flag_rounded,
+          glyph: const Icon(AppIcons.flag),
           label: l10n.profileStudioFocus,
           value: profile.weightGoal.label(l10n),
         ),
+        // The routine moves the body like steps do: the app's footprint,
+        // not a walking figure.
         _IdentityPill(
-          icon: Icons.directions_walk_rounded,
+          glyph: const StepsIcon(),
           label: l10n.profileStudioActivity,
           value: profile.activityLevel.label(l10n),
         ),
@@ -173,7 +175,7 @@ class _HeroAvatar extends StatelessWidget {
           ],
         ),
         child: initials.isEmpty
-            ? Icon(Icons.person_outline_rounded, color: t.inkSoft)
+            ? Icon(AppIcons.person, color: t.inkSoft)
             // Fixed circle, so the letters do not follow the system font.
             : Text(
                 initials,
@@ -191,16 +193,20 @@ class _HeroAvatar extends StatelessWidget {
   }
 }
 
-/// One profile choice as a quiet capsule; the screen reader hears its field
-/// name ("Your goal") before the value.
+/// One profile choice as a [StatusPill]-shaped capsule (not tappable); the
+/// screen reader hears its field name ("Your goal") before the value.
+///
+/// [StatusPill] takes only an [IconData]; the routine's mark is the custom
+/// [StepsIcon], so this pill draws the same anatomy (28 px, 10/5 padding,
+/// a 14 px mark in the accent ink, a 12/700 label) with a widget glyph.
 class _IdentityPill extends StatelessWidget {
   const _IdentityPill({
-    required this.icon,
+    required this.glyph,
     required this.label,
     required this.value,
   });
 
-  final IconData icon;
+  final Widget glyph;
   final String label;
   final String value;
 
@@ -211,24 +217,29 @@ class _IdentityPill extends StatelessWidget {
       container: true,
       label: label,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(9, 6, 12, 6),
-        decoration: BoxDecoration(
-          color: t.surf2,
-          borderRadius: BorderRadius.circular(rPill),
+        constraints: const BoxConstraints(minHeight: 28),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: ShapeDecoration(
+          color: t.tile,
+          shape: const StadiumBorder(),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 14, color: t.accentText),
+            ExcludeSemantics(
+              child: IconTheme.merge(
+                data: IconThemeData(
+                  size: AppIconSize.meta,
+                  color: t.accentText,
+                ),
+                child: glyph,
+              ),
+            ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 value,
-                style: AppType.ui(
-                  12.5,
-                  weight: FontWeight.w600,
-                  color: t.inkSoft,
-                ),
+                style: AppType.ui(12, weight: FontWeight.w700, color: t.inkSoft),
               ),
             ),
           ],
@@ -326,7 +337,7 @@ class GoalPlanCard extends StatelessWidget {
     final lastWeighIn = _lastWeighInCaption(l10n);
 
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 8, 18),
+      padding: const EdgeInsets.fromLTRB(18, 16, 14, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -340,12 +351,12 @@ class GoalPlanCard extends StatelessWidget {
                 // right under the icon. `targetPointsUp` is null only when both
                 // weights are equal; the goal decides then.
                 isMaintain
-                    ? Icons.trending_flat_rounded
+                    ? AppIcons.trendingFlat
                     : (plan.targetPointsUp ?? goal.isGain)
-                        ? Icons.trending_up_rounded
-                        : Icons.trending_down_rounded,
+                        ? AppIcons.trendingUp
+                        : AppIcons.trendingDown,
                 isMaintain ? null : t.accent,
-                size: 44,
+                size: IconBadgeSize.lg,
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -376,7 +387,7 @@ class GoalPlanCard extends StatelessWidget {
                 // The card-action chip of the profile's other cards.
                 _CardActionButton(
                   key: const ValueKey('profile-goalplan-edit'),
-                  icon: Icons.tune_rounded,
+                  icon: AppIcons.tune,
                   tooltip: l10n.profileGoalPlanEditTooltip,
                   onTap: edit,
                   accent: !isMaintain,
@@ -385,7 +396,7 @@ class GoalPlanCard extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           Padding(
-            padding: const EdgeInsets.only(right: 10),
+            padding: const EdgeInsets.only(right: 4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -425,8 +436,8 @@ class GoalPlanCard extends StatelessWidget {
                   Row(
                     children: <Widget>[
                       Icon(
-                        Icons.monitor_weight_outlined,
-                        size: 14,
+                        AppIcons.monitorWeight,
+                        size: AppIconSize.meta,
                         color: t.ink3,
                       ),
                       const SizedBox(width: 6),
@@ -435,7 +446,7 @@ class GoalPlanCard extends StatelessWidget {
                           lastWeighIn,
                           key: const ValueKey('profile-plan-last-weigh-in'),
                           style: AppType.ui(
-                            12.5,
+                            12,
                             weight: FontWeight.w500,
                             color: t.ink2,
                           ),
@@ -453,14 +464,14 @@ class GoalPlanCard extends StatelessWidget {
                   pace: _MaybeTooltip(
                     message: paceWarning,
                     child: _PlanFigure(
-                      icon: Icons.speed_rounded,
+                      icon: AppIcons.speed,
                       label: l10n.profilePlanChipPace,
                       value: pace,
                       valueColor: accentInk,
                     ),
                   ),
                   dailyGoal: _PlanFigure(
-                    icon: Icons.local_fire_department_rounded,
+                    icon: AppIcons.flame,
                     label: l10n.profilePlanChipDailyGoal,
                     value:
                         '${formatThousands(plan.dailyKcalGoal, l10n.localeName)}'
@@ -483,9 +494,9 @@ class GoalPlanCard extends StatelessWidget {
                     child: Row(
                       children: <Widget>[
                         Icon(
-                          Icons.flag_rounded,
+                          AppIcons.flag,
                           color: t.accentText,
-                          size: 16,
+                          size: AppIconSize.small,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -563,7 +574,7 @@ class _WeightPole extends StatelessWidget {
             label.toUpperCase(),
             semanticsLabel: label,
             maxLines: 1,
-            style: AppType.eyebrow(t.ink2, size: 10.5),
+            style: AppType.eyebrow(t.ink2),
           ),
         ),
         const SizedBox(height: 6),
@@ -633,8 +644,8 @@ class _JourneyArrow extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.arrow_forward_rounded,
-                size: 16,
+                AppIcons.arrowForward,
+                size: AppIconSize.small,
                 color: t.readableOnTint(color),
               ),
             ),
@@ -709,13 +720,13 @@ class _PlanFigure extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(icon, color: t.ink2, size: 15),
+              Icon(icon, color: t.ink2, size: AppIconSize.meta),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
                   label,
                   style: AppType.ui(
-                    12.5,
+                    12,
                     weight: FontWeight.w600,
                     color: t.ink2,
                   ),

@@ -19,12 +19,12 @@ class GoalsCard extends StatelessWidget {
   static double _fraction(int? value, int goal) =>
       value == null || goal <= 0 ? 0 : (value / goal).clamp(0.0, 1.0);
 
-  /// Hairline between rows, starting at the text column like the Food diary.
+  /// Hairline between rows, starting at the text column like a [ListRow]'s.
   static Widget _rowDivider(AppTokens t) => Divider(
     height: 1,
     thickness: 1,
-    indent: 16 + 40 + 12,
-    endIndent: 16,
+    indent: ListDividerInset.text.indent,
+    endIndent: kCardInset,
     color: t.line,
   );
 
@@ -32,11 +32,13 @@ class GoalsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    String kcalText(int n) => formatThousands(n, l10n.localeName);
+    // Calories and steps both read with the locale's thousands separator.
+    String count(int n) => formatThousands(n, l10n.localeName);
     final protein = profile.proteinGoalG;
     final carbs = profile.carbsGoalG;
     final fat = profile.fatGoalG;
     final hatMakros = protein + carbs + fat > 0;
+    final steps = dailySteps;
 
     return AppCard(
       clip: true,
@@ -45,31 +47,25 @@ class GoalsCard extends StatelessWidget {
         children: <Widget>[
           _GoalRow(
             leading: _profileTile(
-              Icons.local_fire_department_rounded,
+              AppIcons.flame,
               t.accent,
             ),
             title: l10n.profileGoalsCalories,
             // Exactly this text ('<actual>/<goal>', no spaces) is what
             // profile_route_refresh_test asserts; one Text.rich keeps it
             // findable while the goal part steps back.
-            actual: kcalText(dailyKcal),
-            goal: '/${kcalText(profile.dailyKcalGoal)}',
+            actual: count(dailyKcal),
+            goal: '/${count(profile.dailyKcalGoal)}',
             fraction: _fraction(dailyKcal, profile.dailyKcalGoal),
             color: t.progressAccent,
           ),
           _rowDivider(t),
           _GoalRow(
-            leading: ExcludeSemantics(
-              child: IconTile.custom(
-                color: t.activity,
-                size: 40,
-                child: const StepsIcon(size: 20),
-              ),
-            ),
+            leading: IconBadge(color: t.activity, child: const StepsIcon()),
             title: l10n.profileGoalsSteps,
-            actual: '${dailySteps ?? '–'}',
-            goal: '/${profile.dailyStepsGoal}',
-            fraction: _fraction(dailySteps, profile.dailyStepsGoal),
+            actual: steps == null ? '–' : count(steps),
+            goal: '/${count(profile.dailyStepsGoal)}',
+            fraction: _fraction(steps, profile.dailyStepsGoal),
             color: t.activity,
           ),
           if (hatMakros) ...<Widget>[
@@ -78,11 +74,16 @@ class GoalsCard extends StatelessWidget {
           ],
           if (onEdit != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              padding: const EdgeInsets.fromLTRB(
+                kCardInset,
+                kSpace4,
+                kCardInset,
+                kCardInset,
+              ),
               child: SoftPillButton(
                 key: const ValueKey('profile-edit-goals'),
                 label: l10n.profileGoalsEditCta,
-                icon: Icons.tune_rounded,
+                icon: AppIcons.tune,
                 expand: true,
                 onTap: onEdit,
               ),
@@ -116,11 +117,12 @@ class _GoalRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      // The [ListRow] anatomy: 18 px sides, badge, 14 px to the text.
+      padding: const EdgeInsets.fromLTRB(kCardInset, 14, kCardInset, 16),
       child: Row(
         children: <Widget>[
           leading,
-          const SizedBox(width: 12),
+          const SizedBox(width: kRowLeadingGap),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -133,14 +135,7 @@ class _GoalRow extends StatelessWidget {
                   spacing: 12,
                   runSpacing: 2,
                   children: <Widget>[
-                    Text(
-                      title,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w600,
-                        color: t.ink,
-                      ),
-                    ),
+                    Text(title, style: AppType.rowTitle(t.ink)),
                     Text.rich(
                       TextSpan(
                         text: actual,
@@ -148,6 +143,7 @@ class _GoalRow extends StatelessWidget {
                           14,
                           weight: FontWeight.w700,
                           color: t.ink,
+                          tabular: true,
                         ),
                         children: <InlineSpan>[
                           TextSpan(
@@ -156,6 +152,7 @@ class _GoalRow extends StatelessWidget {
                               13,
                               weight: FontWeight.w500,
                               color: t.ink3,
+                              tabular: true,
                             ),
                           ),
                         ],
@@ -207,19 +204,18 @@ class _MacroSplitBlock extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      padding: const EdgeInsets.fromLTRB(kCardInset, 14, kCardInset, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
             children: <Widget>[
-              _profileTile(Icons.donut_small_rounded, null),
-              const SizedBox(width: 12),
+              _profileTile(AppIcons.donutSmall, null),
+              const SizedBox(width: kRowLeadingGap),
               Expanded(
                 child: Text(
                   l10n.profileMacroSplitTitle,
-                  style:
-                      AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+                  style: AppType.rowTitle(t.ink),
                 ),
               ),
             ],

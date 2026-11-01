@@ -688,7 +688,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         l10n.goalsValidationSummary,
                         key: const ValueKey('settings-validation-note'),
                         tone: t.danger,
-                        icon: Icons.error_outline_rounded,
+                        icon: AppIcons.error,
                         boxed: true,
                       ),
                       const SizedBox(height: 14),
@@ -705,7 +705,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                       child: PrimaryActionButton(
                         key: const ValueKey('settings-save'),
                         label: l10n.commonSave,
-                        icon: Icons.check_rounded,
+                        icon: AppIcons.check,
                         onTap: _hatFehler || _saving ? null : _save,
                       ),
                     ),
@@ -735,17 +735,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   // --- Groups ---------------------------------------------------------------
   //
-  // The settings page's language (polish 2026-10-02): a display heading over
-  // one card per group, rows led by an icon tile, hairlines from the text
-  // column. Editable numbers sit in soft capsules, choices end in a chevron,
-  // and explanations are quiet footnotes under their card instead of info
-  // rows inside it.
+  // One list language with the settings page (UI polish 2026-11-01): a
+  // [ListSection] per group, [ListRow]s led by an [IconBadge], hairlines
+  // from the text column. Editable numbers sit in soft capsules, choices end
+  // in a chevron, switches are toggle rows, and explanations are quiet
+  // footnotes under their card instead of info rows inside it.
 
-  /// The row's icon tile, or null from about 1.6x text, where the text needs
-  /// the width (the settings rows move theirs above the text there).
+  /// The row's badge, or null from about 1.6x text, where the number rows
+  /// give their label the width (and every row of the page follows them).
   Widget? _tile(IconData icon, {Color? tone}) => settingsTileStacked(context)
       ? null
-      : SettingsGlyphTile(tone: tone, child: Icon(icon));
+      : IconBadge(icon: icon, color: tone);
 
   /// Where a row's text starts inside its card; notes under a row line up
   /// with it.
@@ -765,23 +765,23 @@ class _GoalsScreenState extends State<GoalsScreen> {
             ? null
             : kg(latest);
     return <Widget>[
-      SettingsStudioGroup(
-        label: l10n.goalsGroupBody,
+      ListSection(
+        title: l10n.goalsGroupBody,
         children: <Widget>[
           if (trend != null)
-            SettingsRow(
+            ListRow(
               key: const ValueKey('settings-weight-trend'),
-              leading: _tile(Icons.monitor_weight_outlined),
+              leading: _tile(AppIcons.monitorWeight),
               title: l10n.goalsFieldWeightTrend,
               subtitle: lastWeighIn == null
                   ? l10n.goalsWeightFromTrend
                   : l10n.goalsWeightTrendLastWeighIn(lastWeighIn),
               value: '${kg(trend)} ${l10n.commonUnitKg}',
-              chevron: false,
+              trailing: ListTrailing.value,
             )
           else
             SettingsNumberRow(
-              leading: _tile(Icons.monitor_weight_outlined),
+              leading: _tile(AppIcons.monitorWeight),
               label: l10n.goalsFieldWeight,
               suffix: l10n.commonUnitKg,
               controller: _weight,
@@ -790,7 +790,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
               onChanged: (_) => _recompute(),
             ),
           SettingsNumberRow(
-            leading: _tile(Icons.height_rounded),
+            leading: _tile(AppIcons.height),
             label: l10n.goalsFieldHeight,
             suffix: l10n.commonUnitCm,
             controller: _height,
@@ -799,7 +799,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             onChanged: (_) => _recompute(),
           ),
           SettingsNumberRow(
-            leading: _tile(Icons.cake_outlined),
+            leading: _tile(AppIcons.cake),
             label: l10n.goalsFieldAge,
             suffix: l10n.goalsUnitAgeAbbrev,
             controller: _age,
@@ -807,11 +807,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
             errorText: _ageError,
             onChanged: (_) => _recompute(),
           ),
-          SettingsRow(
+          ListRow(
             key: const ValueKey('settings-sex'),
-            leading: _tile(Icons.person_outline_rounded),
+            leading: _tile(AppIcons.person),
             title: l10n.goalsFieldSex,
             value: _sex.label(l10n),
+            trailing: ListTrailing.chevron,
             onTap: _pickSex,
           ),
         ],
@@ -842,18 +843,22 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final zielErreicht = _zielErreichtHinweis;
     final wirksam = _wirksamesZiel;
     final notePadding = EdgeInsets.fromLTRB(_textInset, 0, kSettingsRowPad, 14);
+    final stacked = settingsTileStacked(context);
 
     return <Widget>[
-      SettingsStudioGroup(
-        label: l10n.goalsGroupActivityGoal,
-        footer: _GroupFootnote(l10n.goalsFieldActivitySubtitle),
+      ListSection(
+        title: l10n.goalsGroupActivityGoal,
+        footnote: l10n.goalsFieldActivitySubtitle,
         children: <Widget>[
-          SettingsRow(
+          ListRow(
             key: const ValueKey('settings-activity'),
-            leading: _tile(Icons.directions_walk_rounded),
+            // The daily routine moves the body like steps do: the app's
+            // footprint, not a walking figure.
+            leading: stacked ? null : const IconBadge(child: StepsIcon()),
             title: l10n.goalsFieldActivity,
             value:
                 '${_activity.label(l10n)} · ×${formatPalFactor(_activity, l10n)}',
+            trailing: ListTrailing.chevron,
             onTap: _pickActivity,
           ),
           // The field and its notes are ONE group child: no hairline between
@@ -862,7 +867,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               SettingsNumberRow(
-                leading: _tile(Icons.flag_outlined),
+                leading: _tile(AppIcons.flag),
                 label: l10n.goalsFieldTargetWeight,
                 suffix: l10n.commonUnitKg,
                 controller: _targetWeight,
@@ -881,7 +886,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     zielErreicht,
                     key: const ValueKey('settings-target-reached'),
                     tone: t.accent,
-                    icon: Icons.emoji_events_rounded,
+                    icon: AppIcons.trophy,
                     boxed: true,
                   ),
                 ),
@@ -900,14 +905,14 @@ class _GoalsScreenState extends State<GoalsScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              SettingsRow(
+              ListRow(
                 key: const ValueKey('settings-weight-goal'),
                 leading: _tile(
                   wirksam.isLoss
-                      ? Icons.trending_down_rounded
+                      ? AppIcons.trendingDown
                       : wirksam.isGain
-                          ? Icons.trending_up_rounded
-                          : Icons.trending_flat_rounded,
+                          ? AppIcons.trendingUp
+                          : AppIcons.trendingFlat,
                   tone: t.accent,
                 ),
                 title: l10n.goalsFieldWeightGoal,
@@ -920,6 +925,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                 // the "goal reached, your plan switches to holding" note was
                 // the contradiction P9-08e left behind.
                 value: wirksam.paceLabel(l10n),
+                trailing: ListTrailing.chevron,
                 onTap: _pickWeightGoal,
               ),
               if (abweichung != null)
@@ -947,27 +953,23 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final t = context.t;
     final l10n = context.l10n;
     return <Widget>[
-      SettingsStudioGroup(
-        label: l10n.goalsGroupEnergyMacros,
+      ListSection(
+        title: l10n.goalsGroupEnergyMacros,
         children: <Widget>[
-          SettingsRow(
-            leading: _tile(Icons.tune_rounded),
+          // The whole row toggles; a tap ON the switch is still won by its
+          // own recognizer (inner wins the gesture arena), so it never
+          // toggles twice.
+          ListRow(
+            leading: _tile(AppIcons.tune),
             title: l10n.goalsFieldManual,
             // The switch's state in words, beside it.
             subtitle: _manualEnergy
                 ? l10n.goalsManualOnNote
                 : l10n.goalsAutoNote,
-            chevron: false,
-            // The whole row toggles; tapping beside the switch used to hit
-            // nothing. A tap ON the switch is still won by its own recognizer
-            // (inner wins the gesture arena), so it never toggles twice.
-            onTap: () => _toggleManual(!_manualEnergy),
-            trailing: AppToggle(
-              key: const ValueKey('settings-manual-energy'),
-              value: _manualEnergy,
-              onChanged: _toggleManual,
-              semanticLabel: l10n.goalsManualSemanticLabel,
-            ),
+            trailing: ListTrailing.toggle,
+            toggled: _manualEnergy,
+            onToggle: _toggleManual,
+            toggleKey: const ValueKey('settings-manual-energy'),
           ),
           if (!_manualEnergy) ...<Widget>[
             // A confirmed weekly check shifts the live goals; shown so it is
@@ -975,39 +977,31 @@ class _GoalsScreenState extends State<GoalsScreen> {
             // Row and its reset are ONE group child (no hairline between); a
             // trailing button beside title, subtitle and value overflowed.
             if (_energyAdjustment != 0)
-              Column(
+              ListRow(
                 key: const ValueKey('settings-energy-adjustment'),
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  SettingsRow(
-                    leading: _tile(Icons.insights_rounded, tone: t.accent),
-                    title: l10n.goalsEnergyAdjustmentTitle,
-                    subtitle: l10n.goalsEnergyAdjustmentSubtitle,
-                    value: '${_energyAdjustment > 0 ? '+' : '−'}'
-                        '${_energyAdjustment.abs()} ${l10n.commonKcalUnit}',
-                    chevron: false,
+                leading: _tile(AppIcons.insights, tone: t.accent),
+                title: l10n.goalsEnergyAdjustmentTitle,
+                subtitle: l10n.goalsEnergyAdjustmentSubtitle,
+                value: '${_energyAdjustment > 0 ? '+' : '−'}'
+                    '${_energyAdjustment.abs()} ${l10n.commonKcalUnit}',
+                trailing: ListTrailing.value,
+                below: Padding(
+                  padding: EdgeInsetsDirectional.only(
+                    start: _textInset - kSettingsRowPad,
                   ),
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      _textInset,
-                      0,
-                      kSettingsRowPad,
-                      16,
-                    ),
-                    child: SoftPillButton(
-                      key: const ValueKey('settings-energy-adjustment-reset'),
-                      label: l10n.goalsEnergyAdjustmentReset,
-                      icon: Icons.restart_alt_rounded,
-                      tone: SoftPillTone.neutral,
-                      expand: true,
-                      onTap: () => setState(() => _energyAdjustment = 0),
-                    ),
+                  child: SoftPillButton(
+                    key: const ValueKey('settings-energy-adjustment-reset'),
+                    label: l10n.goalsEnergyAdjustmentReset,
+                    icon: AppIcons.restartAlt,
+                    tone: SoftPillTone.neutral,
+                    expand: true,
+                    onTap: () => setState(() => _energyAdjustment = 0),
                   ),
-                ],
+                ),
               ),
           ] else ...<Widget>[
             SettingsNumberRow(
-              leading: _tile(Icons.local_fire_department_rounded),
+              leading: _tile(AppIcons.flame),
               label: l10n.goalsFieldKcalGoal,
               suffix: l10n.commonKcalUnit,
               controller: _kcal,
@@ -1048,11 +1042,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
     ];
   }
 
-  /// A macro row's tile: the macro's dot on the neutral tile, the same
+  /// A macro row's badge: the macro's dot on the neutral badge, the same
   /// marker the plan hero uses (the tone never colours text).
   Widget? _macroTile(Color tone) => settingsTileStacked(context)
       ? null
-      : SettingsGlyphTile(
+      : IconBadge(
           child: Container(
             width: 10,
             height: 10,
@@ -1067,15 +1061,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final t = context.t;
     final l10n = context.l10n;
     return <Widget>[
-      SettingsStudioGroup(
-        label: l10n.goalsGroupDailyTargets,
-        footer: _GroupFootnote(l10n.goalsDailyTargetsNote),
+      ListSection(
+        title: l10n.goalsGroupDailyTargets,
+        footnote: l10n.goalsDailyTargetsNote,
         children: <Widget>[
           SettingsNumberRow(
-            leading: SettingsGlyphTile(
-              tone: t.activity,
-              child: const StepsIcon(),
-            ),
+            leading: IconBadge(color: t.activity, child: const StepsIcon()),
             label: l10n.goalsFieldSteps,
             suffix: l10n.goalsUnitPerDay,
             controller: _steps,
@@ -1092,8 +1083,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final l10n = context.l10n;
     final blocked = _reminder == ReminderState.blocked;
     return <Widget>[
-      SettingsStudioGroup(
-        label: l10n.goalsGroupReminders,
+      ListSection(
+        title: l10n.goalsGroupReminders,
         children: <Widget>[
           // Row, state line and repair button are ONE group child: the group
           // draws a hairline between children, and none belongs between a
@@ -1101,42 +1092,29 @@ class _GoalsScreenState extends State<GoalsScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              SettingsRow(
+              // Like the manual switch: the whole row is the target. Locked
+              // (null) while blocked — D11: on Android 13+ the system stops
+              // showing a dialog after two refusals, so the switch would snap
+              // back and look like an app bug; the locked row takes no tap
+              // either, or it would be a back door.
+              ListRow(
                 leading: _tile(
                   blocked
-                      ? Icons.notifications_off_outlined
-                      : Icons.notifications_none_rounded,
+                      ? AppIcons.notificationsOff
+                      : AppIcons.notifications,
                   tone: blocked ? t.warning : null,
                 ),
                 title: l10n.goalsFieldReminders,
                 subtitle: l10n.goalsRemindersSubtitle,
-                chevron: false,
-                // Like the manual switch: the whole row is the target. Off
-                // (null) while blocked — otherwise D11 would have a back door,
-                // since the disabled switch adds no recognizer and the row
-                // would take the tap.
-                onTap: blocked
+                trailing: ListTrailing.toggle,
+                toggled: _reminder == ReminderState.active,
+                toggleKey: const ValueKey('settings-notifications'),
+                onToggle: blocked
                     ? null
-                    : () => setState(
-                        () => _reminder = _reminder == ReminderState.active
-                            ? ReminderState.off
-                            : ReminderState.active,
+                    : (v) => setState(
+                        () => _reminder =
+                            v ? ReminderState.active : ReminderState.off,
                       ),
-                trailing: AppToggle(
-                  key: const ValueKey('settings-notifications'),
-                  value: _reminder == ReminderState.active,
-                  // D11: do NOT allow toggling while blocked. On Android 13+
-                  // the system stops showing a dialog after two refusals, so
-                  // the switch would snap back and look like an app bug.
-                  enabled: !blocked,
-                  semanticLabel: blocked
-                      ? l10n.goalsReminderBlockedSemantics
-                      : l10n.goalsReminderActiveSemantics,
-                  onChanged: (v) => setState(
-                    () => _reminder =
-                        v ? ReminderState.active : ReminderState.off,
-                  ),
-                ),
               ),
               Padding(
                 padding: EdgeInsets.fromLTRB(
@@ -1166,7 +1144,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   child: SoftPillButton(
                     key: const ValueKey('settings-open-system-settings'),
                     label: l10n.goalsOpenSystemSettings,
-                    icon: Icons.settings_outlined,
+                    icon: AppIcons.settings,
                     expand: true,
                     onTap: widget.onOpenSystemSettings,
                   ),
@@ -1176,25 +1154,6 @@ class _GoalsScreenState extends State<GoalsScreen> {
         ],
       ),
     ];
-  }
-}
-
-/// A quiet explanation under a group's card: no icon, no frame.
-class _GroupFootnote extends StatelessWidget {
-  const _GroupFootnote(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Text(
-        text,
-        style: AppType.ui(12.5, color: t.ink2, height: 1.4),
-      ),
-    );
   }
 }
 

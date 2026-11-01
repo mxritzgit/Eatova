@@ -32,9 +32,9 @@ Future<BiologicalSex?> showSexPicker(
             key: ValueKey<String>('settings-sex-${option.name}'),
             leading: SettingsGlyphTile(
               child: Icon(switch (option) {
-                BiologicalSex.male => Icons.male_rounded,
-                BiologicalSex.female => Icons.female_rounded,
-                BiologicalSex.neutral => Icons.person_outline_rounded,
+                BiologicalSex.male => AppIcons.male,
+                BiologicalSex.female => AppIcons.female,
+                BiologicalSex.neutral => AppIcons.person,
               }),
             ),
             title: option.label(l10n),
@@ -91,6 +91,8 @@ Future<WeightGoal?> showWeightGoalPicker(
     _PickerSheet(
       title: l10n.settingsWeightGoalPickerTitle,
       groupLabel: l10n.settingsWeightGoalPickerGroupLabel,
+      // No badges in this list: the hairlines start at the card margin.
+      inset: ListDividerInset.edge,
       children: <Widget>[
         for (final option in WeightGoal.values)
           _PickerRow<WeightGoal>(
@@ -114,11 +116,13 @@ class _PickerSheet extends StatelessWidget {
     required this.title,
     required this.groupLabel,
     required this.children,
+    this.inset = ListDividerInset.text,
   });
 
   final String title;
   final String groupLabel;
   final List<Widget> children;
+  final ListDividerInset inset;
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +137,7 @@ class _PickerSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            // Sheet title = rank 1 (P9-06c). The SettingsGroup caption below
+            // Sheet title = rank 1 (P9-06c). The group label below
             // is rank 2 since P9-06, and without this it would hang under
             // nothing.
             HeadingSemantics(
@@ -144,7 +148,18 @@ class _PickerSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            SettingsGroup(label: groupLabel, children: children),
+            // The group label is an all-caps line that says WHY the choice
+            // matters: a quiet eyebrow (still rank 2) over the list, not a
+            // second title competing with the sheet's.
+            HeadingSemantics(
+              level: 2,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 2),
+                child: Text(groupLabel, style: AppType.sectionEyebrow(t.ink2)),
+              ),
+            ),
+            const SizedBox(height: kSpace12),
+            ListSection(spacing: 0, inset: inset, children: children),
           ],
         ),
       ),
@@ -155,8 +170,8 @@ class _PickerSheet extends StatelessWidget {
 /// One option. Closes the sheet with its own [BuildContext]; the caller's
 /// context would pop the settings route instead.
 ///
-/// The chosen option carries the app's selection language: an accent-tinted
-/// row and a filled accent radio; the others an empty ring.
+/// A [ListRow] in a picker list: the chosen option ends in the accent check,
+/// the others keep its space empty.
 class _PickerRow<T> extends StatelessWidget {
   const _PickerRow({
     super.key,
@@ -172,32 +187,20 @@ class _PickerRow<T> extends StatelessWidget {
   final T result;
   final bool selected;
 
-  /// The option's glyph tile; dropped from about 1.6x text, where the long
-  /// option texts need the width.
+  /// The option's badge; from about 1.6x text it moves above the text, so
+  /// the long option texts keep the width.
   final Widget? leading;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      selected: selected,
-      inMutuallyExclusiveGroup: true,
-      child: Material(
-        color: selected ? t.accentTint : Colors.transparent,
-        child: SettingsRow(
-          leading: MediaQuery.textScalerOf(context).scale(15) > 24
-              ? null
-              : leading,
-          title: title,
-          subtitle: subtitle,
-          chevron: false,
-          dense: true,
-          onTap: () => Navigator.pop<T>(context, result),
-          trailing: OptionRadio(selected: selected, size: 22),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ListRow(
+    leading: leading,
+    title: title,
+    subtitle: subtitle,
+    trailing: ListTrailing.check,
+    selected: selected,
+    dense: true,
+    onTap: () => Navigator.pop<T>(context, result),
+  );
 }
 
 /// An activity level as a small step meter: [level] of [of] bars filled,
