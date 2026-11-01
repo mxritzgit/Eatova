@@ -62,31 +62,38 @@ class _TrainingPlanProposalCard extends StatelessWidget {
           l10n.coachPlanCounts(proposal.workouts.length, exerciseCount),
           style: AppType.ui(14, color: t.ink2, height: 1.4),
         ),
-        const SizedBox(height: 8),
-        for (final name in shown)
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppType.ui(14, color: t.ink, height: 1.45),
-          ),
+        const SizedBox(height: kSpace8),
+        BulletList(
+          items: shown,
+          style: AppType.ui(14, color: t.ink, height: 1.45),
+          gap: kSpace4,
+        ),
         if (more > 0)
-          Text(
-            l10n.coachPlanCardMoreExercises(more),
-            style: AppType.ui(14, color: t.ink2, height: 1.45),
+          Padding(
+            // On the list's text column: dot (6) and its gap (12).
+            padding: const EdgeInsetsDirectional.only(start: 18, top: kSpace4),
+            child: Text(
+              l10n.coachPlanCardMoreExercises(more),
+              style: AppType.ui(14, color: t.ink2, height: 1.45),
+            ),
           ),
         const SizedBox(height: 16),
         if (added)
           Semantics(
             liveRegion: true,
             child: onOpenTraining == null
-                ? Icon(Icons.check_circle_rounded, color: t.accent, size: 22)
+                ? StateIcon(
+                    AppIcons.checkCircle,
+                    on: true,
+                    color: t.accent,
+                    size: AppIconSize.tile,
+                  )
                 : Align(
                     alignment: AlignmentDirectional.centerStart,
                     child: SoftPillButton(
                       key: const ValueKey('coach-plan-open-training'),
                       onTap: onOpenTraining,
-                      icon: Icons.check_circle_outline_rounded,
+                      icon: AppIcons.checkCircle,
                       label: l10n.coachPlanOpenTraining,
                     ),
                   ),
@@ -95,7 +102,7 @@ class _TrainingPlanProposalCard extends StatelessWidget {
           PrimaryActionButton(
             key: const ValueKey('coach-plan-review'),
             label: l10n.coachPlanReviewButton,
-            icon: Icons.arrow_forward_rounded,
+            icon: AppIcons.arrowForward,
             onTap: enabled ? onReview : null,
           ),
       ],
